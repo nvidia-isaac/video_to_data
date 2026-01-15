@@ -1,0 +1,114 @@
+<?xml version="1.0" ?>
+<robot name="capsulemachine">
+   <material name="obj_color">
+      <color rgba="1.0 0.423529411765 0.0392156862745 1.0"/>
+   </material>
+
+   <mujoco>
+      <compiler meshdir="../../meshes/arctic/capsulemachine/" balanceinertia="true" discardvisual="false"/>
+   </mujoco>
+
+   <!-- ============================================================= -->
+   <!-- 6 DoF base -->
+   <!-- ============================================================= -->
+
+   <link name="base"><inertial><origin xyz="0 0 0"/><mass value="0.1"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial></link>
+   <link name="base_x"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
+   <link name="base_y"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
+   <link name="base_z"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
+   <link name="base_roll"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
+   <link name="base_pitch"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
+
+   <joint name="base_x" type="prismatic">
+      <parent link="base"/>
+      <child  link="base_x"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="-2.0" upper="2.0" effort="100" velocity="10.0"/>
+   </joint>
+
+   <joint name="base_y" type="prismatic">
+      <parent link="base_x"/>
+      <child  link="base_y"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="-2.0" upper="2.0" effort="100" velocity="10.0"/>
+   </joint>
+
+   <joint name="base_z" type="prismatic">
+      <parent link="base_y"/>
+      <child  link="base_z"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="0.0" upper="5.0" effort="100" velocity="10.0"/>
+   </joint>
+
+   <joint name="base_roll" type="revolute">
+      <parent link="base_z"/>
+      <child  link="base_roll"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="-3.141592653589793" upper="3.141592653589793" effort="100" velocity="10.0"/>
+   </joint>
+
+   <joint name="base_pitch" type="revolute">
+      <parent link="base_roll"/>
+      <child  link="base_pitch"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="-3.141592653589793" upper="3.141592653589793" effort="100" velocity="10.0"/>
+   </joint>
+
+   <joint name="base_yaw" type="revolute">
+      <parent link="base_pitch"/>
+      <child  link="bottom"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="-3.141592653589793" upper="3.141592653589793" effort="100" velocity="10.0"/>
+   </joint>
+
+   <!-- ============================================================= -->
+
+   <link name="top">
+      <inertial>
+         <origin rpy="3.174165344629271e-06 5.6423722558869e-06 8.529685765760339e-06" xyz="0.01734931530349852 -0.02643217802972016 0.03100137126338341"/>
+         <mass value="0.02100576219130245"/>
+         <inertia ixx="7.740959629505551e-06" ixy="1.285248131218809e-06" ixz="-6.965637833841618e-08" iyy="6.429268383071114e-06" iyz="-6.672937155895467e-08" izz="3.175995353699843e-06"/>
+      </inertial>
+      <visual>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/capsulemachine/top_watertight_tiny.stl" scale="1 1 1"/>
+         </geometry>
+         <material name="obj_color"/>
+      </visual>
+      <collision>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/capsulemachine/top_watertight_tiny.obj" scale="1 1 1"/>
+         </geometry>
+      </collision>
+   </link>
+   <link name="bottom">
+      <inertial>
+         <origin rpy="0.00169385750923834 0.003967045683350672 0.004405174207893504" xyz="0.05136700289804626 0.07950908968081023 0.03230708184257082"/>
+         <mass value="1.048362679505015"/>
+         <inertia ixx="0.002888615483331892" ixy="-0.00113440803234408" ixz="4.390395226812951e-05" iyy="0.002773756085873763" iyz="4.527114231560062e-05" izz="0.004403705831276858"/>
+      </inertial>
+      <visual>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/capsulemachine/bottom_watertight_tiny.stl" scale="1 1 1"/>
+         </geometry>
+         <material name="obj_color"/>
+      </visual>
+      <collision>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/capsulemachine/bottom_watertight_tiny.obj" scale="1 1 1"/>
+         </geometry>
+      </collision>
+   </link>
+   <joint name="rotation" type="revolute">
+      <origin xyz="0 0 0"/>
+      <axis xyz="0 0 -1"/>
+      <parent link="bottom"/>
+      <child link="top"/>
+      <dynamics damping="0.0" friction="0.000"/>
+      <limit effort="1000" velocity="200" lower="0" upper="3.141592653589793"/>
+   </joint>
+</robot>

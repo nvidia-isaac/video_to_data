@@ -1,0 +1,114 @@
+<?xml version="1.0" ?>
+<robot name="waffleiron">
+   <material name="obj_color">
+      <color rgba="1.0 0.423529411765 0.0392156862745 1.0"/>
+   </material>
+
+   <mujoco>
+      <compiler meshdir="../../meshes/arctic/waffleiron/" balanceinertia="true" discardvisual="false"/>
+   </mujoco>
+
+   <!-- ============================================================= -->
+   <!-- 6 DoF base -->
+   <!-- ============================================================= -->
+
+   <link name="base"><inertial><origin xyz="0 0 0"/><mass value="0.1"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial></link>
+   <link name="base_x"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
+   <link name="base_y"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
+   <link name="base_z"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
+   <link name="base_roll"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
+   <link name="base_pitch"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
+
+   <joint name="base_x" type="prismatic">
+      <parent link="base"/>
+      <child  link="base_x"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="-2.0" upper="2.0" effort="100" velocity="10.0"/>
+   </joint>
+
+   <joint name="base_y" type="prismatic">
+      <parent link="base_x"/>
+      <child  link="base_y"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="-2.0" upper="2.0" effort="100" velocity="10.0"/>
+   </joint>
+
+   <joint name="base_z" type="prismatic">
+      <parent link="base_y"/>
+      <child  link="base_z"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="0.0" upper="5.0" effort="100" velocity="10.0"/>
+   </joint>
+
+   <joint name="base_roll" type="revolute">
+      <parent link="base_z"/>
+      <child  link="base_roll"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="-3.141592653589793" upper="3.141592653589793" effort="100" velocity="10.0"/>
+   </joint>
+
+   <joint name="base_pitch" type="revolute">
+      <parent link="base_roll"/>
+      <child  link="base_pitch"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="-3.141592653589793" upper="3.141592653589793" effort="100" velocity="10.0"/>
+   </joint>
+
+   <joint name="base_yaw" type="revolute">
+      <parent link="base_pitch"/>
+      <child  link="bottom"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="-3.141592653589793" upper="3.141592653589793" effort="100" velocity="10.0"/>
+   </joint>
+
+   <!-- ============================================================= -->
+
+   <link name="top">
+      <inertial>
+         <origin rpy="0.0002415293256200118 0.0003741848138325245 0.0006047615474682893" xyz="0.1059238980011485 0.004174514503576319 0.04642083699990057"/>
+         <mass value="0.1445078911604559"/>
+         <inertia ixx="0.0002470635335913814" ixy="-4.333427877035367e-05" ixz="6.229921100834177e-06" iyy="0.0005995057353949245" iyz="-4.185044488387247e-07" izz="0.0003739064179345199"/>
+      </inertial>
+      <visual>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/waffleiron/top_watertight_tiny.stl" scale="1 1 1"/>
+         </geometry>
+         <material name="obj_color"/>
+      </visual>
+      <collision>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/waffleiron/top_watertight_tiny.obj" scale="1 1 1"/>
+         </geometry>
+      </collision>
+   </link>
+   <link name="bottom">
+      <inertial>
+         <origin rpy="0.001992789349100054 0.002529068396471172 0.004490094021441377" xyz="0.09624654269935466 0.02366628504861968 0.04590963024498602"/>
+         <mass value="1.068060912552084"/>
+         <inertia ixx="0.002047044585022042" ixy="-0.0003614911524404876" ixz="1.990915096733769e-05" iyy="0.004436604772894065" iyz="3.853203336872841e-06" izz="0.002528302409096502"/>
+      </inertial>
+      <visual>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/waffleiron/bottom_watertight_tiny.stl" scale="1 1 1"/>
+         </geometry>
+         <material name="obj_color"/>
+      </visual>
+      <collision>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/waffleiron/bottom_watertight_tiny.obj" scale="1 1 1"/>
+         </geometry>
+      </collision>
+   </link>
+   <joint name="rotation" type="revolute">
+      <origin xyz="0 0 0"/>
+      <axis xyz="0 0 -1"/>
+      <parent link="bottom"/>
+      <child link="top"/>
+      <dynamics damping="0.0" friction="0.000"/>
+      <limit effort="1000" velocity="200" lower="0" upper="3.141592653589793"/>
+   </joint>
+</robot>
