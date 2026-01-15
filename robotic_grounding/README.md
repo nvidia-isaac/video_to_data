@@ -32,3 +32,34 @@ python scripts/rsl_rl/play.py
 ## RL Tasks
 - `Sharpa-V2P-v0-Play`
 - `Sharpa-V2P-v0`
+
+## OSMO
+
+[OSMO Wikipage](https://isaac-infrastructure.gitlab-master-pages.nvidia.com/osmo/release-6.0.x/user_guide/index.html)
+
+### OSMO Remote Development
+
+Launch a remote development environment on OSMO cluster:
+
+```bash
+# Build, push Docker image, and submit OSMO workflow
+python scripts/run_osmo.py --experiment-name <your-name> --workflow-yaml workflow/dev_env.yaml
+```
+
+Once the workflow is running:
+```bash
+# Port-forwarding
+osmo workflow port-forward <workflow-name> dev-env --port 6000:22
+
+# SSH into the remote
+ssh root@localhost -p 6000
+```
+
+You can now develop remotely inside the OSMO container with full GPU access.
+
+### Launch training job
+Launch a remote training job using the train workflow config:
+
+```bash
+python scripts/run_osmo.py --experiment-name <your-name> --workflow-yaml workflow/train.yaml
+```

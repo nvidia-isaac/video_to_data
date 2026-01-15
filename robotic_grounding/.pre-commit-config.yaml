@@ -9,6 +9,9 @@
 default_stages: [pre-commit]
 default_install_hook_types: [pre-commit, pre-push]
 
+# Global exclude for all hooks
+exclude: ^(workflow/.*\.yaml)$
+
 repos:
 - repo: https://github.com/charliermarsh/ruff-pre-commit
   rev: 'v0.14.11'
