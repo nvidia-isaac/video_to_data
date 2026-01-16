@@ -5,7 +5,7 @@ variables:
   ISAACLAB_IMAGE: nvcr.io/nvidia/isaac-lab:2.3.0
 pre-commit:
   stage: lint
-  image: python:3.10
+  image: python:3.11
   before_script:
     - apt-get update && apt-get install -y git git-lfs
     - pip install pre-commit
