@@ -1,8 +1,8 @@
 stages:
   - lint
 variables:
-  # Using the official NVIDIA Isaac Lab 2.3.0 image
-  ISAACLAB_IMAGE: nvcr.io/nvidia/isaac-lab:2.3.0
+  # Using the official NVIDIA Isaac Lab 2.3.1 image
+  ISAACLAB_IMAGE: nvcr.io/nvidia/isaac-lab:2.3.1
 pre-commit:
   stage: lint
   image: python:3.11

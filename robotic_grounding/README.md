@@ -2,6 +2,8 @@
 
 ## Docker Usage
 
+Install [Docker](https://docs.docker.com/engine/install/ubuntu/) and [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
+
 Make sure you have access to `nvcr.io/nvstaging/isaac-amr`. You can request it by asking in `#swngc-help` slack channel.
 
 ```bash
@@ -21,6 +23,8 @@ Development should be **inside the Container**.
 python scripts/retarget/arctic_to_sharpa.py # Check the file for arguments
 python scripts/retarget/vis_retargeted.py # Need to run retargeting and save results first
 ```
+
+For Arctic motion files, download them from [here](https://drive.google.com/file/d/1rL4T9N4AwQoWRqS5pOuB6a0D0B9Y8dsP/view?usp=sharing) and extract to `source/robotic_grounding/robotic_grounding/assets/human_motion_data/arctic`. (TODO: We need to figure out an appropriate way for data storage)
 
 ## RL training
 ```bash
