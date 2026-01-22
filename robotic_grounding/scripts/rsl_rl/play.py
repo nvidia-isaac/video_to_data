@@ -98,7 +98,14 @@ from isaaclab_rl.rsl_rl import (
     export_policy_as_jit,
     export_policy_as_onnx,
 )
-from isaaclab_rl.utils.pretrained_checkpoint import get_published_pretrained_checkpoint
+
+# Optional: pretrained checkpoint download (not available in all Isaac Lab versions)
+try:
+    from isaaclab_rl.utils.pretrained_checkpoint import (
+        get_published_pretrained_checkpoint,
+    )
+except ImportError:
+    get_published_pretrained_checkpoint = None
 
 import isaaclab_tasks  # noqa: F401
 import robotic_grounding.tasks  # noqa: F401
@@ -137,6 +144,12 @@ def main(
     log_root_path = os.path.abspath(log_root_path)
     print(f"[INFO] Loading experiment from directory: {log_root_path}")
     if args_cli.use_pretrained_checkpoint:
+        if get_published_pretrained_checkpoint is None:
+            print(
+                "[ERROR] --use_pretrained_checkpoint requires isaaclab_rl.utils.pretrained_checkpoint "
+                "which is not available in this Isaac Lab version."
+            )
+            return
         resume_path = get_published_pretrained_checkpoint("rsl_rl", train_task_name)
         if not resume_path:
             print(
