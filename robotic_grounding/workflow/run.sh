@@ -50,11 +50,17 @@ case "$1" in
         else
             echo "Creating and starting new container..."
             cd "$(dirname "$0")/.."
-            # Create docker-specific pre-commit cache directory if it doesn't exist
-            mkdir -p ~/.cache/pre-commit-docker
-
             # Allow X11 forwarding from Docker containers
             xhost +local:docker > /dev/null 2>&1 || true
+
+            SSH_AGENT_MOUNT=""
+            SSH_AGENT_ENV=""
+            if [ -n "${SSH_AUTH_SOCK}" ] && [ -S "${SSH_AUTH_SOCK}" ]; then
+                SSH_AGENT_MOUNT="-v ${SSH_AUTH_SOCK}:/ssh-agent"
+                SSH_AGENT_ENV="-e SSH_AUTH_SOCK=/ssh-agent"
+            else
+                echo "Warning: SSH agent socket not found; agent forwarding disabled."
+            fi
 
             docker run --rm -it \
                 --runtime=nvidia \
@@ -63,10 +69,10 @@ case "$1" in
                 --name ${CONTAINER_NAME} \
                 -v $(pwd):/workspace/robotic_grounding \
                 -v ~/.ssh:/root/.ssh:ro \
-                -v ~/.gitconfig:/root/.gitconfig \
-                -v ~/.cache/pre-commit-docker:/root/.cache/pre-commit \
                 -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
                 -e DISPLAY=${DISPLAY} \
+                ${SSH_AGENT_MOUNT} \
+                ${SSH_AGENT_ENV} \
                 -e "ACCEPT_EULA=Y" \
                 -d \
                 ${IMAGE_NAME} \

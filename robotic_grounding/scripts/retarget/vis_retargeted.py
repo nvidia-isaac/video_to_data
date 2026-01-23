@@ -51,6 +51,7 @@ def visualize_one_trajectory(
         root_path=str(SAVE_DIR),
         filters=[
             ("robot_name", "=", "sharpa_wave"),
+            ("sequence_id", "contains", "box_grab"),
         ],
         trajectory_id=trajectory_id,
     )

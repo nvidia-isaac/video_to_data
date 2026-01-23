@@ -10,6 +10,7 @@ from dataclasses import MISSING, field, fields, make_dataclass
 from typing import Any, Optional
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 # Define field specifications once to avoid duplication
@@ -226,8 +227,24 @@ class ManoSharpaData(_ManoSharpaDataBase):  # type: ignore[misc, valid-type]
                      [('sequence_id', '=', 'seq_001')]
             trajectory_id: Index of the row to load when multiple rows match
         """
+        parquet_filters: Optional[list[tuple[str, str, Any]]] = None
+        contains_filters: list[tuple[str, str]] = []
+        if filters:
+            parquet_filters = []
+            for col, op, val in filters:
+                if op == "contains":
+                    contains_filters.append((col, val))
+                else:
+                    parquet_filters.append((col, op, val))
+            if not parquet_filters:
+                parquet_filters = None
+
         # Read the parquet dataset
-        dataset = pq.read_table(root_path, filters=filters, schema=MANO_SHARPA_SCHEMA)
+        dataset = pq.read_table(
+            root_path, filters=parquet_filters, schema=MANO_SHARPA_SCHEMA
+        )
+        for col, substring in contains_filters:
+            dataset = dataset.filter(pc.match_substring(dataset[col], substring))
 
         # Check the number of rows
         num_rows = len(dataset)

@@ -1,13 +1,24 @@
 # Robotic Grounding
 
+## Prerequisites
+
+- Install [Docker](https://docs.docker.com/engine/install/ubuntu/) and [post-installation](https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user) steps.
+
+- Install [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
+
+- Make sure you have access to `nvcr.io/nvstaging/isaac-amr`. You can request it by asking in the `#swngc-help` Slack channel.
+
+- Install Git LFS and `pre-commit` dependencies.
+    ```bash
+    bash workflow/setup_deps.sh
+    ```
+    This script installs `git-lfs` and `pre-commit` and ensures `workflow/run.sh` is executable. You may need to restart your shell for pipx PATH changes.
+
 ## Docker Usage
 
-Install [Docker](https://docs.docker.com/engine/install/ubuntu/) and [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
-
-Make sure you have access to `nvcr.io/nvstaging/isaac-amr`. You can request it by asking in `#swngc-help` slack channel.
+Development should be **inside** the Container, and Git operations should be done **outside** the Container on the host machine.
 
 ```bash
-chmod +x workflow/run.sh # Make run bash executable
 ./workflow/run.sh build [version] # Build Docker image and tag it with [version]
 ./workflow/run.sh push [version] # Push Docker image to NVIDIA registry
 ./workflow/run.sh pull [version] # Pull Docker image from NVIDIA registry
@@ -16,7 +27,13 @@ chmod +x workflow/run.sh # Make run bash executable
 ./workflow/run.sh stop [version] [gpu] # Stop the Container with specific version and GPU
 ```
 
-Development should be **inside the Container**.
+## Development
+
+You can launch the container with commands in the Docker Usage section.
+
+If using VSCode or Cursor, you can also use the `Attach to Running Container` feature in Dev Containers extension by `command/ctrl + shift + p`.  Inside the container, you can use Python interpreter `/workspace/isaaclab/_isaac_sim/python.sh` for debugging.
+
+Currently, due to Isaac Lab's image requiring root for Omniverse, we are using the root user for the container. This should be fixed in the future if there is a need. There can be some permission issues, but it can be bypassed with `sudo chown "$USER":domain-users <FILE_PATH>`.
 
 ## Retargeting
 ```bash
