@@ -1,273 +1,240 @@
-# Copyright (c) 2022-2026, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
-# All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
 #
-# SPDX-License-Identifier: BSD-3-Clause
+# NVIDIA CORPORATION and its licensors retain all intellectual property
+# and proprietary rights in and to this software, related documentation
+# and any modifications thereto. Any use, reproduction, disclosure or
+# distribution of this software and related documentation without an express
+# license agreement from NVIDIA CORPORATION is strictly prohibited.
 
-"""Script to play a checkpoint if an RL agent from RSL-RL."""
+"""Play an environment without loading a policy checkpoint.
 
-"""Launch Isaac Sim Simulator first."""
+Supports two modes:
+- Debug mode (--task Sharpa-V2P-Debug-v0): GUI controls are used, actions are ignored
+- Play mode (--task Sharpa-V2P-v0-Play): Sinusoidal actions for environment validation
+
+Usage:
+    # Debug mode with GUI control
+    python scripts/rsl_rl/play.py --task Sharpa-V2P-Debug-v0
+
+    # Play mode with sinusoidal actions
+    python scripts/rsl_rl/play.py --task Sharpa-V2P-v0-Play --num_envs 4
+
+    # Record video
+    python scripts/rsl_rl/play.py --task Sharpa-V2P-v0-Play --video --video_length 500
+"""
 
 import argparse
-import sys
+import os
+import time
+
+import gymnasium as gym
+import numpy as np
+import torch
 
 from isaaclab.app import AppLauncher
 
-# local imports
-import cli_args  # isort: skip
 
-# add argparse arguments
-parser = argparse.ArgumentParser(description="Train an RL agent with RSL-RL.")
+# -----------------------------------------------------------------------------#
+# CLI
+# -----------------------------------------------------------------------------#
+
+parser = argparse.ArgumentParser(
+    description="Play an IsaacLab environment without a policy checkpoint."
+)
+parser.add_argument("--task", type=str, required=True, help="Gym task ID to load.")
 parser.add_argument(
-    "--video", action="store_true", default=False, help="Record videos during training."
+    "--num_envs", type=int, default=None, help="Number of environments."
 )
 parser.add_argument(
-    "--video_length",
-    type=int,
-    default=200,
-    help="Length of the recorded video (in steps).",
+    "--video", action="store_true", default=False, help="Record a video."
 )
 parser.add_argument(
-    "--disable_fabric",
+    "--video_length", type=int, default=400, help="Video length (steps)."
+)
+parser.add_argument(
+    "--disable_fabric", action="store_true", default=False, help="Disable Fabric."
+)
+parser.add_argument(
+    "--real-time", action="store_true", default=False, help="Run close to real-time."
+)
+parser.add_argument(
+    "--zero-actions",
     action="store_true",
     default=False,
-    help="Disable fabric and use USD I/O operations.",
+    help="Use zero actions instead of sinusoidal (useful for GUI-controlled envs).",
 )
-parser.add_argument(
-    "--num_envs", type=int, default=None, help="Number of environments to simulate."
-)
-parser.add_argument("--task", type=str, default=None, help="Name of the task.")
-parser.add_argument(
-    "--agent",
-    type=str,
-    default="rsl_rl_cfg_entry_point",
-    help="Name of the RL agent configuration entry point.",
-)
-parser.add_argument(
-    "--seed", type=int, default=None, help="Seed used for the environment"
-)
-parser.add_argument(
-    "--use_pretrained_checkpoint",
-    action="store_true",
-    help="Use the pre-trained checkpoint from Nucleus.",
-)
-parser.add_argument(
-    "--real-time",
-    action="store_true",
-    default=False,
-    help="Run in real-time, if possible.",
-)
-# append RSL-RL cli arguments
-cli_args.add_rsl_rl_args(parser)
-# append AppLauncher cli args
+
+# Isaac Sim app args
 AppLauncher.add_app_launcher_args(parser)
-# parse the arguments
-args_cli, hydra_args = parser.parse_known_args()
-# always enable cameras to record video
+args_cli = parser.parse_args()
+
+# Always enable cameras for video
 if args_cli.video:
     args_cli.enable_cameras = True
 
-# clear out sys.argv for Hydra
-sys.argv = [sys.argv[0]] + hydra_args
+# -----------------------------------------------------------------------------#
+# Launch app
+# -----------------------------------------------------------------------------#
 
-# launch omniverse app
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
-"""Rest everything follows."""
+# Omniverse/Isaac imports must happen AFTER SimulationApp instantiation
+from isaaclab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg  # noqa: E402
+from isaaclab.utils.dict import print_dict  # noqa: E402
+from isaaclab_tasks.utils import parse_env_cfg  # noqa: E402
 
-import gymnasium as gym
-import os
-import time
-import torch
-
-from rsl_rl.runners import DistillationRunner, OnPolicyRunner
-
-from isaaclab.envs import (
-    DirectMARLEnv,
-    DirectMARLEnvCfg,
-    DirectRLEnvCfg,
-    ManagerBasedRLEnvCfg,
-    multi_agent_to_single_agent,
-)
-from isaaclab.utils.assets import retrieve_file_path
-from isaaclab.utils.dict import print_dict
-
-from isaaclab_rl.rsl_rl import (
-    RslRlBaseRunnerCfg,
-    RslRlVecEnvWrapper,
-    export_policy_as_jit,
-    export_policy_as_onnx,
-)
-
-# Optional: pretrained checkpoint download (not available in all Isaac Lab versions)
-try:
-    from isaaclab_rl.utils.pretrained_checkpoint import (
-        get_published_pretrained_checkpoint,
-    )
-except ImportError:
-    get_published_pretrained_checkpoint = None
-
-import isaaclab_tasks  # noqa: F401
-import robotic_grounding.tasks  # noqa: F401
-
-from isaaclab_tasks.utils import get_checkpoint_path
-from isaaclab_tasks.utils.hydra import hydra_task_config
-
-# PLACEHOLDER: Extension template (do not remove this comment)
+# Import task modules to register gym environments
+import robotic_grounding.tasks  # noqa: F401, E402
 
 
-@hydra_task_config(args_cli.task, args_cli.agent)
-def main(
-    env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg,
-    agent_cfg: RslRlBaseRunnerCfg,
-):
-    """Play with RSL-RL agent."""
-    # grab task name for checkpoint path
-    task_name = args_cli.task.split(":")[-1]
-    train_task_name = task_name.replace("-Play", "")
+# -----------------------------------------------------------------------------#
+# Helper Functions
+# -----------------------------------------------------------------------------#
 
-    # override configurations with non-hydra CLI arguments
-    agent_cfg = cli_args.update_rsl_rl_cfg(agent_cfg, args_cli)
-    env_cfg.scene.num_envs = (
-        args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
-    )
 
-    # set the environment seed
-    # note: certain randomizations occur in the environment initialization so we set the seed here
-    env_cfg.seed = agent_cfg.seed
-    env_cfg.sim.device = (
-        args_cli.device if args_cli.device is not None else env_cfg.sim.device
-    )
+def prepare_env_for_playing(env_cfg: ManagerBasedRLEnvCfg) -> ManagerBasedRLEnvCfg:
+    """Prepare environment for interactive playing (remove training-specific components)."""
+    # Remove curriculum if present
+    if hasattr(env_cfg, "curriculum") and env_cfg.curriculum is not None:
+        env_cfg.curriculum = None
 
-    # specify directory for logging experiments
-    log_root_path = os.path.join("logs", "rsl_rl", agent_cfg.experiment_name)
-    log_root_path = os.path.abspath(log_root_path)
-    print(f"[INFO] Loading experiment from directory: {log_root_path}")
-    if args_cli.use_pretrained_checkpoint:
-        if get_published_pretrained_checkpoint is None:
-            print(
-                "[ERROR] --use_pretrained_checkpoint requires isaaclab_rl.utils.pretrained_checkpoint "
-                "which is not available in this Isaac Lab version."
-            )
-            return
-        resume_path = get_published_pretrained_checkpoint("rsl_rl", train_task_name)
-        if not resume_path:
-            print(
-                "[INFO] Unfortunately a pre-trained checkpoint is currently unavailable for this task."
-            )
-            return
-    elif args_cli.checkpoint:
-        resume_path = retrieve_file_path(args_cli.checkpoint)
-    else:
-        resume_path = get_checkpoint_path(
-            log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint
+    return env_cfg
+
+
+def generate_sinusoidal_actions(
+    timestep: int, num_envs: int, action_dim: int, dt: float
+) -> np.ndarray:
+    """Generate smooth sinusoidal trajectory for actions.
+
+    Args:
+        timestep: Current timestep counter
+        num_envs: Number of parallel environments
+        action_dim: Dimension of action space
+        dt: Time step in seconds
+
+    Returns:
+        Array of shape (num_envs, action_dim) with sinusoidal actions in range [-0.5, 0.5]
+    """
+    time_elapsed = timestep * dt
+    actions = np.zeros((num_envs, action_dim), dtype=np.float32)
+
+    # Generate sinusoidal motion with different frequencies for each joint
+    for i in range(action_dim):
+        # Use different frequencies for different joints (0.3 Hz to 0.8 Hz)
+        frequency = 0.3 + (i % 5) * 0.1
+        # Use different phase offsets to avoid all joints moving in sync
+        phase_offset = i * np.pi / action_dim
+        # Generate sinusoidal values in range [-0.5, 0.5]
+        actions[:, i] = 0.5 * np.sin(
+            2 * np.pi * frequency * time_elapsed + phase_offset
         )
 
-    log_dir = os.path.dirname(resume_path)
+    return actions
 
-    # set the log directory for the environment (works for all environment types)
-    env_cfg.log_dir = log_dir
 
-    # create isaac environment
-    env = gym.make(
-        args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None
+# -----------------------------------------------------------------------------#
+# Main
+# -----------------------------------------------------------------------------#
+
+
+def main() -> None:
+    # Detect if this is a debug environment (GUI-controlled)
+    is_debug_env = "Debug" in args_cli.task
+
+    # Parse env cfg from registry
+    env_cfg = parse_env_cfg(
+        args_cli.task,
+        device=args_cli.device,
+        num_envs=args_cli.num_envs,
+        use_fabric=not args_cli.disable_fabric,
     )
 
-    # convert to single-agent instance if required by the RL algorithm
-    if isinstance(env.unwrapped, DirectMARLEnv):
-        env = multi_agent_to_single_agent(env)
+    # Apply eval mode if available
+    if hasattr(env_cfg, "eval"):
+        env_cfg.eval()
 
-    # wrap for video recording
+    # Cleanup env for playing (remove training-specific components)
+    if isinstance(env_cfg, ManagerBasedRLEnvCfg):
+        env_cfg = prepare_env_for_playing(env_cfg)
+
+    # Create environment directly from cfg (no RL wrappers)
+    render_mode = "rgb_array" if args_cli.video else None
+    env = ManagerBasedRLEnv(env_cfg, render_mode=render_mode)
+
+    # Optional video recording
     if args_cli.video:
+        video_dir = os.path.abspath(os.path.join("logs", "videos", "play"))
         video_kwargs = {
-            "video_folder": os.path.join(log_dir, "videos", "play"),
+            "video_folder": video_dir,
             "step_trigger": lambda step: step == 0,
             "video_length": args_cli.video_length,
             "disable_logger": True,
         }
-        print("[INFO] Recording videos during training.")
+        print("[INFO] Recording video.")
         print_dict(video_kwargs, nesting=4)
         env = gym.wrappers.RecordVideo(env, **video_kwargs)
 
-    # wrap around environment for rsl-rl
-    env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
+    # Reset environment
+    obs, _ = env.reset()
 
-    print(f"[INFO]: Loading model checkpoint from: {resume_path}")
-    # load previously trained model
-    if agent_cfg.class_name == "OnPolicyRunner":
-        runner = OnPolicyRunner(
-            env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device
-        )
-    elif agent_cfg.class_name == "DistillationRunner":
-        runner = DistillationRunner(
-            env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device
-        )
-    else:
-        raise ValueError(f"Unsupported runner class: {agent_cfg.class_name}")
-    runner.load(resume_path)
-
-    # obtain the trained policy for inference
-    policy = runner.get_inference_policy(device=env.unwrapped.device)
-
-    # extract the neural network module
-    # we do this in a try-except to maintain backwards compatibility.
-    try:
-        # version 2.3 onwards
-        policy_nn = runner.alg.policy
-    except AttributeError:
-        # version 2.2 and below
-        policy_nn = runner.alg.actor_critic
-
-    # extract the normalizer
-    if hasattr(policy_nn, "actor_obs_normalizer"):
-        normalizer = policy_nn.actor_obs_normalizer
-    elif hasattr(policy_nn, "student_obs_normalizer"):
-        normalizer = policy_nn.student_obs_normalizer
-    else:
-        normalizer = None
-
-    # export policy to onnx/jit
-    export_model_dir = os.path.join(os.path.dirname(resume_path), "exported")
-    export_policy_as_jit(
-        policy_nn, normalizer=normalizer, path=export_model_dir, filename="policy.pt"
-    )
-    export_policy_as_onnx(
-        policy_nn, normalizer=normalizer, path=export_model_dir, filename="policy.onnx"
-    )
-
+    # Get timing and action info
     dt = env.unwrapped.step_dt
-
-    # reset environment
-    obs = env.get_observations()
     timestep = 0
-    # simulate environment
+    num_envs = env.unwrapped.num_envs
+    action_dim = env.unwrapped.action_manager.total_action_dim
+
+    # Determine action mode
+    use_zero_actions = args_cli.zero_actions or is_debug_env
+
+    print(f"[INFO] Environment loaded: {args_cli.task}")
+    print(f"[INFO] Number of environments: {num_envs}")
+    print(f"[INFO] Action dimension: {action_dim}")
+    print(f"[INFO] Control timestep: {dt:.4f}s ({1.0 / dt:.1f} Hz)")
+
+    if is_debug_env:
+        print("[INFO] Debug environment detected - GUI controls are active.")
+        print(
+            "[INFO] Actions will be ignored; use the GUI sliders to control the robot."
+        )
+    elif use_zero_actions:
+        print("[INFO] Using zero actions (environment will maintain default poses).")
+    else:
+        print("[INFO] Generating sinusoidal actions for environment validation...")
+
     while simulation_app.is_running():
-        start_time = time.time()
-        # run everything in inference mode
+        start = time.time()
+
+        # Generate actions
+        if use_zero_actions:
+            actions = torch.zeros(
+                num_envs, action_dim, dtype=torch.float32, device=env.unwrapped.device
+            )
+        else:
+            actions_np = generate_sinusoidal_actions(timestep, num_envs, action_dim, dt)
+            actions = torch.as_tensor(
+                actions_np, dtype=torch.float32, device=env.unwrapped.device
+            )
+
+        # Step environment
         with torch.inference_mode():
-            # agent stepping
-            actions = policy(obs)
-            # env stepping
-            obs, _, dones, _ = env.step(actions)
-            # reset recurrent states for episodes that have terminated
-            policy_nn.reset(dones)
-        if args_cli.video:
-            timestep += 1
-            # Exit the play loop after recording one video
-            if timestep == args_cli.video_length:
-                break
+            obs, _, _, _, _ = env.step(actions)
 
-        # time delay for real-time evaluation
-        sleep_time = dt - (time.time() - start_time)
-        if args_cli.real_time and sleep_time > 0:
-            time.sleep(sleep_time)
+        timestep += 1
 
-    # close the simulator
+        # Stop video recording after specified length
+        if args_cli.video and timestep == args_cli.video_length:
+            break
+
+        # Sleep to approximate real-time, if requested
+        if args_cli.real_time:
+            sleep_time = dt - (time.time() - start)
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+
     env.close()
 
 
 if __name__ == "__main__":
-    # run the main function
     main()
-    # close sim app
     simulation_app.close()

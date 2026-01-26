@@ -222,3 +222,5 @@ core
 
 # Human Motion Data
 source/robotic_grounding/robotic_grounding/assets/human_motion_data/
+
+.claude/

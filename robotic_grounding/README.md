@@ -45,9 +45,10 @@ For Arctic motion files, download them from [here](https://drive.google.com/file
 
 ## RL training
 ```bash
-python scripts/rsl_rl/dummy_agent.py
-python scripts/rsl_rl/train.py
-python scripts/rsl_rl/play.py
+python scripts/rsl_rl/dummy_agent.py  # Run environment with zero/random actions for testing setup
+python scripts/rsl_rl/train.py        # Train an RL agent using RSL-RL
+python scripts/rsl_rl/eval.py         # Evaluate a trained checkpoint and export policy to JIT/ONNX
+python scripts/rsl_rl/play.py         # Play environment without a checkpoint (sinusoidal or zero actions)
 ```
 
 ## RL Tasks

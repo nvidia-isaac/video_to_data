@@ -58,6 +58,7 @@ RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
     "pin-pink>=3.5.0,<4" \
     pin==3.7.0 \
     deprecation \
+    dearpygui \
     qpsolvers[clarabel,daqp,proxqp,scs]
 
 # Install the project in editable mode
