@@ -14,6 +14,8 @@
     ```
     This script installs `git-lfs` and `pre-commit` and ensures `workflow/run.sh` is executable. You may need to restart your shell for pipx PATH changes.
 
+- NVIDIA Driver Version 580.126.09, CUDA Version: 13.0 Recommended. In case of visualization errors, check NVIDIA driver version.
+
 ## Docker Usage
 
 Development should be **inside** the Container, and Git operations should be done **outside** the Container on the host machine.
