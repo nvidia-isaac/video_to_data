@@ -45,7 +45,7 @@ ARCTIC_OBJECT_CFG = ArticulationCfg(
                 stiffness=0, damping=0
             )
         ),
-        collider_type="convex_decomposition",
+        collider_type="convex_hull",
     ),
     init_state=ArticulationCfg.InitialStateCfg(
         pos=(0.0, 0.0, 0.0),

@@ -312,3 +312,19 @@ MUJOCO_JOINT_ORDER = [
 
 MUJOCO_RIGHT_JOINT_ORDER = [n.replace(".*_", "right_") for n in MUJOCO_JOINT_ORDER]
 MUJOCO_LEFT_JOINT_ORDER = [n.replace(".*_", "left_") for n in MUJOCO_JOINT_ORDER]
+
+# Fingertip contact body metadata
+# These are the rigid body names where contact sensors should be attached
+# Note: URDF importer merges elastomer links into parent distal phalange (_DP) bodies
+FINGERTIP_CONTACT_BODIES = [
+    "left_thumb_DP",
+    "left_index_DP",
+    "left_middle_DP",
+    "left_ring_DP",
+    "left_pinky_DP",
+    "right_thumb_DP",
+    "right_index_DP",
+    "right_middle_DP",
+    "right_ring_DP",
+    "right_pinky_DP",
+]

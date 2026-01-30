@@ -193,6 +193,10 @@ class RewardsCfg:
         params={"asset_cfg": SceneEntityCfg("robot", joint_names=[".*"])},
     )
 
+    contact_force_penalty = RewTerm(
+        func=mdp.contact_force_penalty, weight=-0.05, params={}
+    )
+
 
 @configclass
 class TerminationsCfg:

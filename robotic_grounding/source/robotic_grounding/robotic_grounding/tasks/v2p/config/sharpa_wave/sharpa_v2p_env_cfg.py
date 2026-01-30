@@ -6,12 +6,14 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
+from isaaclab.sensors import ContactSensorCfg
 from isaaclab.utils import configclass
 
 from robotic_grounding.assets.arctic_object import ARCTIC_OBJECT_CFG
 from robotic_grounding.assets.dual_sharpa_wave import (
     DUAL_SHARPA_WAVE_ACTION_SCALE,
     DUAL_SHARPA_WAVE_CFG,
+    FINGERTIP_CONTACT_BODIES,
 )
 from robotic_grounding.tasks.v2p.v2p_hand_env_cfg import V2PHandEnvCfg
 
@@ -53,6 +55,51 @@ class SharpaV2PEnvCfg(V2PHandEnvCfg):
             "base_yaw": 0.0,
             "rotation": 0.0,
         }
+
+        # Dynamically create contact sensors from metadata
+        # Note: elastomer links are merged into parent *_DP (distal phalange) rigid bodies
+        # PhysX limitation: Each filter pattern must match exactly 1 prim
+        finger_sensor_names = []
+
+        # Create sensors for bottom part of object
+        for body_name in FINGERTIP_CONTACT_BODIES:
+            sensor_name = f"{body_name.replace('_DP', '')}_contact_sensor_bottom"
+            setattr(
+                self.scene,
+                sensor_name,
+                ContactSensorCfg(
+                    prim_path=f"{{ENV_REGEX_NS}}/Robot/{body_name}",
+                    track_pose=True,
+                    debug_vis=False,
+                    force_threshold=0.1,
+                    filter_prim_paths_expr=["{ENV_REGEX_NS}/Object/bottom"],
+                    track_contact_points=True,
+                    max_contact_data_count_per_prim=8,
+                ),
+            )
+            finger_sensor_names.append(sensor_name)
+
+        # Create sensors for top part of object
+        for body_name in FINGERTIP_CONTACT_BODIES:
+            sensor_name = f"{body_name.replace('_DP', '')}_contact_sensor_top"
+            setattr(
+                self.scene,
+                sensor_name,
+                ContactSensorCfg(
+                    prim_path=f"{{ENV_REGEX_NS}}/Robot/{body_name}",
+                    track_pose=True,
+                    debug_vis=False,
+                    force_threshold=0.1,
+                    filter_prim_paths_expr=["{ENV_REGEX_NS}/Object/top"],
+                    track_contact_points=True,
+                    max_contact_data_count_per_prim=8,
+                ),
+            )
+            finger_sensor_names.append(sensor_name)
+
+        # Store sensor names on env config for observations to access
+        # This provides the contract: robot-specific config provides sensor names
+        self.finger_sensor_names = finger_sensor_names
 
 
 @configclass

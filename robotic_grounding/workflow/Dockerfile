@@ -44,7 +44,8 @@ RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
     wandb==0.22.2 \
     importlib_metadata \
     plotly \
-    viser==1.0.15
+    viser==1.0.15 \
+    dearpygui
 
 # Install chumpy and manotorch (using --no-build-isolation to avoid pip module issues in old setup.py)
 RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir --no-build-isolation \

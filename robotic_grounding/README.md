@@ -35,6 +35,23 @@ If using VSCode or Cursor, you can also use the `Attach to Running Container` fe
 
 Currently, due to Isaac Lab's image requiring root for Omniverse, we are using the root user for the container. This should be fixed in the future if there is a need. There can be some permission issues, but it can be bypassed with `sudo chown "$USER":domain-users <FILE_PATH>`.
 
+### Running Debugging Env
+
+The debug environment (`Sharpa-V2P-Debug-v0`) provides interactive GUI controls for testing contact sensors and MDP components:
+
+- **Joint GUI Control**: Adjust all robot joints (wrist 6DoF + fingers) with P/D gain sliders
+- **Object Pose GUI**: Move and rotate the object in 6DoF via floating base controls
+- **Reward Visualizer**: Monitor reward terms in real-time with history plots
+
+To run the debug environment:
+```bash
+python scripts/rsl_rl/dummy_agent.py --task Sharpa-V2P-Debug-v0
+```
+
+**Note**: Do not use `--headless` flag since the GUI controls require a display. The environment is configured with extended episode length (1 hour) and disabled randomization events for uninterrupted manual testing.
+
+To create a debug environment for other tasks, use `sharpa_debug_env_cfg.py` as a template—inherit from your base environment config and override the actions with GUI-controlled versions (`JointPositionGUIActionCfg`, `ObjectPoseGUIActionCfg`, `RewardVisualizerCfg`). Remember to disable action related MDP terms since the debug env does not have the original actions.
+
 ## Retargeting
 ```bash
 python scripts/retarget/arctic_to_sharpa.py # Check the file for arguments
