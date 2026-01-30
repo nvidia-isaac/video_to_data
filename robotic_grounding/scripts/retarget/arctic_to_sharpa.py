@@ -94,9 +94,7 @@ def main(args: argparse.Namespace) -> None:
     )
 
     # DEBUG: Additional filters
-    arctic_mano_files = [
-        f for f in arctic_mano_files if "box" in f.name and "use" in f.name
-    ]
+    arctic_mano_files = [f for f in arctic_mano_files if "box" in f.name]
 
     print(f"Found {len(arctic_mano_files)} arctic trajectories")
 
@@ -206,11 +204,38 @@ def main(args: argparse.Namespace) -> None:
                     wxyz=np.array([1, 0, 0, 0]),
                 )
 
-        # 4. Solve IK for each frame
+        # 4. Solve IK for each frame with wrist initialization
         right_qpos = None
         left_qpos = None
 
         for frame_id in range(30, H - 50):
+
+            # Initialize wrist pose to the first frame of the MANO data
+            if right_qpos is None:
+                right_qpos = right_sharpa_kinematics.robot.q0.copy()
+                right_qpos[:3] = right_mano_results["joints"][frame_id][0].cpu().numpy()
+                right_qpos[3:6] = (
+                    R.from_quat(
+                        right_mano_results["joints_wxyz"][frame_id][0].cpu().numpy(),
+                        scalar_first=True,
+                    )
+                    * R.from_quat(
+                        [0.5, -0.5, 0.5, 0.5], scalar_first=True
+                    ).inv()  # Rotation offset from link frame to site
+                ).as_euler("XYZ", degrees=False)
+            if left_qpos is None:
+                left_qpos = left_sharpa_kinematics.robot.q0.copy()
+                left_qpos[:3] = left_mano_results["joints"][frame_id][0].cpu().numpy()
+                left_qpos[3:6] = (
+                    R.from_quat(
+                        left_mano_results["joints_wxyz"][frame_id][0].cpu().numpy(),
+                        scalar_first=True,
+                    )
+                    * R.from_quat(
+                        [0.5, -0.5, 0.5, 0.5], scalar_first=True
+                    ).inv()  # Rotation offset from link frame to site
+                ).as_euler("XYZ", degrees=False)
+
             # Right hand
             right_kinematics_results = right_sharpa_kinematics.compute(
                 right_mano_results["joints"][frame_id],
@@ -350,5 +375,4 @@ def main(args: argparse.Namespace) -> None:
 
 if __name__ == "__main__":
     args = parse_args()
-    args.visualize = True
     main(args)

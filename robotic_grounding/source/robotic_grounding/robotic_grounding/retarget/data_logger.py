@@ -21,6 +21,7 @@ FIELD_SPECS = [
     ("raw_motion_file", pa.string(), str, False),
     ("object_name", pa.string(), str, False),
     ("robot_name", pa.string(), str, False),
+    ("fps", pa.float32(), float, False),
     ("mano_to_robot_scale", pa.float32(), float, False),
     ("mano_right_betas", pa.list_(pa.float32()), list[float], False),
     ("mano_left_betas", pa.list_(pa.float32()), list[float], False),
@@ -217,7 +218,10 @@ class ManoSharpaData(_ManoSharpaDataBase):  # type: ignore[misc, valid-type]
 
     @classmethod
     def from_parquet(
-        cls, root_path: str, filters: Optional[list] = None, trajectory_id: int = 0
+        cls,
+        root_path: str,
+        filters: Optional[list] = None,
+        trajectory_id: int = 0,
     ) -> "ManoSharpaData":
         """Create a new ManoSharpaData instance from a Parquet file.
 
