@@ -1,0 +1,30 @@
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - ./data/redis:/data
+    ports:
+      - "6379:6379"
+    profiles: ["workers", "api"]
+
+  flower:
+    build:
+      context: .
+      dockerfile: modules/sam2/Dockerfile
+    command: celery flower --broker=redis://redis:6379/0 --port=5555 --address=0.0.0.0
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+    profiles: ["api"]
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - PYTHONPATH=/workspace
+
+include:
+  - modules/moge/docker-compose.yaml
+  - modules/unidepth/docker-compose.yaml
+  - modules/sam2/docker-compose.yaml
+  - modules/sam3d/docker-compose.yaml
+  - modules/foundationpose/docker-compose.yaml

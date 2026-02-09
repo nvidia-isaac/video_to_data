@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+
+# Large data directories
+data/
+modules/*/data/
+*.pt
+*.pth
+*.safetensors
+*.bin
+*.ckpt
+*.h5
+*.hdf5
+
+# Large media files
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.zip
+*.tar
+*.tar.gz
+*.gz
+
+# Large 3D model files
+*.glb
+*.gltf
+*.obj
+*.ply
+*.stl
+
+# Job outputs and results
+**/jobs/
+**/results/
+**/sessions/
+
+# Test data outputs
+modules/*/data/test_data/*/outputs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

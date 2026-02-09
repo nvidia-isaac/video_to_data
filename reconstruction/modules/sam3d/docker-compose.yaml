@@ -1,0 +1,82 @@
+x-sam3d-base: &sam3d-base
+  build:
+    context: ../..
+    dockerfile: modules/sam3d/Dockerfile
+  volumes:
+    - ../../modules/sam3d/data:/workspace/modules/sam3d/data
+    - ../../modules/sam3d/checkpoints:/workspace/modules/sam3d/checkpoints
+  environment:
+    - CHECKPOINT_DIR=/workspace/modules/sam3d/checkpoints/hf-download
+    - TORCH_HOME=/workspace/modules/sam3d/checkpoints/torch_home
+    - HF_HOME=/workspace/modules/sam3d/checkpoints/hf_home
+    - DATA_DIR=/data
+    - REDIS_URL=redis://redis:6379/0
+
+services:
+  sam3d-image-to-mesh-test:
+    <<: *sam3d-base
+    extends:
+      file: ../common-compose.yaml
+      service: base-gpu
+    volumes:
+      - ../../modules/sam3d/tests/test_data:/workspace/modules/sam3d/tests/test_data
+      - ../../modules/sam3d/data:/workspace/modules/sam3d/data
+      - ../../modules/sam3d/checkpoints:/workspace/modules/sam3d/checkpoints
+    command: [
+      "python", 
+      "/workspace/modules/sam3d/functions/image_to_mesh.py", 
+      "--image_path", "/workspace/modules/sam3d/tests/test_data/test_image_2.jpg", 
+      "--mask_path", "/workspace/modules/sam3d/tests/test_data/test_mask_2.png", 
+      "--mesh_path", "/workspace/modules/sam3d/tests/test_data/output/test_mesh.glb", 
+      "--transform_path", "/workspace/modules/sam3d/tests/test_data/output/test_transform.json", 
+      "--intrinsics_path", "/workspace/modules/sam3d/tests/test_data/output/test_intrinsics.json"
+    ]
+    profiles: ["tests"]
+
+  sam3d-image-to-mesh:
+    <<: *sam3d-base
+    extends:
+      file: ../common-compose.yaml
+      service: base-gpu
+    entrypoint: ["python", "/workspace/modules/sam3d/functions/image_to_mesh.py"]
+    profiles: ["exec"]
+
+  sam3d-render-debug:
+    <<: *sam3d-base
+    extends:
+      file: ../common-compose.yaml
+      service: base-gpu
+    entrypoint: ["python", "/workspace/modules/sam3d/functions/render_debug_image.py"]
+    profiles: ["exec"]
+
+  sam3d-image-to-mesh-worker:
+    <<: *sam3d-base
+    extends:
+      file: ../common-compose.yaml
+      service: base-gpu
+    depends_on:
+      - redis
+    command: ["celery", "-A", "modules.sam3d.worker", "worker", "--loglevel=info", "-Q", "sam3d.image_to_mesh", "--concurrency=1", "--prefetch-multiplier=1"]
+    profiles: ["workers", "api"]
+
+  sam3d-render-debug-worker:
+    <<: *sam3d-base
+    extends:
+      file: ../common-compose.yaml
+      service: base-gpu
+    depends_on:
+      - redis
+    command: ["celery", "-A", "modules.sam3d.worker", "worker", "--loglevel=info", "-Q", "sam3d.render_debug_image", "--concurrency=1", "--prefetch-multiplier=1"]
+    profiles: ["workers", "api"]
+
+  sam3d-api:
+    <<: *sam3d-base
+    extends:
+      file: ../common-compose.yaml
+      service: base-api
+    ports:
+      - "8004:8004"
+    command: ["python", "/workspace/modules/sam3d/api.py"]
+    depends_on:
+      - redis
+    profiles: ["api"]

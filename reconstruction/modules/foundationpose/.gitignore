@@ -1,0 +1,10 @@
+data/
+FoundationPose/weights/
+*.pt
+*.pth
+*.mp4
+*.zip
+*.glb
+*.obj
+__pycache__/
+tests/test_data/output/
