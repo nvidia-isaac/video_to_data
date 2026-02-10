@@ -28,3 +28,4 @@ include:
   - modules/sam2/docker-compose.yaml
   - modules/sam3d/docker-compose.yaml
   - modules/foundationpose/docker-compose.yaml
+  - modules/nlf/docker-compose.yaml

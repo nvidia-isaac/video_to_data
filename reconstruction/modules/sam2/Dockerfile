@@ -16,7 +16,7 @@ RUN pip install git+https://github.com/facebookresearch/sam2.git
 # Install decord for low-mem predictor
 RUN pip install decord
 
-RUN pip install flask huggingface-hub requests Pillow opencv-python celery[redis] redis flower
+RUN pip install flask huggingface-hub requests Pillow opencv-python celery[redis] redis flower Jinja2
 
 # Copy common utilities
 COPY modules/common /workspace/modules/common

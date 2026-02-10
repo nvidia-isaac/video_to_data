@@ -12,7 +12,7 @@ def wxyz_quat_to_rotation_matrix(w, x, y, z):
                                 [2*x*z - 2*w*y, 2*y*z + 2*w*x, 1 - 2*x*x - 2*y*y]])
     return rotation_matrix
 
-def align_mesh_to_depth(
+def align_mesh_scale(
     mesh_path: str,
     depth_path: str,
     mask_path: str,
@@ -198,7 +198,7 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    align_mesh_to_depth(
+    align_mesh_scale(
         args.mesh,
         args.depth,
         args.mask,

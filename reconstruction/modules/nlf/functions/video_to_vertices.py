@@ -1,6 +1,7 @@
 import os
 import cv2
 import torch
+import torchvision # Ensure torchvision is imported before torch.jit.load
 import numpy as np
 from PIL import Image
 from tqdm import tqdm

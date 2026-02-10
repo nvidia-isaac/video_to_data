@@ -3,11 +3,13 @@ import numpy as np
 import os
 import pickle as pkl
 from smplfitter.pt import BodyModel, BodyFitter
-from modules.nlf.lib_smpl.const import SMPL_MODEL_ROOT
+# from modules.nlf.lib_smpl.const import SMPL_MODEL_ROOT
 from modules.nlf.datatypes import NlfResult
 from typing import List
 
 import h5py
+
+SMPL_MODEL_ROOT = os.environ.get('SMPL_MODEL_ROOT', '/app/modules/nlf/data/smpl_models')
 
 def vertices_to_smpl(vertices_path: str, gender: str, model_type: str = "smplh", output_path: str = None, device: str = "cuda") -> NlfResult:
     """
@@ -23,8 +25,10 @@ def vertices_to_smpl(vertices_path: str, gender: str, model_type: str = "smplh",
 
     # Initialize BodyFitter
     # Note: smplfitter's BodyModel takes 'smpl' or 'smplh'
-    body_model = BodyModel(model_type, gender, model_root=SMPL_MODEL_ROOT).to(device)
-    fitter = BodyFitter(body_model, num_betas=10).to(device)
+    # We point model_root directly to the subdirectory for the model type
+    model_root = os.path.join(SMPL_MODEL_ROOT, model_type)
+    body_model = BodyModel(model_type, gender, model_root=model_root).to(device)
+    fitter = BodyFitter(body_model).to(device)
 
     verts_tensor = torch.from_numpy(vertices).to(device).float()
     

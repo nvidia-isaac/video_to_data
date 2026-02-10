@@ -10,7 +10,7 @@ def wxyz_quat_to_rotation_matrix(w, x, y, z):
                                 [2*x*z - 2*w*y, 2*y*z + 2*w*x, 1 - 2*x*x - 2*y*y]])
     return rotation_matrix
 
-def render_debug(
+def render_debug_image(
         image_path: str,
         mesh_path: str,
         transform_path: str,
@@ -86,4 +86,4 @@ if __name__ == "__main__":
     parser.add_argument("output_image_path", type=str, help="Path to the output image")
     parser.add_argument("--num_vertices_to_use", type=int, default=5000, help="Number of vertices to use")
     args = parser.parse_args()
-    render_debug(args.image_path, args.mesh_path, args.transform_path, args.intrinsics_path, args.output_image_path, args.num_vertices_to_use)
+    render_debug_image(args.image_path, args.mesh_path, args.transform_path, args.intrinsics_path, args.output_image_path, args.num_vertices_to_use)

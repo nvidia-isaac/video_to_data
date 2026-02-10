@@ -1,48 +1,51 @@
+x-nlf-base: &nlf-base
+  build:
+    context: ../..
+    dockerfile: modules/nlf/Dockerfile
+  volumes:
+    - ../../data:/app/data
+    - ../../modules/nlf/data:/app/modules/nlf/data
+  environment:
+    - REDIS_URL=redis://redis:6379/0
+    - SMPL_MODEL_ROOT=/app/modules/nlf/data/smpl_models
+    - NLF_WEIGHTS_PATH=/app/modules/nlf/data/weights/nlf_l_multi_0.3.2.torchscript
+
 services:
+  nlf-video-to-smpl:
+    <<: *nlf-base
+    extends:
+      file: ../common-compose.yaml
+      service: base-gpu
+    entrypoint: ["python3", "modules/nlf/functions/video_to_smpl.py"]
+    profiles: ["exec"]
+
+  nlf-render-smpl-overlay:
+    <<: *nlf-base
+    extends:
+      file: ../common-compose.yaml
+      service: base-gpu
+    entrypoint: ["python3", "modules/nlf/functions/render_smpl_overlay.py"]
+    profiles: ["exec"]
+
   nlf-api:
-    build:
-      context: ../..
-      dockerfile: modules/nlf/Dockerfile
+    <<: *nlf-base
+    extends:
+      file: ../common-compose.yaml
+      service: base-api
     container_name: nlf-api
     ports:
       - "8005:8005"
-    volumes:
-      - ../../data:/app/data
-      - ../../modules/nlf/data:/app/modules/nlf/data
-    environment:
-      - REDIS_URL=redis://redis:6379/0
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    networks:
-      - reconstruction-network
+    command: python3 modules/nlf/api.py
+    profiles: ["api"]
 
   nlf-worker:
-    build:
-      context: ../..
-      dockerfile: modules/nlf/Dockerfile
+    <<: *nlf-base
+    extends:
+      file: ../common-compose.yaml
+      service: base-gpu
     container_name: nlf-worker
     command: python3 modules/nlf/worker.py
-    volumes:
-      - ../../data:/app/data
-      - ../../modules/nlf/data:/app/modules/nlf/data
-    environment:
-      - REDIS_URL=redis://redis:6379/0
-      - SMPL_MODEL_ROOT=/app/modules/nlf/data/smpl_models
-      - NLF_WEIGHTS_PATH=/app/modules/nlf/data/weights/nlf_l_multi_0.3.2.torchscript
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    networks:
-      - reconstruction-network
+    profiles: ["workers", "api"]
 
 networks:
   reconstruction-network:

@@ -1,3 +1,17 @@
+import inspect
+if not hasattr(inspect, 'getargspec'):
+    inspect.getargspec = inspect.getfullargspec
+
+import numpy as np
+# Patch numpy for chumpy compatibility
+if not hasattr(np, 'bool'): np.bool = bool
+if not hasattr(np, 'int'): np.int = int
+if not hasattr(np, 'float'): np.float = float
+if not hasattr(np, 'complex'): np.complex = complex
+if not hasattr(np, 'object'): np.object = object
+if not hasattr(np, 'unicode'): np.unicode = str
+if not hasattr(np, 'str'): np.str = str
+
 import os
 import json
 from flask import Flask, request, send_file, jsonify
@@ -40,6 +54,7 @@ def process_video_to_smpl():
         # Get parameters
         gender = request.form.get('gender', 'neutral')
         model_type = request.form.get('model_type', 'smplh')
+        render_debug = request.form.get('render_debug', 'false').lower() == 'true'
         
         intrinsics_json = request.form.get('intrinsics')
         if not intrinsics_json:
@@ -50,6 +65,7 @@ def process_video_to_smpl():
         
         # Prepare output path
         output_h5_path = os.path.join(output_dir, "smpl_params.h5")
+        debug_render_dir = os.path.join(output_dir, "debug_render") if render_debug else None
         
         # Submit Celery task
         task = video_to_smpl_task.delay(
@@ -58,7 +74,9 @@ def process_video_to_smpl():
             intrinsics_path=intrinsics_path,
             gender=gender,
             model_type=model_type,
-            output_path=output_h5_path
+            output_path=output_h5_path,
+            render_debug=render_debug,
+            debug_dir=debug_render_dir
         )
         
         # Wait for task completion (timeout 1 hour)

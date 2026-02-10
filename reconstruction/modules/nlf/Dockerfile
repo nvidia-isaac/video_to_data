@@ -1,4 +1,7 @@
-FROM nvidia/cuda:12.1.0-base-ubuntu22.04
+FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-devel
+ENV DEBIAN_FRONTEND=noninteractive
+WORKDIR /app
+
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -6,18 +9,23 @@ RUN apt-get update && apt-get install -y \
     python3-dev \
     libgl1-mesa-glx \
     libglib2.0-0 \
+    libxrender1 \
+    libxext6 \
+    libsm6 \
+    libx11-6 \
+    libegl1-mesa \
+    libgles2-mesa \
+    libgbm1 \
     git \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
-
-# Install Python dependencies
-COPY requirements.txt .
-RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Install smplfitter (assuming it's available via pip or needs git install)
 RUN pip3 install git+https://github.com/isarandi/smplfitter.git
+
+# Install rendering and detection dependencies
+RUN pip3 install pyrender trimesh h5py opencv-python torchvision
 
 # Copy the module and common code
 COPY modules/nlf /app/modules/nlf
