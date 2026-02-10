@@ -2,7 +2,6 @@ data/
 checkpoints/
 *.pt
 *.pth
-*.mp4
 *.zip
 __pycache__/
 tests/test_data/output/

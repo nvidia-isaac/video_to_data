@@ -21,7 +21,6 @@ modules/*/data/
 *.hdf5
 
 # Large media files
-*.mp4
 *.avi
 *.mov
 *.mkv

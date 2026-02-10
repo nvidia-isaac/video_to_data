@@ -3,7 +3,6 @@ checkpoints/
 *.pt
 *.pth
 *.safetensors
-*.mp4
 *.zip
 __pycache__/
 tests/test_data/output/
