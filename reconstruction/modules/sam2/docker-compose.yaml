@@ -3,10 +3,10 @@ x-sam2-base: &sam2-base
     context: ../..
     dockerfile: modules/sam2/Dockerfile
   volumes:
-    - ../../modules/sam2/checkpoints:/workspace/modules/sam2/checkpoints
+    - ../../modules/sam2/data/checkpoints:/workspace/modules/sam2/data/checkpoints
     - ../../modules/sam2/data:/workspace/modules/sam2/data
   environment:
-    - CHECKPOINT_DIR=/workspace/modules/sam2/checkpoints/sam2.1-hiera-large
+    - CHECKPOINT_DIR=/workspace/modules/sam2/data/checkpoints/sam2.1-hiera-large
     - REDIS_URL=redis://redis:6379/0
 
 services:
@@ -17,7 +17,7 @@ services:
       service: base-gpu
     volumes:
       - ../../modules/sam2/tests/test_data:/workspace/modules/sam2/tests/test_data
-      - ../../modules/sam2/checkpoints:/workspace/modules/sam2/checkpoints
+      - ../../modules/sam2/data/checkpoints:/workspace/modules/sam2/data/checkpoints
     command: [
       "python", 
       "/workspace/modules/sam2/functions/video_to_masks.py", 
