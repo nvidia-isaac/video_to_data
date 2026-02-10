@@ -55,7 +55,7 @@ RUN pip install \
 RUN pip install kaolin==0.18.0 -f https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.5.1_cu124.html
 
 # Install Pytorch3D
-RUN pip3 install "git+https://github.com/facebookresearch/pytorch3d.git"
+RUN TORCH_CUDA_ARCH_LIST="8.0 8.6 8.9 9.0" pip3 install "git+https://github.com/facebookresearch/pytorch3d.git"
 
 
 RUN git clone https://github.com/NVlabs/nvdiffrast /workspace/third_party/nvdiffrast && \
@@ -80,12 +80,20 @@ RUN pip install \
 
 RUN pip install h5py
 
+# Copy service code
+COPY modules/foundationpose/third_party/FoundationPose /workspace/modules/foundationpose/third_party/FoundationPose
+
+RUN cd /workspace/modules/foundationpose/third_party/FoundationPose/mycpp \
+    && mkdir -p build && cd build && cmake .. -DPYTHON_EXECUTABLE=$(which python) && make -j11
+
+RUN cd /workspace/modules/foundationpose/third_party/FoundationPose/bundlesdf/mycuda && \
+    TORCH_CUDA_ARCH_LIST="8.0 8.6 8.9 9.0" pip install -e .
+
+RUN pip install celery[redis] redis fast_simplification
+
 # Copy common utilities
 COPY modules/common /workspace/modules/common
-
-# Copy service code
-COPY modules/foundationpose /workspace/modules/foundationpose
-
-RUN pip install celery[redis] redis
+COPY modules/foundationpose/*.py /workspace/modules/foundationpose
+COPY modules/foundationpose/functions /workspace/modules/foundationpose/functions
 
 ENV PYTHONPATH=/workspace

@@ -5,6 +5,7 @@ x-fp-base: &fp-base
   volumes:
     - ../../modules/foundationpose/extra/FoundationPose:/workspace/FoundationPose
     - ../../modules/foundationpose/data:/workspace/modules/foundationpose/data
+    - ../../modules/foundationpose/third_party/FoundationPose/weights:/workspace/modules/foundationpose/third_party/FoundationPose/weights
   environment:
     - CHECKPOINT_DIR=/workspace/modules/foundationpose/data/checkpoints/foundationpose
     - WEIGHTS_DIR=/workspace/modules/foundationpose/data/checkpoints/weights

@@ -26,7 +26,10 @@ class DepthImage:
     def height(self) -> int:
         return self.depth.shape[0]
     
-
+    @staticmethod
+    def load(path: str) -> 'DepthImage':
+        return DepthImage.from_pil_image(Image.open(path))
+    
 @dataclass
 class CameraIntrinsics:
     fx: float
@@ -49,6 +52,12 @@ class CameraIntrinsics:
     def from_dict(d: dict) -> 'CameraIntrinsics':
         return CameraIntrinsics(fx=d["fx"], fy=d["fy"], cx=d["cx"], cy=d["cy"], width=d["width"], height=d["height"])
 
+    def to_matrix(self) -> np.ndarray:
+        return np.array([
+            [self.fx, 0, self.cx],
+            [0, self.fy, self.cy],
+            [0, 0, 1]
+        ], dtype=np.float32)
 
 @dataclass
 class Transform3d:
@@ -124,3 +133,8 @@ class Mask:
     
     def height(self) -> int:
         return self.mask.shape[0]
+
+    @staticmethod
+    def load(path: str) -> 'Mask':
+        return Mask.from_pil_image(Image.open(path))
+

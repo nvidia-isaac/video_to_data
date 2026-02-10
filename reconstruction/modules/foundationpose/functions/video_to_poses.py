@@ -2,7 +2,7 @@
 FoundationPose video to poses processing function.
 Can be called directly from command line or imported as a function.
 """
-from modules.foundationpose.utils import CameraIntrinsics, DepthImage, Mask
+from modules.common.datatypes import CameraIntrinsics, DepthImage, Mask
 import os
 import sys
 import argparse
@@ -24,7 +24,7 @@ def log_gpu_memory(label):
         logger.info(f"GPU Memory [{label}]: Allocated: {allocated:.2f} GB, Reserved: {reserved:.2f} GB")
 
 # Add FoundationPose to path
-sys.path.insert(0, '/workspace/FoundationPose')
+sys.path.insert(0, '/workspace/modules/foundationpose/third_party/FoundationPose')
 
 from estimater import FoundationPose
 from learning.training.predict_score import ScorePredictor
@@ -51,11 +51,14 @@ def _get_models():
         print("Models initialized successfully")
     return _scorer, _refiner, _glctx
 
-def video_to_poses(video_path: str, depth_folder: str, masks_folder: str, camera_intrinsics_path: str, mesh_path: str, poses_dir: str, reference_frame: int = 0, target_width: int = None, target_height: int = None):
+def video_to_poses(video_path: str, depth_folder: str, masks_folder: str, camera_intrinsics_path: str, mesh_path: str, poses_dir: str, reference_frame: int = 0, target_width: int = None, target_height: int = None, debug_dir: str = None):
     """Process a video to track object poses."""
     target_resolution = None
     if target_width and target_height:
         target_resolution = (target_width, target_height)
+    
+    if debug_dir:
+        os.makedirs(debug_dir, exist_ok=True)
     
     scorer, refiner, glctx = _get_models()
     
@@ -147,6 +150,22 @@ def video_to_poses(video_path: str, depth_folder: str, masks_folder: str, camera
             with open(pose_path, "w") as f:
                 json.dump(pose.tolist(), f, indent=4)
 
+        def save_visualization(frame_idx, rgb, pose, K):
+            """Save visualization image"""
+            if debug_dir is None:
+                return
+            
+            # Create visualization
+            vis_img = rgb.copy()
+            vis_img = cv2.cvtColor(vis_img, cv2.COLOR_RGB2BGR)
+            
+            # Draw 3D box and axis
+            vis_img = draw_posed_3d_box(K, vis_img, pose, bbox)
+            vis_img = draw_xyz_axis(vis_img, pose, scale=0.05, K=K)
+            
+            vis_path = os.path.join(debug_dir, f"{frame_idx:06d}.png")
+            cv2.imwrite(vis_path, vis_img)
+
         # 1. Initialize at reference frame
         print(f"Initializing at reference frame {reference_frame}")
         rgb, depth, mask, _ = get_frame_data(reference_frame)
@@ -158,6 +177,7 @@ def video_to_poses(video_path: str, depth_folder: str, masks_folder: str, camera
         log_gpu_memory("After register")
 
         save_pose(reference_frame, initial_pose)
+        save_visualization(reference_frame, rgb, initial_pose, K_scaled)
         print("Initialized at reference frame")
         
         # 2. Track forward
@@ -170,6 +190,7 @@ def video_to_poses(video_path: str, depth_folder: str, masks_folder: str, camera
             print(f"Processing forward frame {frame_idx}/{num_frames}")
             pose = est.track_one(rgb=rgb, depth=depth, K=K_scaled, iteration=2)
             save_pose(frame_idx, pose)
+            save_visualization(frame_idx, rgb, pose, K_scaled)
             if frame_idx % 10 == 0:
                 log_gpu_memory(f"Forward tracking frame {frame_idx}")
 
@@ -188,6 +209,7 @@ def video_to_poses(video_path: str, depth_folder: str, masks_folder: str, camera
                 print(f"Processing backward frame {frame_idx}/{num_frames}")
                 pose = est.track_one(rgb=rgb, depth=depth, K=K_scaled, iteration=2)
                 save_pose(frame_idx, pose)
+                save_visualization(frame_idx, rgb, pose, K_scaled)
                 if frame_idx % 10 == 0:
                     log_gpu_memory(f"Backward tracking frame {frame_idx}")
         
@@ -205,6 +227,7 @@ if __name__ == "__main__":
     parser.add_argument("--reference_frame", type=int, default=0, help="Reference frame index")
     parser.add_argument("--target_width", type=int, default=None, help="Target width for scaling")
     parser.add_argument("--target_height", type=int, default=None, help="Target height for scaling")
+    parser.add_argument("--debug_dir", type=str, default=None, help="Directory to save visualization images")
     
     args = parser.parse_args()
     video_to_poses(
@@ -216,6 +239,7 @@ if __name__ == "__main__":
         args.poses_dir,
         reference_frame=args.reference_frame,
         target_width=args.target_width,
-        target_height=args.target_height
+        target_height=args.target_height,
+        debug_dir=args.debug_dir
     )
 
