@@ -3,10 +3,10 @@ x-unidepth-base: &unidepth-base
     context: ../..
     dockerfile: modules/unidepth/Dockerfile
   volumes:
-    - ../../modules/unidepth/checkpoints:/workspace/modules/unidepth/checkpoints
+    - ../../modules/unidepth/data/checkpoints:/workspace/modules/unidepth/data/checkpoints
     - ../../modules/unidepth/data:/workspace/modules/unidepth/data
   environment:
-    - CHECKPOINT_DIR=/workspace/modules/unidepth/checkpoints/unidepth-v2-vitl14
+    - CHECKPOINT_DIR=/workspace/modules/unidepth/data/checkpoints/unidepth-v2-vitl14
     - DATA_DIR=/data
     - REDIS_URL=redis://redis:6379/0
 
@@ -17,8 +17,8 @@ services:
       file: ../common-compose.yaml
       service: base-gpu
     volumes:
+      - ../../modules/unidepth/data/checkpoints:/workspace/modules/unidepth/data/checkpoints
       - ../../modules/unidepth/tests/test_data:/workspace/modules/unidepth/tests/test_data
-      - ../../modules/unidepth/checkpoints:/workspace/modules/unidepth/checkpoints
     command: [
       "python", 
       "/workspace/modules/unidepth/functions/video_to_depth.py", 
