@@ -3,7 +3,7 @@ set -e
 
 # Get the script directory (modules directory)
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-CHECKPOINTS_DIR=${1:-"$SCRIPT_DIR/data/checkpoints/sam3d"}
+CHECKPOINTS_DIR=${1:-"$SCRIPT_DIR/data/checkpoints"}
 
 mkdir -p "$CHECKPOINTS_DIR/hf-download"
 
@@ -35,3 +35,10 @@ if [ ! -f "$CHECKPOINTS_DIR/torch_home/checkpoints/dinov2_vitl14_reg4_pretrain.p
 fi
 
 echo "SAM 3D checkpoints and dependencies downloaded."
+
+
+# Also download the dino vitb14 checkpoint
+mkdir -p "$CHECKPOINTS_DIR/torch_home/checkpoints"
+if [ ! -f "$CHECKPOINTS_DIR/torch_home/checkpoints/dinov2_vitb14_reg4_pretrain.pth" ]; then
+    curl -L https://dl.fbaipublicfiles.com/dinov2/dinov2_vitb14/dinov2_vitb14_reg4_pretrain.pth -o "$CHECKPOINTS_DIR/torch_home/checkpoints/dinov2_vitb14_reg4_pretrain.pth"
+fi

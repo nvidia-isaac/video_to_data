@@ -4,11 +4,11 @@ x-sam3d-base: &sam3d-base
     dockerfile: modules/sam3d/Dockerfile
   volumes:
     - ../../modules/sam3d/data:/workspace/modules/sam3d/data
-    - ../../modules/sam3d/checkpoints:/workspace/modules/sam3d/checkpoints
+    - ../../modules/sam3d/data/checkpoints:/workspace/modules/sam3d/data/checkpoints
   environment:
-    - CHECKPOINT_DIR=/workspace/modules/sam3d/checkpoints/hf-download
-    - TORCH_HOME=/workspace/modules/sam3d/checkpoints/torch_home
-    - HF_HOME=/workspace/modules/sam3d/checkpoints/hf_home
+    - CHECKPOINT_DIR=/workspace/modules/sam3d/data/checkpoints/hf-download
+    - TORCH_HOME=/workspace/modules/sam3d/data/checkpoints/torch_home
+    - HF_HOME=/workspace/modules/sam3d/data/checkpoints/hf_home
     - DATA_DIR=/data
     - REDIS_URL=redis://redis:6379/0
 
@@ -21,7 +21,7 @@ services:
     volumes:
       - ../../modules/sam3d/tests/test_data:/workspace/modules/sam3d/tests/test_data
       - ../../modules/sam3d/data:/workspace/modules/sam3d/data
-      - ../../modules/sam3d/checkpoints:/workspace/modules/sam3d/checkpoints
+      - ../../modules/sam3d/data/checkpoints:/workspace/modules/sam3d/data/checkpoints
     command: [
       "python", 
       "/workspace/modules/sam3d/functions/image_to_mesh.py", 

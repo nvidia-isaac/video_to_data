@@ -2,7 +2,7 @@
 SAM3D image to mesh processing function.
 Can be called directly from command line or imported as a function.
 """
-from modules.sam3d.utils import Transform3d, CameraIntrinsics
+from modules.common.datatypes import Transform3d, CameraIntrinsics
 import os
 import sys
 import argparse
