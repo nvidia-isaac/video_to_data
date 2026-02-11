@@ -46,6 +46,14 @@ services:
     entrypoint: ["python", "/workspace/modules/foundationpose/functions/simplify_mesh.py"]
     profiles: ["exec"]
 
+  foundationpose-render-overlay:
+    <<: *fp-base
+    extends:
+      file: ../common-compose.yaml
+      service: base-gpu
+    entrypoint: ["python", "/workspace/modules/foundationpose/functions/render_foundationpose_overlay.py"]
+    profiles: ["exec"]
+
   foundationpose-video-to-poses-worker:
     <<: *fp-base
     extends:

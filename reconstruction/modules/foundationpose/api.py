@@ -60,18 +60,21 @@ def process_video_to_poses():
             camera_intrinsics_path = os.path.join(input_dir, "intrinsics.json")
             save_uploaded_file(intrinsics_file, camera_intrinsics_path)
         
-        # Prepare output paths
-        poses_dir = os.path.join(output_dir, "poses")
-        
         # Get optional parameters
         reference_frame = int(request.form.get('reference_frame', 0))
         target_width = int(request.form.get('target_width')) if request.form.get('target_width') else None
         target_height = int(request.form.get('target_height')) if request.form.get('target_height') else None
+        render_debug = request.form.get('render_debug', 'false').lower() == 'true'
+        
+        # Prepare output paths
+        poses_dir = os.path.join(output_dir, "poses")
+        debug_render_dir = os.path.join(output_dir, "debug_render") if render_debug else None
         
         # Submit Celery task
         task = video_to_poses.delay(
             video_path, depth_folder, masks_folder, camera_intrinsics_path,
-            mesh_path, poses_dir, reference_frame, target_width, target_height
+            mesh_path, poses_dir, reference_frame, target_width, target_height,
+            render_debug=render_debug, debug_dir=debug_render_dir
         )
         
         # Wait for task completion

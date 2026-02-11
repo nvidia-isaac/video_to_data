@@ -3,16 +3,33 @@ from modules.foundationpose.functions.video_to_poses import video_to_poses as vi
 from modules.foundationpose.functions.simplify_mesh import simplify_mesh as simplify_mesh_func
 from modules.foundationpose.functions.transform_mesh import transform_mesh as transform_mesh_func
 from modules.foundationpose.functions.align_mesh_scale import align_mesh_scale as align_mesh_scale_func
+from modules.foundationpose.functions.render_foundationpose_overlay import render_foundationpose_overlay as render_foundationpose_overlay_func
 
 @celery_app.task(queue='foundationpose.video_to_poses')
-def video_to_poses(video_path: str, depth_folder: str, masks_folder: str, camera_intrinsics_path: str, mesh_path: str, poses_dir: str, reference_frame: int = 0, target_width: int = None, target_height: int = None):
+def video_to_poses(video_path: str, depth_folder: str, masks_folder: str, camera_intrinsics_path: str, mesh_path: str, poses_dir: str, reference_frame: int = 0, target_width: int = None, target_height: int = None, render_debug: bool = False, debug_dir: str = None):
     """Process a video to track object poses."""
-    return video_to_poses_func(
+    res = video_to_poses_func(
         video_path, depth_folder, masks_folder, camera_intrinsics_path, mesh_path, poses_dir,
         reference_frame=reference_frame,
         target_width=target_width,
         target_height=target_height
     )
+    
+    if render_debug and debug_dir:
+        render_foundationpose_overlay_func(
+            video_path=video_path,
+            poses_dir=poses_dir,
+            mesh_path=mesh_path,
+            camera_intrinsics_path=camera_intrinsics_path,
+            output_dir=debug_dir
+        )
+    
+    return res
+
+@celery_app.task(queue='foundationpose.render_overlay')
+def render_overlay(video_path: str, poses_dir: str, mesh_path: str, camera_intrinsics_path: str, output_dir: str):
+    """Render FoundationPose overlay on video."""
+    return render_foundationpose_overlay_func(video_path, poses_dir, mesh_path, camera_intrinsics_path, output_dir)
 
 @celery_app.task(queue='foundationpose.simplify_mesh')
 def simplify_mesh(input_mesh_path: str, output_mesh_path: str, face_count: int = None, factor: float = None):
