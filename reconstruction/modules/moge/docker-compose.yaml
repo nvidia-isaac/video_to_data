@@ -7,70 +7,18 @@ x-moge-base: &moge-base
   environment:
     - CHECKPOINT_DIR=/workspace/modules/moge/data/checkpoints/moge-2-vitl-normal
     - DATA_DIR=/data
-    - REDIS_URL=redis://redis:6379/0
 
 services:
-  moge-video-to-depth-test:
-    <<: *moge-base
-    extends:
-      file: ../common-compose.yaml
-      service: base-gpu
-    volumes:
-      - ../../modules/moge/tests/test_data:/workspace/modules/moge/tests/test_data
-      - ../../modules/moge/data/checkpoints:/workspace/modules/moge/data/checkpoints
-    command: [
-      "python", 
-      "/workspace/modules/moge/functions/video_to_depth.py", 
-      "--video_path", "/workspace/modules/moge/tests/test_data/test_video.mp4", 
-      "--depth_folder", "/workspace/modules/moge/tests/test_data/output/test_depth", 
-      "--intrinsics_folder", "/workspace/modules/moge/tests/test_data/output/test_intrinsics"
-    ]
-    profiles: ["tests"]
-
   moge-video-to-depth:
     <<: *moge-base
     extends:
       file: ../common-compose.yaml
       service: base-gpu
-    entrypoint: ["python", "/workspace/modules/moge/functions/video_to_depth.py"]
-    profiles: ["exec"]
+    entrypoint: ["python", "/workspace/modules/moge/video_to_depth.py"]
 
   moge-image-to-depth:
     <<: *moge-base
     extends:
       file: ../common-compose.yaml
       service: base-gpu
-    entrypoint: ["python", "/workspace/modules/moge/functions/image_to_depth.py"]
-    profiles: ["exec"]
-
-  moge-video-to-depth-worker:
-    <<: *moge-base
-    extends:
-      file: ../common-compose.yaml
-      service: base-gpu
-    depends_on:
-      - redis
-    command: ["celery", "-A", "modules.moge.worker", "worker", "--loglevel=info", "-Q", "moge.video_to_depth", "--concurrency=1", "--prefetch-multiplier=1"]
-    profiles: ["workers", "api"]
-
-  moge-image-to-depth-worker:
-    <<: *moge-base
-    extends:
-      file: ../common-compose.yaml
-      service: base-gpu
-    depends_on:
-      - redis
-    command: ["celery", "-A", "modules.moge.worker", "worker", "--loglevel=info", "-Q", "moge.image_to_depth", "--concurrency=1", "--prefetch-multiplier=1"]
-    profiles: ["workers", "api"]
-
-  moge-api:
-    <<: *moge-base
-    extends:
-      file: ../common-compose.yaml
-      service: base-api
-    ports:
-      - "8002:8002"
-    command: ["python", "/workspace/modules/moge/api.py"]
-    depends_on:
-      - redis
-    profiles: ["api"]
+    entrypoint: ["python", "/workspace/modules/moge/image_to_depth.py"]

@@ -6,7 +6,6 @@ x-nlf-base: &nlf-base
     - ../../data:/app/data
     - ../../modules/nlf/data:/app/modules/nlf/data
   environment:
-    - REDIS_URL=redis://redis:6379/0
     - SMPL_MODEL_ROOT=/app/modules/nlf/data/smpl_models
     - NLF_WEIGHTS_PATH=/app/modules/nlf/data/weights/nlf_l_multi_0.3.2.torchscript
 
@@ -16,34 +15,11 @@ services:
     extends:
       file: ../common-compose.yaml
       service: base-gpu
-    entrypoint: ["python3", "modules/nlf/functions/video_to_smpl.py"]
-    profiles: ["exec"]
+    entrypoint: ["python3", "modules/nlf/video_to_smpl.py"]
 
   nlf-render-smpl-overlay:
     <<: *nlf-base
     extends:
       file: ../common-compose.yaml
       service: base-gpu
-    entrypoint: ["python3", "modules/nlf/functions/render_smpl_overlay.py"]
-    profiles: ["exec"]
-
-  nlf-api:
-    <<: *nlf-base
-    extends:
-      file: ../common-compose.yaml
-      service: base-api
-    container_name: nlf-api
-    ports:
-      - "8006:8005"
-    command: python3 modules/nlf/api.py
-    profiles: ["api"]
-
-  nlf-worker:
-    <<: *nlf-base
-    extends:
-      file: ../common-compose.yaml
-      service: base-gpu
-    container_name: nlf-worker
-    command: ["celery", "-A", "modules.nlf.worker", "worker", "--loglevel=info", "-Q", "nlf.video_to_smpl", "--pool=solo"]
-    profiles: ["workers", "api"]
-
+    entrypoint: ["python3", "modules/nlf/render_smpl_overlay.py"]

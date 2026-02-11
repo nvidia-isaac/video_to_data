@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y \
 # Install MoGE from source/pip
 RUN pip install git+https://github.com/microsoft/MoGE.git#egg=moge
 
-RUN pip install flask requests Pillow opencv-python celery[redis] redis
+RUN pip install requests Pillow opencv-python
 
 # Copy common utilities
 COPY modules/common /workspace/modules/common

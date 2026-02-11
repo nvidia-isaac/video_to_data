@@ -11,7 +11,7 @@ import pyrender
 import argparse
 from modules.common.datatypes import CameraIntrinsics
 
-def render_foundationpose_overlay(
+def render_overlay(
     video_path: str,
     poses_dir: str,
     mesh_path: str,
@@ -20,7 +20,7 @@ def render_foundationpose_overlay(
     device: str = "cuda"
 ):
     """
-    Renders FoundationPose object overlay on video frames.
+    Renders object overlay on video frames.
     """
     os.makedirs(output_dir, exist_ok=True)
 
@@ -129,7 +129,7 @@ if __name__ == "__main__":
     parser.add_argument("--output_dir", type=str, required=True)
     
     args = parser.parse_args()
-    render_foundationpose_overlay(
+    render_overlay(
         args.video_path, 
         args.poses_dir, 
         args.mesh_path, 

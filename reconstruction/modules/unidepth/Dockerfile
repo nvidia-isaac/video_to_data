@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y \
 # Install UniDepth
 RUN pip install git+https://github.com/lpiccinelli-eth/UniDepth.git
 
-RUN pip install flask requests Pillow opencv-python celery[redis] redis
+RUN pip install requests Pillow opencv-python
 
 # Copy common utilities
 COPY modules/common /workspace/modules/common

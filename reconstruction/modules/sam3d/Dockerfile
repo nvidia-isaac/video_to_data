@@ -25,7 +25,7 @@ RUN pip3 install "git+https://github.com/facebookresearch/pytorch3d.git"
 RUN pip3 install git+https://github.com/microsoft/MoGe.git@a8c37341bc0325ca99b9d57981cc3bb2bd3e255b#egg=moge
 
 # Install other requirements
-RUN pip3 install flask requests tqdm pillow opencv-python omegaconf hydra-core seaborn utils3d trimesh
+RUN pip3 install requests tqdm pillow opencv-python omegaconf hydra-core seaborn utils3d trimesh
 
 # Install sam-3d-objects
 RUN git clone https://github.com/facebookresearch/sam-3d-objects.git /workspace/third_party/sam-3d-objects && \
@@ -53,4 +53,3 @@ ENV CUDA_HOME=/usr/local/cuda
 ENV LIDRA_SKIP_INIT=1
 
 ENV PYTHONPATH=/workspace
-RUN pip install celery[redis] redis

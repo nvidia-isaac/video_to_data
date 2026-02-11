@@ -10,7 +10,6 @@ x-fp-base: &fp-base
     - CHECKPOINT_DIR=/workspace/modules/foundationpose/data/checkpoints/foundationpose
     - WEIGHTS_DIR=/workspace/modules/foundationpose/data/checkpoints/weights
     - DATA_DIR=/data
-    - REDIS_URL=redis://redis:6379/0
 
 services:
   foundationpose-video-to-poses:
@@ -19,100 +18,32 @@ services:
       file: ../common-compose.yaml
       service: base-gpu
     shm_size: '14gb'
-    entrypoint: ["python", "/workspace/modules/foundationpose/functions/video_to_poses.py"]
-    profiles: ["exec"]
+    entrypoint: ["python", "/workspace/modules/foundationpose/video_to_poses.py"]
 
   foundationpose-align-mesh:
     <<: *fp-base
     extends:
       file: ../common-compose.yaml
       service: base-gpu
-    entrypoint: ["python", "/workspace/modules/foundationpose/functions/align_mesh_scale.py"]
-    profiles: ["exec"]
+    entrypoint: ["python", "/workspace/modules/foundationpose/align_mesh_scale.py"]
 
   foundationpose-transform-mesh:
     <<: *fp-base
     extends:
       file: ../common-compose.yaml
       service: base-cpu
-    entrypoint: ["python", "/workspace/modules/foundationpose/functions/transform_mesh.py"]
-    profiles: ["exec"]
+    entrypoint: ["python", "/workspace/modules/foundationpose/transform_mesh.py"]
 
   foundationpose-simplify-mesh:
     <<: *fp-base
     extends:
       file: ../common-compose.yaml
       service: base-cpu
-    entrypoint: ["python", "/workspace/modules/foundationpose/functions/simplify_mesh.py"]
-    profiles: ["exec"]
+    entrypoint: ["python", "/workspace/modules/foundationpose/simplify_mesh.py"]
 
   foundationpose-render-overlay:
     <<: *fp-base
     extends:
       file: ../common-compose.yaml
       service: base-gpu
-    entrypoint: ["python", "/workspace/modules/foundationpose/functions/render_foundationpose_overlay.py"]
-    profiles: ["exec"]
-
-  foundationpose-video-to-poses-worker:
-    <<: *fp-base
-    extends:
-      file: ../common-compose.yaml
-      service: base-gpu
-    shm_size: '14gb'
-    depends_on:
-      - redis
-    command: ["celery", "-A", "modules.foundationpose.worker", "worker", "--loglevel=info", "-Q", "foundationpose.video_to_poses", "--pool=solo"]
-    profiles: ["workers", "api"]
-
-  foundationpose-align-mesh-worker:
-    <<: *fp-base
-    extends:
-      file: ../common-compose.yaml
-      service: base-gpu
-    depends_on:
-      - redis
-    command: ["celery", "-A", "modules.foundationpose.worker", "worker", "--loglevel=info", "-Q", "foundationpose.align_mesh_scale", "--pool=solo"]
-    profiles: ["workers", "api"]
-
-  foundationpose-transform-mesh-worker:
-    <<: *fp-base
-    extends:
-      file: ../common-compose.yaml
-      service: base-cpu
-    depends_on:
-      - redis
-    command: ["celery", "-A", "modules.foundationpose.worker", "worker", "--loglevel=info", "-Q", "foundationpose.transform_mesh", "--concurrency=4", "--prefetch-multiplier=1"]
-    profiles: ["workers", "api"]
-
-  foundationpose-simplify-mesh-worker:
-    <<: *fp-base
-    extends:
-      file: ../common-compose.yaml
-      service: base-cpu
-    depends_on:
-      - redis
-    command: ["celery", "-A", "modules.foundationpose.worker", "worker", "--loglevel=info", "-Q", "foundationpose.simplify_mesh", "--concurrency=2", "--prefetch-multiplier=1"]
-    profiles: ["workers", "api"]
-
-  foundationpose-render-overlay-worker:
-    <<: *fp-base
-    extends:
-      file: ../common-compose.yaml
-      service: base-gpu
-    depends_on:
-      - redis
-    command: ["celery", "-A", "modules.foundationpose.worker", "worker", "--loglevel=info", "-Q", "foundationpose.render_overlay", "--pool=solo"]
-    profiles: ["workers", "api"]
-
-  foundationpose-api:
-    <<: *fp-base
-    extends:
-      file: ../common-compose.yaml
-      service: base-api
-    ports:
-      - "8005:8005"
-    command: ["python", "/workspace/modules/foundationpose/api.py"]
-    depends_on:
-      - redis
-    profiles: ["api"]
+    entrypoint: ["python", "/workspace/modules/foundationpose/render_foundationpose_overlay.py"]

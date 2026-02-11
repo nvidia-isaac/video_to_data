@@ -25,7 +25,7 @@ RUN apt-get update && apt-get install -y \
 RUN pip3 install git+https://github.com/isarandi/smplfitter.git
 
 # Install rendering and detection dependencies
-RUN pip3 install pyrender trimesh h5py opencv-python torchvision flask celery[redis] redis
+RUN pip3 install pyrender trimesh h5py opencv-python torchvision
 
 # Copy the module and common code
 COPY modules/nlf /app/modules/nlf
@@ -35,7 +35,3 @@ COPY modules/common /app/modules/common
 ENV PYTHONPATH=/app
 ENV SMPL_MODEL_ROOT=/app/modules/nlf/data/smpl_models
 ENV NLF_WEIGHTS_PATH=/app/modules/nlf/data/weights/nlf_l_multi_0.3.2.torchscript
-
-# Command is overridden in docker-compose
-CMD ["python3", "modules/nlf/api.py"]
-

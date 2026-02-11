@@ -76,8 +76,7 @@ RUN pip install \
     seaborn \
     opencv-contrib-python \
     openpyxl \
-    wandb \
-    flask
+    wandb
 
 RUN pip install h5py
 
@@ -90,11 +89,10 @@ RUN cd /workspace/modules/foundationpose/third_party/FoundationPose/mycpp \
 RUN cd /workspace/modules/foundationpose/third_party/FoundationPose/bundlesdf/mycuda && \
     TORCH_CUDA_ARCH_LIST="8.0 8.6 8.9 9.0" pip install -e .
 
-RUN pip install celery[redis] redis fast_simplification
+RUN pip install fast_simplification
 
 # Copy common utilities
 COPY modules/common /workspace/modules/common
-COPY modules/foundationpose/*.py /workspace/modules/foundationpose
-COPY modules/foundationpose/functions /workspace/modules/foundationpose/functions
+COPY modules/foundationpose /workspace/modules/foundationpose
 
 ENV PYTHONPATH=/workspace
