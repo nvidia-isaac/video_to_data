@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>End-to-End Reconstruction Pipeline</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        :root {
+            --nvidia-green: #76b900;
+            --nvidia-black: #000000;
+            --nvidia-gray: #1a1a1a;
+            --nvidia-light-gray: #2d2d2d;
+            --text-color: #ffffff;
+        }
+
+        body {
+            background-color: var(--nvidia-black);
+            color: var(--text-color);
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header */
+        .navbar {
+            background-color: var(--nvidia-gray);
+            border-bottom: 2px solid var(--nvidia-green);
+            padding: 0.5rem 1rem;
+            z-index: 1000;
+        }
+        .navbar-brand {
+            color: var(--nvidia-green) !important;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* Main Workspace */
+        .workspace {
+            flex: 1;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: radial-gradient(circle, #222 0%, #000 100%);
+            overflow: hidden;
+        }
+
+        #canvas-container {
+            position: relative;
+            box-shadow: 0 0 50px rgba(0,0,0,0.5);
+            max-width: 95vw;
+            max-height: 80vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #video-player {
+            max-width: 100%;
+            max-height: 80vh;
+            display: block;
+        }
+
+        #annotation-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: all;
+        }
+
+        /* Floating Toolbar */
+        .floating-toolbar {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(26, 26, 26, 0.9);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--nvidia-light-gray);
+            border-radius: 50px;
+            padding: 8px 20px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            z-index: 1100;
+            transition: all 0.3s ease;
+        }
+
+        .tool-group {
+            display: flex;
+            gap: 5px;
+            padding-right: 15px;
+            border-right: 1px solid var(--nvidia-light-gray);
+        }
+
+        .btn-tool {
+            background: transparent;
+            border: none;
+            color: #aaa;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            font-size: 1.2rem;
+        }
+
+        .btn-tool:hover {
+            color: var(--nvidia-green);
+            background: rgba(118, 185, 0, 0.1);
+        }
+
+        .btn-tool.active {
+            color: var(--nvidia-black);
+            background: var(--nvidia-green);
+        }
+
+        /* Sidebar for Objects */
+        .side-panel {
+            position: absolute;
+            right: 20px;
+            top: 100px;
+            width: 280px;
+            background-color: rgba(26, 26, 26, 0.9);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--nvidia-light-gray);
+            border-radius: 12px;
+            padding: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            z-index: 1050;
+            max-height: calc(100vh - 250px);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .panel-header {
+            font-size: 0.9rem;
+            font-weight: bold;
+            color: var(--nvidia-green);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 15px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .object-list {
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .prompt-item {
+            background: var(--nvidia-light-gray);
+            border-radius: 6px;
+            padding: 8px 10px;
+            margin-bottom: 8px;
+            font-size: 0.85rem;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .prompt-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .role-selector {
+            background: #333;
+            border: none;
+            color: white;
+            font-size: 0.75rem;
+            padding: 2px 5px;
+            border-radius: 4px;
+        }
+
+        /* Bottom Timeline */
+        .timeline-container {
+            background-color: var(--nvidia-gray);
+            padding: 15px 30px;
+            border-top: 1px solid var(--nvidia-light-gray);
+            z-index: 1000;
+        }
+
+        .slider-wrapper {
+            position: relative;
+            padding: 10px 0;
+        }
+
+        #frame-slider {
+            width: 100%;
+            accent-color: var(--nvidia-green);
+            cursor: pointer;
+        }
+
+        /* Upload Overlay */
+        #upload-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--nvidia-black);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+
+        .upload-card {
+            background: var(--nvidia-gray);
+            padding: 40px;
+            border-radius: 20px;
+            border: 1px solid var(--nvidia-light-gray);
+            text-align: center;
+            width: 400px;
+        }
+
+        .upload-icon {
+            font-size: 4rem;
+            color: var(--nvidia-green);
+            margin-bottom: 20px;
+        }
+
+        .btn-nvidia {
+            background-color: var(--nvidia-green);
+            color: var(--nvidia-black);
+            font-weight: bold;
+            border: none;
+            padding: 10px 25px;
+            border-radius: 50px;
+            transition: transform 0.2s;
+        }
+
+        .btn-nvidia:hover {
+            transform: scale(1.05);
+            background-color: #87d400;
+        }
+
+        .btn-nvidia:disabled {
+            background-color: #4a7400;
+            opacity: 0.7;
+        }
+
+        /* Progress Modal */
+        #progress-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 3000;
+        }
+
+        .progress-card {
+            background: var(--nvidia-gray);
+            padding: 30px;
+            border-radius: 15px;
+            width: 500px;
+            border: 1px solid var(--nvidia-green);
+        }
+
+        .step-item {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 15px;
+            color: #888;
+        }
+
+        .step-item.active {
+            color: var(--nvidia-green);
+        }
+
+        .step-item.completed {
+            color: white;
+        }
+
+        .step-icon {
+            width: 24px;
+            text-align: center;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: var(--nvidia-light-gray);
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #444;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="navbar-brand">
+            <i class="bi bi-gpu-card"></i>
+            PIPELINE ORCHESTRATOR
+        </div>
+        <div class="ms-auto">
+            <button id="process-btn" class="btn btn-nvidia btn-sm" style="display:none;">
+                <i class="bi bi-play-fill"></i> RUN FULL PIPELINE
+            </button>
+        </div>
+    </nav>
+
+    <div id="upload-overlay">
+        <div class="upload-card">
+            <i class="bi bi-cloud-arrow-up upload-icon"></i>
+            <h3>New Pipeline Job</h3>
+            <p class="text-secondary mb-4">Upload a video to start the process</p>
+            <input type="file" id="video-upload" class="form-control mb-3" accept="video/*" style="background: #2d2d2d; border-color: #444; color: white;">
+            <button id="upload-btn" class="btn btn-nvidia w-100">INITIALIZE WORKSPACE</button>
+        </div>
+    </div>
+
+    <div class="workspace">
+        <div id="canvas-container" style="display:none;">
+            <video id="video-player"></video>
+            <canvas id="annotation-canvas"></canvas>
+        </div>
+
+        <div id="floating-toolbar" class="floating-toolbar" style="display:none;">
+            <div class="tool-group">
+                <button class="btn-tool active" data-tool="pos" title="Positive Point (P)">
+                    <i class="bi bi-plus-circle-fill"></i>
+                </button>
+                <button class="btn-tool" data-tool="neg" title="Negative Point (N)">
+                    <i class="bi bi-dash-circle-fill"></i>
+                </button>
+                <button class="btn-tool" data-tool="box" title="Bounding Box (B)">
+                    <i class="bi bi-bounding-box"></i>
+                </button>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <span class="small text-secondary">OBJ ID</span>
+                <input type="number" id="obj-id" class="form-control form-control-sm" value="0" min="0" style="width: 60px; background: #2d2d2d; border: none; color: white;">
+            </div>
+            <div class="ms-2 ps-2 border-start border-secondary">
+                <button id="clear-frame-btn" class="btn-tool" title="Clear Frame (C)">
+                    <i class="bi bi-trash3"></i>
+                </button>
+            </div>
+        </div>
+
+        <div id="side-panel" class="side-panel" style="display:none;">
+            <div class="panel-header">
+                <span>Prompts</span>
+                <span id="prompt-count" class="badge bg-dark">0</span>
+            </div>
+            <div id="prompts-display" class="object-list">
+                <!-- Prompts will be listed here -->
+            </div>
+        </div>
+    </div>
+
+    <div class="timeline-container" id="timeline" style="display:none;">
+        <div class="d-flex justify-content-between mb-1">
+            <span id="current-frame" class="small text-secondary">FRAME: 0</span>
+            <span id="total-frames" class="small text-secondary">TOTAL: 0</span>
+        </div>
+        <div class="slider-wrapper">
+            <input type="range" id="frame-slider" min="0" value="0">
+        </div>
+    </div>
+
+    <div id="progress-modal">
+        <div class="progress-card">
+            <h4 class="mb-4 text-nvidia">Pipeline Execution</h4>
+            <div id="pipeline-steps">
+                <div class="step-item" id="step-sam2"><div class="step-icon"><i class="bi bi-circle"></i></div> SAM2 Segmentation</div>
+                <div class="step-item" id="step-moge"><div class="step-icon"><i class="bi bi-circle"></i></div> MoGe Depth Estimation</div>
+                <div class="step-item" id="step-sam3d"><div class="step-icon"><i class="bi bi-circle"></i></div> SAM3D Mesh Generation</div>
+                <div class="step-item" id="step-alignment"><div class="step-icon"><i class="bi bi-circle"></i></div> Mesh Alignment & Simplification</div>
+                <div class="step-item" id="step-foundationpose"><div class="step-icon"><i class="bi bi-circle"></i></div> FoundationPose Tracking</div>
+                <div class="step-item" id="step-nlf"><div class="step-icon"><i class="bi bi-circle"></i></div> NLF SMPL Fitting</div>
+                <div class="step-item" id="step-rendering"><div class="step-icon"><i class="bi bi-circle"></i></div> Final Visualization</div>
+            </div>
+            <div class="mt-4">
+                <div class="progress" style="height: 5px; background: #333;">
+                    <div id="overall-progress" class="progress-bar bg-nvidia" style="width: 0%"></div>
+                </div>
+            </div>
+            <button id="download-btn" class="btn btn-nvidia w-100 mt-4" style="display:none;">DOWNLOAD RESULTS</button>
+        </div>
+    </div>
+
+    <script>
+        let video = document.getElementById('video-player');
+        let canvas = document.getElementById('annotation-canvas');
+        let ctx = canvas.getContext('2d');
+        let slider = document.getElementById('frame-slider');
+        let prompts = []; 
+        let currentJobId = null;
+        let isDrawingBox = false;
+        let boxStart = null;
+        let currentTool = 'pos';
+        let tempBox = null;
+        let objectRoles = {}; // {obj_id: 'object' | 'human'}
+
+        // Tool Selection
+        document.querySelectorAll('.btn-tool[data-tool]').forEach(btn => {
+            btn.onclick = () => {
+                document.querySelectorAll('.btn-tool').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentTool = btn.dataset.tool;
+            };
+        });
+
+        // Keyboard Shortcuts
+        window.addEventListener('keydown', (e) => {
+            if (e.key.toLowerCase() === 'p') document.querySelector('[data-tool="pos"]').click();
+            if (e.key.toLowerCase() === 'n') document.querySelector('[data-tool="neg"]').click();
+            if (e.key.toLowerCase() === 'b') document.querySelector('[data-tool="box"]').click();
+            if (e.key.toLowerCase() === 'c') document.getElementById('clear-frame-btn').click();
+            if (e.key === 'ArrowRight') { slider.value = parseInt(slider.value) + 1; slider.oninput(); }
+            if (e.key === 'ArrowLeft') { slider.value = parseInt(slider.value) - 1; slider.oninput(); }
+        });
+
+        document.getElementById('upload-btn').onclick = async () => {
+            let file = document.getElementById('video-upload').files[0];
+            if (!file) return;
+
+            let formData = new FormData();
+            formData.append('video', file);
+
+            document.getElementById('upload-btn').disabled = true;
+            document.getElementById('upload-btn').innerText = 'INITIALIZING...';
+
+            try {
+                let res = await fetch('/upload_video', { method: 'POST', body: formData });
+                let data = await res.json();
+                currentJobId = data.job_id;
+                
+                video.src = `/video/${currentJobId}`;
+                
+                const setupEditor = () => {
+                    document.getElementById('canvas-container').style.display = 'flex';
+                    document.getElementById('floating-toolbar').style.display = 'flex';
+                    document.getElementById('side-panel').style.display = 'flex';
+                    document.getElementById('timeline').style.display = 'block';
+                    document.getElementById('process-btn').style.display = 'block';
+                    document.getElementById('upload-overlay').style.display = 'none';
+
+                    canvas.width = video.clientWidth;
+                    canvas.height = video.clientHeight;
+                    
+                    slider.max = Math.floor(video.duration * 30);
+                    document.getElementById('total-frames').innerText = `TOTAL: ${slider.max}`;
+                    drawAnnotations();
+                };
+
+                if (video.readyState >= 1) {
+                    setupEditor();
+                } else {
+                    video.onloadedmetadata = setupEditor;
+                }
+            } catch (e) {
+                alert('Initialization failed: ' + e);
+                document.getElementById('upload-btn').disabled = false;
+                document.getElementById('upload-btn').innerText = 'INITIALIZE WORKSPACE';
+            }
+        };
+
+        slider.oninput = () => {
+            let frame = parseInt(slider.value);
+            video.currentTime = frame / 30;
+            document.getElementById('current-frame').innerText = `FRAME: ${frame}`;
+            drawAnnotations();
+        };
+
+        canvas.onmousedown = (e) => {
+            let rect = canvas.getBoundingClientRect();
+            let x = (e.clientX - rect.left) / canvas.width;
+            let y = (e.clientY - rect.top) / canvas.height;
+            let frameIdx = parseInt(slider.value);
+            let objId = parseInt(document.getElementById('obj-id').value);
+
+            let prompt = prompts.find(p => p.frame_index === frameIdx && p.object_id === objId);
+            if (!prompt) {
+                prompt = { frame_index: frameIdx, object_id: objId, points: [], point_labels: [], box: null };
+                prompts.push(prompt);
+                if (!objectRoles[objId]) objectRoles[objId] = 'object';
+            }
+
+            if (currentTool === 'pos' || currentTool === 'neg') {
+                prompt.points.push([x, y]);
+                prompt.point_labels.push(currentTool === 'pos' ? 1 : 0);
+                drawAnnotations();
+                updatePromptList();
+            } else if (currentTool === 'box') {
+                isDrawingBox = true;
+                boxStart = [x, y];
+                tempBox = [x, y, x, y];
+            }
+        };
+
+        canvas.onmousemove = (e) => {
+            if (!isDrawingBox) return;
+            let rect = canvas.getBoundingClientRect();
+            let x = (e.clientX - rect.left) / canvas.width;
+            let y = (e.clientY - rect.top) / canvas.height;
+            
+            tempBox = [
+                Math.min(boxStart[0], x), Math.min(boxStart[1], y),
+                Math.max(boxStart[0], x), Math.max(boxStart[1], y)
+            ];
+            drawAnnotations();
+        };
+
+        canvas.onmouseup = (e) => {
+            if (!isDrawingBox) return;
+            let rect = canvas.getBoundingClientRect();
+            let x = (e.clientX - rect.left) / canvas.width;
+            let y = (e.clientY - rect.top) / canvas.height;
+            
+            let frameIdx = parseInt(slider.value);
+            let objId = parseInt(document.getElementById('obj-id').value);
+            let prompt = prompts.find(p => p.frame_index === frameIdx && p.object_id === objId);
+            
+            prompt.box = [
+                Math.min(boxStart[0], x), Math.min(boxStart[1], y),
+                Math.max(boxStart[0], x), Math.max(boxStart[1], y)
+            ];
+            isDrawingBox = false;
+            tempBox = null;
+            drawAnnotations();
+            updatePromptList();
+        };
+
+        function drawAnnotations() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            let frameIdx = parseInt(slider.value);
+            
+            prompts.filter(p => p.frame_index === frameIdx).forEach(p => {
+                p.points.forEach((pt, i) => {
+                    ctx.fillStyle = p.point_labels[i] === 1 ? '#76b900' : '#ff4444';
+                    ctx.beginPath();
+                    ctx.arc(pt[0] * canvas.width, pt[1] * canvas.height, 6, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = 'white';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                });
+                if (p.box) {
+                    ctx.strokeStyle = '#0088ff';
+                    ctx.lineWidth = 3;
+                    ctx.setLineDash([5, 5]);
+                    ctx.strokeRect(p.box[0] * canvas.width, p.box[1] * canvas.height, 
+                                   (p.box[2] - p.box[0]) * canvas.width, (p.box[3] - p.box[1]) * canvas.height);
+                    ctx.setLineDash([]);
+                }
+            });
+
+            if (isDrawingBox && tempBox) {
+                ctx.strokeStyle = '#0088ff';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(tempBox[0] * canvas.width, tempBox[1] * canvas.height, 
+                               (tempBox[2] - tempBox[0]) * canvas.width, (tempBox[3] - tempBox[1]) * canvas.height);
+            }
+        }
+
+        function updatePromptList() {
+            let container = document.getElementById('prompts-display');
+            container.innerHTML = '';
+            document.getElementById('prompt-count').innerText = prompts.length;
+            
+            prompts.forEach((p, i) => {
+                let div = document.createElement('div');
+                div.className = 'prompt-item';
+                div.innerHTML = `
+                    <div class="prompt-info">
+                        <div>
+                            <span class="text-success">OBJ ${p.object_id}</span>
+                            <span class="text-secondary mx-1">•</span>
+                            <span>F${p.frame_index}</span>
+                        </div>
+                        <i class="bi bi-x-circle text-danger cursor-pointer" onclick="removePrompt(${i})"></i>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <select class="role-selector" onchange="updateRole(${p.object_id}, this.value)">
+                            <option value="object" ${objectRoles[p.object_id] === 'object' ? 'selected' : ''}>Target Object</option>
+                            <option value="human" ${objectRoles[p.object_id] === 'human' ? 'selected' : ''}>Human</option>
+                        </select>
+                        <span class="badge bg-dark">${p.points.length}P ${p.box ? 'B' : ''}</span>
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        window.updateRole = (objId, role) => {
+            objectRoles[objId] = role;
+        };
+
+        window.removePrompt = (i) => {
+            prompts.splice(i, 1);
+            updatePromptList();
+            drawAnnotations();
+        };
+
+        document.getElementById('clear-frame-btn').onclick = () => {
+            let frameIdx = parseInt(slider.value);
+            let objId = parseInt(document.getElementById('obj-id').value);
+            prompts = prompts.filter(p => !(p.frame_index === frameIdx && p.object_id === objId));
+            updatePromptList();
+            drawAnnotations();
+        };
+
+        document.getElementById('process-btn').onclick = async () => {
+            if (prompts.length === 0) {
+                alert('Please add at least one prompt.');
+                return;
+            }
+
+            let videoWidth = video.videoWidth;
+            let videoHeight = video.videoHeight;
+
+            let formattedPrompts = {
+                prompts: prompts.map(p => ({
+                    frame_index: p.frame_index,
+                    object_id: p.object_id,
+                    role: objectRoles[p.object_id],
+                    points: p.points.map(pt => ({ x: pt[0] * videoWidth, y: pt[1] * videoHeight })),
+                    point_labels: p.point_labels,
+                    box: p.box ? { 
+                        x0: p.box[0] * videoWidth, y0: p.box[1] * videoHeight, 
+                        x1: p.box[2] * videoWidth, y1: p.box[3] * videoHeight 
+                    } : null
+                }))
+            };
+
+            let formData = new FormData();
+            formData.append('job_id', currentJobId);
+            formData.append('prompts', JSON.stringify(formattedPrompts));
+
+            document.getElementById('progress-modal').style.display = 'flex';
+
+            try {
+                let res = await fetch('/run_pipeline', { method: 'POST', body: formData });
+                let data = await res.json();
+                pollStatus(data.task_id);
+            } catch (e) {
+                alert('Pipeline failed to start: ' + e);
+                document.getElementById('progress-modal').style.display = 'none';
+            }
+        };
+
+        async function pollStatus(taskId) {
+            const steps = ['sam2', 'moge', 'sam3d', 'alignment', 'foundationpose', 'nlf', 'rendering'];
+            
+            let interval = setInterval(async () => {
+                try {
+                    let res = await fetch(`/status/${taskId}`);
+                    let data = await res.json();
+                    
+                    if (data.info && data.info.current_step) {
+                        let currentIdx = steps.indexOf(data.info.current_step);
+                        steps.forEach((step, idx) => {
+                            let el = document.getElementById(`step-${step}`);
+                            let icon = el.querySelector('.step-icon i');
+                            if (idx < currentIdx) {
+                                el.className = 'step-item completed';
+                                icon.className = 'bi bi-check-circle-fill text-success';
+                            } else if (idx === currentIdx) {
+                                el.className = 'step-item active';
+                                icon.className = 'bi bi-arrow-right-circle-fill text-nvidia';
+                            }
+                        });
+                        document.getElementById('overall-progress').style.width = `${(currentIdx / steps.length) * 100}%`;
+                    }
+
+                    if (data.status === 'SUCCESS') {
+                        clearInterval(interval);
+                        steps.forEach(step => {
+                            let el = document.getElementById(`step-${step}`);
+                            el.className = 'step-item completed';
+                            el.querySelector('.step-icon i').className = 'bi bi-check-circle-fill text-success';
+                        });
+                        document.getElementById('overall-progress').style.width = '100%';
+                        document.getElementById('download-btn').style.display = 'block';
+                        document.getElementById('download-btn').onclick = () => {
+                            window.location.href = `/download/${currentJobId}`;
+                        };
+                    } else if (data.status === 'FAILURE') {
+                        clearInterval(interval);
+                        alert('Pipeline failed: ' + data.result);
+                    }
+                } catch (e) {
+                    console.error('Polling error:', e);
+                }
+            }, 2000);
+        }
+    </script>
+</body>
+</html>
+
+

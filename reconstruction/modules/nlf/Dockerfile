@@ -25,7 +25,7 @@ RUN apt-get update && apt-get install -y \
 RUN pip3 install git+https://github.com/isarandi/smplfitter.git
 
 # Install rendering and detection dependencies
-RUN pip3 install pyrender trimesh h5py opencv-python torchvision
+RUN pip3 install pyrender trimesh h5py opencv-python torchvision flask celery[redis] redis
 
 # Copy the module and common code
 COPY modules/nlf /app/modules/nlf

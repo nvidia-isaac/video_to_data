@@ -6,7 +6,6 @@ services:
       - ./data/redis:/data
     ports:
       - "6379:6379"
-    profiles: ["workers", "api"]
 
   flower:
     build:
@@ -29,3 +28,4 @@ include:
   - modules/sam3d/docker-compose.yaml
   - modules/foundationpose/docker-compose.yaml
   - modules/nlf/docker-compose.yaml
+  - modules/orchestrator/docker-compose.yaml

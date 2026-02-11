@@ -104,6 +104,8 @@ class InferencePipelinePointMap(InferencePipeline):
         super().__init__(*args, **kwargs)
 
     def _compile(self):
+        logger.info("Skipping _compile to avoid hanging in Celery worker")
+        return
         torch._dynamo.config.cache_size_limit = 64
         torch._dynamo.config.accumulated_cache_size_limit = 2048
         torch._dynamo.config.capture_scalar_outputs = True
@@ -141,6 +143,8 @@ class InferencePipelinePointMap(InferencePipeline):
         self._warmup()
 
     def _warmup(self, num_warmup_iters=3):
+        logger.info("Skipping _warmup to avoid hanging in Celery worker")
+        return
         test_image = np.ones((512, 512, 4), dtype=np.uint8) * 255
         test_image[:, :, :3] = np.random.randint(0, 255, (512, 512, 3), dtype=np.uint8)
         image = Image.fromarray(test_image)

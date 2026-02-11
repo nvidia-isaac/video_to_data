@@ -6,12 +6,12 @@ from modules.sam3d.worker import celery_app
 from modules.sam3d.functions.image_to_mesh import image_to_mesh as image_to_mesh_func
 from modules.sam3d.functions.render_debug_image import render_debug_image as render_debug_image_func
 
-@celery_app.task(queue='sam3d.render_debug_image')
+@celery_app.task(name='sam3d.render_debug_image', queue='sam3d.render_debug_image')
 def render_debug_image(image_path: str, mesh_path: str, transform_path: str, intrinsics_path: str, output_image_path: str, num_vertices_to_use: int = 5000):
     """Render a debug image of a mesh"""
     return render_debug_image_func(image_path, mesh_path, transform_path, intrinsics_path, output_image_path, num_vertices_to_use)
 
-@celery_app.task(queue='sam3d.image_to_mesh')
+@celery_app.task(name='sam3d.image_to_mesh', queue='sam3d.image_to_mesh')
 def image_to_mesh(image_path: str, mask_path: str, mesh_path: str, transform_path: str, intrinsics_path: str,
                  seed: int = None,
                  stage1_only: bool = False,

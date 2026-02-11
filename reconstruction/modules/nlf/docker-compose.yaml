@@ -34,7 +34,7 @@ services:
       service: base-api
     container_name: nlf-api
     ports:
-      - "8005:8005"
+      - "8006:8005"
     command: python3 modules/nlf/api.py
     profiles: ["api"]
 
@@ -46,8 +46,4 @@ services:
     container_name: nlf-worker
     command: python3 modules/nlf/worker.py
     profiles: ["workers", "api"]
-
-networks:
-  reconstruction-network:
-    external: true
 

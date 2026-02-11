@@ -5,6 +5,7 @@ x-sam3d-base: &sam3d-base
   volumes:
     - ../../modules/sam3d/data:/workspace/modules/sam3d/data
     - ../../modules/sam3d/data/checkpoints:/workspace/modules/sam3d/data/checkpoints
+    - ../../modules/sam3d/tests/test_data:/workspace/modules/sam3d/tests/test_data
   environment:
     - CHECKPOINT_DIR=/workspace/modules/sam3d/data/checkpoints/hf-download
     - TORCH_HOME=/workspace/modules/sam3d/data/checkpoints/torch_home
@@ -18,10 +19,6 @@ services:
     extends:
       file: ../common-compose.yaml
       service: base-gpu
-    volumes:
-      - ../../modules/sam3d/tests/test_data:/workspace/modules/sam3d/tests/test_data
-      - ../../modules/sam3d/data:/workspace/modules/sam3d/data
-      - ../../modules/sam3d/data/checkpoints:/workspace/modules/sam3d/data/checkpoints
     command: [
       "python", 
       "/workspace/modules/sam3d/functions/image_to_mesh.py", 
@@ -56,7 +53,7 @@ services:
       service: base-gpu
     depends_on:
       - redis
-    command: ["celery", "-A", "modules.sam3d.worker", "worker", "--loglevel=info", "-Q", "sam3d.image_to_mesh", "--concurrency=1", "--prefetch-multiplier=1"]
+    command: ["celery", "-A", "modules.sam3d.worker", "worker", "--loglevel=info", "-Q", "sam3d.image_to_mesh", "--pool=solo"]
     profiles: ["workers", "api"]
 
   sam3d-render-debug-worker:
@@ -66,7 +63,7 @@ services:
       service: base-gpu
     depends_on:
       - redis
-    command: ["celery", "-A", "modules.sam3d.worker", "worker", "--loglevel=info", "-Q", "sam3d.render_debug_image", "--concurrency=1", "--prefetch-multiplier=1"]
+    command: ["celery", "-A", "modules.sam3d.worker", "worker", "--loglevel=info", "-Q", "sam3d.render_debug_image", "--pool=solo"]
     profiles: ["workers", "api"]
 
   sam3d-api:

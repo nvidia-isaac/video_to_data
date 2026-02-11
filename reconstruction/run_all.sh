@@ -13,12 +13,12 @@
 # # extract first image using ffmpeg
 # ffmpeg -i /data/test_video.mp4 -ss 00:00:00 -vframes 1 /data/test_image.jpg
 
-# docker compose --profile exec run sam3d-image-to-mesh \
-#   --image_path /data/test_image.jpg \
-#   --mask_path /data/test_masks/0/000000.png \
-#   --mesh_path /data/test_mesh.glb \
-#   --transform_path /data/test_transform.json \
-#   --intrinsics_path /data/test_intrinsics.json
+docker compose --profile exec run sam3d-image-to-mesh \
+  --image_path /data/test_image.jpg \
+  --mask_path /data/test_masks/0/000000.png \
+  --mesh_path /data/test_mesh.glb \
+  --transform_path /data/test_transform.json \
+  --intrinsics_path /data/test_intrinsics.json
 
 
 # docker compose --profile exec run foundationpose-simplify-mesh \

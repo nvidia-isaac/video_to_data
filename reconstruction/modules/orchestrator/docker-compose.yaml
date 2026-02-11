@@ -1,0 +1,28 @@
+services:
+  orchestrator-api:
+    build:
+      context: ../..
+      dockerfile: modules/orchestrator/Dockerfile
+    extends:
+      file: ../common-compose.yaml
+      service: base-cpu
+    container_name: orchestrator-api
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    profiles: ["api"]
+
+  orchestrator-worker:
+    build:
+      context: ../..
+      dockerfile: modules/orchestrator/Dockerfile
+    extends:
+      file: ../common-compose.yaml
+      service: base-cpu
+    container_name: orchestrator-worker
+    command: ["celery", "-A", "modules.orchestrator.worker", "worker", "--loglevel=info", "-Q", "orchestrator.reconstruction", "--concurrency=1"]
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    profiles: ["workers", "api"]
+
