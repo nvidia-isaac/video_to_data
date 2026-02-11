@@ -62,7 +62,7 @@ services:
     shm_size: '14gb'
     depends_on:
       - redis
-    command: ["celery", "-A", "modules.foundationpose.worker", "worker", "--loglevel=info", "-Q", "foundationpose.video_to_poses", "--concurrency=1", "--prefetch-multiplier=1"]
+    command: ["celery", "-A", "modules.foundationpose.worker", "worker", "--loglevel=info", "-Q", "foundationpose.video_to_poses", "--pool=solo"]
     profiles: ["workers", "api"]
 
   foundationpose-align-mesh-worker:
@@ -72,7 +72,7 @@ services:
       service: base-gpu
     depends_on:
       - redis
-    command: ["celery", "-A", "modules.foundationpose.worker", "worker", "--loglevel=info", "-Q", "foundationpose.align_mesh_scale", "--concurrency=1", "--prefetch-multiplier=1"]
+    command: ["celery", "-A", "modules.foundationpose.worker", "worker", "--loglevel=info", "-Q", "foundationpose.align_mesh_scale", "--pool=solo"]
     profiles: ["workers", "api"]
 
   foundationpose-transform-mesh-worker:
@@ -93,6 +93,16 @@ services:
     depends_on:
       - redis
     command: ["celery", "-A", "modules.foundationpose.worker", "worker", "--loglevel=info", "-Q", "foundationpose.simplify_mesh", "--concurrency=2", "--prefetch-multiplier=1"]
+    profiles: ["workers", "api"]
+
+  foundationpose-render-overlay-worker:
+    <<: *fp-base
+    extends:
+      file: ../common-compose.yaml
+      service: base-gpu
+    depends_on:
+      - redis
+    command: ["celery", "-A", "modules.foundationpose.worker", "worker", "--loglevel=info", "-Q", "foundationpose.render_overlay", "--pool=solo"]
     profiles: ["workers", "api"]
 
   foundationpose-api:

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>End-to-End Reconstruction Pipeline</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <style>
         :root {
@@ -256,6 +257,32 @@
             opacity: 0.7;
         }
 
+        .bg-nvidia {
+            background-color: var(--nvidia-green) !important;
+            color: var(--nvidia-black) !important;
+        }
+
+        .nav-tabs {
+            border-bottom: 1px solid var(--nvidia-light-gray);
+        }
+
+        .nav-tabs .nav-link {
+            border: none;
+            color: #888 !important;
+            font-weight: bold;
+            font-size: 0.8rem;
+        }
+
+        .nav-tabs .nav-link.active {
+            background: transparent;
+            color: var(--nvidia-green) !important;
+            border-bottom: 2px solid var(--nvidia-green);
+        }
+
+        .list-group-item-action:hover {
+            background-color: #333 !important;
+        }
+
         /* Progress Modal */
         #progress-modal {
             position: fixed;
@@ -331,10 +358,31 @@
     <div id="upload-overlay">
         <div class="upload-card">
             <i class="bi bi-cloud-arrow-up upload-icon"></i>
-            <h3>New Pipeline Job</h3>
-            <p class="text-secondary mb-4">Upload a video to start the process</p>
-            <input type="file" id="video-upload" class="form-control mb-3" accept="video/*" style="background: #2d2d2d; border-color: #444; color: white;">
-            <button id="upload-btn" class="btn btn-nvidia w-100">INITIALIZE WORKSPACE</button>
+            <h3>Pipeline Workspace</h3>
+            
+            <ul class="nav nav-tabs mb-4" id="uploadTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active text-white" id="new-job-tab" data-bs-toggle="tab" data-bs-target="#new-job" type="button" role="tab">NEW JOB</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link text-white" id="existing-jobs-tab" data-bs-toggle="tab" data-bs-target="#existing-jobs" type="button" role="tab">EXISTING JOBS</button>
+                </li>
+            </ul>
+
+            <div class="tab-content" id="uploadTabsContent">
+                <div class="tab-pane fade show active" id="new-job" role="tabpanel">
+                    <p class="text-secondary mb-4">Upload a video to start the process</p>
+                    <input type="file" id="video-upload" class="form-control mb-3" accept="video/*" style="background: #2d2d2d; border-color: #444; color: white;">
+                    <button id="upload-btn" class="btn btn-nvidia w-100">INITIALIZE WORKSPACE</button>
+                </div>
+                <div class="tab-pane fade" id="existing-jobs" role="tabpanel">
+                    <p class="text-secondary mb-4">Select a previous job to resume</p>
+                    <div id="job-list" class="list-group mb-3" style="max-height: 200px; overflow-y: auto; background: #2d2d2d; border-radius: 8px;">
+                        <!-- Jobs will be listed here -->
+                    </div>
+                    <button id="load-job-btn" class="btn btn-nvidia w-100" disabled>LOAD SELECTED JOB</button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -421,6 +469,107 @@
         let currentTool = 'pos';
         let tempBox = null;
         let objectRoles = {}; // {obj_id: 'object' | 'human'}
+        let selectedJobId = null;
+
+        // Fetch existing jobs on load
+        window.onload = async () => {
+            try {
+                let res = await fetch('/list_jobs');
+                let jobs = await res.json();
+                let list = document.getElementById('job-list');
+                list.innerHTML = '';
+                
+                if (jobs.length === 0) {
+                    list.innerHTML = '<div class="p-3 text-secondary">No existing jobs found</div>';
+                }
+
+                jobs.forEach(jobId => {
+                    let item = document.createElement('button');
+                    item.className = 'list-group-item list-group-item-action bg-dark text-white border-secondary';
+                    item.innerText = jobId;
+                    item.onclick = () => {
+                        document.querySelectorAll('#job-list button').forEach(b => b.classList.remove('active', 'bg-nvidia'));
+                        item.classList.add('active', 'bg-nvidia');
+                        selectedJobId = jobId;
+                        document.getElementById('load-job-btn').disabled = false;
+                    };
+                    list.appendChild(item);
+                });
+            } catch (e) {
+                console.error('Failed to fetch jobs:', e);
+            }
+        };
+
+        document.getElementById('load-job-btn').onclick = async () => {
+            if (!selectedJobId) return;
+            currentJobId = selectedJobId;
+            
+            try {
+                let res = await fetch(`/job_data/${currentJobId}`);
+                let data = await res.json();
+                
+                if (data.prompts && data.prompts.prompts) {
+                    // Convert back from formatted prompts to UI prompts
+                    prompts = data.prompts.prompts.map(p => ({
+                        frame_index: p.frame_index,
+                        object_id: p.object_id,
+                        points: p.points.map(pt => [pt.x / video.videoWidth, pt.y / video.videoHeight]), // This might be tricky if video not loaded yet
+                        point_labels: p.point_labels,
+                        box: p.box ? [
+                            p.box.x0 / video.videoWidth, p.box.y0 / video.videoHeight,
+                            p.box.x1 / video.videoWidth, p.box.y1 / video.videoHeight
+                        ] : null
+                    }));
+                    
+                    // Update object roles
+                    data.prompts.prompts.forEach(p => {
+                        objectRoles[p.object_id] = p.role;
+                    });
+                }
+
+                video.src = `/video/${currentJobId}`;
+                
+                const setupLoadedJob = () => {
+                    document.getElementById('canvas-container').style.display = 'flex';
+                    document.getElementById('floating-toolbar').style.display = 'flex';
+                    document.getElementById('side-panel').style.display = 'flex';
+                    document.getElementById('timeline').style.display = 'block';
+                    document.getElementById('process-btn').style.display = 'block';
+                    document.getElementById('upload-overlay').style.display = 'none';
+
+                    canvas.width = video.clientWidth;
+                    canvas.height = video.clientHeight;
+                    
+                    slider.max = Math.floor(video.duration * 30);
+                    document.getElementById('total-frames').innerText = `TOTAL: ${slider.max}`;
+                    
+                    // Re-process prompts with correct video dimensions
+                    if (data.prompts && data.prompts.prompts) {
+                        prompts = data.prompts.prompts.map(p => ({
+                            frame_index: p.frame_index,
+                            object_id: p.object_id,
+                            points: p.points.map(pt => [pt.x / video.videoWidth, pt.y / video.videoHeight]),
+                            point_labels: p.point_labels,
+                            box: p.box ? [
+                                p.box.x0 / video.videoWidth, p.box.y0 / video.videoHeight,
+                                p.box.x1 / video.videoWidth, p.box.y1 / video.videoHeight
+                            ] : null
+                        }));
+                    }
+
+                    drawAnnotations();
+                    updatePromptList();
+                };
+
+                if (video.readyState >= 1) {
+                    setupLoadedJob();
+                } else {
+                    video.onloadedmetadata = setupLoadedJob;
+                }
+            } catch (e) {
+                alert('Failed to load job: ' + e);
+            }
+        };
 
         // Tool Selection
         document.querySelectorAll('.btn-tool[data-tool]').forEach(btn => {

@@ -27,6 +27,10 @@ def vertices_to_smpl(vertices_path: str, gender: str, model_type: str = "smplh",
     # Note: smplfitter's BodyModel takes 'smpl' or 'smplh'
     # We point model_root directly to the subdirectory for the model type
     model_root = os.path.join(SMPL_MODEL_ROOT, model_type)
+    # smplfitter doesn't support 'neutral' for smplh, and expects 'male' or 'female'
+    if gender == 'neutral':
+        gender = 'male'
+    
     body_model = BodyModel(model_type, gender, model_root=model_root).to(device)
     fitter = BodyFitter(body_model).to(device)
 

@@ -44,6 +44,6 @@ services:
       file: ../common-compose.yaml
       service: base-gpu
     container_name: nlf-worker
-    command: python3 modules/nlf/worker.py
+    command: ["celery", "-A", "modules.nlf.worker", "worker", "--loglevel=info", "-Q", "nlf.video_to_smpl", "--pool=solo"]
     profiles: ["workers", "api"]
 

@@ -1,4 +1,18 @@
+import os
+import multiprocessing
+import sys
 import inspect
+
+# Force spawn start method for multiprocessing to avoid CUDA hangs in Celery workers
+try:
+    if multiprocessing.get_start_method(allow_none=True) != 'spawn':
+        multiprocessing.set_start_method('spawn', force=True)
+        sys.stderr.write("Successfully set multiprocessing start method to 'spawn'\n")
+        sys.stderr.flush()
+except RuntimeError:
+    sys.stderr.write(f"Could not set multiprocessing start method to 'spawn', already set to {multiprocessing.get_start_method()}\n")
+    sys.stderr.flush()
+
 if not hasattr(inspect, 'getargspec'):
     inspect.getargspec = inspect.getfullargspec
 
@@ -13,8 +27,5 @@ if not hasattr(np, 'unicode'): np.unicode = str
 if not hasattr(np, 'str'): np.str = str
 
 from modules.nlf.tasks import celery_app
-
-if __name__ == "__main__":
-    celery_app.start()
 
 

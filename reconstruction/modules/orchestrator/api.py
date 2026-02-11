@@ -34,11 +34,41 @@ def get_video(job_id):
         return send_file(video_path, mimetype='video/mp4')
     return f"Not found: {video_path}", 404
 
+@app.route('/list_jobs', methods=['GET'])
+def list_jobs():
+    """List all existing job IDs."""
+    jobs_dir = "/data/jobs"
+    if not os.path.exists(jobs_dir):
+        return jsonify([])
+    
+    jobs = []
+    for job_id in os.listdir(jobs_dir):
+        job_path = os.path.join(jobs_dir, job_id)
+        if os.path.isdir(job_path):
+            # Check if it has an input video
+            if os.path.exists(os.path.join(job_path, "input", "video.mp4")):
+                jobs.append(job_id)
+    
+    return jsonify(jobs)
+
+@app.route('/job_data/<job_id>', methods=['GET'])
+def get_job_data(job_id):
+    """Get metadata for a specific job (prompts, etc.)."""
+    prompts_path = f"/data/jobs/{job_id}/input/prompts.json"
+    data = {"job_id": job_id}
+    
+    if os.path.exists(prompts_path):
+        with open(prompts_path, 'r') as f:
+            data["prompts"] = json.load(f)
+    
+    return jsonify(data)
+
 @app.route('/run_pipeline', methods=['POST'])
 def run_pipeline():
     """Execute the full reconstruction pipeline."""
     job_id = request.form.get('job_id')
     prompts_json = request.form.get('prompts')
+    force = request.form.get('force', 'false').lower() == 'true'
     
     if not job_id or not prompts_json:
         return jsonify({"error": "Missing job_id or prompts"}), 400
@@ -52,7 +82,7 @@ def run_pipeline():
     
     try:
         # Submit the orchestration task
-        task = orchestrate_reconstruction.delay(job_id)
+        task = orchestrate_reconstruction.delay(job_id, force=force)
         return jsonify({"status": "started", "task_id": task.id})
     except Exception as e:
         return jsonify({"error": str(e)}), 500

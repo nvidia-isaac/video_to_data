@@ -185,7 +185,7 @@ def align_mesh_scale(
         cv2.imwrite(refined_vis_path, refined_vis)
         print(f"Saved refined scale debug visualization to {refined_vis_path}")
 
-    return refined_scale
+    return refined_scale.tolist()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Align mesh scale to a specific depth image")

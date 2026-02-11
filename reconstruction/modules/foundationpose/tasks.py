@@ -44,4 +44,11 @@ def transform_mesh(input_mesh_path: str, output_mesh_path: str, transform_path: 
 @celery_app.task(name='foundationpose.align_mesh_scale', queue='foundationpose.align_mesh_scale')
 def align_mesh_scale(depth_path: str, mask_path: str, intrinsics_path: str, input_mesh_path: str, output_mesh_path: str, transform_path: str):
     """Align a mesh scale."""
-    return align_mesh_scale_func(input_mesh_path, output_mesh_path, transform_path)
+    return align_mesh_scale_func(
+        mesh_path=input_mesh_path,
+        depth_path=depth_path,
+        mask_path=mask_path,
+        intrinsics_path=intrinsics_path,
+        transform_path=transform_path,
+        output_transform_path=output_mesh_path
+    )
