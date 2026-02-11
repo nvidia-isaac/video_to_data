@@ -3,9 +3,9 @@ x-fp-base: &fp-base
     context: ../..
     dockerfile: modules/foundationpose/Dockerfile
   volumes:
-    - ../../modules/foundationpose/extra/FoundationPose:/workspace/FoundationPose
+    - ../../modules/foundationpose/FoundationPose:/workspace/FoundationPose
     - ../../modules/foundationpose/data:/workspace/modules/foundationpose/data
-    - ../../modules/foundationpose/third_party/FoundationPose/weights:/workspace/modules/foundationpose/third_party/FoundationPose/weights
+    - ../../modules/foundationpose/FoundationPose/weights:/workspace/modules/foundationpose/FoundationPose/weights
   environment:
     - CHECKPOINT_DIR=/workspace/modules/foundationpose/data/checkpoints/foundationpose
     - WEIGHTS_DIR=/workspace/modules/foundationpose/data/checkpoints/weights

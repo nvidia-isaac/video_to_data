@@ -81,12 +81,12 @@ RUN pip install \
 RUN pip install h5py
 
 # Copy service code
-COPY modules/foundationpose/third_party/FoundationPose /workspace/modules/foundationpose/third_party/FoundationPose
+COPY modules/foundationpose/FoundationPose /workspace/modules/foundationpose/FoundationPose
 
-RUN cd /workspace/modules/foundationpose/third_party/FoundationPose/mycpp \
+RUN cd /workspace/modules/foundationpose/FoundationPose/mycpp \
     && mkdir -p build && cd build && cmake .. -DPYTHON_EXECUTABLE=$(which python) && make -j11
 
-RUN cd /workspace/modules/foundationpose/third_party/FoundationPose/bundlesdf/mycuda && \
+RUN cd /workspace/modules/foundationpose/FoundationPose/bundlesdf/mycuda && \
     TORCH_CUDA_ARCH_LIST="8.0 8.6 8.9 9.0" pip install -e .
 
 RUN pip install fast_simplification
