@@ -121,9 +121,10 @@ class ScorePredictor:
 
     model_name = 'model_best.pth'
     code_dir = os.path.dirname(os.path.realpath(__file__))
-    ckpt_dir = f'{code_dir}/../../weights/{self.run_name}/{model_name}'
+    weights_base_dir = os.environ.get("FOUNDATIONPOSE_WEIGHTS_DIR", f'{code_dir}/../../weights')
+    ckpt_dir = f'{weights_base_dir}/{self.run_name}/{model_name}'
 
-    self.cfg = OmegaConf.load(f'{code_dir}/../../weights/{self.run_name}/config.yml')
+    self.cfg = OmegaConf.load(f'{weights_base_dir}/{self.run_name}/config.yml')
 
     self.cfg['ckpt_dir'] = ckpt_dir
     self.cfg['enable_amp'] = True

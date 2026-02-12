@@ -6,7 +6,7 @@ from modules.common.datatypes import Transform3d, CameraIntrinsics
 import os
 import sys
 import argparse
-sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "extra"))
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from inference_pipeline_modified import InferencePipelinePointMap
 import numpy as np
 from PIL import Image
@@ -20,9 +20,8 @@ _pipeline = None
 def _get_pipeline():
     global _pipeline
     if _pipeline is None:
-        checkpoints_dir = os.environ.get("CHECKPOINT_DIR")
-        if checkpoints_dir is None:
-            raise ValueError("CHECKPOINT_DIR environment variable must be set")
+        data_dir = os.environ.get("DATA_DIR", "/data")
+        checkpoints_dir = os.environ.get("CHECKPOINT_DIR", os.path.join(data_dir, "sam3d/checkpoints"))
         
         # SAM3D downloads to hf-download/checkpoints/pipeline.yaml
         # Try multiple possible locations
@@ -58,7 +57,7 @@ def _get_pipeline():
         config.compile_model = False
         config.workspace_dir = os.path.dirname(config_file)
         # Use relative import path since we have sys.path.append
-        config._target_ = "modules.sam3d.extra.inference_pipeline_modified.InferencePipelinePointMap"
+        config._target_ = "modules.sam3d.inference_pipeline_modified.InferencePipelinePointMap"
         
         # Override MoGE model path to use local checkpoint instead of downloading from HuggingFace
         hf_home = os.environ.get("HF_HOME", os.path.join(checkpoints_dir, "hf_home"))

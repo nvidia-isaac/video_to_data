@@ -19,9 +19,8 @@ _model = None
 def _get_model():
     global _model
     if _model is None:
-        checkpoint_dir = os.environ.get("CHECKPOINT_DIR")
-        if checkpoint_dir is None:
-            raise ValueError("CHECKPOINT_DIR environment variable must be set")
+        data_dir = os.environ.get("DATA_DIR", "/data")
+        checkpoint_dir = os.environ.get("CHECKPOINT_DIR", os.path.join(data_dir, "moge/checkpoints/moge-2-vitl-normal"))
         
         if not os.path.exists(checkpoint_dir):
             raise FileNotFoundError(

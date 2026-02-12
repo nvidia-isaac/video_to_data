@@ -1,8 +1,172 @@
+x-base-gpu: &base-gpu
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: 1
+            capabilities: [gpu]
+  volumes:
+    - ./data:/data
+
+x-base-cpu: &base-cpu
+  volumes:
+    - ./data:/data
+
 services:
-include:
-  - modules/moge/docker-compose.yaml
-  - modules/unidepth/docker-compose.yaml
-  - modules/sam2/docker-compose.yaml
-  - modules/sam3d/docker-compose.yaml
-  - modules/foundationpose/docker-compose.yaml
-  - modules/nlf/docker-compose.yaml
+  ffmpeg:
+    image: jrottenberg/ffmpeg
+    volumes:
+      - ./data:/data
+
+  sam2-video-to-masks:
+    build:
+      context: .
+      dockerfile: modules/sam2/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - CHECKPOINT_DIR=/data/sam2/checkpoints/sam2.1-hiera-large
+    entrypoint: ["python", "/workspace/modules/sam2/video_to_masks.py"]
+
+  moge-video-to-depth:
+    build:
+      context: .
+      dockerfile: modules/moge/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - CHECKPOINT_DIR=/data/moge/checkpoints/moge-2-vitl-normal
+    entrypoint: ["python", "/workspace/modules/moge/video_to_depth.py"]
+
+  moge-image-to-depth:
+    build:
+      context: .
+      dockerfile: modules/moge/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - CHECKPOINT_DIR=/data/moge/checkpoints/moge-2-vitl-normal
+    entrypoint: ["python", "/workspace/modules/moge/image_to_depth.py"]
+
+  unidepth-video-to-depth:
+    build:
+      context: .
+      dockerfile: modules/unidepth/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - CHECKPOINT_DIR=/data/unidepth/checkpoints/unidepth-v2-vitl14
+    entrypoint: ["python", "/workspace/modules/unidepth/video_to_depth.py"]
+
+  unidepth-image-to-depth:
+    build:
+      context: .
+      dockerfile: modules/unidepth/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - CHECKPOINT_DIR=/data/unidepth/checkpoints/unidepth-v2-vitl14
+    entrypoint: ["python", "/workspace/modules/unidepth/image_to_depth.py"]
+
+  sam3d-image-to-mesh:
+    build:
+      context: .
+      dockerfile: modules/sam3d/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - CHECKPOINT_DIR=/data/sam3d/checkpoints/hf-download
+      - TORCH_HOME=/data/sam3d/checkpoints/torch_home
+      - HF_HOME=/data/sam3d/checkpoints/hf_home
+    entrypoint: ["python", "/workspace/modules/sam3d/image_to_mesh.py"]
+
+  sam3d-render-debug:
+    build:
+      context: .
+      dockerfile: modules/sam3d/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - CHECKPOINT_DIR=/data/sam3d/checkpoints/hf-download
+      - TORCH_HOME=/data/sam3d/checkpoints/torch_home
+      - HF_HOME=/data/sam3d/checkpoints/hf_home
+    entrypoint: ["python", "/workspace/modules/sam3d/render_debug_image.py"]
+
+  foundationpose-video-to-poses:
+    build:
+      context: .
+      dockerfile: modules/foundationpose/Dockerfile
+    <<: *base-gpu
+    shm_size: '14gb'
+    environment:
+      - DATA_DIR=/data
+      - CHECKPOINT_DIR=/data/foundationpose/checkpoints/foundationpose
+      - FOUNDATIONPOSE_WEIGHTS_DIR=/data/foundationpose/weights
+    entrypoint: ["python", "/workspace/modules/foundationpose/video_to_poses.py"]
+
+  foundationpose-align-mesh:
+    build:
+      context: .
+      dockerfile: modules/foundationpose/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - CHECKPOINT_DIR=/data/foundationpose/checkpoints/foundationpose
+      - FOUNDATIONPOSE_WEIGHTS_DIR=/data/foundationpose/weights
+    entrypoint: ["python", "/workspace/modules/foundationpose/align_mesh_scale.py"]
+
+  foundationpose-transform-mesh:
+    build:
+      context: .
+      dockerfile: modules/foundationpose/Dockerfile
+    <<: *base-cpu
+    environment:
+      - DATA_DIR=/data
+      - CHECKPOINT_DIR=/data/foundationpose/checkpoints/foundationpose
+      - FOUNDATIONPOSE_WEIGHTS_DIR=/data/foundationpose/checkpoints/weights
+    entrypoint: ["python", "/workspace/modules/foundationpose/transform_mesh.py"]
+
+  foundationpose-simplify-mesh:
+    build:
+      context: .
+      dockerfile: modules/foundationpose/Dockerfile
+    <<: *base-cpu
+    environment:
+      - DATA_DIR=/data
+      - CHECKPOINT_DIR=/data/foundationpose/checkpoints/foundationpose
+      - FOUNDATIONPOSE_WEIGHTS_DIR=/data/foundationpose/weights
+    entrypoint: ["python", "/workspace/modules/foundationpose/simplify_mesh.py"]
+
+  foundationpose-render-overlay:
+    build:
+      context: .
+      dockerfile: modules/foundationpose/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - CHECKPOINT_DIR=/data/foundationpose/checkpoints/foundationpose
+      - FOUNDATIONPOSE_WEIGHTS_DIR=/data/foundationpose/weights
+    entrypoint: ["python", "/workspace/modules/foundationpose/render_overlay.py"]
+
+  nlf-video-to-smpl:
+    build:
+      context: .
+      dockerfile: modules/nlf/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - SMPL_MODEL_ROOT=/data/nlf/smpl_models
+      - NLF_WEIGHTS_PATH=/data/nlf/weights/nlf_l_multi_0.3.2.torchscript
+    entrypoint: ["python3", "modules/nlf/video_to_smpl.py"]
+
+  nlf-render-smpl-overlay:
+    build:
+      context: .
+      dockerfile: modules/nlf/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - SMPL_MODEL_ROOT=/data/nlf/smpl_models
+      - NLF_WEIGHTS_PATH=/data/nlf/weights/nlf_l_multi_0.3.2.torchscript
+    entrypoint: ["python3", "modules/nlf/render_smpl_overlay.py"]

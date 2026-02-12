@@ -13,7 +13,7 @@ from modules.common.datatypes import CameraIntrinsics
 import trimesh
 import pyrender
 
-SMPL_MODEL_ROOT = os.environ.get('SMPL_MODEL_ROOT', '/app/modules/nlf/data/smpl_models')
+SMPL_MODEL_ROOT = os.environ.get('SMPL_MODEL_ROOT', os.path.join(os.environ.get('DATA_DIR', '/data'), 'nlf/smpl_models'))
 
 def render_smpl_overlay(
     video_path: str,

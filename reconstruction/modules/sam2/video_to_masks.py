@@ -16,9 +16,8 @@ _predictor = None
 def _get_predictor():
     global _predictor
     if _predictor is None:
-        checkpoint_dir = os.environ.get("CHECKPOINT_DIR")
-        if checkpoint_dir is None:
-            raise ValueError("CHECKPOINT_DIR environment variable must be set")
+        data_dir = os.environ.get("DATA_DIR", "/data")
+        checkpoint_dir = os.environ.get("CHECKPOINT_DIR", os.path.join(data_dir, "sam2/checkpoints/sam2.1-hiera-large"))
         
         config_file = os.environ.get("CONFIG_FILE", "configs/sam2.1/sam2.1_hiera_l.yaml")
         checkpoint_file = os.environ.get("CHECKPOINT_FILE", "sam2.1_hiera_large.pt")

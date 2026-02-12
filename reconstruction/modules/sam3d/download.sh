@@ -3,7 +3,9 @@ set -e
 
 # Get the script directory (modules directory)
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-CHECKPOINTS_DIR=${1:-"$SCRIPT_DIR/data/checkpoints"}
+RECONSTRUCTION_DIR="$( cd "$SCRIPT_DIR/../.." && pwd )"
+DATA_DIR=${DATA_DIR:-"$RECONSTRUCTION_DIR/data"}
+CHECKPOINTS_DIR=${1:-"$DATA_DIR/sam3d/checkpoints"}
 
 mkdir -p "$CHECKPOINTS_DIR/hf-download"
 

@@ -24,7 +24,7 @@ def log_gpu_memory(label):
         logger.info(f"GPU Memory [{label}]: Allocated: {allocated:.2f} GB, Reserved: {reserved:.2f} GB")
 
 # Add FoundationPose to path
-sys.path.insert(0, '/workspace/modules/foundationpose/third_party/FoundationPose')
+sys.path.insert(0, '/workspace/modules/foundationpose/FoundationPose')
 
 from estimater import FoundationPose
 from learning.training.predict_score import ScorePredictor
@@ -40,6 +40,10 @@ _glctx = None
 def _get_models():
     global _scorer, _refiner, _glctx
     if _scorer is None or _refiner is None or _glctx is None:
+        data_dir = os.environ.get("DATA_DIR", "/data")
+        checkpoint_dir = os.environ.get("CHECKPOINT_DIR", os.path.join(data_dir, "foundationpose/checkpoints/foundationpose"))
+        weights_dir = os.environ.get("WEIGHTS_DIR", os.path.join(data_dir, "foundationpose/checkpoints/weights"))
+        
         print("Initializing FoundationPose models...")
         log_gpu_memory("Before model init")
         _scorer = ScorePredictor()
