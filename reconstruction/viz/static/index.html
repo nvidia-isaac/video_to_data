@@ -19,6 +19,21 @@
     <div id="ui">
         <h3>3D Pipeline Viewer</h3>
         <div id="metadata" class="status">Loading metadata...</div>
+        <div id="mesh-controls" style="margin-top: 15px; display: none;">
+            <h4 style="margin: 10px 0 5px 0; font-size: 14px;">Meshes</h4>
+            <label style="display: block; margin: 5px 0; font-size: 12px;">
+                <input type="checkbox" id="human-mesh-toggle" checked>
+                Human Mesh
+            </label>
+            <label style="display: block; margin: 5px 0; font-size: 12px;">
+                <input type="checkbox" id="object-mesh-toggle" checked>
+                Object Mesh
+            </label>
+        </div>
+        <div id="point-cloud-controls" style="margin-top: 15px; display: none;">
+            <h4 style="margin: 10px 0 5px 0; font-size: 14px;">Point Clouds</h4>
+            <div id="object-checkboxes"></div>
+        </div>
     </div>
 
     <div id="video-container">
@@ -55,6 +70,9 @@
         let frameCount = 0;
         let currentFrame = 0;
         let isPlaying = false;
+        let objectPointClouds = {}; // {obj_id: THREE.Points}
+        let availableObjects = [];
+        let pointCloudVisibility = {}; // {obj_id: bool}
 
         const video = document.getElementById('video-sync');
         const timeline = document.getElementById('timeline');
@@ -89,8 +107,64 @@
             const gridHelper = new THREE.GridHelper(10, 10, 0x444444, 0x222222);
             scene.add(gridHelper);
 
+            // Add a test point cloud to verify rendering works
+            const testGeometry = new THREE.BufferGeometry();
+            const testVertices = new Float32Array([
+                0, 0, 0,
+                1, 0, 0,
+                0, 1, 0,
+                0, 0, 1
+            ]);
+            const testColors = new Float32Array([
+                1, 0, 0,
+                0, 1, 0,
+                0, 0, 1,
+                1, 1, 0
+            ]);
+            testGeometry.setAttribute('position', new THREE.BufferAttribute(testVertices, 3));
+            testGeometry.setAttribute('color', new THREE.BufferAttribute(testColors, 3));
+            const testMaterial = new THREE.PointsMaterial({ size: 0.1, vertexColors: true });
+            const testPoints = new THREE.Points(testGeometry, testMaterial);
+            testPoints.visible = false; // Hidden by default, can be enabled for testing
+            testPoints.name = 'test-point-cloud';
+            scene.add(testPoints);
+            console.log('[DEBUG] Test point cloud added (hidden by default)');
+
             window.addEventListener('resize', onWindowResize);
             animate();
+        }
+
+        function fitCameraToScene() {
+            const box = new THREE.Box3();
+            scene.traverse((object) => {
+                if (object instanceof THREE.Mesh || object instanceof THREE.Points) {
+                    if (object.visible) {
+                        const geometry = object.geometry;
+                        if (geometry) {
+                            geometry.computeBoundingBox();
+                            if (geometry.boundingBox) {
+                                box.union(geometry.boundingBox.applyMatrix4(object.matrixWorld));
+                            }
+                        }
+                    }
+                }
+            });
+
+            if (!box.isEmpty()) {
+                const center = box.getCenter(new THREE.Vector3());
+                const size = box.getSize(new THREE.Vector3());
+                const maxDim = Math.max(size.x, size.y, size.z);
+                const distance = maxDim * 2;
+
+                camera.position.set(
+                    center.x + distance * 0.5,
+                    center.y + distance * 0.5,
+                    center.z + distance * 0.5
+                );
+                camera.lookAt(center);
+                controls.target.copy(center);
+                controls.update();
+            }
         }
 
         async function loadData() {
@@ -125,12 +199,21 @@
                     humanParams = await humanRes.json();
                     frameCount = Math.max(frameCount, humanParams.poses.length);
                     
+                    // Show mesh controls
+                    document.getElementById('mesh-controls').style.display = 'block';
+                    
                     if (humanParams.vertices && humanParams.faces) {
                         // Create human mesh from vertices and faces
                         const geometry = new THREE.BufferGeometry();
                         // Initialize with first frame
                         const vertices = new Float32Array(humanParams.vertices[0].flat());
                         const indices = new Uint32Array(humanParams.faces.flat());
+                        
+                        // Apply coordinate conversion to vertices
+                        for (let i = 0; i < vertices.length; i += 3) {
+                            vertices[i+1] = -vertices[i+1]; // Y-up
+                            vertices[i+2] = -vertices[i+2]; // Z-backward
+                        }
                         
                         geometry.setIndex(new THREE.BufferAttribute(indices, 1));
                         geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
@@ -143,21 +226,368 @@
                         });
                         humanMesh = new THREE.Mesh(geometry, material);
                         scene.add(humanMesh);
+                        console.log("Human mesh created with", vertices.length / 3, "vertices");
                     } else {
                         // Fallback to box if no vertex data
                         const geometry = new THREE.BoxGeometry(0.5, 1.8, 0.2);
                         const material = new THREE.MeshPhongMaterial({ color: 0xff4444 });
                         humanMesh = new THREE.Mesh(geometry, material);
                         scene.add(humanMesh);
+                        console.log("Human mesh created (fallback box)");
                     }
+                    
+                    // Setup human mesh toggle
+                    document.getElementById('human-mesh-toggle').onchange = (e) => {
+                        if (humanMesh) {
+                            humanMesh.visible = e.target.checked;
+                        }
+                    };
+                }
+                
+                if (meta.has_object) {
+                    // Show mesh controls
+                    document.getElementById('mesh-controls').style.display = 'block';
+                    
+                    // Setup object mesh toggle
+                    document.getElementById('object-mesh-toggle').onchange = (e) => {
+                        if (objectMesh) {
+                            objectMesh.visible = e.target.checked;
+                        }
+                    };
                 }
 
                 timeline.max = frameCount - 1;
+                
+                // Load available objects for point clouds
+                await loadObjects();
+                
                 updateFrame();
+                
+                // Fit camera after a short delay to allow meshes to load
+                setTimeout(() => {
+                    fitCameraToScene();
+                }, 500);
 
             } catch (err) {
                 console.error("Error loading data:", err);
             }
+        }
+
+        async function loadObjects() {
+            try {
+                console.log('[DEBUG] Loading available objects...');
+                const res = await fetch('/api/objects');
+                const data = await res.json();
+                availableObjects = data.objects || [];
+                console.log(`[DEBUG] Found ${availableObjects.length} objects:`, availableObjects);
+                
+                // Create checkboxes for each object
+                const checkboxesDiv = document.getElementById('object-checkboxes');
+                const controlsDiv = document.getElementById('point-cloud-controls');
+                
+                if (availableObjects.length > 0) {
+                    controlsDiv.style.display = 'block';
+                    checkboxesDiv.innerHTML = '';
+                    
+                    availableObjects.forEach(objId => {
+                        const label = document.createElement('label');
+                        label.style.display = 'block';
+                        label.style.margin = '5px 0';
+                        label.style.fontSize = '12px';
+                        
+                        const checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.checked = false;
+                        checkbox.id = `obj-${objId}`;
+                        pointCloudVisibility[objId] = false;
+                        
+                        checkbox.onchange = (e) => {
+                            console.log(`[DEBUG] Checkbox changed for object ${objId}: ${e.target.checked}`);
+                            pointCloudVisibility[objId] = e.target.checked;
+                            if (objectPointClouds[objId]) {
+                                objectPointClouds[objId].visible = e.target.checked;
+                                console.log(`[DEBUG] Point cloud for object ${objId} visibility set to ${e.target.checked}`);
+                                renderer.render(scene, camera);
+                            } else if (e.target.checked) {
+                                // Load point cloud if not already loaded
+                                console.log(`[DEBUG] Loading point cloud for object ${objId}, frame ${currentFrame}`);
+                                loadPointCloud(objId, currentFrame);
+                            }
+                        };
+                        
+                        label.appendChild(checkbox);
+                        // Label person (object 0) differently
+                        const labelText = objId === 0 ? ` Person (Object ${objId})` : ` Object ${objId}`;
+                        label.appendChild(document.createTextNode(labelText));
+                        checkboxesDiv.appendChild(label);
+                    });
+                } else {
+                    console.warn('[WARN] No objects found for point clouds');
+                }
+            } catch (err) {
+                console.error("[ERROR] Error loading objects:", err);
+            }
+        }
+
+        async function loadPointCloud(objId, frameIdx) {
+            console.log(`[DEBUG] Starting loadPointCloud for object ${objId}, frame ${frameIdx}`);
+            try {
+                // Load depth (try raw first for precision, fallback to PNG), RGB, mask, and intrinsics
+                console.log(`[DEBUG] Fetching data for object ${objId}, frame ${frameIdx}...`);
+                const [rgbRes, maskRes, intrinsicsRes] = await Promise.all([
+                    fetch(`/api/frame/${frameIdx}/rgb`),
+                    fetch(`/api/frame/${frameIdx}/mask/${objId}`),
+                    fetch(`/api/frame/${frameIdx}/intrinsics`)
+                ]);
+
+                console.log(`[DEBUG] Response statuses - RGB: ${rgbRes.status}, Mask: ${maskRes.status}, Intrinsics: ${intrinsicsRes.status}`);
+
+                if (!rgbRes.ok || !maskRes.ok || !intrinsicsRes.ok) {
+                    console.error(`[ERROR] Could not load point cloud data for object ${objId}, frame ${frameIdx}`);
+                    if (!rgbRes.ok) console.error(`  RGB failed: ${rgbRes.status} ${rgbRes.statusText}`);
+                    if (!maskRes.ok) console.error(`  Mask failed: ${maskRes.status} ${maskRes.statusText}`);
+                    if (!intrinsicsRes.ok) console.error(`  Intrinsics failed: ${intrinsicsRes.status} ${intrinsicsRes.statusText}`);
+                    return;
+                }
+
+                const intrinsics = await intrinsicsRes.json();
+                const fx = intrinsics.fx;
+                const fy = intrinsics.fy;
+                const cx = intrinsics.cx;
+                const cy = intrinsics.cy;
+                const width = intrinsics.width;
+                const height = intrinsics.height;
+                
+                console.log(`[DEBUG] Intrinsics loaded: fx=${fx}, fy=${fy}, cx=${cx}, cy=${cy}, w=${width}, h=${height}`);
+
+                // Try to load raw depth first for precision (with timeout)
+                // Raw depth is needed to avoid 8-bit quantization from PNG loading
+                let depthData = null;
+                let useRawDepth = false;
+                
+                try {
+                    console.log(`[DEBUG] Trying to load raw depth (with 10s timeout for precision)...`);
+                    const depthRawController = new AbortController();
+                    const timeoutId = setTimeout(() => {
+                        depthRawController.abort();
+                        console.log(`[DEBUG] Raw depth timeout, falling back to PNG (will have quantization)`);
+                    }, 10000); // 10 second timeout - raw depth is important for quality
+                    
+                    const depthRawRes = await fetch(`/api/frame/${frameIdx}/depth/raw`, {
+                        signal: depthRawController.signal
+                    });
+                    clearTimeout(timeoutId);
+                    
+                        if (depthRawRes.ok) {
+                            const depthRaw = await depthRawRes.json();
+                            console.log(`[DEBUG] Raw depth loaded: ${depthRaw.depth.length} values, w=${depthRaw.width}, h=${depthRaw.height}${depthRaw.downsampled ? ' (downsampled)' : ''}`);
+                            depthData = {
+                                data: depthRaw.depth,
+                                width: depthRaw.width,
+                                height: depthRaw.height,
+                                isRaw: true,
+                                downsampled: depthRaw.downsampled || false
+                            };
+                            useRawDepth = true;
+                    } else {
+                        console.warn(`[WARN] Raw depth not available (${depthRawRes.status}), falling back to PNG (will have quantization)`);
+                    }
+                } catch (e) {
+                    if (e.name === 'AbortError') {
+                        console.warn(`[WARN] Raw depth request timed out, falling back to PNG (will have quantization)`);
+                    } else {
+                        console.warn(`[WARN] Raw depth error: ${e.message}, falling back to PNG (will have quantization)`);
+                    }
+                }
+
+                if (!useRawDepth) {
+                    console.log(`[DEBUG] Loading PNG depth...`);
+                    const depthRes = await fetch(`/api/frame/${frameIdx}/depth`);
+                    if (!depthRes.ok) {
+                        console.error(`[ERROR] Could not load depth for object ${objId}, frame ${frameIdx}: ${depthRes.status}`);
+                        return;
+                    }
+                    const depthImg = await loadImageFromResponse(depthRes);
+                    const depthCanvas = document.createElement('canvas');
+                    depthCanvas.width = width;
+                    depthCanvas.height = height;
+                    const depthCtx = depthCanvas.getContext('2d');
+                    depthCtx.drawImage(depthImg, 0, 0);
+                    depthData = {
+                        data: depthCtx.getImageData(0, 0, width, height),
+                        width: width,
+                        height: height,
+                        isRaw: false
+                    };
+                    console.log(`[DEBUG] PNG depth loaded: ${depthData.data.data.length} bytes`);
+                }
+
+                // Load images
+                console.log(`[DEBUG] Loading RGB and mask images...`);
+                const rgbImg = await loadImageFromResponse(rgbRes);
+                const maskImg = await loadImageFromResponse(maskRes);
+                console.log(`[DEBUG] Images loaded: RGB ${rgbImg.width}x${rgbImg.height}, Mask ${maskImg.width}x${maskImg.height}`);
+
+                // Create canvas to read pixel data
+                const rgbCanvas = document.createElement('canvas');
+                rgbCanvas.width = width;
+                rgbCanvas.height = height;
+                const rgbCtx = rgbCanvas.getContext('2d');
+                rgbCtx.drawImage(rgbImg, 0, 0);
+
+                const maskCanvas = document.createElement('canvas');
+                maskCanvas.width = width;
+                maskCanvas.height = height;
+                const maskCtx = maskCanvas.getContext('2d');
+                maskCtx.drawImage(maskImg, 0, 0);
+
+                // Get pixel data
+                const rgbData = rgbCtx.getImageData(0, 0, width, height);
+                const maskData = maskCtx.getImageData(0, 0, width, height);
+                console.log(`[DEBUG] Pixel data extracted: RGB ${rgbData.data.length} bytes, Mask ${maskData.data.length} bytes`);
+
+                const vertices = [];
+                const colors = [];
+
+                // Sample every Nth pixel to reduce point count
+                const step = 2; // Adjust for performance
+                
+                let maskPixels = 0;
+                let validDepthPixels = 0;
+
+                for (let y = 0; y < height; y += step) {
+                    for (let x = 0; x < width; x += step) {
+                        const rgbIdx = (y * width + x) * 4;
+                        const maskIdx = rgbIdx;
+                        
+                        // Check mask (white = object)
+                        const maskValue = maskData.data[maskIdx];
+                        if (maskValue < 128) continue; // Skip if not in mask
+                        maskPixels++;
+
+                        // Get depth value
+                        let depth;
+                        if (depthData.isRaw) {
+                            // Raw depth array (already in meters)
+                            // Handle downsampled depth by adjusting indices
+                            let depthIdx;
+                            if (depthData.downsampled) {
+                                // If downsampled, adjust x,y coordinates
+                                const x_ds = Math.floor(x / 2);
+                                const y_ds = Math.floor(y / 2);
+                                depthIdx = y_ds * depthData.width + x_ds;
+                            } else {
+                                depthIdx = y * depthData.width + x;
+                            }
+                            depth = depthData.data[depthIdx];
+                            // Ensure depth is in reasonable range (0.1m to 50m)
+                            if (depth < 0.1 || depth > 50 || !isFinite(depth)) continue;
+                        } else {
+                            // PNG depth (inverse depth format, converted by browser to 8-bit)
+                            const depthIdx = rgbIdx; // RGBA format, use R channel
+                            const depth8 = depthData.data.data[depthIdx];
+                            const depth16 = depth8 * 256; // Approximate 16-bit value
+                            const inverseDepth = depth16 / 65535.0;
+                            depth = 1.0 / (inverseDepth + 1e-6) - 1.0;
+                            // Ensure depth is in reasonable range (0.1m to 50m)
+                            if (depth < 0.1 || depth > 50 || !isFinite(depth)) continue;
+                        }
+                        validDepthPixels++;
+
+                        // Unproject to 3D
+                        const z = depth;
+                        const x3d = (x - cx) * z / fx;
+                        const y3d = (y - cy) * z / fy;
+
+                        // Convert from OpenCV (Y-down, Z-forward) to Three.js (Y-up, Z-backward)
+                        vertices.push(x3d, -y3d, -z);
+
+                        // Get RGB color
+                        const r = rgbData.data[rgbIdx] / 255.0;
+                        const g = rgbData.data[rgbIdx + 1] / 255.0;
+                        const b = rgbData.data[rgbIdx + 2] / 255.0;
+                        colors.push(r, g, b);
+                    }
+                }
+
+                console.log(`[DEBUG] Processing complete: ${maskPixels} mask pixels, ${validDepthPixels} valid depth pixels, ${vertices.length / 3} final points`);
+                
+                if (vertices.length === 0) {
+                    console.error(`[ERROR] No valid points for object ${objId}, frame ${frameIdx}`);
+                    console.error(`  - Mask pixels found: ${maskPixels}`);
+                    console.error(`  - Valid depth pixels: ${validDepthPixels}`);
+                    console.error(`  - Depth data: ${depthData ? 'loaded' : 'missing'}`);
+                    console.error(`  - RGB data: ${rgbData ? 'loaded' : 'missing'}`);
+                    console.error(`  - Mask data: ${maskData ? 'loaded' : 'missing'}`);
+                    console.error(`  - Intrinsics: fx=${fx}, fy=${fy}, cx=${cx}, cy=${cy}, w=${width}, h=${height}`);
+                    return;
+                }
+                
+                console.log(`[SUCCESS] Generated ${vertices.length / 3} points for object ${objId}, frame ${frameIdx}`);
+                
+                // Compute bounding box for debugging
+                let minX = Infinity, minY = Infinity, minZ = Infinity;
+                let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+                for (let i = 0; i < vertices.length; i += 3) {
+                    minX = Math.min(minX, vertices[i]);
+                    maxX = Math.max(maxX, vertices[i]);
+                    minY = Math.min(minY, vertices[i+1]);
+                    maxY = Math.max(maxY, vertices[i+1]);
+                    minZ = Math.min(minZ, vertices[i+2]);
+                    maxZ = Math.max(maxZ, vertices[i+2]);
+                }
+                console.log(`[DEBUG] Point cloud bounds: x=[${minX.toFixed(2)}, ${maxX.toFixed(2)}], y=[${minY.toFixed(2)}, ${maxY.toFixed(2)}], z=[${minZ.toFixed(2)}, ${maxZ.toFixed(2)}]`);
+
+                // Create point cloud
+                const geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+                geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+
+                const material = new THREE.PointsMaterial({
+                    size: 0.02,
+                    vertexColors: true,
+                    sizeAttenuation: true
+                });
+
+                const points = new THREE.Points(geometry, material);
+                points.userData.objId = objId;
+                points.userData.frameIdx = frameIdx;
+
+                // Remove old point cloud if exists
+                if (objectPointClouds[objId]) {
+                    scene.remove(objectPointClouds[objId]);
+                }
+
+                objectPointClouds[objId] = points;
+                points.visible = pointCloudVisibility[objId] || false;
+                scene.add(points);
+                
+                console.log(`[SUCCESS] Point cloud created for object ${objId}:`);
+                console.log(`  - Points: ${vertices.length / 3}`);
+                console.log(`  - Visible: ${points.visible}`);
+                console.log(`  - In scene: ${scene.children.includes(points)}`);
+                console.log(`  - Position bounds: x=[${minX.toFixed(2)}, ${maxX.toFixed(2)}], y=[${minY.toFixed(2)}, ${maxY.toFixed(2)}], z=[${minZ.toFixed(2)}, ${maxZ.toFixed(2)}]`);
+                
+                // Force render update
+                renderer.render(scene, camera);
+
+            } catch (err) {
+                console.error(`[ERROR] Error loading point cloud for object ${objId}, frame ${frameIdx}:`, err);
+                console.error(err.stack);
+            }
+        }
+
+        async function loadImageFromResponse(response) {
+            const blob = await response.blob();
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => {
+                    URL.revokeObjectURL(img.src);
+                    resolve(img);
+                };
+                img.onerror = reject;
+                img.src = URL.createObjectURL(blob);
+            });
         }
 
         function updateFrame() {
@@ -191,7 +621,7 @@
             }
 
             if (humanMesh && humanParams) {
-                if (humanParams.vertices) {
+                if (humanParams.vertices && humanParams.vertices[currentFrame]) {
                     // Update human mesh vertices for current frame
                     const verts = new Float32Array(humanParams.vertices[currentFrame].flat());
                     
@@ -204,15 +634,27 @@
                     humanMesh.geometry.setAttribute('position', new THREE.BufferAttribute(verts, 3));
                     humanMesh.geometry.attributes.position.needsUpdate = true;
                     humanMesh.geometry.computeVertexNormals();
-                } else {
+                } else if (humanParams.transls && humanParams.transls[currentFrame]) {
                     const transl = humanParams.transls[currentFrame];
                     // Apply same OpenCV to Three.js conversion for human position
                     humanMesh.position.set(transl[0], -transl[1], -transl[2]);
                     
-                    const globalRot = humanParams.poses[currentFrame].slice(0, 3);
-                    // SMPL rotation is axis-angle. This is a rough approximation.
-                    const euler = new THREE.Euler(globalRot[0], -globalRot[1], -globalRot[2]);
-                    humanMesh.quaternion.setFromEuler(euler);
+                    if (humanParams.poses && humanParams.poses[currentFrame]) {
+                        const globalRot = humanParams.poses[currentFrame].slice(0, 3);
+                        // SMPL rotation is axis-angle. This is a rough approximation.
+                        const euler = new THREE.Euler(globalRot[0], -globalRot[1], -globalRot[2]);
+                        humanMesh.quaternion.setFromEuler(euler);
+                    }
+                }
+            }
+
+            // Update point clouds for visible objects
+            for (const objId of availableObjects) {
+                if (pointCloudVisibility[objId]) {
+                    const existingCloud = objectPointClouds[objId];
+                    if (!existingCloud || existingCloud.userData.frameIdx !== currentFrame) {
+                        loadPointCloud(objId, currentFrame);
+                    }
                 }
             }
 

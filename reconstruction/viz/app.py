@@ -3,7 +3,10 @@ import os
 import h5py
 import json
 import numpy as np
-from flask import Flask, send_from_directory, jsonify, request
+import cv2
+from flask import Flask, send_from_directory, jsonify, request, send_file
+from PIL import Image
+from modules.common.datatypes import DepthImage, CameraIntrinsics, Mask
 
 app = Flask(__name__, static_folder='static')
 
@@ -66,6 +69,119 @@ def get_object_poses():
             all_poses.append(json.load(f))
     
     return jsonify(all_poses)
+
+@app.route('/api/objects')
+def get_objects():
+    """List all available object IDs from masks directory."""
+    masks_dir = os.path.join(JOB_DIR, "masks")
+    if not os.path.exists(masks_dir):
+        return jsonify({"objects": []})
+    
+    objects = []
+    for item in os.listdir(masks_dir):
+        obj_path = os.path.join(masks_dir, item)
+        if os.path.isdir(obj_path):
+            try:
+                obj_id = int(item)
+                objects.append(obj_id)
+            except ValueError:
+                continue
+    
+    return jsonify({"objects": sorted(objects)})
+
+@app.route('/api/frame/<int:frame_idx>/depth')
+def get_depth_image(frame_idx):
+    """Get depth image for a specific frame."""
+    depth_path = os.path.join(JOB_DIR, "depth", f"{frame_idx:06d}.png")
+    if not os.path.exists(depth_path):
+        return jsonify({"error": "Depth image not found"}), 404
+    
+    return send_file(depth_path, mimetype='image/png')
+
+@app.route('/api/frame/<int:frame_idx>/rgb')
+def get_rgb_image(frame_idx):
+    """Get RGB image for a specific frame by extracting from video."""
+    video_path = os.path.join(JOB_DIR, "video.mp4")
+    if not os.path.exists(video_path):
+        return jsonify({"error": "Video not found"}), 404
+    
+    cap = cv2.VideoCapture(video_path)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+    ret, frame = cap.read()
+    cap.release()
+    
+    if not ret:
+        return jsonify({"error": "Frame not found"}), 404
+    
+    # Convert BGR to RGB
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    pil_image = Image.fromarray(frame_rgb)
+    
+    # Save to BytesIO and send
+    from io import BytesIO
+    img_io = BytesIO()
+    pil_image.save(img_io, format='PNG')
+    img_io.seek(0)
+    return send_file(img_io, mimetype='image/png')
+
+@app.route('/api/frame/<int:frame_idx>/mask/<int:obj_id>')
+def get_mask_image(frame_idx, obj_id):
+    """Get mask image for a specific frame and object."""
+    mask_path = os.path.join(JOB_DIR, "masks", str(obj_id), f"{frame_idx:06d}.png")
+    if not os.path.exists(mask_path):
+        return jsonify({"error": "Mask image not found"}), 404
+    
+    return send_file(mask_path, mimetype='image/png')
+
+@app.route('/api/frame/<int:frame_idx>/intrinsics')
+def get_intrinsics(frame_idx):
+    """Get camera intrinsics for a specific frame."""
+    intrinsics_path = os.path.join(JOB_DIR, "intrinsics", f"{frame_idx:06d}.json")
+    if not os.path.exists(intrinsics_path):
+        # Try to get from first frame if available
+        intrinsics_path = os.path.join(JOB_DIR, "intrinsics", "000000.json")
+        if not os.path.exists(intrinsics_path):
+            return jsonify({"error": "Intrinsics not found"}), 404
+    
+    with open(intrinsics_path, 'r') as f:
+        intrinsics = json.load(f)
+    
+    return jsonify(intrinsics)
+
+@app.route('/api/frame/<int:frame_idx>/depth/raw')
+def get_depth_raw(frame_idx):
+    """Get depth image as raw float array (more precise than PNG)."""
+    depth_path = os.path.join(JOB_DIR, "depth", f"{frame_idx:06d}.png")
+    if not os.path.exists(depth_path):
+        return jsonify({"error": "Depth image not found"}), 404
+    
+    try:
+        depth_img = DepthImage.load(depth_path)
+        # Convert to list - this can be slow for large images, so we'll skip it if it takes too long
+        # For now, just return the numpy array shape info and let frontend use PNG
+        # Actually, let's downsample or use a more efficient format
+        depth_array = depth_img.depth
+        
+        # Downsample if too large to avoid JSON serialization issues
+        if depth_array.size > 1000000:  # If more than 1M pixels
+            # Downsample by factor of 2
+            import cv2
+            depth_downsampled = cv2.resize(depth_array, (depth_array.shape[1]//2, depth_array.shape[0]//2), interpolation=cv2.INTER_NEAREST)
+            return jsonify({
+                "depth": depth_downsampled.flatten().tolist(),
+                "width": depth_downsampled.shape[1],
+                "height": depth_downsampled.shape[0],
+                "downsampled": True
+            })
+        else:
+            return jsonify({
+                "depth": depth_array.flatten().tolist(),
+                "width": depth_img.width(),
+                "height": depth_img.height(),
+                "downsampled": False
+            })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Ephemeral 3D Viewer for Reconstruction Jobs")

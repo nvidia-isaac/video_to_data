@@ -76,7 +76,7 @@ def fp_scale_estimator(
         mesh_raw = trimesh.util.concatenate([g for g in mesh_raw.geometry.values()])
     
     # 5. Scale estimation loop
-    scale_candidates = np.linspace(0.03, 3.0, 30)
+    scale_candidates = np.linspace(0.75, 1.25, 30)
     samples = mesh_raw.sample(10000)
     chamfs = []
     pose_results = []
