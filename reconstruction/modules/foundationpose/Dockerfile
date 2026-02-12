@@ -89,7 +89,7 @@ RUN cd /workspace/modules/foundationpose/FoundationPose/mycpp \
 RUN cd /workspace/modules/foundationpose/FoundationPose/bundlesdf/mycuda && \
     TORCH_CUDA_ARCH_LIST="8.0 8.6 8.9 9.0" pip install -e .
 
-RUN pip install fast_simplification
+RUN pip install fast_simplification scikit-learn
 
 # Copy common utilities
 COPY modules/common /workspace/modules/common

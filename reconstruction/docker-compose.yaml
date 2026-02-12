@@ -116,6 +116,17 @@ services:
       - FOUNDATIONPOSE_WEIGHTS_DIR=/data/foundationpose/weights
     entrypoint: ["python", "/workspace/modules/foundationpose/align_mesh_scale.py"]
 
+  foundationpose-estimate-scale:
+    build:
+      context: .
+      dockerfile: modules/foundationpose/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - CHECKPOINT_DIR=/data/foundationpose/checkpoints/foundationpose
+      - FOUNDATIONPOSE_WEIGHTS_DIR=/data/foundationpose/weights
+    entrypoint: ["python", "/workspace/modules/foundationpose/estimate_scale.py"]
+
   foundationpose-transform-mesh:
     build:
       context: .
