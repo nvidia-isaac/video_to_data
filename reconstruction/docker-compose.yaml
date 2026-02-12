@@ -181,3 +181,12 @@ services:
       - SMPL_MODEL_ROOT=/data/nlf/smpl_models
       - NLF_WEIGHTS_PATH=/data/nlf/weights/nlf_l_multi_0.3.2.torchscript
     entrypoint: ["python3", "modules/nlf/render_smpl_overlay.py"]
+
+  viz:
+    build:
+      context: .
+      dockerfile: viz/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+    entrypoint: ["python", "viz/app.py"]

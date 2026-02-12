@@ -56,28 +56,30 @@ def video_to_masks(video_path: str, prompts_path: str, masks_dir: str):
             box=box,
         )
     
-    # Store masks in memory
-    masks_dict = {}  # {object_id: {frame_idx: mask_array}}
+    # Create output directories for each object
+    os.makedirs(masks_dir, exist_ok=True)
+    obj_dirs = {}  # Track which object directories we've created
     
     # Run propagation in both directions (reverse then forward)
+    # Write masks immediately as they're generated to avoid keeping them in memory
     for reverse in [True, False]:
         for frame_idx, object_ids, masks in predictor.propagate_in_video(inference_state, reverse=reverse):
             for i, obj_id in enumerate(object_ids):
+                # Convert mask to numpy and write immediately
                 mask_data = (masks[i, 0] > 0.0).cpu().numpy().astype(bool)
                 
-                if obj_id not in masks_dict:
-                    masks_dict[obj_id] = {}
-                masks_dict[obj_id][frame_idx] = mask_data
-    
-    # Save masks to files
-    os.makedirs(masks_dir, exist_ok=True)
-    for obj_id, frame_masks in masks_dict.items():
-        obj_mask_dir = os.path.join(masks_dir, str(obj_id))
-        os.makedirs(obj_mask_dir, exist_ok=True)
-        for frame_idx, mask_array in frame_masks.items():
-            mask_img = Image.fromarray((mask_array * 255).astype('uint8'), mode='L')
-            mask_path = os.path.join(obj_mask_dir, f"{frame_idx:06d}.png")
-            mask_img.save(mask_path, format='PNG')
+                # Create object directory if needed
+                if obj_id not in obj_dirs:
+                    obj_mask_dir = os.path.join(masks_dir, str(obj_id))
+                    os.makedirs(obj_mask_dir, exist_ok=True)
+                    obj_dirs[obj_id] = obj_mask_dir
+                else:
+                    obj_mask_dir = obj_dirs[obj_id]
+                
+                # Write mask to file immediately (overwrites if frame was processed before)
+                mask_img = Image.fromarray((mask_data * 255).astype('uint8'), mode='L')
+                mask_path = os.path.join(obj_mask_dir, f"{frame_idx:06d}.png")
+                mask_img.save(mask_path, format='PNG')
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process video to masks using SAM2")

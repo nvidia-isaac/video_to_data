@@ -146,6 +146,15 @@ def video_to_smpl(
         requested_keys=['shape_betas', 'trans', 'pose_rotvecs']
     )
 
+    # Compute vertices from fitted parameters using body_model
+    with torch.no_grad():
+        output = body_model(
+            pose_rotvecs=fit_res['pose_rotvecs'],
+            shape_betas=fit_res['shape_betas'],
+            trans=fit_res['trans']
+        )
+        fitted_vertices = output['vertices'].cpu().numpy()
+
     res = NlfResult(
         poses=fit_res['pose_rotvecs'].cpu().numpy(),
         betas=fit_res['shape_betas'].cpu().numpy(),
@@ -164,6 +173,14 @@ def video_to_smpl(
             f.create_dataset('gender', data=res.gender.encode('utf-8'))
             f.create_dataset('model_type', data=res.model_type.encode('utf-8'))
             f.create_dataset('frames', data=[f.encode('utf-8') for f in res.frames])
+            # Save vertices and faces for easier visualization
+            f.create_dataset('vertices', data=fitted_vertices)
+            faces = body_model.faces
+            if hasattr(faces, 'cpu'):
+                faces = faces.cpu().numpy()
+            elif hasattr(faces, 'numpy'):
+                faces = faces.numpy()
+            f.create_dataset('faces', data=faces)
         print(f"Results saved to {output_path}")
 
     return res
