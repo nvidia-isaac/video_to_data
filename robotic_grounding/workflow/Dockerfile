@@ -62,6 +62,14 @@ RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
     dearpygui \
     qpsolvers[clarabel,daqp,proxqp,scs]
 
+# Install Robotic Grounding dependencies
+RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
+    onnxruntime-gpu \
+    imageio \
+    imageio-ffmpeg \
+    pytorch-ignite \
+    pytest
+
 # Install the project in editable mode
 RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
     -e ./source/robotic_grounding

@@ -52,7 +52,7 @@ class V2PSceneCfg(InteractiveSceneCfg):
         ),
         spawn=sim_utils.UrdfFileCfg(
             fix_base=True,
-            asset_path=f"{ASSET_DIR}/urdfs/round_table.urdf",
+            asset_path=f"{ASSET_DIR}/objects/round_table/round_table.urdf",
             activate_contact_sensors=False,
             visual_material=sim_utils.PreviewSurfaceCfg(
                 diffuse_color=(0.14, 0.14, 0.14), metallic=0.7

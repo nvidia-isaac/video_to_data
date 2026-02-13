@@ -67,6 +67,12 @@ parser.add_argument(
     default=None,
     help="Automatically configured by Ray integration, otherwise None.",
 )
+parser.add_argument(
+    "--scene_config",
+    type=str,
+    default=None,
+    help="Path to the scene configuration file.",
+)
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -144,6 +150,8 @@ from isaaclab_rl.rsl_rl import RslRlBaseRunnerCfg, RslRlVecEnvWrapper
 
 import isaaclab_tasks  # noqa: F401
 import robotic_grounding.tasks  # noqa: F401
+from robotic_grounding.tasks.scene_utils import SceneConfig, apply_scene_config
+from robotic_grounding.tasks.v2p_whole_body.utils import WandbVideoUploader
 
 from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import hydra_task_config
@@ -170,6 +178,14 @@ def main(
     env_cfg.scene.num_envs = (
         args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
     )
+
+    # apply scene configuration if provided
+    if args_cli.scene_config is not None:
+        env_cfg.scene_config_path = args_cli.scene_config
+        scene_config = SceneConfig.from_yaml(args_cli.scene_config)
+        apply_scene_config(env_cfg, scene_config)
+
+    # set max iterations
     agent_cfg.max_iterations = (
         args_cli.max_iterations
         if args_cli.max_iterations is not None
@@ -237,9 +253,16 @@ def main(
 
     # save resume path before creating a new log_dir
     if agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
-        resume_path = get_checkpoint_path(
-            log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint
-        )
+        if os.path.isabs(agent_cfg.load_checkpoint) or os.path.exists(
+            agent_cfg.load_checkpoint
+        ):
+            # allow path to be directly specified
+            resume_path = os.path.abspath(agent_cfg.load_checkpoint)
+        else:
+            # get checkpoint from log directory
+            resume_path = get_checkpoint_path(
+                log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint
+            )
 
     # wrap for video recording
     if args_cli.video:
@@ -281,12 +304,28 @@ def main(
     dump_yaml(os.path.join(log_dir, "params", "env.yaml"), env_cfg)
     dump_yaml(os.path.join(log_dir, "params", "agent.yaml"), agent_cfg)
 
+    # setup video uploader for wandb
+    video_uploader = None
+    if args_cli.video and agent_cfg.logger == "wandb":
+        video_folder = os.path.join(log_dir, "videos", "train")
+        os.makedirs(video_folder, exist_ok=True)
+        video_uploader = WandbVideoUploader(
+            video_folder,
+            check_interval=60.0,
+            num_steps_per_env=agent_cfg.num_steps_per_env,
+        )
+        video_uploader.start()
+
     # run training
     runner.learn(
         num_learning_iterations=agent_cfg.max_iterations, init_at_random_ep_len=True
     )
 
     print(f"Training time: {round(time.time() - start_time, 2)} seconds")
+
+    # stop video uploader
+    if video_uploader is not None:
+        video_uploader.stop()
 
     # close the simulator
     env.close()
