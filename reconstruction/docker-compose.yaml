@@ -29,6 +29,16 @@ services:
       - CHECKPOINT_DIR=/data/sam2/checkpoints/sam2.1-hiera-large
     entrypoint: ["python", "/workspace/modules/sam2/video_to_masks.py"]
 
+  sam2-annotate:
+    build:
+      context: .
+      dockerfile: modules/sam2/Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data
+    entrypoint: ["python", "/workspace/modules/sam2/annotate.py"]
+
   moge-video-to-depth:
     build:
       context: .
@@ -181,6 +191,39 @@ services:
       - SMPL_MODEL_ROOT=/data/nlf/smpl_models
       - NLF_WEIGHTS_PATH=/data/nlf/weights/nlf_l_multi_0.3.2.torchscript
     entrypoint: ["python3", "modules/nlf/render_smpl_overlay.py"]
+
+  nlf-align-to-depth:
+    build:
+      context: .
+      dockerfile: modules/nlf/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - SMPL_MODEL_ROOT=/data/nlf/smpl_models
+      - NLF_WEIGHTS_PATH=/data/nlf/weights/nlf_l_multi_0.3.2.torchscript
+    entrypoint: ["python3", "modules/nlf/align_nlf_to_depth.py"]
+
+  nlf-align-depth-to-smpl:
+    build:
+      context: .
+      dockerfile: modules/nlf/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - SMPL_MODEL_ROOT=/data/nlf/smpl_models
+      - NLF_WEIGHTS_PATH=/data/nlf/weights/nlf_l_multi_0.3.2.torchscript
+    entrypoint: ["python3", "modules/nlf/align_depth_to_smpl.py"]
+
+  nlf-render-smpl-depth:
+    build:
+      context: .
+      dockerfile: modules/nlf/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - SMPL_MODEL_ROOT=/data/nlf/smpl_models
+      - NLF_WEIGHTS_PATH=/data/nlf/weights/nlf_l_multi_0.3.2.torchscript
+    entrypoint: ["python3", "modules/nlf/render_smpl_depth.py"]
 
   viz:
     build:

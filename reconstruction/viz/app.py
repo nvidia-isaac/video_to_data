@@ -20,7 +20,19 @@ def index():
 @app.route('/data/<path:filename>')
 def serve_job_data(filename):
     """Serve files directly from the job directory (mesh, video, etc.)"""
-    return send_from_directory(JOB_DIR, filename)
+    file_path = os.path.join(JOB_DIR, filename)
+    if not os.path.exists(file_path):
+        return jsonify({"error": f"File not found: {filename}"}), 404
+    
+    # Disable caching completely - remove ETag and Last-Modified headers
+    response = send_file(file_path, conditional=False)
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    # Remove ETag and Last-Modified to prevent 304 responses
+    response.headers.pop('ETag', None)
+    response.headers.pop('Last-Modified', None)
+    return response
 
 @app.route('/api/metadata')
 def get_metadata():
@@ -30,29 +42,58 @@ def get_metadata():
         "has_human": os.path.exists(os.path.join(JOB_DIR, "smpl_results.h5")),
         "has_video": os.path.exists(os.path.join(JOB_DIR, "video.mp4")),
     }
+    # Check for transform file (contains scale information)
+    transform_path = os.path.join(JOB_DIR, "transform.json")
+    if os.path.exists(transform_path):
+        with open(transform_path, 'r') as f:
+            transform = json.load(f)
+            metadata["object_scale"] = transform.get("scale", [1.0, 1.0, 1.0])
+    else:
+        metadata["object_scale"] = [1.0, 1.0, 1.0]
     return jsonify(metadata)
 
 @app.route('/api/human/params')
 def get_human_params():
-    """Parse the SMPL .h5 file and return parameters as JSON."""
+    """Get basic human parameters (metadata only, no vertex data)."""
     h5_path = os.path.join(JOB_DIR, "smpl_results.h5")
     if not os.path.exists(h5_path):
         return jsonify({"error": "No human data found"}), 404
     
     with h5py.File(h5_path, 'r') as f:
-        # Convert numpy arrays to lists for JSON serialization
+        # Only return metadata, not all vertex data
         data = {
-            "poses": f['poses'][:].tolist(),
-            "betas": f['betas'][:].tolist(),
-            "transls": f['transls'][:].tolist(),
             "gender": f['gender'][()].decode('utf-8') if isinstance(f['gender'][()], bytes) else f['gender'][()],
-            "model_type": f['model_type'][()].decode('utf-8') if isinstance(f['model_type'][()], bytes) else f['model_type'][()]
+            "model_type": f['model_type'][()].decode('utf-8') if isinstance(f['model_type'][()], bytes) else f['model_type'][()],
+            "num_frames": len(f['poses']) if 'poses' in f else 0,
+            "has_vertices": 'vertices' in f,
+            "has_faces": 'faces' in f
         }
-        # Include vertices and faces if available
-        if 'vertices' in f:
-            data['vertices'] = f['vertices'][:].tolist()
+        # Include faces if available (they're the same for all frames)
         if 'faces' in f:
             data['faces'] = f['faces'][:].tolist()
+    return jsonify(data)
+
+@app.route('/api/human/frame/<int:frame_idx>')
+def get_human_frame(frame_idx):
+    """Get human parameters for a specific frame (frame-by-frame loading)."""
+    h5_path = os.path.join(JOB_DIR, "smpl_results.h5")
+    if not os.path.exists(h5_path):
+        return jsonify({"error": "No human data found"}), 404
+    
+    with h5py.File(h5_path, 'r') as f:
+        num_frames = len(f['poses']) if 'poses' in f else 0
+        if frame_idx < 0 or frame_idx >= num_frames:
+            return jsonify({"error": f"Frame index {frame_idx} out of range [0, {num_frames-1}]"}), 404
+        
+        data = {
+            "frame_idx": frame_idx,
+            "pose": f['poses'][frame_idx].tolist(),
+            "beta": f['betas'][frame_idx].tolist() if 'betas' in f else f['betas'][0].tolist(),  # Betas are usually constant
+            "transl": f['transls'][frame_idx].tolist(),
+        }
+        # Include vertices for this frame if available
+        if 'vertices' in f:
+            data['vertices'] = f['vertices'][frame_idx].tolist()
     return jsonify(data)
 
 @app.route('/api/object/poses')

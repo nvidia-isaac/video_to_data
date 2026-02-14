@@ -143,6 +143,7 @@ def video_to_smpl(
         verts_tensor, 
         num_iter=3,
         beta_regularizer=1,
+        share_beta=True,  # Share betas across all frames to ensure constant shape/scale
         requested_keys=['shape_betas', 'trans', 'pose_rotvecs']
     )
 

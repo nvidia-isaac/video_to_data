@@ -177,7 +177,7 @@ def video_to_poses(video_path: str, depth_folder: str, masks_folder: str, camera
             raise RuntimeError(f"Failed to load data for reference frame {reference_frame}")
         
         log_gpu_memory("Before register")
-        initial_pose = est.register(K=K_scaled, rgb=rgb, depth=depth, ob_mask=mask, iteration=5)
+        initial_pose = est.register(K=K_scaled, rgb=rgb, depth=depth, ob_mask=mask, iteration=10)
         log_gpu_memory("After register")
 
         save_pose(reference_frame, initial_pose)

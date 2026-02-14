@@ -25,11 +25,23 @@ RUN apt-get update && apt-get install -y \
 RUN pip3 install git+https://github.com/isarandi/smplfitter.git
 
 # Install rendering and detection dependencies
-RUN pip3 install pyrender trimesh h5py opencv-python torchvision
+RUN pip3 install pyrender trimesh h5py opencv-python torchvision open3d transformations ruamel.yaml kornia einops joblib
 
+RUN FORCE_CUDA=1 TORCH_CUDA_ARCH_LIST="8.0 8.6 8.9 9.0" pip3 install "git+https://github.com/facebookresearch/pytorch3d.git"
+
+# Install nvdiffrast for FoundationPose Utils (from source like FoundationPose Dockerfile)
+RUN git clone https://github.com/NVlabs/nvdiffrast /tmp/nvdiffrast && \
+    cd /tmp/nvdiffrast && \
+    pip3 install setuptools wheel ninja && \
+    TORCH_CUDA_ARCH_LIST="8.0 8.6 8.9 9.0" pip3 install . --no-build-isolation && \
+    rm -rf /tmp/nvdiffrast
+
+# Install warp-lang for FoundationPose Utils
+RUN pip3 install warp-lang
 # Copy the module and common code
 COPY modules/nlf /app/modules/nlf
 COPY modules/common /app/modules/common
+COPY modules/foundationpose /app/modules/foundationpose
 
 # Set environment variables
 ENV PYTHONPATH=/app

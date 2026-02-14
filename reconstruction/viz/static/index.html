@@ -67,6 +67,7 @@
         let objectMesh, humanMesh;
         let objectPoses = [];
         let humanParams = null;
+        let humanFrameCache = {}; // Cache for loaded human frames
         let frameCount = 0;
         let currentFrame = 0;
         let isPlaying = false;
@@ -184,10 +185,32 @@
 
                 if (meta.has_object) {
                     const loader = new GLTFLoader();
-                    loader.load('/data/mesh_input.glb', (gltf) => {
-                        objectMesh = gltf.scene;
-                        scene.add(objectMesh);
-                    });
+                    loader.load(
+                        '/data/mesh_input.glb',
+                        (gltf) => {
+                            console.log('[DEBUG] Object mesh loaded successfully');
+                            objectMesh = gltf.scene;
+                            
+                            // The mesh is already scaled by transform_mesh.py, so we don't apply scale here
+                            // FoundationPose uses the scaled mesh to compute poses, so the poses are correct for this mesh scale
+                            objectMesh.scale.set(1, 1, 1);
+                            
+                            // Compute bounding box for debugging
+                            const box = new THREE.Box3().setFromObject(objectMesh);
+                            const size = box.getSize(new THREE.Vector3());
+                            const maxDim = Math.max(size.x, size.y, size.z);
+                            console.log(`[DEBUG] Object mesh size: [${size.x.toFixed(3)}, ${size.y.toFixed(3)}, ${size.z.toFixed(3)}], max: ${maxDim.toFixed(3)}m`);
+                            
+                            objectMesh.visible = true;
+                            scene.add(objectMesh);
+                        },
+                        (progress) => {
+                            console.log('[DEBUG] Object mesh loading progress:', progress);
+                        },
+                        (error) => {
+                            console.error('[ERROR] Failed to load object mesh:', error);
+                        }
+                    );
 
                     const posesRes = await fetch('/api/object/poses');
                     objectPoses = await posesRes.json();
@@ -196,27 +219,30 @@
 
                 if (meta.has_human) {
                     const humanRes = await fetch('/api/human/params');
-                    humanParams = await humanRes.json();
-                    frameCount = Math.max(frameCount, humanParams.poses.length);
+                    const humanMeta = await humanRes.json();
+                    frameCount = Math.max(frameCount, humanMeta.num_frames);
+                    
+                    // Store metadata for frame-by-frame loading
+                    humanParams = {
+                        gender: humanMeta.gender,
+                        model_type: humanMeta.model_type,
+                        faces: humanMeta.faces,
+                        num_frames: humanMeta.num_frames,
+                        has_vertices: humanMeta.has_vertices
+                    };
                     
                     // Show mesh controls
                     document.getElementById('mesh-controls').style.display = 'block';
                     
-                    if (humanParams.vertices && humanParams.faces) {
-                        // Create human mesh from vertices and faces
+                    // Create human mesh structure (will be populated frame-by-frame)
+                    if (humanMeta.has_faces && humanMeta.faces) {
                         const geometry = new THREE.BufferGeometry();
-                        // Initialize with first frame
-                        const vertices = new Float32Array(humanParams.vertices[0].flat());
-                        const indices = new Uint32Array(humanParams.faces.flat());
-                        
-                        // Apply coordinate conversion to vertices
-                        for (let i = 0; i < vertices.length; i += 3) {
-                            vertices[i+1] = -vertices[i+1]; // Y-up
-                            vertices[i+2] = -vertices[i+2]; // Z-backward
-                        }
-                        
+                        const indices = new Uint32Array(humanMeta.faces.flat());
                         geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-                        geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+                        
+                        // Initialize with empty vertices (will be loaded frame-by-frame)
+                        const initialVertices = new Float32Array(humanMeta.faces.length * 3 * 3); // Placeholder
+                        geometry.setAttribute('position', new THREE.BufferAttribute(initialVertices, 3));
                         geometry.computeVertexNormals();
 
                         const material = new THREE.MeshPhongMaterial({ 
@@ -226,9 +252,12 @@
                         });
                         humanMesh = new THREE.Mesh(geometry, material);
                         scene.add(humanMesh);
-                        console.log("Human mesh created with", vertices.length / 3, "vertices");
+                        console.log("Human mesh created (will load frame-by-frame)");
+                        
+                        // Load first frame immediately
+                        loadHumanFrame(0);
                     } else {
-                        // Fallback to box if no vertex data
+                        // Fallback to box if no face data
                         const geometry = new THREE.BoxGeometry(0.5, 1.8, 0.2);
                         const material = new THREE.MeshPhongMaterial({ color: 0xff4444 });
                         humanMesh = new THREE.Mesh(geometry, material);
@@ -577,6 +606,130 @@
             }
         }
 
+        async function loadHumanFrame(frameIdx) {
+            if (humanFrameCache[frameIdx]) {
+                updateHumanMesh(humanFrameCache[frameIdx]);
+                // Update object after human is updated (so object can use human translation)
+                if (objectMesh && objectPoses && objectPoses[frameIdx]) {
+                    updateObjectPose(frameIdx);
+                }
+                return;
+            }
+            
+            try {
+                const res = await fetch(`/api/human/frame/${frameIdx}`);
+                if (!res.ok) {
+                    console.error(`[ERROR] Failed to load human frame ${frameIdx}: ${res.status}`);
+                    return;
+                }
+                const frameData = await res.json();
+                humanFrameCache[frameIdx] = frameData;
+                updateHumanMesh(frameData);
+                // Update object after human is updated (so object can use human translation)
+                if (objectMesh && objectPoses && objectPoses[frameIdx]) {
+                    updateObjectPose(frameIdx);
+                }
+            } catch (err) {
+                console.error(`[ERROR] Error loading human frame ${frameIdx}:`, err);
+            }
+        }
+        
+        function updateObjectPose(frameIdx) {
+            if (!objectMesh || !objectPoses || !objectPoses[frameIdx]) return;
+            
+            const pose = objectPoses[frameIdx];
+            let matrixData;
+            
+            // Handle both array format and object format
+            if (Array.isArray(pose)) {
+                matrixData = pose.flat();
+            } else if (pose.transform && Array.isArray(pose.transform)) {
+                matrixData = pose.transform.flat();
+            } else {
+                console.warn(`[WARN] Unexpected pose format for frame ${frameIdx}:`, pose);
+                return;
+            }
+            
+            const matrix = new THREE.Matrix4();
+            
+            if (matrixData.length === 16) {
+                // FoundationPose outputs row-major. THREE.Matrix4.set() is also row-major.
+                matrix.set(
+                    matrixData[0], matrixData[1], matrixData[2], matrixData[3],
+                    matrixData[4], matrixData[5], matrixData[6], matrixData[7],
+                    matrixData[8], matrixData[9], matrixData[10], matrixData[11],
+                    matrixData[12], matrixData[13], matrixData[14], matrixData[15]
+                );
+                
+                // Convert from OpenCV (Y-down, Z-forward) to Three.js (Y-up, Z-backward)
+                const conversionMatrix = new THREE.Matrix4().set(
+                    1,  0,  0, 0,
+                    0, -1,  0, 0,
+                    0,  0, -1, 0,
+                    0,  0,  0, 1
+                );
+                
+                matrix.premultiply(conversionMatrix);
+                
+                // Anchor object relative to human: subtract human translation
+                // This makes the object move relative to the human (which is at origin)
+                if (humanMesh && humanMesh.userData.humanTrans) {
+                    const humanTrans = humanMesh.userData.humanTrans;
+                    // Extract translation from matrix
+                    const objectPos = new THREE.Vector3();
+                    objectPos.setFromMatrixPosition(matrix);
+                    // Subtract human translation to make object relative to human
+                    objectPos.sub(humanTrans);
+                    // Update matrix translation
+                    matrix.setPosition(objectPos);
+                }
+
+                objectMesh.matrixAutoUpdate = false;
+                objectMesh.matrix.copy(matrix);
+                objectMesh.matrixWorldNeedsUpdate = true;
+                objectMesh.visible = true;
+                console.log(`[DEBUG] Object mesh updated for frame ${frameIdx}`);
+            } else {
+                console.warn(`[WARN] Invalid matrix data length for frame ${frameIdx}: ${matrixData.length}`);
+            }
+        }
+
+        function updateHumanMesh(frameData) {
+            if (!humanMesh || !frameData.vertices) return;
+            
+            const verts = new Float32Array(frameData.vertices.flat());
+            
+            // Get human translation (in OpenCV coordinates)
+            const transl = frameData.transl || [0, 0, 0];
+            const humanTrans = new THREE.Vector3(transl[0], transl[1], transl[2]);
+            
+            // Apply coordinate conversion to translation (OpenCV -> Three.js)
+            // OpenCV: Y-down, Z-forward -> Three.js: Y-up, Z-backward
+            const humanTransThree = new THREE.Vector3(
+                humanTrans.x,
+                -humanTrans.y,  // Y-up
+                -humanTrans.z  // Z-backward
+            );
+            
+            // Apply coordinate conversion to vertices and subtract translation to anchor at origin
+            for (let i = 0; i < verts.length; i += 3) {
+                // Convert coordinates
+                verts[i+1] = -verts[i+1]; // Y-up
+                verts[i+2] = -verts[i+2]; // Z-backward
+                // Subtract translation to anchor human at origin
+                verts[i]   -= humanTransThree.x;
+                verts[i+1] -= humanTransThree.y;
+                verts[i+2] -= humanTransThree.z;
+            }
+            
+            humanMesh.geometry.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+            humanMesh.geometry.attributes.position.needsUpdate = true;
+            humanMesh.geometry.computeVertexNormals();
+            
+            // Store the human translation for use in object pose updates
+            humanMesh.userData.humanTrans = humanTransThree;
+        }
+
         async function loadImageFromResponse(response) {
             const blob = await response.blob();
             return new Promise((resolve, reject) => {
@@ -591,61 +744,20 @@
         }
 
         function updateFrame() {
-            if (objectMesh && objectPoses[currentFrame]) {
-                const matrixData = objectPoses[currentFrame].flat();
-                const matrix = new THREE.Matrix4();
-                
-                if (matrixData.length === 16) {
-                    // FoundationPose outputs row-major. THREE.Matrix4.set() is also row-major.
-                    matrix.set(
-                        matrixData[0], matrixData[1], matrixData[2], matrixData[3],
-                        matrixData[4], matrixData[5], matrixData[6], matrixData[7],
-                        matrixData[8], matrixData[9], matrixData[10], matrixData[11],
-                        matrixData[12], matrixData[13], matrixData[14], matrixData[15]
-                    );
-                    
-                    // Convert from OpenCV (Y-down, Z-forward) to Three.js (Y-up, Z-backward)
-                    const conversionMatrix = new THREE.Matrix4().set(
-                        1,  0,  0, 0,
-                        0, -1,  0, 0,
-                        0,  0, -1, 0,
-                        0,  0,  0, 1
-                    );
-                    
-                    matrix.premultiply(conversionMatrix);
-
-                    objectMesh.matrixAutoUpdate = false;
-                    objectMesh.matrix.copy(matrix);
-                    objectMesh.matrixWorldNeedsUpdate = true;
-                }
-            }
-
+            // Update human mesh first (so we have the translation for object anchoring)
             if (humanMesh && humanParams) {
-                if (humanParams.vertices && humanParams.vertices[currentFrame]) {
-                    // Update human mesh vertices for current frame
-                    const verts = new Float32Array(humanParams.vertices[currentFrame].flat());
-                    
-                    // Apply coordinate conversion to vertices
-                    for (let i = 0; i < verts.length; i += 3) {
-                        verts[i+1] = -verts[i+1]; // Y-up
-                        verts[i+2] = -verts[i+2]; // Z-backward
-                    }
-                    
-                    humanMesh.geometry.setAttribute('position', new THREE.BufferAttribute(verts, 3));
-                    humanMesh.geometry.attributes.position.needsUpdate = true;
-                    humanMesh.geometry.computeVertexNormals();
-                } else if (humanParams.transls && humanParams.transls[currentFrame]) {
-                    const transl = humanParams.transls[currentFrame];
-                    // Apply same OpenCV to Three.js conversion for human position
-                    humanMesh.position.set(transl[0], -transl[1], -transl[2]);
-                    
-                    if (humanParams.poses && humanParams.poses[currentFrame]) {
-                        const globalRot = humanParams.poses[currentFrame].slice(0, 3);
-                        // SMPL rotation is axis-angle. This is a rough approximation.
-                        const euler = new THREE.Euler(globalRot[0], -globalRot[1], -globalRot[2]);
-                        humanMesh.quaternion.setFromEuler(euler);
-                    }
+                // Load human frame data if not cached
+                if (!humanFrameCache[currentFrame]) {
+                    loadHumanFrame(currentFrame); // This will call updateObjectPose after human loads
+                } else {
+                    // Update mesh with cached frame data
+                    updateHumanMesh(humanFrameCache[currentFrame]);
+                    // Update object after human is updated
+                    updateObjectPose(currentFrame);
                 }
+            } else {
+                // If no human, just update object normally
+                updateObjectPose(currentFrame);
             }
 
             // Update point clouds for visible objects

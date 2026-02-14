@@ -31,9 +31,19 @@ def fp_scale_estimator(
     intrinsics_path: str,
     transform_path: str,
     output_transform_path: str,
-    debug_dir: str = None
+    debug_dir: str = None,
+    num_levels: int = 3,
+    num_samples_per_level: int = 10,
+    level_size: float = 2.0
 ):
-    """Use FoundationPose to estimate the rough scale by trying multiple scale candidates."""
+    """Use FoundationPose to estimate the rough scale by trying multiple scale candidates.
+    
+    Uses a hierarchical multi-level search:
+    1. Initialize with input transform scale
+    2. For each level, search num_samples_per_level candidates centered around current best
+    3. Range is [current_best / level_size, current_best * level_size]
+    4. Repeat for N levels
+    """
     # 1. Initialize models
     scorer = ScorePredictor()
     refiner = PoseRefinePredictor()
@@ -47,6 +57,12 @@ def fp_scale_estimator(
 
     with open(transform_path, 'r') as f:
         transform_data = json.load(f)
+    
+    # Extract initial scale from transform (use average if scale is 3D)
+    initial_scale = transform_data.get('scale', [1.0, 1.0, 1.0])
+    if isinstance(initial_scale, list):
+        initial_scale = np.mean(initial_scale)  # Use average for uniform scale assumption
+    current_best_scale = float(initial_scale)
     
     color = cv2.imread(rgb_path)
     if color is None:
@@ -75,67 +91,83 @@ def fp_scale_estimator(
     if hasattr(mesh_raw, 'geometry'):
         mesh_raw = trimesh.util.concatenate([g for g in mesh_raw.geometry.values()])
     
-    # 5. Scale estimation loop
-    scale_candidates = np.linspace(0.75, 1.25, 30)
     samples = mesh_raw.sample(10000)
-    chamfs = []
-    pose_results = []
 
     if debug_dir is None:
         debug_dir = "/tmp/foundationpose_debug"
     os.makedirs(debug_dir, exist_ok=True)
 
-    print(f"Estimating scale with {len(scale_candidates)} candidates...")
-    for scale in tqdm(scale_candidates):
-        mesh_t = mesh_raw.copy()
-        mesh_t.vertices = mesh_t.vertices * scale
-        
-        est = FoundationPose(
-            model_pts=mesh_t.vertices, 
-            model_normals=mesh_t.vertex_normals, 
-            mesh=mesh_t, 
-            scorer=scorer,
-            refiner=refiner, 
-            debug_dir=debug_dir, 
-            debug=0, 
-            glctx=glctx
-        )
-        
-        # We use register to find the best pose for this specific scale
-        pose = est.register(
-            K=camera_K, 
-            rgb=color, 
-            depth=depth_filtered, 
-            ob_mask=mask_o.astype(bool),
-            iteration=5
-        )
-        
-        samples_t = samples * scale
-        samples_cam = np.matmul(samples_t, pose[:3, :3].T) + pose[:3, 3]
-        
-        cd = chamfer_distance(obj_pts, samples_cam)
-        chamfs.append([scale, cd])
-        pose_results.append(pose)
-
-    # 6. Pick best scale
-    chamfs = np.array(chamfs)
-    best_idx = np.argmin(chamfs[:, 1])
-    best_scale = chamfs[best_idx, 0]
-    best_pose = pose_results[best_idx]
+    # 5. Hierarchical multi-level scale estimation
+    print(f"Initializing scale search with transform scale: {current_best_scale:.4f}")
+    print(f"Using {num_levels} levels with {num_samples_per_level} samples per level (level_size={level_size})")
     
-    print(f"Best scale found: {best_scale} (Chamfer: {chamfs[best_idx, 1]:.4f})")
+    best_pose = None
+    best_chamfer = float('inf')
+    
+    for level in range(num_levels):
+        # Compute search range for this level
+        scale_min = current_best_scale / level_size
+        scale_max = current_best_scale * level_size
+        
+        # Generate scale candidates for this level
+        scale_candidates = np.linspace(scale_min, scale_max, num_samples_per_level)
+        
+        print(f"\nLevel {level + 1}/{num_levels}: Searching {num_samples_per_level} candidates in range [{scale_min:.4f}, {scale_max:.4f}]")
+        
+        level_best_scale = current_best_scale
+        level_best_chamfer = best_chamfer
+        level_best_pose = best_pose
+        
+        for scale in tqdm(scale_candidates, desc=f"Level {level + 1}"):
+            mesh_t = mesh_raw.copy()
+            mesh_t.vertices = mesh_t.vertices * scale
+            
+            est = FoundationPose(
+                model_pts=mesh_t.vertices, 
+                model_normals=mesh_t.vertex_normals, 
+                mesh=mesh_t, 
+                scorer=scorer,
+                refiner=refiner, 
+                debug_dir=debug_dir, 
+                debug=0, 
+                glctx=glctx
+            )
+            
+            # We use register to find the best pose for this specific scale
+            pose = est.register(
+                K=camera_K, 
+                rgb=color, 
+                depth=depth_filtered, 
+                ob_mask=mask_o.astype(bool),
+                iteration=5
+            )
+            
+            samples_t = samples * scale
+            samples_cam = np.matmul(samples_t, pose[:3, :3].T) + pose[:3, 3]
+            
+            cd = chamfer_distance(obj_pts, samples_cam)
+            
+            # Update best if this is better
+            if cd < level_best_chamfer:
+                level_best_scale = scale
+                level_best_chamfer = cd
+                level_best_pose = pose
+        
+        # Update current best for next level
+        current_best_scale = level_best_scale
+        best_chamfer = level_best_chamfer
+        best_pose = level_best_pose
+        
+        print(f"Level {level + 1} best: scale={current_best_scale:.4f}, Chamfer={best_chamfer:.4f}")
+
+    # 6. Final result
+    best_scale = current_best_scale
+    print(f"\nFinal best scale: {best_scale:.4f} (Chamfer: {best_chamfer:.4f})")
 
     # 7. Save refined transform
-    # The output format should match align_mesh_scale.py's expectation
     refined_transform = transform_data.copy()
-    # Note: SAM3D transform has scale as a 3-element list, but here we assume uniform scale
     refined_transform['scale'] = [best_scale, best_scale, best_scale]
-    # We also update translation based on the best pose found during registration
-    # FoundationPose pose is [R|t] where t is translation in camera space
     refined_transform['translation'] = best_pose[:3, 3].tolist()
-    # We should probably also update rotation, but FoundationPose uses 4x4 matrix 
-    # while SAM3D uses quaternions. For now, let's keep it simple or convert if needed.
-    # Since the goal is scale alignment, we focus on scale and translation.
 
     with open(output_transform_path, "w") as f:
         json.dump(refined_transform, f, indent=4)
@@ -152,6 +184,9 @@ if __name__ == '__main__':
     parser.add_argument("--transform", required=True, help="Path to original transform JSON")
     parser.add_argument("--output-transform", required=True, help="Path to save refined transform JSON")
     parser.add_argument("--debug-dir", help="Optional directory for debug visualizations")
+    parser.add_argument("--num-levels", type=int, default=3, help="Number of hierarchical search levels")
+    parser.add_argument("--num-samples-per-level", type=int, default=10, help="Number of scale candidates per level")
+    parser.add_argument("--level-size", type=float, default=2.0, help="Search range multiplier per level (range is [best/level_size, best*level_size])")
 
     args = parser.parse_args()
     
@@ -163,5 +198,8 @@ if __name__ == '__main__':
         intrinsics_path=args.intrinsics,
         transform_path=args.transform,
         output_transform_path=args.output_transform,
-        debug_dir=args.debug_dir
+        debug_dir=args.debug_dir,
+        num_levels=args.num_levels,
+        num_samples_per_level=args.num_samples_per_level,
+        level_size=args.level_size
     )
