@@ -6,16 +6,24 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
+import logging
+import os
+
+import numpy as np
 from isaaclab.sensors import ContactSensorCfg
 from isaaclab.utils import configclass
 
+from robotic_grounding.assets import ASSET_DIR
 from robotic_grounding.assets.arctic_object import ARCTIC_OBJECT_CFG
 from robotic_grounding.assets.dual_sharpa_wave import (
     DUAL_SHARPA_WAVE_ACTION_SCALE,
     DUAL_SHARPA_WAVE_CFG,
     FINGERTIP_CONTACT_BODIES,
 )
+from robotic_grounding.retarget.data_logger import ManoSharpaData
 from robotic_grounding.tasks.v2p.v2p_hand_env_cfg import V2PHandEnvCfg
+
+logger = logging.getLogger(__name__)
 
 
 @configclass
@@ -100,6 +108,36 @@ class SharpaV2PEnvCfg(V2PHandEnvCfg):
         # Store sensor names on env config for observations to access
         # This provides the contract: robot-specific config provides sensor names
         self.finger_sensor_names = finger_sensor_names
+
+        # FIXME: We need to unify the data loading once we have a proper command or reset logic.
+        # Load tips_distance from processed parquet for ManipTrans contact reward
+        processed_dir = os.path.join(ASSET_DIR, "human_motion_data", "arctic_processed")
+        try:
+            motion_data = ManoSharpaData.from_parquet(
+                processed_dir,
+                filters=[
+                    ("robot_name", "=", "sharpa_wave"),
+                    ("sequence_id", "contains", "box_grab"),
+                ],
+            )
+            if (
+                motion_data.mano_right_tips_distance
+                and motion_data.mano_left_tips_distance
+            ):
+                right = np.array(motion_data.mano_right_tips_distance)  # (T, 5)
+                left = np.array(motion_data.mano_left_tips_distance)  # (T, 5)
+                self.tips_distance_data = np.concatenate(
+                    [right, left], axis=1
+                )  # (T, 10)
+                self.tips_distance_fps = motion_data.fps
+            else:
+                logger.warning(
+                    "tips_distance columns empty in parquet, contact reward disabled"
+                )
+                self.tips_distance_data = None
+        except Exception as e:
+            logger.warning("Could not load tips_distance from parquet: %s", e)
+            self.tips_distance_data = None
 
 
 @configclass

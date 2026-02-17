@@ -85,3 +85,29 @@ def finger_contact_positions(
         pos_list.append(_get_contact_pos(env, s))
 
     return torch.cat(pos_list, dim=1)  # (num_envs, num_fingers, 3)
+
+
+def total_contact_force(
+    env: ManagerBasedEnv, sensor_cfg: SceneEntityCfg | None = None
+) -> torch.Tensor:
+    """Total contact force across all fingertips (num_envs, 1)."""
+    force_magnitudes = finger_contact_forces(env, sensor_cfg)
+    return force_magnitudes.sum(dim=-1, keepdim=True)
+
+
+def finger_contact_force_vectors(
+    env: ManagerBasedEnv, sensor_cfg: SceneEntityCfg | None = None
+) -> torch.Tensor:
+    """Contact force vectors for all finger sensors (num_envs, num_fingers, 3).
+
+    Collects 3D force vectors from contact sensors (one per finger).
+    Each sensor is filtered to report only contacts with the object.
+    """
+    sensor_names = env.cfg.finger_sensor_names
+    force_list = []
+    for sensor_name in sensor_names:
+        sensor: ContactSensor = env.scene[sensor_name]
+        force_list.append(sensor.data.net_forces_w)  # (num_envs, 1, 3)
+
+    # Concatenate to (num_envs, num_fingers, 3)
+    return torch.cat(force_list, dim=1)

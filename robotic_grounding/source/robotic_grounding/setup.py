@@ -21,6 +21,8 @@ EXTENSION_TOML_DATA = toml.load(
 )
 
 # Minimum dependencies required prior to installation
+# NOTE: pytorch3d is not listed here because it must be installed with --no-build-isolation
+# (so the build sees the environment's torch). Install it separately or use the project Dockerfile.
 INSTALL_REQUIRES = [
     # NOTE: Add dependencies
     "psutil",

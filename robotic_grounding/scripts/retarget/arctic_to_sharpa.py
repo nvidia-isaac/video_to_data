@@ -22,6 +22,7 @@ from robotic_grounding.retarget import (
     SHARPA_WAVE_XMLS_DIR,
 )
 from robotic_grounding.retarget.data_logger import ManoSharpaData
+from robotic_grounding.retarget.distance_utils import compute_tips_distance
 from robotic_grounding.retarget.hand_kinematics import HandKinematics
 from robotic_grounding.retarget.read_mano import MANO
 from scipy.spatial.transform import Rotation as R
@@ -137,6 +138,7 @@ def main(args: argparse.Namespace) -> None:
                 raw_motion_file=raw_motion_file,
                 object_name=object_name,
                 robot_name="sharpa_wave",
+                fps=30.0,
                 mano_to_robot_scale=args.mano_to_robot_scale,
                 mano_right_betas=right_betas.tolist(),
                 mano_left_betas=left_betas.tolist(),
@@ -183,14 +185,37 @@ def main(args: argparse.Namespace) -> None:
         object_axis_angle = object_data[:, 1:4]  # (H, 3)
         object_translation = object_data[:, 4:] / 1000.0  # (H, 3)
 
-        if args.visualize:
-            # Set mujoco object model and data for visualization if enabled
-            object_urdf_path = ARCTIC_URDF_DIR / f"{object_name}.urdf"
-            mujoco_object_model = mujoco.MjModel.from_xml_path(str(object_urdf_path))
-            mujoco_object_data = mujoco.MjData(mujoco_object_model)
-            top_body_id = mujoco_object_model.body("top").id
-            rotation_joint_id = mujoco_object_model.joint("rotation").id
+        # FIXME: We should load the mesh given the URDF rather than manually combining the meshes.
+        # Load object meshes for tips_distance computation (ManipTrans approach)
+        # Keep top and bottom meshes separate so we can apply articulation transforms
+        top_mesh_path = ARCTIC_MESH_DIR / object_name / "top_watertight_tiny.obj"
+        bottom_mesh_path = ARCTIC_MESH_DIR / object_name / "bottom_watertight_tiny.obj"
+        if top_mesh_path.exists() and bottom_mesh_path.exists():
+            top_mesh = trimesh.load(str(top_mesh_path))
+            bottom_mesh = trimesh.load(str(bottom_mesh_path))
+            top_mesh_verts = torch.from_numpy(top_mesh.vertices).float().to(device)
+            top_mesh_faces = torch.from_numpy(top_mesh.faces).long().to(device)
+            bottom_mesh_verts = (
+                torch.from_numpy(bottom_mesh.vertices).float().to(device)
+            )
+            bottom_mesh_faces = torch.from_numpy(bottom_mesh.faces).long().to(device)
+            compute_tips_dist = True
+        else:
+            print(
+                f"Warning: Watertight meshes not found for {object_name}, "
+                "skipping tips_distance"
+            )
+            compute_tips_dist = False
 
+        # Set up MuJoCo object model for articulation transforms
+        # (needed for both distance computation and visualization)
+        object_urdf_path = ARCTIC_URDF_DIR / f"{object_name}.urdf"
+        mujoco_object_model = mujoco.MjModel.from_xml_path(str(object_urdf_path))
+        mujoco_object_data = mujoco.MjData(mujoco_object_model)
+        top_body_id = mujoco_object_model.body("top").id
+        rotation_joint_id = mujoco_object_model.joint("rotation").id
+
+        if args.visualize:
             # Set viser object handles for visualization if enabled
             viser_object_handles = {}
             for part in ["top", "bottom"]:
@@ -254,6 +279,24 @@ def main(args: argparse.Namespace) -> None:
             )
             left_qpos = left_kinematics_results["q"]
 
+            # Compute object world transforms (shared by visualization and distance)
+            # Bottom body: world pose from object data
+            world_t_bottom = np.eye(4)
+            world_t_bottom[:3, :3] = R.from_rotvec(
+                object_axis_angle[frame_id]
+            ).as_matrix()
+            world_t_bottom[:3, 3] = object_translation[frame_id]
+
+            # Top body: apply articulation via MuJoCo forward kinematics
+            mujoco_object_data.qpos[rotation_joint_id] = object_articulation[frame_id]
+            mujoco.mj_forward(mujoco_object_model, mujoco_object_data)
+            bottom_t_top = np.eye(4)
+            bottom_t_top[:3, :3] = np.array(
+                mujoco_object_data.xmat[top_body_id]
+            ).reshape(3, 3)
+            bottom_t_top[:3, 3] = mujoco_object_data.xpos[top_body_id]
+            world_t_top = world_t_bottom @ bottom_t_top
+
             # Visualize results if enabled
             if args.visualize:
                 mano.visualize(
@@ -283,33 +326,69 @@ def main(args: argparse.Namespace) -> None:
                     visualize_sites=True,
                 )
 
-                # Compute top and bottom object poses and visualize
-                world_p_bottom = object_translation[frame_id]
-                world_q_bottom = R.from_rotvec(object_axis_angle[frame_id]).as_quat(
+                # Visualize object parts
+                world_q_bottom = R.from_matrix(world_t_bottom[:3, :3]).as_quat(
                     scalar_first=True
                 )
-                world_t_bottom = np.eye(4)
-                world_t_bottom[:3, :3] = R.from_quat(
-                    world_q_bottom, scalar_first=True
-                ).as_matrix()
-                world_t_bottom[:3, 3] = world_p_bottom
-                viser_object_handles["bottom"].position = world_p_bottom
+                viser_object_handles["bottom"].position = world_t_bottom[:3, 3]
                 viser_object_handles["bottom"].wxyz = world_q_bottom
-
-                mujoco_object_data.qpos[rotation_joint_id] = object_articulation[
-                    frame_id
-                ]
-                mujoco.mj_forward(mujoco_object_model, mujoco_object_data)
-                bottom_t_top = np.eye(4)
-                bottom_t_top[:3, :3] = np.array(
-                    mujoco_object_data.xmat[top_body_id]
-                ).reshape(3, 3)
-                bottom_t_top[:3, 3] = mujoco_object_data.xpos[top_body_id]
-                world_t_top = world_t_bottom @ bottom_t_top
                 viser_object_handles["top"].position = world_t_top[:3, 3]
                 viser_object_handles["top"].wxyz = R.from_matrix(
                     world_t_top[:3, :3]
                 ).as_quat(scalar_first=True)
+
+            # Compute tips_distance (ManipTrans approach)
+            # Distance from MANO fingertips to object surface, accounting for articulation
+            right_tips_dist = None
+            left_tips_dist = None
+            if compute_tips_dist:
+                # Transform each part's vertices to world frame separately
+                obj_R_bottom = (
+                    torch.from_numpy(world_t_bottom[:3, :3]).float().to(device)
+                )
+                obj_t_bottom = (
+                    torch.from_numpy(world_t_bottom[:3, 3]).float().to(device)
+                )
+                obj_R_top = torch.from_numpy(world_t_top[:3, :3]).float().to(device)
+                obj_t_top = torch.from_numpy(world_t_top[:3, 3]).float().to(device)
+
+                bottom_world = (obj_R_bottom @ bottom_mesh_verts.T).T + obj_t_bottom
+                top_world = (obj_R_top @ top_mesh_verts.T).T + obj_t_top
+
+                # Combine in world frame
+                combined_world_verts = torch.cat([bottom_world, top_world], dim=0)
+                combined_faces = torch.cat(
+                    [bottom_mesh_faces, top_mesh_faces + bottom_mesh_verts.shape[0]],
+                    dim=0,
+                )
+
+                # Pass identity transform since vertices are already in world frame
+                identity_R = torch.eye(3, device=device)
+                zero_t = torch.zeros(3, device=device)
+
+                right_tips_dist = (
+                    compute_tips_distance(
+                        right_mano_results["joints"][frame_id],
+                        combined_world_verts,
+                        combined_faces,
+                        identity_R,
+                        zero_t,
+                    )
+                    .cpu()
+                    .tolist()
+                )
+
+                left_tips_dist = (
+                    compute_tips_distance(
+                        left_mano_results["joints"][frame_id],
+                        combined_world_verts,
+                        combined_faces,
+                        identity_R,
+                        zero_t,
+                    )
+                    .cpu()
+                    .tolist()
+                )
 
             # Log data
             if args.save:
@@ -327,6 +406,7 @@ def main(args: argparse.Namespace) -> None:
                     .cpu()
                     .tolist(),
                     mano_right_fitting_err=right_fitting_err[frame_id].cpu().item(),
+                    mano_right_tips_distance=right_tips_dist,
                     # MANO left hand
                     mano_left_trans=left_trans[frame_id].cpu().tolist(),
                     mano_left_global_orient=left_global_orient[frame_id].cpu().tolist(),
@@ -338,6 +418,7 @@ def main(args: argparse.Namespace) -> None:
                     .cpu()
                     .tolist(),
                     mano_left_fitting_err=left_fitting_err[frame_id].cpu().item(),
+                    mano_left_tips_distance=left_tips_dist,
                     # Object
                     object_articulation=object_articulation[frame_id].tolist(),
                     object_axis_angle=object_axis_angle[frame_id].tolist(),

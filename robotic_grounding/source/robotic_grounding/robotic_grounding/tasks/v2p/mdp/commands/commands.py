@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Sequence
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import isaaclab.utils.math as math_utils
@@ -61,6 +62,31 @@ class TrackingCommand(CommandTerm):
         self.target_upper_body_joint_pos = self.target_full_body_joint_pos[
             :, MUJOCO_TO_ISAAC_UPPER_BODY
         ]
+
+        # Load tips_distance if available (ManipTrans approach)
+        self.tips_distance: torch.Tensor | None = None
+        if (
+            hasattr(cfg, "tips_distance_file_path")
+            and cfg.tips_distance_file_path is not None
+        ):
+            tips_dist_path = Path(cfg.tips_distance_file_path)
+            if tips_dist_path.exists():
+                tips_data = (
+                    torch.from_numpy(np.load(tips_dist_path)).to(self.device).float()
+                )
+                # Verify shape: (T, 10) - 5 per hand
+                if (
+                    tips_data.shape[0] == self.num_timesteps
+                    and tips_data.shape[1] == 10
+                ):
+                    self.tips_distance = tips_data
+                else:
+                    print(
+                        f"Warning: tips_distance shape mismatch. "
+                        f"Expected ({self.num_timesteps}, 10), got {tips_data.shape}"
+                    )
+            else:
+                print(f"Warning: tips_distance file not found: {tips_dist_path}")
 
         # -- buffer
         self.timestep_counter = torch.zeros(
@@ -201,6 +227,24 @@ class TrackingCommand(CommandTerm):
         self.upper_body_joint_pos_command = self.target_upper_body_joint_pos[
             self.timestep_counter
         ].float()
+
+    def get_tips_distance(self) -> torch.Tensor | None:
+        """Get pre-computed tips_distance for current timestep per environment.
+
+        This follows the ManipTrans approach of using pre-computed reference distances
+        from MANO fingertips to object surface for contact rewards.
+
+        Returns:
+            Tips distance tensor of shape (num_envs, 10) with distances for each fingertip,
+            or None if tips_distance data is not available.
+            Order: left_thumb, left_index, left_middle, left_ring, left_pinky,
+                   right_thumb, right_index, right_middle, right_ring, right_pinky.
+        """
+        if self.tips_distance is None:
+            return None
+        # Index by per-env timestep counter (clamped to valid range)
+        indices = self.timestep_counter.clamp(0, self.num_timesteps - 1)
+        return self.tips_distance[indices]  # (num_envs, 10)
 
     def _set_debug_vis_impl(self, debug_vis: bool) -> None:
         """Set the debug visibility."""

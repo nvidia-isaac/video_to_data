@@ -124,6 +124,20 @@ FIELD_SPECS = [
         True,
     ),
     ("robot_left_num_optimization_iterations", pa.list_(pa.int32()), list[int], True),
+    # Pre-computed fingertip-to-object surface distances (ManipTrans approach)
+    # 5 distances per hand: thumb, index, middle, ring, pinky
+    (
+        "mano_right_tips_distance",
+        pa.list_(pa.list_(pa.float32(), 5)),
+        list[list[float]],
+        True,
+    ),
+    (
+        "mano_left_tips_distance",
+        pa.list_(pa.list_(pa.float32(), 5)),
+        list[list[float]],
+        True,
+    ),
 ]
 
 # Generate PyArrow schema from field specifications

@@ -197,6 +197,17 @@ class RewardsCfg:
         func=mdp.contact_force_penalty, weight=-0.05, params={}
     )
 
+    # ManipTrans-style contact reward
+    maniptrans_contact = RewTerm(
+        func=mdp.maniptrans_contact_reward,
+        weight=1.0,
+        params={
+            "contact_range_min": 0.02,
+            "contact_range_max": 0.03,
+            "decay_constant": 1.0,
+        },
+    )
+
 
 @configclass
 class TerminationsCfg:

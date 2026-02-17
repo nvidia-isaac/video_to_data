@@ -56,3 +56,15 @@ class TrackingCommandCfg(CommandTermCfg):
         prim_path="/Visuals/Command/goal_marker"
     )
     goal_pose_visualizer_cfg.markers["frame"].scale = (0.15, 0.15, 0.15)
+
+    tips_distance_file_path: str | None = None
+    """Path to the tips_distance file (optional).
+
+    If provided, the file should contain a numpy array of shape (T, F) where T is the
+    number of timesteps and F is the number of fingertips or finger sensors, as defined
+    by the environment configuration. The order of fingers should match that used by the
+    environment for contact sensing and observation.
+
+    This follows the ManipTrans approach of pre-computing reference fingertip-to-object
+    surface distances during data processing for use in contact rewards.
+    """

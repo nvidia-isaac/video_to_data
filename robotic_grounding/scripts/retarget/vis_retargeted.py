@@ -17,8 +17,23 @@ import viser
 from arctic_to_sharpa import setup_sharpa_kinematics
 from robotic_grounding.retarget import ASSETS_DIR, HUMAN_MOTION_DATA_DIR
 from robotic_grounding.retarget.data_logger import ManoSharpaData
+from robotic_grounding.retarget.distance_utils import MANO_FINGERTIP_INDICES
 from robotic_grounding.retarget.hand_kinematics import HandKinematics
 from scipy.spatial.transform import Rotation as R
+
+FINGER_NAMES = ["thumb", "index", "middle", "ring", "pinky"]
+
+
+def distance_to_color(d: float) -> tuple[int, int, int]:
+    """Map distance to a green-to-red color gradient.
+
+    Green (0, 255, 0) at d <= 0.01m (contact), red (255, 0, 0) at d >= 0.05m (far).
+    """
+    t = np.clip((d - 0.01) / (0.05 - 0.01), 0.0, 1.0)
+    r = int(255 * t)
+    g = int(255 * (1.0 - t))
+    return (r, g, 0)
+
 
 ARCTIC_MOTION_DIR = HUMAN_MOTION_DATA_DIR / "arctic"
 ARCTIC_URDF_DIR = ASSETS_DIR / "urdfs" / "arctic"
@@ -121,6 +136,29 @@ def visualize_one_trajectory(
         viser_object_handles["top"].wxyz = R.from_matrix(world_t_top[:3, :3]).as_quat(
             scalar_first=True
         )
+
+        # Visualize fingertip distance spheres (if distance data is available)
+        for side, joints_data, dist_data in [
+            (
+                "right",
+                logger_data.mano_right_joints,
+                logger_data.mano_right_tips_distance,
+            ),
+            ("left", logger_data.mano_left_joints, logger_data.mano_left_tips_distance),
+        ]:
+            if not dist_data:
+                continue
+            fingertip_positions = np.array(joints_data[frame_id])[
+                MANO_FINGERTIP_INDICES
+            ]
+            distances = dist_data[frame_id]
+            for i, finger_name in enumerate(FINGER_NAMES):
+                viser_server.scene.add_icosphere(
+                    name=f"/tips/{side}_{finger_name}",
+                    radius=0.005,
+                    color=distance_to_color(distances[i]),
+                    position=fingertip_positions[i],
+                )
 
         time.sleep(1.0 / 30)
 

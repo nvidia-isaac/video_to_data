@@ -62,6 +62,10 @@ RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
     dearpygui \
     qpsolvers[clarabel,daqp,proxqp,scs]
 
+# Install pytorch3d (required for retarget distance_utils; --no-build-isolation so build sees Isaac Lab's torch)
+RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir --no-build-isolation \
+    "git+https://github.com/facebookresearch/pytorch3d.git"
+
 # Install Robotic Grounding dependencies
 RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
     onnxruntime-gpu \
@@ -84,6 +88,9 @@ RUN echo '#!/bin/bash' > /usr/local/bin/python && \
     chmod +x /usr/local/bin/python && \
     echo "alias python='${ISAACLAB_PATH}/isaaclab.sh -p'" >> /etc/skel/.bashrc && \
     echo "alias python='${ISAACLAB_PATH}/isaaclab.sh -p'" >> /root/.bashrc
+
+# Verify pytorch3d is installed (build fails if not importable)
+RUN ${ISAACLAB_PATH}/isaaclab.sh -p -c "import pytorch3d; print('pytorch3d', pytorch3d.__version__)"
 
 # Set the default command
 CMD ["/bin/bash"]
