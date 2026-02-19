@@ -26,3 +26,4 @@ pixi.lock merge=binary linguist-language=YAML linguist-generated=true
 source/robotic_grounding/robotic_grounding/assets/human_motion_data/arctic_processed filter=lfs diff=lfs merge=lfs -text
 source/robotic_grounding/robotic_grounding/assets/human_motion_data/xr filter=lfs diff=lfs merge=lfs -text
 source/robotic_grounding/robotic_grounding/assets/human_motion_data/arctic filter=lfs diff=lfs merge=lfs -text
+source/robotic_grounding/robotic_grounding/assets/human_motion_data/reset_trajectory.pt filter=lfs diff=lfs merge=lfs -text

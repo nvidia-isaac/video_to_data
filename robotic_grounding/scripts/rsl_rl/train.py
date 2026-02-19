@@ -133,6 +133,7 @@ import os
 import time
 import torch
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from rsl_rl.runners import DistillationRunner, OnPolicyRunner
 
@@ -224,7 +225,9 @@ def main(
     log_root_path = os.path.abspath(log_root_path)
     print(f"[INFO] Logging experiment in directory: {log_root_path}")
     # specify directory for logging runs: {time-stamp}_{run_name}
-    log_dir = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_dir = datetime.now(ZoneInfo("America/Los_Angeles")).strftime(
+        "%Y-%m-%d_%H-%M-%S"
+    )
     # The Ray Tune workflow extracts experiment name using the logging line below, hence, do not change it (see PR #2346, comment-2819298849)
     print(f"Exact experiment name requested from command line: {log_dir}")
     if agent_cfg.run_name:

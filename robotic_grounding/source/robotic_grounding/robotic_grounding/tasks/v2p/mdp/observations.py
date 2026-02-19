@@ -1,5 +1,14 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+#
+# NVIDIA CORPORATION and its licensors retain all intellectual property
+# and proprietary rights in and to this software, related documentation
+# and any modifications thereto. Any use, reproduction, disclosure or
+# distribution of this software and related documentation without an express
+# license agreement from NVIDIA CORPORATION is strictly prohibited.
+
 from __future__ import annotations
 
+import isaaclab.utils.math as math_utils
 import torch
 from isaaclab.envs import ManagerBasedEnv
 from isaaclab.managers import SceneEntityCfg
@@ -111,3 +120,191 @@ def finger_contact_force_vectors(
 
     # Concatenate to (num_envs, num_fingers, 3)
     return torch.cat(force_list, dim=1)
+
+
+def finger_joint_pos(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
+    """Finger joint positions.
+
+    Args:
+        env: The environment instance.
+        command_name: The name of the command.
+
+    Returns:
+        Tensor of shape (num_envs, num_fingers) with finger joint positions.
+    """
+    command = env.command_manager.get_term(command_name)
+    return torch.cat(
+        [
+            math_utils.scale_transform(
+                command.right_hand_finger_joint_pos,
+                command.right_robot.data.joint_pos_limits[..., 0],
+                command.right_robot.data.joint_pos_limits[..., 1],
+            ),
+            math_utils.scale_transform(
+                command.left_hand_finger_joint_pos,
+                command.left_robot.data.joint_pos_limits[..., 0],
+                command.left_robot.data.joint_pos_limits[..., 1],
+            ),
+        ],
+        dim=-1,
+    ).float()
+
+
+def finger_joint_vel(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
+    """Finger joint velocity.
+
+    Args:
+        env: The environment instance.
+        command_name: The name of the command.
+
+    Returns:
+        Tensor of shape (num_envs, num_fingers) with finger joint velocities.
+    """
+    command = env.command_manager.get_term(command_name)
+    return torch.cat(
+        [
+            command.right_hand_finger_joint_vel,
+            command.left_hand_finger_joint_vel,
+        ],
+        dim=-1,
+    ).float()
+
+
+def wrist_position_e(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
+    """Wrist position in the environment frame.
+
+    Args:
+        env: The environment instance.
+        command_name: The name of the command.
+
+    Returns:
+        Tensor of shape (num_envs, 3 x NUM_HANDS) with wrist position in the environment frame.
+    """
+    command = env.command_manager.get_term(command_name)
+    return torch.cat(
+        [
+            command.right_hand_wrist_position_e,
+            command.left_hand_wrist_position_e,
+        ],
+        dim=-1,
+    )
+
+
+def wrist_orientation_e(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
+    """Wrist orientation in the environment frame.
+
+    Args:
+        env: The environment instance.
+        command_name: The name of the command.
+
+    Returns:
+        Tensor of shape (num_envs, 4 x NUM_HANDS) with wrist orientation in the environment frame.
+    """
+    command = env.command_manager.get_term(command_name)
+    return torch.cat(
+        [
+            command.right_hand_wrist_wxyz_e,
+            command.left_hand_wrist_wxyz_e,
+        ],
+        dim=-1,
+    )
+
+
+def object_position_e(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
+    """Object position in the environment frame.
+
+    Args:
+        env: The environment instance.
+        command_name: The name of the command.
+    """
+    command = env.command_manager.get_term(command_name)
+    return command.object_position_e.reshape(command.num_envs, -1)
+
+
+def object_orientation_e(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
+    """Object orientation in the environment frame.
+
+    Args:
+        env: The environment instance.
+        command_name: The name of the command.
+    """
+    command = env.command_manager.get_term(command_name)
+    return command.object_orientation_e.reshape(command.num_envs, -1)
+
+
+def object_t_wrist(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
+    """Wrist in object transformation.
+
+    Args:
+        env: The environment instance.
+        command_name: The name of the command.
+
+    Returns:
+        Tensor of shape (num_envs, 7 x NUM_HANDS) transformation of wrist in object frame.
+    """
+    command = env.command_manager.get_term(command_name)
+
+    object_p_right_wrist, object_q_right_wrist = math_utils.subtract_frame_transforms(
+        command.object_position_e.squeeze(),
+        command.object_orientation_e.squeeze(),  # world_t_object
+        command.right_hand_wrist_position_e,
+        command.right_hand_wrist_wxyz_e,  # world_t_wrist
+    )
+    object_p_left_wrist, object_q_left_wrist = math_utils.subtract_frame_transforms(
+        command.object_position_e.squeeze(),
+        command.object_orientation_e.squeeze(),  # world_t_object
+        command.left_hand_wrist_position_e,
+        command.left_hand_wrist_wxyz_e,  # world_t_wrist
+    )
+
+    return torch.cat(
+        [
+            object_p_right_wrist,
+            object_q_right_wrist,
+            object_p_left_wrist,
+            object_q_left_wrist,
+        ],
+        dim=-1,
+    ).float()
+
+
+def object_p_fingertip(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
+    """Fingertips to object transformation fingertip_t_object.
+
+    Args:
+        env: The environment instance.
+        command_name: The name of the command.
+
+    Returns:
+        Tensor of shape (num_envs, 7 x NUM_FINGERTIPS) with fingertips to object transformation.
+    """
+    command = env.command_manager.get_term(command_name)
+
+    num_fingertips = len(command.right_fingertip_body_ids)
+
+    object_position_e = command.object_position_e.expand(-1, num_fingertips, -1)
+    object_orientation_e = command.object_orientation_e.expand(-1, num_fingertips, -1)
+
+    object_p_right_fingertip, _ = math_utils.subtract_frame_transforms(
+        object_position_e.reshape(-1, 3),
+        object_orientation_e.reshape(-1, 4),  # world_t_object
+        command.right_hand_fingertip_position_e.reshape(-1, 3),
+        command.right_hand_fingertip_orientation_e.reshape(-1, 4),  # world_t_fingertip
+    )
+    object_p_right_fingertip = object_p_right_fingertip.reshape(env.num_envs, -1, 3)
+
+    object_p_left_fingertip, _ = math_utils.subtract_frame_transforms(
+        object_position_e.reshape(-1, 3),
+        object_orientation_e.reshape(-1, 4),  # world_t_object
+        command.left_hand_fingertip_position_e.reshape(-1, 3),
+        command.left_hand_fingertip_orientation_e.reshape(-1, 4),  # world_t_fingertip
+    )
+    object_p_left_fingertip = object_p_left_fingertip.reshape(env.num_envs, -1, 3)
+
+    return torch.cat(
+        [
+            object_p_right_fingertip.reshape(env.num_envs, -1),
+            object_p_left_fingertip.reshape(env.num_envs, -1),
+        ],
+        dim=-1,
+    ).float()

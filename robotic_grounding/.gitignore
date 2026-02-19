@@ -215,6 +215,8 @@ __marimo__/
 # logs
 logs/
 outputs/
+wandb/
+.devcontainer/
 
 .DS_Store
 

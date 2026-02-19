@@ -11,4 +11,4 @@ from pathlib import Path
 ASSETS_DIR = Path(__file__).parent.parent / "assets"
 BODY_MODELS_DIR = ASSETS_DIR / "body_models"
 HUMAN_MOTION_DATA_DIR = ASSETS_DIR / "human_motion_data"
-SHARPA_WAVE_XMLS_DIR = ASSETS_DIR / "xmls"
+SHARPA_WAVE_XMLS_DIR = ASSETS_DIR / "xmls" / "sharpawave"

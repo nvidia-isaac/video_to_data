@@ -33,9 +33,9 @@ Development should be **inside** the Container, and Git operations should be don
 
 You can launch the container with commands in the Docker Usage section.
 
-If using VSCode or Cursor, you can also use the `Attach to Running Container` feature in Dev Containers extension by `command/ctrl + shift + p`.  Inside the container, you can use Python interpreter `/workspace/isaaclab/_isaac_sim/python.sh` for debugging.
+If using VSCode or Cursor, you can use the `Attach to Running Container` feature in Dev Containers extension by `command/ctrl + shift + p`.  Inside the container, you can use Python interpreter `/workspace/isaaclab/_isaac_sim/python.sh` for debugging. The working directory is `/workspace/robotic_grounding`.
 
-Currently, due to Isaac Lab's image requiring root for Omniverse, we are using the root user for the container. This should be fixed in the future if there is a need. There can be some permission issues, but it can be bypassed with `sudo chown "$USER":domain-users <FILE_PATH>`.
+Currently, due to Isaac Lab's image requiring root for Omniverse, we are using the root user for the container. There can be some permission issues, but they can be bypassed with `sudo chown -R $(whoami) .` in the host machine.
 
 ### Running Debugging Env
 

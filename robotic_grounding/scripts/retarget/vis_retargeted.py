@@ -10,7 +10,6 @@ import argparse
 import time
 from typing import Any
 
-import mujoco
 import numpy as np
 import trimesh
 import viser
@@ -19,7 +18,6 @@ from robotic_grounding.retarget import ASSETS_DIR, HUMAN_MOTION_DATA_DIR
 from robotic_grounding.retarget.data_logger import ManoSharpaData
 from robotic_grounding.retarget.distance_utils import MANO_FINGERTIP_INDICES
 from robotic_grounding.retarget.hand_kinematics import HandKinematics
-from scipy.spatial.transform import Rotation as R
 
 FINGER_NAMES = ["thumb", "index", "middle", "ring", "pinky"]
 
@@ -70,17 +68,17 @@ def visualize_one_trajectory(
         ],
         trajectory_id=trajectory_id,
     )
-    H = len(logger_data.robot_right_qpos)
-
-    # Setup mujoco object model and data for visualization
-    object_urdf_path = ARCTIC_URDF_DIR / f"{logger_data.object_name}.urdf"
-    mujoco_object_model = mujoco.MjModel.from_xml_path(str(object_urdf_path))
-    mujoco_object_data = mujoco.MjData(mujoco_object_model)
-    top_body_id = mujoco_object_model.body("top").id
-    rotation_joint_id = mujoco_object_model.joint("rotation").id
+    H = len(logger_data.robot_right_wrist_position)
 
     # Setup viser object handles for visualization
-    for part in ["top", "bottom"]:
+    viser_object_handles["frame"] = viser_server.scene.add_frame(
+        name="/object/frame",
+        position=np.array([0, 0, 0]),
+        wxyz=np.array([1, 0, 0, 0]),
+        axes_length=0.2,
+        axes_radius=0.007,
+    )
+    for part in logger_data.object_body_names:
         mesh = trimesh.load(
             str(
                 ARCTIC_MESH_DIR
@@ -97,45 +95,31 @@ def visualize_one_trajectory(
 
     for frame_id in range(H):
         # Visualize right hand
-        right_sharpa_kinematics.visualize(
-            viser_server,
-            np.array(logger_data.robot_right_qpos[frame_id]),
-            visualize_sites=True,
-        )
+        right_qpos = right_sharpa_kinematics.robot.q0.copy()
+        right_qpos[:3] = np.array(logger_data.robot_right_wrist_position[frame_id])
+        right_qpos[3:7] = np.array(logger_data.robot_right_wrist_wxyz[frame_id])[
+            [1, 2, 3, 0]
+        ]
+        right_qpos[7:] = np.array(logger_data.robot_right_finger_joints[frame_id])
+        right_sharpa_kinematics.visualize(viser_server, right_qpos)
         # Visualize left hand
-        left_sharpa_kinematics.visualize(
-            viser_server,
-            np.array(logger_data.robot_left_qpos[frame_id]),
-            visualize_sites=True,
-        )
+        left_qpos = left_sharpa_kinematics.robot.q0.copy()
+        left_qpos[:3] = np.array(logger_data.robot_left_wrist_position[frame_id])
+        left_qpos[3:7] = np.array(logger_data.robot_left_wrist_wxyz[frame_id])[
+            [1, 2, 3, 0]
+        ]
+        left_qpos[7:] = np.array(logger_data.robot_left_finger_joints[frame_id])
+        left_sharpa_kinematics.visualize(viser_server, left_qpos)
 
-        # Compute top and bottom object poses and visualize
-        world_p_bottom = np.array(logger_data.object_translation[frame_id])
-        world_q_bottom = R.from_rotvec(logger_data.object_axis_angle[frame_id]).as_quat(
-            scalar_first=True
-        )
-        world_t_bottom = np.eye(4)
-        world_t_bottom[:3, :3] = R.from_quat(
-            world_q_bottom, scalar_first=True
-        ).as_matrix()
-        world_t_bottom[:3, 3] = world_p_bottom
-        viser_object_handles["bottom"].position = world_p_bottom
-        viser_object_handles["bottom"].wxyz = world_q_bottom
-
-        mujoco_object_data.qpos[rotation_joint_id] = np.array(
-            logger_data.object_articulation[frame_id]
-        )
-        mujoco.mj_forward(mujoco_object_model, mujoco_object_data)
-        bottom_t_top = np.eye(4)
-        bottom_t_top[:3, :3] = np.array(mujoco_object_data.xmat[top_body_id]).reshape(
-            3, 3
-        )
-        bottom_t_top[:3, 3] = mujoco_object_data.xpos[top_body_id]
-        world_t_top = world_t_bottom @ bottom_t_top
-        viser_object_handles["top"].position = world_t_top[:3, 3]
-        viser_object_handles["top"].wxyz = R.from_matrix(world_t_top[:3, :3]).as_quat(
-            scalar_first=True
-        )
+        for object_body_idx, object_body_name in enumerate(
+            logger_data.object_body_names
+        ):
+            viser_object_handles[object_body_name].position = np.asarray(
+                logger_data.object_body_position[frame_id][object_body_idx]
+            )
+            viser_object_handles[object_body_name].wxyz = np.asarray(
+                logger_data.object_body_wxyz[frame_id][object_body_idx]
+            )
 
         # Visualize fingertip distance spheres (if distance data is available)
         for side, joints_data, dist_data in [
@@ -160,7 +144,7 @@ def visualize_one_trajectory(
                     position=fingertip_positions[i],
                 )
 
-        time.sleep(1.0 / 30)
+        time.sleep(1.0 / logger_data.fps)
 
     return viser_object_handles
 

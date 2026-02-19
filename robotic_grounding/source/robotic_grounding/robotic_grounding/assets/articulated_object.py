@@ -16,7 +16,7 @@ from robotic_grounding.assets import ASSET_DIR
 
 object_name = "box"
 
-ARCTIC_OBJECT_CFG = ArticulationCfg(
+ARTICULATED_OBJECT_CFG = ArticulationCfg(
     spawn=sim_utils.UrdfFileCfg(
         fix_base=True,
         asset_path=f"{ASSET_DIR}/objects/arctic/{object_name}.urdf",

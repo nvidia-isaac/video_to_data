@@ -25,12 +25,13 @@ FIELD_SPECS = [
     ("mano_to_robot_scale", pa.float32(), float, False),
     ("mano_right_betas", pa.list_(pa.float32()), list[float], False),
     ("mano_left_betas", pa.list_(pa.float32()), list[float], False),
-    ("right_robot_joint_names", pa.list_(pa.string()), list[str], False),
+    ("right_robot_finger_joint_names", pa.list_(pa.string()), list[str], False),
     ("right_robot_frame_names", pa.list_(pa.string()), list[str], False),
     ("right_robot_frame_task_names", pa.list_(pa.string()), list[str], False),
-    ("left_robot_joint_names", pa.list_(pa.string()), list[str], False),
+    ("left_robot_finger_joint_names", pa.list_(pa.string()), list[str], False),
     ("left_robot_frame_names", pa.list_(pa.string()), list[str], False),
     ("left_robot_frame_task_names", pa.list_(pa.string()), list[str], False),
+    ("object_body_names", pa.list_(pa.string()), list[str], False),
     # MANO right hand (time series)
     ("mano_right_trans", pa.list_(pa.list_(pa.float32(), 3)), list[list[float]], True),
     (
@@ -58,6 +59,12 @@ FIELD_SPECS = [
         True,
     ),
     ("mano_right_fitting_err", pa.list_(pa.float32()), list[float], True),
+    (
+        "mano_right_tips_distance",
+        pa.list_(pa.list_(pa.float32(), 5)),
+        list[list[float]],
+        True,
+    ),
     # MANO left hand (time series)
     ("mano_left_trans", pa.list_(pa.list_(pa.float32(), 3)), list[list[float]], True),
     (
@@ -85,59 +92,102 @@ FIELD_SPECS = [
         True,
     ),
     ("mano_left_fitting_err", pa.list_(pa.float32()), list[float], True),
-    # Object (time series)
-    ("object_articulation", pa.list_(pa.float32()), list[float], True),
-    ("object_axis_angle", pa.list_(pa.list_(pa.float32(), 3)), list[list[float]], True),
-    (
-        "object_translation",
-        pa.list_(pa.list_(pa.float32(), 3)),
-        list[list[float]],
-        True,
-    ),
-    # Robot right hand (time series)
-    ("robot_right_qpos", pa.list_(pa.list_(pa.float32(), 28)), list[list[float]], True),
-    (
-        "robot_right_frames",
-        pa.list_(pa.list_(pa.list_(pa.float32(), 7), 77)),
-        list[list[list[float]]],
-        True,
-    ),
-    (
-        "robot_right_frame_task_errors",
-        pa.list_(pa.list_(pa.float32(), 21)),
-        list[list[float]],
-        True,
-    ),
-    ("robot_right_num_optimization_iterations", pa.list_(pa.int32()), list[int], True),
-    # Robot left hand (time series)
-    ("robot_left_qpos", pa.list_(pa.list_(pa.float32(), 28)), list[list[float]], True),
-    (
-        "robot_left_frames",
-        pa.list_(pa.list_(pa.list_(pa.float32(), 7), 77)),
-        list[list[list[float]]],
-        True,
-    ),
-    (
-        "robot_left_frame_task_errors",
-        pa.list_(pa.list_(pa.float32(), 21)),
-        list[list[float]],
-        True,
-    ),
-    ("robot_left_num_optimization_iterations", pa.list_(pa.int32()), list[int], True),
-    # Pre-computed fingertip-to-object surface distances (ManipTrans approach)
-    # 5 distances per hand: thumb, index, middle, ring, pinky
-    (
-        "mano_right_tips_distance",
-        pa.list_(pa.list_(pa.float32(), 5)),
-        list[list[float]],
-        True,
-    ),
     (
         "mano_left_tips_distance",
         pa.list_(pa.list_(pa.float32(), 5)),
         list[list[float]],
         True,
     ),
+    # Object (time series)
+    ("object_articulation", pa.list_(pa.float32()), list[float], True),
+    (
+        "object_root_axis_angle",
+        pa.list_(pa.list_(pa.float32(), 3)),
+        list[list[float]],
+        True,
+    ),
+    (
+        "object_root_position",
+        pa.list_(pa.list_(pa.float32(), 3)),
+        list[list[float]],
+        True,
+    ),
+    (
+        "object_body_position",
+        pa.list_(pa.list_(pa.list_(pa.float32(), 3))),
+        list[list[list[float]]],
+        True,
+    ),
+    (
+        "object_body_wxyz",
+        pa.list_(pa.list_(pa.list_(pa.float32(), 4))),
+        list[list[list[float]]],
+        True,
+    ),
+    # Robot right hand (time series)
+    (
+        "robot_right_wrist_position",
+        pa.list_(pa.list_(pa.float32(), 3)),
+        list[list[float]],
+        True,
+    ),
+    (
+        "robot_right_wrist_wxyz",
+        pa.list_(pa.list_(pa.float32(), 4)),
+        list[list[float]],
+        True,
+    ),
+    (
+        "robot_right_finger_joints",
+        pa.list_(pa.list_(pa.float32(), 22)),
+        list[list[float]],
+        True,
+    ),
+    (
+        "robot_right_frames",
+        pa.list_(pa.list_(pa.list_(pa.float32(), 7), 67)),
+        list[list[list[float]]],
+        True,
+    ),
+    (
+        "robot_right_frame_task_errors",
+        pa.list_(pa.list_(pa.float32(), 11)),
+        list[list[float]],
+        True,
+    ),
+    ("robot_right_num_optimization_iterations", pa.list_(pa.int32()), list[int], True),
+    # Robot left hand (time series)
+    (
+        "robot_left_wrist_position",
+        pa.list_(pa.list_(pa.float32(), 3)),
+        list[list[float]],
+        True,
+    ),
+    (
+        "robot_left_wrist_wxyz",
+        pa.list_(pa.list_(pa.float32(), 4)),
+        list[list[float]],
+        True,
+    ),
+    (
+        "robot_left_finger_joints",
+        pa.list_(pa.list_(pa.float32(), 22)),
+        list[list[float]],
+        True,
+    ),
+    (
+        "robot_left_frames",
+        pa.list_(pa.list_(pa.list_(pa.float32(), 7), 67)),
+        list[list[list[float]]],
+        True,
+    ),
+    (
+        "robot_left_frame_task_errors",
+        pa.list_(pa.list_(pa.float32(), 11)),
+        list[list[float]],
+        True,
+    ),
+    ("robot_left_num_optimization_iterations", pa.list_(pa.int32()), list[int], True),
 ]
 
 # Generate PyArrow schema from field specifications

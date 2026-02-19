@@ -62,6 +62,16 @@ case "$1" in
                 echo "Warning: SSH agent socket not found; agent forwarding disabled."
             fi
 
+            # WANDB_API_KEY: use env if set (must be exported), else read from host home
+            WANDB_API_KEY_VALUE="${WANDB_API_KEY}"
+            if [ -z "${WANDB_API_KEY_VALUE}" ] && [ -f "${HOME}/.wand_api_key" ]; then
+                WANDB_API_KEY_VALUE=$(cat "${HOME}/.wand_api_key")
+            fi
+            WANDB_API_KEY_ENV=""
+            if [ -n "${WANDB_API_KEY_VALUE}" ]; then
+                WANDB_API_KEY_ENV="-e WANDB_API_KEY=${WANDB_API_KEY_VALUE}"
+            fi
+
             docker run --rm -it \
                 --runtime=nvidia \
                 --gpus device=${GPU_DEVICE} \
@@ -73,6 +83,7 @@ case "$1" in
                 -e DISPLAY=${DISPLAY} \
                 ${SSH_AGENT_MOUNT} \
                 ${SSH_AGENT_ENV} \
+                ${WANDB_API_KEY_ENV} \
                 -e "ACCEPT_EULA=Y" \
                 -d \
                 ${IMAGE_NAME} \

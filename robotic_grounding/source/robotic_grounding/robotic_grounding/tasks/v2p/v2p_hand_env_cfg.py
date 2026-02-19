@@ -13,7 +13,7 @@ from dataclasses import MISSING
 import isaaclab.envs.mdp as isaac_mdp
 import isaaclab.sim as sim_utils
 import isaaclab.terrains as terrain_gen
-from isaaclab.assets import ArticulationCfg, AssetBaseCfg
+from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
@@ -35,24 +35,25 @@ from robotic_grounding.tasks.v2p import mdp
 
 @configclass
 class V2PSceneCfg(InteractiveSceneCfg):
-    """Configuration for the terrain scene with a legged robot."""
+    """Configuration for the terrain scene with two robots."""
 
     terrain = terrain_gen.TerrainImporterCfg(
         prim_path="/World/ground", terrain_type="plane", debug_vis=False
     )
 
     # robots
-    robot: ArticulationCfg = MISSING
+    right_robot: ArticulationCfg = MISSING
+    left_robot: ArticulationCfg = MISSING
 
     # table
     table = AssetBaseCfg(
         prim_path="/World/envs/env_.*/Table",
         init_state=AssetBaseCfg.InitialStateCfg(
-            pos=[0.0, 0.0, 0.15], rot=[1.0, 0.0, 0.0, 0.0]
+            pos=[0.0, -0.14, 0.47], rot=[1.0, 0.0, 0.0, 0.0]
         ),
         spawn=sim_utils.UrdfFileCfg(
             fix_base=True,
-            asset_path=f"{ASSET_DIR}/objects/round_table/round_table.urdf",
+            asset_path=f"{ASSET_DIR}/urdfs/arctic_table.urdf",
             activate_contact_sensors=False,
             visual_material=sim_utils.PreviewSurfaceCfg(
                 diffuse_color=(0.14, 0.14, 0.14), metallic=0.7
@@ -62,31 +63,11 @@ class V2PSceneCfg(InteractiveSceneCfg):
                     stiffness=0, damping=0
                 )
             ),
-            scale=[1.25, 1.25, 1.25],
         ),
     )
 
     # object
-    # object = RigidObjectCfg(
-    #     prim_path="{ENV_REGEX_NS}/Object",
-    #     spawn=sim_utils.UrdfFileCfg(
-    #         fix_base=False,
-    #         asset_path=f"{ASSET_DIR}/urdfs/kleenex.urdf",
-    #         activate_contact_sensors=False,
-    #         visual_material=sim_utils.PreviewSurfaceCfg(
-    #             diffuse_color=(0.8, 0.1, 0.1), metallic=0.5
-    #         ),
-    #         joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
-    #             gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(
-    #                 stiffness=0, damping=0
-    #             )
-    #         ),
-    #     ),
-    #     init_state=RigidObjectCfg.InitialStateCfg(
-    #         pos=[0.0, 0.0, 0.365], rot=[0.7071068, 0.0, 0.0, 0.7071068]
-    #     ),
-    # )
-    object: ArticulationCfg = MISSING
+    object: RigidObjectCfg = MISSING
 
     # lights
     light = AssetBaseCfg(
@@ -108,17 +89,46 @@ class V2PSceneCfg(InteractiveSceneCfg):
 class CommandsCfg:
     """Command specifications for the MDP."""
 
-    pass
+    dual_hands_object_tracking_command = mdp.DualHandsObjectTrackingCommandCfg(
+        debug_vis=True,
+        target_fps=100.0,
+    )
 
 
 @configclass
 class ActionsCfg:
     """Action specifications for the MDP."""
 
-    joint_pos = isaac_mdp.JointPositionActionCfg(
-        asset_name="robot",
+    virtual_rigid_object_control = mdp.VirtualRigidObjectControlCfg(
+        asset_name="object",
+        tracking_controller_linear_stiffness=0.0,
+        tracking_controller_linear_damping=0.0,  # critical damping: 2 * sqrt(kp * m)
+        tracking_controller_angular_stiffness=0.0,
+        tracking_controller_angular_damping=0.0,  # critical damping: 2 * sqrt(kp * I)
+    )
+
+    right_joint_residual_action = mdp.JointResidualWithTrackingActionCfg(
+        asset_name="right_robot",
         joint_names=[".*"],
-        use_default_offset=True,
+        tracking_controller_linear_stiffness=50.0,
+        tracking_controller_linear_damping=5.0,
+        tracking_controller_angular_stiffness=25.0,
+        tracking_controller_angular_damping=0.0,
+        wrist_position_scale=0.0,
+        wrist_orientation_scale=0.0,
+        finger_joint_scale=0.1,
+    )
+
+    left_joint_residual_action = mdp.JointResidualWithTrackingActionCfg(
+        asset_name="left_robot",
+        joint_names=[".*"],
+        tracking_controller_linear_stiffness=50.0,
+        tracking_controller_linear_damping=5.0,
+        tracking_controller_angular_stiffness=25.0,
+        tracking_controller_angular_damping=0.0,
+        wrist_position_scale=0.0,
+        wrist_orientation_scale=0.0,
+        finger_joint_scale=0.1,
     )
 
 
@@ -128,21 +138,54 @@ class ObservationsCfg:
 
     @configclass
     class PolicyCfg(ObsGroup):
-        """Observations for policy group."""
+        """Observations for policy group. Order preserved."""
 
-        # observation terms (order preserved)
-        base_lin_vel = ObsTerm(
-            func=isaac_mdp.base_lin_vel, noise=Unoise(n_min=-0.5, n_max=0.5)
+        wrist_position_e = ObsTerm(
+            func=mdp.wrist_position_e,
+            params={"command_name": "dual_hands_object_tracking_command"},
+            noise=Unoise(n_min=-0.01, n_max=0.01),
         )
-        base_ang_vel = ObsTerm(
-            func=isaac_mdp.base_ang_vel, noise=Unoise(n_min=-0.2, n_max=0.2)
+        wrist_orientation_e = ObsTerm(
+            func=mdp.wrist_orientation_e,
+            params={"command_name": "dual_hands_object_tracking_command"},
+            noise=Unoise(n_min=-0.01, n_max=0.01),
         )
-        joint_pos = ObsTerm(
-            func=isaac_mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01)
+        finger_joint_pos = ObsTerm(
+            func=mdp.finger_joint_pos,
+            params={"command_name": "dual_hands_object_tracking_command"},
+            noise=Unoise(n_min=-0.01, n_max=0.01),
         )
-        joint_vel = ObsTerm(
-            func=isaac_mdp.joint_vel_rel, noise=Unoise(n_min=-0.5, n_max=0.5)
+        finger_joint_vel = ObsTerm(
+            func=mdp.finger_joint_vel,
+            params={"command_name": "dual_hands_object_tracking_command"},
+            noise=Unoise(n_min=-0.01, n_max=0.01),
         )
+        object_position_e = ObsTerm(
+            func=mdp.object_position_e,
+            params={"command_name": "dual_hands_object_tracking_command"},
+            noise=Unoise(n_min=-0.01, n_max=0.01),
+        )
+        object_orientation_e = ObsTerm(
+            func=mdp.object_orientation_e,
+            params={"command_name": "dual_hands_object_tracking_command"},
+            noise=Unoise(n_min=-0.01, n_max=0.01),
+        )
+
+        object_t_wrist = ObsTerm(
+            func=mdp.object_t_wrist,
+            params={"command_name": "dual_hands_object_tracking_command"},
+        )
+
+        object_p_fingertip = ObsTerm(
+            func=mdp.object_p_fingertip,
+            params={"command_name": "dual_hands_object_tracking_command"},
+        )
+
+        command = ObsTerm(
+            func=isaac_mdp.generated_commands,
+            params={"command_name": "dual_hands_object_tracking_command"},
+        )
+
         actions = ObsTerm(func=isaac_mdp.last_action)
 
         def __post_init__(self) -> None:
@@ -159,25 +202,39 @@ class EventCfg:
     """Configuration for events."""
 
     # startup
-    physics_material = EventTerm(
+    right_physics_material = EventTerm(
         func=isaac_mdp.randomize_rigid_body_material,
         mode="startup",
         params={
-            "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
-            "static_friction_range": (0.8, 1.0),
-            "dynamic_friction_range": (0.8, 1.0),
-            "restitution_range": (0.0, 0.5),
+            "asset_cfg": SceneEntityCfg("right_robot", body_names=".*"),
+            "static_friction_range": (0.99, 1.01),
+            "dynamic_friction_range": (0.99, 1.01),
+            "restitution_range": (0.0, 0.0),
             "num_buckets": 64,
         },
     )
 
-    # reset
-    reset_robot_and_object = EventTerm(
-        func=mdp.reset_joints,
-        mode="reset",
+    left_physics_material = EventTerm(
+        func=isaac_mdp.randomize_rigid_body_material,
+        mode="startup",
         params={
-            "object_cfg": SceneEntityCfg("object"),
-            "robot_cfg": SceneEntityCfg("robot"),
+            "asset_cfg": SceneEntityCfg("left_robot", body_names=".*"),
+            "static_friction_range": (0.99, 1.01),
+            "dynamic_friction_range": (0.99, 1.01),
+            "restitution_range": (0.0, 0.0),
+            "num_buckets": 64,
+        },
+    )
+
+    object_physics_material = EventTerm(
+        func=isaac_mdp.randomize_rigid_body_material,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("object", body_names=".*"),
+            "static_friction_range": (0.99, 1.01),
+            "dynamic_friction_range": (0.99, 1.01),
+            "restitution_range": (0.1, 0.1),
+            "num_buckets": 64,
         },
     )
 
@@ -186,36 +243,104 @@ class EventCfg:
 class RewardsCfg:
     """Reward terms for the MDP."""
 
-    action_rate_l2 = RewTerm(func=isaac_mdp.action_rate_l2, weight=-1e-1)
-    joint_limit = RewTerm(
-        func=isaac_mdp.joint_pos_limits,
-        weight=-10.0,
-        params={"asset_cfg": SceneEntityCfg("robot", joint_names=[".*"])},
-    )
-
-    contact_force_penalty = RewTerm(
-        func=mdp.contact_force_penalty, weight=-0.05, params={}
-    )
-
-    # ManipTrans-style contact reward
-    maniptrans_contact = RewTerm(
-        func=mdp.maniptrans_contact_reward,
-        weight=1.0,
+    action_rate_l2 = RewTerm(func=isaac_mdp.action_rate_l2, weight=-1e-5)
+    action_l1 = RewTerm(
+        func=mdp.action_norm,
+        weight=-0.001,
         params={
-            "contact_range_min": 0.02,
-            "contact_range_max": 0.03,
-            "decay_constant": 1.0,
+            "action_names": [
+                "right_joint_residual_action",
+                "left_joint_residual_action",
+            ]
         },
     )
+
+    right_joint_limit = RewTerm(
+        func=isaac_mdp.joint_pos_limits,
+        weight=-10.0,
+        params={"asset_cfg": SceneEntityCfg("right_robot", joint_names=[".*"])},
+    )
+    left_joint_limit = RewTerm(
+        func=isaac_mdp.joint_pos_limits,
+        weight=-10.0,
+        params={"asset_cfg": SceneEntityCfg("left_robot", joint_names=[".*"])},
+    )
+
+    object_keypoints_tracking_exp = RewTerm(
+        func=mdp.object_keypoints_tracking_exp,
+        weight=10.0,
+        params={
+            "command_name": "dual_hands_object_tracking_command",
+            "var": 0.05,
+        },
+    )
+
+    hand_keypoints_tracking_exp = RewTerm(
+        func=mdp.hand_keypoints_tracking_exp,
+        weight=1.0,
+        params={
+            "command_name": "dual_hands_object_tracking_command",
+            "var": 0.05,
+        },
+    )
+
+    # hand_joint_pos_tracking_exp = RewTerm(
+    #     func=mdp.hand_joint_pos_tracking_exp,
+    #     weight=1.0,
+    #     params={
+    #         "command_name": "dual_hands_object_tracking_command",
+    #         "var": 0.05,
+    #     },
+    # )
+
+    termination_penalty = RewTerm(
+        func=mdp.termination_penalty,
+        weight=-300.0,
+    )
+
+    # FIXME: add appropriate contact reward
+    # contact_force_penalty = RewTerm(
+    #     func=mdp.contact_force_penalty, weight=-0.05, params={}
+    # )
+
+    # # ManipTrans-style contact reward
+    # maniptrans_contact = RewTerm(
+    #     func=mdp.maniptrans_contact_reward,
+    #     weight=1.0,
+    #     params={
+    #         "contact_range_min": 0.02,
+    #         "contact_range_max": 0.03,
+    #         "decay_constant": 1.0,
+    #     },
+    # )
 
 
 @configclass
 class TerminationsCfg:
     """Termination terms for the MDP."""
 
-    time_out = DoneTerm(func=isaac_mdp.time_out, time_out=True)
-    object_fall = DoneTerm(
-        func=mdp.fall, params={"asset_cfg": SceneEntityCfg("object"), "threshold": 0.0}
+    time_out = DoneTerm(
+        func=mdp.timestep_timeout,
+        time_out=True,
+        params={
+            "command_name": "dual_hands_object_tracking_command",
+        },
+    )
+
+    hand_wrist_away_from_trajectory = DoneTerm(
+        func=mdp.hand_wrist_away_from_trajectory,
+        params={
+            "command_name": "dual_hands_object_tracking_command",
+            "threshold": 0.15,
+        },
+    )
+
+    object_away_from_trajectory = DoneTerm(
+        func=mdp.object_away_from_trajectory,
+        params={
+            "command_name": "dual_hands_object_tracking_command",
+            "threshold": 0.15,
+        },
     )
 
 
@@ -223,6 +348,7 @@ class TerminationsCfg:
 class CurriculumCfg:
     """Curriculum terms for the MDP."""
 
+    # TODO (zliu): add appropriate curriculum
     pass
 
 
@@ -249,15 +375,23 @@ class V2PHandEnvCfg(ManagerBasedRLEnvCfg):
 
     def __post_init__(self) -> None:
         """Post initialization."""
+        """Post initialization."""
         # general settings
         self.decimation = 4
-        self.episode_length_s = 60.0
+        self.episode_length_s = (
+            5.92  # FIXME: should be determined by the command length
+        )
         # simulation settings
         self.sim.dt = 0.005
         self.sim.render_interval = self.decimation
         self.sim.physics_material = self.scene.terrain.physics_material
-        self.sim.physx.gpu_max_rigid_patch_count = 10 * 2**15
+        self.sim.physx.gpu_max_rigid_patch_count = 17 * 2**15
+
+        # Make the environment more compliant
+        self.sim.physics_material.compliant_contact_stiffness = 100.0
+        self.sim.physics_material.compliant_contact_damping = 10.0
+
         # # viewer settings
         # self.viewer.eye = (1.5, 1.5, 1.5)
         # self.viewer.origin_type = "asset_root"
-        # self.viewer.asset_name = "robot"
+        # self.viewer.asset_name = None
