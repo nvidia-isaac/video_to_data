@@ -228,3 +228,6 @@ core
 .claude/
 CLAUDE.md
 *.code-workspace
+
+# Temporary usd files
+*.tmp.usd

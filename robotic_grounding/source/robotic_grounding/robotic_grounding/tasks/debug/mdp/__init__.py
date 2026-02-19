@@ -8,8 +8,8 @@
 
 """MDP components for debug environments."""
 
-from .joint_pos_gui_action import JointPositionGUIAction
-from .joint_pos_gui_action_cfg import JointPositionGUIActionCfg
+from .joint_gui import JointGUIAction
+from .joint_gui_cfg import JointGUIActionCfg
 from .object_pose_gui_action import (
     ArticulatedObjectPoseGUIAction,
     ObjectPoseGUIAction,
@@ -28,8 +28,8 @@ from .rewards import (
 )
 
 __all__ = [
-    "JointPositionGUIAction",
-    "JointPositionGUIActionCfg",
+    "JointGUIAction",
+    "JointGUIActionCfg",
     # Unified object pose GUI action
     "ObjectPoseGUIAction",
     "ObjectPoseGUIActionCfg",

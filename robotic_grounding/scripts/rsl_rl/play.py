@@ -9,11 +9,14 @@
 """Play an environment without loading a policy checkpoint.
 
 Supports two modes:
-- Debug mode (--task Sharpa-V2P-Debug-v0): GUI controls are used, actions are ignored
-- Play mode (--task Sharpa-V2P-v0-Play): Sinusoidal actions for environment validation
+- Debug mode (task name contains "Debug"): GUI controls are used, actions are ignored
+- Play mode: Sinusoidal actions for environment validation
 
 Usage:
-    # Debug mode with GUI control
+    # Vega Sharpa debug (joint GUI control)
+    python scripts/rsl_rl/play.py --task Vega-Sharpa-Debug-v0
+
+    # Sharpa V2P debug (joint + object GUI control)
     python scripts/rsl_rl/play.py --task Sharpa-V2P-Debug-v0
 
     # Play mode with sinusoidal actions

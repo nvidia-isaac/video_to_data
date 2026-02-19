@@ -21,7 +21,7 @@ from isaaclab.utils import configclass
 
 from robotic_grounding.tasks.debug import mdp as debug_mdp
 from robotic_grounding.tasks.debug.mdp import (
-    JointPositionGUIActionCfg,
+    JointGUIActionCfg,
     ObjectPoseGUIActionCfg,
     RewardVisualizerCfg,
 )
@@ -38,7 +38,7 @@ class DebugActionsCfg(ActionsCfg):
     # GUI control for ALL robot joints (wrist + finger)
     # Wrist joints (x/y/z/roll/pitch/yaw) control hand root pose
     # Finger joints control individual finger positions
-    joint_pos = JointPositionGUIActionCfg(
+    joint_pos = JointGUIActionCfg(
         asset_name="robot",
         joint_names=[".*"],  # All joints
         scale=1.0,  # Will be overridden in __post_init__ with proper scale
