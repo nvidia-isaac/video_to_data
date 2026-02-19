@@ -225,6 +225,56 @@ services:
       - NLF_WEIGHTS_PATH=/data/nlf/weights/nlf_l_multi_0.3.2.torchscript
     entrypoint: ["python3", "modules/nlf/render_smpl_depth.py"]
 
+  grounding-dino-image-to-object-bboxes:
+    build:
+      context: .
+      dockerfile: modules/grounding_dino/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - MODEL_DIR=/data/grounding_dino/models
+    entrypoint: ["python", "/workspace/modules/grounding_dino/image_to_object_bboxes.py"]
+
+  grounding-dino-image-list-to-object-bboxes:
+    build:
+      context: .
+      dockerfile: modules/grounding_dino/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - MODEL_DIR=/data/grounding_dino/models
+    entrypoint: ["python", "/workspace/modules/grounding_dino/image_list_to_object_bboxes.py"]
+
+  grounding-dino-video-to-object-bboxes:
+    build:
+      context: .
+      dockerfile: modules/grounding_dino/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - MODEL_DIR=/data/grounding_dino/models
+    entrypoint: ["python", "/workspace/modules/grounding_dino/video_to_object_bboxes.py"]
+
+  foundation-stereo-image-list-to-depth:
+    build:
+      context: .
+      dockerfile: modules/foundation_stereo/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - MODEL_DIR=/data/foundation_stereo/models
+    entrypoint: ["python", "/workspace/modules/foundation_stereo/image_list_to_depth.py"]
+
+  foundation-stereo-image-to-depth:
+    build:
+      context: .
+      dockerfile: modules/foundation_stereo/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - MODEL_DIR=/data/foundation_stereo/models
+    entrypoint: ["python", "/workspace/modules/foundation_stereo/image_to_depth.py"]
+
   viz:
     build:
       context: .

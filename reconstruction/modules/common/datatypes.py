@@ -8,6 +8,9 @@ class DepthImage:
     depth: np.ndarray
 
     def to_pil_image(self) -> Image.Image:
+        # Encode depth (meters) as uint16 PNG using inverse depth:
+        # pixel = 65535 * (1 / (depth_m + 1))
+        # Closer objects → higher pixel values; zero depth → 65535; infinity → 0.
         inverse_depth = 1.0 / (self.depth + 1.0)
         inverse_depth = 65535.0 * inverse_depth
         inverse_depth = inverse_depth.clip(0, 65535).astype(np.uint16)
@@ -15,10 +18,10 @@ class DepthImage:
 
     @staticmethod
     def from_pil_image(pil_image: Image.Image) -> 'DepthImage':
-        inverse_depth = np.array(pil_image)
-        inverse_depth = inverse_depth.astype(np.float32)
-        depth = 1.0 / (inverse_depth / 65535.0) - 1.0
-        return DepthImage(depth=depth)
+        # Decode inverse-depth uint16 PNG back to depth in meters.
+        inverse_depth = np.array(pil_image).astype(np.float32)
+        depth_m = 1.0 / (inverse_depth / 65535.0) - 1.0
+        return DepthImage(depth=depth_m)
     
     def width(self) -> int:
         return self.depth.shape[1]
