@@ -102,6 +102,106 @@ MANO_JOINTS_PARENTS = [
 ]
 
 #############################################################
+# NVHuman parameters
+#############################################################
+
+NVHUMAN_JOINTS_ORDER = [
+    "Hips",  # 0
+    "Spine1",  # 1
+    "Spine2",  # 2
+    "Chest",  # 3
+    "Neck1",  # 4
+    "Neck2",  # 5
+    "Head",  # 6
+    "HeadEnd",  # 7
+    "Jaw",  # 8
+    "LeftEye",  # 9
+    "RightEye",  # 10
+    "LeftShoulder",  # 11
+    "LeftArm",  # 12
+    "LeftForeArm",  # 13
+    "LeftHand",  # 14
+    "LeftHandThumb1",  # 15
+    "LeftHandThumb2",  # 16
+    "LeftHandThumb3",  # 17
+    "LeftHandThumbEnd",  # 18
+    "LeftHandIndex1",  # 19
+    "LeftHandIndex2",  # 20
+    "LeftHandIndex3",  # 21
+    "LeftHandIndex4",  # 22
+    "LeftHandIndexEnd",  # 23
+    "LeftHandMiddle1",  # 24
+    "LeftHandMiddle2",  # 25
+    "LeftHandMiddle3",  # 26
+    "LeftHandMiddle4",  # 27
+    "LeftHandMiddleEnd",  # 28
+    "LeftHandRing1",  # 29
+    "LeftHandRing2",  # 30
+    "LeftHandRing3",  # 31
+    "LeftHandRing4",  # 32
+    "LeftHandRingEnd",  # 33
+    "LeftHandPinky1",  # 34
+    "LeftHandPinky2",  # 35
+    "LeftHandPinky3",  # 36
+    "LeftHandPinky4",  # 37
+    "LeftHandPinkyEnd",  # 38
+    "LeftForeArmTwist1",  # 39
+    "LeftForeArmTwist2",  # 40
+    "LeftArmTwist1",  # 41
+    "LeftArmTwist2",  # 42
+    "RightShoulder",  # 43
+    "RightArm",  # 44
+    "RightForeArm",  # 45
+    "RightHand",  # 46
+    "RightHandThumb1",  # 47
+    "RightHandThumb2",  # 48
+    "RightHandThumb3",  # 49
+    "RightHandThumbEnd",  # 50
+    "RightHandIndex1",  # 51
+    "RightHandIndex2",  # 52
+    "RightHandIndex3",  # 53
+    "RightHandIndex4",  # 54
+    "RightHandIndexEnd",  # 55
+    "RightHandMiddle1",  # 56
+    "RightHandMiddle2",  # 57
+    "RightHandMiddle3",  # 58
+    "RightHandMiddle4",  # 59
+    "RightHandMiddleEnd",  # 60
+    "RightHandRing1",  # 61
+    "RightHandRing2",  # 62
+    "RightHandRing3",  # 63
+    "RightHandRing4",  # 64
+    "RightHandRingEnd",  # 65
+    "RightHandPinky1",  # 66
+    "RightHandPinky2",  # 67
+    "RightHandPinky3",  # 68
+    "RightHandPinky4",  # 69
+    "RightHandPinkyEnd",  # 70
+    "RightForeArmTwist1",  # 71
+    "RightForeArmTwist2",  # 72
+    "RightArmTwist1",  # 73
+    "RightArmTwist2",  # 74
+    "LeftLeg",  # 75
+    "LeftShin",  # 76
+    "LeftFoot",  # 77
+    "LeftToeBase",  # 78
+    "LeftToeEnd",  # 79
+    "LeftShinTwist1",  # 80
+    "LeftShinTwist2",  # 81
+    "LeftLegTwist1",  # 82
+    "LeftLegTwist2",  # 83
+    "RightLeg",  # 84
+    "RightShin",  # 85
+    "RightFoot",  # 86
+    "RightToeBase",  # 87
+    "RightToeEnd",  # 88
+    "RightShinTwist1",  # 89
+    "RightShinTwist2",  # 90
+    "RightLegTwist1",  # 91
+    "RightLegTwist2",  # 92
+]
+
+#############################################################
 # IK parameters for Sharpa hand
 #############################################################
 
@@ -134,3 +234,52 @@ SHARPA_TO_MANO_MAPPING = {
     # ".*_pinky_DP_site": ("pinky3", 0.0, 0.0),
     ".*_pinky_tip_site": ("pinky4", 1.0, 0.1),
 }
+
+SHARPA_RELATIVE_FRAMES = [
+    # Target site: (root site, position cost, orientation cost)
+    (".*_thumb_tip_site", ".*_index_tip_site", 0.1, 0.0),
+    (".*_thumb_tip_site", ".*_middle_tip_site", 0.1, 0.0),
+    (".*_thumb_tip_site", ".*_ring_tip_site", 0.1, 0.0),
+    (".*_thumb_tip_site", ".*_pinky_tip_site", 0.1, 0.0),
+    (".*_index_tip_site", ".*_middle_tip_site", 0.1, 0.0),
+    (".*_index_tip_site", ".*_ring_tip_site", 0.1, 0.0),
+    (".*_index_tip_site", ".*_pinky_tip_site", 0.1, 0.0),
+    (".*_middle_tip_site", ".*_ring_tip_site", 0.1, 0.0),
+    (".*_middle_tip_site", ".*_pinky_tip_site", 0.1, 0.0),
+    (".*_ring_tip_site", ".*_pinky_tip_site", 0.1, 0.0),
+]
+
+#############################################################
+# IK parameters for Dex3 hand
+#############################################################
+
+DEX3_TO_NVHUMAN_MAPPING = {
+    # Dex3 .* hand sites: (target NVHuman joint, position cost, orientation cost)
+    ".*_hand_palm_link": (".*Hand", 1.0, 0.1),
+    ".*_thumb_tip": (".*HandThumbEnd", 1.0, 0.0),
+    ".*_index_tip": (".*HandIndexEnd", 1.0, 0.0),
+    ".*_middle_tip": (".*HandRingEnd", 1.0, 0.0),  # Map ring finger to middle
+}
+
+# NVHuman convention: X=left, Y=up, Z=forward
+# Robot convention: X=forward, Y=left, Z=up
+# Mapping: NVHuman Z → Robot X, NVHuman X → Robot Y, NVHuman Y → Robot Z
+R_NVHUMAN_TO_ROBOT = [
+    [0, 0, 1],
+    [1, 0, 0],
+    [0, 1, 0],
+]
+
+# Palm frame corrections to align robot palm frame with human hand orientation.
+R_PALM_CORRECTION_LEFT = [
+    [0, 0, 1],
+    [1, 0, 0],
+    [0, 1, 0],
+]
+
+# Right hand: R_y(90°) @ R_z(-90°) - first -90° about Z, then 90° about Y
+R_PALM_CORRECTION_RIGHT = [
+    [0, 0, 1],
+    [-1, 0, 0],
+    [0, -1, 0],
+]

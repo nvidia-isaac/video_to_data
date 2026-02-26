@@ -1,0 +1,379 @@
+<?xml version="1.0"?>
+<robot name="dex3_right_hand">
+
+    <!-- Floating Base: 6-DOF virtual joints for SE(3) mobility -->
+    <link name="world"/>
+
+    <link name="base_x_link">
+        <inertial>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <mass value="0.001"/>
+            <inertia ixx="1e-9" ixy="0" ixz="0" iyy="1e-9" iyz="0" izz="1e-9"/>
+        </inertial>
+    </link>
+    <joint name="base_x_joint" type="prismatic">
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <parent link="world"/>
+        <child link="base_x_link"/>
+        <axis xyz="1 0 0"/>
+        <limit lower="-10" upper="10" effort="1000" velocity="10"/>
+    </joint>
+
+    <link name="base_y_link">
+        <inertial>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <mass value="0.001"/>
+            <inertia ixx="1e-9" ixy="0" ixz="0" iyy="1e-9" iyz="0" izz="1e-9"/>
+        </inertial>
+    </link>
+    <joint name="base_y_joint" type="prismatic">
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <parent link="base_x_link"/>
+        <child link="base_y_link"/>
+        <axis xyz="0 1 0"/>
+        <limit lower="-10" upper="10" effort="1000" velocity="10"/>
+    </joint>
+
+    <link name="base_z_link">
+        <inertial>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <mass value="0.001"/>
+            <inertia ixx="1e-9" ixy="0" ixz="0" iyy="1e-9" iyz="0" izz="1e-9"/>
+        </inertial>
+    </link>
+    <joint name="base_z_joint" type="prismatic">
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <parent link="base_y_link"/>
+        <child link="base_z_link"/>
+        <axis xyz="0 0 1"/>
+        <limit lower="-10" upper="10" effort="1000" velocity="10"/>
+    </joint>
+
+    <link name="base_roll_link">
+        <inertial>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <mass value="0.001"/>
+            <inertia ixx="1e-9" ixy="0" ixz="0" iyy="1e-9" iyz="0" izz="1e-9"/>
+        </inertial>
+    </link>
+    <joint name="base_roll_joint" type="revolute">
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <parent link="base_z_link"/>
+        <child link="base_roll_link"/>
+        <axis xyz="1 0 0"/>
+        <limit lower="-3.14159" upper="3.14159" effort="1000" velocity="10"/>
+    </joint>
+
+    <link name="base_pitch_link">
+        <inertial>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <mass value="0.001"/>
+            <inertia ixx="1e-9" ixy="0" ixz="0" iyy="1e-9" iyz="0" izz="1e-9"/>
+        </inertial>
+    </link>
+    <joint name="base_pitch_joint" type="revolute">
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <parent link="base_roll_link"/>
+        <child link="base_pitch_link"/>
+        <axis xyz="0 1 0"/>
+        <limit lower="-3.14159" upper="3.14159" effort="1000" velocity="10"/>
+    </joint>
+
+    <link name="base_yaw_link">
+        <inertial>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <mass value="0.001"/>
+            <inertia ixx="1e-9" ixy="0" ixz="0" iyy="1e-9" iyz="0" izz="1e-9"/>
+        </inertial>
+    </link>
+    <joint name="base_yaw_joint" type="revolute">
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <parent link="base_pitch_link"/>
+        <child link="base_yaw_link"/>
+        <axis xyz="0 0 1"/>
+        <limit lower="-3.14159" upper="3.14159" effort="1000" velocity="10"/>
+    </joint>
+
+    <!-- Right Hand Palm (connected directly to floating base) -->
+    <joint name="right_hand_palm_joint" type="fixed">
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <parent link="base_yaw_link"/>
+        <child link="right_hand_palm_link"/>
+    </joint>
+    <link name="right_hand_palm_link">
+        <inertial>
+            <origin xyz="0.06214634836 0.00050869656 -0.00058171093" rpy="0 0 0"/>
+            <mass value="0.37283854"/>
+            <inertia ixx="0.00027535181027" ixy="0.00001595519465" ixz="-0.00000242161890"
+                iyy="0.00053951827219" iyz="0.00000042279435" izz="0.00039623390907"/>
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <mesh filename="package://unitree_description/meshes/g1/right_hand_palm_link.STL"/>
+            </geometry>
+            <material name="white">
+                <color rgba="0.7 0.7 0.7 1"/>
+            </material>
+        </visual>
+        <collision>
+            <geometry>
+                <mesh filename="package://unitree_description/meshes/g1/right_hand_palm_link.STL"/>
+            </geometry>
+        </collision>
+    </link>
+
+    <!-- Right Thumb -->
+    <joint name="right_hand_thumb_0_joint" type="revolute">
+        <origin xyz="0.0255 0 0" rpy="0 0 0"/>
+        <axis xyz="0 1 0"/>
+        <parent link="right_hand_palm_link"/>
+        <child link="right_hand_thumb_0_link"/>
+        <limit effort="2.45" velocity="6.857" lower="-1.04719755" upper="1.04719755"/>
+    </joint>
+    <link name="right_hand_thumb_0_link">
+        <inertial>
+            <origin xyz="-0.00088424580 0.00863407079 0.00094429336" rpy="0 0 0"/>
+            <mass value="0.08623657"/>
+            <inertia ixx="0.00001602919238" ixy="-0.00000010683177" ixz="0.00000016728875"
+                iyy="0.00001451795012" iyz="0.00000051094752" izz="0.00001637877663"/>
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <mesh filename="package://unitree_description/meshes/g1/right_hand_thumb_0_link.STL"/>
+            </geometry>
+            <material name="white">
+                <color rgba="0.7 0.7 0.7 1"/>
+            </material>
+        </visual>
+        <collision>
+            <geometry>
+                <mesh filename="package://unitree_description/collision/g1/hands/right_hand_thumb_0_link.obj"/>
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="right_hand_thumb_1_joint" type="revolute">
+        <origin xyz="-0.0025 0.0193 0" rpy="0 0 0"/>
+        <axis xyz="0 0 1"/>
+        <parent link="right_hand_thumb_0_link"/>
+        <child link="right_hand_thumb_1_link"/>
+        <limit effort="1.4" velocity="12" lower="-1.04719755" upper="0.72431163"/>
+    </joint>
+    <link name="right_hand_thumb_1_link">
+        <inertial>
+            <origin xyz="-0.00082788768 0.03547435774 -0.00038089960" rpy="0 0 0"/>
+            <mass value="0.05885070"/>
+            <inertia ixx="0.00001274699945" ixy="0.00000050770784" ixz="0.00000016088850"
+                iyy="0.00000601573947" iyz="0.00000027839003" izz="0.00001234543582"/>
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <mesh filename="package://unitree_description/meshes/g1/right_hand_thumb_1_link.STL"/>
+            </geometry>
+            <material name="white">
+                <color rgba="0.7 0.7 0.7 1"/>
+            </material>
+        </visual>
+        <collision>
+            <geometry>
+                <mesh filename="package://unitree_description/collision/g1/hands/right_hand_thumb_1_link.obj"/>
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="right_hand_thumb_2_joint" type="revolute">
+        <origin xyz="0 0.0458 0" rpy="0 0 0"/>
+        <axis xyz="0 0 1"/>
+        <parent link="right_hand_thumb_1_link"/>
+        <child link="right_hand_thumb_2_link"/>
+        <limit effort="1.4" velocity="12" lower="-1.74532925" upper="0"/>
+    </joint>
+    <link name="right_hand_thumb_2_link">
+        <inertial>
+            <origin xyz="-0.00171735242 0.02628192939 0.00010778879" rpy="0 0 0"/>
+            <mass value="0.02030626"/>
+            <inertia ixx="0.00000461267817" ixy="0.00000003422130" ixz="-0.00000000823881"
+                iyy="0.00000153561368" iyz="0.00000002549885" izz="0.00000386625776"/>
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <mesh filename="package://unitree_description/meshes/g1/right_hand_thumb_2_link.STL"/>
+            </geometry>
+            <material name="white">
+                <color rgba="0.7 0.7 0.7 1"/>
+            </material>
+        </visual>
+        <collision>
+            <geometry>
+                <mesh filename="package://unitree_description/collision/g1/hands/right_hand_thumb_2_link.obj"/>
+            </geometry>
+        </collision>
+    </link>
+
+    <!-- Right Middle Finger -->
+    <joint name="right_hand_middle_0_joint" type="revolute">
+        <origin xyz="0.0777 -0.0016 -0.0285" rpy="0 0 0"/>
+        <axis xyz="0 0 1"/>
+        <parent link="right_hand_palm_link"/>
+        <child link="right_hand_middle_0_link"/>
+        <limit effort="1.4" velocity="12" lower="0" upper="1.57079632"/>
+    </joint>
+    <link name="right_hand_middle_0_link">
+        <inertial>
+            <origin xyz="0.03547435774 -0.00082788768 0.00038089960" rpy="0 0 0"/>
+            <mass value="0.05885070"/>
+            <inertia ixx="0.00000601573947" ixy="0.00000050770784" ixz="-0.00000027839003"
+                iyy="0.00001274699945" iyz="-0.00000016088850" izz="0.00001234543582"/>
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <mesh filename="package://unitree_description/meshes/g1/right_hand_middle_0_link.STL"/>
+            </geometry>
+            <material name="white">
+                <color rgba="0.7 0.7 0.7 1"/>
+            </material>
+        </visual>
+        <collision>
+            <geometry>
+                <mesh filename="package://unitree_description/meshes/g1/right_hand_middle_0_link.STL"/>
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="right_hand_middle_1_joint" type="revolute">
+        <origin xyz="0.0458 0 0" rpy="0 0 0"/>
+        <axis xyz="0 0 1"/>
+        <parent link="right_hand_middle_0_link"/>
+        <child link="right_hand_middle_1_link"/>
+        <limit effort="1.4" velocity="12" lower="0" upper="1.74532925"/>
+    </joint>
+    <link name="right_hand_middle_1_link">
+        <inertial>
+            <origin xyz="0.02628192939 -0.00171735242 -0.00010778879" rpy="0 0 0"/>
+            <mass value="0.02030626"/>
+            <inertia ixx="0.00000153561368" ixy="0.00000003422130" ixz="-0.00000002549885"
+                iyy="0.00000461267817" iyz="0.00000000823881" izz="0.00000386625776"/>
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <mesh filename="package://unitree_description/meshes/g1/right_hand_middle_1_link.STL"/>
+            </geometry>
+            <material name="white">
+                <color rgba="0.7 0.7 0.7 1"/>
+            </material>
+        </visual>
+        <collision>
+            <geometry>
+                <mesh filename="package://unitree_description/meshes/g1/right_hand_middle_1_link.STL"/>
+            </geometry>
+        </collision>
+    </link>
+
+    <!-- Right Index Finger -->
+    <joint name="right_hand_index_0_joint" type="revolute">
+        <origin xyz="0.0777 -0.0016 0.0285" rpy="0 0 0"/>
+        <axis xyz="0 0 1"/>
+        <parent link="right_hand_palm_link"/>
+        <child link="right_hand_index_0_link"/>
+        <limit effort="1.4" velocity="12" lower="0" upper="1.57079632"/>
+    </joint>
+    <link name="right_hand_index_0_link">
+        <inertial>
+            <origin xyz="0.03547435774 -0.00082788768 0.00038089960" rpy="0 0 0"/>
+            <mass value="0.05885070"/>
+            <inertia ixx="0.00000601573947" ixy="0.00000050770784" ixz="-0.00000027839003"
+                iyy="0.00001274699945" iyz="-0.00000016088850" izz="0.00001234543582"/>
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <mesh filename="package://unitree_description/meshes/g1/right_hand_index_0_link.STL"/>
+            </geometry>
+            <material name="white">
+                <color rgba="0.7 0.7 0.7 1"/>
+            </material>
+        </visual>
+        <collision>
+            <geometry>
+                <mesh filename="package://unitree_description/meshes/g1/right_hand_index_0_link.STL"/>
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="right_hand_index_1_joint" type="revolute">
+        <origin xyz="0.0458 0 0" rpy="0 0 0"/>
+        <axis xyz="0 0 1"/>
+        <parent link="right_hand_index_0_link"/>
+        <child link="right_hand_index_1_link"/>
+        <limit effort="1.4" velocity="12" lower="0" upper="1.74532925"/>
+    </joint>
+    <link name="right_hand_index_1_link">
+        <inertial>
+            <origin xyz="0.02628192939 -0.00171735242 -0.00010778879" rpy="0 0 0"/>
+            <mass value="0.02030626"/>
+            <inertia ixx="0.00000153561368" ixy="0.00000003422130" ixz="-0.00000002549885"
+                iyy="0.00000461267817" iyz="0.00000000823881" izz="0.00000386625776"/>
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <mesh filename="package://unitree_description/meshes/g1/right_hand_index_1_link.STL"/>
+            </geometry>
+            <material name="white">
+                <color rgba="0.7 0.7 0.7 1"/>
+            </material>
+        </visual>
+        <collision>
+            <geometry>
+                <mesh filename="package://unitree_description/meshes/g1/right_hand_index_1_link.STL"/>
+            </geometry>
+        </collision>
+    </link>
+
+    <!-- Fingertip frames for IK targets -->
+    <link name="right_thumb_tip">
+        <inertial>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <mass value="1e-9"/>
+            <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/>
+        </inertial>
+    </link>
+    <joint name="right_thumb_tip_joint" type="fixed">
+        <origin xyz="0 0.035 0" rpy="0 0 0"/>
+        <parent link="right_hand_thumb_2_link"/>
+        <child link="right_thumb_tip"/>
+    </joint>
+
+    <link name="right_index_tip">
+        <inertial>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <mass value="1e-9"/>
+            <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/>
+        </inertial>
+    </link>
+    <joint name="right_index_tip_joint" type="fixed">
+        <origin xyz="0.035 0 0" rpy="0 0 0"/>
+        <parent link="right_hand_index_1_link"/>
+        <child link="right_index_tip"/>
+    </joint>
+
+    <link name="right_middle_tip">
+        <inertial>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <mass value="1e-9"/>
+            <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/>
+        </inertial>
+    </link>
+    <joint name="right_middle_tip_joint" type="fixed">
+        <origin xyz="0.035 0 0" rpy="0 0 0"/>
+        <parent link="right_hand_middle_1_link"/>
+        <child link="right_middle_tip"/>
+    </joint>
+
+</robot>

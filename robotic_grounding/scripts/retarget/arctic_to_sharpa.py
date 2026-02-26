@@ -23,7 +23,7 @@ from robotic_grounding.retarget import (
 )
 from robotic_grounding.retarget.data_logger import ManoSharpaData
 from robotic_grounding.retarget.distance_utils import compute_tips_distance
-from robotic_grounding.retarget.hand_kinematics import HandKinematics
+from robotic_grounding.retarget.hand_kinematics import SharpaHandKinematics
 from robotic_grounding.retarget.read_mano import MANO
 from scipy.spatial.transform import Rotation as R
 from tqdm import tqdm
@@ -51,12 +51,13 @@ def setup_sharpa_kinematics(
     side: Literal["right", "left"],
     frequency: float = 200.0,
     frame_tasks_converged_threshold: float = 1e-6,
-) -> HandKinematics:
+) -> SharpaHandKinematics:
     """Setup the Sharpa hand kinematics."""
-    robot_xml = SHARPA_WAVE_XMLS_DIR / f"{side}_sharpawave.xml"
-    return HandKinematics(
+    robot_asset_path = SHARPA_WAVE_XMLS_DIR / f"{side}_sharpawave.xml"
+    return SharpaHandKinematics(
         side=side,
-        robot_xml=str(robot_xml),
+        robot_asset_path=str(robot_asset_path),
+        source_model="mano",
         frequency=frequency,
         frame_tasks_converged_threshold=frame_tasks_converged_threshold,
     )
@@ -261,7 +262,7 @@ def main(args: argparse.Namespace) -> None:
             right_kinematics_results = right_sharpa_kinematics.compute(
                 right_mano_results["joints"][frame_id],
                 right_mano_results["joints_wxyz"][frame_id],
-                mano_to_robot_scale=args.mano_to_robot_scale,
+                source_to_robot_scale=args.mano_to_robot_scale,
                 qpos=right_qpos,
             )
             right_qpos = right_kinematics_results["q"]
@@ -270,7 +271,7 @@ def main(args: argparse.Namespace) -> None:
             left_kinematics_results = left_sharpa_kinematics.compute(
                 left_mano_results["joints"][frame_id],
                 left_mano_results["joints_wxyz"][frame_id],
-                mano_to_robot_scale=args.mano_to_robot_scale,
+                source_to_robot_scale=args.mano_to_robot_scale,
                 qpos=left_qpos,
             )
             left_qpos = left_kinematics_results["q"]
@@ -311,10 +312,8 @@ def main(args: argparse.Namespace) -> None:
                     right_mano_results["joints"][frame_id],
                     right_mano_results["joints_wxyz"][frame_id],
                 )
-                right_sharpa_kinematics.visualize(
-                    viser_server,
-                    right_qpos,
-                )
+                right_sharpa_kinematics.visualize(viser_server, right_qpos)
+
                 mano.visualize(
                     viser_server,
                     "left",
@@ -323,10 +322,7 @@ def main(args: argparse.Namespace) -> None:
                     left_mano_results["joints"][frame_id],
                     left_mano_results["joints_wxyz"][frame_id],
                 )
-                left_sharpa_kinematics.visualize(
-                    viser_server,
-                    left_qpos,
-                )
+                left_sharpa_kinematics.visualize(viser_server, left_qpos)
 
                 # Visualize object parts
                 viser_object_handles["bottom"].position = world_p_bottom
