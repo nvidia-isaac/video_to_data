@@ -86,8 +86,8 @@ case "$1" in
                 ${WANDB_API_KEY_ENV} \
                 -e "ACCEPT_EULA=Y" \
                 -d \
-                ${IMAGE_NAME} \
-                tail -f /dev/null
+                --entrypoint /bin/bash \
+                ${IMAGE_NAME}
         fi
 
         # Enter the shell
