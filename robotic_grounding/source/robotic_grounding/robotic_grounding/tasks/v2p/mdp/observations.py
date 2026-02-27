@@ -122,6 +122,68 @@ def finger_contact_force_vectors(
     return torch.cat(force_list, dim=1)
 
 
+def contact_link_pos_and_valid(
+    env: ManagerBasedEnv,
+    side: str,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Per-link contact position and validity grouped by object part for one hand.
+
+    Args:
+        env: The environment instance.
+        side: 'left' or 'right'.
+
+    Returns:
+        contact_pos: Tensor shaped ``(num_envs, 2, num_links, 3)`` with contact
+            points in world frame for each part/link slot.
+        contact_valid: Tensor shaped ``(num_envs, 2, num_links)`` where entries
+            are ``True`` when the sensor force norm exceeds its threshold.
+    """
+    num_parts = 2
+    attr = f"contact_link_sensor_names_{side}"
+    sensor_names = list(getattr(env.cfg, attr, []))
+
+    if len(sensor_names) == 0:
+        num_envs = env.num_envs
+        return (
+            torch.zeros(num_envs, num_parts, 0, 3, device=env.device),
+            torch.zeros(num_envs, num_parts, 0, dtype=torch.bool, device=env.device),
+        )
+
+    if len(sensor_names) % num_parts != 0:
+        raise ValueError(
+            f"Expected an even number of {side} contact-link sensors, got {len(sensor_names)}."
+        )
+
+    pos_list: list[torch.Tensor] = []
+    valid_list: list[torch.Tensor] = []
+    for sensor_name in sensor_names:
+        sensor: ContactSensor = env.scene[sensor_name]
+        pos_list.append(_get_contact_pos(env, sensor))  # (num_envs, 1, 3)
+        force = torch.norm(sensor.data.net_forces_w, dim=-1)  # (num_envs, 1)
+        threshold = getattr(getattr(sensor, "cfg", None), "force_threshold", 0.1)
+        valid_list.append(force > threshold)
+    pos_flat = torch.cat(pos_list, dim=1)  # (num_envs, 2 * num_links, 3)
+    valid_flat = torch.cat(valid_list, dim=1)  # (num_envs, 2 * num_links)
+    # Reorder to (part, link): part 0 uses indices [0, 2, ...], part 1 uses [1, 3, ...].
+    part0_idx = torch.arange(0, len(sensor_names), num_parts, device=env.device)
+    part1_idx = torch.arange(1, len(sensor_names), num_parts, device=env.device)
+    contact_pos = torch.stack(
+        [
+            pos_flat[:, part0_idx, :],
+            pos_flat[:, part1_idx, :],
+        ],
+        dim=1,
+    )  # (num_envs, 2, num_links, 3)
+    contact_valid = torch.stack(
+        [
+            valid_flat[:, part0_idx],
+            valid_flat[:, part1_idx],
+        ],
+        dim=1,
+    )  # (num_envs, 2, num_links)
+    return contact_pos, contact_valid
+
+
 def finger_joint_pos(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
     """Finger joint positions.
 

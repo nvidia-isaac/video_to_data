@@ -55,6 +55,12 @@ parser.add_argument(
     help="Run training with multiple GPUs or nodes.",
 )
 parser.add_argument(
+    "--zero-actor",
+    action="store_true",
+    default=False,
+    help="Make the last layer of the actor network a zero layer.",
+)
+parser.add_argument(
     "--export_io_descriptors",
     action="store_true",
     default=False,
@@ -302,6 +308,11 @@ def main(
         print(f"[INFO]: Loading model checkpoint from: {resume_path}")
         # load previously trained model
         runner.load(resume_path)
+
+    # set the actor network to zero if requested
+    if args_cli.zero_actor:
+        torch.nn.init.zeros_(runner.alg.policy.actor[-1].weight)
+        torch.nn.init.zeros_(runner.alg.policy.actor[-1].bias)
 
     # dump the configuration into log-directory
     dump_yaml(os.path.join(log_dir, "params", "env.yaml"), env_cfg)

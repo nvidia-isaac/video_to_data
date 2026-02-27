@@ -8,6 +8,7 @@
 
 import os
 
+from isaaclab.sensors import ContactSensorCfg
 from isaaclab.utils import configclass
 
 from robotic_grounding.assets import ASSET_DIR
@@ -17,6 +18,7 @@ from robotic_grounding.assets.rigid_object import (
 from robotic_grounding.assets.sharpa_wave import (
     FINGER_JOINTS,
     FINGERTIP_BODY_NAME,
+    HAND_CONTACT_BODIES,
     LEFT_SHARPA_WAVE_CFG,
     RIGHT_SHARPA_WAVE_CFG,
     WRIST_BODY_NAME,
@@ -69,81 +71,46 @@ class SharpaV2PEnvCfg(V2PHandEnvCfg):
         ]
         self.commands.dual_hands_object_tracking_command.motion_id = 0
 
-        # FIXME: need to read contact info from commands
-        # # Dynamically set contact sensors
-        # # Note: elastomer links are merged into parent *_DP (distal phalange) rigid bodies
-        # # PhysX limitation: Each filter pattern must match exactly 1 prim
-        # finger_sensor_names = []
-
-        # # Create sensors for bottom part of object
-        # for body_name in FINGERTIP_CONTACT_BODIES:
-        #     sensor_name = f"{body_name.replace('_DP', '')}_contact_sensor_bottom"
-        #     setattr(
-        #         self.scene,
-        #         sensor_name,
-        #         ContactSensorCfg(
-        #             prim_path=f"{{ENV_REGEX_NS}}/Robot/{body_name}",
-        #             track_pose=True,
-        #             debug_vis=False,
-        #             force_threshold=0.1,
-        #             filter_prim_paths_expr=["{ENV_REGEX_NS}/Object/bottom"],
-        #             track_contact_points=True,
-        #             max_contact_data_count_per_prim=8,
-        #         ),
-        #     )
-        #     finger_sensor_names.append(sensor_name)
-
-        # # Create sensors for top part of object
-        # for body_name in FINGERTIP_CONTACT_BODIES:
-        #     sensor_name = f"{body_name.replace('_DP', '')}_contact_sensor_top"
-        #     setattr(
-        #         self.scene,
-        #         sensor_name,
-        #         ContactSensorCfg(
-        #             prim_path=f"{{ENV_REGEX_NS}}/Robot/{body_name}",
-        #             track_pose=True,
-        #             debug_vis=False,
-        #             force_threshold=0.1,
-        #             filter_prim_paths_expr=["{ENV_REGEX_NS}/Object/top"],
-        #             track_contact_points=True,
-        #             max_contact_data_count_per_prim=8,
-        #         ),
-        #     )
-        #     finger_sensor_names.append(sensor_name)
-
-        # # Store sensor names on env config for observations to access
-        # # This provides the contract: robot-specific config provides sensor names
-        # self.finger_sensor_names = finger_sensor_names
-
-        # # FIXME: We need to unify the data loading once we have a proper command or reset logic.
-        # # Load tips_distance from processed parquet for ManipTrans contact reward
-        # processed_dir = os.path.join(ASSET_DIR, "human_motion_data", "arctic_processed")
-        # try:
-        #     motion_data = ManoSharpaData.from_parquet(
-        #         processed_dir,
-        #         filters=[
-        #             ("robot_name", "=", "sharpa_wave"),
-        #             ("sequence_id", "contains", "box_grab"),
-        #         ],
-        #     )
-        #     if (
-        #         motion_data.mano_right_tips_distance
-        #         and motion_data.mano_left_tips_distance
-        #     ):
-        #         right = np.array(motion_data.mano_right_tips_distance)  # (T, 5)
-        #         left = np.array(motion_data.mano_left_tips_distance)  # (T, 5)
-        #         self.tips_distance_data = np.concatenate(
-        #             [right, left], axis=1
-        #         )  # (T, 10)
-        #         self.tips_distance_fps = motion_data.fps
-        #     else:
-        #         logger.warning(
-        #             "tips_distance columns empty in parquet, contact reward disabled"
-        #         )
-        #         self.tips_distance_data = None
-        # except Exception as e:
-        #     logger.warning("Could not load tips_distance from parquet: %s", e)
-        #     self.tips_distance_data = None
+        # FIXME: this needs to be more general.
+        # Contact sensors per (object part, hand link) for contact-link reward.
+        # The scene uses RIGID_OBJECT_CFG (box_rigid.urdf) with a single link named "object".
+        # We filter by that body for both "bottom" and "top" so sensors resolve; part semantics
+        # are preserved in reward/command (demo part_id 1/2) while policy sees one body.
+        # Part order: bottom, top.
+        # self.hand_contact_sensor_names = []
+        # Actual rigid body link name from box_rigid.urdf (single body, no bottom/top)
+        self.object_contact_sensor_names = []
+        right_filter_prim_paths_expr = []
+        left_filter_prim_paths_expr = []
+        for body_name in HAND_CONTACT_BODIES:
+            side_body_name = body_name.replace(".*", "right")
+            right_filter_prim_paths_expr.append(
+                f"{{ENV_REGEX_NS}}/RightRobot/{side_body_name}"
+            )
+            side_body_name = body_name.replace(".*", "left")
+            left_filter_prim_paths_expr.append(
+                f"{{ENV_REGEX_NS}}/LeftRobot/{side_body_name}"
+            )
+        for side in ["right", "left"]:
+            sensor_name = f"object_{side}_contact_sensor"
+            setattr(
+                self.scene,
+                sensor_name,
+                ContactSensorCfg(
+                    prim_path="{ENV_REGEX_NS}/Object/object",
+                    track_pose=True,
+                    debug_vis=False,
+                    force_threshold=0.1,
+                    filter_prim_paths_expr=(
+                        right_filter_prim_paths_expr
+                        if side == "right"
+                        else left_filter_prim_paths_expr
+                    ),
+                    track_contact_points=True,
+                    max_contact_data_count_per_prim=32,
+                ),
+            )
+            self.object_contact_sensor_names.append(sensor_name)
 
 
 @configclass

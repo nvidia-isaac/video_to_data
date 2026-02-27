@@ -15,6 +15,7 @@ import isaaclab.sim as sim_utils
 import isaaclab.terrains as terrain_gen
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
+from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
@@ -101,34 +102,36 @@ class ActionsCfg:
 
     virtual_rigid_object_control = mdp.VirtualRigidObjectControlCfg(
         asset_name="object",
-        tracking_controller_linear_stiffness=0.0,
-        tracking_controller_linear_damping=0.0,  # critical damping: 2 * sqrt(kp * m)
-        tracking_controller_angular_stiffness=0.0,
-        tracking_controller_angular_damping=0.0,  # critical damping: 2 * sqrt(kp * I)
+        tracking_controller_linear_stiffness=50.0,
+        tracking_controller_linear_damping=10.0,  # critical damping: 2 * sqrt(kp * m)
+        tracking_controller_angular_stiffness=12.0,
+        tracking_controller_angular_damping=2.0,  # critical damping: 2 * sqrt(kp * I)
     )
 
     right_joint_residual_action = mdp.JointResidualWithTrackingActionCfg(
         asset_name="right_robot",
         joint_names=[".*"],
         tracking_controller_linear_stiffness=50.0,
-        tracking_controller_linear_damping=5.0,
-        tracking_controller_angular_stiffness=25.0,
-        tracking_controller_angular_damping=0.0,
-        wrist_position_scale=0.0,
-        wrist_orientation_scale=0.0,
-        finger_joint_scale=0.1,
+        tracking_controller_linear_damping=10.0,
+        tracking_controller_angular_stiffness=12.0,
+        tracking_controller_angular_damping=0.5,
+        wrist_position_scale=0.1,
+        wrist_orientation_scale=0.3,
+        finger_joint_scale=0.3,
+        ema_factor=0.9,
     )
 
     left_joint_residual_action = mdp.JointResidualWithTrackingActionCfg(
         asset_name="left_robot",
         joint_names=[".*"],
         tracking_controller_linear_stiffness=50.0,
-        tracking_controller_linear_damping=5.0,
-        tracking_controller_angular_stiffness=25.0,
-        tracking_controller_angular_damping=0.0,
-        wrist_position_scale=0.0,
-        wrist_orientation_scale=0.0,
-        finger_joint_scale=0.1,
+        tracking_controller_linear_damping=10.0,
+        tracking_controller_angular_stiffness=12.0,
+        tracking_controller_angular_damping=0.5,
+        wrist_position_scale=0.1,
+        wrist_orientation_scale=0.3,
+        finger_joint_scale=0.3,
+        ema_factor=0.9,
     )
 
 
@@ -190,7 +193,7 @@ class ObservationsCfg:
 
         def __post_init__(self) -> None:
             """Post initialization."""
-            self.enable_corruption = True
+            self.enable_corruption = False
             self.concatenate_terms = True
 
     # observation groups
@@ -298,6 +301,17 @@ class RewardsCfg:
         weight=-300.0,
     )
 
+    # Contact tracking (chamfer) reward; enable when contact_links are loaded in command
+    contact_tracking = RewTerm(
+        func=mdp.contact_tracking_reward,
+        weight=1.0,
+        params={
+            "command_name": "dual_hands_object_tracking_command",
+            "contact_beta": 30.0,
+            "mask_zero_contact": True,
+        },
+    )
+
     # FIXME: add appropriate contact reward
     # contact_force_penalty = RewTerm(
     #     func=mdp.contact_force_penalty, weight=-0.05, params={}
@@ -348,8 +362,24 @@ class TerminationsCfg:
 class CurriculumCfg:
     """Curriculum terms for the MDP."""
 
-    # TODO (zliu): add appropriate curriculum
-    pass
+    virtual_object_control_curriculum = CurrTerm(
+        func=mdp.VirtualObjectControlCurriculum,
+        params={
+            "reward_thresholds": {
+                "object_keypoints_tracking_exp": 0.1,
+                "hand_keypoints_tracking_exp": 1.0,
+            },
+            "episode_length_ratio_threshold": 0.95,
+            "decay_mode": "exponential",
+            "deque_maxlen": 500,
+            "command_name": "dual_hands_object_tracking_command",
+            "zero_scale_factor_threshold": 0.05,
+            "initial_wait_env_steps": 2000,
+            "wait_env_steps_since_last_decay": 1000,
+            "exponential_decay_factor": 0.9,
+            "linear_decay_step": 10.0,
+        },
+    )
 
 
 #################################################

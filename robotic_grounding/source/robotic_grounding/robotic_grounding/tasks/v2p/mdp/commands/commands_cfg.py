@@ -7,6 +7,7 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 
+import isaaclab.sim as sim_utils
 from isaaclab.managers import CommandTermCfg
 from isaaclab.markers import VisualizationMarkersCfg
 from isaaclab.markers.config import FRAME_MARKER_CFG
@@ -134,6 +135,29 @@ class DualHandsObjectTrackingCommandCfg(CommandTermCfg):
     reset_to_initial: bool = False
     """Whether to reset the command to the initial frame of the motion."""
 
+    reset_finger_openness: float = 0.5
+    """Max interpolation factor for finger joints at reset.
+
+    At reset, each env samples a uniform factor in [0, reset_finger_openness].
+    The finger joint positions are then: factor * reference_finger_joints.
+    0.0 = fully open, 1.0 = fully matching reference.
+    """
+
+    initial_virtual_object_control_curriculum_scale: float = 1.0
+    """Initial virtual object control curriculum scale."""
+
+    virtual_object_control_decay_steps: int = 50
+    """Number of steps over which the virtual object control factor decays after reset."""
+
+    virtual_object_control_decay_mode: str = "linear"
+    """Decay mode for the virtual object control factor after reset.
+
+    - ``"linear"``: linearly decay from 1 to ``virtual_object_control_curriculum_scale``
+      over ``virtual_object_control_decay_steps``.
+    - ``"step"``: hold at 1 for ``virtual_object_control_decay_steps``, then drop to
+      ``virtual_object_control_decay_steps`` instantly.
+    """
+
     ###################################################
     # Visualizer markers
     ###################################################
@@ -173,3 +197,29 @@ class DualHandsObjectTrackingCommandCfg(CommandTermCfg):
     )
     left_hand_goal_pose_visualizer_cfg.markers["frame"].scale = (0.07, 0.07, 0.07)
     """Visualizer for the left hand goal pose."""
+
+    target_contact_visualizer_cfg: VisualizationMarkersCfg = VisualizationMarkersCfg(
+        prim_path="/Visuals/Command/TargetContact",
+        markers={
+            "sphere": sim_utils.SphereCfg(
+                radius=0.005,
+                visual_material=sim_utils.PreviewSurfaceCfg(
+                    diffuse_color=(0.0, 0.4, 1.0)
+                ),
+            ),
+        },
+    )
+    """Visualizer for demo target contact link positions (from parquet). Same idea as arctic_to_sharpa add_icosphere(radius=0.005)."""
+
+    current_contact_visualizer_cfg: VisualizationMarkersCfg = VisualizationMarkersCfg(
+        prim_path="/Visuals/Command/CurrentContact",
+        markers={
+            "sphere": sim_utils.SphereCfg(
+                radius=0.005,
+                visual_material=sim_utils.PreviewSurfaceCfg(
+                    diffuse_color=(0.4, 0.0, 1.0)
+                ),
+            ),
+        },
+    )
+    """Visualizer for current contact link positions. """

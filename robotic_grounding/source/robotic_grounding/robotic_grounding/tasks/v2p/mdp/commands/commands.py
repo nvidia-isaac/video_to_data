@@ -113,6 +113,9 @@ class TrackingCommand(CommandTerm):
         self._Z_UNIT_VEC = torch.tensor([0, 0, 1.0], device=self.device).repeat(
             (self.num_envs, 1)
         )
+        self.QUAT_UNIT_VEC = torch.tensor(
+            [1.0, 0.0, 0.0, 0.0], device=self.device
+        ).repeat((self.num_envs, 1))
 
         # -- metrics
         self.metrics["orientation_error"] = torch.zeros(
@@ -356,6 +359,14 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             )
             setattr(self, f"{side}_fingertip_body_names", fingertip_body_names)
 
+        # Retrive contact sensor from the environment
+        self.right_object_contact_sensor = env.scene[
+            env.cfg.object_contact_sensor_names[0]
+        ]
+        self.left_object_contact_sensor = env.scene[
+            env.cfg.object_contact_sensor_names[1]
+        ]
+
         # Load motion data
         try:
             self._retargeted_motion_data = ManoSharpaData.from_parquet(
@@ -372,83 +383,6 @@ class DualHandsObjectTrackingCommand(CommandTerm):
                 target_fps=target_fps,
             )
 
-            # Load reset states
-            reset_data_exists = os.path.exists(cfg.reset_state_file_path)
-            reset_to_any_state = reset_data_exists and not cfg.reset_to_initial
-            self.reset_to_initial = not reset_to_any_state
-            if not self.reset_to_initial:
-                reset_states = torch.load(cfg.reset_state_file_path)
-                self.reset_object_position = torch.cat(
-                    [
-                        reset_states[step]["object_position"].unsqueeze(0)
-                        for step in range(1, len(reset_states))
-                    ],
-                    dim=0,
-                ).to(self.device)
-                self.reset_object_wxyz = torch.cat(
-                    [
-                        reset_states[step]["object_wxyz"].unsqueeze(0)
-                        for step in range(1, len(reset_states))
-                    ],
-                    dim=0,
-                ).to(self.device)
-                self.reset_right_hand_wrist_position = torch.cat(
-                    [
-                        reset_states[step]["right_hand_wrist_position"].unsqueeze(0)
-                        for step in range(1, len(reset_states))
-                    ],
-                    dim=0,
-                ).to(self.device)
-                self.reset_right_hand_wrist_wxyz = torch.cat(
-                    [
-                        reset_states[step]["right_hand_wrist_wxyz"].unsqueeze(0)
-                        for step in range(1, len(reset_states))
-                    ],
-                    dim=0,
-                ).to(self.device)
-                self.reset_left_hand_wrist_position = torch.cat(
-                    [
-                        reset_states[step]["left_hand_wrist_position"].unsqueeze(0)
-                        for step in range(1, len(reset_states))
-                    ],
-                    dim=0,
-                ).to(self.device)
-                self.reset_left_hand_wrist_wxyz = torch.cat(
-                    [
-                        reset_states[step]["left_hand_wrist_wxyz"].unsqueeze(0)
-                        for step in range(1, len(reset_states))
-                    ],
-                    dim=0,
-                ).to(self.device)
-                self.reset_right_hand_finger_joint_pos = torch.cat(
-                    [
-                        reset_states[step][
-                            "right_hand_finger_joint_position"
-                        ].unsqueeze(0)
-                        for step in range(1, len(reset_states))
-                    ],
-                    dim=0,
-                ).to(self.device)
-                self.reset_left_hand_finger_joint_pos = torch.cat(
-                    [
-                        reset_states[step]["left_hand_finger_joint_position"].unsqueeze(
-                            0
-                        )
-                        for step in range(1, len(reset_states))
-                    ],
-                    dim=0,
-                ).to(self.device)
-                num_reset_states = len(self.reset_object_position[0])
-                assert num_reset_states == len(self.reset_object_wxyz[0])
-                assert num_reset_states == len(self.reset_right_hand_wrist_position[0])
-                assert num_reset_states == len(self.reset_right_hand_wrist_wxyz[0])
-                assert num_reset_states == len(self.reset_left_hand_wrist_position[0])
-                assert num_reset_states == len(self.reset_left_hand_wrist_wxyz[0])
-                assert num_reset_states == len(
-                    self.reset_right_hand_finger_joint_pos[0]
-                )
-                assert num_reset_states == len(self.reset_left_hand_finger_joint_pos[0])
-
         except Exception as e:
             raise ValueError(
                 "Failed to load retargeted motion data from "
@@ -457,8 +391,18 @@ class DualHandsObjectTrackingCommand(CommandTerm):
                 f"and is valid. Error: {e}"
             ) from e
 
+        # Buffers
         self.retargeted_horizon = len(
             self._retargeted_motion_data.robot_right_wrist_position
+        )
+        self.timestep_counter = torch.zeros(
+            self.num_envs, dtype=torch.int32, device=self.device
+        )
+        self.tracking_lengths = self.retargeted_horizon * torch.ones(
+            self.num_envs, dtype=torch.int32, device=self.device
+        )
+        self.steps_since_last_reset = torch.zeros(
+            self.num_envs, dtype=torch.int32, device=self.device
         )
 
         # Hand data
@@ -539,11 +483,88 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             self._retargeted_motion_data.object_articulation, device=self.device
         )
 
-        # Buffers
-        self.timestep_counter = torch.zeros(
-            self.num_envs, dtype=torch.int32, device=self.device
+        # Load contact links and object contact from parquet (saved by arctic_to_sharpa retarget script)
+        # Shape: (horizon, num_links, 4)
+        # 4 = environment_p_contact_position + Pard_ID
+        self.retargeted_left_link_contact_positions_e = torch.tensor(
+            self._retargeted_motion_data.mano_left_link_contact_positions,
+            dtype=torch.float32,
+            device=self.device,
+        )
+        self.retargeted_right_link_contact_positions_e = torch.tensor(
+            self._retargeted_motion_data.mano_right_link_contact_positions,
+            dtype=torch.float32,
+            device=self.device,
+        )
+        self.retargeted_left_object_contact_positions_e = torch.tensor(
+            self._retargeted_motion_data.mano_left_object_contact_positions,
+            dtype=torch.float32,
+            device=self.device,
+        )
+        self.retargeted_right_object_contact_positions_e = torch.tensor(
+            self._retargeted_motion_data.mano_right_object_contact_positions,
+            dtype=torch.float32,
+            device=self.device,
         )
 
+        # Pre-compute contact positions in object frame
+        self.retargeted_left_object_contact_positions_o = torch.zeros_like(
+            self.retargeted_left_link_contact_positions_e[..., :3]
+        )
+        self.retargeted_left_object_contact_is_valid = (
+            self.retargeted_left_link_contact_positions_e[..., 3] > 1e-5
+        )
+        for link_idx in range(self.retargeted_left_object_contact_positions_e.shape[1]):
+            self.retargeted_left_object_contact_positions_o[:, link_idx], _ = (
+                math_utils.subtract_frame_transforms(
+                    self.retargeted_object_body_position[
+                        :, self.object_body_ids
+                    ].squeeze(),
+                    self.retargeted_object_body_wxyz[:, self.object_body_ids].squeeze(),
+                    self.retargeted_left_object_contact_positions_e[:, link_idx, :3],
+                    q02=None,
+                )
+            )
+        self.retargeted_left_object_contact_positions_o[
+            ~self.retargeted_left_object_contact_is_valid
+        ] = 0.0
+
+        self.retargeted_right_object_contact_positions_o = torch.zeros_like(
+            self.retargeted_right_link_contact_positions_e[..., :3]
+        )
+        self.retargeted_right_object_contact_is_valid = (
+            self.retargeted_right_link_contact_positions_e[..., 3] > 1e-5
+        )
+        for link_idx in range(
+            self.retargeted_right_object_contact_positions_e.shape[1]
+        ):
+            self.retargeted_right_object_contact_positions_o[:, link_idx], _ = (
+                math_utils.subtract_frame_transforms(
+                    self.retargeted_object_body_position[
+                        :, self.object_body_ids
+                    ].squeeze(),
+                    self.retargeted_object_body_wxyz[:, self.object_body_ids].squeeze(),
+                    self.retargeted_right_object_contact_positions_e[:, link_idx, :3],
+                    q02=None,
+                )
+            )
+        self.retargeted_right_object_contact_positions_o[
+            ~self.retargeted_right_object_contact_is_valid
+        ] = 0.0
+
+        # If debug vis is on, create contact markers
+        self._set_contact_vis_impl(getattr(self.cfg, "debug_vis", False))
+
+        # Virtual object controller scale factor for curriculum
+        self.virtual_object_controller_scale_factor = torch.tensor(
+            [cfg.initial_virtual_object_control_curriculum_scale], device=self.device
+        )  # (1,)
+        self.virtual_object_controller_scale_factor_per_env = (
+            cfg.initial_virtual_object_control_curriculum_scale
+            * torch.ones(self.num_envs, 1, device=self.device)  # (num_envs, 1)
+        )
+
+        # Unit vectors
         self.X_UNIT_VEC = torch.tensor([1.0, 0.0, 0.0], device=self.device).repeat(
             (self.num_envs, 1)
         )
@@ -553,12 +574,10 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         self.Z_UNIT_VEC = torch.tensor([0.0, 0.0, 1.0], device=self.device).repeat(
             (self.num_envs, 1)
         )
-        # Precompute unit vectors and quaternions for reward computation
+        # Precompute unit vectors for reward computation
         self.QUAT_UNIT_VEC = torch.tensor(
             [1.0, 0.0, 0.0, 0.0], device=self.device
-        ).repeat(
-            (self.num_envs, 6, 1)
-        )  # (num_envs, 6, 4)
+        ).repeat((self.num_envs, 1))
         self.KEYPOINT_VECS = (
             torch.tensor(
                 [
@@ -721,6 +740,50 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         )
         return retargeted_object_wxyz.reshape(self.num_envs, -1).float()
 
+    @property
+    def right_hand_object_contact_command_positions_o(self) -> torch.Tensor:
+        """The target contact positions in the object frame for the right hand. Shape is (num_envs, NUM_RIGHT_HAND_OBJECT_CONTACT_POINTS, 3)."""
+        return self.retargeted_right_object_contact_positions_o[self.timestep_counter]
+
+    @property
+    def right_hand_object_contact_command_positions_e(self) -> torch.Tensor:
+        """The target contact positions in the environment frame for the right hand. Shape is (num_envs, NUM_RIGHT_HAND_OBJECT_CONTACT_POINTS, 3)."""
+        valid_contact_mask = self.retargeted_right_object_contact_is_valid[
+            self.timestep_counter
+        ]  # (num_envs, NUM_RIGHT_HAND_OBJECT_CONTACT_POINTS)
+        right_hand_object_contact_command_positions_e, _ = (
+            math_utils.combine_frame_transforms(
+                self.object_position_e.expand(-1, self.num_contacts_right, -1),
+                self.object_orientation_e.expand(-1, self.num_contacts_right, -1),
+                self.right_hand_object_contact_command_positions_o,
+                q12=None,
+            )
+        )
+        right_hand_object_contact_command_positions_e[~valid_contact_mask] = 0.0
+        return right_hand_object_contact_command_positions_e
+
+    @property
+    def left_hand_object_contact_command_positions_o(self) -> torch.Tensor:
+        """The target contact positions in the object frame for the left hand. Shape is (num_envs, NUM_LEFT_HAND_OBJECT_CONTACT_POINTS, 3)."""
+        return self.retargeted_left_object_contact_positions_o[self.timestep_counter]
+
+    @property
+    def left_hand_object_contact_command_positions_e(self) -> torch.Tensor:
+        """The target contact positions in the environment frame for the left hand. Shape is (num_envs, NUM_LEFT_HAND_OBJECT_CONTACT_POINTS, 3)."""
+        valid_contact_mask = self.retargeted_left_object_contact_is_valid[
+            self.timestep_counter
+        ]  # (num_envs, NUM_LEFT_HAND_OBJECT_CONTACT_POINTS)
+        left_hand_object_contact_command_positions_e, _ = (
+            math_utils.combine_frame_transforms(
+                self.object_position_e.expand(-1, self.num_contacts_left, -1),
+                self.object_orientation_e.expand(-1, self.num_contacts_left, -1),
+                self.left_hand_object_contact_command_positions_o,
+                q12=None,
+            )
+        )
+        left_hand_object_contact_command_positions_e[~valid_contact_mask] = 0.0
+        return left_hand_object_contact_command_positions_e
+
     ##########################################################
     # Observations
     ##########################################################
@@ -851,6 +914,52 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         """The current orientation in the environment frame for the object. Shape is (num_envs, NUM_BODY, 4)."""
         return self.object.data.body_link_quat_w[:, self.object_body_ids].float()
 
+    @property
+    def right_hand_object_contact_positions_w(self) -> torch.Tensor:
+        """The current contact positions in the world frame for the right hand. Shape is (num_envs, NUM_RIGHT_HAND_OBJECT_CONTACT_POINTS, 3)."""
+        contact_positions = self.right_object_contact_sensor.data.contact_pos_w
+        contact_positions = torch.nan_to_num(
+            contact_positions.view(self.num_envs, -1, 3), nan=0.0
+        )
+        return contact_positions
+
+    @property
+    def right_hand_object_contact_positions_e(self) -> torch.Tensor:
+        """The current contact positions in the environment frame for the right hand. Shape is (num_envs, NUM_RIGHT_HAND_OBJECT_CONTACT_POINTS, 3)."""
+        _right_hand_object_contact_positions_w = (
+            self.right_hand_object_contact_positions_w
+        )
+        num_links = _right_hand_object_contact_positions_w.shape[1]
+        return (
+            _right_hand_object_contact_positions_w
+            - self._env.scene.env_origins.reshape(self.num_envs, 1, 3).expand(
+                -1, num_links, -1
+            )
+        )
+
+    @property
+    def left_hand_object_contact_positions_w(self) -> torch.Tensor:
+        """The current contact positions in the environment frame for the left hand. Shape is (num_envs, NUM_LEFT_HAND_OBJECT_CONTACT_POINTS, 3)."""
+        contact_positions = self.left_object_contact_sensor.data.contact_pos_w
+        contact_positions = torch.nan_to_num(
+            contact_positions.view(self.num_envs, -1, 3), nan=0.0
+        )
+        return contact_positions
+
+    @property
+    def left_hand_object_contact_positions_e(self) -> torch.Tensor:
+        """The current contact positions in the environment frame for the left hand. Shape is (num_envs, NUM_LEFT_HAND_OBJECT_CONTACT_POINTS, 3)."""
+        _left_hand_object_contact_positions_w = (
+            self.left_hand_object_contact_positions_w
+        )
+        num_links = _left_hand_object_contact_positions_w.shape[1]
+        return (
+            _left_hand_object_contact_positions_w
+            - self._env.scene.env_origins.reshape(self.num_envs, 1, 3).expand(
+                -1, num_links, -1
+            )
+        )
+
     """
     Implementation specific functions.
     """
@@ -897,92 +1006,59 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         # Resample the command
         ##########################################################
 
-        if self.reset_to_initial:
-            self.timestep_counter[env_ids] *= 0
-            # Get object position and orientation from the retargeted motion data
-            object_position_e = (
-                self.retargeted_object_body_position[self.timestep_counter[env_ids]][
-                    :, self.object_body_ids
-                ]
-                .squeeze(1)
-                .clone()
-            )
-            object_wxyz = (
-                self.retargeted_object_body_wxyz[self.timestep_counter[env_ids]][
-                    :, self.object_body_ids
-                ]
-                .squeeze(1)
-                .clone()
-            )
-            # Get robot wrist position and orientation from the retargeted motion data
-            right_hand_wrist_position = self.retargeted_right_wrist_position[
-                self.timestep_counter[env_ids]
-            ].clone()
-            right_hand_wrist_wxyz = self.retargeted_right_wrist_wxyz[
-                self.timestep_counter[env_ids]
-            ].clone()
-            left_hand_wrist_position = self.retargeted_left_wrist_position[
-                self.timestep_counter[env_ids]
-            ].clone()
-            left_hand_wrist_wxyz = self.retargeted_left_wrist_wxyz[
-                self.timestep_counter[env_ids]
-            ].clone()
-            # Get robot finger joint positions from the retargeted motion data
-            right_hand_finger_joint_pos = self.retargeted_right_finger_joints[
-                self.timestep_counter[env_ids]
-            ].clone()
-            left_hand_finger_joint_pos = self.retargeted_left_finger_joints[
-                self.timestep_counter[env_ids]
-            ].clone()
+        # Reset to a random frame from the original retargeted motion data
+        self.timestep_counter[env_ids] = torch.randint(
+            low=0,
+            high=self.retargeted_horizon - 1,
+            size=(len(env_ids),),
+            device=self.device,
+            dtype=self.timestep_counter.dtype,
+        )
 
-        else:
-            self.timestep_counter[env_ids] = torch.randint(
-                low=0,
-                high=self.retargeted_horizon - 1,
-                size=(len(env_ids),),
-                device=self.device,
-                dtype=self.timestep_counter.dtype,
-            )
-            timestep = (
-                len(self.reset_object_position)
-                * self.timestep_counter[env_ids]
-                / self.retargeted_horizon
-            ).to(torch.int)
-            reset_state_idx = torch.randint(
-                low=0,
-                high=len(self.reset_object_position[0]) - 1,
-                size=(len(env_ids),),
-                device=self.device,
-                dtype=self.timestep_counter.dtype,
-            )
+        # Get object position and orientation from the retargeted motion data
+        object_position_e = self.retargeted_object_body_position[
+            self.timestep_counter[env_ids]
+        ][:, self.object_body_ids].squeeze(1)
+        object_wxyz = self.retargeted_object_body_wxyz[self.timestep_counter[env_ids]][
+            :, self.object_body_ids
+        ].squeeze(1)
 
-            # Get object position and orientation from the reset state
-            object_position_e = self.reset_object_position[
-                timestep, reset_state_idx
-            ].clone()
-            object_wxyz = self.reset_object_wxyz[timestep, reset_state_idx].clone()
+        # Get robot wrist position and orientation from the retargeted motion data
+        right_hand_wrist_position = self.retargeted_right_wrist_position[
+            self.timestep_counter[env_ids]
+        ]
+        right_hand_wrist_wxyz = self.retargeted_right_wrist_wxyz[
+            self.timestep_counter[env_ids]
+        ]
+        left_hand_wrist_position = self.retargeted_left_wrist_position[
+            self.timestep_counter[env_ids]
+        ]
+        left_hand_wrist_wxyz = self.retargeted_left_wrist_wxyz[
+            self.timestep_counter[env_ids]
+        ]
 
-            # Get robot wrist position and orientation from the reset state
-            right_hand_wrist_position = self.reset_right_hand_wrist_position[
-                timestep, reset_state_idx
-            ].clone()
-            right_hand_wrist_wxyz = self.reset_right_hand_wrist_wxyz[
-                timestep, reset_state_idx
-            ].clone()
-            left_hand_wrist_position = self.reset_left_hand_wrist_position[
-                timestep, reset_state_idx
-            ].clone()
-            left_hand_wrist_wxyz = self.reset_left_hand_wrist_wxyz[
-                timestep, reset_state_idx
-            ].clone()
+        # Finger joints: interpolate between open (0) and reference
+        finger_factor = (
+            torch.rand(len(env_ids), 1, device=self.device)
+            * self.cfg.reset_finger_openness
+        )
+        right_hand_finger_joint_pos = (
+            finger_factor
+            * self.retargeted_right_finger_joints[self.timestep_counter[env_ids]]
+        )
+        left_hand_finger_joint_pos = (
+            finger_factor
+            * self.retargeted_left_finger_joints[self.timestep_counter[env_ids]]
+        )
 
-            # Get robot finger joint positions from the reset state
-            right_hand_finger_joint_pos = self.reset_right_hand_finger_joint_pos[
-                timestep, reset_state_idx
-            ].clone()
-            left_hand_finger_joint_pos = self.reset_left_hand_finger_joint_pos[
-                timestep, reset_state_idx
-            ].clone()
+        # Update the tracking length
+        self.tracking_lengths[env_ids] = (
+            self.retargeted_horizon - self.timestep_counter[env_ids]
+        ).clamp(min=1)
+
+        # Reset virtual object control curriculum scale factor
+        self.virtual_object_controller_scale_factor_per_env[env_ids] = 1.0
+        self.steps_since_last_reset[env_ids] = 0
 
         ##########################################################
         # Reset the object joints
@@ -1059,6 +1135,37 @@ class DualHandsObjectTrackingCommand(CommandTerm):
     def _update_command(self) -> None:
         """Update the command."""
         self.timestep_counter += 1
+        self.steps_since_last_reset += 1
+
+        # Decay virtual object control scale factor toward curriculum scale
+        if self.cfg.virtual_object_control_decay_mode == "linear":
+            progress = self.steps_since_last_reset.float() / max(
+                self.cfg.virtual_object_control_decay_steps, 1
+            )
+            self.virtual_object_controller_scale_factor_per_env[:] = (
+                (
+                    1.0
+                    + (self.virtual_object_controller_scale_factor - 1.0)
+                    * progress.clamp(max=1.0)
+                )
+                .clamp(min=0.0)
+                .view(self.num_envs, 1)
+            )
+        elif self.cfg.virtual_object_control_decay_mode == "step":
+            self.virtual_object_controller_scale_factor_per_env[
+                self.steps_since_last_reset
+                >= self.cfg.virtual_object_control_decay_steps
+            ] = self.virtual_object_controller_scale_factor
+
+    def _get_contact_counts(self) -> None:
+        """Return (num_contacts_left, num_contacts_right) from retargeted contact data."""
+        self.num_contacts_left = self.retargeted_left_object_contact_positions_o.shape[
+            1
+        ]
+        self.num_contacts_right = (
+            self.retargeted_right_object_contact_positions_o.shape[1]
+        )
+        self.total_num_contacts = self.num_contacts_left + self.num_contacts_right
 
     def _set_debug_vis_impl(self, debug_vis: bool) -> None:
         """Set the debug visibility."""
@@ -1104,6 +1211,43 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             self.object_goal_pose_visualizer.set_visibility(False)
             self.right_hand_goal_pose_visualizer.set_visibility(False)
             self.left_hand_goal_pose_visualizer.set_visibility(False)
+            for visualizer in getattr(self, "contact_marker_visualizers", []):
+                visualizer.set_visibility(False)
+            for visualizer in getattr(self, "policy_contact_marker_visualizers", []):
+                visualizer.set_visibility(False)
+
+    def _set_contact_vis_impl(self, debug_vis: bool) -> None:
+        """Set the contact visibility."""
+        if debug_vis:
+            self._get_contact_counts()
+            self.command_contact_marker_visualizers = []
+            self.policy_contact_marker_visualizers = []
+            for i in range(self.total_num_contacts):
+                command_contact_vis_cfg = (
+                    self.cfg.target_contact_visualizer_cfg.replace(
+                        prim_path=f"/Visuals/Command/TargetContact_{i}"
+                    )
+                )
+                command_contact_marker_visualizer = VisualizationMarkers(
+                    command_contact_vis_cfg
+                )
+                command_contact_marker_visualizer.set_visibility(True)
+                self.command_contact_marker_visualizers.append(
+                    command_contact_marker_visualizer
+                )
+
+                policy_contact_vis_cfg = (
+                    self.cfg.current_contact_visualizer_cfg.replace(
+                        prim_path=f"/Visuals/Command/CurrentContact_{i}"
+                    )
+                )
+                policy_contact_marker_visualizer = VisualizationMarkers(
+                    policy_contact_vis_cfg
+                )
+                policy_contact_marker_visualizer.set_visibility(True)
+                self.policy_contact_marker_visualizers.append(
+                    policy_contact_marker_visualizer
+                )
 
     def _debug_vis_callback(self, event: Any) -> None:
         """Visualize the goal marker."""
@@ -1142,3 +1286,47 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             + self._env.scene.env_origins,
             orientations=self.left_hand_wrist_wxyz_command_e,
         )
+
+        # Visualize target contact location on object
+        left_hand_contact_command_positions_e = (
+            self.left_hand_object_contact_command_positions_e
+        )
+        right_hand_contact_command_positions_e = (
+            self.right_hand_object_contact_command_positions_e
+        )
+        for i in range(self.total_num_contacts):
+            # Select left or right hand contacts
+            if i < self.num_contacts_left:
+                # Left contacts
+                contact_command_positions_e = left_hand_contact_command_positions_e[
+                    :, i
+                ]
+            else:
+                # Right contacts
+                contact_command_positions_e = right_hand_contact_command_positions_e[
+                    :, i - self.num_contacts_left
+                ]
+
+            self.command_contact_marker_visualizers[i].visualize(
+                translations=contact_command_positions_e + self._env.scene.env_origins,
+                orientations=self.QUAT_UNIT_VEC,
+            )
+
+        # Visualize current contacts
+        right_hand_contact_positions_w = self.right_hand_object_contact_positions_w
+        for i in range(len(self.right_robot.data.body_names)):
+            if i < right_hand_contact_positions_w.shape[1]:
+                self.policy_contact_marker_visualizers[i].visualize(
+                    translations=right_hand_contact_positions_w[:, i],
+                    orientations=self.QUAT_UNIT_VEC,
+                )
+
+        left_hand_contact_positions_w = self.left_hand_object_contact_positions_w
+        for i in range(len(self.right_robot.data.body_names)):
+            if i < left_hand_contact_positions_w.shape[1]:
+                self.policy_contact_marker_visualizers[
+                    i + self.num_contacts_left
+                ].visualize(
+                    translations=left_hand_contact_positions_w[:, i],
+                    orientations=self.QUAT_UNIT_VEC,
+                )

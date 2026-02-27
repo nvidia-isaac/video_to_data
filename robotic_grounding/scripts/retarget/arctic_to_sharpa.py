@@ -21,6 +21,13 @@ from robotic_grounding.retarget import (
     HUMAN_MOTION_DATA_DIR,
     SHARPA_WAVE_XMLS_DIR,
 )
+from robotic_grounding.retarget.contact_utils import (
+    MANO_HAND_LINKS,
+    NUM_MANO_LINKS,
+    approximate_contact_with_id,
+    find_link_contact_positions,
+    find_object_contact_positions,
+)
 from robotic_grounding.retarget.data_logger import ManoSharpaData
 from robotic_grounding.retarget.distance_utils import compute_tips_distance
 from robotic_grounding.retarget.hand_kinematics import SharpaHandKinematics
@@ -42,6 +49,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--visualize", action="store_true", default=False)
+    parser.add_argument(
+        "--visualize_object_point_clouds", action="store_true", default=False
+    )
     parser.add_argument("--save", action="store_true", default=False)
     parser.add_argument("--mano_to_robot_scale", type=float, default=1.2)
     return parser.parse_args()
@@ -103,6 +113,9 @@ def main(args: argparse.Namespace) -> None:
         flat_hand_mean=False,  # Arctic requires flat hand mean to be False
     )
 
+    start_frame = 40
+    end_frame = -50
+
     #############################################################
     # Optimization loop
     #############################################################
@@ -125,6 +138,7 @@ def main(args: argparse.Namespace) -> None:
         left_fitting_err = torch.tensor(mano_data["left"]["fitting_err"])  # (H,)
 
         H = len(right_global_orient)
+        end_frame = end_frame if end_frame > 0 else H + end_frame
 
         # 1. Prepare logging
         object_name = mano_data_file.name.split("_")[0]
@@ -159,6 +173,7 @@ def main(args: argparse.Namespace) -> None:
                     left_sharpa_kinematics.frame_tasks.keys()
                 ),
                 object_body_names=object_body_names,
+                mano_link_names=list(MANO_HAND_LINKS.keys()),
             )
 
         # 2. Forward pass of the MANO model
@@ -190,6 +205,7 @@ def main(args: argparse.Namespace) -> None:
         object_mesh_meshes: dict[str, Any] = {}
         object_mesh_verts: dict[str, torch.Tensor] = {}
         object_mesh_faces: dict[str, torch.Tensor] = {}
+        object_mesh_points: dict[str, np.ndarray] = {}
         compute_tips_dist = False
         for part in object_body_names:
             mesh_path = ARCTIC_MESH_DIR / object_name / f"{part}_watertight_tiny.obj"
@@ -200,6 +216,9 @@ def main(args: argparse.Namespace) -> None:
                     torch.from_numpy(mesh.vertices).float().to(device)
                 )
                 object_mesh_faces[part] = torch.from_numpy(mesh.faces).long().to(device)
+                object_mesh_points[part] = np.asarray(
+                    trimesh.sample.sample_surface_even(mesh, 2048)[0]
+                )
                 compute_tips_dist = True
             else:
                 print(
@@ -216,7 +235,16 @@ def main(args: argparse.Namespace) -> None:
 
         if args.visualize:
             # Set viser object handles for visualization if enabled
-            viser_object_handles = {}
+            viser_object_handles: dict[str, Any] = {}
+            contact_points_handles: list[Any] = []
+            # Object root frame (bottom body) axes, on by default
+            viser_object_handles["object_frame"] = viser_server.scene.add_frame(
+                name="/object/frame",
+                position=np.array([0, 0, 0]),
+                wxyz=np.array([1, 0, 0, 0]),
+                axes_length=0.2,
+                axes_radius=0.007,
+            )
             for part in object_body_names:
                 viser_object_handles[part] = viser_server.scene.add_mesh_trimesh(
                     name=f"/object/{part}",
@@ -225,11 +253,11 @@ def main(args: argparse.Namespace) -> None:
                     wxyz=np.array([1, 0, 0, 0]),
                 )
 
-        # 4. Solve IK for each frame with wrist initialization
+        # 5. Solve IK for each frame with wrist initialization
         right_qpos = None
         left_qpos = None
 
-        for frame_id in range(40, H - 50):
+        for frame_id in tqdm(range(start_frame, end_frame)):
 
             # Initialize wrist pose to the first frame of the MANO data
             if right_qpos is None:
@@ -324,11 +352,118 @@ def main(args: argparse.Namespace) -> None:
                 )
                 left_sharpa_kinematics.visualize(viser_server, left_qpos)
 
-                # Visualize object parts
+                # Visualize object parts and object frame axes (bottom = root)
+                viser_object_handles["object_frame"].position = world_p_bottom
+                viser_object_handles["object_frame"].wxyz = world_q_bottom
                 viser_object_handles["bottom"].position = world_p_bottom
                 viser_object_handles["bottom"].wxyz = world_q_bottom
                 viser_object_handles["top"].position = world_p_top
                 viser_object_handles["top"].wxyz = world_q_top
+
+            # Contact links (MANO link-level contact with object parts, dexmachina format)
+            bottom_world_np = (
+                object_mesh_points["bottom"] @ world_t_bottom[:3, :3].T
+            ) + world_t_bottom[:3, 3]
+            top_world_np = (
+                object_mesh_points["top"] @ world_t_top[:3, :3].T
+            ) + world_t_top[:3, 3]
+
+            if args.visualize:
+                for contact_handle in contact_points_handles:
+                    contact_handle.remove()
+                contact_points_handles.clear()
+
+                if args.visualize_object_point_clouds:
+                    viser_server.scene.add_point_cloud(
+                        name="/object/bottom_points",
+                        points=bottom_world_np,
+                        colors=np.array([128, 128, 128])
+                        .repeat(bottom_world_np.shape[0], axis=0)
+                        .reshape(-1, 3),
+                        point_size=0.001,
+                    )
+                    viser_server.scene.add_point_cloud(
+                        name="/object/top_points",
+                        points=top_world_np,
+                        colors=np.array([128, 128, 128])
+                        .repeat(top_world_np.shape[0], axis=0)
+                        .reshape(-1, 3),
+                        point_size=0.001,
+                    )
+
+            obj_verts_world = np.vstack([bottom_world_np, top_world_np])
+            obj_part_ids = np.concatenate(
+                [
+                    np.full(bottom_world_np.shape[0], 2),
+                    np.full(top_world_np.shape[0], 1),
+                ]
+            )  # bottom=2, top=1 (dexmachina convention)
+
+            for side in ["right", "left"]:
+                mano_res = right_mano_results if side == "right" else left_mano_results
+                hand_verts = mano_res["vertices"][frame_id].cpu().numpy()
+                joints = mano_res["joints"][frame_id].cpu().numpy()
+                _, contacts_on_hand = approximate_contact_with_id(
+                    obj_verts_world,
+                    obj_part_ids,
+                    hand_verts,
+                    threshold=0.01,
+                )
+
+                link_contact_positions = np.zeros((NUM_MANO_LINKS, 4))
+                object_contact_positions = np.zeros((NUM_MANO_LINKS, 4))
+
+                if contacts_on_hand.shape[0] > 0:
+                    link_contact_positions = find_link_contact_positions(
+                        contacts_on_hand, joints
+                    )
+                    object_contact_positions = find_object_contact_positions(
+                        link_contact_positions, obj_verts_world, obj_part_ids
+                    )
+
+                    if args.visualize:
+                        for contact_position, (link_name, _) in zip(
+                            link_contact_positions,
+                            MANO_HAND_LINKS.items(),
+                            strict=False,
+                        ):
+                            if contact_position.sum() > 0.0:
+                                contact_handle = viser_server.scene.add_icosphere(
+                                    name=f"/mano/{side}_contact_points/{link_name}",
+                                    radius=0.005,
+                                    color=np.array([255, 0, 0]),
+                                    position=contact_position[:3],
+                                )
+                                contact_points_handles.append(contact_handle)
+
+                if side == "right":
+                    mano_right_link_contact_positions = link_contact_positions
+                    mano_right_object_contact_positions = object_contact_positions
+                else:
+                    mano_left_link_contact_positions = link_contact_positions
+                    mano_left_object_contact_positions = object_contact_positions
+
+            # Visualize object contact positions (on-object contact points, in world frame)
+            if args.visualize:
+                link_names = list(MANO_HAND_LINKS.keys())
+                for arr, side_name, color in [
+                    (
+                        mano_right_object_contact_positions,
+                        "right",
+                        np.array([0, 255, 0]),
+                    ),
+                    (mano_left_object_contact_positions, "left", np.array([0, 0, 255])),
+                ]:
+                    for i in range(arr.shape[0]):
+                        if arr[i, :3].sum() != 0.0:
+                            link_name = link_names[i] if i < len(link_names) else str(i)
+                            contact_handle = viser_server.scene.add_icosphere(
+                                name=f"/object/contact_points/{side_name}/{link_name}",
+                                radius=0.005,
+                                color=color,
+                                position=arr[i, :3],
+                            )
+                            contact_points_handles.append(contact_handle)
 
             # Compute tips_distance (ManipTrans approach)
             # Distance from MANO fingertips to object surface, accounting for articulation
@@ -406,6 +541,8 @@ def main(args: argparse.Namespace) -> None:
                     .tolist(),
                     mano_right_fitting_err=right_fitting_err[frame_id].cpu().item(),
                     mano_right_tips_distance=right_tips_dist,
+                    mano_right_link_contact_positions=mano_right_link_contact_positions.tolist(),
+                    mano_right_object_contact_positions=mano_right_object_contact_positions.tolist(),
                     # MANO left hand
                     mano_left_trans=left_trans[frame_id].cpu().tolist(),
                     mano_left_global_orient=left_global_orient[frame_id].cpu().tolist(),
@@ -418,6 +555,8 @@ def main(args: argparse.Namespace) -> None:
                     .tolist(),
                     mano_left_fitting_err=left_fitting_err[frame_id].cpu().item(),
                     mano_left_tips_distance=left_tips_dist,
+                    mano_left_link_contact_positions=mano_left_link_contact_positions.tolist(),
+                    mano_left_object_contact_positions=mano_left_object_contact_positions.tolist(),
                     # Object
                     object_articulation=object_articulation[frame_id].tolist(),
                     object_root_axis_angle=object_axis_angle[frame_id].tolist(),

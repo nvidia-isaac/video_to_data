@@ -127,9 +127,9 @@ class VirtualRigidObjectControl(ActionTerm):
         self._raw_actions[env_ids] = 0.0
         self._processed_actions[env_ids] = 0.0
 
-    def apply_force_torque_control(self) -> None:
+    def apply_actions(self) -> None:
         """Apply virtual force torque to the rigid object using a Position PD Controller."""
-        # 1. Extract current position
+        # 1. Extract current object state
         object_position_e = self.command.object_position_e.squeeze()  # world_p_object
         object_wxyz = self.command.object_orientation_e.squeeze()  # world_q_object
         object_linvel_b = self.object.data.root_link_lin_vel_b
@@ -148,11 +148,12 @@ class VirtualRigidObjectControl(ActionTerm):
         )
 
         # 3. PD for torque control
-        object_orientation_error_e = math_utils.quat_box_minus(
-            self.command.object_body_wxyz_command_e, object_wxyz
+        object_orientation_error_b = math_utils.quat_mul(
+            math_utils.quat_inv(object_wxyz),
+            self.command.object_body_wxyz_command_e,
         )
-        object_orientation_error_b = math_utils.quat_apply_inverse(
-            object_wxyz, object_orientation_error_e
+        object_orientation_error_b = math_utils.axis_angle_from_quat(
+            object_orientation_error_b
         )
         torque = (
             self._tracking_controller_angular_stiffness * object_orientation_error_b
@@ -164,51 +165,26 @@ class VirtualRigidObjectControl(ActionTerm):
             -9.81 * self.object_mass * self.object.data.projected_gravity_b
         )
         force = force + gravity_compensation_force
-        force = torch.clamp(force, min=-self.cfg.max_force, max=self.cfg.max_force)
 
         gravity_compensation_torque = torch.cross(
             self.object_com[..., :3], gravity_compensation_force, dim=-1
         )
         torque = torque + gravity_compensation_torque
+
+        # 5. Scale based on curriculum
+        force = force * self.command.virtual_object_controller_scale_factor_per_env
+        torque = torque * self.command.virtual_object_controller_scale_factor_per_env
+
+        # 6. Clip
+        force = torch.clamp(force, min=-self.cfg.max_force, max=self.cfg.max_force)
         torque = torch.clamp(torque, min=-self.cfg.max_torque, max=self.cfg.max_torque)
 
-        self._raw_actions[..., :3] = force.clone()
-        self._raw_actions[..., 3:] = torque.clone()
-        self._processed_actions = self._raw_actions.clone()
+        self._raw_actions[..., :3] = force
+        self._raw_actions[..., 3:] = torque
+        self._processed_actions = self._raw_actions
 
         self.object.set_external_force_and_torque(
             forces=force.reshape(self.num_envs, self.num_bodies, 3),
             torques=torque.reshape(self.num_envs, self.num_bodies, 3),
             is_global=False,
         )
-
-    def apply_gravity_compensation(self) -> None:
-        """Apply gravity compensation to the rigid object."""
-        gravity_compensation_force = (
-            -9.81 * self.object_mass * self.object.data.projected_gravity_b
-        )
-        force = torch.clamp(
-            gravity_compensation_force, min=-self.cfg.max_force, max=self.cfg.max_force
-        )
-
-        torque = torch.zeros_like(force)
-
-        self._raw_actions[..., :3] = force.clone()
-        self._raw_actions[..., 3:] = torque.clone()
-        self._processed_actions = self._raw_actions.clone()
-
-        self.object.set_external_force_and_torque(
-            forces=force.reshape(self.num_envs, self.num_bodies, 3),
-            torques=torque.reshape(self.num_envs, self.num_bodies, 3),
-            is_global=False,
-        )
-
-    def apply_actions(self) -> None:
-        """Apply virtual force torque to the rigid object using a Position PD Controller."""
-        if (
-            self._tracking_controller_linear_stiffness > 0.0
-            or self._tracking_controller_angular_stiffness > 0.0
-        ):
-            self.apply_force_torque_control()
-        else:
-            self.apply_gravity_compensation()

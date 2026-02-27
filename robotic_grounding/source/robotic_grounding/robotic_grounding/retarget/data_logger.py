@@ -34,6 +34,7 @@ MANO_FIELDS: list[FieldSpec] = [
     ("mano_to_robot_scale", pa.float32(), float, False),
     ("mano_right_betas", pa.list_(pa.float32()), list[float], False),
     ("mano_left_betas", pa.list_(pa.float32()), list[float], False),
+    ("mano_link_names", pa.list_(pa.string()), list[str], False),
     # Time series
     ("mano_right_trans", pa.list_(pa.list_(pa.float32(), 3)), list[list[float]], True),
     (
@@ -67,6 +68,19 @@ MANO_FIELDS: list[FieldSpec] = [
         list[list[float]],
         True,
     ),
+    (
+        "mano_right_link_contact_positions",
+        pa.list_(pa.list_(pa.list_(pa.float32(), 4), 16)),
+        list[list[list[float]]],
+        True,
+    ),
+    (
+        "mano_right_object_contact_positions",
+        pa.list_(pa.list_(pa.list_(pa.float32(), 4), 16)),
+        list[list[list[float]]],
+        True,
+    ),
+    # MANO left hand (time series)
     ("mano_left_trans", pa.list_(pa.list_(pa.float32(), 3)), list[list[float]], True),
     (
         "mano_left_global_orient",
@@ -97,6 +111,18 @@ MANO_FIELDS: list[FieldSpec] = [
         "mano_left_tips_distance",
         pa.list_(pa.list_(pa.float32(), 5)),
         list[list[float]],
+        True,
+    ),
+    (
+        "mano_left_link_contact_positions",
+        pa.list_(pa.list_(pa.list_(pa.float32(), 4), 16)),
+        list[list[list[float]]],
+        True,
+    ),
+    (
+        "mano_left_object_contact_positions",
+        pa.list_(pa.list_(pa.list_(pa.float32(), 4), 16)),
+        list[list[list[float]]],
         True,
     ),
 ]

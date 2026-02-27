@@ -102,6 +102,10 @@ class JointResidualWithTrackingAction(ActionTerm):
             self.action_dim + 1,
             device=self.device,  # Store wrist orientation as a quaternion
         )
+        self._processed_actions[..., 3] = 1.0  # Make quaternion correct
+        self.prev_actions = torch.zeros(
+            self.num_envs, self.action_dim, device=self.device
+        )
 
         self.wrist_forces = torch.zeros(self.num_envs, 3, device=self.device)
         self.wrist_torques = torch.zeros(self.num_envs, 3, device=self.device)
@@ -115,6 +119,9 @@ class JointResidualWithTrackingAction(ActionTerm):
         scale_tensor[:, 3:6] = cfg.wrist_orientation_scale
         scale_tensor[:, 6:] = cfg.finger_joint_scale
         self._scale: torch.Tensor = scale_tensor
+
+        # Parse EMA decay factor
+        self.ema_factor = float(cfg.ema_factor)
 
         # Set stiffness and damping for the tracking controller
         self._tracking_controller_linear_stiffness = float(
@@ -206,33 +213,39 @@ class JointResidualWithTrackingAction(ActionTerm):
         # 1. Store the raw actions from the policy
         self._raw_actions[:] = actions
 
-        # 2. Compute tracking target for wrist position
-        wrist_position_residual = actions[:, :3] * self._scale[:, :3]
+        # 2. Scale, filter and clip the actions
+        actions = (
+            self.ema_factor * self.prev_actions
+            + (1 - self.ema_factor) * actions * self._scale
+        )
+        actions = torch.clamp(actions, min=-self._scale, max=self._scale)
+        self.prev_actions[:] = actions
+
+        # 3. Compute tracking target for wrist position
         self._processed_actions[:, :3] = (
-            self._wrist_position_command_e() + wrist_position_residual
+            self._wrist_position_command_e() + actions[:, :3]
         )
 
-        # 3. Compute tracking target for wrist orientation
-        wrist_orientation_residual = actions[:, 3:6] * self._scale[:, 3:6]
+        # 4. Compute tracking target for wrist orientation
         wrist_orientation_residual = math_utils.quat_from_euler_xyz(
-            wrist_orientation_residual[:, 0],
-            wrist_orientation_residual[:, 1],
-            wrist_orientation_residual[:, 2],
+            actions[:, 3],
+            actions[:, 4],
+            actions[:, 5],
         )
         self._processed_actions[:, 3:7] = math_utils.quat_mul(
             self._wrist_wxyz_command_e(),
             wrist_orientation_residual,
         )
 
-        # 4. Compute tracking target for finger joints
-        finger_residual = actions[:, 6:] * self._scale[:, 6:]
+        # 5. Compute tracking target for finger joints
         self._processed_actions[:, 7:] = (
-            self._finger_joint_pos_command() + finger_residual
+            self._finger_joint_pos_command() + actions[:, 6:]
         )
 
     def reset(self, env_ids: Sequence[int] | None = None) -> None:
         """Reset the action term."""
         self._raw_actions[env_ids] = 0.0
+        self.prev_actions[env_ids] = 0.0
         self.wrist_forces[env_ids] = 0.0
         self.wrist_torques[env_ids] = 0.0
         self.finger_joint_pos[env_ids] = 0.0
@@ -242,6 +255,8 @@ class JointResidualWithTrackingAction(ActionTerm):
         # 1. Extract current wrist position and orientation
         wrist_position = self._wrist_position_e()
         wrist_wxyz = self._wrist_wxyz_e()
+        wrist_linvel_b = self.robot.data.root_link_lin_vel_b
+        wrist_angvel_b = self.robot.data.root_link_ang_vel_b
 
         # 2. PD for wrist force control
         wrist_position_error_e = self.processed_actions[:, :3] - wrist_position
@@ -250,21 +265,20 @@ class JointResidualWithTrackingAction(ActionTerm):
         )
         force = (
             self.cfg.tracking_controller_linear_stiffness * wrist_position_error_b
-            - self.cfg.tracking_controller_linear_damping
-            * self.robot.data.root_link_lin_vel_b
+            - self.cfg.tracking_controller_linear_damping * wrist_linvel_b
         )
 
         # 3. PD for wrist torque control
-        wrist_orientation_error_e = math_utils.quat_box_minus(
-            self.processed_actions[:, 3:7], wrist_wxyz
+        wrist_orientation_error_b = math_utils.quat_mul(
+            math_utils.quat_inv(wrist_wxyz),
+            self.processed_actions[:, 3:7],  # w_t_current.inv() * w_t_target
         )
-        wrist_orientation_error_b = math_utils.quat_apply_inverse(
-            wrist_wxyz, wrist_orientation_error_e
+        wrist_orientation_error_b = math_utils.axis_angle_from_quat(
+            wrist_orientation_error_b
         )
         torque = (
             self.cfg.tracking_controller_angular_stiffness * wrist_orientation_error_b
-            - self.cfg.tracking_controller_angular_damping
-            * self.robot.data.root_link_ang_vel_b
+            - self.cfg.tracking_controller_angular_damping * wrist_angvel_b
         )
 
         # 4. Gravity compensation

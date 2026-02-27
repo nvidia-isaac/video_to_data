@@ -283,3 +283,30 @@ R_PALM_CORRECTION_RIGHT = [
     [-1, 0, 0],
     [0, -1, 0],
 ]
+
+#############################################################
+# MANO hand link definitions
+#############################################################
+
+# MANO hand link definitions: (link_name, list of joint indices).
+# Used to assign contact points to the closest link via joint distances.
+MANO_HAND_LINKS = {
+    "link_palm": [0, 1, 5, 9, 13, 17],
+    "link_thumb1": [1, 2],
+    "link_thumb2": [2, 3],
+    "link_thumb3": [3, 4],
+    "link_index1": [5, 6],
+    "link_index2": [6, 7],
+    "link_index3": [7, 8],
+    "link_middle1": [9, 10],
+    "link_middle2": [10, 11],
+    "link_middle3": [11, 12],
+    "link_ring1": [13, 14],
+    "link_ring2": [14, 15],
+    "link_ring3": [15, 16],
+    "link_pinky1": [17, 18],
+    "link_pinky2": [18, 19],
+    "link_pinky3": [19, 20],
+}
+
+NUM_MANO_LINKS = len(MANO_HAND_LINKS)

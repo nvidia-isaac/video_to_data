@@ -9,6 +9,7 @@ from robotic_grounding.tasks.v2p.mdp.observations import (
     finger_contact_force_vectors,
     finger_contact_forces,
 )
+from robotic_grounding.tasks.v2p.mdp.utils import chamfer_distance
 
 
 def contact_force_penalty(
@@ -200,13 +201,13 @@ def object_keypoints_tracking_exp(
         object_position.repeat(1, 6, 1),
         object_wxyz.repeat(1, 6, 1),
         command.KEYPOINT_VECS,
-        command.QUAT_UNIT_VEC,
+        q12=None,
     )  # (num_envs, 6, 3)
     object_command_keypoints, _ = math_utils.combine_frame_transforms(
         command.object_body_position_command_e.unsqueeze(1).repeat(1, 6, 1),
         command.object_body_wxyz_command_e.unsqueeze(1).repeat(1, 6, 1),
         command.KEYPOINT_VECS,
-        command.QUAT_UNIT_VEC,
+        q12=None,
     )  # (num_envs, 6, 3)
 
     # Compute keypoints error
@@ -317,6 +318,79 @@ def hand_joint_pos_tracking_exp(
     return torch.exp(-left_hand_joint_pos_error / var) + torch.exp(
         -right_hand_joint_pos_error / var
     )
+
+
+def contact_tracking_reward(
+    env: ManagerBasedRLEnv,
+    command_name: str = "dual_hands_object_tracking_command",
+    contact_beta: float = 30.0,
+    mask_zero_contact: bool = True,
+) -> torch.Tensor:
+    """Chamfer-style contact reward: match policy contact points to demo contact.
+
+    Demo contact comes from command (contact_links_left/right_command_e); policy contact
+    from env contact sensors (per-link, per-object-part).
+
+    Args:
+        env: The RL environment.
+        command_name: Command term that provides demo contact and object pose.
+        contact_beta: Scale for exp(-contact_beta * chamfer_dist).
+        mask_zero_contact: If True, reward is 0 when both demo and policy have no contact.
+
+    Returns:
+        Reward tensor (num_envs,).
+    """
+    command = env.command_manager.get_term(command_name)
+
+    right_hand_object_contact_positions_e = (
+        command.right_hand_object_contact_positions_e
+    )
+    right_hand_object_contact_positions_is_valid = (
+        command.right_hand_object_contact_positions_w.sum(dim=-1) > 1e-5
+    )
+    left_hand_object_contact_positions_e = command.left_hand_object_contact_positions_e
+    left_hand_object_contact_positions_is_valid = (
+        command.left_hand_object_contact_positions_w.sum(dim=-1) > 1e-5
+    )
+
+    right_hand_object_contact_command_positions_e = (
+        command.right_hand_object_contact_command_positions_e
+    )
+    right_hand_object_contact_command_positions_is_valid = (
+        command.retargeted_right_object_contact_is_valid[command.timestep_counter]
+    )
+    left_hand_object_contact_command_positions_e = (
+        command.left_hand_object_contact_command_positions_e
+    )
+    left_hand_object_contact_command_positions_is_valid = (
+        command.retargeted_left_object_contact_is_valid[command.timestep_counter]
+    )
+
+    right_hand_object_contact_dist = chamfer_distance(
+        right_hand_object_contact_positions_e,
+        right_hand_object_contact_command_positions_e,
+        right_hand_object_contact_positions_is_valid,
+        right_hand_object_contact_command_positions_is_valid,
+    )
+    left_hand_object_contact_dist = chamfer_distance(
+        left_hand_object_contact_positions_e,
+        left_hand_object_contact_command_positions_e,
+        left_hand_object_contact_positions_is_valid,
+        left_hand_object_contact_command_positions_is_valid,
+    )
+
+    right_hand_object_contact_rew = torch.exp(
+        -contact_beta * right_hand_object_contact_dist
+    )
+    left_hand_object_contact_rew = torch.exp(
+        -contact_beta * left_hand_object_contact_dist
+    )
+
+    if mask_zero_contact:
+        right_hand_object_contact_rew[right_hand_object_contact_dist < 1e-5] = 0.0
+        left_hand_object_contact_rew[left_hand_object_contact_dist < 1e-5] = 0.0
+
+    return right_hand_object_contact_rew + left_hand_object_contact_rew
 
 
 def termination_penalty(

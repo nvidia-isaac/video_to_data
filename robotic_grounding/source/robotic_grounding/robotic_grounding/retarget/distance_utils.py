@@ -12,6 +12,8 @@ This module implements the ManipTrans approach for pre-computing reference dista
 from MANO fingertips to object mesh surfaces during data processing.
 """
 
+import logging
+
 import torch
 import trimesh
 
@@ -57,7 +59,11 @@ def _sample_points_from_mesh_trimesh(
 def _sample_points_from_mesh_pytorch3d(
     vertices: torch.Tensor, faces: torch.Tensor, num_samples: int
 ) -> torch.Tensor:
-    """Sample points from mesh surface using PyTorch3D (GPU accelerated).
+    """Sample points from mesh surface using PyTorch3D (GPU when available).
+
+    Tries the input device first (GPU if vertices are on CUDA). If PyTorch3D
+    was not compiled with GPU support, falls back to CPU and moves the result
+    back. For maximum speed, install PyTorch3D with CUDA (see PyTorch3D docs).
 
     Args:
         vertices: Mesh vertices (V, 3).
@@ -65,10 +71,24 @@ def _sample_points_from_mesh_pytorch3d(
         num_samples: Number of points to sample.
 
     Returns:
-        Sampled surface points (num_samples, 3).
+        Sampled surface points (num_samples, 3) on the same device as vertices.
     """
+    device = vertices.device
     mesh = Meshes(verts=[vertices], faces=[faces])
-    return sample_points_from_meshes(mesh, num_samples)[0]
+    try:
+        return sample_points_from_meshes(mesh, num_samples)[0]
+    except RuntimeError as e:
+        err_msg = str(e)
+        if "Not compiled with GPU support" in err_msg or "CUDA" in err_msg:
+            logging.getLogger(__name__).warning(
+                "PyTorch3D GPU path failed (%s). Using CPU for mesh sampling. "
+                "For faster runs, install PyTorch3D with CUDA support.",
+                err_msg[:80],
+            )
+            mesh_cpu = Meshes(verts=[vertices.cpu()], faces=[faces.cpu()])
+            out = sample_points_from_meshes(mesh_cpu, num_samples)[0]
+            return out.to(device)
+        raise
 
 
 def compute_tips_distance(

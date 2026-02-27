@@ -199,13 +199,13 @@ class JointPositionActionChunk(ActionTerm):
                 max=self._clip[:, :, 1],
             )
         # update the previous targets
-        self._prev_targets = self._processed_actions.clone()
+        self._prev_targets[:] = self._processed_actions
 
     def reset(self, env_ids: Sequence[int] | None = None) -> None:
         """Reset the joint position action chunk term."""
         self._prev_targets[env_ids] = self._asset.data.joint_pos[env_ids][
             ..., self._joint_ids
-        ].clone()
+        ]
         self._raw_actions[env_ids] = 0.0
 
     def apply_actions(self) -> None:

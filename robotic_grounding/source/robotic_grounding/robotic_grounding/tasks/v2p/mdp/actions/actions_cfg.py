@@ -73,6 +73,9 @@ class JointResidualWithTrackingActionCfg(ActionTermCfg):
     finger_joint_scale: float = 0.1
     """Scale factor for policy's residual action for finger joints."""
 
+    ema_factor: float = 0.9
+    """The EMA decay factor for the actions. The higher the factor, the more weight is given to the previous actions. Defaults to 0.9."""
+
     preserve_order: bool = False
     """Whether to preserve the order of the joint names in the action output. Defaults to False."""
 
