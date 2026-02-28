@@ -26,7 +26,6 @@ from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
-from robotic_grounding.assets import ASSET_DIR
 from robotic_grounding.tasks.v2p import mdp
 
 #################################################
@@ -50,19 +49,16 @@ class V2PSceneCfg(InteractiveSceneCfg):
     table = AssetBaseCfg(
         prim_path="/World/envs/env_.*/Table",
         init_state=AssetBaseCfg.InitialStateCfg(
-            pos=[0.0, -0.14, 0.47], rot=[1.0, 0.0, 0.0, 0.0]
+            pos=[0.0, -0.14, 0.475], rot=[1.0, 0.0, 0.0, 0.0]
         ),
-        spawn=sim_utils.UrdfFileCfg(
-            fix_base=True,
-            asset_path=f"{ASSET_DIR}/urdfs/arctic_table.urdf",
-            activate_contact_sensors=False,
+        spawn=sim_utils.CuboidCfg(
+            size=(0.15, 0.15, 0.952),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+            mass_props=sim_utils.MassPropertiesCfg(mass=100.0),
+            collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
+            physics_material=sim_utils.RigidBodyMaterialCfg(static_friction=1.0),
             visual_material=sim_utils.PreviewSurfaceCfg(
                 diffuse_color=(0.14, 0.14, 0.14), metallic=0.7
-            ),
-            joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
-                gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(
-                    stiffness=0, damping=0
-                )
             ),
         ),
     )
