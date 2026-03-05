@@ -34,6 +34,7 @@ class MANO:
         gender: str = "neutral",
         device: torch.device | None = None,
         flat_hand_mean: bool = True,
+        center_idx: int | None = None,
     ) -> None:
         """
         Initialize the MANO model.
@@ -42,21 +43,24 @@ class MANO:
             gender: str, "neutral" or "male" or "female"
             device: torch.device | None, the device to use for the model
             flat_hand_mean: bool, whether to use the flat hand mean for MANO
+            center_idx: int | None, index of center joint for MANO (e.g. 0 for wrist).
+                If None, no joint centering is applied.
         """
         self.device = device if device is not None else torch.device("cpu")
+        mano_assets_root = str(BODY_MODELS_DIR / "mano")
 
         # Right hand
         self.right_mano_layer = ManoLayer(
             use_pca=False,
             side="right",
             gender=gender,
-            center_idx=None,
-            mano_assets_root=str(BODY_MODELS_DIR / "mano"),
+            center_idx=center_idx,
+            mano_assets_root=mano_assets_root,
             flat_hand_mean=flat_hand_mean,
         ).to(self.device)
         self.right_axis_layer = AxisLayerFK(
             side=self.right_mano_layer.side,
-            mano_assets_root=str(BODY_MODELS_DIR / "mano"),
+            mano_assets_root=mano_assets_root,
         ).to(self.device)
 
         # Left hand
@@ -64,8 +68,8 @@ class MANO:
             use_pca=False,
             side="left",
             gender=gender,
-            center_idx=None,
-            mano_assets_root=str(BODY_MODELS_DIR / "mano"),
+            center_idx=center_idx,
+            mano_assets_root=mano_assets_root,
             flat_hand_mean=flat_hand_mean,
         ).to(self.device)
         self.left_axis_layer = AxisLayerFK(

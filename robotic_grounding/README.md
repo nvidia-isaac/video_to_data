@@ -56,7 +56,8 @@ To create a debug environment for other tasks, use `sharpa_debug_env_cfg.py` as 
 
 ## Retargeting
 ```bash
-python scripts/retarget/arctic_to_sharpa.py # Check the file for arguments
+python scripts/retarget/arctic_loader.py --save # Check the file for arguments
+python scripts/retarget/arctic_to_sharpa.py --save # Check the file for arguments
 python scripts/retarget/vis_retargeted.py # Need to run retargeting and save results first
 ```
 

@@ -31,6 +31,8 @@ BASE_FIELDS: list[FieldSpec] = [
 # Body model fields
 #############################################################
 MANO_FIELDS: list[FieldSpec] = [
+    ("mano_flat_hand_mean", pa.bool_(), bool, False),
+    ("mano_center_idx", pa.int32(), int, False),
     ("mano_to_robot_scale", pa.float32(), float, False),
     ("mano_right_betas", pa.list_(pa.float32()), list[float], False),
     ("mano_left_betas", pa.list_(pa.float32()), list[float], False),
@@ -182,7 +184,6 @@ SHARPA_FIELDS: list[FieldSpec] = [
     ("left_robot_finger_joint_names", pa.list_(pa.string()), list[str], False),
     ("left_robot_frame_names", pa.list_(pa.string()), list[str], False),
     ("left_robot_frame_task_names", pa.list_(pa.string()), list[str], False),
-    ("object_body_names", pa.list_(pa.string()), list[str], False),
     # Time series
     (
         "robot_right_wrist_position",
@@ -329,6 +330,8 @@ DEX3_FIELDS: list[FieldSpec] = [
 #############################################################
 OBJECT_FIELDS: list[FieldSpec] = [
     ("object_name", pa.string(), str, False),
+    ("object_body_names", pa.list_(pa.string()), list[str], False),
+    ("object_mesh_paths", pa.list_(pa.string()), list[str], False),
     # Time series
     ("object_articulation", pa.list_(pa.float32()), list[float], True),
     (
@@ -421,6 +424,7 @@ def create_data_logger_class(
         ) -> None:
             """Save to Parquet file."""
             table = pa.Table.from_pylist([self.to_dict()], schema=self._schema)
+
             pq.write_to_dataset(
                 table,
                 root_path=root_path,
@@ -461,12 +465,23 @@ def create_data_logger_class(
                 print(f"Multiple rows {num_rows} found. Using row {trajectory_id}.")
                 dataset = dataset.slice(trajectory_id, trajectory_id + 1)
 
+            # Select columns in schema order and cast so partition columns have correct types
+            dataset = dataset.select(cls._schema.names)
+            dataset = dataset.cast(cls._schema)
             data_dict = dataset.to_pylist()[0]
             return cls(**data_dict)
 
     # Combine base class with mixin
     combined_cls = type(name, (DataLoggerMixin, base_cls), {})
     return combined_cls
+
+
+def list_sequence_ids(root_path: str) -> list[str]:
+    """Return sorted list of unique sequence_id values in the Parquet dataset."""
+    table = pq.read_table(root_path, columns=["sequence_id"])
+    ids = pc.unique(table["sequence_id"])
+    # pc.unique() may return a DictionaryArray, which has to_pylist() not as_py()
+    return sorted(ids.to_pylist())
 
 
 #############################################################

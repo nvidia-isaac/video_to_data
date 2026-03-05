@@ -25,6 +25,8 @@ try:
     PYTORCH3D_AVAILABLE = True
 except ImportError:
     PYTORCH3D_AVAILABLE = False
+    sample_points_from_meshes = None  # type: ignore[misc, assignment]
+    Meshes = None  # type: ignore[misc, assignment]
 
 # MANO fingertip joint indices (5 per hand)
 # From params.py: wrist(0), thumb1-4(1-4), index1-4(5-8), middle1-4(9-12), ring1-4(13-16), pinky1-4(17-20)

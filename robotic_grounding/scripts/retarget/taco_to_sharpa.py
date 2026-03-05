@@ -6,14 +6,14 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
-"""Retarget ARCTIC loaded data (ManoSharpaData with MANO+object only) to Sharpa.
+"""Retarget TACO loaded data (ManoSharpaData with MANO+object only) to Sharpa.
 
-Reads Parquet from arctic_loader.py output (human_motion_data/arctic_loaded),
-runs IK per frame to fill robot_* fields, and saves to arctic_processed.
+Reads Parquet from taco_loader.py output (human_motion_data/taco_loaded),
+runs IK per frame to fill robot_* fields, and saves to taco_loaded/mano_object_robot_processed.
 
 Usage:
-  1. python scripts/retarget/arctic_loader.py --save
-  2. python scripts/retarget/arctic_to_sharpa.py --save
+  1. python scripts/retarget/taco_loader.py --save
+  2. python scripts/retarget/taco_to_sharpa.py --save
 """
 
 import argparse
@@ -25,7 +25,7 @@ import numpy as np
 import torch
 import trimesh
 import viser
-from robotic_grounding.retarget import ASSETS_DIR, HUMAN_MOTION_DATA_DIR
+from robotic_grounding.retarget import HUMAN_MOTION_DATA_DIR
 from robotic_grounding.retarget.data_logger import ManoSharpaData, list_sequence_ids
 from robotic_grounding.retarget.retarget_utils import (
     DEFAULT_PARTITION_COLS,
@@ -33,40 +33,55 @@ from robotic_grounding.retarget.retarget_utils import (
     setup_sharpa_kinematics,
     wrist_pose_from_mano_joint0,
 )
-from scipy.spatial.transform import Rotation as R
 from tqdm import tqdm
 
 # Suppress warnings about joint limits being slightly out of bounds
 logging.getLogger().setLevel(logging.ERROR)
 
 # Default paths: loader output (mano_object_only subdir) -> retarget output
-DEFAULT_INPUT_DIR = HUMAN_MOTION_DATA_DIR / "arctic_loaded"
-DEFAULT_OUTPUT_DIR = HUMAN_MOTION_DATA_DIR / "arctic_processed"
+DEFAULT_INPUT_DIR = HUMAN_MOTION_DATA_DIR / "taco_loaded"
+DEFAULT_OUTPUT_DIR = HUMAN_MOTION_DATA_DIR / "taco_processed"
 
-ARCTIC_MESH_DIR = ASSETS_DIR / "meshes" / "arctic"
+# TACO object meshes: {name}_cm.obj in object_model_root (scale 0.01 cm -> m)
+TACO_OBJECT_MODEL_DIR = (
+    HUMAN_MOTION_DATA_DIR / "taco" / "Object_Models" / "object_models_released"
+)
 
-# Rotation offset from MANO link frame to site (wxyz); used for wrist init (ARCTIC convention)
-ARCTIC_MANO_LINK_TO_SITE_WXYZ = np.array([0.5, -0.5, 0.5, 0.5])
+# TACO uses MANO with no special wrist link-to-site offset (unlike ARCTIC)
+TACO_LINK_TO_SITE_QUAT_XYZW = None
 
 
 def _load_object_viser_handles(
     viser_server: viser.ViserServer,
     object_name: str,
     object_body_names: list[str],
+    object_model_root: Path,
 ) -> dict[str, Any]:
-    """Load ARCTIC object part meshes and add them to the viser scene.
+    """Load TACO tool/target meshes and add them to the viser scene.
+
+    object_name is expected to be "{tool_id}_{target_id}" (e.g. "035_024").
+    Meshes are {id}_cm.obj; scale 0.01 (cm to m).
 
     Returns:
         Dict mapping body name to viser mesh handle (for updating position/wxyz per frame).
     """
     handles: dict[str, Any] = {}
+    parts = object_name.split("_", 1)
+    tool_id = parts[0] if parts else ""
+    target_id = parts[1] if len(parts) > 1 else parts[0] if parts else ""
+    name_per_body = dict(zip(object_body_names, [tool_id, target_id], strict=True))
     for part in object_body_names:
-        mesh_path = ARCTIC_MESH_DIR / object_name / f"{part}_watertight_tiny.obj"
+        mesh_id = name_per_body.get(part, "")
+        if not mesh_id:
+            continue
+        mesh_path = object_model_root / f"{mesh_id}_cm.obj"
         if not mesh_path.exists():
             continue
         mesh = trimesh.load(str(mesh_path))
         if isinstance(mesh, trimesh.Scene):
             mesh = mesh.dump(concatenate=True)
+        # TACO meshes are in cm; scale to meters
+        mesh.vertices *= 0.01
         handles[part] = viser_server.scene.add_mesh_trimesh(
             name=f"/object/{part}",
             mesh=mesh,
@@ -79,22 +94,25 @@ def _load_object_viser_handles(
 def parse_args() -> argparse.Namespace:
     """Parse the command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Retarget ARCTIC loaded Parquet data to Sharpa (run IK, fill robot_*)."
+        description="Retarget TACO loaded Parquet data to Sharpa (run IK, fill robot_*)."
     )
     parser.add_argument("--input_dir", type=Path, default=DEFAULT_INPUT_DIR)
     parser.add_argument("--output_dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument(
+        "--object_model_root",
+        type=Path,
+        default=TACO_OBJECT_MODEL_DIR,
+        help="Directory with {id}_cm.obj meshes for visualization.",
+    )
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--visualize", action="store_true", default=False)
-    parser.add_argument(
-        "--visualize_object_point_clouds", action="store_true", default=False
-    )
     parser.add_argument("--save", action="store_true", default=False)
     parser.add_argument("--mano_to_robot_scale", type=float, default=1.2)
     return parser.parse_args()
 
 
 def main(args: argparse.Namespace) -> None:
-    """Read loaded ARCTIC Parquet, run IK per frame, save retargeted Parquet."""
+    """Read loaded TACO Parquet, run IK per frame, save retargeted Parquet."""
     device = torch.device(args.device)
 
     if args.visualize:
@@ -113,11 +131,7 @@ def main(args: argparse.Namespace) -> None:
     sequence_ids = list_sequence_ids(str(args.input_dir))
     print(f"Found {len(sequence_ids)} sequences in {args.input_dir}")
 
-    link_to_site_xyzw = (
-        R.from_quat(ARCTIC_MANO_LINK_TO_SITE_WXYZ, scalar_first=True)  # type: ignore[call-arg]
-        .inv()
-        .as_quat(scalar_first=False)  # type: ignore[call-arg]
-    )
+    link_to_site_xyzw = TACO_LINK_TO_SITE_QUAT_XYZW
 
     viser_object_handles: dict[str, Any] = {}
     for sequence_id in tqdm(sequence_ids):
@@ -137,6 +151,7 @@ def main(args: argparse.Namespace) -> None:
                 viser_server,
                 data.object_name,
                 data.object_body_names,
+                args.object_model_root,
             )
 
         # Run IK for each frame and collect robot_* time series
@@ -236,7 +251,6 @@ def main(args: argparse.Namespace) -> None:
 
         if args.save:
             # Build new ManoSharpaData: same metadata + same MANO/object as loaded, new robot_*
-            # Fill robot metadata from kinematics (loader leaves these empty)
             d = data.to_dict()
             d["right_robot_finger_joint_names"] = list(
                 right_sharpa_kinematics.robot_finger_joint_names.values()
