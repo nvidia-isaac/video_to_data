@@ -73,6 +73,15 @@ class JointResidualWithTrackingActionCfg(ActionTermCfg):
     finger_joint_scale: float = 0.1
     """Scale factor for policy's residual action for finger joints."""
 
+    wrist_position_clip: float = 0.2
+    """Clip factor for policy's residual action for wrist position."""
+
+    wrist_orientation_clip: float = 0.8
+    """Clip factor for policy's residual action for wrist orientation."""
+
+    finger_joint_clip: float = 0.8
+    """Clip factor for policy's residual action for finger joints."""
+
     ema_factor: float = 0.9
     """The EMA decay factor for the actions. The higher the factor, the more weight is given to the previous actions. Defaults to 0.9."""
 
@@ -125,8 +134,8 @@ class VirtualRigidObjectControlCfg(ActionTermCfg):
     tracking_controller_angular_damping: float = 2.0
     """Damping gain for the tracking controller in angular direction."""
 
-    max_force: float = 100.0
+    max_force: float = 60.0
     """Maximum force for the tracking controller."""
 
-    max_torque: float = 100.0
+    max_torque: float = 60.0
     """Maximum torque for the tracking controller."""

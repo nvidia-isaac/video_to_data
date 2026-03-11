@@ -25,8 +25,10 @@ import numpy as np
 import torch
 import trimesh
 import viser
+from arctic_loader import ARCTIC_MANO_KWARGS
 from robotic_grounding.retarget import ASSETS_DIR, HUMAN_MOTION_DATA_DIR
 from robotic_grounding.retarget.data_logger import ManoSharpaData, list_sequence_ids
+from robotic_grounding.retarget.read_mano import MANO
 from robotic_grounding.retarget.retarget_utils import (
     DEFAULT_PARTITION_COLS,
     run_frame_ik,
@@ -89,7 +91,7 @@ def parse_args() -> argparse.Namespace:
         "--visualize_object_point_clouds", action="store_true", default=False
     )
     parser.add_argument("--save", action="store_true", default=False)
-    parser.add_argument("--mano_to_robot_scale", type=float, default=1.2)
+    parser.add_argument("--mano_to_robot_scale", type=float, default=1.0)
     return parser.parse_args()
 
 
@@ -138,6 +140,26 @@ def main(args: argparse.Namespace) -> None:
                 data.object_name,
                 data.object_body_names,
             )
+
+            mano_kwargs = ARCTIC_MANO_KWARGS
+            mano = MANO(gender="neutral", device=device, **mano_kwargs)
+            mano_results: dict[str, Any] = {}
+            for side in ("right", "left"):
+                mano_results[side] = mano.forward(
+                    side=side,
+                    global_orient=torch.tensor(
+                        getattr(data, f"mano_{side}_global_orient"), device=device
+                    ),
+                    finger_pose=torch.tensor(
+                        getattr(data, f"mano_{side}_finger_pose"), device=device
+                    ),
+                    transl=torch.tensor(
+                        getattr(data, f"mano_{side}_trans"), device=device
+                    ),
+                    betas=torch.tensor(
+                        getattr(data, f"mano_{side}_betas"), device=device
+                    ),
+                )
 
         # Run IK for each frame and collect robot_* time series
         robot_right_wrist_position = []
@@ -204,6 +226,15 @@ def main(args: argparse.Namespace) -> None:
             )
 
             if args.visualize:
+                for side in ("right", "left"):
+                    mano.visualize(
+                        viser_server,
+                        side,
+                        vertices=mano_results[side]["vertices"][t],
+                        faces=mano_results[side]["faces"],
+                        joints=mano_results[side]["joints"][t],
+                        joints_wxyz=mano_results[side]["joints_wxyz"][t],
+                    )
                 right_sharpa_kinematics.visualize(viser_server, right_qpos)
                 left_sharpa_kinematics.visualize(viser_server, left_qpos)
                 for obj_idx, obj_name in enumerate(data.object_body_names):

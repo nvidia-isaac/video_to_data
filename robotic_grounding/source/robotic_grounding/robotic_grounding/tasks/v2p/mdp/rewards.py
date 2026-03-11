@@ -213,8 +213,10 @@ def object_keypoints_tracking_exp(
     # Compute keypoints error
     object_keypoints_error = torch.norm(
         object_keypoints - object_command_keypoints, p=2, dim=-1
-    ).norm(dim=-1)
-    object_keypoints_tracking_rew = torch.exp(-object_keypoints_error / var)
+    )  # (num_envs, 6)
+    object_keypoints_tracking_rew = torch.exp(-object_keypoints_error / var).mean(
+        dim=-1
+    )
 
     return object_keypoints_tracking_rew
 
@@ -223,6 +225,7 @@ def hand_keypoints_tracking_exp(
     env: ManagerBasedRLEnv,
     command_name: str = "dual_hands_object_tracking_command",
     var: float = 0.1,
+    threshold: float = 0.02,
 ) -> torch.Tensor:
     """
     Compute the exponential imitation reward for hand keypoints tracking, including both wrist and fingertip positions.
@@ -242,58 +245,63 @@ def hand_keypoints_tracking_exp(
         env (ManagerBasedRLEnv): The RL environment instance.
         command_name (str, optional): Name of the command term providing demonstration data. Defaults to "dual_hands_object_tracking_command".
         var (float, optional): Variance (decay scale) for the exponential reward. Smaller values penalize deviations more sharply.
+        threshold (float, optional): Threshold to saturate the reward. Errors below this threshold are set to 1.0.
 
     Returns:
         torch.Tensor: A tensor of shape (num_envs,) containing the imitation reward for each environment.
     """
     command = env.command_manager.get_term(command_name)
 
-    # Extract command wrist positions
-    left_hand_wrist_position_command_e = (
-        command.left_hand_wrist_position_command_e
-    )  # (num_envs, 3)
-    right_hand_wrist_position_command_e = (
-        command.right_hand_wrist_position_command_e
-    )  # (num_envs, 3)
-
-    # Compute keypoints error for wrist positions
-    right_hand_wrist_position_error = torch.norm(
-        right_hand_wrist_position_command_e - command.right_hand_wrist_position_e,
-        dim=-1,
+    # Combine wrist and fingertip positions
+    left_hand_keypoints_position_command_e = torch.cat(
+        [
+            command.left_hand_wrist_pose_command_e[:, :3].unsqueeze(1),
+            command.left_hand_fingertip_position_command_e[..., :3],
+        ],
+        dim=1,
     )
-    left_hand_wrist_position_error = torch.norm(
-        left_hand_wrist_position_command_e - command.left_hand_wrist_position_e, dim=-1
+    right_hand_keypoints_position_command_e = torch.cat(
+        [
+            command.right_hand_wrist_pose_command_e[:, :3].unsqueeze(1),
+            command.right_hand_fingertip_position_command_e[..., :3],
+        ],
+        dim=1,
+    )
+    left_hand_keypoints_position_e = torch.cat(
+        [
+            command.left_hand_wrist_position_e.unsqueeze(1),
+            command.left_hand_fingertip_position_e[..., :3],
+        ],
+        dim=1,
+    )
+    right_hand_keypoints_position_e = torch.cat(
+        [
+            command.right_hand_wrist_position_e.unsqueeze(1),
+            command.right_hand_fingertip_position_e[..., :3],
+        ],
+        dim=1,
     )
 
-    # Extract command fingertip positions
-    left_hand_fingertip_position_command_e = (
-        command.left_hand_fingertip_position_command_e[..., :3]
-    )  # (num_envs, NUM_FINGERTIPS, 3)
-    right_hand_fingertip_position_command_e = (
-        command.right_hand_fingertip_position_command_e[..., :3]
-    )  # (num_envs, NUM_FINGERTIPS, 3)
-
-    # Compute keypoints error for fingertip positions
-    right_hand_fingertip_position_error = torch.norm(
-        right_hand_fingertip_position_command_e
-        - command.right_hand_fingertip_position_e,
+    # Compute keypoints error
+    left_hand_keypoints_position_error = torch.norm(
+        left_hand_keypoints_position_command_e - left_hand_keypoints_position_e,
         p=2,
         dim=-1,
-    ).norm(dim=-1)
-    left_hand_fingertip_position_error = torch.norm(
-        left_hand_fingertip_position_command_e - command.left_hand_fingertip_position_e,
+    )  # (num_envs, num_keypoints)
+    right_hand_keypoints_position_error = torch.norm(
+        right_hand_keypoints_position_command_e - right_hand_keypoints_position_e,
         p=2,
         dim=-1,
-    ).norm(dim=-1)
+    )  # (num_envs, num_keypoints)
 
-    hand_keypoints_tracking_rew = (
-        torch.exp(-right_hand_wrist_position_error / var)
-        + torch.exp(-left_hand_wrist_position_error / var)
-        + torch.exp(-right_hand_fingertip_position_error / var)
-        + torch.exp(-left_hand_fingertip_position_error / var)
-    )
+    left_hand_keypoints_reward = torch.exp(
+        -(left_hand_keypoints_position_error - threshold).clamp(min=0.0) / var
+    ).mean(dim=-1)
+    right_hand_keypoints_reward = torch.exp(
+        -(right_hand_keypoints_position_error - threshold).clamp(min=0.0) / var
+    ).mean(dim=-1)
 
-    return hand_keypoints_tracking_rew
+    return (left_hand_keypoints_reward + right_hand_keypoints_reward) / 2.0
 
 
 def hand_joint_pos_tracking_exp(
@@ -323,7 +331,7 @@ def hand_joint_pos_tracking_exp(
 def contact_tracking_reward(
     env: ManagerBasedRLEnv,
     command_name: str = "dual_hands_object_tracking_command",
-    contact_beta: float = 30.0,
+    var: float = 0.03,
     mask_zero_contact: bool = True,
 ) -> torch.Tensor:
     """Chamfer-style contact reward: match policy contact points to demo contact.
@@ -334,7 +342,7 @@ def contact_tracking_reward(
     Args:
         env: The RL environment.
         command_name: Command term that provides demo contact and object pose.
-        contact_beta: Scale for exp(-contact_beta * chamfer_dist).
+        var: Scale for exp(-chamfer_dist / var).
         mask_zero_contact: If True, reward is 0 when both demo and policy have no contact.
 
     Returns:
@@ -379,18 +387,132 @@ def contact_tracking_reward(
         left_hand_object_contact_command_positions_is_valid,
     )
 
-    right_hand_object_contact_rew = torch.exp(
-        -contact_beta * right_hand_object_contact_dist
-    )
-    left_hand_object_contact_rew = torch.exp(
-        -contact_beta * left_hand_object_contact_dist
-    )
+    right_hand_object_contact_rew = torch.exp(-right_hand_object_contact_dist / var)
+    left_hand_object_contact_rew = torch.exp(-left_hand_object_contact_dist / var)
 
     if mask_zero_contact:
         right_hand_object_contact_rew[right_hand_object_contact_dist < 1e-5] = 0.0
         left_hand_object_contact_rew[left_hand_object_contact_dist < 1e-5] = 0.0
 
     return right_hand_object_contact_rew + left_hand_object_contact_rew
+
+
+def contact_force_reward(
+    env: ManagerBasedRLEnv,
+    command_name: str = "dual_hands_object_tracking_command",
+    var: float = 1.0,
+    threshold: float = 2.0,
+    in_contact_force_threshold: float = 1e-3,
+) -> torch.Tensor:
+    """Contact force reward.
+
+    If no contact is present, reward is 0.
+    If contact is present, reward small contact forces.
+
+    Args:
+        env: The RL environment.
+        command_name: Command term that provides contact forces.
+        var: Scale for exp(-contact_force / var).
+        threshold: Saturation threshold for contact force.
+        in_contact_force_threshold: Threshold for contact force to be considered in contact.
+
+    Returns:
+        Reward tensor (num_envs,).
+    """
+    command = env.command_manager.get_term(command_name)
+
+    right_hand_object_contact_forces_norm = (
+        command.right_hand_object_contact_forces_w.norm(dim=1).norm(dim=-1)
+    )
+    right_hand_link_in_contact = (
+        right_hand_object_contact_forces_norm > in_contact_force_threshold
+    )
+    num_right_hand_links_in_contact = right_hand_link_in_contact.sum(dim=-1)
+
+    left_hand_object_contact_forces_norm = (
+        command.left_hand_object_contact_forces_w.norm(dim=1).norm(dim=-1)
+    )
+    left_hand_link_in_contact = (
+        left_hand_object_contact_forces_norm > in_contact_force_threshold
+    )
+    num_left_hand_links_in_contact = left_hand_link_in_contact.sum(dim=-1)
+
+    contact_force_reward = (
+        right_hand_link_in_contact
+        * torch.exp(
+            -(right_hand_object_contact_forces_norm - threshold).clamp(min=0.0) / var
+        )
+        + left_hand_link_in_contact
+        * torch.exp(
+            -(left_hand_object_contact_forces_norm - threshold).clamp(min=0.0) / var
+        )
+    ).sum(dim=-1) / (
+        num_right_hand_links_in_contact + num_left_hand_links_in_contact
+    ).clamp(
+        min=1e-5
+    )
+
+    return contact_force_reward
+
+
+def contact_force_rate_reward(
+    env: ManagerBasedRLEnv,
+    command_name: str = "dual_hands_object_tracking_command",
+    var: float = 1.0,
+) -> torch.Tensor:
+    """Contact force rate reward.
+
+    Args:
+        env: The RL environment.
+        command_name: Command term that provides contact forces.
+        var: Scale for exp(-contact_force_rate / var).
+        threshold: Threshold for contact force rate.
+
+    Returns:
+        Reward tensor (num_envs,).
+    """
+    command = env.command_manager.get_term(command_name)
+
+    right_hand_object_contact_forces_norm = (
+        command.right_hand_object_contact_forces_w.norm(dim=-1)
+    )  # (num_envs, TIMESTEPS, NUM_RIGHT_HAND_OBJECT_CONTACT_POINTS)
+    left_hand_object_contact_forces_norm = (
+        command.left_hand_object_contact_forces_w.norm(dim=-1)
+    )  # (num_envs, TIMESTEPS, NUM_LEFT_HAND_OBJECT_CONTACT_POINTS)
+
+    right_hand_link_in_contact = (
+        right_hand_object_contact_forces_norm.sum(dim=1) > 1e-3
+    )  # (num_envs, NUM_RIGHT_HAND_OBJECT_CONTACT_POINTS)
+    left_hand_link_in_contact = (
+        left_hand_object_contact_forces_norm.sum(dim=1) > 1e-3
+    )  # (num_envs, NUM_LEFT_HAND_OBJECT_CONTACT_POINTS)
+
+    num_right_hand_links_in_contact = right_hand_link_in_contact.sum(dim=-1)
+    num_left_hand_links_in_contact = left_hand_link_in_contact.sum(dim=-1)
+
+    right_hand_object_contact_forces_norm_diff = torch.abs(
+        torch.diff(right_hand_object_contact_forces_norm, dim=1)
+    ).mean(
+        dim=1
+    )  # (num_envs, NUM_RIGHT_HAND_OBJECT_CONTACT_POINTS)
+    left_hand_object_contact_forces_norm_diff = torch.abs(
+        torch.diff(left_hand_object_contact_forces_norm, dim=1)
+    ).mean(
+        dim=1
+    )  # (num_envs, NUM_LEFT_HAND_OBJECT_CONTACT_POINTS)
+
+    contact_force_rate_reward = (
+        right_hand_link_in_contact
+        * torch.exp(-right_hand_object_contact_forces_norm_diff / var)
+        + left_hand_link_in_contact
+        * torch.exp(-left_hand_object_contact_forces_norm_diff / var)
+    ).sum(dim=1) / (
+        num_right_hand_links_in_contact + num_left_hand_links_in_contact
+    ).clamp(
+        min=1e-5
+    )
+
+    return contact_force_rate_reward
 
 
 def termination_penalty(

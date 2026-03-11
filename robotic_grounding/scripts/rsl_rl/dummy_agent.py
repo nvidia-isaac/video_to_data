@@ -23,7 +23,7 @@ parser.add_argument(
     help="Disable fabric and use USD I/O operations.",
 )
 parser.add_argument(
-    "--num_envs", type=int, default=4, help="Number of environments to simulate."
+    "--num_envs", type=int, default=16, help="Number of environments to simulate."
 )
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument(

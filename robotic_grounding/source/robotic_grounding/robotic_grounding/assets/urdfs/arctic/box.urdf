@@ -8,61 +8,6 @@
       <compiler meshdir="../../meshes/arctic/box/" balanceinertia="true" discardvisual="false"/>
    </mujoco>
 
-   <!-- ============================================================= -->
-   <!-- 6 DoF base -->
-   <!-- ============================================================= -->
-
-   <link name="base"><inertial><origin xyz="0 0 0"/><mass value="0.1"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial></link>
-   <link name="base_x"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
-   <link name="base_y"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
-   <link name="base_z"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
-   <link name="base_roll"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
-   <link name="base_pitch"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
-
-   <joint name="base_x" type="prismatic">
-      <parent link="base"/>
-      <child  link="base_x"/>
-      <axis xyz="1 0 0"/>
-      <limit lower="-2.0" upper="2.0" effort="100" velocity="10.0"/>
-   </joint>
-
-   <joint name="base_y" type="prismatic">
-      <parent link="base_x"/>
-      <child  link="base_y"/>
-      <axis xyz="0 1 0"/>
-      <limit lower="-2.0" upper="2.0" effort="100" velocity="10.0"/>
-   </joint>
-
-   <joint name="base_z" type="prismatic">
-      <parent link="base_y"/>
-      <child  link="base_z"/>
-      <axis xyz="0 0 1"/>
-      <limit lower="0.0" upper="5.0" effort="100" velocity="10.0"/>
-   </joint>
-
-   <joint name="base_roll" type="revolute">
-      <parent link="base_z"/>
-      <child  link="base_roll"/>
-      <axis xyz="1 0 0"/>
-      <limit lower="-3.141592653589793" upper="3.141592653589793" effort="100" velocity="10.0"/>
-   </joint>
-
-   <joint name="base_pitch" type="revolute">
-      <parent link="base_roll"/>
-      <child  link="base_pitch"/>
-      <axis xyz="0 1 0"/>
-      <limit lower="-3.141592653589793" upper="3.141592653589793" effort="100" velocity="10.0"/>
-   </joint>
-
-   <joint name="base_yaw" type="revolute">
-      <parent link="base_pitch"/>
-      <child  link="bottom"/>
-      <axis xyz="0 0 1"/>
-      <limit lower="-3.141592653589793" upper="3.141592653589793" effort="100" velocity="10.0"/>
-   </joint>
-
-   <!-- ============================================================= -->
-
    <link name="top">
       <inertial>
          <origin rpy="0.0009680237751385933 0.001544481910897999 0.002495543214473779" xyz="0.112182930090877 0.07129451557071434 0.07301110853740603"/>

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import isaaclab.utils.math as math_utils
 import torch
 
 if TYPE_CHECKING:
@@ -38,12 +39,12 @@ def hand_to_object_away_from_trajectory(
     command = env.command_manager.get_term(command_name)
 
     right_hand_wrist_object_position_difference_command = torch.norm(
-        command.right_hand_wrist_position_command_e
+        command.right_hand_wrist_pose_command_e[:, :3]
         - command.object_body_position_command_e,
         dim=-1,
     )
     left_hand_wrist_object_position_difference_command = torch.norm(
-        command.left_hand_wrist_position_command_e
+        command.left_hand_wrist_pose_command_e[:, :3]
         - command.object_body_position_command_e,
         dim=-1,
     )
@@ -82,12 +83,13 @@ def hand_wrist_away_from_trajectory(
     """Terminate when the hands are away from the trajectory."""
     command = env.command_manager.get_term(command_name)
     right_hand_position_difference = torch.norm(
-        command.right_hand_wrist_position_command_e
+        command.right_hand_wrist_pose_command_e[:, :3]
         - command.right_hand_wrist_position_e,
         dim=-1,
     )
     left_hand_position_difference = torch.norm(
-        command.left_hand_wrist_position_command_e - command.left_hand_wrist_position_e,
+        command.left_hand_wrist_pose_command_e[:, :3]
+        - command.left_hand_wrist_position_e,
         dim=-1,
     )
     return torch.logical_or(
@@ -122,7 +124,8 @@ def object_away_from_trajectory_z(
 def object_away_from_trajectory(
     env: ManagerBasedRLEnv,
     command_name: str,
-    threshold: float,
+    position_threshold: float,
+    orientation_threshold: float,
 ) -> torch.Tensor:
     """Terminate when the object is away from the trajectory."""
     command = env.command_manager.get_term(command_name)
@@ -130,7 +133,14 @@ def object_away_from_trajectory(
         command.object_body_position_command_e - command.object_position_e.squeeze(),
         dim=-1,
     )
-    return object_position_difference > threshold
+    object_orientation_difference = math_utils.quat_error_magnitude(
+        command.object_orientation_e.squeeze(),
+        command.object_body_wxyz_command_e.squeeze(),
+    )
+    return torch.logical_or(
+        object_position_difference > position_threshold,
+        object_orientation_difference > orientation_threshold,
+    )
 
 
 def timestep_timeout(

@@ -101,6 +101,8 @@ MANO_JOINTS_PARENTS = [
     19,
 ]
 
+MANO_FINGERTIP_INDICES = [4, 8, 12, 16, 20]
+
 #############################################################
 # NVHuman parameters
 #############################################################
@@ -212,11 +214,11 @@ SHARPA_TO_MANO_ROTATION_OFFSET = {
 
 SHARPA_TO_MANO_MAPPING = {
     # Sharpa body frame: (target MANO joint, position cost, orientation cost)
-    ".*_hand_C_MC": ("wrist", 0.5, 0.2),
+    ".*_hand_C_MC": ("wrist", 0.2, 0.2),
     # ".*_thumb_CMC_VL_site": ("thumb1", 0.0, 0.0),
     ".*_thumb_MCP_VL_site": ("thumb2", 0.1, 0.0),
     # ".*_thumb_DP_site": ("thumb3", 0.0, 0.0),
-    ".*_thumb_tip_site": ("thumb4", 1.0, 0.1),
+    ".*_thumb_tip_site": ("thumb4", 1.0, 0.05),
     # ".*_index_MCP_VL_site": ("index1", 0.0, 0.0),
     ".*_index_MP_site": ("index1", 0.1, 0.0),
     # ".*_index_DP_site": ("index3", 0.0, 0.0),
@@ -232,7 +234,7 @@ SHARPA_TO_MANO_MAPPING = {
     # ".*_pinky_MC_site": ("pinky1", 0.0, 0.0),
     ".*_pinky_MP_site": ("pinky1", 0.1, 0.0),
     # ".*_pinky_DP_site": ("pinky3", 0.0, 0.0),
-    ".*_pinky_tip_site": ("pinky4", 1.0, 0.1),
+    ".*_pinky_tip_site": ("pinky4", 0.5, 0.1),
 }
 
 SHARPA_RELATIVE_FRAMES = [

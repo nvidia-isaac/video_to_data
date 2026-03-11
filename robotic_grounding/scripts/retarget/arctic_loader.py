@@ -42,9 +42,11 @@ ARCTIC_MESH_DIR = ASSETS_DIR / "meshes" / "arctic"
 LOADED_SAVE_DIR = HUMAN_MOTION_DATA_DIR / "arctic_loaded"
 
 OBJECT_BODY_NAMES = ["bottom", "top"]
-FRAME_START = 40
-FRAME_END_OFFSET = 50
+FRAME_START = 0
+FRAME_END_OFFSET = 0
 ARCTIC_FPS = 30.0
+
+ARCTIC_MANO_KWARGS = {"flat_hand_mean": False, "center_idx": None}
 
 
 def parse_args() -> argparse.Namespace:
@@ -55,7 +57,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--visualize", action="store_true", default=False)
     parser.add_argument("--save", action="store_true", default=False)
-    parser.add_argument("--mano_to_robot_scale", type=float, default=1.2)
     parser.add_argument(
         "--output_dir",
         type=Path,
@@ -242,6 +243,8 @@ class ArcticDatasetLoader(DatasetLoaderBase):
         dict[str, Any],
         dict[str, torch.Tensor],
         dict[str, torch.Tensor],
+        dict[str, torch.Tensor],
+        dict[str, torch.Tensor],
         bool,
     ]:
         """Load ARCTIC object part meshes (bottom/top) for the sequence object."""
@@ -257,7 +260,7 @@ class ArcticDatasetLoader(DatasetLoaderBase):
 
     def get_mano_kwargs(self) -> dict[str, Any]:
         """Return MANO model kwargs for ARCTIC (flat_hand_mean=False)."""
-        return {"flat_hand_mean": False, "center_idx": None}
+        return ARCTIC_MANO_KWARGS
 
     def get_fps(self) -> float:
         """Return ARCTIC sequence FPS."""

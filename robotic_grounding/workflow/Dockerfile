@@ -46,6 +46,7 @@ RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
     plotly \
     viser==1.0.15 \
     dearpygui \
+    scipy \
     scikit-learn
 
 # Install chumpy and manotorch (using --no-build-isolation to avoid pip module issues in old setup.py)
@@ -57,10 +58,14 @@ RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir --no-build-iso
 RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
     mujoco \
     judo-rai>=0.0.5 \
-    "pin-pink>=3.5.0,<4" \
+    "pin-pink>=4.0.0" \
     pin==3.7.0 \
-    deprecation \
-    qpsolvers[clarabel,daqp,proxqp,scs]
+    deprecation
+
+# Install QPSolvers
+RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir --upgrade \
+    osqp \
+    qpsolvers[clarabel,daqp,proxqp,scs,osqp]==4.9.0
 
 # FIXME: pytorch3d is not installed with cuda, making the retarget distance_utils module not importable
 # # Install pytorch3d (required for retarget distance_utils; --no-build-isolation so build sees Isaac Lab's torch)

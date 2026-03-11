@@ -23,9 +23,8 @@ import trimesh
 import viser
 from robotic_grounding.retarget import HUMAN_MOTION_DATA_DIR
 from robotic_grounding.retarget.data_logger import ManoSharpaData, list_sequence_ids
-from robotic_grounding.retarget.distance_utils import MANO_FINGERTIP_INDICES
 from robotic_grounding.retarget.hand_kinematics import HandKinematics
-from robotic_grounding.retarget.params import MANO_HAND_LINKS
+from robotic_grounding.retarget.params import MANO_FINGERTIP_INDICES, MANO_HAND_LINKS
 from robotic_grounding.retarget.read_mano import MANO
 from robotic_grounding.retarget.retarget_utils import setup_sharpa_kinematics
 
@@ -106,6 +105,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         default=False,
     )
+    parser.add_argument(
+        "--visualize_fingertip_distances",
+        action="store_true",
+        default=False,
+    )
     return parser.parse_args()
 
 
@@ -173,6 +177,7 @@ def visualize_one_trajectory(
     trajectory_id: int,
     show_mano: bool = False,
     visualize_contacts: bool = False,
+    visualize_fingertip_distances: bool = False,
 ) -> dict[str, Any]:
     """Load one sequence and visualize playback (hands + objects from object_mesh_paths)."""
     for _, handle in viser_object_handles.items():
@@ -260,43 +265,44 @@ def visualize_one_trajectory(
                 )
 
         # Fingertip distance spheres (if available)
-        for side, joints_data, dist_data in [
-            (
-                "right",
-                logger_data.mano_right_joints,
-                logger_data.mano_right_tips_distance,
-            ),
-            (
-                "left",
-                logger_data.mano_left_joints,
-                logger_data.mano_left_tips_distance,
-            ),
-        ]:
-            if not dist_data:
-                continue
-            fingertip_positions = np.array(joints_data[frame_id])[
-                MANO_FINGERTIP_INDICES
-            ]
-            distances = dist_data[frame_id]
-            for i, finger_name in enumerate(FINGER_NAMES):
-                viser_server.scene.add_icosphere(
-                    name=f"/tips/{side}_{finger_name}",
-                    radius=0.005,
-                    color=distance_to_color(distances[i]),
-                    position=fingertip_positions[i],
-                )
+        if visualize_fingertip_distances:
+            for side, joints_data, dist_data in [
+                (
+                    "right",
+                    logger_data.mano_right_joints,
+                    logger_data.mano_right_tips_distance,
+                ),
+                (
+                    "left",
+                    logger_data.mano_left_joints,
+                    logger_data.mano_left_tips_distance,
+                ),
+            ]:
+                if not dist_data:
+                    continue
+                fingertip_positions = np.array(joints_data[frame_id])[
+                    MANO_FINGERTIP_INDICES
+                ]
+                distances = dist_data[frame_id]
+                for i, finger_name in enumerate(FINGER_NAMES):
+                    viser_server.scene.add_icosphere(
+                        name=f"/tips/{side}_{finger_name}",
+                        radius=0.005,
+                        color=distance_to_color(distances[i]),
+                        position=fingertip_positions[i],
+                    )
 
         # Link contact visualization
         if visualize_contacts:
             for contact_handle in contact_points_handles:
                 contact_handle.remove()
             contact_points_handles.clear()
-            for side, link_contact_positions in [
-                ("right", logger_data.mano_right_link_contact_positions[frame_id]),
-                ("left", logger_data.mano_left_link_contact_positions[frame_id]),
+            for side, contact_positions in [
+                ("right", logger_data.mano_right_object_contact_positions[frame_id]),
+                ("left", logger_data.mano_left_object_contact_positions[frame_id]),
             ]:
                 for contact_position, (link_name, _) in zip(
-                    link_contact_positions, MANO_HAND_LINKS.items(), strict=False
+                    contact_positions, MANO_HAND_LINKS.items(), strict=False
                 ):
                     if np.sum(contact_position) > 0.0:
                         contact_handle = viser_server.scene.add_icosphere(
@@ -358,6 +364,7 @@ def main(args: argparse.Namespace) -> None:
         trajectory_id=args.trajectory_id,
         show_mano=args.show_mano,
         visualize_contacts=args.visualize_contacts,
+        visualize_fingertip_distances=args.visualize_fingertip_distances,
     )
 
 

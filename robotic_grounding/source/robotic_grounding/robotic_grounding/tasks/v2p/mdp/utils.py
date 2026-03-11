@@ -15,6 +15,10 @@ from scipy.spatial.transform import Rotation, Slerp
 
 from robotic_grounding.retarget.data_logger import ManoSharpaData
 
+##########################################################
+# Interpolation
+##########################################################
+
 
 def interpolate_robot_motion_data(
     motion_data: ManoSharpaData,
@@ -59,14 +63,19 @@ def interpolate_robot_motion_data(
         data_arr = np.asarray(data)
         return interp1d(src_times, data_arr, kind="linear", axis=0)(tgt_times).tolist()
 
-    def interp_contact_linear(data: list[float]) -> list[float]:
+    def interp_contact_linear(
+        data: list[list[float]], part_ids: list[int]
+    ) -> list[float]:
         """Linear interpolation for contact positions (n_timesteps, n_links, xyz_id).
 
         For each link, x, y, z, and id are interpolated across time. Each component
         is only interpolated when both bracketing source values are non-zero;
         if either is zero, the result is set to zero.
         """
-        data_arr = np.asarray(data)
+        H, N = len(data), len(data[0])
+        data_arr = np.concatenate(
+            [np.asarray(data), np.asarray(part_ids).reshape(H, N, 1)], axis=-1
+        )
         # data_arr: (n_timesteps, n_links, 4) for x, y, z, id
         interp_result = interp1d(src_times, data_arr, kind="linear", axis=0)(tgt_times)
         tol = 1e-8
@@ -150,22 +159,38 @@ def interpolate_robot_motion_data(
 
     # 5. Contact links (T, num_links, 4) — interpolate only between non-zero
     #    values; samples between 0 and non-zero are set to zero
-    right_link = getattr(motion_data, "mano_right_link_contact_positions", [])
-    if len(right_link) > 0:
-        motion_data.mano_right_link_contact_positions = interp_contact_linear(
-            right_link
-        )
-        motion_data.mano_right_object_contact_positions = interp_contact_linear(
-            getattr(motion_data, "mano_right_object_contact_positions", [])
-        )
-    left_link = getattr(motion_data, "mano_left_link_contact_positions", [])
-    if len(left_link) > 0:
-        motion_data.mano_left_link_contact_positions = interp_contact_linear(left_link)
-        motion_data.mano_left_object_contact_positions = interp_contact_linear(
-            getattr(motion_data, "mano_left_object_contact_positions", [])
-        )
+    motion_data.mano_right_link_contact_positions = interp_contact_linear(
+        getattr(motion_data, "mano_right_link_contact_positions", []),
+        getattr(motion_data, "mano_right_object_contact_part_ids", []),
+    )
+    motion_data.mano_right_object_contact_positions = interp_contact_linear(
+        getattr(motion_data, "mano_right_object_contact_positions", []),
+        getattr(motion_data, "mano_right_object_contact_part_ids", []),
+    )
+    motion_data.mano_right_object_contact_normals = interp_contact_linear(
+        getattr(motion_data, "mano_right_object_contact_normals", []),
+        getattr(motion_data, "mano_right_object_contact_part_ids", []),
+    )
+
+    motion_data.mano_left_link_contact_positions = interp_contact_linear(
+        getattr(motion_data, "mano_left_link_contact_positions", []),
+        getattr(motion_data, "mano_left_object_contact_part_ids", []),
+    )
+    motion_data.mano_left_object_contact_positions = interp_contact_linear(
+        getattr(motion_data, "mano_left_object_contact_positions", []),
+        getattr(motion_data, "mano_left_object_contact_part_ids", []),
+    )
+    motion_data.mano_left_object_contact_normals = interp_contact_linear(
+        getattr(motion_data, "mano_left_object_contact_normals", []),
+        getattr(motion_data, "mano_left_object_contact_part_ids", []),
+    )
 
     return motion_data
+
+
+##########################################################
+# Tensor Deque
+##########################################################
 
 
 class TensorDeque:
@@ -261,6 +286,11 @@ class TensorDeque:
         self.size = 0
 
 
+##########################################################
+# Contact Reward
+##########################################################
+
+
 def chamfer_distance(
     pts1: torch.Tensor,
     pts2: torch.Tensor,
@@ -280,20 +310,17 @@ def chamfer_distance(
     Returns:
         (B,) symmetric chamfer distance per batch.
     """
+    # Compute the distance between all points in pts1 and pts2
     dist1 = torch.cdist(pts1, pts2, p=2.0)  # (B, N1, N2)
-    dist2 = torch.cdist(pts2, pts1, p=2.0)  # (B, N2, N1)
-    pts2_valid_expanded = pts2_valid.unsqueeze(1).expand(
-        -1, pts1.shape[1], -1
-    )  # (B, N1, N2)
-    dist1 = torch.where(pts2_valid_expanded, dist1, torch.full_like(dist1, max_dist))
-    pts1_valid_expanded = pts1_valid.unsqueeze(1).expand(
-        -1, pts2.shape[1], -1
-    )  # (B, N2, N1)
-    dist2 = torch.where(pts1_valid_expanded, dist2, torch.full_like(dist2, max_dist))
+    # Fill invalid points in pts2 with max distance
+    dist1 = dist1.masked_fill((~pts2_valid).unsqueeze(1), max_dist)
+    min_dists1 = torch.min(dist1, dim=-1).values  # (B, N1)
+    num_valids1 = pts1_valid.sum(dim=-1)  # (B,)
 
-    min_dists1 = torch.min(dist1, dim=-1).values
-    min_dists2 = torch.min(dist2, dim=-1).values
-    num_valids1 = pts1_valid.sum(dim=-1)
+    dist2 = torch.cdist(pts2, pts1, p=2.0)  # (B, N2, N1)
+    # Fill invalid points in pts1 with max distance
+    dist2 = dist2.masked_fill((~pts1_valid).unsqueeze(1), max_dist)
+    min_dists2 = torch.min(dist2, dim=-1).values  # (B, N2)
     num_valids2 = pts2_valid.sum(dim=-1)
 
     both_zero = (num_valids1 == 0) & (num_valids2 == 0)
@@ -316,3 +343,177 @@ def chamfer_distance(
             both_has_valid
         ]
     return (chamfer_forward + chamfer_backward) / 2.0
+
+
+def sample_wrench_space_basis_scaled(
+    num_samples: int,
+    rc: float,
+    device: torch.device,
+    dtype: torch.dtype = torch.float32,
+    eps: float = 1e-8,
+) -> torch.Tensor:
+    """Sample and scale wrench space basis directions uniformly on the surface of a 6D unit sphere.
+
+    Args:
+        num_samples: number of samples to draw
+        rc: scale of the torque, typically the radius of the object's bounding ball
+        device: device for the output tensor
+        dtype: dtype for the output tensor
+        eps: numerical stability
+
+    Returns:
+        (num_samples, dim)
+    """
+    basis = torch.randn(num_samples, 6, device=device, dtype=dtype)
+    basis[:, 3:] = basis[:, 3:] / rc
+    return basis / basis.norm(dim=-1, keepdim=True).clamp_min(eps)
+
+
+def compute_tangent_basis(
+    n: torch.Tensor,
+    eps: float = 1e-6,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Compute orthonormal tangent basis from normal vectors (Frisvad 2012).
+
+    Args:
+        n: (..., 3) normal vectors (need not be unit length)
+        eps: numerical stability
+
+    Returns:
+        t1: (..., 3)
+        t2: (..., 3)
+    """
+    nx, ny, nz = n.unbind(dim=-1)
+
+    sign = torch.where(nz >= 0, 1.0, -1.0)
+    den = sign + nz
+    den = torch.where(den.abs() < eps, sign * eps, den)
+
+    a = -1.0 / den
+    b = nx * ny * a
+
+    t1 = torch.stack(
+        (1.0 + sign * nx * nx * a, sign * b, -sign * nx),
+        dim=-1,
+    )
+    t2 = torch.stack(
+        (b, sign + ny * ny * a, -ny),
+        dim=-1,
+    )
+
+    t1 = t1 / t1.norm(dim=-1, keepdim=True).clamp_min(eps)
+    t2 = t2 / t2.norm(dim=-1, keepdim=True).clamp_min(eps)
+
+    return t1, t2
+
+
+def compute_friction_cone_edges(
+    normals: torch.Tensor,
+    cos_t: torch.Tensor,
+    sin_t: torch.Tensor,
+    friction_coefficients: float = 0.5,
+    eps: float = 1e-6,
+) -> torch.Tensor:
+    """Build the edges of the friction cone based on contact normals and friction coefficients.
+
+    Args:
+        normals: (batch_size, num_contacts, 3)
+        cos_t: the cosine of the friction cone edges phase angles (1, num_friction_cone_edges, 1)
+        sin_t: the sine of the friction cone edges phase angles (1, num_friction_cone_edges, 1)
+        friction_coefficients: float
+        eps: float
+
+    Returns:
+        (batch_size, num_contacts, num_friction_cone_edges, 3)
+    """
+    batch_size, num_contacts, _ = normals.shape
+
+    # Ensure unit normals before tangent construction.
+    normals_flat = normals.reshape(-1, 3)
+    t1, t2 = compute_tangent_basis(normals_flat, eps=eps)  # (B*C, 2, 3)
+
+    n_exp = normals_flat.unsqueeze(1)  # (B*C, 1, 3)
+    t1_exp = t1.unsqueeze(1)  # (B*C, 1, 3)
+    t2_exp = t2.unsqueeze(1)  # (B*C, 1, 3)
+
+    # Polyhedral approximation rays: n + mu * (cos(theta) * t1 + sin(theta) * t2)
+    edges = n_exp + friction_coefficients * (
+        cos_t * t1_exp + sin_t * t2_exp
+    )  # (B*C, K, 3)
+    edges = edges / edges.norm(dim=-1, keepdim=True).clamp_min(eps)
+
+    return edges.view(batch_size, num_contacts, cos_t.shape[1], 3)
+
+
+def compute_wrench_space(
+    contact_points: torch.Tensor,
+    contact_normals: torch.Tensor,
+    cos_t: torch.Tensor,
+    sin_t: torch.Tensor,
+    rc: float,
+    friction_coefficients: float = 0.5,
+    eps: float = 1e-6,
+) -> torch.Tensor:
+    """Compute the wrench space from contact points and contact normals.
+
+    Args:
+        contact_points: in the object frame (batch_size, num_contacts, 3)
+        contact_normals: pointing into the object (batch_size, num_contacts, 3)
+        cos_t: the cosine of the friction cone edges phase angles (1, num_friction_cone_edges, 1)
+        sin_t: the sine of the friction cone edges phase angles (1, num_friction_cone_edges, 1)
+        rc: scale of the torque, typically the radius of the object's bounding ball
+        friction_coefficients: float
+        eps: float
+
+    Returns:
+        (batch_size, 6, num_contacts * num_friction_cone_edges,)
+    """
+    batch_size = len(contact_points)
+
+    contact_normals = contact_normals / contact_normals.norm(
+        dim=-1, keepdim=True
+    ).clamp_min(eps)
+
+    forces = compute_friction_cone_edges(
+        normals=contact_normals,
+        cos_t=cos_t,
+        sin_t=sin_t,
+        friction_coefficients=friction_coefficients,
+        eps=eps,
+    )  # (batch_size, num_contacts, num_friction_cone_edges, 3)
+
+    torques = torch.cross(
+        contact_points.unsqueeze(2).expand_as(forces), forces, dim=-1
+    )  # (batch_size, num_contacts, num_friction_cone_edges, 3)
+
+    wrench_space = torch.cat((forces, torques), dim=-1).view(
+        batch_size, -1, 6
+    )  # (batch_size, num_contacts * num_friction_cone_edges, 6)
+
+    # Scale the torque magnitude to match the force magnitude
+    wrench_space[..., 3:] = wrench_space[..., 3:] / rc
+
+    return wrench_space.transpose(1, 2).contiguous()
+
+
+def compute_wrench_space_support_function(
+    wrench_space: torch.Tensor,
+    basis: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Compute the wrench space support function at basis directions.
+
+    The support function of wrench space W at direction d is $max_{w in W} d^T w$.
+    The support function is clamped to be non-negative in wrench space.
+
+    Args:
+        wrench_space: (batch_size, 6, num_contacts)
+        basis: (num_basis, 6)
+
+    Returns:
+        (batch_size, num_basis)
+    """
+    return torch.clamp(
+        torch.matmul(basis.unsqueeze(0), wrench_space).amax(dim=-1),
+        min=0.0,
+    )

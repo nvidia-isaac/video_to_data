@@ -89,6 +89,10 @@ class CommandsCfg:
     dual_hands_object_tracking_command = mdp.DualHandsObjectTrackingCommandCfg(
         debug_vis=True,
         target_fps=100.0,
+        reset_finger_openness=0.7,
+        virtual_object_control_decay_steps=50,
+        virtual_object_control_decay_mode="step",
+        initial_virtual_object_control_curriculum_scale=0.25,
     )
 
 
@@ -111,9 +115,9 @@ class ActionsCfg:
         tracking_controller_linear_damping=10.0,
         tracking_controller_angular_stiffness=12.0,
         tracking_controller_angular_damping=0.5,
-        wrist_position_scale=0.1,
-        wrist_orientation_scale=0.3,
-        finger_joint_scale=0.3,
+        wrist_position_scale=0.05,
+        wrist_orientation_scale=0.15,
+        finger_joint_scale=0.15,
         ema_factor=0.9,
     )
 
@@ -124,9 +128,9 @@ class ActionsCfg:
         tracking_controller_linear_damping=10.0,
         tracking_controller_angular_stiffness=12.0,
         tracking_controller_angular_damping=0.5,
-        wrist_position_scale=0.1,
-        wrist_orientation_scale=0.3,
-        finger_joint_scale=0.3,
+        wrist_position_scale=0.05,
+        wrist_orientation_scale=0.15,
+        finger_joint_scale=0.15,
         ema_factor=0.9,
     )
 
@@ -139,16 +143,21 @@ class ObservationsCfg:
     class PolicyCfg(ObsGroup):
         """Observations for policy group. Order preserved."""
 
-        wrist_position_e = ObsTerm(
-            func=mdp.wrist_position_e,
-            params={"command_name": "dual_hands_object_tracking_command"},
-            noise=Unoise(n_min=-0.01, n_max=0.01),
-        )
+        # wrist_position_e = ObsTerm(
+        #     func=mdp.wrist_position_e,
+        #     params={"command_name": "dual_hands_object_tracking_command"},
+        #     noise=Unoise(n_min=-0.01, n_max=0.01),
+        # )
         wrist_orientation_e = ObsTerm(
             func=mdp.wrist_orientation_e,
             params={"command_name": "dual_hands_object_tracking_command"},
             noise=Unoise(n_min=-0.01, n_max=0.01),
         )
+        # wrist_velocity_b = ObsTerm(
+        #     func=mdp.wrist_velocity_b,
+        #     params={"command_name": "dual_hands_object_tracking_command"},
+        #     noise=Unoise(n_min=-0.01, n_max=0.01),
+        # )
         finger_joint_pos = ObsTerm(
             func=mdp.finger_joint_pos,
             params={"command_name": "dual_hands_object_tracking_command"},
@@ -159,11 +168,11 @@ class ObservationsCfg:
             params={"command_name": "dual_hands_object_tracking_command"},
             noise=Unoise(n_min=-0.01, n_max=0.01),
         )
-        object_position_e = ObsTerm(
-            func=mdp.object_position_e,
-            params={"command_name": "dual_hands_object_tracking_command"},
-            noise=Unoise(n_min=-0.01, n_max=0.01),
-        )
+        # object_position_e = ObsTerm(
+        #     func=mdp.object_position_e,
+        #     params={"command_name": "dual_hands_object_tracking_command"},
+        #     noise=Unoise(n_min=-0.01, n_max=0.01),
+        # )
         object_orientation_e = ObsTerm(
             func=mdp.object_orientation_e,
             params={"command_name": "dual_hands_object_tracking_command"},
@@ -175,10 +184,10 @@ class ObservationsCfg:
             params={"command_name": "dual_hands_object_tracking_command"},
         )
 
-        object_p_fingertip = ObsTerm(
-            func=mdp.object_p_fingertip,
-            params={"command_name": "dual_hands_object_tracking_command"},
-        )
+        # object_p_fingertip = ObsTerm(
+        #     func=mdp.object_p_fingertip,
+        #     params={"command_name": "dual_hands_object_tracking_command"},
+        # )
 
         command = ObsTerm(
             func=isaac_mdp.generated_commands,
@@ -186,6 +195,12 @@ class ObservationsCfg:
         )
 
         actions = ObsTerm(func=isaac_mdp.last_action)
+        prev_right_actions = ObsTerm(
+            func=mdp.prev_action, params={"action_name": "right_joint_residual_action"}
+        )
+        prev_left_actions = ObsTerm(
+            func=mdp.prev_action, params={"action_name": "left_joint_residual_action"}
+        )
 
         def __post_init__(self) -> None:
             """Post initialization."""
@@ -232,7 +247,7 @@ class EventCfg:
             "asset_cfg": SceneEntityCfg("object", body_names=".*"),
             "static_friction_range": (0.99, 1.01),
             "dynamic_friction_range": (0.99, 1.01),
-            "restitution_range": (0.1, 0.1),
+            "restitution_range": (0.0, 0.0),
             "num_buckets": 64,
         },
     )
@@ -242,10 +257,10 @@ class EventCfg:
 class RewardsCfg:
     """Reward terms for the MDP."""
 
-    action_rate_l2 = RewTerm(func=isaac_mdp.action_rate_l2, weight=-1e-5)
+    action_rate_l2 = RewTerm(func=isaac_mdp.action_rate_l2, weight=-5e-4)
     action_l1 = RewTerm(
         func=mdp.action_norm,
-        weight=-0.001,
+        weight=-5e-3,
         params={
             "action_names": [
                 "right_joint_residual_action",
@@ -267,10 +282,10 @@ class RewardsCfg:
 
     object_keypoints_tracking_exp = RewTerm(
         func=mdp.object_keypoints_tracking_exp,
-        weight=10.0,
+        weight=1.0,
         params={
             "command_name": "dual_hands_object_tracking_command",
-            "var": 0.05,
+            "var": 0.1,
         },
     )
 
@@ -280,31 +295,51 @@ class RewardsCfg:
         params={
             "command_name": "dual_hands_object_tracking_command",
             "var": 0.05,
+            "threshold": 0.02,  # FIXME: Need to be 0 during tracking training
         },
     )
 
-    # hand_joint_pos_tracking_exp = RewTerm(
-    #     func=mdp.hand_joint_pos_tracking_exp,
-    #     weight=1.0,
-    #     params={
-    #         "command_name": "dual_hands_object_tracking_command",
-    #         "var": 0.05,
-    #     },
-    # )
+    hand_joint_pos_tracking_exp = RewTerm(
+        func=mdp.hand_joint_pos_tracking_exp,
+        weight=0.0,
+        params={
+            "command_name": "dual_hands_object_tracking_command",
+            "var": 0.05,
+        },
+    )
 
     termination_penalty = RewTerm(
         func=mdp.termination_penalty,
         weight=-300.0,
     )
 
-    # Contact tracking (chamfer) reward; enable when contact_links are loaded in command
+    # Contact tracking (chamfer) reward
     contact_tracking = RewTerm(
         func=mdp.contact_tracking_reward,
         weight=1.0,
         params={
             "command_name": "dual_hands_object_tracking_command",
-            "contact_beta": 30.0,
+            "var": 0.03,
             "mask_zero_contact": True,
+        },
+    )
+
+    contact_force = RewTerm(
+        func=mdp.contact_force_reward,
+        weight=1.0,
+        params={
+            "command_name": "dual_hands_object_tracking_command",
+            "var": 1.0,
+            "threshold": 2.0,
+        },
+    )
+
+    contact_force_rate = RewTerm(
+        func=mdp.contact_force_rate_reward,
+        weight=0.25,
+        params={
+            "command_name": "dual_hands_object_tracking_command",
+            "var": 1.0,
         },
     )
 
@@ -349,7 +384,8 @@ class TerminationsCfg:
         func=mdp.object_away_from_trajectory,
         params={
             "command_name": "dual_hands_object_tracking_command",
-            "threshold": 0.15,
+            "position_threshold": 0.15,
+            "orientation_threshold": 0.7,
         },
     )
 
@@ -388,7 +424,7 @@ class V2PHandEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the locomotion velocity-tracking environment."""
 
     # Scene settings
-    scene: V2PSceneCfg = V2PSceneCfg(num_envs=4096, env_spacing=2.0)
+    scene: V2PSceneCfg = V2PSceneCfg(num_envs=4096, env_spacing=1.5)
     # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
@@ -397,7 +433,7 @@ class V2PHandEnvCfg(ManagerBasedRLEnvCfg):
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
-    curriculum: CurriculumCfg = CurriculumCfg()
+    # curriculum: CurriculumCfg = CurriculumCfg()
 
     def __post_init__(self) -> None:
         """Post initialization."""
@@ -405,7 +441,7 @@ class V2PHandEnvCfg(ManagerBasedRLEnvCfg):
         # general settings
         self.decimation = 4
         self.episode_length_s = (
-            5.92  # FIXME: should be determined by the command length
+            41.4  # FIXME: should be determined by the command length
         )
         # simulation settings
         self.sim.dt = 0.005
@@ -414,10 +450,12 @@ class V2PHandEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.physx.gpu_max_rigid_patch_count = 17 * 2**15
 
         # Make the environment more compliant
-        self.sim.physics_material.compliant_contact_stiffness = 100.0
-        self.sim.physics_material.compliant_contact_damping = 10.0
+        self.sim.physics_material.compliant_contact_stiffness = 10.0
+        self.sim.physics_material.compliant_contact_damping = 1.0
 
-        # # viewer settings
-        # self.viewer.eye = (1.5, 1.5, 1.5)
-        # self.viewer.origin_type = "asset_root"
-        # self.viewer.asset_name = None
+        # viewer settings
+        self.viewer.eye = (1.5, 1.5, 2.5)
+        self.viewer.lookat = (0.0, 0.0, 1.5)
+        # self.viewer.resolution = (3840, 2160)
+        self.viewer.origin_type = "env"
+        self.viewer.env_index = 6

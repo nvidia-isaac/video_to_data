@@ -25,7 +25,7 @@ from tqdm import tqdm
 
 from robotic_grounding.retarget.contact_utils import (
     approximate_contact_with_id,
-    find_link_contact_positions,
+    compute_hand_link_contact_positions,
     find_object_contact_positions,
 )
 from robotic_grounding.retarget.data_logger import ManoSharpaData
@@ -33,7 +33,7 @@ from robotic_grounding.retarget.params import MANO_HAND_LINKS, NUM_MANO_LINKS
 from robotic_grounding.retarget.read_mano import MANO
 from robotic_grounding.retarget.retarget_utils import (
     DEFAULT_PARTITION_COLS,
-    compute_tips_distance_for_mesh,
+    compute_tip_to_object_surface_distance,
 )
 
 
@@ -57,8 +57,9 @@ class FrameObjectPoses:
     object_root_axis_angle: list[float]
     object_root_position: list[float]
     object_articulation: float
-    tips_verts: torch.Tensor | None = None
-    tips_faces: torch.Tensor | None = None
+    object_surface_points_world: torch.Tensor
+    object_surface_normals_world: torch.Tensor
+    object_surface_points_part_ids: torch.Tensor
 
 
 def poses_to_root_position_and_axis_angle(
@@ -81,13 +82,22 @@ def load_meshes_to_device(
     mesh_paths: dict[str, str],
     device: torch.device,
     vertex_scale: float = 1.0,
-) -> tuple[dict[str, Any], dict[str, torch.Tensor], dict[str, torch.Tensor], bool]:
+    num_surface_points: int = 4096,
+) -> tuple[
+    dict[str, Any],
+    dict[str, torch.Tensor],
+    dict[str, torch.Tensor],
+    dict[str, torch.Tensor],
+    dict[str, torch.Tensor],
+    bool,
+]:
     """Load trimesh objects by part name, convert verts/faces to device tensors.
 
     Args:
         mesh_paths: Mapping of part name to mesh file path.
         device: Target device for tensors.
         vertex_scale: Factor to scale vertex positions (e.g. 0.01 for cm->m).
+        num_surface_points: Number of surface points to sample per part.
 
     Returns:
         (meshes, verts, faces, compute_tips_dist) -- meshes is the raw trimesh
@@ -97,7 +107,10 @@ def load_meshes_to_device(
     meshes: dict[str, Any] = {}
     verts: dict[str, torch.Tensor] = {}
     faces: dict[str, torch.Tensor] = {}
+    surface_points: dict[str, torch.Tensor] = {}
+    surface_normals: dict[str, torch.Tensor] = {}
     compute_tips_dist = True
+
     for part, path_str in mesh_paths.items():
         path = Path(path_str)
         if not path.exists():
@@ -112,21 +125,32 @@ def load_meshes_to_device(
         meshes[part] = mesh
         verts[part] = torch.from_numpy(mesh.vertices).float().to(device)
         faces[part] = torch.from_numpy(mesh.faces).long().to(device)
-    return meshes, verts, faces, compute_tips_dist
+
+        pts, face_idx = trimesh.sample.sample_surface_even(mesh, num_surface_points)
+        surface_points[part] = torch.from_numpy(pts).float().to(device)
+        part_normals = (
+            torch.from_numpy(mesh.face_normals[face_idx]).float().to(device)
+        )  # point outward
+        part_normals = part_normals / torch.norm(
+            part_normals, dim=-1, keepdim=True
+        ).clamp(min=1e-6)
+        surface_normals[part] = -part_normals  # point inward
+
+    return meshes, verts, faces, surface_points, surface_normals, compute_tips_dist
 
 
-def build_combined_world_mesh(
-    object_mesh_verts: dict[str, torch.Tensor],
-    object_mesh_faces: dict[str, torch.Tensor],
+def build_combined_object_surface(
+    object_surface_points: dict[str, torch.Tensor],
+    object_surface_normals: dict[str, torch.Tensor],
     body_names: list[str],
     world_transforms: list[np.ndarray],
     device: torch.device,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Combine per-body meshes transformed to world frame for tips-distance.
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Combine per-body surface points and normals transformed to world frame.
 
     Args:
-        object_mesh_verts: Vertices per body name (on device).
-        object_mesh_faces: Faces per body name (on device).
+        object_surface_points: Surface points per body name (on device).
+        object_surface_normals: Surface normals per body name (on device).
         body_names: Order of bodies (must match world_transforms).
         world_transforms: List of 4x4 world matrices, one per body in body_names order.
         device: Target device for output tensors.
@@ -136,20 +160,28 @@ def build_combined_world_mesh(
         combined_faces: (F, 3) face indices with offset for concatenated verts.
     """
     all_verts: list[torch.Tensor] = []
-    all_faces: list[torch.Tensor] = []
-    offset = 0
-    for name, T in zip(body_names, world_transforms, strict=True):
-        if name not in object_mesh_verts or name not in object_mesh_faces:
+    all_normals: list[torch.Tensor] = []
+    all_part_ids: list[torch.Tensor] = []
+    for body_idx, (name, T) in enumerate(
+        zip(body_names, world_transforms, strict=True)
+    ):
+        if name not in object_surface_points or name not in object_surface_normals:
             continue
         R_mat = torch.from_numpy(np.asarray(T)[:3, :3]).float().to(device)
         t_vec = torch.from_numpy(np.asarray(T)[:3, 3]).float().to(device)
-        verts = (R_mat @ object_mesh_verts[name].T).T + t_vec
+        verts = (R_mat @ object_surface_points[name].T).T + t_vec
+        normals = (R_mat @ object_surface_normals[name].T).T
+        part_ids = torch.full((verts.shape[0],), body_idx + 1, device=device)
         all_verts.append(verts)
-        all_faces.append(object_mesh_faces[name] + offset)
-        offset += verts.shape[0]
+        all_normals.append(normals)
+        all_part_ids.append(part_ids)
     if not all_verts:
         raise ValueError("No mesh parts found to combine")
-    return torch.cat(all_verts, dim=0), torch.cat(all_faces, dim=0)
+    return (
+        torch.cat(all_verts, dim=0),
+        torch.cat(all_normals, dim=0),
+        torch.cat(all_part_ids, dim=0),
+    )
 
 
 class DatasetLoaderBase(ABC):
@@ -199,6 +231,8 @@ class DatasetLoaderBase(ABC):
         dict[str, Any],
         dict[str, torch.Tensor],
         dict[str, torch.Tensor],
+        dict[str, torch.Tensor],
+        dict[str, torch.Tensor],
         bool,
     ]:
         """Load object part meshes.
@@ -207,6 +241,8 @@ class DatasetLoaderBase(ABC):
             object_mesh_meshes: trimesh (or Scene) per part, for visualization.
             object_mesh_verts: vertices per part on device.
             object_mesh_faces: faces per part on device.
+            object_surface_points: surface points per part.
+            object_surface_normals: surface normals per part.
             compute_tips_dist: whether tips-distance can be computed.
         """
         ...
@@ -215,8 +251,8 @@ class DatasetLoaderBase(ABC):
         self,
         frame_id: int,
         object_data: dict[str, Any],
-        object_mesh_verts: dict[str, torch.Tensor],
-        object_mesh_faces: dict[str, torch.Tensor],
+        object_surface_points: dict[str, torch.Tensor],
+        object_surface_normals: dict[str, torch.Tensor],
         device: torch.device,
     ) -> FrameObjectPoses:
         """Compute per-body world poses and optional combined mesh for one frame.
@@ -235,16 +271,17 @@ class DatasetLoaderBase(ABC):
 
         _pose, root_position, root_axis_angle, articulation = object_data[body_names[0]]
 
-        tips_verts = None
-        tips_faces = None
-        if all(name in object_mesh_verts for name in body_names):
-            tips_verts, tips_faces = build_combined_world_mesh(
-                object_mesh_verts,
-                object_mesh_faces,
-                body_names,
-                world_transforms,
-                device,
-            )
+        (
+            object_surface_points_world,
+            object_surface_normals_world,
+            object_surface_points_part_ids,
+        ) = build_combined_object_surface(
+            object_surface_points,
+            object_surface_normals,
+            body_names,
+            world_transforms,
+            device,
+        )
 
         return FrameObjectPoses(
             object_body_position=object_body_position,
@@ -254,8 +291,9 @@ class DatasetLoaderBase(ABC):
             object_articulation=(
                 float(articulation[frame_id]) if articulation is not None else 0.0
             ),
-            tips_verts=tips_verts,
-            tips_faces=tips_faces,
+            object_surface_points_world=object_surface_points_world,
+            object_surface_normals_world=object_surface_normals_world,
+            object_surface_points_part_ids=object_surface_points_part_ids,
         )
 
     @abstractmethod
@@ -295,6 +333,7 @@ class DatasetLoaderBase(ABC):
         mano_kwargs = self.get_mano_kwargs()
         mano = MANO(gender="neutral", device=device, **mano_kwargs)
         viser_object_handles: dict[str, Any] = {}
+        viser_contact_handles: list[Any] = []
 
         for sequence_info in tqdm(sequences):
             try:
@@ -313,18 +352,12 @@ class DatasetLoaderBase(ABC):
 
             (
                 object_mesh_meshes,
-                object_mesh_verts,
-                object_mesh_faces,
+                _object_mesh_verts,
+                _object_mesh_faces,
+                object_surface_points,
+                object_surface_normals,
                 compute_tips_dist,
             ) = self.load_object_meshes(sequence_info, device)
-
-            object_surface_points: dict[str, np.ndarray] = {}
-            for part in sequence_info.object_body_names:
-                if part in object_mesh_meshes:
-                    pts, _ = trimesh.sample.sample_surface_even(
-                        object_mesh_meshes[part], 2048
-                    )
-                    object_surface_points[part] = np.asarray(pts)
 
             if args.visualize and viser_server is not None:
                 for handle in viser_object_handles.values():
@@ -344,6 +377,16 @@ class DatasetLoaderBase(ABC):
                     )
 
             if args.save:
+                object_mesh_radius = [
+                    (
+                        object_surface_points[body_name]
+                        - object_surface_points[body_name].mean(dim=0)
+                    )
+                    .norm(dim=1)
+                    .max()
+                    .item()
+                    for body_name in sequence_info.object_body_names
+                ]
                 logger_data = ManoSharpaData(
                     sequence_id=sequence_info.sequence_id,
                     raw_motion_file=sequence_info.raw_motion_file,
@@ -352,9 +395,9 @@ class DatasetLoaderBase(ABC):
                     fps=self.get_fps(),
                     mano_flat_hand_mean=mano_kwargs.get("flat_hand_mean", True),
                     mano_center_idx=mano_kwargs.get("center_idx", None),
-                    mano_to_robot_scale=args.mano_to_robot_scale,
                     mano_right_betas=raw_data["right_betas"].tolist(),
                     mano_left_betas=raw_data["left_betas"].tolist(),
+                    mano_to_robot_scale=None,
                     right_robot_finger_joint_names=[],
                     right_robot_frame_names=[],
                     right_robot_frame_task_names=[],
@@ -363,6 +406,7 @@ class DatasetLoaderBase(ABC):
                     left_robot_frame_task_names=[],
                     object_body_names=sequence_info.object_body_names,
                     object_mesh_paths=self.get_object_mesh_paths(sequence_info),
+                    object_mesh_radius=object_mesh_radius,
                     mano_link_names=list(MANO_HAND_LINKS.keys()),
                 )
 
@@ -387,8 +431,8 @@ class DatasetLoaderBase(ABC):
                 frame_poses = self.get_frame_object_poses(
                     frame_id,
                     object_data,
-                    object_mesh_verts,
-                    object_mesh_faces,
+                    object_surface_points,
+                    object_surface_normals,
                     device,
                 )
 
@@ -422,75 +466,104 @@ class DatasetLoaderBase(ABC):
                 tips_dist: dict[str, Any] = {}
                 if (
                     compute_tips_dist
-                    and frame_poses.tips_verts is not None
-                    and frame_poses.tips_faces is not None
+                    and frame_poses.object_surface_points_world is not None
                 ):
                     for side in ("right", "left"):
-                        tips_dist[side] = compute_tips_distance_for_mesh(
+                        tips_dist[side] = compute_tip_to_object_surface_distance(
                             joints[side],
-                            frame_poses.tips_verts,
-                            frame_poses.tips_faces,
+                            frame_poses.object_surface_points_world,
                         )
 
-                contact_data: dict[str, tuple[np.ndarray, np.ndarray]] = {}
-                body_names = list(object_data.keys())
-                obj_verts_world_parts: list[np.ndarray] = []
-                obj_part_ids_parts: list[np.ndarray] = []
-                for body_idx, name in enumerate(body_names):
-                    if name not in object_surface_points:
-                        continue
-                    world_t = object_data[name][0][frame_id]
-                    pts_local = object_surface_points[name]
-                    pts_world = (pts_local @ world_t[:3, :3].T) + world_t[:3, 3]
-                    obj_verts_world_parts.append(pts_world)
-                    obj_part_ids_parts.append(np.full(pts_world.shape[0], body_idx + 1))
-
-                if obj_verts_world_parts:
-                    obj_verts_world = np.vstack(obj_verts_world_parts)
-                    obj_part_ids = np.concatenate(obj_part_ids_parts)
+                # Compute contact positions on hand links, object surface, contact normals, and part ids.
+                contact_data: dict[str, dict[str, torch.Tensor]] = {}
+                if frame_poses.object_surface_points_world is not None:
+                    for handle in viser_contact_handles:
+                        handle.remove()
+                    viser_contact_handles.clear()
                     for side in ("right", "left"):
-                        hand_verts = (
-                            mano_results[side]["vertices"][frame_id].cpu().numpy()
-                        )
-                        joints_np = joints[side].cpu().numpy()
-                        _, contacts_on_hand = approximate_contact_with_id(
-                            obj_verts_world,
-                            obj_part_ids,
+                        hand_verts = mano_results[side]["vertices"][frame_id]
+                        (
+                            _,
+                            _,
+                            object_contact_part_ids,
+                            hand_contact_points_world,
+                            contact_dists,
+                        ) = approximate_contact_with_id(
+                            frame_poses.object_surface_points_world,
+                            frame_poses.object_surface_normals_world,
+                            frame_poses.object_surface_points_part_ids,
                             hand_verts,
                             threshold=0.01,
                         )
-                        link_contacts = np.zeros((NUM_MANO_LINKS, 4))
-                        obj_contacts = np.zeros((NUM_MANO_LINKS, 4))
-                        if contacts_on_hand.shape[0] > 0:
-                            link_contacts = np.asarray(
-                                find_link_contact_positions(contacts_on_hand, joints_np)
+                        # Reduce the number of contacts to NUM_MANO_LINKS by averaging the contacts on the same link.
+                        hand_link_contact_positions = torch.zeros(
+                            (NUM_MANO_LINKS, 3), device=device
+                        )
+                        object_contact_positions = torch.zeros(
+                            (NUM_MANO_LINKS, 3), device=device
+                        )
+                        object_contact_normals = torch.zeros(
+                            (NUM_MANO_LINKS, 3), device=device
+                        )
+                        hand_link_contact_part_ids = torch.zeros(
+                            (NUM_MANO_LINKS,), device=device
+                        )
+                        if len(contact_dists) > 0:
+                            hand_link_contact_positions, hand_link_contact_part_ids = (
+                                compute_hand_link_contact_positions(
+                                    joints[side],
+                                    object_contact_part_ids,
+                                    hand_contact_points_world,
+                                    contact_dists,
+                                )
                             )
-                            obj_contacts = find_object_contact_positions(
-                                link_contacts, obj_verts_world, obj_part_ids
+                            object_contact_positions, object_contact_normals = (
+                                find_object_contact_positions(
+                                    hand_link_contact_positions,
+                                    frame_poses.object_surface_points_world,
+                                    frame_poses.object_surface_normals_world,
+                                )
                             )
-                        contact_data[side] = (link_contacts, obj_contacts)
+
+                            if args.visualize and viser_server is not None:
+                                for link_idx in range(NUM_MANO_LINKS):
+                                    if object_contact_positions[link_idx].norm() < 1e-3:
+                                        continue
+                                    object_contact_handle = (
+                                        viser_server.scene.add_icosphere(
+                                            name=f"/object/contacts/{side}/{link_idx}",
+                                            position=object_contact_positions[link_idx]
+                                            .cpu()
+                                            .numpy(),
+                                            radius=0.003,
+                                            color=np.array([0, 0, 255]),
+                                        )
+                                    )
+                                    viser_contact_handles.append(object_contact_handle)
+                                    hand_link_contact_handle = (
+                                        viser_server.scene.add_icosphere(
+                                            name=f"/mano/{side}/contacts/{link_idx}",
+                                            position=hand_link_contact_positions[
+                                                link_idx
+                                            ]
+                                            .cpu()
+                                            .numpy(),
+                                            radius=0.003,
+                                            color=np.array([0, 255, 0]),
+                                        )
+                                    )
+                                    viser_contact_handles.append(
+                                        hand_link_contact_handle
+                                    )
+
+                        contact_data[side] = {
+                            "hand_link_contact_positions": hand_link_contact_positions,
+                            "object_contact_positions": object_contact_positions,
+                            "object_contact_normals": object_contact_normals,
+                            "hand_link_contact_part_ids": hand_link_contact_part_ids,
+                        }
 
                 if args.save:
-                    right_link = (
-                        contact_data["right"][0].tolist()
-                        if "right" in contact_data
-                        else None
-                    )
-                    right_obj = (
-                        contact_data["right"][1].tolist()
-                        if "right" in contact_data
-                        else None
-                    )
-                    left_link = (
-                        contact_data["left"][0].tolist()
-                        if "left" in contact_data
-                        else None
-                    )
-                    left_obj = (
-                        contact_data["left"][1].tolist()
-                        if "left" in contact_data
-                        else None
-                    )
                     logger_data.log_timestep(
                         mano_right_trans=raw_data["right_trans"][frame_id]
                         .cpu()
@@ -509,8 +582,26 @@ class DatasetLoaderBase(ABC):
                         .cpu()
                         .item(),
                         mano_right_tips_distance=tips_dist.get("right"),
-                        mano_right_link_contact_positions=right_link,
-                        mano_right_object_contact_positions=right_obj,
+                        mano_right_link_contact_positions=contact_data["right"][
+                            "hand_link_contact_positions"
+                        ]
+                        .cpu()
+                        .tolist(),
+                        mano_right_object_contact_positions=contact_data["right"][
+                            "object_contact_positions"
+                        ]
+                        .cpu()
+                        .tolist(),
+                        mano_right_object_contact_normals=contact_data["right"][
+                            "object_contact_normals"
+                        ]
+                        .cpu()
+                        .tolist(),
+                        mano_right_object_contact_part_ids=contact_data["right"][
+                            "hand_link_contact_part_ids"
+                        ]
+                        .cpu()
+                        .tolist(),
                         mano_left_trans=raw_data["left_trans"][frame_id].cpu().tolist(),
                         mano_left_global_orient=raw_data["left_global_orient"][frame_id]
                         .cpu()
@@ -524,8 +615,26 @@ class DatasetLoaderBase(ABC):
                         .cpu()
                         .item(),
                         mano_left_tips_distance=tips_dist.get("left"),
-                        mano_left_link_contact_positions=left_link,
-                        mano_left_object_contact_positions=left_obj,
+                        mano_left_link_contact_positions=contact_data["left"][
+                            "hand_link_contact_positions"
+                        ]
+                        .cpu()
+                        .tolist(),
+                        mano_left_object_contact_positions=contact_data["left"][
+                            "object_contact_positions"
+                        ]
+                        .cpu()
+                        .tolist(),
+                        mano_left_object_contact_normals=contact_data["left"][
+                            "object_contact_normals"
+                        ]
+                        .cpu()
+                        .tolist(),
+                        mano_left_object_contact_part_ids=contact_data["left"][
+                            "hand_link_contact_part_ids"
+                        ]
+                        .cpu()
+                        .tolist(),
                         object_articulation=frame_poses.object_articulation,
                         object_root_axis_angle=frame_poses.object_root_axis_angle,
                         object_root_position=frame_poses.object_root_position,

@@ -72,14 +72,26 @@ MANO_FIELDS: list[FieldSpec] = [
     ),
     (
         "mano_right_link_contact_positions",
-        pa.list_(pa.list_(pa.list_(pa.float32(), 4), 16)),
+        pa.list_(pa.list_(pa.list_(pa.float32(), 3), 16)),
         list[list[list[float]]],
         True,
     ),
     (
         "mano_right_object_contact_positions",
-        pa.list_(pa.list_(pa.list_(pa.float32(), 4), 16)),
+        pa.list_(pa.list_(pa.list_(pa.float32(), 3), 16)),
         list[list[list[float]]],
+        True,
+    ),
+    (
+        "mano_right_object_contact_normals",
+        pa.list_(pa.list_(pa.list_(pa.float32(), 3), 16)),
+        list[list[list[float]]],
+        True,
+    ),
+    (
+        "mano_right_object_contact_part_ids",
+        pa.list_(pa.list_(pa.int32(), 16)),
+        list[list[int]],
         True,
     ),
     # MANO left hand (time series)
@@ -117,14 +129,26 @@ MANO_FIELDS: list[FieldSpec] = [
     ),
     (
         "mano_left_link_contact_positions",
-        pa.list_(pa.list_(pa.list_(pa.float32(), 4), 16)),
+        pa.list_(pa.list_(pa.list_(pa.float32(), 3), 16)),
         list[list[list[float]]],
         True,
     ),
     (
         "mano_left_object_contact_positions",
-        pa.list_(pa.list_(pa.list_(pa.float32(), 4), 16)),
+        pa.list_(pa.list_(pa.list_(pa.float32(), 3), 16)),
         list[list[list[float]]],
+        True,
+    ),
+    (
+        "mano_left_object_contact_normals",
+        pa.list_(pa.list_(pa.list_(pa.float32(), 3), 16)),
+        list[list[list[float]]],
+        True,
+    ),
+    (
+        "mano_left_object_contact_part_ids",
+        pa.list_(pa.list_(pa.int32(), 16)),
+        list[list[int]],
         True,
     ),
 ]
@@ -332,6 +356,7 @@ OBJECT_FIELDS: list[FieldSpec] = [
     ("object_name", pa.string(), str, False),
     ("object_body_names", pa.list_(pa.string()), list[str], False),
     ("object_mesh_paths", pa.list_(pa.string()), list[str], False),
+    ("object_mesh_radius", pa.list_(pa.float32()), list[float], False),
     # Time series
     ("object_articulation", pa.list_(pa.float32()), list[float], True),
     (

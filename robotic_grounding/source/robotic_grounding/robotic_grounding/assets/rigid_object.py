@@ -24,12 +24,12 @@ RIGID_OBJECT_CFG = RigidObjectCfg(
             disable_gravity=False,
             retain_accelerations=False,
             enable_gyroscopic_forces=False,
-            linear_damping=0.0,
-            angular_damping=0.0,
+            linear_damping=0.01,
+            angular_damping=0.01,
             max_linear_velocity=1000.0,
             max_angular_velocity=64 / math.pi * 180.0,
-            max_depenetration_velocity=5.0,
-            max_contact_impulse=1e4,
+            max_depenetration_velocity=1.0,
+            max_contact_impulse=1e3,
         ),
         joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
             gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(
@@ -38,7 +38,7 @@ RIGID_OBJECT_CFG = RigidObjectCfg(
         ),
         collision_props=sim_utils.CollisionPropertiesCfg(
             contact_offset=0.001,
-            rest_offset=-0.0005,
+            rest_offset=0.0,
         ),
         collider_type="convex_hull",
     ),

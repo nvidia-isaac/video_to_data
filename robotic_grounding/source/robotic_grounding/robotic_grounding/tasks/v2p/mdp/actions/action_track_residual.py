@@ -65,11 +65,8 @@ class JointResidualWithTrackingAction(ActionTerm):
             self.finger_joint_ids = self.command.right_finger_joint_ids
             self._wrist_position_e = lambda: self.command.right_hand_wrist_position_e
             self._wrist_wxyz_e = lambda: self.command.right_hand_wrist_wxyz_e
-            self._wrist_position_command_e = (
-                lambda: self.command.right_hand_wrist_position_command_e
-            )
-            self._wrist_wxyz_command_e = (
-                lambda: self.command.right_hand_wrist_wxyz_command_e
+            self._wrist_pose_command_e = (
+                lambda: self.command.right_hand_wrist_pose_command_e
             )
             self._finger_joint_pos_command = (
                 lambda: self.command.right_hand_finger_joint_pos_command
@@ -81,11 +78,8 @@ class JointResidualWithTrackingAction(ActionTerm):
             self.finger_joint_ids = self.command.left_finger_joint_ids
             self._wrist_position_e = lambda: self.command.left_hand_wrist_position_e
             self._wrist_wxyz_e = lambda: self.command.left_hand_wrist_wxyz_e
-            self._wrist_position_command_e = (
-                lambda: self.command.left_hand_wrist_position_command_e
-            )
-            self._wrist_wxyz_command_e = (
-                lambda: self.command.left_hand_wrist_wxyz_command_e
+            self._wrist_pose_command_e = (
+                lambda: self.command.left_hand_wrist_pose_command_e
             )
             self._finger_joint_pos_command = (
                 lambda: self.command.left_hand_finger_joint_pos_command
@@ -119,6 +113,13 @@ class JointResidualWithTrackingAction(ActionTerm):
         scale_tensor[:, 3:6] = cfg.wrist_orientation_scale
         scale_tensor[:, 6:] = cfg.finger_joint_scale
         self._scale: torch.Tensor = scale_tensor
+
+        # Parse clip
+        clip_tensor = torch.ones(self.num_envs, self.action_dim, device=self.device)
+        clip_tensor[:, :3] = cfg.wrist_position_clip
+        clip_tensor[:, 3:6] = cfg.wrist_orientation_clip
+        clip_tensor[:, 6:] = cfg.finger_joint_clip
+        self._clip: torch.Tensor = clip_tensor
 
         # Parse EMA decay factor
         self.ema_factor = float(cfg.ema_factor)
@@ -212,19 +213,20 @@ class JointResidualWithTrackingAction(ActionTerm):
         """Process the actions."""
         # 1. Store the raw actions from the policy
         self._raw_actions[:] = actions
+        wrist_pose_command_e = self._wrist_pose_command_e()
+        wrist_position_command_e = wrist_pose_command_e[:, :3]
+        wrist_orientation_command_e = wrist_pose_command_e[:, 3:]
 
         # 2. Scale, filter and clip the actions
         actions = (
             self.ema_factor * self.prev_actions
             + (1 - self.ema_factor) * actions * self._scale
         )
-        actions = torch.clamp(actions, min=-self._scale, max=self._scale)
+        actions = torch.clamp(actions, min=-self._clip, max=self._clip)
         self.prev_actions[:] = actions
 
         # 3. Compute tracking target for wrist position
-        self._processed_actions[:, :3] = (
-            self._wrist_position_command_e() + actions[:, :3]
-        )
+        self._processed_actions[:, :3] = wrist_position_command_e + actions[:, :3]
 
         # 4. Compute tracking target for wrist orientation
         wrist_orientation_residual = math_utils.quat_from_euler_xyz(
@@ -233,7 +235,7 @@ class JointResidualWithTrackingAction(ActionTerm):
             actions[:, 5],
         )
         self._processed_actions[:, 3:7] = math_utils.quat_mul(
-            self._wrist_wxyz_command_e(),
+            wrist_orientation_command_e,
             wrist_orientation_residual,
         )
 

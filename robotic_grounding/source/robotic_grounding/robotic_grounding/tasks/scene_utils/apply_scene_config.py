@@ -81,7 +81,7 @@ def apply_scene_config(env_cfg: Any, scene_config: SceneConfig) -> Any:
                 solver_velocity_iteration_count=1,
                 max_angular_velocity=1000.0,
                 max_linear_velocity=1000.0,
-                max_depenetration_velocity=5.0,
+                max_depenetration_velocity=1.0,
                 disable_gravity=False,
             ),
             activate_contact_sensors=True,

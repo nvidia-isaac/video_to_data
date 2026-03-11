@@ -35,7 +35,7 @@
       <!-- <collision>
          <origin rpy="3.12800675 -0.00406249 -0.84320163" xyz="0.07792191 0.10298064 0.07519067"/>
          <geometry>
-            <box size="0.11 0.255 0.34"/>
+            <box size="0.01 0.01 0.01"/>
          </geometry>
       </collision> -->
    </link>

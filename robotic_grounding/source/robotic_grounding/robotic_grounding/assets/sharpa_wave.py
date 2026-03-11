@@ -70,12 +70,12 @@ rigid_props = sim_utils.RigidBodyPropertiesCfg(
     disable_gravity=False,
     retain_accelerations=False,
     enable_gyroscopic_forces=False,
-    linear_damping=0.0,
-    angular_damping=0.0,
+    linear_damping=0.01,
+    angular_damping=0.01,
     max_linear_velocity=1000.0,
     max_angular_velocity=64 / math.pi * 180.0,
     max_depenetration_velocity=1.0,
-    max_contact_impulse=1e4,
+    max_contact_impulse=1e3,
 )
 
 articulation_props = sim_utils.ArticulationRootPropertiesCfg(

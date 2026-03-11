@@ -272,6 +272,23 @@ def wrist_orientation_e(env: ManagerBasedEnv, command_name: str) -> torch.Tensor
     )
 
 
+def wrist_velocity_b(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
+    """Wrist velocity in the body frame.
+
+    Args:
+        env: The environment instance.
+        command_name: The name of the command.
+    """
+    command = env.command_manager.get_term(command_name)
+    return torch.cat(
+        [
+            command.right_hand_wrist_velocity_b,
+            command.left_hand_wrist_velocity_b,
+        ],
+        dim=-1,
+    ).float()
+
+
 def object_position_e(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
     """Object position in the environment frame.
 
@@ -370,3 +387,11 @@ def object_p_fingertip(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
         ],
         dim=-1,
     ).float()
+
+
+def prev_action(env: ManagerBasedEnv, action_name: str) -> torch.Tensor:
+    """The previous actions to the environment.
+
+    The name of the action term for which the action is required.
+    """
+    return env.action_manager.get_term(action_name).prev_actions

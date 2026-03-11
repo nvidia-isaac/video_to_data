@@ -223,3 +223,31 @@ class DualHandsObjectTrackingCommandCfg(CommandTermCfg):
         },
     )
     """Visualizer for current contact link positions. """
+
+    target_fingertip_position_visualizer_cfg: VisualizationMarkersCfg = (
+        VisualizationMarkersCfg(
+            prim_path="/Visuals/Command/TargetFingertip",
+            markers={
+                "sphere": sim_utils.SphereCfg(
+                    radius=0.005,
+                    visual_material=sim_utils.PreviewSurfaceCfg(
+                        diffuse_color=(1.0, 0.0, 0.0)
+                    ),
+                ),
+            },
+        )
+    )
+
+    current_fingertip_position_visualizer_cfg: VisualizationMarkersCfg = (
+        VisualizationMarkersCfg(
+            prim_path="/Visuals/Command/CurrentFingertip",
+            markers={
+                "sphere": sim_utils.SphereCfg(
+                    radius=0.005,
+                    visual_material=sim_utils.PreviewSurfaceCfg(
+                        diffuse_color=(0.0, 1.0, 0.0)
+                    ),
+                ),
+            },
+        )
+    )

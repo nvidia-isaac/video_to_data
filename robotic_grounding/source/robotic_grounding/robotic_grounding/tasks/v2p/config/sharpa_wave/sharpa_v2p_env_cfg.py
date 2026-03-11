@@ -100,14 +100,16 @@ class SharpaV2PEnvCfg(V2PHandEnvCfg):
                     prim_path="{ENV_REGEX_NS}/Object/object",
                     track_pose=True,
                     debug_vis=False,
-                    force_threshold=0.1,
+                    force_threshold=1.0,
+                    history_length=3,
                     filter_prim_paths_expr=(
                         right_filter_prim_paths_expr
                         if side == "right"
                         else left_filter_prim_paths_expr
                     ),
                     track_contact_points=True,
-                    max_contact_data_count_per_prim=32,
+                    track_air_time=True,
+                    max_contact_data_count_per_prim=128,
                 ),
             )
             self.object_contact_sensor_names.append(sensor_name)

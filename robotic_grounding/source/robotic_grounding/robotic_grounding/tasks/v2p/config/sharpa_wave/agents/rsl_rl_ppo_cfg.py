@@ -11,8 +11,8 @@ class SharpaV2PPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     """PPO runner configuration for the Sharpa V2P environment."""
 
     num_steps_per_env = 24
-    max_iterations = 30000
-    save_interval = 500
+    max_iterations = 10000
+    save_interval = 200
     experiment_name = "sharpa_v2p"
     empirical_normalization = True
     policy = RslRlPpoActorCriticCfg(
@@ -36,4 +36,4 @@ class SharpaV2PPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         max_grad_norm=1.0,
     )
     logger = "wandb"
-    wandb_project = "v2p_hands"
+    wandb_project = "xzhu_v2p_hands"
