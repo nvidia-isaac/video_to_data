@@ -57,3 +57,4 @@ Thumbs.db
 
 # Logs
 *.log
+.venv
