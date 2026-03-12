@@ -16,7 +16,7 @@ from pathlib import Path
 
 import numpy as np
 import trimesh
-from pxr import Gf, Usd, UsdGeom
+from pxr import Gf, Usd, UsdGeom, UsdPhysics
 from robotic_grounding.retarget import HUMAN_MOTION_DATA_DIR
 from robotic_grounding.retarget.data_logger import ManoSharpaData, list_sequence_ids
 from scipy.spatial.transform import Rotation
@@ -307,6 +307,7 @@ def create_disk(
     cyl.CreateHeightAttr(height)
     cyl.CreateRadiusAttr(radius)
     cyl.CreateDisplayColorAttr([_random_pastel_color()])
+    UsdPhysics.CollisionAPI.Apply(cyl.GetPrim())
     cx, cy, cz = center
     xf = UsdGeom.Xformable(cyl.GetPrim())
     xf.AddTranslateOp().Set((cx, cy, cz - height / 2.0))
