@@ -20,6 +20,7 @@ TACO layout (see vis_taco_data.py):
 
 import argparse
 import pickle
+import random
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -78,13 +79,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--triplet",
         type=str,
-        default="(brush, brush, bowl)",
-        help='Tool-action-object triplet, e.g. "(brush, brush, bowl)".',
+        default=None,
+        help='Tool-action-object triplet, e.g. "(brush, brush, bowl)". If not set, process all triplets.',
+    )
+    parser.add_argument(
+        "--sample_triplets",
+        type=int,
+        default=None,
+        help="Randomly sample N triplets from the dataset. Only used when --triplet is not set.",
     )
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--visualize", action="store_true", default=False)
     parser.add_argument("--save", action="store_true", default=False)
-    parser.add_argument("--mano_to_robot_scale", type=float, default=1.2)
     parser.add_argument(
         "--output_dir",
         type=Path,
@@ -92,6 +98,14 @@ def parse_args() -> argparse.Namespace:
         help="Parent directory for Parquet; data written to <output_dir>.",
     )
     return parser.parse_args()
+
+
+def _list_taco_triplets(dataset_root: Path) -> list[str]:
+    """List all triplet directory names under Hand_Poses/."""
+    hand_dir = dataset_root / "Hand_Poses"
+    if not hand_dir.is_dir():
+        return []
+    return sorted([d.name for d in hand_dir.iterdir() if d.is_dir()])
 
 
 def _list_taco_sequences(dataset_root: Path, triplet: str) -> list[str]:
@@ -205,14 +219,14 @@ def _triplet_to_safe_id(triplet: str) -> str:
 class TacoDatasetLoader(DatasetLoaderBase):
     """TACO dataset loader."""
 
-    def list_sequences(self, args: Any) -> list[SequenceInfo]:
-        """List TACO sequences for the given dataset root and triplet."""
-        dataset_root = Path(args.dataset_root)
-        triplet = args.triplet
+    def _list_sequences_for_triplet(
+        self, dataset_root: Path, triplet: str
+    ) -> list[SequenceInfo]:
+        """List TACO sequences for a single triplet."""
         sequences = _list_taco_sequences(dataset_root, triplet)
         if not sequences:
             return []
-        out = []
+        out: list[SequenceInfo] = []
         for sequence in sequences:
             object_pose_dir = dataset_root / "Object_Poses" / triplet / sequence
             hand_pose_dir = dataset_root / "Hand_Poses" / triplet / sequence
@@ -226,7 +240,7 @@ class TacoDatasetLoader(DatasetLoaderBase):
             except (FileNotFoundError, ValueError):
                 continue
             N = tool_poses.shape[0]
-            sequence_id = f"{_triplet_to_safe_id(triplet)}_{sequence}"
+            sequence_id = f"taco_{_triplet_to_safe_id(triplet)}_{sequence}"
             raw_motion_file = f"{triplet}/{sequence}"
             object_name = f"{tool_name}_{target_name}"
             out.append(
@@ -246,6 +260,24 @@ class TacoDatasetLoader(DatasetLoaderBase):
                     ),
                 )
             )
+        return out
+
+    def list_sequences(self, args: Any) -> list[SequenceInfo]:
+        """List TACO sequences for the given dataset root and triplet(s).
+
+        If args.triplet is None, all triplets under Hand_Poses/ are processed.
+        """
+        dataset_root = Path(args.dataset_root)
+        if args.triplet is not None:
+            return self._list_sequences_for_triplet(dataset_root, args.triplet)
+        triplets = _list_taco_triplets(dataset_root)
+        sample_n = getattr(args, "sample_triplets", None)
+        if sample_n is not None and sample_n < len(triplets):
+            triplets = sorted(random.sample(triplets, sample_n))
+            print(f"Sampled {sample_n} triplets: {triplets}")
+        out: list[SequenceInfo] = []
+        for triplet in triplets:
+            out.extend(self._list_sequences_for_triplet(dataset_root, triplet))
         return out
 
     def load_mano_data(

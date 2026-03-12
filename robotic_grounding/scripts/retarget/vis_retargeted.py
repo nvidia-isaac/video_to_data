@@ -21,6 +21,7 @@ import numpy as np
 import torch
 import trimesh
 import viser
+from pxr import Usd, UsdGeom
 from robotic_grounding.retarget import HUMAN_MOTION_DATA_DIR
 from robotic_grounding.retarget.data_logger import ManoSharpaData, list_sequence_ids
 from robotic_grounding.retarget.hand_kinematics import HandKinematics
@@ -69,6 +70,53 @@ def load_object_meshes_from_paths(
     return handles
 
 
+def load_support_surfaces_from_usd(
+    viser_server: viser.ViserServer,
+    usd_path: Path,
+) -> dict[str, Any]:
+    """Load support-surface disks from a .usda file and add them to the viser scene.
+
+    Each ``UsdGeom.Cylinder`` prim is converted to a trimesh cylinder and rendered
+    with the ``displayColor`` stored in the USD (falls back to light-blue if absent).
+
+    Args:
+        viser_server: The running viser server.
+        usd_path: Path to the ``.usda`` file produced by ``reconstruct_support_surfaces.py``.
+
+    Returns:
+        Dict mapping prim path to the viser mesh handle.
+    """
+    stage = Usd.Stage.Open(str(usd_path))
+    handles: dict[str, Any] = {}
+    for prim in stage.Traverse():
+        if not prim.IsA(UsdGeom.Cylinder):
+            continue
+        cyl = UsdGeom.Cylinder(prim)
+        radius = cyl.GetRadiusAttr().Get()
+        height = cyl.GetHeightAttr().Get()
+        xf = UsdGeom.Xformable(prim)
+        ops = xf.GetOrderedXformOps()
+        translate = ops[0].Get() if ops else (0.0, 0.0, 0.0)
+
+        display_color = cyl.GetDisplayColorAttr().Get()
+        if display_color and len(display_color) > 0:
+            c = display_color[0]
+            rgba = [int(c[0] * 255), int(c[1] * 255), int(c[2] * 255), 180]
+        else:
+            rgba = [150, 200, 255, 160]
+
+        mesh = trimesh.creation.cylinder(radius=radius, height=height, sections=64)
+        mesh.apply_translation(translate)
+        mesh.visual.face_colors = rgba
+
+        prim_path = str(prim.GetPath())
+        handles[prim_path] = viser_server.scene.add_mesh_trimesh(
+            name=prim_path,
+            mesh=mesh,
+        )
+    return handles
+
+
 def parse_args() -> argparse.Namespace:
     """Parse the command line arguments."""
     default_input = HUMAN_MOTION_DATA_DIR / "arctic_processed"
@@ -84,8 +132,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--sequence_id",
         type=str,
-        default="arctic_s01_box_grab_01",
-        help="Sequence to visualize. If not set, use first available in input_dir.",
+        default=None,
+        help="Sequence to visualize. If not set, iterate through all sequences in input_dir.",
     )
     parser.add_argument(
         "-tid",
@@ -109,6 +157,12 @@ def parse_args() -> argparse.Namespace:
         "--visualize_fingertip_distances",
         action="store_true",
         default=False,
+    )
+    parser.add_argument(
+        "--support_usd",
+        type=Path,
+        default=None,
+        help="Explicit path to a support-surface .usda file (overrides auto-discovery).",
     )
     return parser.parse_args()
 
@@ -167,6 +221,17 @@ def run_mano_forward_from_data(
     return results
 
 
+def find_support_usd(input_dir: Path, sequence_id: str) -> Path | None:
+    """Try to find a support-surface .usda file for the given sequence.
+
+    Looks in ``<input_dir_parent>/reconstructed_stage/<sequence_id>_support.usda``.
+    """
+    candidate = input_dir.parent / "reconstructed_stage" / f"{sequence_id}_support.usda"
+    if candidate.exists():
+        return candidate
+    return None
+
+
 def visualize_one_trajectory(
     viser_server: viser.ViserServer,
     right_sharpa_kinematics: HandKinematics,
@@ -178,11 +243,18 @@ def visualize_one_trajectory(
     show_mano: bool = False,
     visualize_contacts: bool = False,
     visualize_fingertip_distances: bool = False,
+    support_usd: Path | None = None,
 ) -> dict[str, Any]:
     """Load one sequence and visualize playback (hands + objects from object_mesh_paths)."""
     for _, handle in viser_object_handles.items():
         handle.remove()
     viser_object_handles.clear()
+
+    # Auto-discover or use explicit support-surface USD
+    usd_path = support_usd or find_support_usd(input_dir, sequence_id)
+    if usd_path is not None:
+        print(f"  Loading support surfaces from {usd_path}")
+        load_support_surfaces_from_usd(viser_server, usd_path)
 
     contact_points_handles: list[Any] = []
 
@@ -336,16 +408,24 @@ def main(args: argparse.Namespace) -> None:
     if not input_dir.is_dir():
         raise FileNotFoundError(f"Input directory not found: {input_dir}")
 
-    sequence_id = args.sequence_id
-    if sequence_id is None:
-        available = list_sequence_ids(str(input_dir))
-        if not available:
-            raise ValueError(f"No sequences found in {input_dir}")
-        sequence_id = available[0]
-        print(f"Using first sequence: {sequence_id}")
+    available = list_sequence_ids(str(input_dir))
+    if not available:
+        raise ValueError(f"No sequences found in {input_dir}")
+
+    if args.sequence_id is not None:
+        sequence_ids = [args.sequence_id]
+    else:
+        sequence_ids = available
+        print(
+            f"No sequence_id specified, will iterate through all {len(sequence_ids)} sequences."
+        )
 
     viser_server = viser.ViserServer()
     viser_object_handles: dict[str, Any] = {}
+
+    support_usd = args.support_usd
+    if support_usd is not None and not support_usd.exists():
+        raise FileNotFoundError(f"Support USD not found: {support_usd}")
 
     right_sharpa_kinematics = setup_sharpa_kinematics(
         side="right", frame_tasks_converged_threshold=1e-6
@@ -354,18 +434,23 @@ def main(args: argparse.Namespace) -> None:
         side="left", frame_tasks_converged_threshold=1e-6
     )
 
-    visualize_one_trajectory(
-        viser_server,
-        right_sharpa_kinematics,
-        left_sharpa_kinematics,
-        viser_object_handles,
-        input_dir=input_dir,
-        sequence_id=sequence_id,
-        trajectory_id=args.trajectory_id,
-        show_mano=args.show_mano,
-        visualize_contacts=args.visualize_contacts,
-        visualize_fingertip_distances=args.visualize_fingertip_distances,
-    )
+    for seq_idx, sequence_id in enumerate(sequence_ids):
+        print(
+            f"[{seq_idx + 1}/{len(sequence_ids)}] Visualizing sequence: {sequence_id}"
+        )
+        visualize_one_trajectory(
+            viser_server,
+            right_sharpa_kinematics,
+            left_sharpa_kinematics,
+            viser_object_handles,
+            input_dir=input_dir,
+            sequence_id=sequence_id,
+            trajectory_id=args.trajectory_id,
+            show_mano=args.show_mano,
+            visualize_contacts=args.visualize_contacts,
+            visualize_fingertip_distances=args.visualize_fingertip_distances,
+            support_usd=support_usd,
+        )
 
 
 if __name__ == "__main__":

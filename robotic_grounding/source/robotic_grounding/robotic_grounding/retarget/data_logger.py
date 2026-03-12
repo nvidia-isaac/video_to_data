@@ -6,7 +6,9 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
+import shutil
 from dataclasses import MISSING, field, fields, make_dataclass
+from pathlib import Path
 from typing import Any, Optional
 
 import pyarrow as pa
@@ -447,8 +449,24 @@ def create_data_logger_class(
         def save_to_parquet(
             self, root_path: str, partition_cols: Optional[list[str]] = None
         ) -> None:
-            """Save to Parquet file."""
+            """Save to Parquet file.
+
+            If partition_cols are specified and the partition directory already
+            exists, it is removed first so stale data is not left behind.
+            """
             table = pa.Table.from_pylist([self.to_dict()], schema=self._schema)
+
+            # Remove existing partition directory to avoid duplicate files.
+            # Read partition values from the table (after pyarrow casting) so
+            # directory names match exactly what write_to_dataset creates.
+            if partition_cols:
+                partition_dir = Path(root_path)
+                row = table.to_pydict()
+                for col in partition_cols:
+                    val = row[col][0]
+                    partition_dir = partition_dir / f"{col}={val}"
+                if partition_dir.is_dir():
+                    shutil.rmtree(partition_dir)
 
             pq.write_to_dataset(
                 table,
