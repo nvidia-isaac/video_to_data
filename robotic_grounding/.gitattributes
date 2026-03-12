@@ -33,3 +33,5 @@ source/robotic_grounding/robotic_grounding/assets/human_motion_data/arctic filte
 source/robotic_grounding/robotic_grounding/assets/human_motion_data/reset_trajectory.pt filter=lfs diff=lfs merge=lfs -text
 source/robotic_grounding/robotic_grounding/assets/human_motion_data/oakink2_loaded/** filter=lfs diff=lfs merge=lfs -text
 source/robotic_grounding/robotic_grounding/assets/human_motion_data/oakink2_processed/** filter=lfs diff=lfs merge=lfs -text
+source/robotic_grounding/robotic_grounding/assets/human_motion_data/oakink2/object_raw/** filter=lfs diff=lfs merge=lfs -text
+source/robotic_grounding/robotic_grounding/assets/human_motion_data/oakink2/object_repair/** filter=lfs diff=lfs merge=lfs -text
