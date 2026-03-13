@@ -1,0 +1,1 @@
+from .smplpytorch.pytorch.smpl_layer import SMPL_Layer

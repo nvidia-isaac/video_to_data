@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "v2d-pipelines"
+version = "0.1.0"
+description = "Example pipelines composing v2d Docker modules"
+requires-python = ">=3.10"
+dependencies = [
+    "v2d-sam2-docker",
+    "v2d-sam3d-docker",
+    "v2d-unidepth-docker",
+    "v2d-moge-docker",
+    "v2d-nlf-docker",
+    "v2d-foundation-pose-docker",
+    "v2d-foundation-stereo-docker",
+    "v2d-grounding-dino-docker",
+]
+
+[tool.setuptools]
+packages = ["v2d.pipelines"]
+
+[tool.setuptools.package-dir]
+"v2d.pipelines" = "."

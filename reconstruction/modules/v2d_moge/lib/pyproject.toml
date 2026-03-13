@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "v2d-moge-lib"
+version = "0.1.0"
+description = "MoGE-based monocular geometry estimation library"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "Pillow",
+    "opencv-python",
+    "moge @ git+https://github.com/microsoft/MoGE.git",
+    "v2d-common",
+]
+
+[tool.setuptools]
+packages = ["v2d.moge.lib"]
+
+[tool.setuptools.package-dir]
+"v2d.moge.lib" = "."

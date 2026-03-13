@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "v2d-foundation-stereo-docker"
+version = "0.1.0"
+description = "Docker orchestration scripts for Foundation Stereo"
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.setuptools]
+packages = ["v2d.foundation_stereo.docker"]
+
+[tool.setuptools.package-dir]
+"v2d.foundation_stereo.docker" = "."
