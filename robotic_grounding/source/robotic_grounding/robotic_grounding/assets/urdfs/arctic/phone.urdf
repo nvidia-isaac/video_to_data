@@ -1,0 +1,114 @@
+<?xml version="1.0" ?>
+<robot name="phone">
+   <material name="obj_color">
+      <color rgba="1.0 0.423529411765 0.0392156862745 1.0"/>
+   </material>
+
+   <mujoco>
+      <compiler meshdir="../../meshes/arctic/phone/" balanceinertia="true" discardvisual="false"/>
+   </mujoco>
+
+   <!-- ============================================================= -->
+   <!-- 6 DoF base -->
+   <!-- ============================================================= -->
+
+   <link name="base"><inertial><origin xyz="0 0 0"/><mass value="0.1"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial></link>
+   <link name="base_x"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
+   <link name="base_y"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
+   <link name="base_z"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
+   <link name="base_roll"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
+   <link name="base_pitch"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
+
+   <joint name="base_x" type="prismatic">
+      <parent link="base"/>
+      <child  link="base_x"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="-2.0" upper="2.0" effort="100" velocity="10.0"/>
+   </joint>
+
+   <joint name="base_y" type="prismatic">
+      <parent link="base_x"/>
+      <child  link="base_y"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="-2.0" upper="2.0" effort="100" velocity="10.0"/>
+   </joint>
+
+   <joint name="base_z" type="prismatic">
+      <parent link="base_y"/>
+      <child  link="base_z"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="0.0" upper="5.0" effort="100" velocity="10.0"/>
+   </joint>
+
+   <joint name="base_roll" type="revolute">
+      <parent link="base_z"/>
+      <child  link="base_roll"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="-3.141592653589793" upper="3.141592653589793" effort="100" velocity="10.0"/>
+   </joint>
+
+   <joint name="base_pitch" type="revolute">
+      <parent link="base_roll"/>
+      <child  link="base_pitch"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="-3.141592653589793" upper="3.141592653589793" effort="100" velocity="10.0"/>
+   </joint>
+
+   <joint name="base_yaw" type="revolute">
+      <parent link="base_pitch"/>
+      <child  link="bottom"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="-3.141592653589793" upper="3.141592653589793" effort="100" velocity="10.0"/>
+   </joint>
+
+   <!-- ============================================================= -->
+
+   <link name="top">
+      <inertial>
+         <origin rpy="9.277985729378052e-06 3.675554252386567e-05 4.561231912478825e-05" xyz="-0.04624707985748294 0.01182267031830937 -0.01577298565484295"/>
+         <mass value="0.03957275498186732"/>
+         <inertia ixx="1.018270610501118e-05" ixy="5.660497169048247e-06" ixz="-1.082200985918264e-07" iyy="4.470715493143804e-05" iyz="-6.694830626799336e-08" izz="3.675598634158273e-05"/>
+      </inertial>
+      <visual>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/phone/top_watertight_tiny.stl" scale="1 1 1"/>
+         </geometry>
+         <material name="obj_color"/>
+      </visual>
+      <collision>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/phone/top_watertight_tiny.obj" scale="1 1 1"/>
+         </geometry>
+      </collision>
+   </link>
+   <link name="bottom">
+      <inertial>
+         <origin rpy="1.38743155721966e-05 4.857747416767114e-05 6.144922005284307e-05" xyz="-0.0522109618055157 0.002850914667981544 -0.01582649414614782"/>
+         <mass value="0.05658756509141606"/>
+         <inertia ixx="1.5005087288162e-05" ixy="7.24674447489629e-06" ixz="9.110609419241491e-09" iyy="6.031659114603904e-05" iyz="1.553222318442984e-07" izz="4.857933135850975e-05"/>
+      </inertial>
+      <visual>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/phone/bottom_watertight_tiny.stl" scale="1 1 1"/>
+         </geometry>
+         <material name="obj_color"/>
+      </visual>
+      <collision>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/phone/bottom_watertight_tiny.obj" scale="1 1 1"/>
+         </geometry>
+      </collision>
+   </link>
+   <joint name="rotation" type="revolute">
+      <origin xyz="0 0 0"/>
+      <axis xyz="0 0 -1"/>
+      <parent link="bottom"/>
+      <child link="top"/>
+      <dynamics damping="0.5" friction="1.0"/>
+      <limit effort="1000" velocity="200" lower="0" upper="2.5"/>
+   </joint>
+</robot>

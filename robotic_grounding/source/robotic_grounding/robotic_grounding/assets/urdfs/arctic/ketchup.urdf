@@ -1,0 +1,114 @@
+<?xml version="1.0" ?>
+<robot name="ketchup">
+   <material name="obj_color">
+      <color rgba="1.0 0.423529411765 0.0392156862745 1.0"/>
+   </material>
+
+   <mujoco>
+      <compiler meshdir="../../meshes/arctic/ketchup/" balanceinertia="true" discardvisual="false"/>
+   </mujoco>
+
+   <!-- ============================================================= -->
+   <!-- 6 DoF base -->
+   <!-- ============================================================= -->
+
+   <link name="base"><inertial><origin xyz="0 0 0"/><mass value="0.1"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial></link>
+   <link name="base_x"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
+   <link name="base_y"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
+   <link name="base_z"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
+   <link name="base_roll"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
+   <link name="base_pitch"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
+
+   <joint name="base_x" type="prismatic">
+      <parent link="base"/>
+      <child  link="base_x"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="-2.0" upper="2.0" effort="100" velocity="10.0"/>
+   </joint>
+
+   <joint name="base_y" type="prismatic">
+      <parent link="base_x"/>
+      <child  link="base_y"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="-2.0" upper="2.0" effort="100" velocity="10.0"/>
+   </joint>
+
+   <joint name="base_z" type="prismatic">
+      <parent link="base_y"/>
+      <child  link="base_z"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="0.0" upper="5.0" effort="100" velocity="10.0"/>
+   </joint>
+
+   <joint name="base_roll" type="revolute">
+      <parent link="base_z"/>
+      <child  link="base_roll"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="-3.141592653589793" upper="3.141592653589793" effort="100" velocity="10.0"/>
+   </joint>
+
+   <joint name="base_pitch" type="revolute">
+      <parent link="base_roll"/>
+      <child  link="base_pitch"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="-3.141592653589793" upper="3.141592653589793" effort="100" velocity="10.0"/>
+   </joint>
+
+   <joint name="base_yaw" type="revolute">
+      <parent link="base_pitch"/>
+      <child  link="bottom"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="-3.141592653589793" upper="3.141592653589793" effort="100" velocity="10.0"/>
+   </joint>
+
+   <!-- ============================================================= -->
+
+   <link name="top">
+      <inertial>
+         <origin rpy="1.053697166941137e-06 1.281090536385504e-06 2.220443757011781e-06" xyz="0.007487533823646627 0.02574966577909059 -0.006195972879581655"/>
+         <mass value="0.005559019486435759"/>
+         <inertia ixx="2.196255524387527e-06" ixy="1.629953608907079e-07" ixz="-1.085217972162108e-08" iyy="1.121817140969148e-06" iyz="8.915361731318121e-08" izz="1.237158794981748e-06"/>
+      </inertial>
+      <visual>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/ketchup/top_watertight_tiny.stl" scale="1 1 1"/>
+         </geometry>
+         <material name="obj_color"/>
+      </visual>
+      <collision>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/ketchup/top_watertight_tiny.obj" scale="1 1 1"/>
+         </geometry>
+      </collision>
+   </link>
+   <link name="bottom">
+      <inertial>
+         <origin rpy="0.0003111517367316898 0.001794153590493836 0.001932949715694781" xyz="-0.1065095731528556 0.0127064691544299 -0.007640686942466999"/>
+         <mass value="0.5700573317889485"/>
+         <inertia ixx="0.000327540205957619" ixy="-0.0001601662078634189" ixz="-2.138205748964534e-07" iyy="0.001879168755748112" iyz="-6.193442711972026e-05" izz="0.001831546081214574"/>
+      </inertial>
+      <visual>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/ketchup/bottom_watertight_tiny.stl" scale="1 1 1"/>
+         </geometry>
+         <material name="obj_color"/>
+      </visual>
+      <collision>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/ketchup/bottom_watertight_tiny.obj" scale="1 1 1"/>
+         </geometry>
+      </collision>
+   </link>
+   <joint name="rotation" type="revolute">
+      <origin xyz="0 0 0"/>
+      <axis xyz="0 0 -1"/>
+      <parent link="bottom"/>
+      <child link="top"/>
+      <dynamics damping="0.05" friction="0.0001"/>
+      <limit effort="1000" velocity="200" lower="0" upper="2.5"/>
+   </joint>
+</robot>

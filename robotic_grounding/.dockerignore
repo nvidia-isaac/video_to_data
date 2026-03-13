@@ -1,0 +1,30 @@
+logs/
+run.py
+wandb/
+outputs/
+assets/
+
+# Common development files and directories
+.git/
+# .git_info/ is included (contains lightweight git info for reproducibility)
+.gitignore
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.pixi/
+build/
+dist/
+*.egg-info/
+.vscode/
+.idea/
+
+# Core dumps
+core
+core.*
