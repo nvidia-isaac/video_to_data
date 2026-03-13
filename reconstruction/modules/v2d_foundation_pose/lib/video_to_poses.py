@@ -2,7 +2,7 @@
 FoundationPose video to poses processing function.
 Can be called directly from command line or imported as a function.
 """
-from modules.common.datatypes import CameraIntrinsics, DepthImage, Mask
+from v2d.datatypes import CameraIntrinsics, DepthImage, Mask
 import os
 import sys
 import argparse
@@ -13,18 +13,11 @@ import cv2
 import json
 import logging
 
-# Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def log_gpu_memory(label):
-    if torch.cuda.is_available():
-        allocated = torch.cuda.memory_allocated() / (1024 ** 3)
-        reserved = torch.cuda.memory_reserved() / (1024 ** 3)
-        logger.info(f"GPU Memory [{label}]: Allocated: {allocated:.2f} GB, Reserved: {reserved:.2f} GB")
-
-# Add FoundationPose to path
-sys.path.insert(0, '/workspace/modules/foundationpose/FoundationPose')
+_FP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'FoundationPose')
+sys.path.insert(0, _FP_DIR)
 
 from estimater import FoundationPose
 from learning.training.predict_score import ScorePredictor
@@ -32,7 +25,14 @@ from learning.training.predict_pose_refine import PoseRefinePredictor
 import nvdiffrast.torch as dr
 from Utils import draw_posed_3d_box, draw_xyz_axis
 
-# Singleton model instances
+
+def log_gpu_memory(label):
+    if torch.cuda.is_available():
+        allocated = torch.cuda.memory_allocated() / (1024 ** 3)
+        reserved = torch.cuda.memory_reserved() / (1024 ** 3)
+        logger.info(f"GPU Memory [{label}]: Allocated: {allocated:.2f} GB, Reserved: {reserved:.2f} GB")
+
+
 _scorer = None
 _refiner = None
 _glctx = None
@@ -40,10 +40,6 @@ _glctx = None
 def _get_models():
     global _scorer, _refiner, _glctx
     if _scorer is None or _refiner is None or _glctx is None:
-        data_dir = os.environ.get("DATA_DIR", "/data")
-        checkpoint_dir = os.environ.get("CHECKPOINT_DIR", os.path.join(data_dir, "foundationpose/checkpoints/foundationpose"))
-        weights_dir = os.environ.get("WEIGHTS_DIR", os.path.join(data_dir, "foundationpose/checkpoints/weights"))
-        
         print("Initializing FoundationPose models...")
         log_gpu_memory("Before model init")
         _scorer = ScorePredictor()
@@ -70,7 +66,6 @@ def video_to_poses(video_path: str, depth_folder: str, masks_folder: str, camera
     scene = trimesh.load(mesh_path, force='scene')
     mesh = scene.geometry[list(scene.geometry.keys())[0]]
     
-    # For visualization
     to_origin, extents = trimesh.bounds.oriented_bounds(mesh)
     bbox = np.stack([-extents/2, extents/2], axis=0).reshape(2,3)
     
@@ -95,24 +90,21 @@ def video_to_poses(video_path: str, depth_folder: str, masks_folder: str, camera
         cap = cv2.VideoCapture(video_path)
         num_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         
-        # Get original dimensions
         orig_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         orig_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         
         K = camera_intrinsics.to_matrix()
         
-        # Handle resolution scaling
         if target_resolution is not None:
             target_width, target_height = target_resolution
             scale_x = target_width / orig_width
             scale_y = target_height / orig_height
             
-            # Scale intrinsics for the model
             K_scaled = K.copy()
-            K_scaled[0, 0] *= scale_x  # fx
-            K_scaled[1, 1] *= scale_y  # fy
-            K_scaled[0, 2] *= scale_x  # cx
-            K_scaled[1, 2] *= scale_y  # cy
+            K_scaled[0, 0] *= scale_x
+            K_scaled[1, 1] *= scale_y
+            K_scaled[0, 2] *= scale_x
+            K_scaled[1, 2] *= scale_y
             
             print(f"Scaling from {orig_width}x{orig_height} to {target_width}x{target_height}")
             print(f"Scaled K: {K_scaled}")
@@ -137,7 +129,6 @@ def video_to_poses(video_path: str, depth_folder: str, masks_folder: str, camera
             if os.path.exists(mask_path):
                 mask = Mask.load(mask_path).mask
             
-            # Resize if target resolution is specified
             if target_resolution is not None:
                 rgb = cv2.resize(rgb, (target_width, target_height), interpolation=cv2.INTER_LINEAR)
                 if depth is not None:
@@ -148,29 +139,21 @@ def video_to_poses(video_path: str, depth_folder: str, masks_folder: str, camera
             return rgb, depth, mask, frame
 
         def save_pose(frame_idx, pose):
-            """Save pose to file"""
             os.makedirs(poses_dir, exist_ok=True)
             pose_path = os.path.join(poses_dir, f"{frame_idx:06d}.json")
             with open(pose_path, "w") as f:
                 json.dump(pose.tolist(), f, indent=4)
 
         def save_visualization(frame_idx, rgb, pose, K):
-            """Save visualization image"""
             if debug_dir is None:
                 return
-            
-            # Create visualization
             vis_img = rgb.copy()
             vis_img = cv2.cvtColor(vis_img, cv2.COLOR_RGB2BGR)
-            
-            # Draw 3D box and axis
             vis_img = draw_posed_3d_box(K, vis_img, pose, bbox)
             vis_img = draw_xyz_axis(vis_img, pose, scale=0.05, K=K)
-            
             vis_path = os.path.join(debug_dir, f"{frame_idx:06d}.png")
             cv2.imwrite(vis_path, vis_img)
 
-        # 1. Initialize at reference frame
         print(f"Initializing at reference frame {reference_frame}")
         rgb, depth, mask, _ = get_frame_data(reference_frame)
         if rgb is None or depth is None or mask is None:
@@ -184,7 +167,6 @@ def video_to_poses(video_path: str, depth_folder: str, masks_folder: str, camera
         save_visualization(reference_frame, rgb, initial_pose, K_scaled)
         print("Initialized at reference frame")
         
-        # 2. Track forward
         print(f"Tracking forward from {reference_frame + 1} to {num_frames - 1}")
         est.pose_last = torch.as_tensor(initial_pose, device='cuda', dtype=torch.float)
         for frame_idx in range(reference_frame + 1, num_frames):
@@ -198,13 +180,10 @@ def video_to_poses(video_path: str, depth_folder: str, masks_folder: str, camera
             if frame_idx % 10 == 0:
                 log_gpu_memory(f"Forward tracking frame {frame_idx}")
 
-        # 3. Track backward
         if reference_frame > 0:
             print(f"Tracking backward from {reference_frame - 1} to 0")
-            # Clear cache before backward pass to reduce fragmentation
             torch.cuda.empty_cache()
             log_gpu_memory("Before backward pass (after empty_cache)")
-            # RESET STATE for backward tracking
             est.pose_last = torch.as_tensor(initial_pose, device='cuda', dtype=torch.float)
             for frame_idx in range(reference_frame - 1, -1, -1):
                 rgb, depth, _, _ = get_frame_data(frame_idx)
@@ -246,4 +225,3 @@ if __name__ == "__main__":
         target_height=args.target_height,
         debug_dir=args.debug_dir
     )
-

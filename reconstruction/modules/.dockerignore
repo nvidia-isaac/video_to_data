@@ -11,5 +11,4 @@
 *.ipynb_checkpoints/
 */data/
 */checkpoints/
-foundation_pose/
 common/

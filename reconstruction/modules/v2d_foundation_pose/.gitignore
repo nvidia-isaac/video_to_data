@@ -1,5 +1,4 @@
 data/
-FoundationPose/weights/
 *.pt
 *.pth
 *.mp4
@@ -7,4 +6,3 @@ FoundationPose/weights/
 *.glb
 *.obj
 __pycache__/
-tests/test_data/output/

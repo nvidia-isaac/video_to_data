@@ -2,26 +2,26 @@
 Given a reconstructed textured mesh, estimate the scale using foundation pose
 """
 import sys, os
-import torch, json 
+import torch, json
 import trimesh
 import numpy as np
 from tqdm import tqdm
-import cv2 
+import cv2
 import os.path as osp
 from pytorch3d.io import load_objs_as_meshes, save_obj
 from pytorch3d.structures import Meshes
 from pytorch3d.renderer import TexturesUV
 
-# Add FoundationPose to path
-sys.path.insert(0, osp.join(osp.dirname(osp.abspath(__file__)), 'FoundationPose'))
+_FP_DIR = osp.join(osp.dirname(osp.abspath(__file__)), 'FoundationPose')
+sys.path.insert(0, _FP_DIR)
 
 from estimater import FoundationPose
 from learning.training.predict_score import ScorePredictor
 from learning.training.predict_pose_refine import PoseRefinePredictor
 import nvdiffrast.torch as dr
 import Utils
-from chamfer_dist_np import chamfer_distance
-from modules.common.datatypes import CameraIntrinsics, DepthImage, Mask
+from v2d.foundation_pose.lib.chamfer_dist_np import chamfer_distance
+from v2d.datatypes import CameraIntrinsics, DepthImage, Mask
 
 def fp_scale_estimator(
     mesh_path: str,
@@ -44,12 +44,10 @@ def fp_scale_estimator(
     3. Range is [current_best / level_size, current_best * level_size]
     4. Repeat for N levels
     """
-    # 1. Initialize models
     scorer = ScorePredictor()
     refiner = PoseRefinePredictor()
     glctx = dr.RasterizeCudaContext()
 
-    # 2. Load data
     with open(intrinsics_path, 'r') as f:
         intrinsics_dict = json.load(f)
     intrinsics = CameraIntrinsics.from_dict(intrinsics_dict)
@@ -58,10 +56,9 @@ def fp_scale_estimator(
     with open(transform_path, 'r') as f:
         transform_data = json.load(f)
     
-    # Extract initial scale from transform (use average if scale is 3D)
     initial_scale = transform_data.get('scale', [1.0, 1.0, 1.0])
     if isinstance(initial_scale, list):
-        initial_scale = np.mean(initial_scale)  # Use average for uniform scale assumption
+        initial_scale = np.mean(initial_scale)
     current_best_scale = float(initial_scale)
     
     color = cv2.imread(rgb_path)
@@ -70,14 +67,13 @@ def fp_scale_estimator(
     color = cv2.cvtColor(color, cv2.COLOR_BGR2RGB)
     
     depth_img = DepthImage.load(depth_path)
-    depth = depth_img.depth # in meters
+    depth = depth_img.depth
     
     mask_img = Mask.load(mask_path)
     mask_o = mask_img.mask
     if mask_o.max() <= 1:
         mask_o = (mask_o * 255).astype(np.uint8)
 
-    # 3. Preprocess depth
     depth_tensor = torch.as_tensor(depth, device='cuda', dtype=torch.float)
     depth_tensor = Utils.erode_depth(depth_tensor, radius=2, device='cuda')
     depth_tensor = Utils.bilateral_filter_depth(depth_tensor, radius=2, device='cuda')
@@ -86,7 +82,6 @@ def fp_scale_estimator(
     xyz_map = Utils.depth2xyzmap(depth_filtered, camera_K)
     obj_pts = xyz_map[mask_o > 127].reshape((-1, 3))
 
-    # 4. Load mesh
     mesh_raw = trimesh.load(mesh_path, process=False)
     if hasattr(mesh_raw, 'geometry'):
         mesh_raw = trimesh.util.concatenate([g for g in mesh_raw.geometry.values()])
@@ -97,7 +92,6 @@ def fp_scale_estimator(
         debug_dir = "/tmp/foundationpose_debug"
     os.makedirs(debug_dir, exist_ok=True)
 
-    # 5. Hierarchical multi-level scale estimation
     print(f"Initializing scale search with transform scale: {current_best_scale:.4f}")
     print(f"Using {num_levels} levels with {num_samples_per_level} samples per level (level_size={level_size})")
     
@@ -105,11 +99,9 @@ def fp_scale_estimator(
     best_chamfer = float('inf')
     
     for level in range(num_levels):
-        # Compute search range for this level
         scale_min = current_best_scale / level_size
         scale_max = current_best_scale * level_size
         
-        # Generate scale candidates for this level
         scale_candidates = np.linspace(scale_min, scale_max, num_samples_per_level)
         
         print(f"\nLevel {level + 1}/{num_levels}: Searching {num_samples_per_level} candidates in range [{scale_min:.4f}, {scale_max:.4f}]")
@@ -133,7 +125,6 @@ def fp_scale_estimator(
                 glctx=glctx
             )
             
-            # We use register to find the best pose for this specific scale
             pose = est.register(
                 K=camera_K, 
                 rgb=color, 
@@ -147,24 +138,20 @@ def fp_scale_estimator(
             
             cd = chamfer_distance(obj_pts, samples_cam)
             
-            # Update best if this is better
             if cd < level_best_chamfer:
                 level_best_scale = scale
                 level_best_chamfer = cd
                 level_best_pose = pose
         
-        # Update current best for next level
         current_best_scale = level_best_scale
         best_chamfer = level_best_chamfer
         best_pose = level_best_pose
         
         print(f"Level {level + 1} best: scale={current_best_scale:.4f}, Chamfer={best_chamfer:.4f}")
 
-    # 6. Final result
     best_scale = current_best_scale
     print(f"\nFinal best scale: {best_scale:.4f} (Chamfer: {best_chamfer:.4f})")
 
-    # 7. Save refined transform
     refined_transform = transform_data.copy()
     refined_transform['scale'] = [best_scale, best_scale, best_scale]
     refined_transform['translation'] = best_pose[:3, 3].tolist()
@@ -186,7 +173,7 @@ if __name__ == '__main__':
     parser.add_argument("--debug-dir", help="Optional directory for debug visualizations")
     parser.add_argument("--num-levels", type=int, default=3, help="Number of hierarchical search levels")
     parser.add_argument("--num-samples-per-level", type=int, default=10, help="Number of scale candidates per level")
-    parser.add_argument("--level-size", type=float, default=2.0, help="Search range multiplier per level (range is [best/level_size, best*level_size])")
+    parser.add_argument("--level-size", type=float, default=2.0, help="Search range multiplier per level")
 
     args = parser.parse_args()
     
