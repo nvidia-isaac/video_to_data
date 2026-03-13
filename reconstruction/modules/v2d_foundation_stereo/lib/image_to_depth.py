@@ -1,12 +1,13 @@
 """Foundation Stereo: process a single stereo image pair to a depth map.
 
 Usage:
-    python image_to_depth.py \
+    python -m v2d.foundation_stereo.lib.image_to_depth \
         --left_image_path /data/left/frame.jpg \
         --right_image_path /data/right/frame.jpg \
         --depth_path /data/depth/frame.png \
         --intrinsics_path /data/intrinsics/frame.json \
-        --calibration_file /data/calibration.json
+        --calibration_file /data/calibration.json \
+        --model_dir /data/models
 """
 
 import argparse
@@ -15,9 +16,9 @@ import os
 
 import cv2
 
-from modules.common.datatypes import CameraIntrinsics, DepthImage
-from modules.foundation_stereo._impl.export_engine import ensure_engine
-from modules.foundation_stereo._impl.trt_inference import FoundationStereoInference, disparity_to_depth
+from v2d.datatypes import CameraIntrinsics, DepthImage
+from v2d.foundation_stereo.lib.export_engine import ensure_engine
+from v2d.foundation_stereo.lib.trt_inference import FoundationStereoInference, disparity_to_depth
 
 _inference: FoundationStereoInference | None = None
 
@@ -101,10 +102,8 @@ def main():
     parser.add_argument('--cy', type=float)
     parser.add_argument('--baseline', type=float)
 
-    default_model_dir = os.environ.get('MODEL_DIR',
-                                        os.path.join(os.environ.get('DATA_DIR', '/data'),
-                                                     'foundation_stereo', 'models'))
-    parser.add_argument('--model_dir', default=default_model_dir)
+    parser.add_argument('--model_dir', required=True,
+                        help='Directory containing ONNX/engine files')
 
     args = parser.parse_args()
 

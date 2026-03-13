@@ -9,7 +9,6 @@ RUN apt-get update && apt-get install -y \
 
 RUN pip install opencv-python-headless numpy Pillow "cuda-python==12.6.*"
 
-COPY modules/common /workspace/modules/common
-COPY modules/foundation_stereo /workspace/modules/foundation_stereo
+COPY . /workspace
 
-ENV PYTHONPATH=/workspace
+RUN pip install -e /workspace/v2d_datatypes -e /workspace/v2d_foundation_stereo/lib

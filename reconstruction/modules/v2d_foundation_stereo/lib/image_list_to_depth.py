@@ -2,26 +2,19 @@
 
 Takes two directories of images with matching filenames (left_dir and right_dir),
 runs Foundation Stereo TensorRT inference on each pair, and writes:
-  - {depth_folder}/{stem}.png   — 16-bit inverse-depth PNG (DepthImage format)
-  - {intrinsics_folder}/{stem}.json — CameraIntrinsics JSON
+  - {depth_folder}/{stem}.png   -- 16-bit inverse-depth PNG (DepthImage format)
+  - {intrinsics_folder}/{stem}.json -- CameraIntrinsics JSON
 
 Camera calibration must be supplied either as a JSON file or as individual args.
 
 Usage:
-    python image_list_to_depth.py \
+    python -m v2d.foundation_stereo.lib.image_list_to_depth \
         --left_dir /data/left \
         --right_dir /data/right \
         --depth_folder /data/depth \
         --intrinsics_folder /data/intrinsics \
-        --calibration_file /data/calibration.json
-
-    # or with individual args:
-    python image_list_to_depth.py \
-        --left_dir /data/left \
-        --right_dir /data/right \
-        --depth_folder /data/depth \
-        --intrinsics_folder /data/intrinsics \
-        --fx 844.7 --fy 844.7 --cx 927.3 --cy 566.7 --baseline 0.15
+        --calibration_file /data/calibration.json \
+        --model_dir /data/models
 """
 
 import argparse
@@ -31,14 +24,13 @@ from pathlib import Path
 
 import cv2
 
-from modules.common.datatypes import CameraIntrinsics, DepthImage
-from modules.foundation_stereo._impl.export_engine import ensure_engine
-from modules.foundation_stereo._impl.trt_inference import (
+from v2d.datatypes import CameraIntrinsics, DepthImage
+from v2d.foundation_stereo.lib.export_engine import ensure_engine
+from v2d.foundation_stereo.lib.trt_inference import (
     FoundationStereoInference,
     disparity_to_depth,
 )
 
-# Singleton model instance
 _inference: FoundationStereoInference | None = None
 
 
@@ -178,16 +170,11 @@ def main():
     parser.add_argument('--cy', type=float, help='Principal point y (pixels)')
     parser.add_argument('--baseline', type=float, help='Stereo baseline (meters)')
 
-    default_model_dir = os.environ.get('MODEL_DIR',
-                                        os.path.join(os.environ.get('DATA_DIR', '/data'),
-                                                     'foundation_stereo', 'models'))
-    parser.add_argument('--model_dir', default=default_model_dir,
-                        help='Directory containing ONNX/engine files '
-                             f'(default: $MODEL_DIR or {default_model_dir})')
+    parser.add_argument('--model_dir', required=True,
+                        help='Directory containing ONNX/engine files')
 
     args = parser.parse_args()
 
-    # When --fx is used, all individual calibration args are required
     if args.fx is not None:
         for attr in ('fy', 'cx', 'cy', 'baseline'):
             if getattr(args, attr) is None:
