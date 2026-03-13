@@ -130,8 +130,8 @@ class VirtualRigidObjectControl(ActionTerm):
     def apply_actions(self) -> None:
         """Apply virtual force torque to the rigid object using a Position PD Controller."""
         # 1. Extract current object state
-        object_position_e = self.command.object_position_e.squeeze()  # world_p_object
-        object_wxyz = self.command.object_orientation_e.squeeze()  # world_q_object
+        object_position_e = self.command.object_position_e.squeeze(1)  # world_p_object
+        object_wxyz = self.command.object_orientation_e.squeeze(1)  # world_q_object
         object_linvel_b = self.object.data.root_link_lin_vel_b
         object_angvel_b = self.object.data.root_link_ang_vel_b
 

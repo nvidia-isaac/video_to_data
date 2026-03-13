@@ -406,6 +406,17 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             self.num_envs, dtype=torch.int32, device=self.device
         )
 
+        # Reset wrist pose buffers (written by _resample_command,
+        # read by action terms for PD target initialization)
+        self.reset_right_wrist_position_e = torch.zeros(
+            self.num_envs, 3, device=self.device
+        )
+        self.reset_right_wrist_wxyz = torch.zeros(self.num_envs, 4, device=self.device)
+        self.reset_left_wrist_position_e = torch.zeros(
+            self.num_envs, 3, device=self.device
+        )
+        self.reset_left_wrist_wxyz = torch.zeros(self.num_envs, 4, device=self.device)
+
         # Hand data
         for side in ["right", "left"]:
             # Store wrist position and orientation
@@ -749,8 +760,8 @@ class DualHandsObjectTrackingCommand(CommandTerm):
 
         object_current_p_command, object_current_q_command = (
             math_utils.subtract_frame_transforms(
-                self.object_position_e.squeeze(),
-                self.object_orientation_e.squeeze(),
+                self.object_position_e.squeeze(1),
+                self.object_orientation_e.squeeze(1),
                 self.object_body_position_command_e,
                 self.object_body_wxyz_command_e,
             )
@@ -774,8 +785,8 @@ class DualHandsObjectTrackingCommand(CommandTerm):
     def right_hand_wrist_pose_command_e(self) -> torch.Tensor:
         """The desired goal position and wxyz in the environment frame for the right hand wrist. Shape is (num_envs, 7)."""
         position, wxyz = math_utils.combine_frame_transforms(
-            self.object_position_e.squeeze(),
-            self.object_orientation_e.squeeze(),
+            self.object_position_e.squeeze(1),
+            self.object_orientation_e.squeeze(1),
             self.retargeted_right_wrist_position_o[self.timestep_counter],
             self.retargeted_right_wrist_wxyz_o[self.timestep_counter],
         )
@@ -786,8 +797,8 @@ class DualHandsObjectTrackingCommand(CommandTerm):
     def left_hand_wrist_pose_command_e(self) -> torch.Tensor:
         """The desired goal position and wxyz in the environment frame for the left hand wrist. Shape is (num_envs, 7)."""
         position, wxyz = math_utils.combine_frame_transforms(
-            self.object_position_e.squeeze(),
-            self.object_orientation_e.squeeze(),
+            self.object_position_e.squeeze(1),
+            self.object_orientation_e.squeeze(1),
             self.retargeted_left_wrist_position_o[self.timestep_counter],
             self.retargeted_left_wrist_wxyz_o[self.timestep_counter],
         )
@@ -1160,12 +1171,12 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         )
         # Object
         self.metrics["object_body_position_error"] = torch.norm(
-            self.object_position_e.squeeze() - self.object_body_position_command_e,
+            self.object_position_e.squeeze(1) - self.object_body_position_command_e,
             dim=-1,
         )
         self.metrics["object_body_wxyz_error"] = math_utils.quat_error_magnitude(
-            self.object_orientation_e.squeeze(),
-            self.object_body_wxyz_command_e.squeeze(),
+            self.object_orientation_e.squeeze(1),
+            self.object_body_wxyz_command_e.squeeze(1),
         )
 
         self.metrics["virtual_object_controller_scale_factor"] = (
@@ -1209,6 +1220,12 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         left_hand_wrist_wxyz = self.retargeted_left_wrist_wxyz[
             self.timestep_counter[env_ids]
         ]
+
+        # Store reset wrist poses (env frame, no env_origins) for action terms
+        self.reset_right_wrist_position_e[env_ids] = right_hand_wrist_position
+        self.reset_right_wrist_wxyz[env_ids] = right_hand_wrist_wxyz
+        self.reset_left_wrist_position_e[env_ids] = left_hand_wrist_position
+        self.reset_left_wrist_wxyz[env_ids] = left_hand_wrist_wxyz
 
         # Finger joints: interpolate between open (0) and reference
         finger_factor = (
@@ -1279,6 +1296,23 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             left_hand_wrist_velocity, env_ids=env_ids
         )
 
+        # Clear residual external forces from previous episode
+        zero_forces = torch.zeros(len(env_ids), 1, 3, device=self.device)
+        self.right_robot.set_external_force_and_torque(
+            forces=zero_forces,
+            torques=zero_forces,
+            body_ids=self.right_wrist_body_id,
+            env_ids=env_ids,
+            is_global=False,
+        )
+        self.left_robot.set_external_force_and_torque(
+            forces=zero_forces,
+            torques=zero_forces,
+            body_ids=self.left_wrist_body_id,
+            env_ids=env_ids,
+            is_global=False,
+        )
+
         # Right robot finger joint positions
         right_hand_joint_velocity = torch.zeros_like(
             right_hand_finger_joint_pos
@@ -1304,6 +1338,11 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         self.left_robot.write_joint_state_to_sim(
             left_hand_finger_joint_pos, left_hand_joint_velocity, env_ids=env_ids
         )
+
+        # Force a kinematic/data refresh after reset writes so the first
+        # post-reset control step reads synchronized wrist states.
+        self._env.sim.forward()
+        self._env.scene.update(dt=self._env.physics_dt)
 
     def _update_command(self) -> None:
         """Update the command."""

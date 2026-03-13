@@ -323,15 +323,18 @@ def object_t_wrist(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
     """
     command = env.command_manager.get_term(command_name)
 
+    object_pos_e = command.object_position_e.squeeze(1)
+    object_ori_e = command.object_orientation_e.squeeze(1)
+
     object_p_right_wrist, object_q_right_wrist = math_utils.subtract_frame_transforms(
-        command.object_position_e.squeeze(),
-        command.object_orientation_e.squeeze(),  # world_t_object
+        object_pos_e,
+        object_ori_e,  # world_t_object
         command.right_hand_wrist_position_e,
         command.right_hand_wrist_wxyz_e,  # world_t_wrist
     )
     object_p_left_wrist, object_q_left_wrist = math_utils.subtract_frame_transforms(
-        command.object_position_e.squeeze(),
-        command.object_orientation_e.squeeze(),  # world_t_object
+        object_pos_e,
+        object_ori_e,  # world_t_object
         command.left_hand_wrist_position_e,
         command.left_hand_wrist_wxyz_e,  # world_t_wrist
     )

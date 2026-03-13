@@ -129,7 +129,7 @@ def object_position_tracking_exp(
     command = env.command_manager.get_term(command_name)
 
     # Get current object state and position error
-    object_position_e = command.object_position_e.squeeze()
+    object_position_e = command.object_position_e.squeeze(1)
     object_position_error_e = torch.norm(
         command.object_body_position_command_e - object_position_e,
         dim=-1,
@@ -159,7 +159,7 @@ def object_wxyz_tracking_exp(
     command = env.command_manager.get_term(command_name)
 
     # Get current object state and orientation error
-    object_wxyz = command.object_orientation_e.squeeze()
+    object_wxyz = command.object_orientation_e.squeeze(1)
     object_orientation_error_e = math_utils.quat_error_magnitude(
         command.object_body_wxyz_command_e, object_wxyz
     )

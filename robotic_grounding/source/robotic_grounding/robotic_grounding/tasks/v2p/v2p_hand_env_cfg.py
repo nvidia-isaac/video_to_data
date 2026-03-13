@@ -458,4 +458,4 @@ class V2PHandEnvCfg(ManagerBasedRLEnvCfg):
         self.viewer.lookat = (0.0, 0.0, 1.5)
         # self.viewer.resolution = (3840, 2160)
         self.viewer.origin_type = "env"
-        self.viewer.env_index = 6
+        self.viewer.env_index = 0

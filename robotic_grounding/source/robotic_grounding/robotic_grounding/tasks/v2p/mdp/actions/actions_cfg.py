@@ -10,6 +10,9 @@ from isaaclab.utils import configclass
 from robotic_grounding.tasks.v2p.mdp.actions.action_chunks import (
     JointPositionActionChunk,
 )
+from robotic_grounding.tasks.v2p.mdp.actions.action_direct import (
+    JointDirectPositionAction,
+)
 from robotic_grounding.tasks.v2p.mdp.actions.action_track_residual import (
     JointResidualWithTrackingAction,
 )
@@ -108,6 +111,67 @@ class JointResidualWithTrackingActionCfg(ActionTermCfg):
 
     max_torque: float = 100.0
     """Maximum torque for the tracking controller."""
+
+
+@configclass
+class JointDirectPositionActionCfg(ActionTermCfg):
+    """Configuration for the direct joint position action term.
+
+    See :class:`JointDirectPositionAction` for more details.
+    """
+
+    class_type: type[ActionTerm] = JointDirectPositionAction
+
+    joint_names: list[str] = [""]
+    """List of joint names or regex expressions that the action will be mapped to."""
+
+    command_name: str = "dual_hands_object_tracking_command"
+    """Name of the command to use for the action."""
+
+    wrist_position_scale: float = 0.05
+    """Scale factor for policy's action for wrist position delta."""
+
+    wrist_orientation_scale: float = 0.15
+    """Scale factor for policy's action for wrist orientation delta."""
+
+    finger_joint_scale: float = 0.15
+    """Scale factor for policy's action for finger joint delta."""
+
+    wrist_position_clip: float = 0.2
+    """Clip factor for policy's action for wrist position."""
+
+    wrist_orientation_clip: float = 0.8
+    """Clip factor for policy's action for wrist orientation."""
+
+    finger_joint_clip: float = 0.8
+    """Clip factor for policy's action for finger joints."""
+
+    ema_factor: float = 0.9
+    """The EMA decay factor for the actions."""
+
+    preserve_order: bool = False
+    """Whether to preserve the order of the joint names in the action output."""
+
+    clip_to_torque_limit: bool = True
+    """Whether to clip the actions to the torque limit."""
+
+    tracking_controller_linear_stiffness: float = 100.0
+    """Stiffness gain for the PD controller in linear direction."""
+
+    tracking_controller_linear_damping: float = 10.0
+    """Damping gain for the PD controller in linear direction."""
+
+    tracking_controller_angular_stiffness: float = 50.0
+    """Stiffness gain for the PD controller in angular direction."""
+
+    tracking_controller_angular_damping: float = 0.0
+    """Damping gain for the PD controller in angular direction."""
+
+    max_force: float = 100.0
+    """Maximum force for the PD controller."""
+
+    max_torque: float = 100.0
+    """Maximum torque for the PD controller."""
 
 
 @configclass

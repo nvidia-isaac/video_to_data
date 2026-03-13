@@ -40,7 +40,7 @@ args_cli = parser.parse_args()
 ###################################
 # Debug
 ###################################
-args_cli.task = "Sharpa-V2P-v0-Play"
+args_cli.task = "Sharpa-V2P-Direct-v0-Play"
 # args_cli.headless = True
 ###################################
 
@@ -82,8 +82,8 @@ def main():
     while simulation_app.is_running():
         with torch.inference_mode():
 
-            # actions = torch.zeros(*env.action_space.shape, device=env.unwrapped.device)
-            actions = torch.randn(*env.action_space.shape, device=env.unwrapped.device)
+            actions = torch.zeros(*env.action_space.shape, device=env.unwrapped.device)
+            # actions = torch.randn(*env.action_space.shape, device=env.unwrapped.device)
             env.step(actions)
 
     env.close()
