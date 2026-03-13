@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Script to manage robotic-grounding Docker container
+# Script to manage video-to-policy Docker container
 # Usage:
 #   ./run.sh build [version]         - Build the Docker image (default: latest)
 #   ./run.sh push [version]          - Push the Docker image to NVIDIA registry (default: latest)
@@ -13,8 +13,8 @@ set -e
 
 VERSION=${2:-latest}
 GPU_DEVICE=${3:-0}
-IMAGE_NAME="robotic-grounding:${VERSION}"
-CONTAINER_NAME="robotic-grounding-${VERSION}-gpu${GPU_DEVICE}"
+IMAGE_NAME="video-to-policy:${VERSION}"
+CONTAINER_NAME="video-to-policy-${VERSION}-gpu${GPU_DEVICE}"
 NGC_LOCATION="nvcr.io/nvstaging/isaac-amr"
 
 case "$1" in
@@ -77,7 +77,7 @@ case "$1" in
                 --gpus device=${GPU_DEVICE} \
                 --network host \
                 --name ${CONTAINER_NAME} \
-                -v $(pwd):/workspace/robotic_grounding \
+                -v $(pwd):/workspace/video_to_policy \
                 -v ~/.ssh:/root/.ssh:ro \
                 -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
                 -e DISPLAY=${DISPLAY} \
