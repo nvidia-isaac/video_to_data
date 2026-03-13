@@ -13,7 +13,7 @@
 FROM nvcr.io/nvidia/isaac-lab:2.3.1 AS base
 
 # Set working directory
-WORKDIR /workspace/video_to_policy
+WORKDIR /workspace/robotic_grounding
 
 RUN apt-get update && apt-get install -y \
     curl \
@@ -26,11 +26,11 @@ RUN apt-get update && apt-get install -y \
 # Copy source code and scripts
 ##############################################################
 
-COPY robotic_grounding/pyproject.toml ./robotic_grounding/
-COPY robotic_grounding/README.md ./robotic_grounding/
+COPY pyproject.toml ./
+COPY README.md ./
 
-COPY robotic_grounding/source/ ./robotic_grounding/source/
-COPY robotic_grounding/scripts/ ./robotic_grounding/scripts/
+COPY source/ ./source/
+COPY scripts/ ./scripts/
 
 ##############################################################
 # Install Python Dependencies
@@ -82,7 +82,7 @@ RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
 
 # Install the project in editable mode
 RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
-    -e ./robotic_grounding/source/robotic_grounding
+    -e ./source/robotic_grounding
 
 # Install numpy < 2.0.0 to avoid compatibility issues in Isaac Lab
 RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \

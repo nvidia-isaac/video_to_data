@@ -38,13 +38,13 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: workflow/Dockerfile
+          context: ./robotic_grounding
+          file: robotic_grounding/workflow/Dockerfile
           push: true
           tags: |
-            nvcr.io/nvstaging/isaac-amr/video-to-policy:${{ github.sha }}
-            nvcr.io/nvstaging/isaac-amr/video-to-policy:latest
-          cache-from: type=registry,ref=nvcr.io/nvstaging/isaac-amr/video-to-policy:latest
+            nvcr.io/nvstaging/isaac-amr/robotic-grounding:${{ github.sha }}
+            nvcr.io/nvstaging/isaac-amr/robotic-grounding:latest
+          cache-from: type=registry,ref=nvcr.io/nvstaging/isaac-amr/robotic-grounding:latest
           cache-to: type=inline
 
   e2e-test:
@@ -54,7 +54,7 @@ jobs:
     continue-on-error: true
     timeout-minutes: 30
     container:
-      image: nvcr.io/nvstaging/isaac-amr/video-to-policy:latest
+      image: nvcr.io/nvstaging/isaac-amr/robotic-grounding:latest
       options: --runtime=nvidia --gpus all
       env:
         NVIDIA_VISIBLE_DEVICES: all
