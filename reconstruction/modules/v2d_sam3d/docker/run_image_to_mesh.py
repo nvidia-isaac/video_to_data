@@ -1,0 +1,121 @@
+import subprocess
+import os
+
+IMAGE_NAME = "v2d_sam3d"
+
+_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+_MODULES_DIR = os.path.abspath(os.path.join(_CURRENT_DIR, "..", ".."))
+
+def run_image_to_mesh(
+    image_path: str,
+    mask_path: str,
+    mesh_path: str,
+    transform_path: str,
+    intrinsics_path: str,
+    weights_dir: str,
+    seed: int = None,
+    stage1_only: bool = False,
+    with_mesh_postprocess: bool = False,
+    with_texture_baking: bool = False,
+    with_layout_postprocess: bool = False,
+    use_vertex_color: bool = True,
+    stage1_inference_steps: int = None,
+    dev: bool = False,
+) -> None:
+    image_path = os.path.abspath(image_path)
+    mask_path = os.path.abspath(mask_path)
+    mesh_path = os.path.abspath(mesh_path)
+    transform_path = os.path.abspath(transform_path)
+    intrinsics_path = os.path.abspath(intrinsics_path)
+    weights_dir = os.path.abspath(weights_dir)
+
+    image_dir = os.path.dirname(image_path)
+    image_name = os.path.basename(image_path)
+    mask_dir = os.path.dirname(mask_path)
+    mask_name = os.path.basename(mask_path)
+    mesh_dir = os.path.dirname(mesh_path)
+    mesh_name = os.path.basename(mesh_path)
+    transform_dir = os.path.dirname(transform_path)
+    transform_name = os.path.basename(transform_path)
+    intrinsics_dir = os.path.dirname(intrinsics_path)
+    intrinsics_name = os.path.basename(intrinsics_path)
+
+    os.makedirs(mesh_dir, exist_ok=True)
+    os.makedirs(transform_dir, exist_ok=True)
+    os.makedirs(intrinsics_dir, exist_ok=True)
+
+    cmd = [
+        "docker", "run", "-it", "--rm",
+        "--gpus", "all",
+        "--user", f"{os.getuid()}:{os.getgid()}",
+        "-e", "HOME=/tmp",
+        "-e", "TORCH_HOME=/data/weights/torch_home",
+        "-e", "HF_HOME=/data/weights/hf_home",
+        "-v", f"{image_dir}:/data/image",
+        "-v", f"{mask_dir}:/data/mask",
+        "-v", f"{mesh_dir}:/data/mesh_out",
+        "-v", f"{transform_dir}:/data/transform_out",
+        "-v", f"{intrinsics_dir}:/data/intrinsics_out",
+        "-v", f"{weights_dir}:/data/weights",
+    ]
+    if dev:
+        cmd += ["-v", f"{_MODULES_DIR}:/workspace"]
+
+    module_cmd = [
+        IMAGE_NAME,
+        "python", "-m", "v2d.sam3d.lib.image_to_mesh",
+        "--image_path", f"/data/image/{image_name}",
+        "--mask_path", f"/data/mask/{mask_name}",
+        "--mesh_path", f"/data/mesh_out/{mesh_name}",
+        "--transform_path", f"/data/transform_out/{transform_name}",
+        "--intrinsics_path", f"/data/intrinsics_out/{intrinsics_name}",
+        "--weights_dir", "/data/weights",
+    ]
+    if seed is not None:
+        module_cmd += ["--seed", str(seed)]
+    if stage1_only:
+        module_cmd += ["--stage1_only"]
+    if with_mesh_postprocess:
+        module_cmd += ["--with_mesh_postprocess"]
+    if with_texture_baking:
+        module_cmd += ["--with_texture_baking"]
+    if with_layout_postprocess:
+        module_cmd += ["--with_layout_postprocess"]
+    if use_vertex_color:
+        module_cmd += ["--use_vertex_color"]
+    if stage1_inference_steps is not None:
+        module_cmd += ["--stage1_inference_steps", str(stage1_inference_steps)]
+
+    subprocess.run(cmd + module_cmd, check=True)
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Process image to mesh using SAM3D")
+    parser.add_argument("--image_path", type=str, required=True, help="Path to input image")
+    parser.add_argument("--mask_path", type=str, required=True, help="Path to input mask")
+    parser.add_argument("--mesh_path", type=str, required=True, help="Output path for mesh GLB")
+    parser.add_argument("--transform_path", type=str, required=True, help="Output path for transform JSON")
+    parser.add_argument("--intrinsics_path", type=str, required=True, help="Output path for intrinsics JSON")
+    parser.add_argument("--weights_dir", type=str, required=True, help="Path to weights directory")
+    parser.add_argument("--seed", type=int, default=None, help="Random seed")
+    parser.add_argument("--stage1_only", action="store_true", help="Only run stage 1")
+    parser.add_argument("--with_mesh_postprocess", action="store_true", help="Enable mesh postprocessing")
+    parser.add_argument("--with_texture_baking", action="store_true", help="Enable texture baking")
+    parser.add_argument("--with_layout_postprocess", action="store_true", help="Enable layout postprocessing")
+    parser.add_argument("--use_vertex_color", action="store_true", default=True, help="Use vertex color")
+    parser.add_argument("--stage1_inference_steps", type=int, default=None, help="Stage 1 inference steps")
+    parser.add_argument("--dev", action="store_true", help="Mount local modules for development")
+    args = parser.parse_args()
+    run_image_to_mesh(
+        args.image_path, args.mask_path, args.mesh_path,
+        args.transform_path, args.intrinsics_path, args.weights_dir,
+        seed=args.seed, stage1_only=args.stage1_only,
+        with_mesh_postprocess=args.with_mesh_postprocess,
+        with_texture_baking=args.with_texture_baking,
+        with_layout_postprocess=args.with_layout_postprocess,
+        use_vertex_color=args.use_vertex_color,
+        stage1_inference_steps=args.stage1_inference_steps,
+        dev=args.dev,
+    )

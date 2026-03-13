@@ -2,91 +2,80 @@
 SAM3D image to mesh processing function.
 Can be called directly from command line or imported as a function.
 """
-from modules.common.datatypes import Transform3d, CameraIntrinsics
+import torch.hub
+torch.hub._validate_not_a_forked_repo = lambda *args, **kwargs: None
+
+from v2d.datatypes import Transform3d, CameraIntrinsics
+from v2d.sam3d.lib.inference_pipeline_modified import InferencePipelinePointMap
 import os
-import sys
 import argparse
-sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '_impl'))
-from inference_pipeline_modified import InferencePipelinePointMap
 import numpy as np
 from PIL import Image
 import json
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
-# Singleton pipeline instance
 _pipeline = None
 
-def _get_pipeline():
+def _get_pipeline(weights_dir: str):
     global _pipeline
     if _pipeline is None:
-        data_dir = os.environ.get("DATA_DIR", "/data")
-        checkpoints_dir = os.environ.get("CHECKPOINT_DIR", os.path.join(data_dir, "sam3d/checkpoints"))
-        
-        # SAM3D downloads to hf-download/checkpoints/pipeline.yaml
-        # Try multiple possible locations
         possible_config_paths = [
-            os.path.join(checkpoints_dir, "hf-download", "checkpoints", "pipeline.yaml"),
-            os.path.join(checkpoints_dir, "checkpoints", "pipeline.yaml"),
-            os.path.join(checkpoints_dir, "pipeline.yaml"),
+            os.path.join(weights_dir, "hf-download", "checkpoints", "pipeline.yaml"),
+            os.path.join(weights_dir, "checkpoints", "pipeline.yaml"),
+            os.path.join(weights_dir, "pipeline.yaml"),
         ]
-        
+
         config_file = None
         for path in possible_config_paths:
             if os.path.exists(path):
                 config_file = path
                 break
-        
+
         if config_file is None:
-            # List what files are actually in the directory
             files_in_dir = []
-            if os.path.isdir(checkpoints_dir):
-                for root, dirs, files in os.walk(checkpoints_dir):
+            if os.path.isdir(weights_dir):
+                for root, dirs, files in os.walk(weights_dir):
                     if 'pipeline.yaml' in files:
-                        files_in_dir.append(os.path.relpath(os.path.join(root, 'pipeline.yaml'), checkpoints_dir))
-            
+                        files_in_dir.append(os.path.relpath(os.path.join(root, 'pipeline.yaml'), weights_dir))
+
             raise FileNotFoundError(
-                f"SAM3D config file (pipeline.yaml) not found in {checkpoints_dir}\n"
+                f"SAM3D config file (pipeline.yaml) not found in {weights_dir}\n"
                 f"Tried: {possible_config_paths}\n"
                 f"Found pipeline.yaml at: {files_in_dir if files_in_dir else 'none'}\n"
-                f"Please download checkpoints using: modules/sam3d/download.sh"
+                f"Please download checkpoints using: python -m v2d.sam3d.docker.run_download_weights"
             )
-        
+
         config = OmegaConf.load(config_file)
         config.rendering_engine = "pytorch3d"
         config.compile_model = False
         config.workspace_dir = os.path.dirname(config_file)
-        # Use relative import path since we have sys.path.append
-        config._target_ = "modules.sam3d._impl.inference_pipeline_modified.InferencePipelinePointMap"
-        
-        # Override MoGE model path to use local checkpoint instead of downloading from HuggingFace
-        hf_home = os.environ.get("HF_HOME", os.path.join(checkpoints_dir, "hf_home"))
+        config._target_ = "v2d.sam3d.lib.inference_pipeline_modified.InferencePipelinePointMap"
+
+        hf_home = os.environ.get("HF_HOME", os.path.join(weights_dir, "hf_home"))
         moge_model_path = None
-        
-        # Look for MoGE model in HF cache structure
+
         moge_cache_paths = [
             os.path.join(hf_home, "hub", "models--Ruicheng--moge-vitl", "snapshots"),
-            os.path.join(checkpoints_dir, "hf_home", "hub", "models--Ruicheng--moge-vitl", "snapshots"),
+            os.path.join(weights_dir, "hf_home", "hub", "models--Ruicheng--moge-vitl", "snapshots"),
         ]
-        
+
         for cache_path in moge_cache_paths:
             if os.path.exists(cache_path):
-                # Find the snapshot directory (usually has a hash name)
                 snapshots = [d for d in os.listdir(cache_path) if os.path.isdir(os.path.join(cache_path, d))]
                 if snapshots:
                     moge_model_path = os.path.join(cache_path, snapshots[0], "model.pt")
                     if os.path.exists(moge_model_path):
                         break
-        
+
         if moge_model_path and os.path.exists(moge_model_path):
-            # Override the config to use local path
             if hasattr(config, 'depth_model') and hasattr(config.depth_model, 'model'):
                 config.depth_model.model.pretrained_model_name_or_path = moge_model_path
                 print(f"Using local MoGE model: {moge_model_path}")
         else:
             print(f"Warning: Local MoGE model not found, will try to download from HuggingFace")
             print(f"Searched in: {moge_cache_paths}")
-        
+
         print(f"Initializing SAM3D pipeline with target: {config._target_}")
         try:
             _pipeline = instantiate(config)
@@ -105,6 +94,7 @@ def _merge_mask_to_rgba(image: np.ndarray, mask: np.ndarray) -> np.ndarray:
     return np.concatenate([image[..., :3], mask], axis=-1)
 
 def image_to_mesh(image_path: str, mask_path: str, mesh_path: str, transform_path: str, intrinsics_path: str,
+                 weights_dir: str,
                  seed: int = None,
                  stage1_only: bool = False,
                  with_mesh_postprocess: bool = False,
@@ -113,18 +103,16 @@ def image_to_mesh(image_path: str, mask_path: str, mesh_path: str, transform_pat
                  use_vertex_color: bool = True,
                  stage1_inference_steps: int = None):
     """Process an image with mask to generate 3D mesh and save outputs to files."""
-    # Load image and mask from files
     image = Image.open(image_path)
     mask = Image.open(mask_path)
     image_array = np.asarray(image)
     mask_array = np.asarray(mask) != 0
-    
+
     image_height, image_width = image_array.shape[:2]
     mask_array = mask_array.astype(bool) if mask_array.dtype != bool else mask_array
     image_rgba = _merge_mask_to_rgba(image_array, mask_array)
-    
-    # Get pipeline and process
-    pipeline = _get_pipeline()
+
+    pipeline = _get_pipeline(weights_dir)
     output = pipeline.run(
         image_rgba,
         None,
@@ -136,9 +124,9 @@ def image_to_mesh(image_path: str, mask_path: str, mesh_path: str, transform_pat
         use_vertex_color=use_vertex_color,
         stage1_inference_steps=stage1_inference_steps
     )
-    
+
     mesh_scene = output['glb']
-    
+
     transform = Transform3d(
         rotation=output['rotation'][0].tolist(),
         translation=output['translation'][0].tolist(),
@@ -153,14 +141,13 @@ def image_to_mesh(image_path: str, mask_path: str, mesh_path: str, transform_pat
         width=image_width,
         height=image_height
     )
-    
-    # Save outputs to files
+
     with open(mesh_path, "wb") as f:
         f.write(mesh_scene.export(file_type='glb'))
-    
+
     with open(transform_path, "w") as f:
         json.dump(transform.to_dict(), f, indent=4)
-    
+
     with open(intrinsics_path, "w") as f:
         json.dump(intrinsics.to_dict(), f, indent=4)
 
@@ -171,6 +158,7 @@ if __name__ == "__main__":
     parser.add_argument("--mesh_path", type=str, required=True, help="Output path for mesh GLB")
     parser.add_argument("--transform_path", type=str, required=True, help="Output path for transform JSON")
     parser.add_argument("--intrinsics_path", type=str, required=True, help="Output path for intrinsics JSON")
+    parser.add_argument("--weights_dir", type=str, required=True, help="Path to weights directory")
     parser.add_argument("--seed", type=int, default=None, help="Random seed")
     parser.add_argument("--stage1_only", action="store_true", help="Only run stage 1")
     parser.add_argument("--with_mesh_postprocess", action="store_true", help="Enable mesh postprocessing")
@@ -178,7 +166,7 @@ if __name__ == "__main__":
     parser.add_argument("--with_layout_postprocess", action="store_true", help="Enable layout postprocessing")
     parser.add_argument("--use_vertex_color", action="store_true", default=True, help="Use vertex color")
     parser.add_argument("--stage1_inference_steps", type=int, default=None, help="Stage 1 inference steps")
-    
+
     args = parser.parse_args()
     image_to_mesh(
         args.image_path,
@@ -186,6 +174,7 @@ if __name__ == "__main__":
         args.mesh_path,
         args.transform_path,
         args.intrinsics_path,
+        weights_dir=args.weights_dir,
         seed=args.seed,
         stage1_only=args.stage1_only,
         with_mesh_postprocess=args.with_mesh_postprocess,
@@ -194,4 +183,3 @@ if __name__ == "__main__":
         use_vertex_color=args.use_vertex_color,
         stage1_inference_steps=args.stage1_inference_steps
     )
-
