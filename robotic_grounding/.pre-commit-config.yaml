@@ -9,25 +9,25 @@
 default_stages: [pre-commit]
 default_install_hook_types: [pre-commit, pre-push]
 
-# Global exclude for all hooks
-exclude: ^(workflow/.*\.yaml)$
+# Hook paths are evaluated from the git root, not this nested config directory.
+exclude: ^(robotic_grounding/workflow/.*\.yaml)$
 
 repos:
 - repo: https://github.com/charliermarsh/ruff-pre-commit
   rev: 'v0.14.11'
   hooks:
     - id: ruff
-      args: ['--fix', '--config', 'pyproject.toml']
+      args: ['--fix', '--config', 'robotic_grounding/pyproject.toml']
       exclude: |
         (?x)^(
-          scripts/rsl_rl/.*
+          robotic_grounding/scripts/rsl_rl/.*
         )$
 
 - repo: https://github.com/psf/black
   rev: 25.12.0
   hooks:
     - id: black
-      args: ['--config', 'pyproject.toml']
+      args: ['--config', 'robotic_grounding/pyproject.toml']
       verbose: true
 
 - repo: https://github.com/pre-commit/mirrors-mypy
@@ -44,7 +44,7 @@ repos:
         "--explicit-package-bases",
         "--follow-imports=skip",
         "--disable-error-code=has-type",
-        "--config-file=pyproject.toml",
+        "--config-file=robotic_grounding/pyproject.toml",
       ]
 
 - repo: https://github.com/pre-commit/pre-commit-hooks
