@@ -10,7 +10,11 @@ default_stages: [pre-commit]
 default_install_hook_types: [pre-commit, pre-push]
 
 # Hook paths are evaluated from the git root, not this nested config directory.
-exclude: ^(robotic_grounding/workflow/.*\.yaml)$
+exclude: |
+  (?x)^(
+    robotic_grounding/workflow/.*\.yaml
+    | robotic_grounding/source/robotic_grounding/robotic_grounding/assets/human_motion_data/.*
+  )$
 
 repos:
 - repo: https://github.com/charliermarsh/ruff-pre-commit
