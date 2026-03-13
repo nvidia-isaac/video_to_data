@@ -66,7 +66,16 @@ run_video_to_depth(
 
 ### 1. Install the Docker orchestration packages
 
-Each module exposes a **docker** package (lightweight Python wrappers that build and run containers). Install only the modules you need:
+Each module exposes a **docker** package (lightweight Python wrappers that build and run containers).
+
+**Quick install (all packages):**
+
+```bash
+cd reconstruction
+./install_lightweight.sh
+```
+
+Install only the modules you need:
 
 ```bash
 # From the repo root
@@ -81,7 +90,16 @@ pip install -e modules/v2d_nlf/docker
 # ... and/or: v2d_unidepth, v2d_grounding_dino, v2d_foundation_stereo
 ```
 
-Or install all docker packages at once:
+Or install all docker packages at once (including the example pipeline):
+
+```bash
+# From reconstruction/ - install all docker packages + v2d_pipelines in one command
+pip install -e modules/v2d_sam2/docker -e modules/v2d_sam3d/docker -e modules/v2d_unidepth/docker \
+  -e modules/v2d_moge/docker -e modules/v2d_nlf/docker -e modules/v2d_foundation_pose/docker \
+  -e modules/v2d_foundation_stereo/docker -e modules/v2d_grounding_dino/docker -e modules/v2d_pipelines
+```
+
+This installs `v2d-pipelines` and all docker packages (v2d_pipelines declares them as dependencies). Alternatively:
 
 ```bash
 for d in modules/v2d_*/docker; do pip install -e "$d"; done
@@ -89,7 +107,16 @@ for d in modules/v2d_*/docker; do pip install -e "$d"; done
 
 ### 2. Build Docker images
 
-Each module has its own image. Once packages are installed, no cd is needed; run from any directory:
+Each module has its own image.
+
+**Build all images:**
+
+```bash
+cd reconstruction
+./build_containers.sh
+```
+
+Or build individually (run from any directory after install):
 
 ```bash
 python -m v2d.sam3d.docker.build
@@ -124,7 +151,7 @@ This project separates **orchestration** (run on the host) from **inference** (r
 - **Isolation:** Each module has its own environment (CUDA, PyTorch) without host pollution.
 - **Reproducibility:** Containers pin exact dependency versions.
 - **Portability:** Run the same containers on different hosts; only Docker + GPU are required on the host.
-- **Composable pipelines:** The host can import and chain multiple `run_*` functions (e.g. `example_pipeline.py`) without installing heavy ML stacks locally.
+- **Composable pipelines:** The host can import and chain multiple `run_*` functions (e.g. `v2d.pipelines.example_pipeline`) without installing heavy ML stacks locally.
 
 ---
 
@@ -277,7 +304,22 @@ All modules share the same build pattern. Each Dockerfile uses `reconstruction/m
 | **Execute** | `python -m v2d.<module>.docker.run_<tool> --arg1 ... --arg2 ...` |
 | **Dev mode** | Add `--dev` to mount local modules at `/workspace` |
 
-Example pipeline usage (see `reconstruction/example_pipeline.py`):
+Example pipeline usage (install `v2d-pipelines` and docker packages; see Setup above):
+
+```bash
+# From reconstruction/ - install all in one command
+pip install -e modules/v2d_sam2/docker -e modules/v2d_sam3d/docker -e modules/v2d_unidepth/docker \
+  -e modules/v2d_moge/docker -e modules/v2d_nlf/docker -e modules/v2d_foundation_pose/docker \
+  -e modules/v2d_foundation_stereo/docker -e modules/v2d_grounding_dino/docker -e modules/v2d_pipelines
+```
+
+Then run from `reconstruction/` or repo root:
+
+```bash
+python -m v2d.pipelines.example_pipeline
+```
+
+Or import in Python:
 
 ```python
 from v2d.sam3d.docker.run_image_to_mesh import run_image_to_mesh
