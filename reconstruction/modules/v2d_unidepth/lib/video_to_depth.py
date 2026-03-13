@@ -11,23 +11,20 @@ import numpy as np
 import cv2
 import json
 from PIL import Image
-from modules.common.datatypes import DepthImage, CameraIntrinsics
+from v2d.datatypes import DepthImage, CameraIntrinsics
 
 # Singleton model instance
 _model = None
 
-def _get_model():
+def _get_model(weights_path: str):
     global _model
     if _model is None:
-        data_dir = os.environ.get("DATA_DIR", "/data")
-        checkpoint_dir = os.environ.get("CHECKPOINT_DIR", os.path.join(data_dir, "unidepth/checkpoints/unidepth-v2-vitl14"))
-        
-        print(f"Initializing UniDepthV2 model from {checkpoint_dir}...")
-        if os.path.exists(checkpoint_dir):
-            print(f"Loading UniDepthV2 from local checkpoint: {checkpoint_dir}")
-            _model = UniDepthV2.from_pretrained(checkpoint_dir)
+        print(f"Initializing UniDepthV2 model from {weights_path}...")
+        if os.path.exists(weights_path):
+            print(f"Loading UniDepthV2 from local checkpoint: {weights_path}")
+            _model = UniDepthV2.from_pretrained(weights_path)
         else:
-            raise FileNotFoundError(f"UniDepthV2 checkpoint not found at {checkpoint_dir}")
+            raise FileNotFoundError(f"UniDepthV2 checkpoint not found at {weights_path}")
         _model.to("cuda")
         _model.eval()
     return _model
@@ -36,9 +33,9 @@ def _preprocess_numpy(image: np.ndarray) -> torch.Tensor:
     """Preprocess numpy image to tensor"""
     return torch.from_numpy(image).permute(2, 0, 1).float()
 
-def video_to_depth(video_path: str, depth_folder: str, intrinsics_folder: str, batch_size: int = 8):
+def video_to_depth(video_path: str, depth_folder: str, intrinsics_folder: str, weights_path: str, batch_size: int = 8):
     """Process video to depth frames."""
-    model = _get_model()
+    model = _get_model(weights_path)
     os.makedirs(depth_folder, exist_ok=True)
     os.makedirs(intrinsics_folder, exist_ok=True)
     
@@ -94,8 +91,8 @@ if __name__ == "__main__":
     parser.add_argument("--video_path", type=str, required=True, help="Path to input video")
     parser.add_argument("--depth_folder", type=str, required=True, help="Output folder for depth images")
     parser.add_argument("--intrinsics_folder", type=str, required=True, help="Output folder for camera intrinsics")
+    parser.add_argument("--weights_path", type=str, required=True, help="Path to weights")
     parser.add_argument("--batch_size", type=int, default=8, help="Batch size for processing")
-    
     args = parser.parse_args()
-    video_to_depth(args.video_path, args.depth_folder, args.intrinsics_folder, args.batch_size)
+    video_to_depth(args.video_path, args.depth_folder, args.intrinsics_folder, args.weights_path, args.batch_size)
 
