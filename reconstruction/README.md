@@ -2,18 +2,114 @@
 
 Docker-based modules for video reconstruction, depth estimation, object detection, segmentation, mesh generation, pose tracking, and human body modeling.
 
+## Quickstart (MOGE)
+
+Minimal example using MOGE. From `reconstruction/`:
+
+```bash
+# One-time setup
+pip install -e modules/v2d_moge/docker
+python -m v2d.moge.docker.build
+
+# 1. Download weights (~1.5GB)
+python -m v2d.moge.docker.run_download_weights --output_dir data/weights/moge
+
+# 2. Run video→depth (repo includes sample at modules/v2d_moge/assets/test_video.mp4)
+python -m v2d.moge.docker.run_video_to_depth \
+  --video_path modules/v2d_moge/assets/test_video.mp4 \
+  --depth_folder data/outputs/moge/depth \
+  --intrinsics_folder data/outputs/moge/intrinsics \
+  --weights_path data/weights/moge
+```
+
+**Output:** Per-frame depth maps in `data/outputs/moge/depth/`, intrinsics in `data/outputs/moge/intrinsics/`. The repo includes sample data at `modules/v2d_moge/assets/test_video.mp4`.
+
+---
+
 ## Packages & Tools (Summary)
 
 | Package | Tools | Description | Build | Execute |
 |---------|-------|-------------|-------|---------|
-| **v2d_unidepth** | `run_image_to_depth`, `run_video_to_depth`, `run_download_weights`, `run_shell` | Monocular depth estimation | `cd reconstruction/modules/v2d_unidepth/docker && python build.py` | `python -m v2d.unidepth.docker.run_<tool> --args` |
-| **v2d_moge** | `run_image_to_depth`, `run_video_to_depth`, `run_download_weights`, `run_shell` | Video-to-depth (Midas + MoG) | `cd reconstruction/modules/v2d_moge/docker && python build.py` | `python -m v2d.moge.docker.run_<tool> --args` |
-| **v2d_sam2** | `run_video_to_masks`, `run_annotate`, `run_download_weights`, `run_shell` | SAM2 video segmentation | `cd reconstruction/modules/v2d_sam2/docker && python build.py` | `python -m v2d.sam2.docker.run_<tool> --args` |
-| **v2d_sam3d** | `run_image_to_mesh`, `run_render_debug_image`, `run_download_weights`, `run_shell` | 3D mesh from image+mask | `cd reconstruction/modules/v2d_sam3d/docker && python build.py` | `python -m v2d.sam3d.docker.run_<tool> --args` |
-| **v2d_grounding_dino** | `run_image_to_object_bboxes`, `run_image_list_to_object_bboxes`, `run_video_to_object_bboxes`, `run_download_weights`, `run_shell` | Text-guided object detection | `cd reconstruction/modules/v2d_grounding_dino/docker && python build.py` | `python -m v2d.grounding_dino.docker.run_<tool> --args` |
-| **v2d_foundation_stereo** | `run_image_to_depth`, `run_image_list_to_depth`, `run_export_engine`, `run_download_weights`, `run_shell` | Stereo depth (left/right pairs) | `cd reconstruction/modules/v2d_foundation_stereo/docker && python build.py` | `python -m v2d.foundation_stereo.docker.run_<tool> --args` |
-| **v2d_foundation_pose** | `run_video_to_poses`, `run_render_overlay`, `run_estimate_scale`, `run_align_mesh_scale`, `run_transform_mesh`, `run_simplify_mesh`, `run_download_weights`, `run_shell` | 6D pose tracking, mesh ops | `cd reconstruction/modules/v2d_foundation_pose/docker && python build.py` | `python -m v2d.foundation_pose.docker.run_<tool> --args` |
-| **v2d_nlf** | `run_video_to_smpl`, `run_render_smpl_overlay`, `run_render_smpl_depth`, `run_align_depth_to_smpl`, `run_align_nlf_to_depth`, `run_download_weights`, `run_shell` | Video → SMPL body model | `cd reconstruction/modules/v2d_nlf/docker && python build.py` | `python -m v2d.nlf.docker.run_<tool> --args` |
+| **v2d_unidepth** | `run_image_to_depth`, `run_video_to_depth`, `run_download_weights`, `run_shell` | Monocular depth estimation | `python -m v2d.unidepth.docker.build` | `python -m v2d.unidepth.docker.run_<tool> --args` |
+| **v2d_moge** | `run_image_to_depth`, `run_video_to_depth`, `run_download_weights`, `run_shell` | Video-to-depth (Midas + MoG) | `python -m v2d.moge.docker.build` | `python -m v2d.moge.docker.run_<tool> --args` |
+| **v2d_sam2** | `run_video_to_masks`, `run_annotate`, `run_download_weights`, `run_shell` | SAM2 video segmentation | `python -m v2d.sam2.docker.build` | `python -m v2d.sam2.docker.run_<tool> --args` |
+| **v2d_sam3d** | `run_image_to_mesh`, `run_render_debug_image`, `run_download_weights`, `run_shell` | 3D mesh from image+mask | `python -m v2d.sam3d.docker.build` | `python -m v2d.sam3d.docker.run_<tool> --args` |
+| **v2d_grounding_dino** | `run_image_to_object_bboxes`, `run_image_list_to_object_bboxes`, `run_video_to_object_bboxes`, `run_download_weights`, `run_shell` | Text-guided object detection | `python -m v2d.grounding_dino.docker.build` | `python -m v2d.grounding_dino.docker.run_<tool> --args` |
+| **v2d_foundation_stereo** | `run_image_to_depth`, `run_image_list_to_depth`, `run_export_engine`, `run_download_weights`, `run_shell` | Stereo depth (left/right pairs) | `python -m v2d.foundation_stereo.docker.build` | `python -m v2d.foundation_stereo.docker.run_<tool> --args` |
+| **v2d_foundation_pose** | `run_video_to_poses`, `run_render_overlay`, `run_estimate_scale`, `run_align_mesh_scale`, `run_transform_mesh`, `run_simplify_mesh`, `run_download_weights`, `run_shell` | 6D pose tracking, mesh ops | `python -m v2d.foundation_pose.docker.build` | `python -m v2d.foundation_pose.docker.run_<tool> --args` |
+| **v2d_nlf** | `run_video_to_smpl`, `run_render_smpl_overlay`, `run_render_smpl_depth`, `run_align_depth_to_smpl`, `run_align_nlf_to_depth`, `run_download_weights`, `run_shell` | Video → SMPL body model | `python -m v2d.nlf.docker.build` | `python -m v2d.nlf.docker.run_<tool> --args` |
+
+---
+
+## Setup
+
+### Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) with GPU support
+- [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
+- Python 3.10+
+
+### 1. Install the Docker orchestration packages
+
+Each module exposes a **docker** package (lightweight Python wrappers that build and run containers). Install only the modules you need:
+
+```bash
+# From the repo root
+cd reconstruction
+
+# Install docker packages for the modules you want to use
+pip install -e modules/v2d_sam3d/docker
+pip install -e modules/v2d_moge/docker
+pip install -e modules/v2d_sam2/docker
+pip install -e modules/v2d_foundation_pose/docker
+pip install -e modules/v2d_nlf/docker
+# ... and/or: v2d_unidepth, v2d_grounding_dino, v2d_foundation_stereo
+```
+
+Or install all docker packages at once:
+
+```bash
+for d in modules/v2d_*/docker; do pip install -e "$d"; done
+```
+
+### 2. Build Docker images
+
+Each module has its own image. Once packages are installed, no cd is needed; run from any directory:
+
+```bash
+python -m v2d.sam3d.docker.build
+python -m v2d.moge.docker.build
+# ... repeat for each module you use
+```
+
+### 3. Download weights
+
+Run `run_download_weights` for each module that requires model weights (e.g. via `python -m v2d.sam3d.docker.run_download_weights --output_dir data/weights/sam3d`).
+
+### Design pattern: host orchestration, containerized inference
+
+This project separates **orchestration** (run on the host) from **inference** (run inside Docker):
+
+| Layer | Location | Role |
+|-------|----------|------|
+| **Docker package** | Host (`pip install -e modules/v2d_*/docker`) | Thin Python wrappers that construct `docker run` commands, mount volumes, and invoke the container. No heavy ML deps on the host. |
+| **Lib package** | Container (installed in Dockerfile) | Actual inference code (PyTorch, ONNX, etc.) and model logic. Runs only inside the built image. |
+
+**Why `pip install -e <module>/docker`?**
+
+- The `docker/` folder is a **pip-installable package** (`v2d.<module>.docker`) that exposes callables like `run_image_to_mesh`, `run_video_to_depth`, etc.
+- Installing it makes `from v2d.sam3d.docker.run_image_to_mesh import run_image_to_mesh` work, so you can compose pipelines in Python.
+- The package is lightweight (subprocess, paths, argparse) and has no ML dependencies. It simply spawns containers.
+- `build` is part of the same package; after install run `python -m v2d.<module>.docker.build` to build the image (from any directory).
+
+**Flow:** Host Python → calls `run_*()` → spawns Docker container → container runs `lib/` code → results written to mounted volumes.
+
+**Why this design?**
+
+- **Isolation:** Each module has its own environment (CUDA, PyTorch) without host pollution.
+- **Reproducibility:** Containers pin exact dependency versions.
+- **Portability:** Run the same containers on different hosts; only Docker + GPU are required on the host.
+- **Composable pipelines:** The host can import and chain multiple `run_*` functions (e.g. `example_pipeline.py`) without installing heavy ML stacks locally.
 
 ---
 
@@ -30,7 +126,7 @@ Monocular depth estimation using UniDepth.
 | `run_download_weights` | `run_download(output_dir, dev=False)` | Download UniDepth model weights |
 | `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
 
-**Build:** `cd reconstruction/modules/v2d_unidepth/docker && python build.py`  
+**Build:** `python -m v2d.unidepth.docker.build`  
 **Execute:** `python -m v2d.unidepth.docker.run_image_to_depth --image_path ... --depth_path ... --intrinsics_path ... --weights_path ...`
 
 ---
@@ -46,7 +142,7 @@ Video-to-depth using Midas with Grounded MoG prior.
 | `run_download_weights` | `run_download(output_dir, dev=False)` | Download MoGE model weights |
 | `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
 
-**Build:** `cd reconstruction/modules/v2d_moge/docker && python build.py`  
+**Build:** `python -m v2d.moge.docker.build`  
 **Execute:** `python -m v2d.moge.docker.run_video_to_depth --video_path ... --depth_folder ... --intrinsics_folder ... --weights_path ...`
 
 ---
@@ -62,7 +158,7 @@ Segment Anything Model 2 for video segmentation.
 | `run_download_weights` | `run_download(output_dir, dev=False)` | Download SAM2 model weights |
 | `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
 
-**Build:** `cd reconstruction/modules/v2d_sam2/docker && python build.py`  
+**Build:** `python -m v2d.sam2.docker.build`  
 **Execute:** `python -m v2d.sam2.docker.run_video_to_masks --video_path ... --prompts_path ... --masks_dir ... --weights_dir ...`
 
 ---
@@ -78,7 +174,7 @@ Segment Anything Model 2 for video segmentation.
 | `run_download_weights` | `run_download(output_dir, dev=False)` | Download SAM3D model weights |
 | `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
 
-**Build:** `cd reconstruction/modules/v2d_sam3d/docker && python build.py`  
+**Build:** `python -m v2d.sam3d.docker.build`  
 **Execute:** `python -m v2d.sam3d.docker.run_image_to_mesh --image_path ... --mask_path ... --mesh_path ... --transform_path ... --intrinsics_path ... --weights_dir ...`
 
 ---
@@ -95,7 +191,7 @@ Text-guided object detection using Grounding DINO.
 | `run_download_weights` | `run_download(output_dir, dev=False)` | Download Grounding DINO model weights |
 | `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
 
-**Build:** `cd reconstruction/modules/v2d_grounding_dino/docker && python build.py`  
+**Build:** `python -m v2d.grounding_dino.docker.build`  
 **Execute:** `python -m v2d.grounding_dino.docker.run_image_to_object_bboxes --image_path ... --output_path ... --prompt "person" --model_dir ...`
 
 ---
@@ -112,7 +208,7 @@ Stereo depth estimation from left/right image pairs.
 | `run_download_weights` | `run_download(output_dir, dev=False)` | Download Foundation Stereo model weights |
 | `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
 
-**Build:** `cd reconstruction/modules/v2d_foundation_stereo/docker && python build.py`  
+**Build:** `python -m v2d.foundation_stereo.docker.build`  
 **Execute:** `python -m v2d.foundation_stereo.docker.run_image_to_depth --left_image_path ... --right_image_path ... --depth_path ... --intrinsics_path ... --model_dir ... --calibration_file ...`
 
 ---
@@ -132,7 +228,7 @@ Stereo depth estimation from left/right image pairs.
 | `run_download_weights` | `run_download(output_dir, dev=False)` | Download FoundationPose model weights |
 | `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
 
-**Build:** `cd reconstruction/modules/v2d_foundation_pose/docker && python build.py`  
+**Build:** `python -m v2d.foundation_pose.docker.build`  
 **Execute:** `python -m v2d.foundation_pose.docker.run_video_to_poses --video_path ... --depth_folder ... --masks_folder ... --camera_intrinsics_path ... --mesh_path ... --poses_dir ... --weights_dir ...`
 
 ---
@@ -151,7 +247,7 @@ Neural layered field: video to SMPL body parameters.
 | `run_download_weights` | `run_download(output_dir, dev=False)` | Download NLF and SMPL weights |
 | `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
 
-**Build:** `cd reconstruction/modules/v2d_nlf/docker && python build.py`  
+**Build:** `python -m v2d.nlf.docker.build`  
 **Execute:** `python -m v2d.nlf.docker.run_video_to_smpl --video_path ... --masks_dir ... --intrinsics_path ... --gender male --output_path ... --weights_dir ...`
 
 ---
@@ -162,9 +258,8 @@ All modules share the same build pattern. Each Dockerfile uses `reconstruction/m
 
 | Action | Command |
 |--------|---------|
-| **Build** | `cd reconstruction/modules/<module>/docker && python build.py` |
-| **Execute via Python** | `python -m v2d.<module>.docker.run_<tool> --arg1 ... --arg2 ...` |
-| **Execute via CLI** | Same as above when run as main in each `run_*.py` |
+| **Build** | `python -m v2d.<module>.docker.build` |
+| **Execute** | `python -m v2d.<module>.docker.run_<tool> --arg1 ... --arg2 ...` |
 | **Dev mode** | Add `--dev` to mount local modules at `/workspace` |
 
 Example pipeline usage (see `reconstruction/example_pipeline.py`):
