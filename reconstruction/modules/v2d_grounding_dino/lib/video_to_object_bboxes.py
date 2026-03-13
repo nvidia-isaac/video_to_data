@@ -22,7 +22,7 @@ from PIL import Image
 import torch
 from torchvision.ops import box_convert
 
-from v2d.datatypes import BoundingBox
+from v2d.common.datatypes import BoundingBox
 
 _CHECKPOINT_URL = (
     "https://github.com/IDEA-Research/GroundingDINO/releases/download/"

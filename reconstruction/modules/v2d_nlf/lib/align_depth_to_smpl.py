@@ -10,7 +10,7 @@ import glob
 
 from v2d.foundation_pose.lib.fp_utils import erode_depth, bilateral_filter_depth
 
-from v2d.datatypes import DepthImage, Mask
+from v2d.common.datatypes import DepthImage, Mask
 
 
 def compute_scale_and_shift_robust(pred: np.ndarray, target: np.ndarray, mask: np.ndarray) -> tuple[float, float]:

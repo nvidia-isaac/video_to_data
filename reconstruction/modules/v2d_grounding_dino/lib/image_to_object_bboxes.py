@@ -17,7 +17,7 @@ import groundingdino
 from groundingdino.util.inference import load_image, load_model, predict
 from torchvision.ops import box_convert
 
-from v2d.datatypes import BoundingBox
+from v2d.common.datatypes import BoundingBox
 
 _CHECKPOINT_URL = (
     "https://github.com/IDEA-Research/GroundingDINO/releases/download/"

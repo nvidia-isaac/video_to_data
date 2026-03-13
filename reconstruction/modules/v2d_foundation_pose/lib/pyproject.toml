@@ -13,7 +13,7 @@ dependencies = [
     "opencv-python",
     "trimesh",
     "scikit-learn",
-    "v2d-datatypes",
+    "v2d-common",
 ]
 
 [tool.setuptools]

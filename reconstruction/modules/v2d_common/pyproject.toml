@@ -3,7 +3,7 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "v2d-datatypes"
+name = "v2d-common"
 version = "0.1.0"
 description = "Common data types shared across v2d services"
 requires-python = ">=3.10"
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [tool.setuptools]
-packages = ["v2d.datatypes"]
+packages = ["v2d.common"]
 
 [tool.setuptools.package-dir]
-"v2d.datatypes" = "."
+"v2d.common" = "."

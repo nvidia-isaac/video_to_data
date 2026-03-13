@@ -12,4 +12,4 @@ RUN apt-get update && apt-get install -y \
 
 COPY . /workspace
 
-RUN pip install -e /workspace/v2d_datatypes -e /workspace/v2d_sam2/lib
+RUN pip install -e /workspace/v2d_common -e /workspace/v2d_sam2/lib

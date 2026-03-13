@@ -14,7 +14,7 @@ dependencies = [
     "trimesh",
     "h5py",
     "open3d",
-    "v2d-datatypes",
+    "v2d-common",
     "v2d-foundation-pose-lib",
 ]
 

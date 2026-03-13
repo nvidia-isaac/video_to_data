@@ -7,7 +7,7 @@ import torch
 import h5py
 import json
 from smplfitter.pt import BodyModel
-from v2d.datatypes import CameraIntrinsics
+from v2d.common.datatypes import CameraIntrinsics
 import trimesh
 import pyrender
 

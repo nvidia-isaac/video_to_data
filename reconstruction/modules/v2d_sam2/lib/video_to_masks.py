@@ -3,7 +3,7 @@ SAM2 video to masks processing function.
 Can be called directly from command line or imported as a function.
 """
 from v2d.sam2.lib.sam2_utils import build_sam2_video_predictor_low_mem
-from v2d.datatypes import Sam2Prompts
+from v2d.sam2.lib.datatypes import Sam2Prompts
 import os
 import argparse
 import json

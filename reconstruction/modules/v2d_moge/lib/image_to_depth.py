@@ -9,7 +9,7 @@ import torch
 import numpy as np
 import json
 from PIL import Image
-from v2d.datatypes import DepthImage, CameraIntrinsics
+from v2d.common.datatypes import DepthImage, CameraIntrinsics
 
 _model = None
 

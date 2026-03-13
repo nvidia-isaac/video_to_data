@@ -5,7 +5,7 @@ Can be called directly from command line or imported as a function.
 import torch.hub
 torch.hub._validate_not_a_forked_repo = lambda *args, **kwargs: None
 
-from v2d.datatypes import Transform3d, CameraIntrinsics
+from v2d.common.datatypes import Transform3d, CameraIntrinsics
 from v2d.sam3d.lib.inference_pipeline_modified import InferencePipelinePointMap
 import os
 import argparse

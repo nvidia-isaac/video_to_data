@@ -12,7 +12,7 @@ dependencies = [
     "Pillow",
     "opencv-python",
     "unidepth @ git+https://github.com/lpiccinelli-eth/UniDepth.git",
-    "v2d-datatypes",
+    "v2d-common",
 ]
 
 [tool.setuptools]

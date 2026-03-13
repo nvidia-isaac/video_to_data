@@ -14,7 +14,7 @@ import pyrender
 import cv2
 from smplfitter.pt import BodyModel
 
-from v2d.datatypes import DepthImage, CameraIntrinsics, Mask
+from v2d.common.datatypes import DepthImage, CameraIntrinsics, Mask
 
 from v2d.nlf.lib.smpl_paths import get_smpl_model_root
 

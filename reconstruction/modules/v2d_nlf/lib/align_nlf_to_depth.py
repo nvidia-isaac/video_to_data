@@ -20,7 +20,7 @@ except ImportError:
     USE_FP_UTILS = False
     print("Warning: Could not import FoundationPose Utils, using CPU fallback")
 
-from v2d.datatypes import DepthImage, CameraIntrinsics, Mask
+from v2d.common.datatypes import DepthImage, CameraIntrinsics, Mask
 from v2d.nlf.lib.icp_utils import translation_only_icp_torch
 from smplfitter.pt import BodyModel, BodyFitter
 

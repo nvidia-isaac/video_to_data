@@ -2,7 +2,7 @@
 FoundationPose video to poses processing function.
 Can be called directly from command line or imported as a function.
 """
-from v2d.datatypes import CameraIntrinsics, DepthImage, Mask
+from v2d.common.datatypes import CameraIntrinsics, DepthImage, Mask
 import os
 import sys
 import argparse

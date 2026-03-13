@@ -11,7 +11,7 @@ dependencies = [
     "numpy",
     "Pillow",
     "opencv-python-headless",
-    "v2d-datatypes",
+    "v2d-common",
 ]
 
 [tool.setuptools]

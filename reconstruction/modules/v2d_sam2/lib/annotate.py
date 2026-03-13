@@ -7,7 +7,8 @@ import os
 import json
 import cv2
 from flask import Flask, send_from_directory, jsonify, request, send_file
-from v2d.datatypes import Sam2Prompts, Sam2Prompt, Point, BoundingBox
+from v2d.common.datatypes import Point, BoundingBox
+from v2d.sam2.lib.datatypes import Sam2Prompt, Sam2Prompts
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__, static_folder=os.path.join(SCRIPT_DIR, 'static'))

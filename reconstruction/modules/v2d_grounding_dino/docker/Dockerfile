@@ -20,4 +20,4 @@ RUN pip install huggingface-hub requests Pillow opencv-python
 
 COPY . /workspace
 
-RUN pip install -e /workspace/v2d_datatypes -e /workspace/v2d_grounding_dino/lib
+RUN pip install -e /workspace/v2d_common -e /workspace/v2d_grounding_dino/lib

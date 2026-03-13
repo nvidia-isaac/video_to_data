@@ -33,7 +33,7 @@ RUN git clone https://github.com/NVlabs/nvdiffrast /workspace/third_party/nvdiff
 
 COPY . /workspace
 
-RUN pip install -e /workspace/v2d_datatypes -e /workspace/v2d_sam3d/lib
+RUN pip install -e /workspace/v2d_common -e /workspace/v2d_sam3d/lib
 
 ENV HYDRA_FULL_ERROR=1
 ENV CONDA_PREFIX=/opt/conda

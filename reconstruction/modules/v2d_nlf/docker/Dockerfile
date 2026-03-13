@@ -35,6 +35,6 @@ RUN pip3 install warp-lang
 
 COPY . /workspace
 
-RUN pip install -e /workspace/v2d_datatypes \
+RUN pip install -e /workspace/v2d_common \
     -e /workspace/v2d_foundation_pose/lib \
     -e /workspace/v2d_nlf/lib

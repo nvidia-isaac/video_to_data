@@ -21,7 +21,7 @@ from learning.training.predict_pose_refine import PoseRefinePredictor
 import nvdiffrast.torch as dr
 from v2d.foundation_pose.lib import fp_utils as Utils
 from v2d.foundation_pose.lib.chamfer_dist_np import chamfer_distance
-from v2d.datatypes import CameraIntrinsics, DepthImage, Mask
+from v2d.common.datatypes import CameraIntrinsics, DepthImage, Mask
 
 def fp_scale_estimator(
     mesh_path: str,

@@ -12,7 +12,7 @@ dependencies = [
     "Pillow",
     "opencv-python",
     "moge @ git+https://github.com/microsoft/MoGE.git",
-    "v2d-datatypes",
+    "v2d-common",
 ]
 
 [tool.setuptools]

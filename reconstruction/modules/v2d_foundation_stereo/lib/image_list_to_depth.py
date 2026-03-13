@@ -24,7 +24,7 @@ from pathlib import Path
 
 import cv2
 
-from v2d.datatypes import CameraIntrinsics, DepthImage
+from v2d.common.datatypes import CameraIntrinsics, DepthImage
 from v2d.foundation_stereo.lib.export_engine import ensure_engine
 from v2d.foundation_stereo.lib.trt_inference import (
     FoundationStereoInference,

@@ -10,7 +10,7 @@ import numpy as np
 import cv2
 import json
 from PIL import Image
-from v2d.datatypes import DepthImage, CameraIntrinsics
+from v2d.common.datatypes import DepthImage, CameraIntrinsics
 
 _model = None
 

@@ -8,7 +8,7 @@ import json
 import trimesh
 import pyrender
 import argparse
-from v2d.datatypes import CameraIntrinsics
+from v2d.common.datatypes import CameraIntrinsics
 
 def render_overlay(
     video_path: str,

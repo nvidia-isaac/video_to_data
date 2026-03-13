@@ -4,7 +4,7 @@ import json
 import numpy as np
 import argparse
 import os
-from v2d.datatypes import DepthImage, Mask
+from v2d.common.datatypes import DepthImage, Mask
 
 def wxyz_quat_to_rotation_matrix(w, x, y, z):
     rotation_matrix = np.array([[1 - 2*y*y - 2*z*z, 2*x*y - 2*w*z, 2*x*z + 2*w*y],

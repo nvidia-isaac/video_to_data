@@ -21,7 +21,7 @@ from PIL import Image
 from tqdm import tqdm
 from typing import List, Tuple
 from smplfitter.pt import BodyModel, BodyFitter
-from v2d.datatypes import CameraIntrinsics
+from v2d.common.datatypes import CameraIntrinsics
 from v2d.nlf.lib.datatypes import NlfResult
 
 NLF_WEIGHTS_FILENAME = "nlf_l_multi_0.3.2.torchscript"

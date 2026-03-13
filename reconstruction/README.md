@@ -319,10 +319,10 @@ v2d_<name>/
 
 ### 2. Docker conventions
 
-- **Build context:** Use `reconstruction/modules` (parent of `v2d_*`) as the Docker build context so `v2d_datatypes` and sibling modules are available.
+- **Build context:** Use `reconstruction/modules` (parent of `v2d_*`) as the Docker build context so `v2d_common` and sibling modules are available.
 - **Image name:** `v2d_<name>` (matches folder).
 - **Base image:** Use `pytorch/pytorch` variants for GPU workloads.
-- **Install:** `pip install -e /workspace/v2d_datatypes -e /workspace/v2d_<name>/lib` (or equivalent).
+- **Install:** `pip install -e /workspace/v2d_common -e /workspace/v2d_<name>/lib` (or equivalent).
 
 ### 3. Run scripts
 
@@ -345,4 +345,4 @@ Each `run_*.py` should:
 - [ ] Add `run_download_weights` if the module needs external model weights.
 - [ ] Add `run_shell` for debugging (interactive `bash` in the container).
 - [ ] Update this README: add the package to the summary table and create a detailed section.
-- [ ] Add any shared types to `v2d_datatypes` if other modules will consume them.
+- [ ] Add any shared types to `v2d_common` if other modules will consume them.
