@@ -1,17 +1,1 @@
 data/
-checkpoints/
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.git/
-.ipynb_checkpoints/
-
-
-
-
-
-
-
-
-

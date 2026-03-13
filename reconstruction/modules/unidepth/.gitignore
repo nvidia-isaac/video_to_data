@@ -1,9 +1,1 @@
-data/
-checkpoints/
-*.pt
-*.pth
-*.safetensors
-*.bin
-*.zip
-__pycache__/
-tests/test_data/output/
+data
