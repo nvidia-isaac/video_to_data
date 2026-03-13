@@ -1216,5 +1216,3 @@ class SAM2VideoPredictorLowMem(SAM2Base):
             non_cond_frame_outputs = obj_output_dict["non_cond_frame_outputs"]
             for t in range(frame_idx_begin, frame_idx_end + 1):
                 non_cond_frame_outputs.pop(t, None)
-
-

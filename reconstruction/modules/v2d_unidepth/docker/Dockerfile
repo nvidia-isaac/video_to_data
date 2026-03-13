@@ -10,7 +10,6 @@ RUN apt-get update && apt-get install -y \
     zip \
     && rm -rf /var/lib/apt/lists/*
 
-COPY v2d_datatypes/lib /workspace/v2d_datatypes/lib
-COPY v2d_unidepth/lib /workspace/v2d_unidepth/lib
+COPY . /workspace
 
-RUN pip install -e /workspace/v2d_datatypes/lib/ -e /workspace/v2d_unidepth/lib/
+RUN pip install -e /workspace/v2d_datatypes -e /workspace/v2d_unidepth/lib

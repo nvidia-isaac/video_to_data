@@ -1,7 +1,7 @@
 import subprocess
 import os
 
-IMAGE_NAME = "v2d_unidepth"
+IMAGE_NAME = "v2d_sam2"
 
 _CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 _MODULES_DIR = os.path.abspath(os.path.join(_CURRENT_DIR, "..", ".."))
@@ -15,13 +15,14 @@ def run_download(output_dir: str, dev: bool = False) -> None:
         "docker", "run", "-it", "--rm",
         "--gpus", "all",
         "--user", f"{os.getuid()}:{os.getgid()}",
+        "-e", "HF_HOME=/tmp/hf_cache",
         "-v", f"{output_dir}:/data/weights",
     ]
     if dev:
         cmd += ["-v", f"{_MODULES_DIR}:/workspace"]
     cmd += [
         IMAGE_NAME,
-        "python", "-m", "v2d.unidepth.lib.download_weights",
+        "python", "-m", "v2d.sam2.lib.download_weights",
         "--output_dir", "/data/weights",
     ]
     subprocess.run(cmd, check=True)
@@ -30,8 +31,8 @@ def run_download(output_dir: str, dev: bool = False) -> None:
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Download UniDepth v2 checkpoint")
-    parser.add_argument("--output_dir", type=str, default=None, help="Output directory for checkpoint")
+    parser = argparse.ArgumentParser(description="Download SAM 2.1 checkpoint")
+    parser.add_argument("--output_dir", type=str, required=True, help="Output directory for checkpoint")
     parser.add_argument("--dev", action="store_true", help="Mount local modules for development")
     args = parser.parse_args()
     run_download(output_dir=args.output_dir, dev=args.dev)

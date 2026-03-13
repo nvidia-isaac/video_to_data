@@ -7,14 +7,11 @@ import os
 import json
 import cv2
 from flask import Flask, send_from_directory, jsonify, request, send_file
-from modules.common.datatypes import Sam2Prompts, Sam2Prompt
-from modules.common.datatypes import Point, BoundingBox
+from v2d.datatypes import Sam2Prompts, Sam2Prompt, Point, BoundingBox
 
-# Get the directory where this script is located
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__, static_folder=os.path.join(SCRIPT_DIR, 'static'))
 
-# Global variables
 VIDEO_PATH = ""
 PROMPTS_PATH = ""
 PROMPTS = Sam2Prompts(prompts=[])
@@ -44,13 +41,13 @@ def get_video_info():
     cap = cv2.VideoCapture(VIDEO_PATH)
     if not cap.isOpened():
         return jsonify({"error": "Could not open video"}), 500
-    
+
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     fps = cap.get(cv2.CAP_PROP_FPS)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     cap.release()
-    
+
     return jsonify({
         "frame_count": frame_count,
         "fps": fps,
@@ -64,25 +61,23 @@ def get_frame(frame_idx):
     cap = cv2.VideoCapture(VIDEO_PATH)
     if not cap.isOpened():
         return jsonify({"error": "Could not open video"}), 500
-    
+
     cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
     ret, frame = cap.read()
     cap.release()
-    
+
     if not ret:
         return jsonify({"error": "Could not read frame"}), 404
-    
-    # Convert BGR to RGB
+
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    
-    # Encode as JPEG
+
     from PIL import Image
     import io
     img = Image.fromarray(frame_rgb)
     img_io = io.BytesIO()
     img.save(img_io, 'JPEG', quality=95)
     img_io.seek(0)
-    
+
     return send_file(img_io, mimetype='image/jpeg')
 
 @app.route('/api/prompts')
@@ -94,7 +89,7 @@ def get_prompts():
 def add_prompt():
     """Add a new prompt."""
     data = request.json
-    
+
     prompt = Sam2Prompt(
         frame_index=data['frame_index'],
         object_id=data['object_id'],
@@ -102,10 +97,10 @@ def add_prompt():
         point_labels=data.get('point_labels'),
         box=BoundingBox(**data['box']) if data.get('box') else None
     )
-    
+
     PROMPTS.prompts.append(prompt)
     save_prompts()
-    
+
     return jsonify({"success": True, "prompt": prompt.to_dict()})
 
 @app.route('/api/prompts/<int:prompt_idx>', methods=['DELETE'])
@@ -138,18 +133,16 @@ if __name__ == '__main__':
     parser.add_argument("--prompts_path", type=str, required=True, help="Path to save prompts JSON")
     parser.add_argument("--port", type=int, default=8080, help="Port to run server on")
     parser.add_argument("--host", type=str, default="0.0.0.0", help="Host to bind to")
-    
+
     args = parser.parse_args()
-    
+
     VIDEO_PATH = args.video_path
     PROMPTS_PATH = args.prompts_path
-    
-    # Load existing prompts
+
     load_prompts()
-    
+
     print(f"Starting annotation server on http://{args.host}:{args.port}")
     print(f"Video: {VIDEO_PATH}")
     print(f"Prompts will be saved to: {PROMPTS_PATH}")
-    
-    app.run(host=args.host, port=args.port, debug=False)
 
+    app.run(host=args.host, port=args.port, debug=False)
