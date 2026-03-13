@@ -1,0 +1,43 @@
+<?xml version="1.0" ?>
+<robot name="box">
+   <material name="obj_color">
+      <color rgba="1.0 0.423529411765 0.0392156862745 1.0"/>
+   </material>
+
+   <mujoco>
+      <compiler meshdir="../../meshes/arctic/box/" balanceinertia="true" discardvisual="false"/>
+   </mujoco>
+
+   <!-- ============================================================= -->
+
+   <link name="object">
+      <inertial>
+         <origin xyz="0.0696 0.1178 0.0724" rpy="0 0 0"/>
+         <mass value="0.3"/>
+         <!-- <mass value="1.0915837042037759"/> -->
+         <inertia
+            ixx="0.01969472" ixy="-0.00428819" ixz="0.000051945"
+            iyy="0.02085828" iyz="-0.000089295" izz="0.01112144"/>
+         </inertial>
+      <visual>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/box/mesh_tex.obj" scale="0.001 0.001 0.001"/>
+         </geometry>
+         <material name="obj_color"/>
+      </visual>
+      <collision>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/box/mesh_tex_simple.obj" scale="0.001 0.001 0.001"/>
+         </geometry>
+      </collision>
+      <!-- <collision>
+         <origin rpy="3.12800675 -0.00406249 -0.84320163" xyz="0.07792191 0.10298064 0.07519067"/>
+         <geometry>
+            <box size="0.01 0.01 0.01"/>
+         </geometry>
+      </collision> -->
+   </link>
+
+</robot>

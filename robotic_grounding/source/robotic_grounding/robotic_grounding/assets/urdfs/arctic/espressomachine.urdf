@@ -1,0 +1,114 @@
+<?xml version="1.0" ?>
+<robot name="espressomachine">
+   <material name="obj_color">
+      <color rgba="1.0 0.423529411765 0.0392156862745 1.0"/>
+   </material>
+
+   <mujoco>
+      <compiler meshdir="../../meshes/arctic/espressomachine/" balanceinertia="true" discardvisual="false"/>
+   </mujoco>
+
+   <!-- ============================================================= -->
+   <!-- 6 DoF base -->
+   <!-- ============================================================= -->
+
+   <link name="base"><inertial><origin xyz="0 0 0"/><mass value="0.1"/><inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3"/></inertial></link>
+   <link name="base_x"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
+   <link name="base_y"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
+   <link name="base_z"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
+   <link name="base_roll"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
+   <link name="base_pitch"><inertial><origin xyz="0 0 0"/><mass value="1.0E-06"/><inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12"/></inertial></link>
+
+   <joint name="base_x" type="prismatic">
+      <parent link="base"/>
+      <child  link="base_x"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="-2.0" upper="2.0" effort="100" velocity="10.0"/>
+   </joint>
+
+   <joint name="base_y" type="prismatic">
+      <parent link="base_x"/>
+      <child  link="base_y"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="-2.0" upper="2.0" effort="100" velocity="10.0"/>
+   </joint>
+
+   <joint name="base_z" type="prismatic">
+      <parent link="base_y"/>
+      <child  link="base_z"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="0.0" upper="5.0" effort="100" velocity="10.0"/>
+   </joint>
+
+   <joint name="base_roll" type="revolute">
+      <parent link="base_z"/>
+      <child  link="base_roll"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="-3.141592653589793" upper="3.141592653589793" effort="100" velocity="10.0"/>
+   </joint>
+
+   <joint name="base_pitch" type="revolute">
+      <parent link="base_roll"/>
+      <child  link="base_pitch"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="-3.141592653589793" upper="3.141592653589793" effort="100" velocity="10.0"/>
+   </joint>
+
+   <joint name="base_yaw" type="revolute">
+      <parent link="base_pitch"/>
+      <child  link="bottom"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="-3.141592653589793" upper="3.141592653589793" effort="100" velocity="10.0"/>
+   </joint>
+
+   <!-- ============================================================= -->
+
+   <link name="top">
+      <inertial>
+         <origin rpy="3.82122850027815e-07 8.492017527599243e-06 8.494734613340323e-06" xyz="0.1068153423158261 -0.05591814060690717 -0.02125180239214495"/>
+         <mass value="0.0127211668828713"/>
+         <inertia ixx="3.663457546836962e-06" ixy="3.981205735385069e-06" ixz="-2.079743509077856e-08" iyy="5.212679001159405e-06" iyz="1.553389498843983e-08" izz="8.492738442971016e-06"/>
+      </inertial>
+      <visual>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/espressomachine/top_watertight_tiny.stl" scale="1 1 1"/>
+         </geometry>
+         <material name="obj_color"/>
+      </visual>
+      <collision>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/espressomachine/top_watertight_tiny.obj" scale="1 1 1"/>
+         </geometry>
+      </collision>
+   </link>
+   <link name="bottom">
+      <inertial>
+         <origin rpy="0.006824255882152636 0.01152968483575309 0.01501223289888379" xyz="-0.04169068669083825 -0.03542646983331282 -0.01861851357806351"/>
+         <mass value="1.892773469188377"/>
+         <inertia ixx="0.009613588437882863" ixy="-0.003859634336621988" ixz="-7.812862557022443e-05" iyy="0.0121859629421628" iyz="0.0004242342099542514" izz="0.01156662223674385"/>
+      </inertial>
+      <visual>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/espressomachine/bottom_watertight_tiny.stl" scale="1 1 1"/>
+         </geometry>
+         <material name="obj_color"/>
+      </visual>
+      <collision>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/espressomachine/bottom_watertight_tiny.obj" scale="1 1 1"/>
+         </geometry>
+      </collision>
+   </link>
+   <joint name="rotation" type="revolute">
+      <origin xyz="0 0 0"/>
+      <axis xyz="0 0 -1"/>
+      <parent link="bottom"/>
+      <child link="top"/>
+      <dynamics damping="0.05" friction="0.0001"/>
+      <limit effort="1000" velocity="200" lower="0" upper="1.5"/>
+   </joint>
+</robot>
