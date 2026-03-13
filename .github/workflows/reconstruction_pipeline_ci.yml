@@ -1,0 +1,86 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+#
+# NVIDIA CORPORATION and its licensors retain all intellectual property
+# and proprietary rights in and to this software, related documentation
+# and any modifications thereto. Any use, reproduction, disclosure or
+# distribution of this software and related documentation without an express
+# license agreement from NVIDIA CORPORATION is strictly prohibited.
+name: Reconstruction Pipeline CI
+
+on:
+  workflow_dispatch:
+
+# Cancel in-progress runs for the same PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test_moge:
+    name: Test MoGe Video to Depth
+    runs-on: [self-hosted, gpu]
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build Docker image
+        working-directory: reconstruction/modules
+        run: |
+          echo "::group::Build v2d_moge"
+          python v2d_moge/docker/build.py
+          echo "::endgroup::"
+
+      - name: Install pipeline packages
+        working-directory: reconstruction/modules
+        run: |
+          pip install --upgrade pip
+          pip install -e v2d_moge/docker
+
+      - name: Cache model weights
+        id: cache-weights
+        uses: actions/cache@v4
+        with:
+          path: reconstruction/data/weights/moge
+          key: v2d-moge-weights-${{ hashFiles('reconstruction/modules/v2d_moge/lib/download_weights.py') }}
+          restore-keys: |
+            v2d-moge-weights-
+
+      - name: Download model weights
+        if: steps.cache-weights.outputs.cache-hit != 'true'
+        working-directory: reconstruction
+        run: |
+          python -c "from v2d.moge.docker.run_download_weights import run_download; run_download('data/weights/moge')"
+
+      - name: Run MoGe video to depth
+        working-directory: reconstruction
+        run: |
+          python -c "
+          from v2d.moge.docker.run_video_to_depth import run_video_to_depth
+          run_video_to_depth(
+              video_path='modules/v2d_moge/assets/test_video.mp4',
+              depth_folder='data/outputs/moge/depth',
+              intrinsics_folder='data/outputs/moge/intrinsics',
+              weights_path='data/weights/moge',
+          )
+          "
+
+      - name: Upload pipeline outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-outputs-${{ github.run_id }}
+          path: reconstruction/data/outputs/
+          retention-days: 7
+
+      - name: Cleanup Docker image
+        if: always()
+        run: docker rmi v2d_moge 2>/dev/null || true
