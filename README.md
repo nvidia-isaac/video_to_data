@@ -10,16 +10,15 @@ Monorepo for Video to Policy (V2P) — learning robotic manipulation policies fr
 
 ## Development
 
+Each package has its own `workflow/` directory with Docker and setup scripts. See each package's README for details.
+
 ```bash
+cd robotic_grounding
+
 # First-time host setup
 bash workflow/setup_deps.sh
 
 # Build and start Docker container
 ./workflow/run.sh build [version]
 ./workflow/run.sh start [version] [gpu_id]
-
-# Enter running container
-./workflow/run.sh shell [version] [gpu_id]
 ```
-
-See each package's README for package-specific instructions.
