@@ -41,7 +41,7 @@ RUN pip3 install warp-lang
 # Copy the module and common code
 COPY modules/nlf /app/modules/nlf
 COPY modules/common /app/modules/common
-COPY modules/foundationpose /app/modules/foundationpose
+COPY modules/foundation_pose /app/modules/foundation_pose
 
 # Set environment variables
 ENV PYTHONPATH=/app

@@ -60,7 +60,7 @@ def sample_right_image():
 class TestPreprocessImage:
     def test_output_shape(self, sample_left_image):
         """Preprocessed output must be (1, 3, 576, 960)."""
-        from modules.foundation_stereo.lib.trt_inference import (
+        from modules.foundation_stereo._impl.trt_inference import (
             MODEL_INPUT_HEIGHT,
             MODEL_INPUT_WIDTH,
         )
@@ -82,7 +82,7 @@ class TestPreprocessImage:
 
     def test_aspect_ratio_scale(self, sample_left_image):
         """Scale factor must be min(scale_w, scale_h)."""
-        from modules.foundation_stereo.lib.trt_inference import (
+        from modules.foundation_stereo._impl.trt_inference import (
             MODEL_INPUT_HEIGHT,
             MODEL_INPUT_WIDTH,
         )
@@ -96,7 +96,7 @@ class TestPreprocessImage:
 class TestDisparityToDepth:
     def test_formula(self):
         """depth = fx * baseline / disparity for valid pixels."""
-        from modules.foundation_stereo.lib.trt_inference import disparity_to_depth
+        from modules.foundation_stereo._impl.trt_inference import disparity_to_depth
 
         disparity = np.array([[2.0, 0.0, 4.0]], dtype=np.float32)
         fx = 800.0
@@ -110,7 +110,7 @@ class TestDisparityToDepth:
 
     def test_invalid_disparity_is_zero(self):
         """Disparity values at or below threshold produce zero depth."""
-        from modules.foundation_stereo.lib.trt_inference import (
+        from modules.foundation_stereo._impl.trt_inference import (
             MIN_DISPARITY_THRESHOLD,
             disparity_to_depth,
         )
@@ -122,7 +122,7 @@ class TestDisparityToDepth:
 
     def test_output_shape(self):
         """Output shape matches input shape."""
-        from modules.foundation_stereo.lib.trt_inference import disparity_to_depth
+        from modules.foundation_stereo._impl.trt_inference import disparity_to_depth
 
         disparity = np.random.rand(480, 640).astype(np.float32) * 10
         depth = disparity_to_depth(disparity, fx=800.0, baseline=0.15)
@@ -132,7 +132,7 @@ class TestDisparityToDepth:
 class TestCoordinateTransform:
     def test_output_shape_matches_original(self, sample_left_image):
         """After transform, disparity shape must match original image dims."""
-        from modules.foundation_stereo.lib.trt_inference import (
+        from modules.foundation_stereo._impl.trt_inference import (
             MODEL_INPUT_HEIGHT,
             MODEL_INPUT_WIDTH,
         )
@@ -165,7 +165,7 @@ class TestCoordinateTransform:
 def _trt_available(model_dir: str) -> bool:
     """Return True if a TRT engine exists in model_dir."""
     try:
-        from modules.foundation_stereo.lib.export_engine import get_engine_path
+        from modules.foundation_stereo._impl.export_engine import get_engine_path
         return os.path.exists(get_engine_path(model_dir))
     except Exception:
         return False

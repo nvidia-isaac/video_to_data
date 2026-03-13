@@ -27,7 +27,7 @@ services:
     environment:
       - DATA_DIR=/data
       - CHECKPOINT_DIR=/data/sam2/checkpoints/sam2.1-hiera-large
-    entrypoint: ["python", "/workspace/modules/sam2/video_to_masks.py"]
+    entrypoint: ["python", "/workspace/modules/sam2/tools/video_to_masks.py"]
 
   sam2-annotate:
     build:
@@ -37,7 +37,7 @@ services:
       - "8080:8080"
     volumes:
       - ./data:/data
-    entrypoint: ["python", "/workspace/modules/sam2/annotate.py"]
+    entrypoint: ["python", "/workspace/modules/sam2/tools/annotate.py"]
 
   moge-video-to-depth:
     build:
@@ -47,7 +47,7 @@ services:
     environment:
       - DATA_DIR=/data
       - CHECKPOINT_DIR=/data/moge/checkpoints/moge-2-vitl-normal
-    entrypoint: ["python", "/workspace/modules/moge/video_to_depth.py"]
+    entrypoint: ["python", "/workspace/modules/moge/tools/video_to_depth.py"]
 
   moge-image-to-depth:
     build:
@@ -57,7 +57,7 @@ services:
     environment:
       - DATA_DIR=/data
       - CHECKPOINT_DIR=/data/moge/checkpoints/moge-2-vitl-normal
-    entrypoint: ["python", "/workspace/modules/moge/image_to_depth.py"]
+    entrypoint: ["python", "/workspace/modules/moge/tools/image_to_depth.py"]
 
   unidepth-video-to-depth:
     build:
@@ -67,7 +67,7 @@ services:
     environment:
       - DATA_DIR=/data
       - CHECKPOINT_DIR=/data/unidepth/checkpoints/unidepth-v2-vitl14
-    entrypoint: ["python", "/workspace/modules/unidepth/video_to_depth.py"]
+    entrypoint: ["python", "/workspace/modules/unidepth/tools/video_to_depth.py"]
 
   unidepth-image-to-depth:
     build:
@@ -77,7 +77,7 @@ services:
     environment:
       - DATA_DIR=/data
       - CHECKPOINT_DIR=/data/unidepth/checkpoints/unidepth-v2-vitl14
-    entrypoint: ["python", "/workspace/modules/unidepth/image_to_depth.py"]
+    entrypoint: ["python", "/workspace/modules/unidepth/tools/image_to_depth.py"]
 
   sam3d-image-to-mesh:
     build:
@@ -89,7 +89,7 @@ services:
       - CHECKPOINT_DIR=/data/sam3d/checkpoints/hf-download
       - TORCH_HOME=/data/sam3d/checkpoints/torch_home
       - HF_HOME=/data/sam3d/checkpoints/hf_home
-    entrypoint: ["python", "/workspace/modules/sam3d/image_to_mesh.py"]
+    entrypoint: ["python", "/workspace/modules/sam3d/tools/image_to_mesh.py"]
 
   sam3d-render-debug:
     build:
@@ -101,74 +101,74 @@ services:
       - CHECKPOINT_DIR=/data/sam3d/checkpoints/hf-download
       - TORCH_HOME=/data/sam3d/checkpoints/torch_home
       - HF_HOME=/data/sam3d/checkpoints/hf_home
-    entrypoint: ["python", "/workspace/modules/sam3d/render_debug_image.py"]
+    entrypoint: ["python", "/workspace/modules/sam3d/tools/render_debug_image.py"]
 
   foundationpose-video-to-poses:
     build:
       context: .
-      dockerfile: modules/foundationpose/Dockerfile
+      dockerfile: modules/foundation_pose/Dockerfile
     <<: *base-gpu
     shm_size: '14gb'
     environment:
       - DATA_DIR=/data
       - CHECKPOINT_DIR=/data/foundationpose/checkpoints/foundationpose
       - FOUNDATIONPOSE_WEIGHTS_DIR=/data/foundationpose/weights
-    entrypoint: ["python", "/workspace/modules/foundationpose/video_to_poses.py"]
+    entrypoint: ["python", "/workspace/modules/foundation_pose/tools/video_to_poses.py"]
 
   foundationpose-align-mesh:
     build:
       context: .
-      dockerfile: modules/foundationpose/Dockerfile
+      dockerfile: modules/foundation_pose/Dockerfile
     <<: *base-gpu
     environment:
       - DATA_DIR=/data
       - CHECKPOINT_DIR=/data/foundationpose/checkpoints/foundationpose
       - FOUNDATIONPOSE_WEIGHTS_DIR=/data/foundationpose/weights
-    entrypoint: ["python", "/workspace/modules/foundationpose/align_mesh_scale.py"]
+    entrypoint: ["python", "/workspace/modules/foundation_pose/tools/align_mesh_scale.py"]
 
   foundationpose-estimate-scale:
     build:
       context: .
-      dockerfile: modules/foundationpose/Dockerfile
+      dockerfile: modules/foundation_pose/Dockerfile
     <<: *base-gpu
     environment:
       - DATA_DIR=/data
       - CHECKPOINT_DIR=/data/foundationpose/checkpoints/foundationpose
       - FOUNDATIONPOSE_WEIGHTS_DIR=/data/foundationpose/weights
-    entrypoint: ["python", "/workspace/modules/foundationpose/estimate_scale.py"]
+    entrypoint: ["python", "/workspace/modules/foundation_pose/tools/estimate_scale.py"]
 
   foundationpose-transform-mesh:
     build:
       context: .
-      dockerfile: modules/foundationpose/Dockerfile
+      dockerfile: modules/foundation_pose/Dockerfile
     <<: *base-cpu
     environment:
       - DATA_DIR=/data
       - CHECKPOINT_DIR=/data/foundationpose/checkpoints/foundationpose
       - FOUNDATIONPOSE_WEIGHTS_DIR=/data/foundationpose/checkpoints/weights
-    entrypoint: ["python", "/workspace/modules/foundationpose/transform_mesh.py"]
+    entrypoint: ["python", "/workspace/modules/foundation_pose/tools/transform_mesh.py"]
 
   foundationpose-simplify-mesh:
     build:
       context: .
-      dockerfile: modules/foundationpose/Dockerfile
+      dockerfile: modules/foundation_pose/Dockerfile
     <<: *base-cpu
     environment:
       - DATA_DIR=/data
       - CHECKPOINT_DIR=/data/foundationpose/checkpoints/foundationpose
       - FOUNDATIONPOSE_WEIGHTS_DIR=/data/foundationpose/weights
-    entrypoint: ["python", "/workspace/modules/foundationpose/simplify_mesh.py"]
+    entrypoint: ["python", "/workspace/modules/foundation_pose/tools/simplify_mesh.py"]
 
   foundationpose-render-overlay:
     build:
       context: .
-      dockerfile: modules/foundationpose/Dockerfile
+      dockerfile: modules/foundation_pose/Dockerfile
     <<: *base-gpu
     environment:
       - DATA_DIR=/data
       - CHECKPOINT_DIR=/data/foundationpose/checkpoints/foundationpose
       - FOUNDATIONPOSE_WEIGHTS_DIR=/data/foundationpose/weights
-    entrypoint: ["python", "/workspace/modules/foundationpose/render_overlay.py"]
+    entrypoint: ["python", "/workspace/modules/foundation_pose/tools/render_overlay.py"]
 
   nlf-video-to-smpl:
     build:
@@ -179,7 +179,7 @@ services:
       - DATA_DIR=/data
       - SMPL_MODEL_ROOT=/data/nlf/smpl_models
       - NLF_WEIGHTS_PATH=/data/nlf/weights/nlf_l_multi_0.3.2.torchscript
-    entrypoint: ["python3", "modules/nlf/video_to_smpl.py"]
+    entrypoint: ["python3", "modules/nlf/tools/video_to_smpl.py"]
 
   nlf-render-smpl-overlay:
     build:
@@ -190,7 +190,7 @@ services:
       - DATA_DIR=/data
       - SMPL_MODEL_ROOT=/data/nlf/smpl_models
       - NLF_WEIGHTS_PATH=/data/nlf/weights/nlf_l_multi_0.3.2.torchscript
-    entrypoint: ["python3", "modules/nlf/render_smpl_overlay.py"]
+    entrypoint: ["python3", "modules/nlf/tools/render_smpl_overlay.py"]
 
   nlf-align-to-depth:
     build:
@@ -201,7 +201,7 @@ services:
       - DATA_DIR=/data
       - SMPL_MODEL_ROOT=/data/nlf/smpl_models
       - NLF_WEIGHTS_PATH=/data/nlf/weights/nlf_l_multi_0.3.2.torchscript
-    entrypoint: ["python3", "modules/nlf/align_nlf_to_depth.py"]
+    entrypoint: ["python3", "modules/nlf/tools/align_nlf_to_depth.py"]
 
   nlf-align-depth-to-smpl:
     build:
@@ -212,7 +212,7 @@ services:
       - DATA_DIR=/data
       - SMPL_MODEL_ROOT=/data/nlf/smpl_models
       - NLF_WEIGHTS_PATH=/data/nlf/weights/nlf_l_multi_0.3.2.torchscript
-    entrypoint: ["python3", "modules/nlf/align_depth_to_smpl.py"]
+    entrypoint: ["python3", "modules/nlf/tools/align_depth_to_smpl.py"]
 
   nlf-render-smpl-depth:
     build:
@@ -223,7 +223,7 @@ services:
       - DATA_DIR=/data
       - SMPL_MODEL_ROOT=/data/nlf/smpl_models
       - NLF_WEIGHTS_PATH=/data/nlf/weights/nlf_l_multi_0.3.2.torchscript
-    entrypoint: ["python3", "modules/nlf/render_smpl_depth.py"]
+    entrypoint: ["python3", "modules/nlf/tools/render_smpl_depth.py"]
 
   grounding-dino-image-to-object-bboxes:
     build:
@@ -233,7 +233,7 @@ services:
     environment:
       - DATA_DIR=/data
       - MODEL_DIR=/data/grounding_dino/models
-    entrypoint: ["python", "/workspace/modules/grounding_dino/image_to_object_bboxes.py"]
+    entrypoint: ["python", "/workspace/modules/grounding_dino/tools/image_to_object_bboxes.py"]
 
   grounding-dino-image-list-to-object-bboxes:
     build:
@@ -243,7 +243,7 @@ services:
     environment:
       - DATA_DIR=/data
       - MODEL_DIR=/data/grounding_dino/models
-    entrypoint: ["python", "/workspace/modules/grounding_dino/image_list_to_object_bboxes.py"]
+    entrypoint: ["python", "/workspace/modules/grounding_dino/tools/image_list_to_object_bboxes.py"]
 
   grounding-dino-video-to-object-bboxes:
     build:
@@ -253,7 +253,7 @@ services:
     environment:
       - DATA_DIR=/data
       - MODEL_DIR=/data/grounding_dino/models
-    entrypoint: ["python", "/workspace/modules/grounding_dino/video_to_object_bboxes.py"]
+    entrypoint: ["python", "/workspace/modules/grounding_dino/tools/video_to_object_bboxes.py"]
 
   foundation-stereo-image-list-to-depth:
     build:
@@ -263,7 +263,7 @@ services:
     environment:
       - DATA_DIR=/data
       - MODEL_DIR=/data/foundation_stereo/models
-    entrypoint: ["python", "/workspace/modules/foundation_stereo/image_list_to_depth.py"]
+    entrypoint: ["python", "/workspace/modules/foundation_stereo/tools/image_list_to_depth.py"]
 
   foundation-stereo-image-to-depth:
     build:
@@ -273,13 +273,426 @@ services:
     environment:
       - DATA_DIR=/data
       - MODEL_DIR=/data/foundation_stereo/models
-    entrypoint: ["python", "/workspace/modules/foundation_stereo/image_to_depth.py"]
+    entrypoint: ["python", "/workspace/modules/foundation_stereo/tools/image_to_depth.py"]
 
-  viz:
+  # ---------------------------------------------------------------------------
+  # Test services — input from /data/test_data (./test_data), output to
+  # /data/tests/<service_name>/output. Populate test_data/ before running.
+  # ---------------------------------------------------------------------------
+
+  sam2-video-to-masks-test:
     build:
       context: .
-      dockerfile: viz/Dockerfile
+      dockerfile: modules/sam2/Dockerfile
     <<: *base-gpu
     environment:
       - DATA_DIR=/data
-    entrypoint: ["python", "viz/app.py"]
+      - CHECKPOINT_DIR=/data/sam2/checkpoints/sam2.1-hiera-large
+    volumes:
+      - ./data:/data
+      - ./test_data:/data/test_data
+    entrypoint: ["python", "/workspace/modules/sam2/tools/video_to_masks.py",
+      "--video_path", "/data/test_data/video.mp4",
+      "--prompts_path", "/data/test_data/prompts.json",
+      "--masks_dir", "/data/tests/sam2-video-to-masks-test/output/masks"]
+
+  sam2-annotate-test:
+    build:
+      context: .
+      dockerfile: modules/sam2/Dockerfile
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./data:/data
+      - ./test_data:/data/test_data
+    entrypoint: ["python", "/workspace/modules/sam2/tools/annotate.py",
+      "--video_path", "/data/test_data/video.mp4",
+      "--prompts_path", "/data/tests/sam2-video-to-masks-test/output/prompts.json",
+      "--port", "8081"]
+
+  moge-video-to-depth-test:
+    build:
+      context: .
+      dockerfile: modules/moge/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - CHECKPOINT_DIR=/data/moge/checkpoints/moge-2-vitl-normal
+    volumes:
+      - ./data:/data
+      - ./test_data:/data/test_data
+    entrypoint: ["python", "/workspace/modules/moge/tools/video_to_depth.py",
+      "--video_path", "/data/test_data/video.mp4",
+      "--depth_folder", "/data/tests/moge-video-to-depth-test/output/depth",
+      "--intrinsics_folder", "/data/tests/moge-video-to-depth-test/output/intrinsics"]
+
+  moge-image-to-depth-test:
+    build:
+      context: .
+      dockerfile: modules/moge/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - CHECKPOINT_DIR=/data/moge/checkpoints/moge-2-vitl-normal
+    volumes:
+      - ./data:/data
+      - ./test_data:/data/test_data
+    entrypoint: ["python", "/workspace/modules/moge/tools/image_to_depth.py",
+      "--image_path", "/data/test_data/image.jpg",
+      "--depth_path", "/data/tests/moge-image-to-depth-test/output/depth.png",
+      "--intrinsics_path", "/data/tests/moge-image-to-depth-test/output/intrinsics.json"]
+
+  unidepth-video-to-depth-test:
+    build:
+      context: .
+      dockerfile: modules/unidepth/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - CHECKPOINT_DIR=/data/unidepth/checkpoints/unidepth-v2-vitl14
+    volumes:
+      - ./data:/data
+      - ./test_data:/data/test_data
+    entrypoint: ["python", "/workspace/modules/unidepth/tools/video_to_depth.py",
+      "--video_path", "/data/test_data/video.mp4",
+      "--depth_folder", "/data/tests/unidepth-video-to-depth-test/output/depth",
+      "--intrinsics_folder", "/data/tests/unidepth-video-to-depth-test/output/intrinsics"]
+
+  unidepth-image-to-depth-test:
+    build:
+      context: .
+      dockerfile: modules/unidepth/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - CHECKPOINT_DIR=/data/unidepth/checkpoints/unidepth-v2-vitl14
+    volumes:
+      - ./data:/data
+      - ./test_data:/data/test_data
+    entrypoint: ["python", "/workspace/modules/unidepth/tools/image_to_depth.py",
+      "--image_path", "/data/test_data/image.jpg",
+      "--depth_path", "/data/tests/unidepth-image-to-depth-test/output/depth.png",
+      "--intrinsics_path", "/data/tests/unidepth-image-to-depth-test/output/intrinsics.json"]
+
+  sam3d-image-to-mesh-test:
+    build:
+      context: .
+      dockerfile: modules/sam3d/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - CHECKPOINT_DIR=/data/sam3d/checkpoints/hf-download
+      - TORCH_HOME=/data/sam3d/checkpoints/torch_home
+      - HF_HOME=/data/sam3d/checkpoints/hf_home
+    volumes:
+      - ./data:/data
+      - ./test_data:/data/test_data
+    entrypoint: ["python", "/workspace/modules/sam3d/tools/image_to_mesh.py",
+      "--image_path", "/data/test_data/image.jpg",
+      "--mask_path", "/data/test_data/mask.png",
+      "--mesh_path", "/data/tests/sam3d-image-to-mesh-test/output/mesh.glb",
+      "--transform_path", "/data/tests/sam3d-image-to-mesh-test/output/transform.json",
+      "--intrinsics_path", "/data/tests/sam3d-image-to-mesh-test/output/intrinsics.json"]
+
+  sam3d-render-debug-test:
+    build:
+      context: .
+      dockerfile: modules/sam3d/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - CHECKPOINT_DIR=/data/sam3d/checkpoints/hf-download
+      - TORCH_HOME=/data/sam3d/checkpoints/torch_home
+      - HF_HOME=/data/sam3d/checkpoints/hf_home
+    volumes:
+      - ./data:/data
+      - ./test_data:/data/test_data
+    entrypoint: ["python", "/workspace/modules/sam3d/tools/render_debug_image.py",
+      "/data/test_data/image.jpg",
+      "/data/test_data/mesh.glb",
+      "/data/test_data/transform.json",
+      "/data/test_data/intrinsics.json",
+      "/data/tests/sam3d-render-debug-test/output/debug.jpg"]
+
+  foundationpose-video-to-poses-test:
+    build:
+      context: .
+      dockerfile: modules/foundation_pose/Dockerfile
+    <<: *base-gpu
+    shm_size: '14gb'
+    environment:
+      - DATA_DIR=/data
+      - CHECKPOINT_DIR=/data/foundationpose/checkpoints/foundationpose
+      - FOUNDATIONPOSE_WEIGHTS_DIR=/data/foundationpose/weights
+    volumes:
+      - ./data:/data
+      - ./test_data:/data/test_data
+    entrypoint: ["python", "/workspace/modules/foundation_pose/tools/video_to_poses.py",
+      "--video_path", "/data/test_data/video.mp4",
+      "--depth_folder", "/data/test_data/depth",
+      "--masks_folder", "/data/test_data/masks",
+      "--camera_intrinsics_path", "/data/test_data/intrinsics.json",
+      "--mesh_path", "/data/test_data/mesh.glb",
+      "--poses_dir", "/data/tests/foundationpose-video-to-poses-test/output/poses"]
+
+  foundationpose-align-mesh-test:
+    build:
+      context: .
+      dockerfile: modules/foundation_pose/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - CHECKPOINT_DIR=/data/foundationpose/checkpoints/foundationpose
+      - FOUNDATIONPOSE_WEIGHTS_DIR=/data/foundationpose/weights
+    volumes:
+      - ./data:/data
+      - ./test_data:/data/test_data
+    entrypoint: ["python", "/workspace/modules/foundation_pose/tools/align_mesh_scale.py",
+      "--mesh", "/data/test_data/mesh.glb",
+      "--depth", "/data/test_data/depth.png",
+      "--mask", "/data/test_data/mask.png",
+      "--intrinsics", "/data/test_data/intrinsics.json",
+      "--transform", "/data/test_data/transform.json",
+      "--output-transform", "/data/tests/foundationpose-align-mesh-test/output/transform_refined.json"]
+
+  foundationpose-estimate-scale-test:
+    build:
+      context: .
+      dockerfile: modules/foundation_pose/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - CHECKPOINT_DIR=/data/foundationpose/checkpoints/foundationpose
+      - FOUNDATIONPOSE_WEIGHTS_DIR=/data/foundationpose/weights
+    volumes:
+      - ./data:/data
+      - ./test_data:/data/test_data
+    entrypoint: ["python", "/workspace/modules/foundation_pose/tools/estimate_scale.py",
+      "--mesh", "/data/test_data/mesh.glb",
+      "--rgb", "/data/test_data/image.jpg",
+      "--depth", "/data/test_data/depth.png",
+      "--mask", "/data/test_data/mask.png",
+      "--intrinsics", "/data/test_data/intrinsics.json",
+      "--transform", "/data/test_data/transform.json",
+      "--output-transform", "/data/tests/foundationpose-estimate-scale-test/output/transform_refined.json"]
+
+  foundationpose-transform-mesh-test:
+    build:
+      context: .
+      dockerfile: modules/foundation_pose/Dockerfile
+    <<: *base-cpu
+    volumes:
+      - ./data:/data
+      - ./test_data:/data/test_data
+    entrypoint: ["python", "/workspace/modules/foundation_pose/tools/transform_mesh.py",
+      "--input-mesh", "/data/test_data/mesh.glb",
+      "--output-mesh", "/data/tests/foundationpose-transform-mesh-test/output/mesh_transformed.glb",
+      "--transform", "/data/test_data/transform.json"]
+
+  foundationpose-simplify-mesh-test:
+    build:
+      context: .
+      dockerfile: modules/foundation_pose/Dockerfile
+    <<: *base-cpu
+    volumes:
+      - ./data:/data
+      - ./test_data:/data/test_data
+    entrypoint: ["python", "/workspace/modules/foundation_pose/tools/simplify_mesh.py",
+      "--input-mesh", "/data/test_data/mesh.glb",
+      "--output-mesh", "/data/tests/foundationpose-simplify-mesh-test/output/mesh_simplified.glb",
+      "--faces", "1000"]
+
+  foundationpose-render-overlay-test:
+    build:
+      context: .
+      dockerfile: modules/foundation_pose/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - CHECKPOINT_DIR=/data/foundationpose/checkpoints/foundationpose
+      - FOUNDATIONPOSE_WEIGHTS_DIR=/data/foundationpose/weights
+    volumes:
+      - ./data:/data
+      - ./test_data:/data/test_data
+    entrypoint: ["python", "/workspace/modules/foundation_pose/tools/render_overlay.py",
+      "--video_path", "/data/test_data/video.mp4",
+      "--poses_dir", "/data/tests/foundationpose-video-to-poses-test/output/poses",
+      "--mesh_path", "/data/test_data/mesh.glb",
+      "--camera_intrinsics_path", "/data/test_data/intrinsics.json",
+      "--output_dir", "/data/tests/foundationpose-render-overlay-test/output/overlay"]
+
+  nlf-video-to-smpl-test:
+    build:
+      context: .
+      dockerfile: modules/nlf/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - SMPL_MODEL_ROOT=/data/nlf/smpl_models
+      - NLF_WEIGHTS_PATH=/data/nlf/weights/nlf_l_multi_0.3.2.torchscript
+    volumes:
+      - ./data:/data
+      - ./test_data:/data/test_data
+    entrypoint: ["python3", "modules/nlf/tools/video_to_smpl.py",
+      "--video_path", "/data/test_data/video.mp4",
+      "--masks_dir", "/data/test_data/masks",
+      "--intrinsics_path", "/data/test_data/intrinsics.json",
+      "--gender", "neutral",
+      "--output_path", "/data/tests/nlf-video-to-smpl-test/output/smpl.h5"]
+
+  nlf-render-smpl-overlay-test:
+    build:
+      context: .
+      dockerfile: modules/nlf/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - SMPL_MODEL_ROOT=/data/nlf/smpl_models
+      - NLF_WEIGHTS_PATH=/data/nlf/weights/nlf_l_multi_0.3.2.torchscript
+    volumes:
+      - ./data:/data
+      - ./test_data:/data/test_data
+    entrypoint: ["python3", "modules/nlf/tools/render_smpl_overlay.py",
+      "--video_path", "/data/test_data/video.mp4",
+      "--smpl_params_path", "/data/tests/nlf-video-to-smpl-test/output/smpl.h5",
+      "--intrinsics_path", "/data/test_data/intrinsics.json",
+      "--output_dir", "/data/tests/nlf-render-smpl-overlay-test/output/overlay"]
+
+  nlf-align-to-depth-test:
+    build:
+      context: .
+      dockerfile: modules/nlf/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - SMPL_MODEL_ROOT=/data/nlf/smpl_models
+      - NLF_WEIGHTS_PATH=/data/nlf/weights/nlf_l_multi_0.3.2.torchscript
+    volumes:
+      - ./data:/data
+      - ./test_data:/data/test_data
+    entrypoint: ["python3", "modules/nlf/tools/align_nlf_to_depth.py",
+      "--smpl_results_path", "/data/tests/nlf-video-to-smpl-test/output/smpl.h5",
+      "--depth_folder", "/data/test_data/depth",
+      "--masks_dir", "/data/test_data/masks",
+      "--intrinsics_path", "/data/test_data/intrinsics.json",
+      "--output_path", "/data/tests/nlf-align-to-depth-test/output/smpl_aligned.h5"]
+
+  nlf-align-depth-to-smpl-test:
+    build:
+      context: .
+      dockerfile: modules/nlf/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - SMPL_MODEL_ROOT=/data/nlf/smpl_models
+      - NLF_WEIGHTS_PATH=/data/nlf/weights/nlf_l_multi_0.3.2.torchscript
+    volumes:
+      - ./data:/data
+      - ./test_data:/data/test_data
+    entrypoint: ["python3", "modules/nlf/tools/align_depth_to_smpl.py",
+      "--depth_folder", "/data/test_data/depth",
+      "--smpl_depth_folder", "/data/tests/nlf-render-smpl-depth-test/output/smpl_depth",
+      "--output_depth_folder", "/data/tests/nlf-align-depth-to-smpl-test/output/depth_aligned",
+      "--masks_folder", "/data/test_data/masks"]
+
+  nlf-render-smpl-depth-test:
+    build:
+      context: .
+      dockerfile: modules/nlf/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - SMPL_MODEL_ROOT=/data/nlf/smpl_models
+      - NLF_WEIGHTS_PATH=/data/nlf/weights/nlf_l_multi_0.3.2.torchscript
+    volumes:
+      - ./data:/data
+      - ./test_data:/data/test_data
+    entrypoint: ["python3", "modules/nlf/tools/render_smpl_depth.py",
+      "--smpl_params_path", "/data/tests/nlf-video-to-smpl-test/output/smpl.h5",
+      "--intrinsics_path", "/data/test_data/intrinsics.json",
+      "--output_depth_folder", "/data/tests/nlf-render-smpl-depth-test/output/smpl_depth",
+      "--output_mask_folder", "/data/tests/nlf-render-smpl-depth-test/output/smpl_masks"]
+
+  grounding-dino-image-to-object-bboxes-test:
+    build:
+      context: .
+      dockerfile: modules/grounding_dino/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - MODEL_DIR=/data/grounding_dino/models
+    volumes:
+      - ./data:/data
+      - ./test_data:/data/test_data
+    entrypoint: ["python", "/workspace/modules/grounding_dino/tools/image_to_object_bboxes.py",
+      "--image_path", "/data/test_data/image.jpg",
+      "--output_path", "/data/tests/grounding-dino-image-to-object-bboxes-test/output/bboxes.json",
+      "--prompt", "object"]
+
+  grounding-dino-image-list-to-object-bboxes-test:
+    build:
+      context: .
+      dockerfile: modules/grounding_dino/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - MODEL_DIR=/data/grounding_dino/models
+    volumes:
+      - ./data:/data
+      - ./test_data:/data/test_data
+    entrypoint: ["python", "/workspace/modules/grounding_dino/tools/image_list_to_object_bboxes.py",
+      "--image_dir", "/data/test_data/images",
+      "--output_path", "/data/tests/grounding-dino-image-list-to-object-bboxes-test/output/bboxes.json",
+      "--prompt", "object"]
+
+  grounding-dino-video-to-object-bboxes-test:
+    build:
+      context: .
+      dockerfile: modules/grounding_dino/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - MODEL_DIR=/data/grounding_dino/models
+    volumes:
+      - ./data:/data
+      - ./test_data:/data/test_data
+    entrypoint: ["python", "/workspace/modules/grounding_dino/tools/video_to_object_bboxes.py",
+      "--video_path", "/data/test_data/video.mp4",
+      "--output_path", "/data/tests/grounding-dino-video-to-object-bboxes-test/output/bboxes.json",
+      "--prompt", "object"]
+
+  foundation-stereo-image-list-to-depth-test:
+    build:
+      context: .
+      dockerfile: modules/foundation_stereo/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - MODEL_DIR=/data/foundation_stereo/models
+    volumes:
+      - ./data:/data
+      - ./test_data:/data/test_data
+    entrypoint: ["python", "/workspace/modules/foundation_stereo/tools/image_list_to_depth.py",
+      "--left_dir", "/data/test_data/left",
+      "--right_dir", "/data/test_data/right",
+      "--depth_folder", "/data/tests/foundation-stereo-image-list-to-depth-test/output/depth",
+      "--intrinsics_folder", "/data/tests/foundation-stereo-image-list-to-depth-test/output/intrinsics",
+      "--calibration_file", "/data/test_data/calibration.json"]
+
+  foundation-stereo-image-to-depth-test:
+    build:
+      context: .
+      dockerfile: modules/foundation_stereo/Dockerfile
+    <<: *base-gpu
+    environment:
+      - DATA_DIR=/data
+      - MODEL_DIR=/data/foundation_stereo/models
+    volumes:
+      - ./data:/data
+      - ./test_data:/data/test_data
+    entrypoint: ["python", "/workspace/modules/foundation_stereo/tools/image_to_depth.py",
+      "--left_image_path", "/data/test_data/left/1707938736136244532.jpeg",
+      "--right_image_path", "/data/test_data/right/1707938736136244532.jpeg",
+      "--depth_path", "/data/tests/foundation-stereo-image-to-depth-test/output/depth.png",
+      "--intrinsics_path", "/data/tests/foundation-stereo-image-to-depth-test/output/intrinsics.json",
+      "--calibration_file", "/data/test_data/calibration.json"]

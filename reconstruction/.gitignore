@@ -43,6 +43,7 @@ modules/*/data/
 
 # Test data outputs
 modules/*/data/test_data/*/outputs/
+data/tests/
 
 # IDE
 .vscode/
@@ -58,3 +59,4 @@ Thumbs.db
 # Logs
 *.log
 .venv
+data
