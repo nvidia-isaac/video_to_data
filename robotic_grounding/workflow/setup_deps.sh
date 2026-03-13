@@ -5,6 +5,6 @@ sudo apt update
 sudo apt install -y git-lfs pipx
 pipx ensurepath
 pipx install pre-commit
-chmod +x workflow/run.sh
+chmod +x "$(dirname "$0")/run.sh"
 
 echo "Done. You may need to restart your shell for pipx PATH changes."
