@@ -26,6 +26,7 @@ from scipy.spatial.transform import Rotation
 # ---------------------------------------------------------------------------
 DEFAULT_INPUT_DIR_TACO = HUMAN_MOTION_DATA_DIR / "taco_loaded"
 DEFAULT_INPUT_DIR_ARCTIC = HUMAN_MOTION_DATA_DIR / "arctic_loaded"
+DEFAULT_INPUT_DIR_OAKINK2 = HUMAN_MOTION_DATA_DIR / "oakink2_loaded"
 
 DISK_HEIGHT = 0.01  # thin disk thickness in meters
 
@@ -340,7 +341,9 @@ def write_support_surfaces_usd(
     disk_idx = 0
     for body_name, disks in all_disks.items():
         for cx, cy, z, radius in disks:
-            safe_name = body_name.replace("/", "_").replace(" ", "_")
+            safe_name = "".join(
+                c if c.isalnum() or c == "_" else "_" for c in body_name
+            )
             prim_path = f"/support_surfaces/{safe_name}_{disk_idx}"
             create_disk(stage, prim_path, radius=radius, center=(cx, cy, z))
             disk_idx += 1
@@ -364,7 +367,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--dataset",
-        choices=("taco", "arctic"),
+        choices=("taco", "arctic", "oakink2"),
         default="taco",
         help="Dataset for default input_dir when --input_dir not set (default: taco).",
     )
@@ -464,9 +467,14 @@ def _process_sequence(
 def main() -> None:
     """Entry point: parse CLI args and reconstruct support surfaces for the specified dataset."""
     args = _parse_args()
-    input_dir = args.input_dir or (
-        DEFAULT_INPUT_DIR_TACO if args.dataset == "taco" else DEFAULT_INPUT_DIR_ARCTIC
-    )
+    if args.input_dir:
+        input_dir = args.input_dir
+    elif args.dataset == "taco":
+        input_dir = DEFAULT_INPUT_DIR_TACO
+    elif args.dataset == "arctic":
+        input_dir = DEFAULT_INPUT_DIR_ARCTIC
+    else:
+        input_dir = DEFAULT_INPUT_DIR_OAKINK2
     if not input_dir.is_dir():
         print(
             f"Input dir not found: {input_dir}. Run the loader first (e.g. taco_loader.py --save)."

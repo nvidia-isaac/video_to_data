@@ -117,17 +117,37 @@ def load_support_surfaces_from_usd(
     return handles
 
 
+DATASET_DIRS: dict[str, str] = {
+    "arctic": "arctic_processed",
+    "taco": "taco_processed",
+    "oakink2": "oakink2_processed",
+}
+
+
 def parse_args() -> argparse.Namespace:
     """Parse the command line arguments."""
-    default_input = HUMAN_MOTION_DATA_DIR / "arctic_processed"
     parser = argparse.ArgumentParser(
         description="Visualize retargeted Parquet data (hands + optional object meshes)."
     )
     parser.add_argument(
+        "--dataset",
+        type=str,
+        choices=list(DATASET_DIRS),
+        default=None,
+        help=(
+            "Dataset shorthand; sets --input_dir to the corresponding processed directory "
+            f"under HUMAN_MOTION_DATA_DIR. Choices: {list(DATASET_DIRS)}. "
+            "Ignored when --input_dir is set explicitly."
+        ),
+    )
+    parser.add_argument(
         "--input_dir",
         type=Path,
-        default=default_input,
-        help="Root directory of retargeted Parquet (e.g. .../mano_object_robot_processed).",
+        default=None,
+        help=(
+            "Root directory of retargeted Parquet (e.g. .../arctic_processed). "
+            "Defaults to arctic_processed when neither --input_dir nor --dataset is given."
+        ),
     )
     parser.add_argument(
         "--sequence_id",
@@ -404,7 +424,13 @@ def visualize_one_trajectory(
 
 def main(args: argparse.Namespace) -> None:
     """List or use sequence, setup kinematics, run visualization."""
-    input_dir = args.input_dir
+    if args.input_dir is not None:
+        input_dir = args.input_dir
+    elif args.dataset is not None:
+        input_dir = HUMAN_MOTION_DATA_DIR / DATASET_DIRS[args.dataset]
+    else:
+        input_dir = HUMAN_MOTION_DATA_DIR / DATASET_DIRS["arctic"]
+
     if not input_dir.is_dir():
         raise FileNotFoundError(f"Input directory not found: {input_dir}")
 
