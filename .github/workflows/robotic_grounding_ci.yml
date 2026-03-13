@@ -44,7 +44,9 @@ jobs:
           restore-keys: |
             pre-commit-
       - name: Run pre-commit
-        run: cd robotic_grounding && pre-commit run --all-files --show-diff-on-failure
+        run: |
+          cd robotic_grounding
+          pre-commit run --show-diff-on-failure --files $(git ls-files .)
 
   ## ------------------------------------------
   ## Build & Test (GPU required)
