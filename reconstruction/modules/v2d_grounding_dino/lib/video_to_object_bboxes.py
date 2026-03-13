@@ -1,26 +1,11 @@
 """Grounding DINO: detect objects in every frame of a video using a text prompt.
 
-Takes a video and a text prompt, runs Grounding DINO inference on each frame,
-and writes a single JSON file keyed by frame number.
-
 Usage:
-    python video_to_object_bboxes.py \
+    python -m v2d.grounding_dino.lib.video_to_object_bboxes \
         --video_path /data/video.mp4 \
         --output_path /data/bboxes.json \
-        --prompt "robot arm"
-
-Output JSON format:
-    {
-      "0": [
-        {"label": "robot arm", "confidence": 0.87,
-         "box": {"x0": 120.5, "y0": 80.2, "x1": 340.8, "y1": 280.4}},
-        ...
-      ],
-      "1": [...],
-      ...
-    }
-    Keys are frame indices (0-based). Boxes are in absolute pixel coordinates,
-    sorted by confidence descending.
+        --prompt "robot arm" \
+        --model_dir /data/models
 """
 
 import argparse
@@ -30,14 +15,14 @@ import subprocess
 
 import cv2
 import groundingdino
-from groundingdino.util.inference import load_model, predict
 import groundingdino.datasets.transforms as T
+from groundingdino.util.inference import load_model, predict
 import numpy as np
 from PIL import Image
 import torch
 from torchvision.ops import box_convert
 
-from modules.common.datatypes import BoundingBox
+from v2d.datatypes import BoundingBox
 
 _CHECKPOINT_URL = (
     "https://github.com/IDEA-Research/GroundingDINO/releases/download/"
@@ -74,11 +59,7 @@ _transform = T.Compose([
 
 
 def _frame_to_gdino_tensor(frame_bgr: np.ndarray) -> torch.Tensor:
-    """Convert a BGR OpenCV frame to a normalized RGB tensor for Grounding DINO.
-
-    Applies the same resize+normalize as groundingdino.util.inference.load_image:
-    shortest side → 800px, longest side ≤ 1333px.
-    """
+    """Convert a BGR OpenCV frame to a normalized RGB tensor for Grounding DINO."""
     pil_image = Image.fromarray(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
     tensor, _ = _transform(pil_image, None)
     return tensor
@@ -121,20 +102,7 @@ def video_to_object_bboxes(
     box_threshold: float = 0.35,
     text_threshold: float = 0.25,
 ) -> dict:
-    """Run Grounding DINO on every frame of a video and write a single JSON.
-
-    Args:
-        video_path: Path to the input video file.
-        output_path: Path to write the combined output JSON file.
-        prompt: Text prompt describing objects to detect (e.g. "robot arm").
-        model_dir: Directory containing groundingdino_swint_ogc.pth.
-        box_threshold: Minimum box confidence score (default 0.35).
-        text_threshold: Minimum text confidence score (default 0.25).
-
-    Returns:
-        Dict mapping frame index (str) → list of detection dicts, also written
-        to output_path.
-    """
+    """Run Grounding DINO on every frame of a video and write a single JSON."""
     if not os.path.exists(video_path):
         raise FileNotFoundError(f"Video not found: {video_path}")
 
@@ -167,16 +135,7 @@ def video_to_object_bboxes(
     return results
 
 
-def _debug_dir(output_path: str) -> str:
-    return os.path.join(os.path.dirname(os.path.abspath(output_path)), 'debug')
-
-
 def main():
-    default_model_dir = os.environ.get(
-        'MODEL_DIR',
-        os.path.join(os.environ.get('DATA_DIR', '/data'), 'grounding_dino', 'models'),
-    )
-
     parser = argparse.ArgumentParser(
         description="Grounding DINO: detect objects in every frame of a video"
     )
@@ -189,11 +148,10 @@ def main():
                         help='Minimum box confidence score (default: 0.35)')
     parser.add_argument('--text_threshold', type=float, default=0.25,
                         help='Minimum text confidence score (default: 0.25)')
-    parser.add_argument('--model_dir', default=default_model_dir,
-                        help=f'Directory with groundingdino_swint_ogc.pth '
-                             f'(default: $MODEL_DIR or {default_model_dir})')
-    parser.add_argument('--vis', action='store_true',
-                        help='Save annotated debug frames alongside output')
+    parser.add_argument('--model_dir', required=True,
+                        help='Directory with groundingdino_swint_ogc.pth')
+    parser.add_argument('--debug_output', type=str, default=None,
+                        help='Directory to save annotated debug frames')
 
     args = parser.parse_args()
 
@@ -206,9 +164,9 @@ def main():
         text_threshold=args.text_threshold,
     )
 
-    if args.vis:
-        from modules.grounding_dino.vis import visualize_video_bboxes
-        visualize_video_bboxes(args.video_path, results, _debug_dir(args.output_path))
+    if args.debug_output:
+        from v2d.grounding_dino.lib.vis import visualize_video_bboxes
+        visualize_video_bboxes(args.video_path, results, args.debug_output)
 
 
 if __name__ == '__main__':

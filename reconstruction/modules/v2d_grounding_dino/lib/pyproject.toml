@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "v2d-grounding-dino-lib"
+version = "0.1.0"
+description = "Grounding DINO object detection library"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "Pillow",
+    "opencv-python",
+    "v2d-datatypes",
+]
+
+[tool.setuptools]
+packages = ["v2d.grounding_dino.lib"]
+
+[tool.setuptools.package-dir]
+"v2d.grounding_dino.lib" = "."

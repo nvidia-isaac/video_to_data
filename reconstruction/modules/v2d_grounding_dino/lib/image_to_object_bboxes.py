@@ -1,21 +1,11 @@
 """Grounding DINO: detect objects in a single image using a text prompt.
 
-Takes one image and a text prompt, runs Grounding DINO inference, and writes a
-JSON file containing detected bounding boxes with labels and confidence scores.
-
 Usage:
-    python image_to_object_bboxes.py \
+    python -m v2d.grounding_dino.lib.image_to_object_bboxes \
         --image_path /data/frame.jpg \
         --output_path /data/bboxes/frame.json \
-        --prompt "robot arm"
-
-Output JSON format:
-    [
-      {"label": "robot arm", "confidence": 0.87,
-       "box": {"x0": 120.5, "y0": 80.2, "x1": 340.8, "y1": 280.4}},
-      ...
-    ]
-    Boxes are in absolute pixel coordinates, sorted by confidence descending.
+        --prompt "robot arm" \
+        --model_dir /data/models
 """
 
 import argparse
@@ -27,7 +17,7 @@ import groundingdino
 from groundingdino.util.inference import load_image, load_model, predict
 from torchvision.ops import box_convert
 
-from modules.common.datatypes import BoundingBox
+from v2d.datatypes import BoundingBox
 
 _CHECKPOINT_URL = (
     "https://github.com/IDEA-Research/GroundingDINO/releases/download/"
@@ -64,19 +54,7 @@ def image_to_bboxes(
     box_threshold: float = 0.35,
     text_threshold: float = 0.25,
 ) -> list[dict]:
-    """Run Grounding DINO on a single image and write detections to JSON.
-
-    Args:
-        image_path: Path to the input image.
-        output_path: Path to write the output JSON file.
-        prompt: Text prompt describing objects to detect (e.g. "robot arm").
-        model_dir: Directory containing groundingdino_swint_ogc.pth.
-        box_threshold: Minimum box confidence score (default 0.35).
-        text_threshold: Minimum text confidence score (default 0.25).
-
-    Returns:
-        List of detection dicts written to output_path.
-    """
+    """Run Grounding DINO on a single image and write detections to JSON."""
     if not os.path.exists(image_path):
         raise FileNotFoundError(f"Image not found: {image_path}")
 
@@ -92,7 +70,6 @@ def image_to_bboxes(
         text_threshold=text_threshold,
     )
 
-    # Convert normalized cxcywh → absolute xyxy
     boxes_xyxy = box_convert(boxes=boxes_cxcywh, in_fmt='cxcywh', out_fmt='xyxy')
     boxes_xyxy = boxes_xyxy * boxes_xyxy.new_tensor([w, h, w, h])
 
@@ -105,7 +82,6 @@ def image_to_bboxes(
             'box': BoundingBox(x0=x0, y0=y0, x1=x1, y1=y1).to_dict(),
         })
 
-    # Sort by confidence descending
     detections.sort(key=lambda d: d['confidence'], reverse=True)
 
     os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
@@ -113,20 +89,10 @@ def image_to_bboxes(
         json.dump(detections, f, indent=2)
 
     print(f"Detected {len(detections)} object(s). Saved to: {output_path}")
-
     return detections
 
 
-def _debug_dir(output_path: str) -> str:
-    return os.path.join(os.path.dirname(os.path.abspath(output_path)), 'debug')
-
-
 def main():
-    default_model_dir = os.environ.get(
-        'MODEL_DIR',
-        os.path.join(os.environ.get('DATA_DIR', '/data'), 'grounding_dino', 'models'),
-    )
-
     parser = argparse.ArgumentParser(
         description="Grounding DINO: detect objects in an image using a text prompt"
     )
@@ -138,11 +104,10 @@ def main():
                         help='Minimum box confidence score (default: 0.35)')
     parser.add_argument('--text_threshold', type=float, default=0.25,
                         help='Minimum text confidence score (default: 0.25)')
-    parser.add_argument('--model_dir', default=default_model_dir,
-                        help=f'Directory with groundingdino_swint_ogc.pth '
-                             f'(default: $MODEL_DIR or {default_model_dir})')
-    parser.add_argument('--vis', action='store_true',
-                        help='Save annotated debug image alongside output')
+    parser.add_argument('--model_dir', required=True,
+                        help='Directory with groundingdino_swint_ogc.pth')
+    parser.add_argument('--debug_output', type=str, default=None,
+                        help='Directory to save annotated debug images')
 
     args = parser.parse_args()
 
@@ -155,9 +120,9 @@ def main():
         text_threshold=args.text_threshold,
     )
 
-    if args.vis:
-        from modules.grounding_dino.vis import visualize_image_bboxes
-        visualize_image_bboxes(args.image_path, detections, _debug_dir(args.output_path))
+    if args.debug_output:
+        from v2d.grounding_dino.lib.vis import visualize_image_bboxes
+        visualize_image_bboxes(args.image_path, detections, args.debug_output)
 
 
 if __name__ == '__main__':
