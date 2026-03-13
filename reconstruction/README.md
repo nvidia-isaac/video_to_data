@@ -22,6 +22,21 @@ python -m v2d.moge.docker.run_video_to_depth \
   --weights_path data/weights/moge
 ```
 
+Equivalent pipeline using Python imports (run from `reconstruction/`):
+
+```python
+from v2d.moge.docker.run_download_weights import run_download
+from v2d.moge.docker.run_video_to_depth import run_video_to_depth
+
+run_download(output_dir="data/weights/moge")
+run_video_to_depth(
+    video_path="modules/v2d_moge/assets/test_video.mp4",
+    depth_folder="data/outputs/moge/depth",
+    intrinsics_folder="data/outputs/moge/intrinsics",
+    weights_path="data/weights/moge",
+)
+```
+
 **Output:** Per-frame depth maps in `data/outputs/moge/depth/`, intrinsics in `data/outputs/moge/intrinsics/`. The repo includes sample data at `modules/v2d_moge/assets/test_video.mp4`.
 
 ---
