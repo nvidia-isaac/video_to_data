@@ -10,8 +10,12 @@ name: Robotic Grounding CI
 on:
   push:
     branches: [main]
+    paths:
+      - "robotic_grounding/**"
   pull_request:
     branches: [main]
+    paths:
+      - "robotic_grounding/**"
 
 # Cancel in-progress runs for the same PR
 concurrency:
