@@ -23,7 +23,7 @@ from estimater import FoundationPose
 from learning.training.predict_score import ScorePredictor
 from learning.training.predict_pose_refine import PoseRefinePredictor
 import nvdiffrast.torch as dr
-from Utils import draw_posed_3d_box, draw_xyz_axis
+from v2d.foundation_pose.lib.fp_utils import draw_posed_3d_box, draw_xyz_axis
 
 
 def log_gpu_memory(label):

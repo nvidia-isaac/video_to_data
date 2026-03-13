@@ -19,7 +19,7 @@ from estimater import FoundationPose
 from learning.training.predict_score import ScorePredictor
 from learning.training.predict_pose_refine import PoseRefinePredictor
 import nvdiffrast.torch as dr
-import Utils
+from v2d.foundation_pose.lib import fp_utils as Utils
 from v2d.foundation_pose.lib.chamfer_dist_np import chamfer_distance
 from v2d.datatypes import CameraIntrinsics, DepthImage, Mask
 

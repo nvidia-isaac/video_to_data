@@ -3,7 +3,6 @@ if not hasattr(inspect, 'getargspec'):
     inspect.getargspec = inspect.getfullargspec
 
 import numpy as np
-# Patch numpy for chumpy compatibility
 if not hasattr(np, 'bool'): np.bool = bool
 if not hasattr(np, 'int'): np.int = int
 if not hasattr(np, 'float'): np.float = float
@@ -22,18 +21,22 @@ from PIL import Image
 from tqdm import tqdm
 from typing import List, Tuple
 from smplfitter.pt import BodyModel, BodyFitter
-from modules.nlf.datatypes import CameraIntrinsics, NlfResult
+from v2d.datatypes import CameraIntrinsics
+from v2d.nlf.lib.datatypes import NlfResult
 
-# Singleton model instance
+NLF_WEIGHTS_FILENAME = "nlf_l_multi_0.3.2.torchscript"
+
 _nlf_model = None
+_nlf_weights_dir = None
 
-def _get_nlf_model():
-    global _nlf_model
-    if _nlf_model is None:
-        weights_path = os.environ.get("NLF_WEIGHTS_PATH", "modules/nlf/data/weights/nlf_l_multi_0.3.2.torchscript")
+def _get_nlf_model(weights_dir: str):
+    global _nlf_model, _nlf_weights_dir
+    if _nlf_model is None or _nlf_weights_dir != weights_dir:
+        weights_path = os.path.join(weights_dir, NLF_WEIGHTS_FILENAME)
         if not os.path.exists(weights_path):
-            raise FileNotFoundError(f"NLF weights not found at {weights_path}. Please run download.sh or place weights manually.")
+            raise FileNotFoundError(f"NLF weights not found at {weights_path}. Please run download_weights or place weights manually.")
         _nlf_model = torch.jit.load(weights_path).cuda().eval()
+        _nlf_weights_dir = weights_dir
     return _nlf_model
 
 def masks2bbox(masks: List[np.ndarray]) -> Tuple[np.ndarray, np.ndarray]:
@@ -48,8 +51,8 @@ def masks2bbox(masks: List[np.ndarray]) -> Tuple[np.ndarray, np.ndarray]:
         return np.array([0, 0]), np.array([0, 0])
     
     all_idx = np.concatenate(all_idx, axis=0)
-    bmin = np.min(all_idx, axis=0)[::-1]  # (x, y)
-    bmax = np.max(all_idx, axis=0)[::-1]  # (x, y)
+    bmin = np.min(all_idx, axis=0)[::-1]
+    bmax = np.max(all_idx, axis=0)[::-1]
     return bmin, bmax
 
 def video_to_smpl(
@@ -57,23 +60,20 @@ def video_to_smpl(
     masks_dir: str, 
     intrinsics_path: str, 
     gender: str, 
+    weights_dir: str,
     model_type: str = "smplh",
     output_path: str = None,
     chunk_size: int = 32,
     device: str = "cuda"
 ) -> NlfResult:
-    """
-    End-to-end NLF: Video + Masks -> SMPL Parameters (all in memory).
-    """
-    # 1. Load intrinsics
+    """End-to-end NLF: Video + Masks -> SMPL Parameters (all in memory)."""
     with open(intrinsics_path, 'r') as f:
         intrinsics_dict = json.load(f)
-    intrinsics = CameraIntrinsics(**intrinsics_dict)
+    intrinsics = CameraIntrinsics.from_dict(intrinsics_dict)
     K = intrinsics.to_matrix()
     K_tensor = torch.from_numpy(K).to(device).float()[None]
 
-    # 2. Localization: Video -> 3D Vertices
-    model = _get_nlf_model()
+    model = _get_nlf_model(weights_dir)
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise ValueError(f"Could not open video {video_path}")
@@ -102,7 +102,7 @@ def video_to_smpl(
             if np.all(bmin == 0) and np.all(bmax == 0):
                 continue
 
-            bbox = np.concatenate([bmin, bmax - bmin, [1.01]])  # xywhc
+            bbox = np.concatenate([bmin, bmax - bmin, [1.01]])
             images_chunk.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
             bboxes_chunk.append(torch.from_numpy(bbox)[None].to(device).float())
 
@@ -128,12 +128,11 @@ def video_to_smpl(
     
     vertices = np.concatenate(all_vertices, axis=0)
 
-    # 3. Fitting: 3D Vertices -> SMPL Parameters
-    smpl_model_root = os.environ.get('SMPL_MODEL_ROOT', os.path.join(os.environ.get('DATA_DIR', '/data'), 'nlf/smpl_models'))
-    model_root = os.path.join(smpl_model_root, model_type)
+    from v2d.nlf.lib.smpl_paths import get_smpl_model_root
+    model_root = get_smpl_model_root(model_type, weights_dir)
     
     if gender == 'neutral' and model_type == 'smplh':
-        gender = 'male' # smplh doesn't have neutral
+        gender = 'male'
     
     body_model = BodyModel(model_type, gender, model_root=model_root).to(device)
     fitter = BodyFitter(body_model).to(device)
@@ -143,11 +142,10 @@ def video_to_smpl(
         verts_tensor, 
         num_iter=3,
         beta_regularizer=1,
-        share_beta=True,  # Share betas across all frames to ensure constant shape/scale
+        share_beta=True,
         requested_keys=['shape_betas', 'trans', 'pose_rotvecs']
     )
 
-    # Compute vertices from fitted parameters using body_model
     with torch.no_grad():
         output = body_model(
             pose_rotvecs=fit_res['pose_rotvecs'],
@@ -174,7 +172,6 @@ def video_to_smpl(
             f.create_dataset('gender', data=res.gender.encode('utf-8'))
             f.create_dataset('model_type', data=res.model_type.encode('utf-8'))
             f.create_dataset('frames', data=[f.encode('utf-8') for f in res.frames])
-            # Save vertices and faces for easier visualization
             f.create_dataset('vertices', data=fitted_vertices)
             faces = body_model.faces
             if hasattr(faces, 'cpu'):
@@ -193,9 +190,13 @@ if __name__ == "__main__":
     parser.add_argument("--masks_dir", type=str, required=True)
     parser.add_argument("--intrinsics_path", type=str, required=True)
     parser.add_argument("--gender", type=str, required=True, choices=["male", "female", "neutral"])
+    parser.add_argument("--weights_dir", type=str, required=True)
     parser.add_argument("--model_type", type=str, default="smplh", choices=["smpl", "smplh"])
     parser.add_argument("--output_path", type=str, required=True)
     parser.add_argument("--chunk_size", type=int, default=32)
-    
     args = parser.parse_args()
-    video_to_smpl(args.video_path, args.masks_dir, args.intrinsics_path, args.gender, args.model_type, args.output_path, args.chunk_size)
+    video_to_smpl(
+        args.video_path, args.masks_dir, args.intrinsics_path, args.gender,
+        args.weights_dir, model_type=args.model_type, output_path=args.output_path,
+        chunk_size=args.chunk_size,
+    )
