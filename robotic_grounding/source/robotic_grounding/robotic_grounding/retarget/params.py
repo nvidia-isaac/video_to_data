@@ -214,27 +214,27 @@ SHARPA_TO_MANO_ROTATION_OFFSET = {
 
 SHARPA_TO_MANO_MAPPING = {
     # Sharpa body frame: (target MANO joint, position cost, orientation cost)
-    ".*_hand_C_MC": ("wrist", 0.2, 0.2),
+    ".*_hand_C_MC": ("wrist", 0.5, 0.2),
     # ".*_thumb_CMC_VL_site": ("thumb1", 0.0, 0.0),
     ".*_thumb_MCP_VL_site": ("thumb2", 0.1, 0.0),
     # ".*_thumb_DP_site": ("thumb3", 0.0, 0.0),
-    ".*_thumb_tip_site": ("thumb4", 1.0, 0.05),
+    ".*_thumb_tip_site": ("thumb4", 1.0, 0.0),
     # ".*_index_MCP_VL_site": ("index1", 0.0, 0.0),
     ".*_index_MP_site": ("index1", 0.1, 0.0),
     # ".*_index_DP_site": ("index3", 0.0, 0.0),
-    ".*_index_tip_site": ("index4", 1.0, 0.1),
+    ".*_index_tip_site": ("index4", 1.0, 0.0),
     # ".*_middle_MCP_VL_site": ("middle1", 0.0, 0.0),
     ".*_middle_MP_site": ("middle1", 0.1, 0.0),
     # ".*_middle_DP_site": ("middle3", 0.0, 0.0),
-    ".*_middle_tip_site": ("middle4", 1.0, 0.1),
+    ".*_middle_tip_site": ("middle4", 1.0, 0.0),
     # ".*_ring_MCP_VL_site": ("ring1", 0.0, 0.0),
     ".*_ring_MP_site": ("ring1", 0.1, 0.0),
     # ".*_ring_DP_site": ("ring3", 0.0, 0.0),
-    ".*_ring_tip_site": ("ring4", 1.0, 0.1),
+    ".*_ring_tip_site": ("ring4", 1.0, 0.0),
     # ".*_pinky_MC_site": ("pinky1", 0.0, 0.0),
     ".*_pinky_MP_site": ("pinky1", 0.1, 0.0),
     # ".*_pinky_DP_site": ("pinky3", 0.0, 0.0),
-    ".*_pinky_tip_site": ("pinky4", 0.5, 0.1),
+    ".*_pinky_tip_site": ("pinky4", 1.0, 0.0),
 }
 
 SHARPA_RELATIVE_FRAMES = [

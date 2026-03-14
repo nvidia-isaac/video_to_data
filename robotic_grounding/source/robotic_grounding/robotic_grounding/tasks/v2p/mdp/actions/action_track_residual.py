@@ -106,6 +106,7 @@ class JointResidualWithTrackingAction(ActionTerm):
         self.finger_joint_pos = torch.zeros(
             self.num_envs, len(self.finger_joint_ids), device=self.device
         )
+        self.zero_force_torque = torch.zeros(self.num_envs, 1, 3, device=self.device)
 
         # Parse scale
         scale_tensor = torch.ones(self.num_envs, self.action_dim, device=self.device)
@@ -251,6 +252,15 @@ class JointResidualWithTrackingAction(ActionTerm):
         self.wrist_forces[env_ids] = 0.0
         self.wrist_torques[env_ids] = 0.0
         self.finger_joint_pos[env_ids] = 0.0
+
+        # Clear the external forces and torques
+        self.robot.set_external_force_and_torque(
+            forces=self.zero_force_torque[env_ids],
+            torques=self.zero_force_torque[env_ids],
+            body_ids=self.wrist_body_id,
+            env_ids=env_ids,
+            is_global=False,
+        )
 
     def apply_actions(self) -> None:
         """Apply the actions, recomputing the tracking actions to allow better performance."""

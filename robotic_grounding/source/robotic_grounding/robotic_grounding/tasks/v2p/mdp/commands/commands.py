@@ -1296,23 +1296,6 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             left_hand_wrist_velocity, env_ids=env_ids
         )
 
-        # Clear residual external forces from previous episode
-        zero_forces = torch.zeros(len(env_ids), 1, 3, device=self.device)
-        self.right_robot.set_external_force_and_torque(
-            forces=zero_forces,
-            torques=zero_forces,
-            body_ids=self.right_wrist_body_id,
-            env_ids=env_ids,
-            is_global=False,
-        )
-        self.left_robot.set_external_force_and_torque(
-            forces=zero_forces,
-            torques=zero_forces,
-            body_ids=self.left_wrist_body_id,
-            env_ids=env_ids,
-            is_global=False,
-        )
-
         # Right robot finger joint positions
         right_hand_joint_velocity = torch.zeros_like(
             right_hand_finger_joint_pos

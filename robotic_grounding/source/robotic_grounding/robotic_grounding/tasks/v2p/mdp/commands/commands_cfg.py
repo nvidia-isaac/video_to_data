@@ -127,9 +127,6 @@ class DualHandsObjectTrackingCommandCfg(CommandTermCfg):
     motion_id: int = 0
     """Index of the motion to use after applying the filters."""
 
-    reset_state_file_path: str = ""
-    """Path to the file containing the reset states."""
-
     target_fps: float | None = None
     """Target FPS to interpolate the motion data to. If None, use the 1 / env.step_dt."""
 

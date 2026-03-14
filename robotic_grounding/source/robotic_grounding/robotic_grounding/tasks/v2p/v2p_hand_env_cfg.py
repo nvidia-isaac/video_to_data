@@ -92,7 +92,7 @@ class CommandsCfg:
         reset_finger_openness=0.7,
         virtual_object_control_decay_steps=50,
         virtual_object_control_decay_mode="step",
-        initial_virtual_object_control_curriculum_scale=0.25,
+        initial_virtual_object_control_curriculum_scale=1.0,
     )
 
 

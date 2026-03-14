@@ -59,6 +59,9 @@ class VirtualRigidObjectControl(ActionTerm):
         # Create tensors for raw and processed actions with force and torque
         self._raw_actions = torch.zeros(self.num_envs, 6, device=self.device)
         self._processed_actions = torch.zeros_like(self._raw_actions)
+        self.zero_force_torque = torch.zeros(
+            self.num_envs, self.num_bodies, 3, device=self.device
+        )
 
         # Set stiffness and damping for the tracking controller
         self._tracking_controller_linear_stiffness = float(
@@ -126,6 +129,14 @@ class VirtualRigidObjectControl(ActionTerm):
         """Reset the action term."""
         self._raw_actions[env_ids] = 0.0
         self._processed_actions[env_ids] = 0.0
+
+        # Clear the external forces and torques
+        self.object.set_external_force_and_torque(
+            forces=self.zero_force_torque[env_ids],
+            torques=self.zero_force_torque[env_ids],
+            env_ids=env_ids,
+            is_global=False,
+        )
 
     def apply_actions(self) -> None:
         """Apply virtual force torque to the rigid object using a Position PD Controller."""

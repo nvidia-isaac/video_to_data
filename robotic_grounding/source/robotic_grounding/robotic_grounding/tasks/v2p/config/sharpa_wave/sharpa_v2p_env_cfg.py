@@ -50,9 +50,6 @@ class SharpaV2PEnvCfg(V2PHandEnvCfg):
         self.commands.dual_hands_object_tracking_command.motion_folder = os.path.join(
             ASSET_DIR, "human_motion_data", "arctic_processed"
         )
-        self.commands.dual_hands_object_tracking_command.reset_state_file_path = (
-            os.path.join(ASSET_DIR, "human_motion_data", "reset_trajectory.pt")
-        )
         self.commands.dual_hands_object_tracking_command.wrist_joint_names = (
             WRIST_JOINTS
         )

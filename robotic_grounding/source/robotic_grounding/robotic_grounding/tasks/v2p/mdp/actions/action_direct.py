@@ -96,6 +96,7 @@ class JointDirectPositionAction(ActionTerm):
         self.finger_joint_pos = torch.zeros(
             self.num_envs, len(self.finger_joint_ids), device=self.device
         )
+        self.zero_force_torque = torch.zeros(self.num_envs, 1, 3, device=self.device)
 
         # Parse scale
         scale_tensor = torch.ones(self.num_envs, self.action_dim, device=self.device)
@@ -240,6 +241,15 @@ class JointDirectPositionAction(ActionTerm):
         # (command reset runs AFTER action reset, so command
         #  reference is stale here)
         self._needs_target_init[env_ids] = True
+
+        # Clear the external forces and torques
+        self.robot.set_external_force_and_torque(
+            forces=self.zero_force_torque[env_ids],
+            torques=self.zero_force_torque[env_ids],
+            body_ids=self.wrist_body_id,
+            env_ids=env_ids,
+            is_global=False,
+        )
 
     def apply_actions(self) -> None:
         """Apply the PD control to track the target positions."""
