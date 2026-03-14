@@ -115,11 +115,11 @@ def main(args: argparse.Namespace) -> None:
     sequence_ids = list_sequence_ids(str(args.input_dir))
     print(f"Found {len(sequence_ids)} sequences in {args.input_dir}")
 
-    link_to_site_xyzw = (
-        R.from_quat(ARCTIC_MANO_LINK_TO_SITE_WXYZ, scalar_first=True)  # type: ignore[call-arg]
-        .inv()
-        .as_quat(scalar_first=False)  # type: ignore[call-arg]
-    )
+    link_to_site_xyzw = R.from_quat(
+        ARCTIC_MANO_LINK_TO_SITE_WXYZ, scalar_first=True
+    ).as_quat(
+        scalar_first=False
+    )  # type: ignore[call-arg]
 
     viser_object_handles: dict[str, Any] = {}
     for sequence_id in tqdm(sequence_ids):
