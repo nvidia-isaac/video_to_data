@@ -20,7 +20,7 @@ def run_video_to_masks(video_path: str, prompts_path: str, masks_dir: str, weigh
     os.makedirs(masks_dir, exist_ok=True)
 
     cmd = [
-        "docker", "run", "-it", "--rm",
+        "docker", "run", "--rm",
         "--gpus", "all",
         "--user", f"{os.getuid()}:{os.getgid()}",
         "-v", f"{video_dir}:/data/video",

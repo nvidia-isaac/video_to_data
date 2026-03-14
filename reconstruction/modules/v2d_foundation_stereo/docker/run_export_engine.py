@@ -11,7 +11,7 @@ def run_export_engine(model_dir: str, dev: bool = False) -> None:
     model_dir = os.path.abspath(model_dir)
 
     cmd = [
-        "docker", "run", "-it", "--rm",
+        "docker", "run", "--rm",
         "--gpus", "all",
         "--user", f"{os.getuid()}:{os.getgid()}",
         "-e", "HOME=/tmp",

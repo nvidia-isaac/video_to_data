@@ -23,7 +23,7 @@ def run_image_to_depth(image_path: str, depth_path: str, intrinsics_path: str, w
     os.makedirs(intrinsics_dir, exist_ok=True)
 
     cmd = [
-        "docker", "run", "-it", "--rm",
+        "docker", "run", "--rm",
         "--gpus", "all",
         "--user", f"{os.getuid()}:{os.getgid()}",
         "-v", f"{image_dir}:/data/image",

@@ -18,7 +18,7 @@ def run_annotate(video_path: str, prompts_path: str, port: int = 8080, dev: bool
     os.makedirs(prompts_dir, exist_ok=True)
 
     cmd = [
-        "docker", "run", "-it", "--rm",
+        "docker", "run", "--rm",
         "--gpus", "all",
         "--user", f"{os.getuid()}:{os.getgid()}",
         "-p", f"{port}:{port}",

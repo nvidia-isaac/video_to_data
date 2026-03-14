@@ -12,7 +12,7 @@ def run_download(output_dir: str, dev: bool = False) -> None:
     output_dir = os.path.abspath(output_dir)
 
     cmd = [
-        "docker", "run", "-it", "--rm",
+        "docker", "run", "--rm",
         "--gpus", "all",
         "--user", f"{os.getuid()}:{os.getgid()}",
         "-e", "HF_HOME=/tmp/hf_cache",

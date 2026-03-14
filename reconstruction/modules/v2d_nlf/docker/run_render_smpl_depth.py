@@ -28,7 +28,7 @@ def run_render_smpl_depth(
     os.makedirs(output_mask_folder, exist_ok=True)
 
     cmd = [
-        "docker", "run", "-it", "--rm",
+        "docker", "run", "--rm",
         "--gpus", "all",
         "--user", f"{os.getuid()}:{os.getgid()}",
         "-e", "HOME=/tmp",
