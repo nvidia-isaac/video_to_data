@@ -35,7 +35,7 @@ def run_render_debug_image(
     os.makedirs(output_dir, exist_ok=True)
 
     cmd = [
-        "docker", "run", "-it", "--rm",
+        "docker", "run", "--rm",
         "--gpus", "all",
         "--user", f"{os.getuid()}:{os.getgid()}",
         "-v", f"{image_dir}:/data/image",

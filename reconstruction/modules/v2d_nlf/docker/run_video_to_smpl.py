@@ -31,7 +31,7 @@ def run_video_to_smpl(
     os.makedirs(output_dir, exist_ok=True)
 
     cmd = [
-        "docker", "run", "-it", "--rm",
+        "docker", "run", "--rm",
         "--gpus", "all",
         "--user", f"{os.getuid()}:{os.getgid()}",
         "-e", "HOME=/tmp",

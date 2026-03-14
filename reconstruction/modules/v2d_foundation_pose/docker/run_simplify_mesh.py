@@ -23,7 +23,7 @@ def run_simplify_mesh(
     os.makedirs(output_dir, exist_ok=True)
 
     cmd = [
-        "docker", "run", "-it", "--rm",
+        "docker", "run", "--rm",
         "--user", f"{os.getuid()}:{os.getgid()}",
         "-e", "HOME=/tmp",
         "-v", f"{input_dir}:/data/input",

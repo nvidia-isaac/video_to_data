@@ -19,7 +19,7 @@ def run_video_to_depth(video_path: str, depth_folder: str, intrinsics_folder: st
     os.makedirs(intrinsics_folder, exist_ok=True)
 
     cmd = [
-        "docker", "run", "-it", "--rm",
+        "docker", "run", "--rm",
         "--gpus", "all",
         "--user", f"{os.getuid()}:{os.getgid()}",
         "-v", f"{video_dir}:/data/video",
