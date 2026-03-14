@@ -60,6 +60,7 @@ RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
     judo-rai>=0.0.5 \
     "pin-pink>=4.0.0" \
     pin==3.7.0 \
+    usd-core \
     deprecation
 
 # Install QPSolvers
