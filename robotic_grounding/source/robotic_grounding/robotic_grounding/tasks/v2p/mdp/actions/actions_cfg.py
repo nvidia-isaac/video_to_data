@@ -143,7 +143,7 @@ class JointDirectPositionActionCfg(ActionTermCfg):
     wrist_orientation_clip: float = 0.8
     """Clip factor for policy's action for wrist orientation."""
 
-    finger_joint_clip: float = 0.8
+    finger_joint_clip: float = 100.0
     """Clip factor for policy's action for finger joints."""
 
     ema_factor: float = 0.9

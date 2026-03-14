@@ -40,7 +40,7 @@ args_cli = parser.parse_args()
 ###################################
 # Debug
 ###################################
-args_cli.task = "Sharpa-V2P-Direct-v0-Play"
+args_cli.task = "Sharpa-V2P-Tracking-v0-Play"
 # args_cli.headless = True
 ###################################
 
