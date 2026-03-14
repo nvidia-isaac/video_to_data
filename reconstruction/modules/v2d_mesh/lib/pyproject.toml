@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "v2d-mesh-lib"
+version = "0.1.0"
+description = "Mesh utilities for v2d (container-only)"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "Pillow",
+    "trimesh",
+    "scipy",
+    "fast-simplification",
+    "pyrender",
+    "v2d-common",
+]
+
+[tool.setuptools]
+packages = ["v2d.mesh.lib"]
+
+[tool.setuptools.package-dir]
+"v2d.mesh.lib" = "."
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
