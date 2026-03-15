@@ -1,5 +1,5 @@
-import subprocess
 import os
+from v2d.docker.container import run_in_container
 
 IMAGE_NAME = "v2d_foundation_stereo"
 
@@ -18,56 +18,16 @@ def run_image_list_to_depth(
     baseline: float = None,
     dev: bool = False,
 ) -> None:
-    left_dir = os.path.abspath(left_dir)
-    right_dir = os.path.abspath(right_dir)
-    depth_folder = os.path.abspath(depth_folder)
-    intrinsics_folder = os.path.abspath(intrinsics_folder)
-    model_dir = os.path.abspath(model_dir)
-
-    os.makedirs(depth_folder, exist_ok=True)
-    os.makedirs(intrinsics_folder, exist_ok=True)
-
-    cmd = [
-        "docker", "run", "--rm",
-        "--gpus", "all",
-        "--user", f"{os.getuid()}:{os.getgid()}",
-        "-e", "HOME=/tmp",
-        "-v", f"{left_dir}:/data/left",
-        "-v", f"{right_dir}:/data/right",
-        "-v", f"{depth_folder}:/data/depth_out",
-        "-v", f"{intrinsics_folder}:/data/intrinsics_out",
-        "-v", f"{model_dir}:/data/models",
-    ]
-
-    if calibration_file:
-        calibration_file = os.path.abspath(calibration_file)
-        cal_dir = os.path.dirname(calibration_file)
-        cal_name = os.path.basename(calibration_file)
-        cmd += ["-v", f"{cal_dir}:/data/calibration"]
-
-    if dev:
-        cmd += ["-v", f"{_MODULES_DIR}:/workspace"]
-
-    module_cmd = [
-        IMAGE_NAME,
-        "python", "-m", "v2d.foundation_stereo.lib.image_list_to_depth",
-        "--left_dir", "/data/left",
-        "--right_dir", "/data/right",
-        "--depth_folder", "/data/depth_out",
-        "--intrinsics_folder", "/data/intrinsics_out",
-        "--model_dir", "/data/models",
-    ]
-
-    if calibration_file:
-        module_cmd += ["--calibration_file", f"/data/calibration/{cal_name}"]
-    elif fx is not None:
-        module_cmd += [
-            "--fx", str(fx), "--fy", str(fy),
-            "--cx", str(cx), "--cy", str(cy),
-            "--baseline", str(baseline),
-        ]
-
-    subprocess.run(cmd + module_cmd, check=True)
+    run_in_container(
+        image=IMAGE_NAME,
+        module="v2d.foundation_stereo.lib.image_list_to_depth",
+        inputs={"left_dir": left_dir, "right_dir": right_dir, "model_dir": model_dir, "calibration_file": calibration_file},
+        outputs={"depth_folder": depth_folder, "intrinsics_folder": intrinsics_folder},
+        extra_args={"fx": fx, "fy": fy, "cx": cx, "cy": cy, "baseline": baseline},
+        dev=dev,
+        modules_dir=_MODULES_DIR,
+        gpus=True,
+    )
 
 
 if __name__ == "__main__":

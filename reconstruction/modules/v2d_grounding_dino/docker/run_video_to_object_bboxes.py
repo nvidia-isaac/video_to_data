@@ -1,5 +1,5 @@
-import subprocess
 import os
+from v2d.docker.container import run_in_container
 
 IMAGE_NAME = "v2d_grounding_dino"
 
@@ -17,45 +17,16 @@ def run_video_to_object_bboxes(
     debug_output: str = None,
     dev: bool = False,
 ) -> None:
-    video_path = os.path.abspath(video_path)
-    output_path = os.path.abspath(output_path)
-    model_dir = os.path.abspath(model_dir)
-
-    video_dir = os.path.dirname(video_path)
-    video_name = os.path.basename(video_path)
-    output_dir = os.path.dirname(output_path)
-    output_name = os.path.basename(output_path)
-
-    os.makedirs(output_dir, exist_ok=True)
-
-    cmd = [
-        "docker", "run", "--rm",
-        "--gpus", "all",
-        "--user", f"{os.getuid()}:{os.getgid()}",
-        "-e", "HOME=/tmp",
-        "-v", f"{video_dir}:/data/video",
-        "-v", f"{output_dir}:/data/output",
-        "-v", f"{model_dir}:/data/models",
-    ]
-    if debug_output:
-        debug_output = os.path.abspath(debug_output)
-        os.makedirs(debug_output, exist_ok=True)
-        cmd += ["-v", f"{debug_output}:/data/debug"]
-    if dev:
-        cmd += ["-v", f"{_MODULES_DIR}:/workspace"]
-    cmd += [
-        IMAGE_NAME,
-        "python", "-m", "v2d.grounding_dino.lib.video_to_object_bboxes",
-        "--video_path", f"/data/video/{video_name}",
-        "--output_path", f"/data/output/{output_name}",
-        "--prompt", prompt,
-        "--model_dir", "/data/models",
-        "--box_threshold", str(box_threshold),
-        "--text_threshold", str(text_threshold),
-    ]
-    if debug_output:
-        cmd += ["--debug_output", "/data/debug"]
-    subprocess.run(cmd, check=True)
+    run_in_container(
+        image=IMAGE_NAME,
+        module="v2d.grounding_dino.lib.video_to_object_bboxes",
+        inputs={"video_path": video_path, "model_dir": model_dir},
+        outputs={"output_path": output_path, "debug_output": debug_output},
+        extra_args={"prompt": prompt, "box_threshold": box_threshold, "text_threshold": text_threshold},
+        dev=dev,
+        modules_dir=_MODULES_DIR,
+        gpus=True,
+    )
 
 
 if __name__ == "__main__":

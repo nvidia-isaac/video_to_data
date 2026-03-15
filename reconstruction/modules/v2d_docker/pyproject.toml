@@ -3,14 +3,14 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "v2d-sam2-docker"
+name = "v2d-docker"
 version = "0.1.0"
-description = "Docker orchestration scripts for SAM2"
+description = "Shared Docker container orchestration utilities for v2d modules"
 requires-python = ">=3.10"
-dependencies = ["v2d-docker"]
+dependencies = []
 
 [tool.setuptools]
-packages = ["v2d.sam2.docker"]
+packages = ["v2d.docker"]
 
 [tool.setuptools.package-dir]
-"v2d.sam2.docker" = "."
+"v2d.docker" = "."

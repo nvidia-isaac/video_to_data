@@ -1,5 +1,5 @@
-import subprocess
 import os
+from v2d.docker.container import run_in_container
 
 IMAGE_NAME = "v2d_foundation_pose"
 
@@ -13,34 +13,14 @@ def run_transform_mesh(
     transform_path: str,
     dev: bool = False,
 ) -> None:
-    input_mesh = os.path.abspath(input_mesh)
-    output_mesh = os.path.abspath(output_mesh)
-    transform_path = os.path.abspath(transform_path)
-
-    input_dir, input_name = os.path.dirname(input_mesh), os.path.basename(input_mesh)
-    output_dir, output_name = os.path.dirname(output_mesh), os.path.basename(output_mesh)
-    transform_dir, transform_name = os.path.dirname(transform_path), os.path.basename(transform_path)
-
-    os.makedirs(output_dir, exist_ok=True)
-
-    cmd = [
-        "docker", "run", "--rm",
-        "--user", f"{os.getuid()}:{os.getgid()}",
-        "-e", "HOME=/tmp",
-        "-v", f"{input_dir}:/data/input",
-        "-v", f"{output_dir}:/data/output",
-        "-v", f"{transform_dir}:/data/transform",
-    ]
-    if dev:
-        cmd += ["-v", f"{_MODULES_DIR}:/workspace"]
-    cmd += [
-        IMAGE_NAME,
-        "python", "-m", "v2d.foundation_pose.lib.transform_mesh",
-        "--input-mesh", f"/data/input/{input_name}",
-        "--output-mesh", f"/data/output/{output_name}",
-        "--transform", f"/data/transform/{transform_name}",
-    ]
-    subprocess.run(cmd, check=True)
+    run_in_container(
+        image=IMAGE_NAME,
+        module="v2d.foundation_pose.lib.transform_mesh",
+        inputs={"input_mesh": input_mesh, "transform": transform_path},
+        outputs={"output_mesh": output_mesh},
+        dev=dev,
+        modules_dir=_MODULES_DIR,
+    )
 
 
 if __name__ == "__main__":

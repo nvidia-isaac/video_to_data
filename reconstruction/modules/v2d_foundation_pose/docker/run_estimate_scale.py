@@ -1,5 +1,5 @@
-import subprocess
 import os
+from v2d.docker.container import run_in_container
 
 IMAGE_NAME = "v2d_foundation_pose"
 
@@ -22,63 +22,19 @@ def run_estimate_scale(
     level_size: float = 2.0,
     dev: bool = False,
 ) -> None:
-    mesh_path = os.path.abspath(mesh_path)
-    rgb_path = os.path.abspath(rgb_path)
-    depth_path = os.path.abspath(depth_path)
-    mask_path = os.path.abspath(mask_path)
-    intrinsics_path = os.path.abspath(intrinsics_path)
-    transform_path = os.path.abspath(transform_path)
-    output_transform_path = os.path.abspath(output_transform_path)
-    weights_dir = os.path.abspath(weights_dir)
-
-    mesh_dir, mesh_name = os.path.dirname(mesh_path), os.path.basename(mesh_path)
-    rgb_dir, rgb_name = os.path.dirname(rgb_path), os.path.basename(rgb_path)
-    depth_dir, depth_name = os.path.dirname(depth_path), os.path.basename(depth_path)
-    mask_dir, mask_name = os.path.dirname(mask_path), os.path.basename(mask_path)
-    intrinsics_dir, intrinsics_name = os.path.dirname(intrinsics_path), os.path.basename(intrinsics_path)
-    transform_dir, transform_name = os.path.dirname(transform_path), os.path.basename(transform_path)
-    output_dir, output_name = os.path.dirname(output_transform_path), os.path.basename(output_transform_path)
-
-    os.makedirs(output_dir, exist_ok=True)
-
-    cmd = [
-        "docker", "run", "--rm",
-        "--gpus", "all",
-        "--user", f"{os.getuid()}:{os.getgid()}",
-        "-e", "HOME=/tmp",
-        "-e", "FOUNDATIONPOSE_WEIGHTS_DIR=/data/weights",
-        "-v", f"{mesh_dir}:/data/mesh",
-        "-v", f"{rgb_dir}:/data/rgb",
-        "-v", f"{depth_dir}:/data/depth",
-        "-v", f"{mask_dir}:/data/mask",
-        "-v", f"{intrinsics_dir}:/data/intrinsics",
-        "-v", f"{transform_dir}:/data/transform",
-        "-v", f"{output_dir}:/data/output",
-        "-v", f"{weights_dir}:/data/weights",
-    ]
-    if debug_dir:
-        debug_dir = os.path.abspath(debug_dir)
-        os.makedirs(debug_dir, exist_ok=True)
-        cmd += ["-v", f"{debug_dir}:/data/debug"]
-    if dev:
-        cmd += ["-v", f"{_MODULES_DIR}:/workspace"]
-    cmd += [
-        IMAGE_NAME,
-        "python", "-m", "v2d.foundation_pose.lib.estimate_scale",
-        "--mesh", f"/data/mesh/{mesh_name}",
-        "--rgb", f"/data/rgb/{rgb_name}",
-        "--depth", f"/data/depth/{depth_name}",
-        "--mask", f"/data/mask/{mask_name}",
-        "--intrinsics", f"/data/intrinsics/{intrinsics_name}",
-        "--transform", f"/data/transform/{transform_name}",
-        "--output-transform", f"/data/output/{output_name}",
-        "--num-levels", str(num_levels),
-        "--num-samples-per-level", str(num_samples_per_level),
-        "--level-size", str(level_size),
-    ]
-    if debug_dir:
-        cmd += ["--debug-dir", "/data/debug"]
-    subprocess.run(cmd, check=True)
+    weights_abs = os.path.abspath(weights_dir)
+    weights_container = f"/data/weights_dir/{os.path.basename(weights_abs)}"
+    run_in_container(
+        image=IMAGE_NAME,
+        module="v2d.foundation_pose.lib.estimate_scale",
+        inputs={"mesh": mesh_path, "rgb": rgb_path, "depth": depth_path, "mask": mask_path, "intrinsics": intrinsics_path, "transform": transform_path, "weights_dir": weights_dir},
+        outputs={"output_transform": output_transform_path, "debug_dir": debug_dir},
+        extra_args={"num_levels": num_levels, "num_samples_per_level": num_samples_per_level, "level_size": level_size},
+        dev=dev,
+        modules_dir=_MODULES_DIR,
+        gpus=True,
+        env={"FOUNDATIONPOSE_WEIGHTS_DIR": weights_container},
+    )
 
 
 if __name__ == "__main__":

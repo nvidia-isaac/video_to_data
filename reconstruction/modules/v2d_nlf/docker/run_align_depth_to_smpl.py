@@ -1,5 +1,5 @@
-import subprocess
 import os
+from v2d.docker.container import run_in_container
 
 IMAGE_NAME = "v2d_nlf"
 
@@ -15,40 +15,15 @@ def run_align_depth_to_smpl(
     smpl_masks_folder: str = None,
     dev: bool = False,
 ) -> None:
-    depth_folder = os.path.abspath(depth_folder)
-    smpl_depth_folder = os.path.abspath(smpl_depth_folder)
-    output_depth_folder = os.path.abspath(output_depth_folder)
-    masks_folder = os.path.abspath(masks_folder)
-
-    os.makedirs(output_depth_folder, exist_ok=True)
-
-    cmd = [
-        "docker", "run", "--rm",
-        "--gpus", "all",
-        "--user", f"{os.getuid()}:{os.getgid()}",
-        "-e", "HOME=/tmp",
-        "-v", f"{depth_folder}:/data/depth",
-        "-v", f"{smpl_depth_folder}:/data/smpl_depth",
-        "-v", f"{output_depth_folder}:/data/output",
-        "-v", f"{masks_folder}:/data/masks",
-    ]
-    if smpl_masks_folder:
-        smpl_masks_folder = os.path.abspath(smpl_masks_folder)
-        cmd += ["-v", f"{smpl_masks_folder}:/data/smpl_masks"]
-    if dev:
-        cmd += ["-v", f"{_MODULES_DIR}:/workspace"]
-
-    module_cmd = [
-        IMAGE_NAME,
-        "python", "-m", "v2d.nlf.lib.align_depth_to_smpl",
-        "--depth_folder", "/data/depth",
-        "--smpl_depth_folder", "/data/smpl_depth",
-        "--output_depth_folder", "/data/output",
-        "--masks_folder", "/data/masks",
-    ]
-    if smpl_masks_folder:
-        module_cmd += ["--smpl_masks_folder", "/data/smpl_masks"]
-    subprocess.run(cmd + module_cmd, check=True)
+    run_in_container(
+        image=IMAGE_NAME,
+        module="v2d.nlf.lib.align_depth_to_smpl",
+        inputs={"depth_folder": depth_folder, "smpl_depth_folder": smpl_depth_folder, "masks_folder": masks_folder, "smpl_masks_folder": smpl_masks_folder},
+        outputs={"output_depth_folder": output_depth_folder},
+        dev=dev,
+        modules_dir=_MODULES_DIR,
+        gpus=True,
+    )
 
 
 if __name__ == "__main__":

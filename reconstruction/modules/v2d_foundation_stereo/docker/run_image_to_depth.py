@@ -1,5 +1,5 @@
-import subprocess
 import os
+from v2d.docker.container import run_in_container
 
 IMAGE_NAME = "v2d_foundation_stereo"
 
@@ -18,65 +18,16 @@ def run_image_to_depth(
     baseline: float = None,
     dev: bool = False,
 ) -> None:
-    left_image_path = os.path.abspath(left_image_path)
-    right_image_path = os.path.abspath(right_image_path)
-    depth_path = os.path.abspath(depth_path)
-    intrinsics_path = os.path.abspath(intrinsics_path)
-    model_dir = os.path.abspath(model_dir)
-
-    left_dir = os.path.dirname(left_image_path)
-    left_name = os.path.basename(left_image_path)
-    right_dir = os.path.dirname(right_image_path)
-    right_name = os.path.basename(right_image_path)
-    depth_dir = os.path.dirname(depth_path)
-    depth_name = os.path.basename(depth_path)
-    intrinsics_dir = os.path.dirname(intrinsics_path)
-    intrinsics_name = os.path.basename(intrinsics_path)
-
-    os.makedirs(depth_dir, exist_ok=True)
-    os.makedirs(intrinsics_dir, exist_ok=True)
-
-    cmd = [
-        "docker", "run", "--rm",
-        "--gpus", "all",
-        "--user", f"{os.getuid()}:{os.getgid()}",
-        "-e", "HOME=/tmp",
-        "-v", f"{left_dir}:/data/left",
-        "-v", f"{right_dir}:/data/right",
-        "-v", f"{depth_dir}:/data/depth_out",
-        "-v", f"{intrinsics_dir}:/data/intrinsics_out",
-        "-v", f"{model_dir}:/data/models",
-    ]
-
-    if calibration_file:
-        calibration_file = os.path.abspath(calibration_file)
-        cal_dir = os.path.dirname(calibration_file)
-        cal_name = os.path.basename(calibration_file)
-        cmd += ["-v", f"{cal_dir}:/data/calibration"]
-
-    if dev:
-        cmd += ["-v", f"{_MODULES_DIR}:/workspace"]
-
-    module_cmd = [
-        IMAGE_NAME,
-        "python", "-m", "v2d.foundation_stereo.lib.image_to_depth",
-        "--left_image_path", f"/data/left/{left_name}",
-        "--right_image_path", f"/data/right/{right_name}",
-        "--depth_path", f"/data/depth_out/{depth_name}",
-        "--intrinsics_path", f"/data/intrinsics_out/{intrinsics_name}",
-        "--model_dir", "/data/models",
-    ]
-
-    if calibration_file:
-        module_cmd += ["--calibration_file", f"/data/calibration/{cal_name}"]
-    elif fx is not None:
-        module_cmd += [
-            "--fx", str(fx), "--fy", str(fy),
-            "--cx", str(cx), "--cy", str(cy),
-            "--baseline", str(baseline),
-        ]
-
-    subprocess.run(cmd + module_cmd, check=True)
+    run_in_container(
+        image=IMAGE_NAME,
+        module="v2d.foundation_stereo.lib.image_to_depth",
+        inputs={"left_image_path": left_image_path, "right_image_path": right_image_path, "model_dir": model_dir, "calibration_file": calibration_file},
+        outputs={"depth_path": depth_path, "intrinsics_path": intrinsics_path},
+        extra_args={"fx": fx, "fy": fy, "cx": cx, "cy": cy, "baseline": baseline},
+        dev=dev,
+        modules_dir=_MODULES_DIR,
+        gpus=True,
+    )
 
 
 if __name__ == "__main__":

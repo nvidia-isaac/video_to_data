@@ -1,5 +1,5 @@
-import subprocess
 import os
+from v2d.docker.container import run_in_container
 
 IMAGE_NAME = "v2d_sam3d"
 
@@ -22,71 +22,27 @@ def run_image_to_mesh(
     stage1_inference_steps: int = None,
     dev: bool = False,
 ) -> None:
-    image_path = os.path.abspath(image_path)
-    mask_path = os.path.abspath(mask_path)
-    mesh_path = os.path.abspath(mesh_path)
-    transform_path = os.path.abspath(transform_path)
-    intrinsics_path = os.path.abspath(intrinsics_path)
-    weights_dir = os.path.abspath(weights_dir)
-
-    image_dir = os.path.dirname(image_path)
-    image_name = os.path.basename(image_path)
-    mask_dir = os.path.dirname(mask_path)
-    mask_name = os.path.basename(mask_path)
-    mesh_dir = os.path.dirname(mesh_path)
-    mesh_name = os.path.basename(mesh_path)
-    transform_dir = os.path.dirname(transform_path)
-    transform_name = os.path.basename(transform_path)
-    intrinsics_dir = os.path.dirname(intrinsics_path)
-    intrinsics_name = os.path.basename(intrinsics_path)
-
-    os.makedirs(mesh_dir, exist_ok=True)
-    os.makedirs(transform_dir, exist_ok=True)
-    os.makedirs(intrinsics_dir, exist_ok=True)
-
-    cmd = [
-        "docker", "run", "--rm",
-        "--gpus", "all",
-        "--user", f"{os.getuid()}:{os.getgid()}",
-        "-e", "HOME=/tmp",
-        "-e", "TORCH_HOME=/data/weights/torch_home",
-        "-e", "HF_HOME=/data/weights/hf_home",
-        "-v", f"{image_dir}:/data/image",
-        "-v", f"{mask_dir}:/data/mask",
-        "-v", f"{mesh_dir}:/data/mesh_out",
-        "-v", f"{transform_dir}:/data/transform_out",
-        "-v", f"{intrinsics_dir}:/data/intrinsics_out",
-        "-v", f"{weights_dir}:/data/weights",
-    ]
-    if dev:
-        cmd += ["-v", f"{_MODULES_DIR}:/workspace"]
-
-    module_cmd = [
-        IMAGE_NAME,
-        "python", "-m", "v2d.sam3d.lib.image_to_mesh",
-        "--image_path", f"/data/image/{image_name}",
-        "--mask_path", f"/data/mask/{mask_name}",
-        "--mesh_path", f"/data/mesh_out/{mesh_name}",
-        "--transform_path", f"/data/transform_out/{transform_name}",
-        "--intrinsics_path", f"/data/intrinsics_out/{intrinsics_name}",
-        "--weights_dir", "/data/weights",
-    ]
-    if seed is not None:
-        module_cmd += ["--seed", str(seed)]
-    if stage1_only:
-        module_cmd += ["--stage1_only"]
-    if with_mesh_postprocess:
-        module_cmd += ["--with_mesh_postprocess"]
-    if with_texture_baking:
-        module_cmd += ["--with_texture_baking"]
-    if with_layout_postprocess:
-        module_cmd += ["--with_layout_postprocess"]
-    if use_vertex_color:
-        module_cmd += ["--use_vertex_color"]
-    if stage1_inference_steps is not None:
-        module_cmd += ["--stage1_inference_steps", str(stage1_inference_steps)]
-
-    subprocess.run(cmd + module_cmd, check=True)
+    weights_abs = os.path.abspath(weights_dir)
+    weights_container = f"/data/weights_dir/{os.path.basename(weights_abs)}"
+    run_in_container(
+        image=IMAGE_NAME,
+        module="v2d.sam3d.lib.image_to_mesh",
+        inputs={"image_path": image_path, "mask_path": mask_path, "weights_dir": weights_dir},
+        outputs={"mesh_path": mesh_path, "transform_path": transform_path, "intrinsics_path": intrinsics_path},
+        extra_args={
+            "seed": seed,
+            "stage1_only": stage1_only,
+            "with_mesh_postprocess": with_mesh_postprocess,
+            "with_texture_baking": with_texture_baking,
+            "with_layout_postprocess": with_layout_postprocess,
+            "use_vertex_color": use_vertex_color,
+            "stage1_inference_steps": stage1_inference_steps,
+        },
+        dev=dev,
+        modules_dir=_MODULES_DIR,
+        gpus=True,
+        env={"TORCH_HOME": f"{weights_container}/torch_home", "HF_HOME": f"{weights_container}/hf_home"},
+    )
 
 
 if __name__ == "__main__":

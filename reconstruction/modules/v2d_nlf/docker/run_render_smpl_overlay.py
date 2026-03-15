@@ -1,5 +1,5 @@
-import subprocess
 import os
+from v2d.docker.container import run_in_container
 
 IMAGE_NAME = "v2d_nlf"
 
@@ -15,41 +15,15 @@ def run_render_smpl_overlay(
     weights_dir: str,
     dev: bool = False,
 ) -> None:
-    video_path = os.path.abspath(video_path)
-    smpl_params_path = os.path.abspath(smpl_params_path)
-    intrinsics_path = os.path.abspath(intrinsics_path)
-    output_dir = os.path.abspath(output_dir)
-    weights_dir = os.path.abspath(weights_dir)
-
-    video_dir, video_name = os.path.dirname(video_path), os.path.basename(video_path)
-    smpl_dir, smpl_name = os.path.dirname(smpl_params_path), os.path.basename(smpl_params_path)
-    intrinsics_dir, intrinsics_name = os.path.dirname(intrinsics_path), os.path.basename(intrinsics_path)
-
-    os.makedirs(output_dir, exist_ok=True)
-
-    cmd = [
-        "docker", "run", "--rm",
-        "--gpus", "all",
-        "--user", f"{os.getuid()}:{os.getgid()}",
-        "-e", "HOME=/tmp",
-        "-v", f"{video_dir}:/data/video",
-        "-v", f"{smpl_dir}:/data/smpl",
-        "-v", f"{intrinsics_dir}:/data/intrinsics",
-        "-v", f"{output_dir}:/data/output",
-        "-v", f"{weights_dir}:/data/weights",
-    ]
-    if dev:
-        cmd += ["-v", f"{_MODULES_DIR}:/workspace"]
-    cmd += [
-        IMAGE_NAME,
-        "python", "-m", "v2d.nlf.lib.render_smpl_overlay",
-        "--video_path", f"/data/video/{video_name}",
-        "--smpl_params_path", f"/data/smpl/{smpl_name}",
-        "--intrinsics_path", f"/data/intrinsics/{intrinsics_name}",
-        "--output_dir", "/data/output",
-        "--weights_dir", "/data/weights",
-    ]
-    subprocess.run(cmd, check=True)
+    run_in_container(
+        image=IMAGE_NAME,
+        module="v2d.nlf.lib.render_smpl_overlay",
+        inputs={"video_path": video_path, "smpl_params_path": smpl_params_path, "intrinsics_path": intrinsics_path, "weights_dir": weights_dir},
+        outputs={"output_dir": output_dir},
+        dev=dev,
+        modules_dir=_MODULES_DIR,
+        gpus=True,
+    )
 
 
 if __name__ == "__main__":
