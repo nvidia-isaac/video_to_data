@@ -16,6 +16,128 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  test_mesh:
+    name: Test v2d_mesh Unit Tests
+    runs-on: [self-hosted, gpu]
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build Docker image
+        working-directory: reconstruction/modules
+        run: |
+          echo "::group::Build v2d_mesh"
+          python v2d_mesh/docker/build.py
+          echo "::endgroup::"
+
+      - name: Install pipeline packages
+        working-directory: reconstruction/modules
+        run: |
+          pip install --upgrade pip
+          pip install -e v2d_mesh/docker
+
+      - name: Run unit tests
+        working-directory: reconstruction
+        run: |
+          python -m v2d.mesh.docker.run_tests
+
+      - name: Cleanup Docker image
+        if: always()
+        run: docker rmi v2d_mesh 2>/dev/null || true
+
+  test_mesh_docker:
+    name: Test v2d_mesh Docker Wrappers
+    runs-on: [self-hosted, gpu]
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build Docker image
+        working-directory: reconstruction/modules
+        run: |
+          echo "::group::Build v2d_mesh"
+          python v2d_mesh/docker/build.py
+          echo "::endgroup::"
+
+      - name: Install pipeline packages
+        working-directory: reconstruction/modules
+        run: |
+          pip install --upgrade pip
+          pip install -e v2d_mesh/docker
+
+      - name: Transform mesh
+        working-directory: reconstruction
+        run: |
+          python -m v2d.mesh.docker.run_mesh_transform \
+            --input_mesh  modules/v2d_mesh/assets/mesh.glb \
+            --transform   modules/v2d_mesh/assets/transform.json \
+            --output_mesh data/outputs/v2d_mesh/mesh_transformed.glb
+
+      - name: Simplify mesh
+        working-directory: reconstruction
+        run: |
+          python -m v2d.mesh.docker.run_mesh_simplify \
+            --input_mesh  data/outputs/v2d_mesh/mesh_transformed.glb \
+            --output_mesh data/outputs/v2d_mesh/mesh_simplified.glb \
+            --factor 0.1
+
+      - name: Get bounding box
+        working-directory: reconstruction
+        run: |
+          python -m v2d.mesh.docker.run_mesh_get_bounding_box \
+            --mesh   data/outputs/v2d_mesh/mesh_transformed.glb \
+            --output data/outputs/v2d_mesh/bounding_box.json
+
+      - name: Render depth
+        working-directory: reconstruction
+        run: |
+          python -m v2d.mesh.docker.run_mesh_render_depth \
+            --mesh          data/outputs/v2d_mesh/mesh_transformed.glb \
+            --intrinsics    modules/v2d_mesh/assets/intrinsics.json \
+            --output_depth  data/outputs/v2d_mesh/depth.png
+
+      - name: Render mask
+        working-directory: reconstruction
+        run: |
+          python -m v2d.mesh.docker.run_mesh_render_mask \
+            --mesh         data/outputs/v2d_mesh/mesh_transformed.glb \
+            --intrinsics   modules/v2d_mesh/assets/intrinsics.json \
+            --output_mask  data/outputs/v2d_mesh/mask.png
+
+      - name: Render image
+        working-directory: reconstruction
+        run: |
+          python -m v2d.mesh.docker.run_mesh_render_image \
+            --mesh          data/outputs/v2d_mesh/mesh_transformed.glb \
+            --intrinsics    modules/v2d_mesh/assets/intrinsics.json \
+            --output_image  data/outputs/v2d_mesh/image.png
+
+      - name: Upload mesh docker outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2d-mesh-docker-outputs-${{ github.run_id }}
+          path: reconstruction/data/outputs/v2d_mesh/
+          retention-days: 7
+
+      - name: Cleanup Docker image
+        if: always()
+        run: docker rmi v2d_mesh 2>/dev/null || true
+
   test_moge:
     name: Test MoGe Video to Depth
     runs-on: [self-hosted, gpu]
