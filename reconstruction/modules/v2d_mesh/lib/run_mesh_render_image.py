@@ -13,7 +13,7 @@ def run_mesh_render_image(mesh_path: str, intrinsics_path: str, output_image_pat
         intrinsics = CameraIntrinsics.from_dict(json.load(f))
     image = mesh_render_image(mesh, intrinsics)
     os.makedirs(os.path.dirname(os.path.abspath(output_image_path)), exist_ok=True)
-    image.to_pil_image().save(output_image_path)
+    image.save(output_image_path)
 
 
 if __name__ == "__main__":

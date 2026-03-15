@@ -14,6 +14,7 @@ from PIL import Image
 import json
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
+from scipy.spatial.transform import Rotation
 
 _pipeline = None
 
@@ -87,6 +88,38 @@ def _get_pipeline(weights_dir: str):
             raise
     return _pipeline
 
+def _to_opencv_transform(rotation_wxyz: list, translation: list, scale: list) -> Transform3d:
+    """
+    Convert SAM3D's raw rotation/translation to an OpenCV-convention Transform3d.
+
+    SAM3D internally applies two coordinate changes before projecting:
+      1. flip_matrix F: Y-up canonical → Z-forward  (F^T = [[1,0,0],[0,0,-1],[0,1,0]])
+      2. Nxy = diag(-1,-1,1): negate X and Y for the final projection
+
+    The net object-to-OpenCV-camera rotation is:
+        R_net = Nxy @ R_q^T @ F^T
+    and the net translation is:
+        t_net = Nxy @ t
+    """
+    w, x, y, z = rotation_wxyz
+    R_q = Rotation.from_quat([x, y, z, w]).as_matrix()  # scipy uses [x,y,z,w]
+
+    F_T = np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]], dtype=float)
+    Nxy = np.diag([-1.0, -1.0, 1.0])
+
+    R_net = Nxy @ R_q.T @ F_T
+    t_net = Nxy @ np.array(translation, dtype=float)
+
+    q_xyzw = Rotation.from_matrix(R_net).as_quat()  # [x,y,z,w]
+    q_wxyz = [q_xyzw[3], q_xyzw[0], q_xyzw[1], q_xyzw[2]]
+
+    return Transform3d(
+        rotation=q_wxyz,
+        translation=t_net.tolist(),
+        scale=scale,
+    )
+
+
 def _merge_mask_to_rgba(image: np.ndarray, mask: np.ndarray) -> np.ndarray:
     """Merge mask into image alpha channel"""
     mask = mask.astype(np.uint8) * 255
@@ -127,10 +160,10 @@ def image_to_mesh(image_path: str, mask_path: str, mesh_path: str, transform_pat
 
     mesh_scene = output['glb']
 
-    transform = Transform3d(
-        rotation=output['rotation'][0].tolist(),
+    transform = _to_opencv_transform(
+        rotation_wxyz=output['rotation'][0].tolist(),
         translation=output['translation'][0].tolist(),
-        scale=output['scale'][0].tolist()
+        scale=output['scale'][0].tolist(),
     )
 
     intrinsics = CameraIntrinsics(

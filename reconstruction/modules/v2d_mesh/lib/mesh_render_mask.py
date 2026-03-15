@@ -18,4 +18,4 @@ def mesh_render_mask(mesh: Mesh, intrinsics: CameraIntrinsics) -> Mask:
     Mask pixels are 1.0 where the mesh is visible, 0.0 for background.
     """
     depth_img = mesh_render_depth(mesh, intrinsics)
-    return Mask(mask=(depth_img.depth > 0).astype(np.float32))
+    return Mask(mask=(depth_img.depth > 0))

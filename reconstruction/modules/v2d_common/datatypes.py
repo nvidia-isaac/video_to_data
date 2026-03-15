@@ -29,6 +29,9 @@ class DepthImage:
     def height(self) -> int:
         return self.depth.shape[0]
 
+    def save(self, path: str) -> None:
+        self.to_pil_image().save(path)
+
     @staticmethod
     def load(path: str) -> 'DepthImage':
         return DepthImage.from_pil_image(PILImage.open(path))
@@ -145,7 +148,7 @@ class Mask:
     mask: np.ndarray
 
     def to_pil_image(self) -> PILImage.Image:
-        return PILImage.fromarray(self.mask * 255, mode="L")
+        return PILImage.fromarray((self.mask * 255).astype(np.uint8), mode="L")
 
     @staticmethod
     def from_pil_image(pil_image: PILImage.Image) -> 'Mask':
@@ -156,6 +159,9 @@ class Mask:
 
     def height(self) -> int:
         return self.mask.shape[0]
+
+    def save(self, path: str) -> None:
+        self.to_pil_image().save(path)
 
     @staticmethod
     def load(path: str) -> 'Mask':
@@ -173,6 +179,13 @@ class Image:
     @staticmethod
     def from_pil_image(img: PILImage.Image) -> 'Image':
         return Image(data=np.array(img.convert('RGB'), dtype=np.uint8))
+
+    def save(self, path: str) -> None:
+        self.to_pil_image().save(path)
+
+    @staticmethod
+    def load(path: str) -> 'Image':
+        return Image.from_pil_image(PILImage.open(path))
 
     @property
     def width(self) -> int:

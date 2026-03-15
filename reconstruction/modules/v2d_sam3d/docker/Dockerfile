@@ -18,18 +18,18 @@ RUN pip install kaolin==0.18.0 -f https://nvidia-kaolin.s3.us-east-2.amazonaws.c
 RUN pip3 install "git+https://github.com/facebookresearch/pytorch3d.git"
 RUN pip3 install git+https://github.com/microsoft/MoGe.git@a8c37341bc0325ca99b9d57981cc3bb2bd3e255b#egg=moge
 
-RUN git clone https://github.com/facebookresearch/sam-3d-objects.git /workspace/third_party/sam-3d-objects && \
-    cd /workspace/third_party/sam-3d-objects && \
-    pip3 install -e . --no-deps
+RUN git clone https://github.com/facebookresearch/sam-3d-objects.git /tmp/sam-3d-objects && \
+    pip3 install /tmp/sam-3d-objects --no-deps && \
+    rm -rf /tmp/sam-3d-objects
 
 RUN pip install loguru timm open3d astor easydict
 RUN pip install cumm-cu124 spconv-cu124
 RUN pip install lightning
 RUN pip install xatlas pyvista pymeshfix igraph imageio
-RUN git clone https://github.com/NVlabs/nvdiffrast /workspace/third_party/nvdiffrast && \
-    cd /workspace/third_party/nvdiffrast && \
+RUN git clone https://github.com/NVlabs/nvdiffrast /tmp/nvdiffrast && \
     pip install setuptools wheel ninja && \
-    TORCH_CUDA_ARCH_LIST="8.0 8.6 8.9 9.0" pip install . --no-build-isolation
+    TORCH_CUDA_ARCH_LIST="8.0 8.6 8.9 9.0" pip install /tmp/nvdiffrast --no-build-isolation && \
+    rm -rf /tmp/nvdiffrast
 
 COPY . /workspace
 

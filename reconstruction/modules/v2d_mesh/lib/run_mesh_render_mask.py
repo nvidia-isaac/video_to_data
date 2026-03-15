@@ -13,7 +13,7 @@ def run_mesh_render_mask(mesh_path: str, intrinsics_path: str, output_mask_path:
         intrinsics = CameraIntrinsics.from_dict(json.load(f))
     mask = mesh_render_mask(mesh, intrinsics)
     os.makedirs(os.path.dirname(os.path.abspath(output_mask_path)), exist_ok=True)
-    mask.to_pil_image().save(output_mask_path)
+    mask.save(output_mask_path)
 
 
 if __name__ == "__main__":

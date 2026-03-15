@@ -13,7 +13,7 @@ def run_mesh_render_depth(mesh_path: str, intrinsics_path: str, output_depth_pat
         intrinsics = CameraIntrinsics.from_dict(json.load(f))
     depth_image = mesh_render_depth(mesh, intrinsics)
     os.makedirs(os.path.dirname(os.path.abspath(output_depth_path)), exist_ok=True)
-    depth_image.to_pil_image().save(output_depth_path)
+    depth_image.save(output_depth_path)
 
 
 if __name__ == "__main__":
