@@ -1,10 +1,5 @@
-import os
 from v2d.docker.container import run_in_container
-
-IMAGE_NAME = "v2d_sam3d"
-
-_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-_MODULES_DIR = os.path.abspath(os.path.join(_CURRENT_DIR, "..", ".."))
+from v2d.sam3d.docker._config import IMAGE_NAME, MODULES_DIR
 
 def run_render_debug_image(
     image_path: str,
@@ -22,7 +17,7 @@ def run_render_debug_image(
         outputs={"output_image_path": output_image_path},
         extra_args={"num_vertices_to_use": num_vertices_to_use},
         dev=dev,
-        modules_dir=_MODULES_DIR,
+        modules_dir=MODULES_DIR,
         gpus=True,
     )
 

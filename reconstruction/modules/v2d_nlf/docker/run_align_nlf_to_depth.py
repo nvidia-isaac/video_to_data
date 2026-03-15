@@ -1,10 +1,5 @@
-import os
 from v2d.docker.container import run_in_container
-
-IMAGE_NAME = "v2d_nlf"
-
-_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-_MODULES_DIR = os.path.abspath(os.path.join(_CURRENT_DIR, "..", ".."))
+from v2d.nlf.docker._config import IMAGE_NAME, MODULES_DIR
 
 
 def run_align_nlf_to_depth(
@@ -22,7 +17,7 @@ def run_align_nlf_to_depth(
         inputs={"smpl_results_path": smpl_results_path, "depth_folder": depth_folder, "masks_dir": masks_dir, "intrinsics_path": intrinsics_path, "weights_dir": weights_dir},
         outputs={"output_path": output_path},
         dev=dev,
-        modules_dir=_MODULES_DIR,
+        modules_dir=MODULES_DIR,
         gpus=True,
     )
 

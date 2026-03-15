@@ -1,9 +1,5 @@
-import os
 from v2d.docker.container import run_in_container
-
-IMAGE_NAME = "v2d_mesh"
-_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-_MODULES_DIR = os.path.abspath(os.path.join(_CURRENT_DIR, "..", ".."))
+from v2d.mesh.docker._config import IMAGE_NAME, MODULES_DIR
 
 
 def run_mesh_render_depth(
@@ -18,7 +14,7 @@ def run_mesh_render_depth(
         inputs={"mesh": mesh_path, "intrinsics": intrinsics_path},
         outputs={"output_depth": output_depth_path},
         dev=dev,
-        modules_dir=_MODULES_DIR,
+        modules_dir=MODULES_DIR,
     )
 
 

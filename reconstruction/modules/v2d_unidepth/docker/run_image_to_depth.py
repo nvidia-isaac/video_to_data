@@ -1,10 +1,5 @@
-import os
 from v2d.docker.container import run_in_container
-
-IMAGE_NAME = "v2d_unidepth"
-
-_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-_MODULES_DIR = os.path.abspath(os.path.join(_CURRENT_DIR, "..", ".."))
+from v2d.unidepth.docker._config import IMAGE_NAME, MODULES_DIR
 
 def run_image_to_depth(image_path: str, depth_path: str, intrinsics_path: str, weights_path: str, dev: bool = False) -> None:
     run_in_container(
@@ -13,7 +8,7 @@ def run_image_to_depth(image_path: str, depth_path: str, intrinsics_path: str, w
         inputs={"image_path": image_path, "weights_path": weights_path},
         outputs={"depth_path": depth_path, "intrinsics_path": intrinsics_path},
         dev=dev,
-        modules_dir=_MODULES_DIR,
+        modules_dir=MODULES_DIR,
         gpus=True,
     )
 

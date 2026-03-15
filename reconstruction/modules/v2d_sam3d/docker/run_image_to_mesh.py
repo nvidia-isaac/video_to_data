@@ -1,10 +1,6 @@
 import os
 from v2d.docker.container import run_in_container
-
-IMAGE_NAME = "v2d_sam3d"
-
-_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-_MODULES_DIR = os.path.abspath(os.path.join(_CURRENT_DIR, "..", ".."))
+from v2d.sam3d.docker._config import IMAGE_NAME, MODULES_DIR
 
 def run_image_to_mesh(
     image_path: str,
@@ -39,7 +35,7 @@ def run_image_to_mesh(
             "stage1_inference_steps": stage1_inference_steps,
         },
         dev=dev,
-        modules_dir=_MODULES_DIR,
+        modules_dir=MODULES_DIR,
         gpus=True,
         env={"TORCH_HOME": f"{weights_container}/torch_home", "HF_HOME": f"{weights_container}/hf_home"},
     )

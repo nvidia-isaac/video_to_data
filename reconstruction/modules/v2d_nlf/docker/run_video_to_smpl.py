@@ -1,10 +1,5 @@
-import os
 from v2d.docker.container import run_in_container
-
-IMAGE_NAME = "v2d_nlf"
-
-_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-_MODULES_DIR = os.path.abspath(os.path.join(_CURRENT_DIR, "..", ".."))
+from v2d.nlf.docker._config import IMAGE_NAME, MODULES_DIR
 
 
 def run_video_to_smpl(
@@ -25,7 +20,7 @@ def run_video_to_smpl(
         outputs={"output_path": output_path},
         extra_args={"gender": gender, "model_type": model_type, "chunk_size": chunk_size},
         dev=dev,
-        modules_dir=_MODULES_DIR,
+        modules_dir=MODULES_DIR,
         gpus=True,
     )
 

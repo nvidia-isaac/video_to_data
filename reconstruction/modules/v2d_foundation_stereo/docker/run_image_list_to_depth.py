@@ -1,10 +1,5 @@
-import os
 from v2d.docker.container import run_in_container
-
-IMAGE_NAME = "v2d_foundation_stereo"
-
-_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-_MODULES_DIR = os.path.abspath(os.path.join(_CURRENT_DIR, "..", ".."))
+from v2d.foundation_stereo.docker._config import IMAGE_NAME, MODULES_DIR
 
 
 def run_image_list_to_depth(
@@ -25,7 +20,7 @@ def run_image_list_to_depth(
         outputs={"depth_folder": depth_folder, "intrinsics_folder": intrinsics_folder},
         extra_args={"fx": fx, "fy": fy, "cx": cx, "cy": cy, "baseline": baseline},
         dev=dev,
-        modules_dir=_MODULES_DIR,
+        modules_dir=MODULES_DIR,
         gpus=True,
     )
 

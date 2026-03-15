@@ -1,10 +1,5 @@
-import os
 from v2d.docker.container import run_in_container
-
-IMAGE_NAME = "v2d_foundation_pose"
-
-_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-_MODULES_DIR = os.path.abspath(os.path.join(_CURRENT_DIR, "..", ".."))
+from v2d.foundation_pose.docker._config import IMAGE_NAME, MODULES_DIR
 
 
 def run_render_overlay(
@@ -21,7 +16,7 @@ def run_render_overlay(
         inputs={"video_path": video_path, "poses_dir": poses_dir, "mesh_path": mesh_path, "camera_intrinsics_path": camera_intrinsics_path},
         outputs={"output_dir": output_dir},
         dev=dev,
-        modules_dir=_MODULES_DIR,
+        modules_dir=MODULES_DIR,
         gpus=True,
     )
 

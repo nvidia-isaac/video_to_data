@@ -1,10 +1,5 @@
-import os
 from v2d.docker.container import run_in_container
-
-IMAGE_NAME = "v2d_grounding_dino"
-
-_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-_MODULES_DIR = os.path.abspath(os.path.join(_CURRENT_DIR, "..", ".."))
+from v2d.grounding_dino.docker._config import IMAGE_NAME, MODULES_DIR
 
 
 def run_video_to_object_bboxes(
@@ -24,7 +19,7 @@ def run_video_to_object_bboxes(
         outputs={"output_path": output_path, "debug_output": debug_output},
         extra_args={"prompt": prompt, "box_threshold": box_threshold, "text_threshold": text_threshold},
         dev=dev,
-        modules_dir=_MODULES_DIR,
+        modules_dir=MODULES_DIR,
         gpus=True,
     )
 

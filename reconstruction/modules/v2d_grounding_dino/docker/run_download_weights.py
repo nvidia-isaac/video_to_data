@@ -1,10 +1,6 @@
 import subprocess
 import os
-
-IMAGE_NAME = "v2d_grounding_dino"
-
-_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-_MODULES_DIR = os.path.abspath(os.path.join(_CURRENT_DIR, "..", ".."))
+from v2d.grounding_dino.docker._config import IMAGE_NAME, MODULES_DIR
 
 
 def run_download(output_dir: str, dev: bool = False) -> None:
@@ -18,7 +14,7 @@ def run_download(output_dir: str, dev: bool = False) -> None:
         "-v", f"{output_dir}:/data/models",
     ]
     if dev:
-        cmd += ["-v", f"{_MODULES_DIR}:/workspace"]
+        cmd += ["-v", f"{MODULES_DIR}:/workspace"]
     cmd += [
         IMAGE_NAME,
         "python", "-m", "v2d.grounding_dino.lib.download_weights",

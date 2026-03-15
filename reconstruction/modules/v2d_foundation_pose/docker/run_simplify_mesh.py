@@ -1,10 +1,5 @@
-import os
 from v2d.docker.container import run_in_container
-
-IMAGE_NAME = "v2d_foundation_pose"
-
-_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-_MODULES_DIR = os.path.abspath(os.path.join(_CURRENT_DIR, "..", ".."))
+from v2d.foundation_pose.docker._config import IMAGE_NAME, MODULES_DIR
 
 
 def run_simplify_mesh(
@@ -21,7 +16,7 @@ def run_simplify_mesh(
         outputs={"output_mesh": output_mesh},
         extra_args={"faces": faces, "factor": factor},
         dev=dev,
-        modules_dir=_MODULES_DIR,
+        modules_dir=MODULES_DIR,
     )
 
 

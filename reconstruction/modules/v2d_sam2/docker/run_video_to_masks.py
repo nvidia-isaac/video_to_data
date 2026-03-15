@@ -1,10 +1,5 @@
-import os
 from v2d.docker.container import run_in_container
-
-IMAGE_NAME = "v2d_sam2"
-
-_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-_MODULES_DIR = os.path.abspath(os.path.join(_CURRENT_DIR, "..", ".."))
+from v2d.sam2.docker._config import IMAGE_NAME, MODULES_DIR
 
 def run_video_to_masks(video_path: str, prompts_path: str, masks_dir: str, weights_dir: str, dev: bool = False) -> None:
     run_in_container(
@@ -13,7 +8,7 @@ def run_video_to_masks(video_path: str, prompts_path: str, masks_dir: str, weigh
         inputs={"video_path": video_path, "prompts_path": prompts_path, "weights_dir": weights_dir},
         outputs={"masks_dir": masks_dir},
         dev=dev,
-        modules_dir=_MODULES_DIR,
+        modules_dir=MODULES_DIR,
         gpus=True,
     )
 

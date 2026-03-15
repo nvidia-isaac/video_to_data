@@ -1,10 +1,6 @@
 import subprocess
 import os
-
-IMAGE_NAME = "v2d_sam2"
-
-_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-_MODULES_DIR = os.path.abspath(os.path.join(_CURRENT_DIR, "..", ".."))
+from v2d.sam2.docker._config import IMAGE_NAME, MODULES_DIR
 
 def run_annotate(video_path: str, prompts_path: str, port: int = 8080, dev: bool = False) -> None:
     video_path = os.path.abspath(video_path)
@@ -26,7 +22,7 @@ def run_annotate(video_path: str, prompts_path: str, port: int = 8080, dev: bool
         "-v", f"{prompts_dir}:/data/prompts",
     ]
     if dev:
-        cmd += ["-v", f"{_MODULES_DIR}:/workspace"]
+        cmd += ["-v", f"{MODULES_DIR}:/workspace"]
     cmd += [
         IMAGE_NAME,
         "python", "-m", "v2d.sam2.lib.annotate",

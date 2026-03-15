@@ -1,10 +1,6 @@
 import subprocess
 import os
-
-IMAGE_NAME = "v2d_foundation_stereo"
-
-_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-_MODULES_DIR = os.path.abspath(os.path.join(_CURRENT_DIR, "..", ".."))
+from v2d.foundation_stereo.docker._config import IMAGE_NAME, MODULES_DIR
 
 
 def run_shell(dev: bool = False) -> None:
@@ -15,7 +11,7 @@ def run_shell(dev: bool = False) -> None:
         "-e", "HOME=/tmp",
     ]
     if dev:
-        cmd += ["-v", f"{_MODULES_DIR}:/workspace"]
+        cmd += ["-v", f"{MODULES_DIR}:/workspace"]
     cmd += [IMAGE_NAME, "bash"]
     subprocess.run(cmd, check=True)
 

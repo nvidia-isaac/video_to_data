@@ -1,10 +1,5 @@
-import os
 from v2d.docker.container import run_in_container
-
-IMAGE_NAME = "v2d_moge"
-
-_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-_MODULES_DIR = os.path.abspath(os.path.join(_CURRENT_DIR, "..", ".."))
+from v2d.moge.docker._config import IMAGE_NAME, MODULES_DIR
 
 def run_video_to_depth(video_path: str, depth_folder: str, intrinsics_folder: str, weights_path: str, batch_size: int = 8, dev: bool = False) -> None:
     run_in_container(
@@ -14,7 +9,7 @@ def run_video_to_depth(video_path: str, depth_folder: str, intrinsics_folder: st
         outputs={"depth_folder": depth_folder, "intrinsics_folder": intrinsics_folder},
         extra_args={"batch_size": batch_size},
         dev=dev,
-        modules_dir=_MODULES_DIR,
+        modules_dir=MODULES_DIR,
         gpus=True,
     )
 

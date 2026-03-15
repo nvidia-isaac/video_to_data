@@ -1,10 +1,6 @@
 import subprocess
 import os
-
-IMAGE_NAME = "v2d_mesh"
-
-_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-_MODULES_DIR = os.path.abspath(os.path.join(_CURRENT_DIR, "..", ".."))
+from v2d.mesh.docker._config import IMAGE_NAME, MODULES_DIR
 
 
 def run_tests(dev: bool = False) -> None:
@@ -16,7 +12,7 @@ def run_tests(dev: bool = False) -> None:
         "-e", "PYOPENGL_PLATFORM=egl",
     ]
     if dev:
-        cmd += ["-v", f"{_MODULES_DIR}:/workspace"]
+        cmd += ["-v", f"{MODULES_DIR}:/workspace"]
 
     cmd += [
         IMAGE_NAME,
