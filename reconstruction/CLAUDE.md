@@ -147,7 +147,7 @@ Modules communicate via files, not in-process objects. Outputs are written to fo
 - **Depth**: uint16 PNG (inverse-depth encoded: `pixel = 65535 * (1 / (depth_m + 1))`)
 - **Intrinsics**: JSON files with `{fx, fy, cx, cy, width, height}`
 - **Masks**: grayscale PNG
-- **Poses**: JSON `{"matrix": [[4x4 row-major]]}` per frame
+- **Poses**: `Transform3d` JSON `{rotation, translation, scale}` per frame (object-to-camera)
 - **SMPL**: `.npz` files per frame named `{frame_id:06d}.npz`
 
 That said, modules can add other module's lib as a direct python dependency to use in-memory utilities.

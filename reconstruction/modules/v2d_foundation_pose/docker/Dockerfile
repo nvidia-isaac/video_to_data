@@ -85,4 +85,4 @@ RUN cd /workspace/v2d_foundation_pose/lib/FoundationPose/mycpp \
 RUN cd /workspace/v2d_foundation_pose/lib/FoundationPose/bundlesdf/mycuda && \
     TORCH_CUDA_ARCH_LIST="8.0 8.6 8.9 9.0" pip install -e .
 
-RUN pip install -e /workspace/v2d_common -e /workspace/v2d_foundation_pose/lib
+RUN pip install -e /workspace/v2d_common -e /workspace/v2d_mesh/lib -e /workspace/v2d_foundation_pose/lib

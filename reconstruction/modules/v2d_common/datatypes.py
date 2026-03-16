@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import json
 import numpy as np
+from scipy.spatial.transform import Rotation
 from PIL import Image as PILImage
 
 
@@ -95,6 +96,37 @@ class Transform3d:
             translation=d["translation"],
             scale=d["scale"]
         )
+
+    def scale_only(self) -> 'Transform3d':
+        return Transform3d(rotation=[1.0, 0.0, 0.0, 0.0], translation=[0.0, 0.0, 0.0], scale=self.scale)
+
+    def to_matrix(self) -> np.ndarray:
+        """Build a 4×4 homogeneous matrix (scale → rotate → translate)."""
+        w, x, y, z = self.rotation
+        sx, sy, sz = self.scale
+        tx, ty, tz = self.translation
+        R = np.array([
+            [1 - 2*y*y - 2*z*z,  2*x*y - 2*w*z,      2*x*z + 2*w*y],
+            [2*x*y + 2*w*z,      1 - 2*x*x - 2*z*z,  2*y*z - 2*w*x],
+            [2*x*z - 2*w*y,      2*y*z + 2*w*x,      1 - 2*x*x - 2*y*y],
+        ], dtype=np.float64)
+        M = np.eye(4, dtype=np.float64)
+        M[:3, :3] = R @ np.diag([sx, sy, sz])
+        M[:3, 3] = [tx, ty, tz]
+        return M
+
+    @staticmethod
+    def from_matrix(M: np.ndarray, scale: list[float] = None) -> 'Transform3d':
+        """Build a Transform3d from a 4×4 pose matrix.
+
+        If scale is None the rotation block is assumed to be a pure rotation
+        (no scale baked in) and scale defaults to [1, 1, 1].
+        """
+        if scale is None:
+            scale = [1.0, 1.0, 1.0]
+        q_xyzw = Rotation.from_matrix(M[:3, :3]).as_quat()
+        q_wxyz = [float(q_xyzw[3]), float(q_xyzw[0]), float(q_xyzw[1]), float(q_xyzw[2])]
+        return Transform3d(rotation=q_wxyz, translation=M[:3, 3].tolist(), scale=scale)
 
     def save(self, path: str) -> None:
         with open(path, 'w') as f:
