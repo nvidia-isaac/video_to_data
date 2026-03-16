@@ -49,6 +49,11 @@ def transforms_glob():
     return str(ASSETS / "transforms/*.json")
 
 
+@pytest.fixture
+def background_image():
+    return str(ASSETS / "test_image.jpg")
+
+
 def is_glb(path) -> bool:
     with open(path, "rb") as f:
         return f.read(4) == b"glTF"

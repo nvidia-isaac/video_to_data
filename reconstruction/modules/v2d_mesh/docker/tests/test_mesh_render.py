@@ -57,6 +57,20 @@ def test_render_image_broadcast_transforms(output_dir, mesh, intrinsics, transfo
     assert is_png(str(output_dir / "1.png"))
 
 
+def test_render_image_with_background(output_dir, mesh, intrinsics, transform, background_image):
+    out = str(output_dir / "image_with_background.png")
+    run_mesh_render_image(mesh, intrinsics, out, transform_path=transform, background_path=background_image)
+    assert is_png(out)
+
+
+def test_render_image_background_differs_from_no_background(output_dir, mesh, intrinsics, transform, background_image):
+    plain = str(output_dir / "plain.png")
+    with_bg = str(output_dir / "with_background.png")
+    run_mesh_render_image(mesh, intrinsics, plain, transform_path=transform)
+    run_mesh_render_image(mesh, intrinsics, with_bg, transform_path=transform, background_path=background_image)
+    assert open(plain, "rb").read() != open(with_bg, "rb").read()
+
+
 # ---------------------------------------------------------------------------
 # render_mask
 # ---------------------------------------------------------------------------

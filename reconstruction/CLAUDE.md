@@ -137,6 +137,10 @@ All `run_*.py` files follow the same pattern:
 4. Pass `dev=True` to additionally mount `/workspace` (the `modules/` dir) for live development
 5. `subprocess.run(cmd, check=True)`
 
+### Wrapper Completeness
+
+Every parameter of a `lib/` function must be reachable from both its `lib/run_*.py` wrapper (CLI + programmatic) and its `docker/run_*.py` wrapper (CLI + programmatic). When a lib function gains a new parameter, update both wrappers immediately — the docker wrapper passes it via `extra_args` or `inputs`, and the lib wrapper loads/resolves it and threads it through to the function call. Optional parameters with defaults are exposed as optional args in both wrappers.
+
 ### Data Flow
 
 Modules communicate via files, not in-process objects. Outputs are written to folders:
@@ -145,6 +149,8 @@ Modules communicate via files, not in-process objects. Outputs are written to fo
 - **Masks**: grayscale PNG
 - **Poses**: JSON `{"matrix": [[4x4 row-major]]}` per frame
 - **SMPL**: `.npz` files per frame named `{frame_id:06d}.npz`
+
+That said, modules can add other module's lib as a direct python dependency to use in-memory utilities.
 
 ### Composing Pipelines
 

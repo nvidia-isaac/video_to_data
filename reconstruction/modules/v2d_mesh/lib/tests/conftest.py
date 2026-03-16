@@ -5,12 +5,15 @@ os.environ.setdefault('PYOPENGL_PLATFORM', 'egl')
 import pyglet
 pyglet.options['headless'] = True
 
+import pathlib
 import numpy as np
 import pytest
 import trimesh
 
-from v2d.common.datatypes import CameraIntrinsics, Transform3d
+from v2d.common.datatypes import CameraIntrinsics, Image, Transform3d
 from v2d.mesh.lib.mesh import Mesh
+
+ASSETS_DIR = pathlib.Path(__file__).parent.parent.parent / "assets"
 
 
 @pytest.fixture
@@ -68,3 +71,11 @@ def translation_transform() -> Transform3d:
 def scale_transform() -> Transform3d:
     """Uniform scale of 2×."""
     return Transform3d(rotation=[1.0, 0.0, 0.0, 0.0], translation=[0.0, 0.0, 0.0], scale=[2.0, 2.0, 2.0])
+
+
+@pytest.fixture
+def test_image(camera) -> Image:
+    """Assets test image resized to match the camera dimensions."""
+    from PIL import Image as PILImage
+    pil = PILImage.open(ASSETS_DIR / "test_image.jpg").convert("RGB").resize((camera.width, camera.height))
+    return Image.from_pil_image(pil)

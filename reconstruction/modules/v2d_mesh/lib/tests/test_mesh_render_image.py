@@ -46,3 +46,35 @@ def test_pil_round_trip(colored_box_mesh, camera):
     pil_img = result.to_pil_image()
     back = Image.from_pil_image(pil_img)
     np.testing.assert_array_equal(back.data, result.data)
+
+
+# --- background compositing ---
+
+def test_background_returns_image(colored_box_mesh, camera, test_image):
+    result = mesh_render_image(colored_box_mesh, camera, background=test_image)
+    assert isinstance(result, Image)
+
+
+def test_background_shape_matches_intrinsics(colored_box_mesh, camera, test_image):
+    result = mesh_render_image(colored_box_mesh, camera, background=test_image)
+    assert result.data.shape == (camera.height, camera.width, 3)
+
+
+def test_background_visible_at_corner(colored_box_mesh, camera, test_image):
+    """Corner pixel has no mesh coverage — background should show through exactly."""
+    result = mesh_render_image(colored_box_mesh, camera, background=test_image)
+    np.testing.assert_array_equal(result.data[0, 0], test_image.data[0, 0])
+
+
+def test_background_modified_by_mesh(colored_box_mesh, camera, test_image):
+    """Result should differ from the background where the mesh is rendered."""
+    result = mesh_render_image(colored_box_mesh, camera, background=test_image)
+    assert not np.array_equal(result.data, test_image.data)
+
+
+def test_no_background_corner_is_black(colored_box_mesh, camera, test_image):
+    """Without background, corner pixel stays black; with background it takes the bg value."""
+    no_bg = mesh_render_image(colored_box_mesh, camera)
+    with_bg = mesh_render_image(colored_box_mesh, camera, background=test_image)
+    assert np.all(no_bg.data[0, 0] == 0)
+    np.testing.assert_array_equal(with_bg.data[0, 0], test_image.data[0, 0])
