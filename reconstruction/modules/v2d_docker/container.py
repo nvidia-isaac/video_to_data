@@ -1,5 +1,21 @@
 import os
 import subprocess
+from pathlib import Path
+
+
+def _base_dir(path: str) -> str:
+    """
+    Return the deepest directory component of path that contains no glob characters.
+    For plain paths this equals dirname(path). For paths like /out/*/*.glb it
+    returns /out, so the container mount covers the full glob subtree.
+    """
+    parts = Path(path).parts
+    clean = []
+    for part in parts[:-1]:  # skip the filename/last component
+        if '*' in part or '?' in part:
+            break
+        clean.append(part)
+    return str(Path(*clean)) if clean else str(Path(path).parent)
 
 
 def run_in_container(
@@ -32,13 +48,13 @@ def run_in_container(
     outputs = {k: os.path.abspath(v) for k, v in outputs.items() if v is not None}
 
     for path in outputs.values():
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        os.makedirs(_base_dir(path), exist_ok=True)
 
     # Map each unique host directory to a container mount point.
     # First arg to reference a directory claims the mount name.
     dir_to_mount: dict[str, str] = {}
     for arg_name, path in {**inputs, **outputs}.items():
-        host_dir = os.path.dirname(path)
+        host_dir = _base_dir(path)
         if host_dir not in dir_to_mount:
             dir_to_mount[host_dir] = f"/data/{arg_name}"
 
@@ -62,8 +78,9 @@ def run_in_container(
     cmd += [image, "python", "-m", module]
 
     for arg_name, path in {**inputs, **outputs}.items():
-        host_dir = os.path.dirname(path)
-        container_path = f"{dir_to_mount[host_dir]}/{os.path.basename(path)}"
+        host_dir = _base_dir(path)
+        rel = os.path.relpath(path, host_dir)
+        container_path = f"{dir_to_mount[host_dir]}/{rel}"
         cmd += [f"--{arg_name}", container_path]
 
     if extra_args:

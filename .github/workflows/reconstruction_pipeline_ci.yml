@@ -77,54 +77,13 @@ jobs:
         working-directory: reconstruction/modules
         run: |
           pip install --upgrade pip
-          pip install -e v2d_mesh/docker
+          pip install pytest -e v2d_mesh/docker
 
-      - name: Transform mesh
+      - name: Run mesh docker tests
         working-directory: reconstruction
         run: |
-          python -m v2d.mesh.docker.run_mesh_transform \
-            --input_mesh  modules/v2d_mesh/assets/mesh.glb \
-            --transform   modules/v2d_mesh/assets/transform.json \
-            --output_mesh data/outputs/v2d_mesh/mesh_transformed.glb
-
-      - name: Simplify mesh
-        working-directory: reconstruction
-        run: |
-          python -m v2d.mesh.docker.run_mesh_simplify \
-            --input_mesh  data/outputs/v2d_mesh/mesh_transformed.glb \
-            --output_mesh data/outputs/v2d_mesh/mesh_simplified.glb \
-            --factor 0.1
-
-      - name: Get bounding box
-        working-directory: reconstruction
-        run: |
-          python -m v2d.mesh.docker.run_mesh_get_bounding_box \
-            --mesh   data/outputs/v2d_mesh/mesh_transformed.glb \
-            --output data/outputs/v2d_mesh/bounding_box.json
-
-      - name: Render depth
-        working-directory: reconstruction
-        run: |
-          python -m v2d.mesh.docker.run_mesh_render_depth \
-            --mesh          data/outputs/v2d_mesh/mesh_transformed.glb \
-            --intrinsics    modules/v2d_mesh/assets/intrinsics.json \
-            --output_depth  data/outputs/v2d_mesh/depth.png
-
-      - name: Render mask
-        working-directory: reconstruction
-        run: |
-          python -m v2d.mesh.docker.run_mesh_render_mask \
-            --mesh         data/outputs/v2d_mesh/mesh_transformed.glb \
-            --intrinsics   modules/v2d_mesh/assets/intrinsics.json \
-            --output_mask  data/outputs/v2d_mesh/mask.png
-
-      - name: Render image
-        working-directory: reconstruction
-        run: |
-          python -m v2d.mesh.docker.run_mesh_render_image \
-            --mesh          data/outputs/v2d_mesh/mesh_transformed.glb \
-            --intrinsics    modules/v2d_mesh/assets/intrinsics.json \
-            --output_image  data/outputs/v2d_mesh/image.png
+          pytest modules/v2d_mesh/docker/tests/ -v \
+            --output-dir data/outputs/v2d_mesh/
 
       - name: Upload mesh docker outputs
         if: always()

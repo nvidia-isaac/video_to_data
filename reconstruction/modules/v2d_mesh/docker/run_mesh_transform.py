@@ -1,3 +1,5 @@
+from typing import Literal
+
 from v2d.docker.container import run_in_container
 from v2d.mesh.docker._config import IMAGE_NAME, MODULES_DIR
 
@@ -6,6 +8,7 @@ def run_mesh_transform(
     input_mesh_path: str,
     transform_path: str,
     output_mesh_path: str,
+    mode: Literal['zip', 'product'] = 'zip',
     dev: bool = False,
 ) -> None:
     run_in_container(
@@ -13,6 +16,7 @@ def run_mesh_transform(
         module="v2d.mesh.lib.run_mesh_transform",
         inputs={"input_mesh": input_mesh_path, "transform": transform_path},
         outputs={"output_mesh": output_mesh_path},
+        extra_args={"mode": mode},
         dev=dev,
         modules_dir=MODULES_DIR,
     )
@@ -25,6 +29,7 @@ if __name__ == "__main__":
     parser.add_argument("--input_mesh", required=True)
     parser.add_argument("--transform", required=True)
     parser.add_argument("--output_mesh", required=True)
+    parser.add_argument("--mode", choices=["zip", "product"], default="zip")
     parser.add_argument("--dev", action="store_true")
     args = parser.parse_args()
-    run_mesh_transform(args.input_mesh, args.transform, args.output_mesh, dev=args.dev)
+    run_mesh_transform(args.input_mesh, args.transform, args.output_mesh, mode=args.mode, dev=args.dev)
