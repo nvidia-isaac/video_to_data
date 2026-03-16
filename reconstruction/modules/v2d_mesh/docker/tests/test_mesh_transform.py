@@ -27,22 +27,3 @@ def test_broadcast_n_meshes_1_transform(output_dir, tmp_path, mesh, transform):
 
     assert is_glb(str(output_dir / "a.glb"))
     assert is_glb(str(output_dir / "b.glb"))
-
-
-def test_broadcast_product(output_dir, tmp_path, mesh, transforms_glob):
-    meshes_dir = tmp_path / "meshes"
-    meshes_dir.mkdir()
-    shutil.copy(mesh, meshes_dir / "a.glb")
-    shutil.copy(mesh, meshes_dir / "b.glb")
-
-    run_mesh_transform(
-        str(meshes_dir / "*.glb"),
-        transforms_glob,
-        str(output_dir / "*/*.glb"),
-        mode="product",
-    )
-
-    assert is_glb(str(output_dir / "a/0.glb"))
-    assert is_glb(str(output_dir / "a/1.glb"))
-    assert is_glb(str(output_dir / "b/0.glb"))
-    assert is_glb(str(output_dir / "b/1.glb"))

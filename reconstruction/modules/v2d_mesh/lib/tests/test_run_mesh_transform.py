@@ -104,30 +104,10 @@ def test_broadcast_n_meshes_n_transforms_zip(tmp_path, box_mesh, translation_tra
         str(tmp_path / "meshes/*.glb"),
         str(tmp_path / "transforms/*.json"),
         str(tmp_path / "outputs/*.glb"),
-        mode='zip',
     )
 
     assert os.path.isfile(str(tmp_path / "outputs/000000.glb"))
     assert os.path.isfile(str(tmp_path / "outputs/000001.glb"))
-
-
-def test_broadcast_n_meshes_m_transforms_product(tmp_path, box_mesh, translation_transform, scale_transform):
-    _save_mesh(box_mesh, str(tmp_path / "meshes/mesh_a.glb"))
-    _save_mesh(box_mesh, str(tmp_path / "meshes/mesh_b.glb"))
-    _save_transform(translation_transform, str(tmp_path / "transforms/t0.json"))
-    _save_transform(scale_transform,       str(tmp_path / "transforms/t1.json"))
-
-    run_mesh_transform(
-        str(tmp_path / "meshes/*.glb"),
-        str(tmp_path / "transforms/*.json"),
-        str(tmp_path / "outputs/*/*.glb"),
-        mode='product',
-    )
-
-    assert os.path.isfile(str(tmp_path / "outputs/mesh_a/t0.glb"))
-    assert os.path.isfile(str(tmp_path / "outputs/mesh_a/t1.glb"))
-    assert os.path.isfile(str(tmp_path / "outputs/mesh_b/t0.glb"))
-    assert os.path.isfile(str(tmp_path / "outputs/mesh_b/t1.glb"))
 
 
 def test_broadcast_zip_mismatched_lengths_raises(tmp_path, box_mesh, translation_transform, scale_transform):
@@ -135,10 +115,9 @@ def test_broadcast_zip_mismatched_lengths_raises(tmp_path, box_mesh, translation
     _save_transform(translation_transform, str(tmp_path / "transforms/000000.json"))
     _save_transform(scale_transform,       str(tmp_path / "transforms/000001.json"))
 
-    with pytest.raises(ValueError, match="zip"):
+    with pytest.raises(ValueError, match="equal lengths"):
         run_mesh_transform(
             str(tmp_path / "meshes/*.glb"),
             str(tmp_path / "transforms/*.json"),
             str(tmp_path / "outputs/*.glb"),
-            mode='zip',
         )

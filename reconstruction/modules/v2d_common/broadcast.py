@@ -1,7 +1,5 @@
 import glob
-import itertools
 from pathlib import Path
-from typing import Literal
 
 
 def resolve_glob(pattern: str) -> list[str]:
@@ -36,27 +34,24 @@ def resolve_output(pattern: str, paths_with_sources: list[tuple[str, list[str]]]
 def broadcast_pairs(
     a: list[str],
     b: list[str],
-    mode: Literal['zip', 'product'] = 'zip',
 ) -> list[tuple[str, str]]:
     """
     Broadcast two path lists.
       1:1  → single pair
       1:N  → replicate a across b
       N:1  → replicate b across a
-      N:N  → zip (mode='zip') or product (mode='product')
-      N:M  → product only; raises ValueError for mode='zip'
+      N:N  → zip
+      N:M  → raises ValueError
     """
     if len(a) == 1:
         return list(zip(a * len(b), b))
     if len(b) == 1:
         return list(zip(a, b * len(a)))
-    if mode == 'zip':
-        if len(a) != len(b):
-            raise ValueError(
-                f"broadcast mode='zip' requires equal lengths, got {len(a)} and {len(b)}"
-            )
-        return list(zip(a, b))
-    return list(itertools.product(a, b))
+    if len(a) != len(b):
+        raise ValueError(
+            f"broadcast_pairs requires equal lengths, got {len(a)} and {len(b)}"
+        )
+    return list(zip(a, b))
 
 
 def broadcast_zip(*path_lists: list[str]) -> list[tuple[str, ...]]:
