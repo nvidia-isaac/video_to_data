@@ -1,5 +1,4 @@
 import argparse
-import json
 import os
 from pathlib import Path
 
@@ -14,8 +13,7 @@ def run_mesh_get_bounding_box(mesh: str, output: str) -> None:
         bb = mesh_get_bounding_box(m)
         out_p = apply_output_pattern(output, Path(mesh_p).stem)
         os.makedirs(os.path.dirname(os.path.abspath(out_p)), exist_ok=True)
-        with open(out_p, "w") as f:
-            json.dump(bb.to_dict(), f, indent=4)
+        bb.save(out_p)
 
 
 if __name__ == "__main__":

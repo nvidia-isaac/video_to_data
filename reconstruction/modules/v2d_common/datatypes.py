@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import json
 import numpy as np
 from PIL import Image as PILImage
 
@@ -58,6 +59,15 @@ class CameraIntrinsics:
     def from_dict(d: dict) -> 'CameraIntrinsics':
         return CameraIntrinsics(fx=d["fx"], fy=d["fy"], cx=d["cx"], cy=d["cy"], width=d["width"], height=d["height"])
 
+    def save(self, path: str) -> None:
+        with open(path, 'w') as f:
+            json.dump(self.to_dict(), f, indent=4)
+
+    @staticmethod
+    def load(path: str) -> 'CameraIntrinsics':
+        with open(path) as f:
+            return CameraIntrinsics.from_dict(json.load(f))
+
     def to_matrix(self) -> np.ndarray:
         return np.array([
             [self.fx, 0, self.cx],
@@ -86,6 +96,15 @@ class Transform3d:
             scale=d["scale"]
         )
 
+    def save(self, path: str) -> None:
+        with open(path, 'w') as f:
+            json.dump(self.to_dict(), f, indent=4)
+
+    @staticmethod
+    def load(path: str) -> 'Transform3d':
+        with open(path) as f:
+            return Transform3d.from_dict(json.load(f))
+
 
 @dataclass
 class BoundingBox:
@@ -105,6 +124,15 @@ class BoundingBox:
     @staticmethod
     def from_dict(d: dict) -> 'BoundingBox':
         return BoundingBox(x0=d["x0"], y0=d["y0"], x1=d["x1"], y1=d["y1"])
+
+    def save(self, path: str) -> None:
+        with open(path, 'w') as f:
+            json.dump(self.to_dict(), f, indent=4)
+
+    @staticmethod
+    def load(path: str) -> 'BoundingBox':
+        with open(path) as f:
+            return BoundingBox.from_dict(json.load(f))
 
 
 @dataclass
@@ -126,6 +154,15 @@ class BoundingBox3d:
         return BoundingBox3d(x0=d["x0"], y0=d["y0"], z0=d["z0"],
                              x1=d["x1"], y1=d["y1"], z1=d["z1"])
 
+    def save(self, path: str) -> None:
+        with open(path, 'w') as f:
+            json.dump(self.to_dict(), f, indent=4)
+
+    @staticmethod
+    def load(path: str) -> 'BoundingBox3d':
+        with open(path) as f:
+            return BoundingBox3d.from_dict(json.load(f))
+
 
 @dataclass
 class Point:
@@ -141,6 +178,15 @@ class Point:
     @staticmethod
     def from_dict(d: dict) -> 'Point':
         return Point(x=d["x"], y=d["y"])
+
+    def save(self, path: str) -> None:
+        with open(path, 'w') as f:
+            json.dump(self.to_dict(), f, indent=4)
+
+    @staticmethod
+    def load(path: str) -> 'Point':
+        with open(path) as f:
+            return Point.from_dict(json.load(f))
 
 
 @dataclass

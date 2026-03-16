@@ -7,7 +7,6 @@ import os
 import argparse
 import torch
 import numpy as np
-import json
 from PIL import Image
 from v2d.common.datatypes import DepthImage, CameraIntrinsics
 
@@ -59,8 +58,7 @@ def image_to_depth(image_path: str, depth_path: str, intrinsics_path: str, weigh
     os.makedirs(os.path.dirname(os.path.abspath(intrinsics_path)), exist_ok=True)
     
     depth_img.to_pil_image().save(depth_path)
-    with open(intrinsics_path, "w") as f:
-        json.dump(camera_intrinsics.to_dict(), f, indent=4)
+    camera_intrinsics.save(intrinsics_path)
     
     print(f"Saved depth to {depth_path} and intrinsics to {intrinsics_path}")
 

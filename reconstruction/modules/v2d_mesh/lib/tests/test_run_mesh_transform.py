@@ -1,4 +1,3 @@
-import json
 import os
 
 import numpy as np
@@ -16,8 +15,7 @@ def _save_mesh(mesh: Mesh, path: str) -> None:
 
 def _save_transform(transform: Transform3d, path: str) -> None:
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    with open(path, 'w') as f:
-        json.dump(transform.to_dict(), f)
+    transform.save(path)
 
 
 def test_single_mesh_single_transform(tmp_path, box_mesh, translation_transform):
@@ -111,9 +109,12 @@ def test_broadcast_n_meshes_n_transforms_zip(tmp_path, box_mesh, translation_tra
 
 
 def test_broadcast_zip_mismatched_lengths_raises(tmp_path, box_mesh, translation_transform, scale_transform):
+    # 2 meshes, 3 transforms → N:M mismatch → should raise
     _save_mesh(box_mesh, str(tmp_path / "meshes/000000.glb"))
+    _save_mesh(box_mesh, str(tmp_path / "meshes/000001.glb"))
     _save_transform(translation_transform, str(tmp_path / "transforms/000000.json"))
     _save_transform(scale_transform,       str(tmp_path / "transforms/000001.json"))
+    _save_transform(translation_transform, str(tmp_path / "transforms/000002.json"))
 
     with pytest.raises(ValueError, match="equal lengths"):
         run_mesh_transform(

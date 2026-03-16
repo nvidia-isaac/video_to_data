@@ -11,7 +11,6 @@ import os
 import argparse
 import numpy as np
 from PIL import Image
-import json
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
 from scipy.spatial.transform import Rotation
@@ -178,11 +177,8 @@ def image_to_mesh(image_path: str, mask_path: str, mesh_path: str, transform_pat
     with open(mesh_path, "wb") as f:
         f.write(mesh_scene.export(file_type='glb'))
 
-    with open(transform_path, "w") as f:
-        json.dump(transform.to_dict(), f, indent=4)
-
-    with open(intrinsics_path, "w") as f:
-        json.dump(intrinsics.to_dict(), f, indent=4)
+    transform.save(transform_path)
+    intrinsics.save(intrinsics_path)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process image to mesh using SAM3D")

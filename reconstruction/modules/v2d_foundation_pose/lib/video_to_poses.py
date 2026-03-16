@@ -69,9 +69,7 @@ def video_to_poses(video_path: str, depth_folder: str, masks_folder: str, camera
     to_origin, extents = trimesh.bounds.oriented_bounds(mesh)
     bbox = np.stack([-extents/2, extents/2], axis=0).reshape(2,3)
     
-    with open(camera_intrinsics_path, "r") as f:
-        camera_intrinsics_dict = json.load(f)
-    camera_intrinsics = CameraIntrinsics.from_dict(camera_intrinsics_dict)
+    camera_intrinsics = CameraIntrinsics.load(camera_intrinsics_path)
 
     with torch.no_grad():
         log_gpu_memory("Before FoundationPose init")

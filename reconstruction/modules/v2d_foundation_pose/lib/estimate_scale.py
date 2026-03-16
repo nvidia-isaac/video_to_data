@@ -48,9 +48,7 @@ def fp_scale_estimator(
     refiner = PoseRefinePredictor()
     glctx = dr.RasterizeCudaContext()
 
-    with open(intrinsics_path, 'r') as f:
-        intrinsics_dict = json.load(f)
-    intrinsics = CameraIntrinsics.from_dict(intrinsics_dict)
+    intrinsics = CameraIntrinsics.load(intrinsics_path)
     camera_K = intrinsics.to_matrix()
 
     with open(transform_path, 'r') as f:

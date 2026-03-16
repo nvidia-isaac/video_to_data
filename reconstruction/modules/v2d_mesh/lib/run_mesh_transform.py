@@ -1,5 +1,4 @@
 import argparse
-import json
 import os
 
 from v2d.common.datatypes import Transform3d
@@ -19,8 +18,7 @@ def run_mesh_transform(
     for mesh_p, transform_p in broadcast_pairs(mesh_paths, transform_paths):
         if mesh_p not in mesh_cache:
             mesh_cache[mesh_p] = Mesh.load(mesh_p)
-        with open(transform_p) as f:
-            t = Transform3d.from_dict(json.load(f))
+        t = Transform3d.load(transform_p)
         result = mesh_transform(mesh_cache[mesh_p], t)
         out_p = resolve_output(output_mesh, [(mesh_p, mesh_paths), (transform_p, transform_paths)])
         os.makedirs(os.path.dirname(os.path.abspath(out_p)), exist_ok=True)

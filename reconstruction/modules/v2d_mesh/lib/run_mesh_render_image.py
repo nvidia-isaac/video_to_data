@@ -1,5 +1,4 @@
 import argparse
-import json
 import os
 
 from v2d.common.datatypes import CameraIntrinsics, Image, Transform3d
@@ -37,11 +36,9 @@ def run_mesh_render_image(
         m = mesh_cache[mesh_p]
 
         if transform_p is not None:
-            with open(transform_p) as f:
-                m = mesh_transform(m, Transform3d.from_dict(json.load(f)))
+            m = mesh_transform(m, Transform3d.load(transform_p))
 
-        with open(intrinsics_p) as f:
-            cam = CameraIntrinsics.from_dict(json.load(f))
+        cam = CameraIntrinsics.load(intrinsics_p)
 
         bg = Image.load(background_p) if background_p is not None else None
 

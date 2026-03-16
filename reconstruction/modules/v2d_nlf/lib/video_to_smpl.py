@@ -15,7 +15,6 @@ import os
 import cv2
 import torch
 import torchvision
-import json
 import h5py
 from PIL import Image
 from tqdm import tqdm
@@ -67,9 +66,7 @@ def video_to_smpl(
     device: str = "cuda"
 ) -> NlfResult:
     """End-to-end NLF: Video + Masks -> SMPL Parameters (all in memory)."""
-    with open(intrinsics_path, 'r') as f:
-        intrinsics_dict = json.load(f)
-    intrinsics = CameraIntrinsics.from_dict(intrinsics_dict)
+    intrinsics = CameraIntrinsics.load(intrinsics_path)
     K = intrinsics.to_matrix()
     K_tensor = torch.from_numpy(K).to(device).float()[None]
 
