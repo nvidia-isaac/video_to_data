@@ -5,7 +5,6 @@ import cv2
 import numpy as np
 import torch
 import h5py
-import json
 from smplfitter.pt import BodyModel
 from v2d.common.datatypes import CameraIntrinsics
 import trimesh
@@ -31,9 +30,7 @@ def render_smpl_overlay(
         gender = f['gender'][()].decode('utf-8')
         model_type = f['model_type'][()].decode('utf-8')
 
-    with open(intrinsics_path, 'r') as f:
-        intrinsics_dict = json.load(f)
-    intrinsics = CameraIntrinsics.from_dict(intrinsics_dict)
+    intrinsics = CameraIntrinsics.load(intrinsics_path)
     K = intrinsics.to_matrix()
 
     model_root = get_smpl_model_root(model_type, weights_dir)

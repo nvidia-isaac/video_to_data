@@ -1,10 +1,5 @@
-import subprocess
-import os
-
-IMAGE_NAME = "v2d_nlf"
-
-_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-_MODULES_DIR = os.path.abspath(os.path.join(_CURRENT_DIR, "..", ".."))
+from v2d.docker.container import run_in_container
+from v2d.nlf.docker._config import IMAGE_NAME, MODULES_DIR
 
 
 def run_align_nlf_to_depth(
@@ -16,44 +11,15 @@ def run_align_nlf_to_depth(
     weights_dir: str,
     dev: bool = False,
 ) -> None:
-    smpl_results_path = os.path.abspath(smpl_results_path)
-    depth_folder = os.path.abspath(depth_folder)
-    masks_dir = os.path.abspath(masks_dir)
-    intrinsics_path = os.path.abspath(intrinsics_path)
-    output_path = os.path.abspath(output_path)
-    weights_dir = os.path.abspath(weights_dir)
-
-    smpl_dir, smpl_name = os.path.dirname(smpl_results_path), os.path.basename(smpl_results_path)
-    intrinsics_dir, intrinsics_name = os.path.dirname(intrinsics_path), os.path.basename(intrinsics_path)
-    output_dir, output_name = os.path.dirname(output_path), os.path.basename(output_path)
-
-    os.makedirs(output_dir, exist_ok=True)
-
-    cmd = [
-        "docker", "run", "--rm",
-        "--gpus", "all",
-        "--user", f"{os.getuid()}:{os.getgid()}",
-        "-e", "HOME=/tmp",
-        "-v", f"{smpl_dir}:/data/smpl",
-        "-v", f"{depth_folder}:/data/depth",
-        "-v", f"{masks_dir}:/data/masks",
-        "-v", f"{intrinsics_dir}:/data/intrinsics",
-        "-v", f"{output_dir}:/data/output",
-        "-v", f"{weights_dir}:/data/weights",
-    ]
-    if dev:
-        cmd += ["-v", f"{_MODULES_DIR}:/workspace"]
-    cmd += [
-        IMAGE_NAME,
-        "python", "-m", "v2d.nlf.lib.align_nlf_to_depth",
-        "--smpl_results_path", f"/data/smpl/{smpl_name}",
-        "--depth_folder", "/data/depth",
-        "--masks_dir", "/data/masks",
-        "--intrinsics_path", f"/data/intrinsics/{intrinsics_name}",
-        "--output_path", f"/data/output/{output_name}",
-        "--weights_dir", "/data/weights",
-    ]
-    subprocess.run(cmd, check=True)
+    run_in_container(
+        image=IMAGE_NAME,
+        module="v2d.nlf.lib.align_nlf_to_depth",
+        inputs={"smpl_results_path": smpl_results_path, "depth_folder": depth_folder, "masks_dir": masks_dir, "intrinsics_path": intrinsics_path, "weights_dir": weights_dir},
+        outputs={"output_path": output_path},
+        dev=dev,
+        modules_dir=MODULES_DIR,
+        gpus=True,
+    )
 
 
 if __name__ == "__main__":

@@ -7,7 +7,6 @@ os.environ['PYOPENGL_PLATFORM'] = 'egl'
 import numpy as np
 import torch
 import h5py
-import json
 from tqdm import tqdm
 import trimesh
 import pyrender
@@ -42,9 +41,7 @@ def render_smpl_depth(
     num_frames = len(frames)
     print(f"Rendering depth for {num_frames} frames")
     
-    with open(intrinsics_path, 'r') as f:
-        intrinsics_dict = json.load(f)
-    intrinsics = CameraIntrinsics.from_dict(intrinsics_dict)
+    intrinsics = CameraIntrinsics.load(intrinsics_path)
     
     model_root = get_smpl_model_root(model_type, weights_dir)
     if gender == 'neutral' and model_type == 'smplh':

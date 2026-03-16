@@ -1,10 +1,5 @@
-import subprocess
-import os
-
-IMAGE_NAME = "v2d_grounding_dino"
-
-_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-_MODULES_DIR = os.path.abspath(os.path.join(_CURRENT_DIR, "..", ".."))
+from v2d.docker.container import run_in_container
+from v2d.grounding_dino.docker._config import IMAGE_NAME, MODULES_DIR
 
 
 def run_image_to_object_bboxes(
@@ -17,45 +12,16 @@ def run_image_to_object_bboxes(
     debug_output: str = None,
     dev: bool = False,
 ) -> None:
-    image_path = os.path.abspath(image_path)
-    output_path = os.path.abspath(output_path)
-    model_dir = os.path.abspath(model_dir)
-
-    image_dir = os.path.dirname(image_path)
-    image_name = os.path.basename(image_path)
-    output_dir = os.path.dirname(output_path)
-    output_name = os.path.basename(output_path)
-
-    os.makedirs(output_dir, exist_ok=True)
-
-    cmd = [
-        "docker", "run", "--rm",
-        "--gpus", "all",
-        "--user", f"{os.getuid()}:{os.getgid()}",
-        "-e", "HOME=/tmp",
-        "-v", f"{image_dir}:/data/image",
-        "-v", f"{output_dir}:/data/output",
-        "-v", f"{model_dir}:/data/models",
-    ]
-    if debug_output:
-        debug_output = os.path.abspath(debug_output)
-        os.makedirs(debug_output, exist_ok=True)
-        cmd += ["-v", f"{debug_output}:/data/debug"]
-    if dev:
-        cmd += ["-v", f"{_MODULES_DIR}:/workspace"]
-    cmd += [
-        IMAGE_NAME,
-        "python", "-m", "v2d.grounding_dino.lib.image_to_object_bboxes",
-        "--image_path", f"/data/image/{image_name}",
-        "--output_path", f"/data/output/{output_name}",
-        "--prompt", prompt,
-        "--model_dir", "/data/models",
-        "--box_threshold", str(box_threshold),
-        "--text_threshold", str(text_threshold),
-    ]
-    if debug_output:
-        cmd += ["--debug_output", "/data/debug"]
-    subprocess.run(cmd, check=True)
+    run_in_container(
+        image=IMAGE_NAME,
+        module="v2d.grounding_dino.lib.image_to_object_bboxes",
+        inputs={"image_path": image_path, "model_dir": model_dir},
+        outputs={"output_path": output_path, "debug_output": debug_output},
+        extra_args={"prompt": prompt, "box_threshold": box_threshold, "text_threshold": text_threshold},
+        dev=dev,
+        modules_dir=MODULES_DIR,
+        gpus=True,
+    )
 
 
 if __name__ == "__main__":

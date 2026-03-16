@@ -7,7 +7,7 @@ name = "v2d-foundation-pose-docker"
 version = "0.1.0"
 description = "Docker orchestration scripts for FoundationPose"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = ["v2d-docker"]
 
 [tool.setuptools]
 packages = ["v2d.foundation_pose.docker"]

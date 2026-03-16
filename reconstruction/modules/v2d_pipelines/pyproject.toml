@@ -8,15 +8,9 @@ version = "0.1.0"
 description = "Example pipelines composing v2d Docker modules"
 requires-python = ">=3.10"
 dependencies = [
-    "v2d-sam2-docker",
-    "v2d-sam3d-docker",
-    "v2d-unidepth-docker",
-    "v2d-moge-docker",
-    "v2d-nlf-docker",
-    "v2d-foundation-pose-docker",
-    "v2d-foundation-stereo-docker",
-    "v2d-grounding-dino-docker",
+    "opencv-python",
 ]
+# Other runtime dependencies are local packages installed via scripts/install_packages.sh
 
 [tool.setuptools]
 packages = ["v2d.pipelines"]

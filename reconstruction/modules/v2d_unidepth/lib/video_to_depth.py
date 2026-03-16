@@ -9,7 +9,6 @@ import argparse
 import torch
 import numpy as np
 import cv2
-import json
 from PIL import Image
 from v2d.common.datatypes import DepthImage, CameraIntrinsics
 
@@ -77,10 +76,9 @@ def video_to_depth(video_path: str, depth_folder: str, intrinsics_folder: str, w
                 depth_img.to_pil_image().save(
                     os.path.join(depth_folder, f"{frame_index - len(image_batch) + i + 1:06d}.png")
                 )
-                with open(
-                    os.path.join(intrinsics_folder, f"{frame_index - len(image_batch) + i + 1:06d}.json"), "w"
-                ) as f:
-                    json.dump(camera_intrinsics.to_dict(), f, indent=4)
+                camera_intrinsics.save(
+                    os.path.join(intrinsics_folder, f"{frame_index - len(image_batch) + i + 1:06d}.json")
+                )
             
             image_batch = []
     

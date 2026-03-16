@@ -1,10 +1,5 @@
-import subprocess
-import os
-
-IMAGE_NAME = "v2d_nlf"
-
-_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-_MODULES_DIR = os.path.abspath(os.path.join(_CURRENT_DIR, "..", ".."))
+from v2d.docker.container import run_in_container
+from v2d.nlf.docker._config import IMAGE_NAME, MODULES_DIR
 
 
 def run_video_to_smpl(
@@ -18,44 +13,16 @@ def run_video_to_smpl(
     chunk_size: int = 32,
     dev: bool = False,
 ) -> None:
-    video_path = os.path.abspath(video_path)
-    masks_dir = os.path.abspath(masks_dir)
-    intrinsics_path = os.path.abspath(intrinsics_path)
-    output_path = os.path.abspath(output_path)
-    weights_dir = os.path.abspath(weights_dir)
-
-    video_dir, video_name = os.path.dirname(video_path), os.path.basename(video_path)
-    intrinsics_dir, intrinsics_name = os.path.dirname(intrinsics_path), os.path.basename(intrinsics_path)
-    output_dir, output_name = os.path.dirname(output_path), os.path.basename(output_path)
-
-    os.makedirs(output_dir, exist_ok=True)
-
-    cmd = [
-        "docker", "run", "--rm",
-        "--gpus", "all",
-        "--user", f"{os.getuid()}:{os.getgid()}",
-        "-e", "HOME=/tmp",
-        "-v", f"{video_dir}:/data/video",
-        "-v", f"{masks_dir}:/data/masks",
-        "-v", f"{intrinsics_dir}:/data/intrinsics",
-        "-v", f"{output_dir}:/data/output",
-        "-v", f"{weights_dir}:/data/weights",
-    ]
-    if dev:
-        cmd += ["-v", f"{_MODULES_DIR}:/workspace"]
-    cmd += [
-        IMAGE_NAME,
-        "python", "-m", "v2d.nlf.lib.video_to_smpl",
-        "--video_path", f"/data/video/{video_name}",
-        "--masks_dir", "/data/masks",
-        "--intrinsics_path", f"/data/intrinsics/{intrinsics_name}",
-        "--gender", gender,
-        "--weights_dir", "/data/weights",
-        "--model_type", model_type,
-        "--output_path", f"/data/output/{output_name}",
-        "--chunk_size", str(chunk_size),
-    ]
-    subprocess.run(cmd, check=True)
+    run_in_container(
+        image=IMAGE_NAME,
+        module="v2d.nlf.lib.video_to_smpl",
+        inputs={"video_path": video_path, "masks_dir": masks_dir, "intrinsics_path": intrinsics_path, "weights_dir": weights_dir},
+        outputs={"output_path": output_path},
+        extra_args={"gender": gender, "model_type": model_type, "chunk_size": chunk_size},
+        dev=dev,
+        modules_dir=MODULES_DIR,
+        gpus=True,
+    )
 
 
 if __name__ == "__main__":

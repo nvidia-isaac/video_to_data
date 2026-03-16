@@ -1,47 +1,16 @@
-import subprocess
-import os
-
-IMAGE_NAME = "v2d_unidepth"
-
-_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-_MODULES_DIR = os.path.abspath(os.path.join(_CURRENT_DIR, "..", ".."))
+from v2d.docker.container import run_in_container
+from v2d.unidepth.docker._config import IMAGE_NAME, MODULES_DIR
 
 def run_image_to_depth(image_path: str, depth_path: str, intrinsics_path: str, weights_path: str, dev: bool = False) -> None:
-    image_path = os.path.abspath(image_path)
-    depth_path = os.path.abspath(depth_path)
-    intrinsics_path = os.path.abspath(intrinsics_path)
-    weights_path = os.path.abspath(weights_path)
-
-    image_dir = os.path.dirname(image_path)
-    image_name = os.path.basename(image_path)
-    depth_dir = os.path.dirname(depth_path)
-    depth_filename = os.path.basename(depth_path)
-    intrinsics_dir = os.path.dirname(intrinsics_path)
-    intrinsics_filename = os.path.basename(intrinsics_path)
-
-    os.makedirs(depth_dir, exist_ok=True)
-    os.makedirs(intrinsics_dir, exist_ok=True)
-
-    cmd = [
-        "docker", "run", "--rm",
-        "--gpus", "all",
-        "--user", f"{os.getuid()}:{os.getgid()}",
-        "-v", f"{image_dir}:/data/image",
-        "-v", f"{depth_dir}:/data/depth_out",
-        "-v", f"{intrinsics_dir}:/data/intrinsics_out",
-        "-v", f"{weights_path}:/data/weights",
-    ]
-    if dev:
-        cmd += ["-v", f"{_MODULES_DIR}:/workspace"]
-    cmd += [
-        IMAGE_NAME,
-        "python", "-m", "v2d.unidepth.lib.image_to_depth",
-        "--image_path", f"/data/image/{image_name}",
-        "--depth_path", f"/data/depth_out/{depth_filename}",
-        "--intrinsics_path", f"/data/intrinsics_out/{intrinsics_filename}",
-        "--weights_path", "/data/weights",
-    ]
-    subprocess.run(cmd, check=True)
+    run_in_container(
+        image=IMAGE_NAME,
+        module="v2d.unidepth.lib.image_to_depth",
+        inputs={"image_path": image_path, "weights_path": weights_path},
+        outputs={"depth_path": depth_path, "intrinsics_path": intrinsics_path},
+        dev=dev,
+        modules_dir=MODULES_DIR,
+        gpus=True,
+    )
 
 
 if __name__ == "__main__":

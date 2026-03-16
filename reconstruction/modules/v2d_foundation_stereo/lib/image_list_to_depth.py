@@ -137,8 +137,7 @@ def image_list_to_depth(
 
         h, w = left_image.shape[:2]
         intrinsics = CameraIntrinsics(fx=fx, fy=fy, cx=cx, cy=cy, width=w, height=h)
-        with open(os.path.join(intrinsics_folder, f"{stem}.json"), 'w') as f:
-            json.dump(intrinsics.to_dict(), f, indent=2)
+        intrinsics.save(os.path.join(intrinsics_folder, f"{stem}.json"))
 
         processed += 1
         if processed % 10 == 0:

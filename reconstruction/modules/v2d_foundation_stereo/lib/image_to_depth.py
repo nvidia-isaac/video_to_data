@@ -76,8 +76,7 @@ def image_to_depth(
     os.makedirs(os.path.dirname(intrinsics_path) or '.', exist_ok=True)
     h, w = left_image.shape[:2]
     intrinsics = CameraIntrinsics(fx=fx, fy=fy, cx=cx, cy=cy, width=w, height=h)
-    with open(intrinsics_path, 'w') as f:
-        json.dump(intrinsics.to_dict(), f, indent=2)
+    intrinsics.save(intrinsics_path)
 
     print(f"Saved depth: {depth_path}")
     print(f"Saved intrinsics: {intrinsics_path}")

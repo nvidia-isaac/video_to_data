@@ -6,7 +6,6 @@ import cv2
 import numpy as np
 import torch
 import h5py
-import json
 import trimesh
 import open3d as o3d
 from tqdm import tqdm
@@ -124,9 +123,7 @@ def align_nlf_to_depth(
     device: str = "cuda"
 ):
     """Align NLF SMPL predictions to depth images using ICP."""
-    with open(intrinsics_path, 'r') as f:
-        intrinsics_dict = json.load(f)
-    intrinsics = CameraIntrinsics.from_dict(intrinsics_dict)
+    intrinsics = CameraIntrinsics.load(intrinsics_path)
     K = intrinsics.to_matrix()
     
     print(f"Loading NLF results from {smpl_results_path}...")
