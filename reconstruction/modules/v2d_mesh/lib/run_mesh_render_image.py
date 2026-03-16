@@ -23,33 +23,48 @@ def run_mesh_render_image(
     varying = [p for p in [mesh_paths, intrinsics_paths, transform_paths, background_paths] if p is not None]
     base_tuples = broadcast_zip(*varying)
 
+    import pyrender
+
     mesh_cache: dict[str, Mesh] = {}
-    for row in base_tuples:
-        it = iter(row)
-        mesh_p = next(it)
-        intrinsics_p = next(it)
-        transform_p = next(it) if transform_paths is not None else None
-        background_p = next(it) if background_paths is not None else None
+    intrinsics_cache: dict[str, CameraIntrinsics] = {}
+    renderer = None
+    try:
+        for row in base_tuples:
+            it = iter(row)
+            mesh_p = next(it)
+            intrinsics_p = next(it)
+            transform_p = next(it) if transform_paths is not None else None
+            background_p = next(it) if background_paths is not None else None
 
-        if mesh_p not in mesh_cache:
-            mesh_cache[mesh_p] = Mesh.load(mesh_p)
-        m = mesh_cache[mesh_p]
+            if mesh_p not in mesh_cache:
+                mesh_cache[mesh_p] = Mesh.load(mesh_p)
+            m = mesh_cache[mesh_p]
 
-        if transform_p is not None:
-            m = mesh_transform(m, Transform3d.load(transform_p))
+            if transform_p is not None:
+                m = mesh_transform(m, Transform3d.load(transform_p))
 
-        cam = CameraIntrinsics.load(intrinsics_p)
+            if intrinsics_p not in intrinsics_cache:
+                intrinsics_cache[intrinsics_p] = CameraIntrinsics.load(intrinsics_p)
+            cam = intrinsics_cache[intrinsics_p]
 
-        bg = Image.load(background_p) if background_p is not None else None
+            if renderer is None or renderer.viewport_width != cam.width or renderer.viewport_height != cam.height:
+                if renderer is not None:
+                    renderer.delete()
+                renderer = pyrender.OffscreenRenderer(cam.width, cam.height)
 
-        path_sources = [(mesh_p, mesh_paths), (intrinsics_p, intrinsics_paths)]
-        if transform_p is not None:
-            path_sources.append((transform_p, transform_paths))
-        if background_p is not None:
-            path_sources.append((background_p, background_paths))
-        out_p = resolve_output(output_image, path_sources)
-        os.makedirs(os.path.dirname(os.path.abspath(out_p)), exist_ok=True)
-        mesh_render_image(m, cam, background=bg).save(out_p)
+            bg = Image.load(background_p) if background_p is not None else None
+
+            path_sources = [(mesh_p, mesh_paths), (intrinsics_p, intrinsics_paths)]
+            if transform_p is not None:
+                path_sources.append((transform_p, transform_paths))
+            if background_p is not None:
+                path_sources.append((background_p, background_paths))
+            out_p = resolve_output(output_image, path_sources)
+            os.makedirs(os.path.dirname(os.path.abspath(out_p)), exist_ok=True)
+            mesh_render_image(m, cam, background=bg, renderer=renderer).save(out_p)
+    finally:
+        if renderer is not None:
+            renderer.delete()
 
 
 if __name__ == "__main__":

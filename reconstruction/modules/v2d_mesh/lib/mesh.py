@@ -68,14 +68,22 @@ class Mesh:
 
     @staticmethod
     def load(path: str) -> 'Mesh':
-        """Load a mesh from file. Multi-geometry scenes are merged into one mesh."""
-        loaded = trimesh.load(path, process=False)
+        """Load a mesh from file. Multi-geometry scenes are merged into one mesh.
+
+        Scene graph transforms (e.g. from GLB node hierarchies) are applied
+        before merging so that all vertices end up in world/root space.
+        UV textures are baked to vertex colors before concatenation so they
+        survive the merge step.
+        """
+        loaded = trimesh.load(path)
         if isinstance(loaded, trimesh.Scene):
-            geometries = list(loaded.geometry.values())
-            if len(geometries) == 1:
-                tm = geometries[0]
-            else:
-                tm = trimesh.util.concatenate(geometries)
+            meshes = loaded.dump(concatenate=False)
+            baked = []
+            for m in meshes:
+                if isinstance(m.visual, trimesh.visual.TextureVisuals):
+                    m.visual = m.visual.to_color()
+                baked.append(m)
+            tm = trimesh.util.concatenate(baked) if len(baked) > 1 else baked[0]
         else:
             tm = loaded
         return Mesh.from_trimesh(tm)
