@@ -36,8 +36,8 @@ def run_video_object_tracking(
     moge_weights: str,
     sam3d_weights: str,
     fp_weights: str,
-    reference_frame: int = 0,
-    simplify_factor: float = 0.1,
+    reference_frame: int = 20,
+    simplify_factor: float = 0.5,
 ) -> None:
     """
     Full E2E pipeline from video to tracked mesh overlays.
@@ -78,38 +78,38 @@ def run_video_object_tracking(
     # Step 1: Extract frames
     #   Video → frames/{000000,000001,...}.png
     # -------------------------------------------------------------------------
-    # print("Step 1: Extracting frames...")
-    # extract_images(video_path, frames_dir)
+    print("Step 1: Extracting frames...")
+    extract_images(video_path, frames_dir)
 
     # # -------------------------------------------------------------------------
     # # Step 2: SAM2 segmentation
     # #   Video + prompts → masks/{object_id}/{000000,...}.png
     # # -------------------------------------------------------------------------
-    # print("Step 2: SAM2 segmentation...")
-    # run_video_to_masks(
-    #     video_path=video_path,
-    #     prompts_path=prompts_path,
-    #     masks_dir=masks_dir,
-    #     weights_dir=sam2_weights,
-    # )
+    print("Step 2: SAM2 segmentation...")
+    run_video_to_masks(
+        video_path=video_path,
+        prompts_path=prompts_path,
+        masks_dir=masks_dir,
+        weights_dir=sam2_weights,
+    )
 
     # # -------------------------------------------------------------------------
     # # Step 3: MoGe depth estimation
     # #   Video → depth/{000000,...}.png + intrinsics/{000000,...}.json
     # # -------------------------------------------------------------------------
-    # print("Step 3: MoGe depth estimation...")
-    # run_video_to_depth(
-    #     video_path=video_path,
-    #     depth_folder=depth_dir,
-    #     intrinsics_folder=intrinsics_dir,
-    #     weights_path=moge_weights,
-    # )
+    print("Step 3: MoGe depth estimation...")
+    run_video_to_depth(
+        video_path=video_path,
+        depth_folder=depth_dir,
+        intrinsics_folder=intrinsics_dir,
+        weights_path=moge_weights,
+    )
 
     # # -------------------------------------------------------------------------
     # # Step 4: SAM3D mesh reconstruction
     # #   Reference frame image + object mask → mesh + transform + intrinsics
     # # -------------------------------------------------------------------------
-    # print("Step 4: SAM3D mesh reconstruction...")
+    print("Step 4: SAM3D mesh reconstruction...")
     run_image_to_mesh(
         image_path=f"{frames_dir}/{ref}.png",
         mask_path=f"{masks_dir}/{object_id}/{ref}.png",
