@@ -9,8 +9,9 @@ from v2d.common.datatypes import BoundingBox3d, Image  # re-exported for conveni
 @dataclass
 class Mesh:
     """
-    Triangle mesh with optional per-vertex colors or UV texture.
+    Triangle mesh with optional texture (UV + image) or per-vertex RGBA colors.
 
+    UV texture takes priority over vertex_colors when both are present.
     Vertices are in a right-handed coordinate system. The canonical camera
     convention used by mesh_render_* functions is OpenCV: camera at the origin
     looking along +Z, Y axis pointing down.
@@ -41,16 +42,24 @@ class Mesh:
         uv = None
         texture = None
         vertex_colors = None
-
-        if isinstance(tm.visual, trimesh.visual.TextureVisuals):
-            if tm.visual.uv is not None:
-                uv = np.array(tm.visual.uv, dtype=np.float64)
-            mat = tm.visual.material
-            img = getattr(mat, 'image', None)
-            if img is not None:
-                texture = np.array(img.convert('RGBA'), dtype=np.uint8)
-        elif hasattr(tm.visual, 'vertex_colors'):
-            vc = np.array(tm.visual.vertex_colors)
+        visual = tm.visual
+        if isinstance(visual, trimesh.visual.TextureVisuals):
+            try:
+                if visual.uv is not None and visual.material is not None:
+                    img = visual.material.image
+                    if img is not None:
+                        uv = np.array(visual.uv, dtype=np.float64)
+                        texture = np.array(img.convert('RGBA'), dtype=np.uint8)
+            except Exception:
+                pass
+            if uv is None or texture is None:
+                # Fall back to baking if UV/texture extraction failed
+                try:
+                    visual = visual.to_color()
+                except Exception:
+                    pass
+        if uv is None and hasattr(visual, 'vertex_colors'):
+            vc = np.array(visual.vertex_colors)
             if vc.shape[0] == len(tm.vertices):
                 vertex_colors = vc
 
@@ -72,18 +81,22 @@ class Mesh:
 
         Scene graph transforms (e.g. from GLB node hierarchies) are applied
         before merging so that all vertices end up in world/root space.
-        UV textures are baked to vertex colors before concatenation so they
-        survive the merge step.
+        For multi-geometry scenes, UV textures are baked to vertex colors before
+        concatenation as merging UV atlases across geometries is not supported.
+        Single-geometry scenes preserve UV textures.
         """
         loaded = trimesh.load(path)
         if isinstance(loaded, trimesh.Scene):
             meshes = loaded.dump(concatenate=False)
-            baked = []
-            for m in meshes:
-                if isinstance(m.visual, trimesh.visual.TextureVisuals):
-                    m.visual = m.visual.to_color()
-                baked.append(m)
-            tm = trimesh.util.concatenate(baked) if len(baked) > 1 else baked[0]
+            if len(meshes) == 1:
+                tm = meshes[0]
+            else:
+                baked = []
+                for m in meshes:
+                    if isinstance(m.visual, trimesh.visual.TextureVisuals):
+                        m.visual = m.visual.to_color()
+                    baked.append(m)
+                tm = trimesh.util.concatenate(baked)
         else:
             tm = loaded
         return Mesh.from_trimesh(tm)
