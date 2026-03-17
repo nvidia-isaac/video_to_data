@@ -20,4 +20,6 @@ from Utils import (  # noqa: E402
     depth2xyzmap,
     draw_posed_3d_box,
     draw_xyz_axis,
+    nvdiffrast_render,
+    make_mesh_tensors,
 )

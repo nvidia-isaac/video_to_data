@@ -13,7 +13,7 @@ Steps:
   6. Simplify mesh    — reduce polygon count for faster tracking (optional)
   7. Estimate scale   — coarse-to-fine grid search to align mesh scale to MoGe depth
   8. Track poses      — FoundationPose: video + depth + masks + mesh → poses/
-  9. Render overlays  — mesh + poses + frames → renders/
+  9. Render overlays  — mesh + poses + frames → renders/ (GPU-batched nvdiffrast)
  10. Encode + stitch  — renders/ + masks/ + depth/ → renders.mp4 + comparison.mp4
 
 Run from reconstruction/:
@@ -31,9 +31,10 @@ from v2d.sam2.docker.run_video_to_masks import run_video_to_masks
 from v2d.common.datatypes import BoundingBox, Sam2Prompt, Sam2Prompts
 from v2d.moge.docker.run_video_to_depth import run_video_to_depth
 from v2d.mesh.docker.run_mesh_simplify import run_mesh_simplify
-from v2d.mesh.docker.run_mesh_render_image import run_mesh_render_image
+from v2d.foundation_pose.docker.run_render_poses import run_render_poses
 from v2d.foundation_pose.docker.run_video_to_poses import run_video_to_poses
 from v2d.foundation_pose.docker.run_estimate_mesh_scale import run_estimate_mesh_scale
+from v2d.foundation_pose.docker.run_ekf_smoothing import run_ekf_smoothing
 from v2d.depth.lib.align_depth_sequence import align_depth_sequence
 
 def _dino_detections_to_sam2_prompts(
@@ -108,67 +109,67 @@ def run_premade_mesh_tracking(
     #   Video → frames/{000000,000001,...}.png
     # -------------------------------------------------------------------------
     print("Step 1: Extracting frames...")
-    extract_images(video_path, frames_dir)
+    # extract_images(video_path, frames_dir)
 
     # # # # -------------------------------------------------------------------------
     # # # # Step 2: Grounding DINO detection on reference frame
     # # # #   reference frame image + text prompt → bounding box detections JSON
     # # # # -------------------------------------------------------------------------
     print("Step 2: Grounding DINO detection...")
-    run_image_to_object_bboxes(
-        image_path=f"{frames_dir}/{ref}.png",
-        output_path=dino_detections,
-        prompt=detection_prompt,
-        model_dir=dino_weights,
-    )
-    prompts = _dino_detections_to_sam2_prompts(dino_detections, reference_frame, object_id)
-    os.makedirs(output_dir, exist_ok=True)
-    with open(sam2_prompts, "w") as f:
-        json.dump(prompts.to_dict(), f, indent=2)
-    print(f"  Top detection box written to {sam2_prompts}")
+    # run_image_to_object_bboxes(
+    #     image_path=f"{frames_dir}/{ref}.png",
+    #     output_path=dino_detections,
+    #     prompt=detection_prompt,
+    #     model_dir=dino_weights,
+    # )
+    # prompts = _dino_detections_to_sam2_prompts(dino_detections, reference_frame, object_id)
+    # os.makedirs(output_dir, exist_ok=True)
+    # with open(sam2_prompts, "w") as f:
+    #     json.dump(prompts.to_dict(), f, indent=2)
+    # print(f"  Top detection box written to {sam2_prompts}")
 
     # # # # -------------------------------------------------------------------------
     # # # # Step 3: SAM2 segmentation
     # # # #   Video + auto-generated prompt → masks/{object_id}/{000000,...}.png
     # # # # -------------------------------------------------------------------------
     print("Step 3: SAM2 segmentation...")
-    run_video_to_masks(
-        video_path=video_path,
-        prompts_path=sam2_prompts,
-        masks_dir=masks_dir,
-        weights_dir=sam2_weights,
-    )
+    # run_video_to_masks(
+    #     video_path=video_path,
+    #     prompts_path=sam2_prompts,
+    #     masks_dir=masks_dir,
+    #     weights_dir=sam2_weights,
+    # )
 
     # # # # -------------------------------------------------------------------------
     # # # # Step 4: MoGe depth estimation
     # # # #   Video → depth/{000000,...}.png + intrinsics/{000000,...}.json
     # # # # -------------------------------------------------------------------------
     print("Step 4: MoGe depth estimation...")
-    run_video_to_depth(
-        video_path=video_path,
-        depth_folder=depth_dir,
-        intrinsics_folder=intrinsics_dir,
-        weights_path=moge_weights,
-    )
+    # run_video_to_depth(
+    #     video_path=video_path,
+    #     depth_folder=depth_dir,
+    #     intrinsics_folder=intrinsics_dir,
+    #     weights_path=moge_weights,
+    # )
 
     # # -------------------------------------------------------------------------
     # # Step 5: Align depth sequence to reference frame
     # #   Correct per-frame scale drift via sparse SIFT feature matching on
     # #   background pixels → smoothed per-frame scale in log-space → depth_aligned/
     # # # -------------------------------------------------------------------------
-    if align_depth:
-        print("Step 5: Aligning depth sequence to reference frame...")
-        align_depth_sequence(
-            depth_folder=depth_dir,
-            frames_folder=frames_dir,
-            masks_folder=f"{masks_dir}/{object_id}",
-            output_folder=depth_aligned_dir,
-            reference_frame=reference_frame,
-        )
-        tracking_depth_dir = depth_aligned_dir
-    else:
-        print("Step 5: Skipping depth alignment.")
-        tracking_depth_dir = depth_dir
+    # if align_depth:
+    #     print("Step 5: Aligning depth sequence to reference frame...")
+    #     align_depth_sequence(
+    #         depth_folder=depth_dir,
+    #         frames_folder=frames_dir,
+    #         masks_folder=f"{masks_dir}/{object_id}",
+    #         output_folder=depth_aligned_dir,
+    #         reference_frame=reference_frame,
+    #     )
+    #     tracking_depth_dir = depth_aligned_dir
+    # else:
+    #     print("Step 5: Skipping depth alignment.")
+    #     tracking_depth_dir = depth_dir
     tracking_depth_dir = depth_aligned_dir
     # # # ----------------------------    ---------------------------------------------
     # # # Step 6: Simplify mesh (optional)
@@ -204,32 +205,52 @@ def run_premade_mesh_tracking(
     #   Track the mesh across all video frames using MoGe depth + SAM2 masks.
     #   Output: poses/{000000,...}.json  (per-frame Transform3d object-to-camera)
     # -------------------------------------------------------------------------
-    print("Step 7: FoundationPose tracking...")
-    run_video_to_poses(
-        video_path=video_path,
-        depth_folder=tracking_depth_dir,
-        masks_folder=f"{masks_dir}/{object_id}",
-        camera_intrinsics_path=f"{intrinsics_dir}/{ref}.json",
-        mesh_path=tracking_mesh,
+    # print("Step 7: FoundationPose tracking...")
+    # run_video_to_poses(
+    #     video_path=video_path,
+    #     depth_folder=tracking_depth_dir,
+    #     masks_folder=f"{masks_dir}/{object_id}",
+    #     camera_intrinsics_path=f"{intrinsics_dir}/{ref}.json",
+    #     mesh_path=tracking_mesh,
+    #     poses_dir=poses_dir,
+    #     weights_dir=fp_weights,
+    #     reference_frame=reference_frame,
+    #     reregister_iou_thresh=0.3
+    # )
+
+    # -------------------------------------------------------------------------
+    # Step 8: EKF + RTS pose smoothing
+    #   Forward ESKF + RTS backward smoother on the raw FP poses.
+    #   IoU-weighted measurement noise discounts frames where FP lost track.
+    # -------------------------------------------------------------------------
+    print("Step 8: EKF smoothing poses...")
+    poses_smoothed_dir = f"{output_dir}/poses_smoothed"
+    run_ekf_smoothing(
         poses_dir=poses_dir,
+        mesh_path=tracking_mesh,
+        intrinsics_path=f"{intrinsics_dir}/{ref}.json",
         weights_dir=fp_weights,
-        reference_frame=reference_frame,
-        reregister_iou_thresh=0.3
+        output_dir=poses_smoothed_dir,
+        masks_folder=f"{masks_dir}/{object_id}",
+        process_noise_t=0.01,
+        process_noise_r=0.02,
+        measurement_noise_t=0.02,
+        measurement_noise_r=0.05,
+        min_iou=0.1,
     )
 
     # -------------------------------------------------------------------------
-    # Step 8: Render mesh overlays
-    #   For every frame: apply per-frame FP pose to mesh, render with vertex
-    #   colors, composite over the original video frame.
-    #   Broadcast: 1 mesh × N poses × N frames × 1 intrinsics → N renders
+    # Step 9: Render mesh overlays
+    #   GPU-batched nvdiffrast renderer: all poses rasterised in parallel.
+    #   Much faster than pyrender (no per-frame mesh re-upload, CUDA batching).
     # -------------------------------------------------------------------------
-    print("Step 8: Rendering mesh overlays...")
-    run_mesh_render_image(
-        mesh_path=mesh_path,
+    print("Step 9: Rendering mesh overlays...")
+    run_render_poses(
+        mesh_path=tracking_mesh,
+        poses_dir=poses_smoothed_dir,
+        frames_dir=frames_dir,
         intrinsics_path=f"{intrinsics_dir}/{ref}.json",
-        output_image_path=f"{renders_dir}/*.png",
-        transform_path=f"{poses_dir}/*.json",
-        background_path=f"{frames_dir}/*.png",
+        output_dir=renders_dir,
     )
 
     # -------------------------------------------------------------------------
@@ -256,7 +277,7 @@ def main():
         d for d in os.listdir(sessions_dir)
         if os.path.isdir(os.path.join(sessions_dir, d))
     )
-    for session in sessions:
+    for session in sessions[0:1]:
         print(f"\n{'='*60}\nProcessing {session}\n{'='*60}")
         run_premade_mesh_tracking(
             video_path=f"{sessions_dir}/{session}/{session}_color.mp4",

@@ -93,13 +93,21 @@ def run_video_to_poses(
         os.makedirs(poses_dir, exist_ok=True)
         pose.save(os.path.join(poses_dir, f"{frame_idx:06d}.json"))
 
+    def _apply_mask(depth: DepthImage, mask: Mask | None) -> DepthImage:
+        """Zero out depth outside the object mask."""
+        if mask is None:
+            return depth
+        masked = depth.depth.copy()
+        masked[~mask.mask.astype(bool)] = 0.0
+        return DepthImage(depth=masked)
+
     # Register at reference frame
     logger.info(f"Registering at reference frame {reference_frame}")
     rgb, depth, mask = _load_frame(reference_frame)
     if rgb is None or depth is None or mask is None:
         raise RuntimeError(f"Failed to load data for reference frame {reference_frame}")
 
-    initial_pose = tracker.register(rgb, depth, mask, scaled_intrinsics)
+    initial_pose = tracker.register(rgb, _apply_mask(depth, mask), mask, scaled_intrinsics)
     _save_pose(reference_frame, initial_pose)
     logger.info("Registered at reference frame")
 
@@ -111,14 +119,15 @@ def run_video_to_poses(
         if rgb is None or depth is None:
             break
         logger.info(f"Forward frame {frame_idx}/{num_frames}")
+        masked_depth = _apply_mask(depth, mask)
         if reregister_iou_thresh is not None and mask is not None:
             pose, recovered = tracker.track_one_with_recovery(
-                rgb, depth, mask, scaled_intrinsics, iou_thresh=reregister_iou_thresh,
+                rgb, masked_depth, mask, scaled_intrinsics, iou_thresh=reregister_iou_thresh,
             )
             if recovered:
                 logger.info(f"  Re-registered at frame {frame_idx}")
         else:
-            pose = tracker.track_one(rgb, depth, scaled_intrinsics)
+            pose = tracker.track_one(rgb, masked_depth, scaled_intrinsics)
         _save_pose(frame_idx, pose)
 
     # Backward tracking
@@ -130,15 +139,16 @@ def run_video_to_poses(
             if rgb is None or depth is None:
                 break
             logger.info(f"Backward frame {frame_idx}/{num_frames}")
+            masked_depth = _apply_mask(depth, mask)
             if reregister_iou_thresh is not None and mask is not None:
                 pose, recovered = tracker.track_one_with_recovery(
-                    rgb, depth, mask, scaled_intrinsics,
+                    rgb, masked_depth, mask, scaled_intrinsics,
                     iteration=2, iou_thresh=reregister_iou_thresh,
                 )
                 if recovered:
                     logger.info(f"  Re-registered at frame {frame_idx}")
             else:
-                pose = tracker.track_one(rgb, depth, scaled_intrinsics, iteration=2)
+                pose = tracker.track_one(rgb, masked_depth, scaled_intrinsics, iteration=2)
             _save_pose(frame_idx, pose)
 
     cap.release()
