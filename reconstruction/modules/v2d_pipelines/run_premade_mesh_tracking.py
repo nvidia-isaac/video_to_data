@@ -110,10 +110,10 @@ def run_premade_mesh_tracking(
     print("Step 1: Extracting frames...")
     extract_images(video_path, frames_dir)
 
-    # # # -------------------------------------------------------------------------
-    # # # Step 2: Grounding DINO detection on reference frame
-    # # #   reference frame image + text prompt → bounding box detections JSON
-    # # # -------------------------------------------------------------------------
+    # # # # -------------------------------------------------------------------------
+    # # # # Step 2: Grounding DINO detection on reference frame
+    # # # #   reference frame image + text prompt → bounding box detections JSON
+    # # # # -------------------------------------------------------------------------
     print("Step 2: Grounding DINO detection...")
     run_image_to_object_bboxes(
         image_path=f"{frames_dir}/{ref}.png",
@@ -127,10 +127,10 @@ def run_premade_mesh_tracking(
         json.dump(prompts.to_dict(), f, indent=2)
     print(f"  Top detection box written to {sam2_prompts}")
 
-    # # # -------------------------------------------------------------------------
-    # # # Step 3: SAM2 segmentation
-    # # #   Video + auto-generated prompt → masks/{object_id}/{000000,...}.png
-    # # # -------------------------------------------------------------------------
+    # # # # -------------------------------------------------------------------------
+    # # # # Step 3: SAM2 segmentation
+    # # # #   Video + auto-generated prompt → masks/{object_id}/{000000,...}.png
+    # # # # -------------------------------------------------------------------------
     print("Step 3: SAM2 segmentation...")
     run_video_to_masks(
         video_path=video_path,
@@ -139,10 +139,10 @@ def run_premade_mesh_tracking(
         weights_dir=sam2_weights,
     )
 
-    # # # -------------------------------------------------------------------------
-    # # # Step 4: MoGe depth estimation
-    # # #   Video → depth/{000000,...}.png + intrinsics/{000000,...}.json
-    # # # -------------------------------------------------------------------------
+    # # # # -------------------------------------------------------------------------
+    # # # # Step 4: MoGe depth estimation
+    # # # #   Video → depth/{000000,...}.png + intrinsics/{000000,...}.json
+    # # # # -------------------------------------------------------------------------
     print("Step 4: MoGe depth estimation...")
     run_video_to_depth(
         video_path=video_path,
@@ -151,11 +151,11 @@ def run_premade_mesh_tracking(
         weights_path=moge_weights,
     )
 
-    # -------------------------------------------------------------------------
-    # Step 5: Align depth sequence to reference frame
-    #   Correct per-frame scale drift via sparse SIFT feature matching on
-    #   background pixels → smoothed per-frame scale in log-space → depth_aligned/
     # # -------------------------------------------------------------------------
+    # # Step 5: Align depth sequence to reference frame
+    # #   Correct per-frame scale drift via sparse SIFT feature matching on
+    # #   background pixels → smoothed per-frame scale in log-space → depth_aligned/
+    # # # -------------------------------------------------------------------------
     if align_depth:
         print("Step 5: Aligning depth sequence to reference frame...")
         align_depth_sequence(
@@ -170,34 +170,34 @@ def run_premade_mesh_tracking(
         print("Step 5: Skipping depth alignment.")
         tracking_depth_dir = depth_dir
     tracking_depth_dir = depth_aligned_dir
-    # # ----------------------------    ---------------------------------------------
-    # # Step 6: Simplify mesh (optional)
-    # #   Reduce polygon count for faster FoundationPose tracking.
-    # # # -------------------------------------------------------------------------
+    # # # ----------------------------    ---------------------------------------------
+    # # # Step 6: Simplify mesh (optional)
+    # # #   Reduce polygon count for faster FoundationPose tracking.
+    # # # # -------------------------------------------------------------------------
     tracking_mesh = mesh_path
-    # -------------------------------------------------------------------------
-    # Step 6: Estimate mesh scale
-    #   Coarse-to-fine grid search: register mesh at candidate scales, score
-    #   rendered depth/mask against MoGe depth/SAM2 mask → rescaled_mesh.obj
-    # -------------------------------------------------------------------------
-    if estimate_scale:
-        print("Step 6: Estimating mesh scale...")
-        rescaled_mesh = f"{output_dir}/rescaled_mesh.obj"
-        run_estimate_mesh_scale(
-            mesh_path=tracking_mesh,
-            rgb_path=f"{frames_dir}/{ref}.png",
-            depth_path=f"{tracking_depth_dir}/{ref}.png",
-            mask_path=f"{masks_dir}/{object_id}/{ref}.png",
-            intrinsics_path=f"{intrinsics_dir}/{ref}.json",
-            weights_dir=fp_weights,
-            scale_path=f"{output_dir}/mesh_scale.json",
-            rescaled_mesh_path=rescaled_mesh,
-            iou_weight=1.0,
-            depth_weight=0.0
-        )
-        tracking_mesh = rescaled_mesh
-    else:
-        print("Step 6: Skipping scale estimation.")
+    # # -------------------------------------------------------------------------
+    # # Step 6: Estimate mesh scale
+    # #   Coarse-to-fine grid search: register mesh at candidate scales, score
+    # #   rendered depth/mask against MoGe depth/SAM2 mask → rescaled_mesh.obj
+    # # -------------------------------------------------------------------------
+    # if estimate_scale:
+    #     print("Step 6: Estimating mesh scale...")
+    #     rescaled_mesh = f"{output_dir}/rescaled_mesh.obj"
+    #     run_estimate_mesh_scale(
+    #         mesh_path=tracking_mesh,
+    #         rgb_path=f"{frames_dir}/{ref}.png",
+    #         depth_path=f"{tracking_depth_dir}/{ref}.png",
+    #         mask_path=f"{masks_dir}/{object_id}/{ref}.png",
+    #         intrinsics_path=f"{intrinsics_dir}/{ref}.json",
+    #         weights_dir=fp_weights,
+    #         scale_path=f"{output_dir}/mesh_scale.json",
+    #         rescaled_mesh_path=rescaled_mesh,
+    #         iou_weight=1.0,
+    #         depth_weight=0.0
+    #     )
+    #     tracking_mesh = rescaled_mesh
+    # else:
+    #     print("Step 6: Skipping scale estimation.")
 
     # -------------------------------------------------------------------------
     # Step 7: FoundationPose tracking
@@ -213,7 +213,8 @@ def run_premade_mesh_tracking(
         mesh_path=tracking_mesh,
         poses_dir=poses_dir,
         weights_dir=fp_weights,
-        reference_frame=reference_frame
+        reference_frame=reference_frame,
+        reregister_iou_thresh=0.3
     )
 
     # -------------------------------------------------------------------------
@@ -250,18 +251,24 @@ def run_premade_mesh_tracking(
 
 
 def main():
-    run_premade_mesh_tracking(
-        video_path="data/objects/yellow_spray/sessions/Session_20260310_141730/Session_20260310_141730_color.mp4",
-        mesh_path="data/objects/yellow_spray/meshes/bundlesdf/textured_mesh.obj",
-        detection_prompt="yellow spray can",
-        object_id=1,
-        output_dir="data/outputs/yellow_spray_Session_20260310_141730",
-        sam2_weights="data/weights/sam2",
-        moge_weights="data/weights/moge",
-        fp_weights="data/weights/foundation_pose",
-        dino_weights="data/weights/grounding_dino",
-        estimate_scale=False,
+    sessions_dir = "data/objects/airplane/sessions"
+    sessions = sorted(
+        d for d in os.listdir(sessions_dir)
+        if os.path.isdir(os.path.join(sessions_dir, d))
     )
+    for session in sessions:
+        print(f"\n{'='*60}\nProcessing {session}\n{'='*60}")
+        run_premade_mesh_tracking(
+            video_path=f"{sessions_dir}/{session}/{session}_color.mp4",
+            mesh_path="data/objects/airplane/mesh_bundlesdf/textured_mesh.obj",
+            detection_prompt="toy airplane",
+            object_id=1,
+            output_dir=f"data/outputs/airplane_{session}",
+            sam2_weights="data/weights/sam2",
+            moge_weights="data/weights/moge",
+            fp_weights="data/weights/foundation_pose",
+            dino_weights="data/weights/grounding_dino",
+        )
 
 
 if __name__ == "__main__":

@@ -29,6 +29,7 @@ def run_video_to_poses(
     reference_frame: int = 0,
     target_width: int = None,
     target_height: int = None,
+    reregister_iou_thresh: float = None,
 ) -> None:
     """Process a video to track object poses and save per-frame Transform3d JSON files."""
     mesh = Mesh.load(mesh_path)
@@ -106,22 +107,39 @@ def run_video_to_poses(
     logger.info(f"Tracking forward: {reference_frame + 1} → {num_frames - 1}")
     tracker.reset_to_pose(initial_pose)
     for frame_idx in range(reference_frame + 1, num_frames):
-        rgb, depth, _ = _load_frame(frame_idx)
+        rgb, depth, mask = _load_frame(frame_idx)
         if rgb is None or depth is None:
             break
         logger.info(f"Forward frame {frame_idx}/{num_frames}")
-        _save_pose(frame_idx, tracker.track_one(rgb, depth, scaled_intrinsics))
+        if reregister_iou_thresh is not None and mask is not None:
+            pose, recovered = tracker.track_one_with_recovery(
+                rgb, depth, mask, scaled_intrinsics, iou_thresh=reregister_iou_thresh,
+            )
+            if recovered:
+                logger.info(f"  Re-registered at frame {frame_idx}")
+        else:
+            pose = tracker.track_one(rgb, depth, scaled_intrinsics)
+        _save_pose(frame_idx, pose)
 
     # Backward tracking
     if reference_frame > 0:
         logger.info(f"Tracking backward: {reference_frame - 1} → 0")
         tracker.reset_to_pose(initial_pose)
         for frame_idx in range(reference_frame - 1, -1, -1):
-            rgb, depth, _ = _load_frame(frame_idx)
+            rgb, depth, mask = _load_frame(frame_idx)
             if rgb is None or depth is None:
                 break
             logger.info(f"Backward frame {frame_idx}/{num_frames}")
-            _save_pose(frame_idx, tracker.track_one(rgb, depth, scaled_intrinsics, iteration=2))
+            if reregister_iou_thresh is not None and mask is not None:
+                pose, recovered = tracker.track_one_with_recovery(
+                    rgb, depth, mask, scaled_intrinsics,
+                    iteration=2, iou_thresh=reregister_iou_thresh,
+                )
+                if recovered:
+                    logger.info(f"  Re-registered at frame {frame_idx}")
+            else:
+                pose = tracker.track_one(rgb, depth, scaled_intrinsics, iteration=2)
+            _save_pose(frame_idx, pose)
 
     cap.release()
     logger.info(f"Completed {num_frames} frames")
@@ -139,6 +157,7 @@ if __name__ == "__main__":
     parser.add_argument("--reference_frame", type=int, default=0)
     parser.add_argument("--target_width", type=int, default=None)
     parser.add_argument("--target_height", type=int, default=None)
+    parser.add_argument("--reregister_iou_thresh", type=float, default=None)
 
     args = parser.parse_args()
     run_video_to_poses(
@@ -152,4 +171,5 @@ if __name__ == "__main__":
         reference_frame=args.reference_frame,
         target_width=args.target_width,
         target_height=args.target_height,
+        reregister_iou_thresh=args.reregister_iou_thresh,
     )

@@ -99,6 +99,68 @@ class FoundationPoseTracker:
             )
         return Transform3d.from_matrix(pose)
 
+    def track_one_with_recovery(
+        self,
+        rgb: V2dImage,
+        depth: DepthImage,
+        mask: Mask,
+        intrinsics: CameraIntrinsics,
+        iteration: int = 5,
+        iou_thresh: float = 0.3,
+        recovery_iteration: int = 10,
+    ) -> tuple[Transform3d, bool]:
+        """Track one frame, re-registering if the tracked pose has low mask IoU.
+
+        After tracking, renders the mesh at the tracked pose and computes IoU
+        against the observed mask. If IoU < iou_thresh, re-registers from
+        scratch using the current frame's mask.
+
+        Args:
+            rgb:                Current frame image.
+            depth:              Current frame depth.
+            mask:               Current frame segmentation mask.
+            intrinsics:         Camera intrinsics.
+            iteration:          Tracking refinement iterations.
+            iou_thresh:         IoU below this triggers re-registration. Default 0.3.
+            recovery_iteration: Registration iterations on recovery. Default 10.
+
+        Returns:
+            (pose, recovered) — recovered is True if re-registration was triggered.
+        """
+        pose = self.track_one(rgb, depth, intrinsics, iteration=iteration)
+        iou = self._mask_iou(mask, intrinsics, pose)
+        if iou < iou_thresh:
+            logger.info(f"Tracking loss detected (IoU={iou:.3f} < {iou_thresh}) — re-registering")
+            pose = self.register(rgb, depth, mask, intrinsics, iteration=recovery_iteration)
+            return pose, True
+        return pose, False
+
+    def _mask_iou(
+        self,
+        mask: Mask,
+        intrinsics: CameraIntrinsics,
+        pose: Transform3d,
+    ) -> float:
+        """Render the mesh at `pose` and return IoU with the observed mask."""
+        K = intrinsics.to_matrix()
+        H, W = intrinsics.height, intrinsics.width
+        pose_mat = torch.as_tensor(pose.to_matrix()[None], device='cuda', dtype=torch.float)
+
+        with torch.no_grad():
+            _, rendered_depth, _ = nvdiffrast_render(
+                K, H, W, pose_mat,
+                glctx=self._glctx,
+                mesh_tensors=self._est.mesh_tensors,
+                get_normal=False,
+            )
+
+        rendered_mask = rendered_depth[0].cpu().numpy() > 0.001
+        obs_mask = mask.mask.astype(bool)
+
+        intersection = float((obs_mask & rendered_mask).sum())
+        union = float((obs_mask | rendered_mask).sum())
+        return intersection / (union + 1e-6)
+
     def reset_to_pose(self, pose: Transform3d) -> None:
         """Reset internal pose state. Use before a backward tracking pass."""
         torch.cuda.empty_cache()
