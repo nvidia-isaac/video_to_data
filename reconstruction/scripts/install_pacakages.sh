@@ -7,7 +7,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
 echo "Installing v2d docker packages and v2d_pipelines..."
-pip install -e modules/v2d_sam2/docker \
+pip install -e modules/v2d_depth \
+  -e modules/v2d_sam2/docker \
   -e modules/v2d_sam3d/docker \
   -e modules/v2d_unidepth/docker \
   -e modules/v2d_moge/docker \

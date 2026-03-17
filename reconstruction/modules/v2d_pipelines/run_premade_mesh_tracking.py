@@ -9,11 +9,12 @@ Steps:
   2. Grounding DINO   — reference frame + text prompt → bounding box detection
   3. SAM2             — video + auto-generated prompt → per-object masks/
   4. MoGe             — video → depth/ + intrinsics/
-  5. Simplify mesh    — reduce polygon count for faster tracking (optional)
-  6. Estimate scale   — coarse-to-fine grid search to align mesh scale to MoGe depth
-  7. Track poses      — FoundationPose: video + depth + masks + mesh → poses/
-  8. Render overlays  — mesh + poses + frames → renders/
-  9. Encode + stitch  — renders/ + masks/ + depth/ → renders.mp4 + comparison.mp4
+  5. Align depth      — per-frame scale correction to reference frame via feature matching
+  6. Simplify mesh    — reduce polygon count for faster tracking (optional)
+  7. Estimate scale   — coarse-to-fine grid search to align mesh scale to MoGe depth
+  8. Track poses      — FoundationPose: video + depth + masks + mesh → poses/
+  9. Render overlays  — mesh + poses + frames → renders/
+ 10. Encode + stitch  — renders/ + masks/ + depth/ → renders.mp4 + comparison.mp4
 
 Run from reconstruction/:
     python -m v2d.pipelines.run_premade_mesh_tracking
@@ -33,6 +34,7 @@ from v2d.mesh.docker.run_mesh_simplify import run_mesh_simplify
 from v2d.mesh.docker.run_mesh_render_image import run_mesh_render_image
 from v2d.foundation_pose.docker.run_video_to_poses import run_video_to_poses
 from v2d.foundation_pose.docker.run_estimate_mesh_scale import run_estimate_mesh_scale
+from v2d.depth.lib.align_depth_sequence import align_depth_sequence
 
 def _dino_detections_to_sam2_prompts(
     detections_path: str,
@@ -63,6 +65,7 @@ def run_premade_mesh_tracking(
     dino_weights: str,
     reference_frame: int = 40,
     simplify_factor: float | None = None,
+    align_depth: bool = True,
     estimate_scale: bool = True,
 ) -> None:
     """
@@ -81,14 +84,17 @@ def run_premade_mesh_tracking(
         reference_frame:   Frame index used for DINO detection and FP registration.
         simplify_factor:   Target face fraction for mesh simplification (0.0–1.0),
                            or None to skip simplification and use the mesh as-is.
+        align_depth:       If True (default), correct per-frame depth scale drift by
+                           aligning each frame to the reference via sparse feature matching.
         estimate_scale:    If True (default), run coarse-to-fine scale estimation to
                            align the mesh scale to the MoGe metric depth before tracking.
     """
 
-    frames_dir     = f"{output_dir}/frames"
-    masks_dir      = f"{output_dir}/masks"
-    depth_dir      = f"{output_dir}/depth"
-    intrinsics_dir = f"{output_dir}/intrinsics"
+    frames_dir       = f"{output_dir}/frames"
+    masks_dir        = f"{output_dir}/masks"
+    depth_dir        = f"{output_dir}/depth"
+    depth_aligned_dir = f"{output_dir}/depth_aligned"
+    intrinsics_dir   = f"{output_dir}/intrinsics"
     poses_dir      = f"{output_dir}/poses"
     renders_dir    = f"{output_dir}/renders"
 
@@ -102,66 +108,73 @@ def run_premade_mesh_tracking(
     #   Video → frames/{000000,000001,...}.png
     # -------------------------------------------------------------------------
     print("Step 1: Extracting frames...")
-    # extract_images(video_path, frames_dir)
+    extract_images(video_path, frames_dir)
 
     # # # -------------------------------------------------------------------------
     # # # Step 2: Grounding DINO detection on reference frame
     # # #   reference frame image + text prompt → bounding box detections JSON
     # # # -------------------------------------------------------------------------
     print("Step 2: Grounding DINO detection...")
-    # run_image_to_object_bboxes(
-    #     image_path=f"{frames_dir}/{ref}.png",
-    #     output_path=dino_detections,
-    #     prompt=detection_prompt,
-    #     model_dir=dino_weights,
-    # )
-    # prompts = _dino_detections_to_sam2_prompts(dino_detections, reference_frame, object_id)
-    # os.makedirs(output_dir, exist_ok=True)
-    # with open(sam2_prompts, "w") as f:
-    #     json.dump(prompts.to_dict(), f, indent=2)
-    # print(f"  Top detection box written to {sam2_prompts}")
+    run_image_to_object_bboxes(
+        image_path=f"{frames_dir}/{ref}.png",
+        output_path=dino_detections,
+        prompt=detection_prompt,
+        model_dir=dino_weights,
+    )
+    prompts = _dino_detections_to_sam2_prompts(dino_detections, reference_frame, object_id)
+    os.makedirs(output_dir, exist_ok=True)
+    with open(sam2_prompts, "w") as f:
+        json.dump(prompts.to_dict(), f, indent=2)
+    print(f"  Top detection box written to {sam2_prompts}")
 
     # # # -------------------------------------------------------------------------
     # # # Step 3: SAM2 segmentation
     # # #   Video + auto-generated prompt → masks/{object_id}/{000000,...}.png
     # # # -------------------------------------------------------------------------
     print("Step 3: SAM2 segmentation...")
-    # run_video_to_masks(
-    #     video_path=video_path,
-    #     prompts_path=sam2_prompts,
-    #     masks_dir=masks_dir,
-    #     weights_dir=sam2_weights,
-    # )
+    run_video_to_masks(
+        video_path=video_path,
+        prompts_path=sam2_prompts,
+        masks_dir=masks_dir,
+        weights_dir=sam2_weights,
+    )
 
     # # # -------------------------------------------------------------------------
     # # # Step 4: MoGe depth estimation
     # # #   Video → depth/{000000,...}.png + intrinsics/{000000,...}.json
     # # # -------------------------------------------------------------------------
-    # print("Step 4: MoGe depth estimation...")
-    # run_video_to_depth(
-    #     video_path=video_path,
-    #     depth_folder=depth_dir,
-    #     intrinsics_folder=intrinsics_dir,
-    #     weights_path=moge_weights,
-    # )
+    print("Step 4: MoGe depth estimation...")
+    run_video_to_depth(
+        video_path=video_path,
+        depth_folder=depth_dir,
+        intrinsics_folder=intrinsics_dir,
+        weights_path=moge_weights,
+    )
 
+    # -------------------------------------------------------------------------
+    # Step 5: Align depth sequence to reference frame
+    #   Correct per-frame scale drift via sparse SIFT feature matching on
+    #   background pixels → smoothed per-frame scale in log-space → depth_aligned/
     # # -------------------------------------------------------------------------
-    # # Step 5: Simplify mesh (optional)
+    if align_depth:
+        print("Step 5: Aligning depth sequence to reference frame...")
+        align_depth_sequence(
+            depth_folder=depth_dir,
+            frames_folder=frames_dir,
+            masks_folder=f"{masks_dir}/{object_id}",
+            output_folder=depth_aligned_dir,
+            reference_frame=reference_frame,
+        )
+        tracking_depth_dir = depth_aligned_dir
+    else:
+        print("Step 5: Skipping depth alignment.")
+        tracking_depth_dir = depth_dir
+    tracking_depth_dir = depth_aligned_dir
+    # # ----------------------------    ---------------------------------------------
+    # # Step 6: Simplify mesh (optional)
     # #   Reduce polygon count for faster FoundationPose tracking.
     # # # -------------------------------------------------------------------------
     tracking_mesh = mesh_path
-    # if simplify_factor is not None:
-    #     simplified_mesh = f"{output_dir}/simplified_mesh.obj"
-    #     print("Step 5: Simplifying mesh...")
-    #     run_mesh_simplify(
-    #         input_mesh_path=mesh_path,
-    #         output_mesh_path=simplified_mesh,
-    #         factor=simplify_factor,
-    #     )
-    #     tracking_mesh = simplified_mesh
-    # else:
-    #     print("Step 5: Skipping mesh simplification.")
-
     # -------------------------------------------------------------------------
     # Step 6: Estimate mesh scale
     #   Coarse-to-fine grid search: register mesh at candidate scales, score
@@ -173,13 +186,14 @@ def run_premade_mesh_tracking(
         run_estimate_mesh_scale(
             mesh_path=tracking_mesh,
             rgb_path=f"{frames_dir}/{ref}.png",
-            depth_path=f"{depth_dir}/{ref}.png",
+            depth_path=f"{tracking_depth_dir}/{ref}.png",
             mask_path=f"{masks_dir}/{object_id}/{ref}.png",
             intrinsics_path=f"{intrinsics_dir}/{ref}.json",
             weights_dir=fp_weights,
             scale_path=f"{output_dir}/mesh_scale.json",
             rescaled_mesh_path=rescaled_mesh,
-            iou_weight=0.0
+            iou_weight=1.0,
+            depth_weight=0.0
         )
         tracking_mesh = rescaled_mesh
     else:
@@ -193,7 +207,7 @@ def run_premade_mesh_tracking(
     print("Step 7: FoundationPose tracking...")
     run_video_to_poses(
         video_path=video_path,
-        depth_folder=depth_dir,
+        depth_folder=tracking_depth_dir,
         masks_folder=f"{masks_dir}/{object_id}",
         camera_intrinsics_path=f"{intrinsics_dir}/{ref}.json",
         mesh_path=tracking_mesh,
@@ -210,7 +224,7 @@ def run_premade_mesh_tracking(
     # -------------------------------------------------------------------------
     print("Step 8: Rendering mesh overlays...")
     run_mesh_render_image(
-        mesh_path=tracking_mesh,
+        mesh_path=mesh_path,
         intrinsics_path=f"{intrinsics_dir}/{ref}.json",
         output_image_path=f"{renders_dir}/*.png",
         transform_path=f"{poses_dir}/*.json",
@@ -227,7 +241,7 @@ def run_premade_mesh_tracking(
 
     frames_to_video(renders_dir, renders_mp4)
     frames_to_video(f"{masks_dir}/{object_id}", masks_mp4)
-    frames_to_video(depth_dir, depth_mp4)
+    frames_to_video(tracking_depth_dir, depth_mp4)
 
     print("Step 9: Stitching videos side-by-side...")
     stitch_videos([renders_mp4, masks_mp4, depth_mp4], f"{output_dir}/comparison.mp4")
@@ -237,16 +251,16 @@ def run_premade_mesh_tracking(
 
 def main():
     run_premade_mesh_tracking(
-        video_path="data/objects/yellow_spray/sessions/Session_20260310_161346/Session_20260310_161346_color.mp4",
+        video_path="data/objects/yellow_spray/sessions/Session_20260310_141730/Session_20260310_141730_color.mp4",
         mesh_path="data/objects/yellow_spray/meshes/bundlesdf/textured_mesh.obj",
         detection_prompt="yellow spray can",
         object_id=1,
-        output_dir="data/outputs/yellow_spray_updated",
+        output_dir="data/outputs/yellow_spray_Session_20260310_141730",
         sam2_weights="data/weights/sam2",
         moge_weights="data/weights/moge",
         fp_weights="data/weights/foundation_pose",
         dino_weights="data/weights/grounding_dino",
-        estimate_scale=True,
+        estimate_scale=False,
     )
 
 
