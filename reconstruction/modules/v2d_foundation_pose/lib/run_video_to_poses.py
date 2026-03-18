@@ -30,8 +30,29 @@ def run_video_to_poses(
     target_width: int = None,
     target_height: int = None,
     reregister_iou_thresh: float = None,
+    register_iteration: int = 10,
+    track_iteration: int = 5,
+    n_particles: int = 1,
+    particle_process_noise_t: float = 0.005,
+    particle_process_noise_r: float = 0.02,
+    particle_iteration: int = 3,
+    particle_mask_iou_weight: float = 1.0,
+    mask_depth: bool = False,
 ) -> None:
-    """Process a video to track object poses and save per-frame Transform3d JSON files."""
+    """Process a video to track object poses and save per-frame Transform3d JSON files.
+
+    When n_particles=1 (default), uses the original track_one / track_one_with_recovery
+    logic unchanged. When n_particles>1, uses a particle filter:
+    each frame runs a batched refine+score over all particles, weights them by
+    the scorer's logits, resamples on diversity collapse, and returns the
+    weighted mean pose. reregister_iou_thresh is ignored in particle mode
+    (the particle filter handles tracking loss implicitly via diversity).
+
+    mask_depth: if True, zero out depth pixels outside the object mask before passing
+    to FoundationPose. FoundationPose applies its own internal masking during crop
+    creation so this is not standard; it may help when background depth bleeds into
+    the object region. Default False.
+    """
     mesh = Mesh.load(mesh_path)
     tracker = FoundationPoseTracker(mesh, weights_dir)
 
@@ -107,9 +128,32 @@ def run_video_to_poses(
     if rgb is None or depth is None or mask is None:
         raise RuntimeError(f"Failed to load data for reference frame {reference_frame}")
 
-    initial_pose = tracker.register(rgb, _apply_mask(depth, mask), mask, scaled_intrinsics)
+    initial_pose = tracker.register(rgb, _apply_mask(depth, mask) if mask_depth else depth, mask, scaled_intrinsics, iteration=register_iteration)
     _save_pose(reference_frame, initial_pose)
     logger.info("Registered at reference frame")
+
+    def _track_one(rgb, depth, mask) -> Transform3d:
+        masked_depth = _apply_mask(depth, mask) if mask_depth else depth
+        if n_particles > 1:
+            return tracker.track_one_particles(
+                rgb, masked_depth, scaled_intrinsics,
+                mask=mask,
+                n_particles=n_particles,
+                process_noise_t=particle_process_noise_t,
+                process_noise_r=particle_process_noise_r,
+                iteration=particle_iteration,
+                mask_iou_weight=particle_mask_iou_weight,
+            )
+        if reregister_iou_thresh is not None and mask is not None:
+            pose, recovered = tracker.track_one_with_recovery(
+                rgb, masked_depth, mask, scaled_intrinsics,
+                iteration=track_iteration, iou_thresh=reregister_iou_thresh,
+                recovery_iteration=register_iteration,
+            )
+            if recovered:
+                logger.info(f"  Re-registered at frame {frame_idx}")
+            return pose
+        return tracker.track_one(rgb, masked_depth, scaled_intrinsics, iteration=track_iteration)
 
     # Forward tracking
     logger.info(f"Tracking forward: {reference_frame + 1} → {num_frames - 1}")
@@ -119,16 +163,7 @@ def run_video_to_poses(
         if rgb is None or depth is None:
             break
         logger.info(f"Forward frame {frame_idx}/{num_frames}")
-        masked_depth = _apply_mask(depth, mask)
-        if reregister_iou_thresh is not None and mask is not None:
-            pose, recovered = tracker.track_one_with_recovery(
-                rgb, masked_depth, mask, scaled_intrinsics, iou_thresh=reregister_iou_thresh,
-            )
-            if recovered:
-                logger.info(f"  Re-registered at frame {frame_idx}")
-        else:
-            pose = tracker.track_one(rgb, masked_depth, scaled_intrinsics)
-        _save_pose(frame_idx, pose)
+        _save_pose(frame_idx, _track_one(rgb, depth, mask))
 
     # Backward tracking
     if reference_frame > 0:
@@ -139,17 +174,7 @@ def run_video_to_poses(
             if rgb is None or depth is None:
                 break
             logger.info(f"Backward frame {frame_idx}/{num_frames}")
-            masked_depth = _apply_mask(depth, mask)
-            if reregister_iou_thresh is not None and mask is not None:
-                pose, recovered = tracker.track_one_with_recovery(
-                    rgb, masked_depth, mask, scaled_intrinsics,
-                    iteration=2, iou_thresh=reregister_iou_thresh,
-                )
-                if recovered:
-                    logger.info(f"  Re-registered at frame {frame_idx}")
-            else:
-                pose = tracker.track_one(rgb, masked_depth, scaled_intrinsics, iteration=2)
-            _save_pose(frame_idx, pose)
+            _save_pose(frame_idx, _track_one(rgb, depth, mask))
 
     cap.release()
     logger.info(f"Completed {num_frames} frames")
@@ -168,6 +193,14 @@ if __name__ == "__main__":
     parser.add_argument("--target_width", type=int, default=None)
     parser.add_argument("--target_height", type=int, default=None)
     parser.add_argument("--reregister_iou_thresh", type=float, default=None)
+    parser.add_argument("--register_iteration", type=int, default=10)
+    parser.add_argument("--track_iteration", type=int, default=5)
+    parser.add_argument("--n_particles", type=int, default=1)
+    parser.add_argument("--particle_process_noise_t", type=float, default=0.005)
+    parser.add_argument("--particle_process_noise_r", type=float, default=0.02)
+    parser.add_argument("--particle_iteration", type=int, default=3)
+    parser.add_argument("--particle_mask_iou_weight", type=float, default=1.0)
+    parser.add_argument("--mask_depth", action="store_true")
 
     args = parser.parse_args()
     run_video_to_poses(
@@ -182,4 +215,12 @@ if __name__ == "__main__":
         target_width=args.target_width,
         target_height=args.target_height,
         reregister_iou_thresh=args.reregister_iou_thresh,
+        register_iteration=args.register_iteration,
+        track_iteration=args.track_iteration,
+        n_particles=args.n_particles,
+        particle_process_noise_t=args.particle_process_noise_t,
+        particle_process_noise_r=args.particle_process_noise_r,
+        particle_iteration=args.particle_iteration,
+        particle_mask_iou_weight=args.particle_mask_iou_weight,
+        mask_depth=args.mask_depth,
     )

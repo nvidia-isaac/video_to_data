@@ -10,9 +10,11 @@ def run_ekf_smoothing(
     weights_dir: str,
     output_dir: str,
     masks_folder: str = None,
-    process_noise_t: float = 0.005,
+    process_noise_xy: float = 0.005,
+    process_noise_z: float = 0.005,
     process_noise_r: float = 0.01,
-    measurement_noise_t: float = 0.02,
+    measurement_noise_xy: float = 0.02,
+    measurement_noise_z: float = 0.1,
     measurement_noise_r: float = 0.05,
     min_iou: float = 0.1,
     dev: bool = False,
@@ -33,11 +35,13 @@ def run_ekf_smoothing(
         inputs=inputs,
         outputs={"output_dir": output_dir},
         extra_args={
-            "process_noise_t":     process_noise_t,
-            "process_noise_r":     process_noise_r,
-            "measurement_noise_t": measurement_noise_t,
-            "measurement_noise_r": measurement_noise_r,
-            "min_iou":             min_iou,
+            "process_noise_xy":     process_noise_xy,
+            "process_noise_z":      process_noise_z,
+            "process_noise_r":      process_noise_r,
+            "measurement_noise_xy": measurement_noise_xy,
+            "measurement_noise_z":  measurement_noise_z,
+            "measurement_noise_r":  measurement_noise_r,
+            "min_iou":              min_iou,
         },
         dev=dev,
         modules_dir=MODULES_DIR,
@@ -50,18 +54,20 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="ESKF + RTS pose smoother in Docker")
-    parser.add_argument("--poses_dir",            required=True)
-    parser.add_argument("--mesh_path",            required=True)
-    parser.add_argument("--intrinsics_path",      required=True)
-    parser.add_argument("--weights_dir",          required=True)
-    parser.add_argument("--output_dir",           required=True)
-    parser.add_argument("--masks_folder",         default=None)
-    parser.add_argument("--process_noise_t",      type=float, default=0.005)
-    parser.add_argument("--process_noise_r",      type=float, default=0.01)
-    parser.add_argument("--measurement_noise_t",  type=float, default=0.02)
-    parser.add_argument("--measurement_noise_r",  type=float, default=0.05)
-    parser.add_argument("--min_iou",              type=float, default=0.1)
-    parser.add_argument("--dev",                  action="store_true")
+    parser.add_argument("--poses_dir",             required=True)
+    parser.add_argument("--mesh_path",             required=True)
+    parser.add_argument("--intrinsics_path",       required=True)
+    parser.add_argument("--weights_dir",           required=True)
+    parser.add_argument("--output_dir",            required=True)
+    parser.add_argument("--masks_folder",          default=None)
+    parser.add_argument("--process_noise_xy",      type=float, default=0.005)
+    parser.add_argument("--process_noise_z",       type=float, default=0.005)
+    parser.add_argument("--process_noise_r",       type=float, default=0.01)
+    parser.add_argument("--measurement_noise_xy",  type=float, default=0.02)
+    parser.add_argument("--measurement_noise_z",   type=float, default=0.1)
+    parser.add_argument("--measurement_noise_r",   type=float, default=0.05)
+    parser.add_argument("--min_iou",               type=float, default=0.1)
+    parser.add_argument("--dev",                   action="store_true")
     args = parser.parse_args()
     run_ekf_smoothing(
         args.poses_dir,
@@ -70,9 +76,11 @@ if __name__ == "__main__":
         args.weights_dir,
         args.output_dir,
         masks_folder=args.masks_folder,
-        process_noise_t=args.process_noise_t,
+        process_noise_xy=args.process_noise_xy,
+        process_noise_z=args.process_noise_z,
         process_noise_r=args.process_noise_r,
-        measurement_noise_t=args.measurement_noise_t,
+        measurement_noise_xy=args.measurement_noise_xy,
+        measurement_noise_z=args.measurement_noise_z,
         measurement_noise_r=args.measurement_noise_r,
         min_iou=args.min_iou,
         dev=args.dev,

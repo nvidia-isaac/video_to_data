@@ -13,6 +13,12 @@ Measurement noise is optionally scaled by per-frame mask IoU: low-IoU frames
 The RTS (Rauch-Tung-Striebel) backward smoother pass gives the globally
 optimal estimate conditioned on all observations, not just past frames.
 
+Translation noise is anisotropic: separate XY (lateral) and Z (depth)
+parameters are exposed because monocular depth estimates have systematically
+higher noise along the optical axis than laterally. Increasing
+measurement_noise_z relative to measurement_noise_xy causes the filter to
+smooth depth more aggressively while leaving lateral estimates largely intact.
+
 Tuning guidance:
   process_noise_*      — how much the pose can change per frame; increase for
                          fast-moving objects, decrease to enforce more smoothness
@@ -98,9 +104,11 @@ def _eskf_rts(
     translations: np.ndarray,   # (N, 3)
     rotations: list[Rotation],  # N elements
     iou_scores: np.ndarray,     # (N,) in [0, 1]
-    process_noise_t: float,
+    process_noise_xy: float,
+    process_noise_z: float,
     process_noise_r: float,
-    measurement_noise_t: float,
+    measurement_noise_xy: float,
+    measurement_noise_z: float,
     measurement_noise_r: float,
     min_iou: float,
 ) -> tuple[np.ndarray, list[Rotation]]:
@@ -109,15 +117,24 @@ def _eskf_rts(
 
     Process model: random walk for both translation and rotation.
     Rotation is handled in error-state (so(3) perturbation) space.
+    Translation uses anisotropic noise: XY (lateral) and Z (depth) are
+    tuned separately because monocular depth has higher uncertainty along
+    the optical axis.
 
     Returns:
         t_smooth: (N, 3) smoothed translations
         r_smooth: list of N smoothed Rotation objects
     """
     N = len(translations)
-    Q_t = process_noise_t ** 2 * np.eye(3)
+    Q_t = np.diag([process_noise_xy ** 2, process_noise_xy ** 2, process_noise_z ** 2])
     Q_r = process_noise_r ** 2 * np.eye(3)
     I3 = np.eye(3)
+
+    def _R_t(iou: float) -> np.ndarray:
+        s = 1.0 / iou
+        return np.diag([(measurement_noise_xy * s) ** 2,
+                        (measurement_noise_xy * s) ** 2,
+                        (measurement_noise_z  * s) ** 2])
 
     # Forward pass storage
     t_filt   = np.zeros((N, 3))
@@ -132,14 +149,14 @@ def _eskf_rts(
     # Initialise with first measurement; uncertainty = measurement noise
     iou0 = max(float(iou_scores[0]), min_iou)
     t_filt[0]   = translations[0]
-    P_t_filt[0] = (measurement_noise_t / iou0) ** 2 * I3
+    P_t_filt[0] = _R_t(iou0)
     r_filt[0]   = rotations[0]
     P_r_filt[0] = (measurement_noise_r / iou0) ** 2 * I3
 
     # ---- Forward pass ----
     for k in range(1, N):
         iou   = max(float(iou_scores[k]), min_iou)
-        R_t_k = (measurement_noise_t / iou) ** 2 * I3
+        R_t_k = _R_t(iou)
         R_r_k = (measurement_noise_r / iou) ** 2 * I3
 
         # Predict (random walk — nominal rotation carries forward unchanged)
@@ -199,9 +216,11 @@ def run_ekf_smoothing(
     weights_dir: str,
     output_dir: str,
     masks_folder: str = None,
-    process_noise_t: float = 0.005,
+    process_noise_xy: float = 0.005,
+    process_noise_z: float = 0.005,
     process_noise_r: float = 0.01,
-    measurement_noise_t: float = 0.02,
+    measurement_noise_xy: float = 0.02,
+    measurement_noise_z: float = 0.1,
     measurement_noise_r: float = 0.05,
     min_iou: float = 0.1,
 ) -> None:
@@ -215,14 +234,21 @@ def run_ekf_smoothing(
         output_dir:            Destination for smoothed pose JSON files.
         masks_folder:          Optional SAM2 mask folder for IoU-weighted noise.
                                If None, all frames are weighted equally.
-        process_noise_t:       Translation random-walk std per frame (metres).
+        process_noise_xy:      Lateral (X, Y) random-walk std per frame (metres).
                                Default 0.005.
+        process_noise_z:       Depth (Z) random-walk std per frame (metres).
+                               Default 0.005 — same as XY, since process noise
+                               models true object dynamics (isotropic).
         process_noise_r:       Rotation random-walk std per frame (radians).
                                Default 0.01.
-        measurement_noise_t:   Baseline translation measurement std (metres).
-                               Increase to smooth more aggressively. Default 0.02.
+        measurement_noise_xy:  Baseline lateral measurement std (metres).
+                               Default 0.02.
+        measurement_noise_z:   Baseline depth measurement std (metres).
+                               Default 0.1 — set higher than XY to reflect
+                               monocular depth uncertainty along the optical axis;
+                               increase further to smooth Z more aggressively.
         measurement_noise_r:   Baseline rotation measurement std (radians).
-                               Increase to smooth more aggressively. Default 0.05.
+                               Default 0.05.
         min_iou:               IoU floor to cap measurement noise on occluded
                                frames. Default 0.1.
     """
@@ -241,9 +267,11 @@ def run_ekf_smoothing(
     logger.info("Running ESKF forward pass + RTS backward smoother...")
     t_smooth, r_smooth = _eskf_rts(
         translations, rotations, iou_scores,
-        process_noise_t=process_noise_t,
+        process_noise_xy=process_noise_xy,
+        process_noise_z=process_noise_z,
         process_noise_r=process_noise_r,
-        measurement_noise_t=measurement_noise_t,
+        measurement_noise_xy=measurement_noise_xy,
+        measurement_noise_z=measurement_noise_z,
         measurement_noise_r=measurement_noise_r,
         min_iou=min_iou,
     )
@@ -267,12 +295,14 @@ if __name__ == "__main__":
     parser.add_argument("--intrinsics_path",      required=True)
     parser.add_argument("--weights_dir",          required=True)
     parser.add_argument("--output_dir",           required=True)
-    parser.add_argument("--masks_folder",         default=None)
-    parser.add_argument("--process_noise_t",      type=float, default=0.005)
-    parser.add_argument("--process_noise_r",      type=float, default=0.01)
-    parser.add_argument("--measurement_noise_t",  type=float, default=0.02)
-    parser.add_argument("--measurement_noise_r",  type=float, default=0.05)
-    parser.add_argument("--min_iou",              type=float, default=0.1)
+    parser.add_argument("--masks_folder",          default=None)
+    parser.add_argument("--process_noise_xy",      type=float, default=0.005)
+    parser.add_argument("--process_noise_z",       type=float, default=0.005)
+    parser.add_argument("--process_noise_r",       type=float, default=0.01)
+    parser.add_argument("--measurement_noise_xy",  type=float, default=0.02)
+    parser.add_argument("--measurement_noise_z",   type=float, default=0.1)
+    parser.add_argument("--measurement_noise_r",   type=float, default=0.05)
+    parser.add_argument("--min_iou",               type=float, default=0.1)
 
     args = parser.parse_args()
     run_ekf_smoothing(
@@ -282,9 +312,11 @@ if __name__ == "__main__":
         args.weights_dir,
         args.output_dir,
         masks_folder=args.masks_folder,
-        process_noise_t=args.process_noise_t,
+        process_noise_xy=args.process_noise_xy,
+        process_noise_z=args.process_noise_z,
         process_noise_r=args.process_noise_r,
-        measurement_noise_t=args.measurement_noise_t,
+        measurement_noise_xy=args.measurement_noise_xy,
+        measurement_noise_z=args.measurement_noise_z,
         measurement_noise_r=args.measurement_noise_r,
         min_iou=args.min_iou,
     )

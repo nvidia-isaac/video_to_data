@@ -35,7 +35,12 @@ from v2d.foundation_pose.docker.run_render_poses import run_render_poses
 from v2d.foundation_pose.docker.run_video_to_poses import run_video_to_poses
 from v2d.foundation_pose.docker.run_estimate_mesh_scale import run_estimate_mesh_scale
 from v2d.foundation_pose.docker.run_ekf_smoothing import run_ekf_smoothing
+from v2d.foundation_pose.docker.run_correct_depth_scale import run_correct_depth_scale
 from v2d.depth.lib.align_depth_sequence import align_depth_sequence
+from v2d.depth.lib.stabilize_intrinsics import stabilize_intrinsics
+from v2d.mesh.docker.run_mesh_align_depth import run_mesh_align_depth
+from v2d.mesh.docker.run_mesh_transform import run_mesh_transform
+from v2d.common.datatypes import DepthImage, CameraIntrinsics
 
 def _dino_detections_to_sam2_prompts(
     detections_path: str,
@@ -66,8 +71,9 @@ def run_premade_mesh_tracking(
     dino_weights: str,
     reference_frame: int = 40,
     simplify_factor: float | None = None,
-    align_depth: bool = True,
+    align_depth: bool = False,
     estimate_scale: bool = True,
+    correct_depth: bool = False,
 ) -> None:
     """
     Track a pre-made mesh against a video and render per-frame mesh overlays.
@@ -89,6 +95,11 @@ def run_premade_mesh_tracking(
                            aligning each frame to the reference via sparse feature matching.
         estimate_scale:    If True (default), run coarse-to-fine scale estimation to
                            align the mesh scale to the MoGe metric depth before tracking.
+        correct_depth:     If True, after the first FP tracking pass compute a per-frame
+                           depth scale correction (rendered FP depth vs MoGe depth at the
+                           object region) and re-run tracking with corrected depth.
+                           Helps when MoGe underestimates scale for close-up objects.
+                           Default False.
     """
 
     frames_dir       = f"{output_dir}/frames"
@@ -96,8 +107,13 @@ def run_premade_mesh_tracking(
     depth_dir        = f"{output_dir}/depth"
     depth_aligned_dir = f"{output_dir}/depth_aligned"
     intrinsics_dir   = f"{output_dir}/intrinsics"
-    poses_dir      = f"{output_dir}/poses"
-    renders_dir    = f"{output_dir}/renders"
+    poses_dir             = f"{output_dir}/poses"
+    depth_fp_corrected_dir = f"{output_dir}/depth_fp_corrected"
+    poses_corrected_dir   = f"{output_dir}/poses_corrected"
+    renders_dir           = f"{output_dir}/renders"
+
+    intrinsics_stable = f"{output_dir}/intrinsics_stable.json"
+    intrinsics_input = f"{output_dir}/intrinsics_vipe.json"
 
     dino_detections = f"{output_dir}/dino_detections.json"
     sam2_prompts    = f"{output_dir}/sam2_prompts.json"
@@ -108,14 +124,14 @@ def run_premade_mesh_tracking(
     # Step 1: Extract frames
     #   Video → frames/{000000,000001,...}.png
     # -------------------------------------------------------------------------
-    print("Step 1: Extracting frames...")
+    # print("Step 1: Extracting frames...")
     # extract_images(video_path, frames_dir)
 
     # # # # -------------------------------------------------------------------------
     # # # # Step 2: Grounding DINO detection on reference frame
     # # # #   reference frame image + text prompt → bounding box detections JSON
     # # # # -------------------------------------------------------------------------
-    print("Step 2: Grounding DINO detection...")
+    # print("Step 2: Grounding DINO detection...")
     # run_image_to_object_bboxes(
     #     image_path=f"{frames_dir}/{ref}.png",
     #     output_path=dino_detections,
@@ -132,7 +148,7 @@ def run_premade_mesh_tracking(
     # # # # Step 3: SAM2 segmentation
     # # # #   Video + auto-generated prompt → masks/{object_id}/{000000,...}.png
     # # # # -------------------------------------------------------------------------
-    print("Step 3: SAM2 segmentation...")
+    # print("Step 3: SAM2 segmentation...")
     # run_video_to_masks(
     #     video_path=video_path,
     #     prompts_path=sam2_prompts,
@@ -144,80 +160,58 @@ def run_premade_mesh_tracking(
     # # # # Step 4: MoGe depth estimation
     # # # #   Video → depth/{000000,...}.png + intrinsics/{000000,...}.json
     # # # # -------------------------------------------------------------------------
-    print("Step 4: MoGe depth estimation...")
+    # print("Step 4: MoGe depth estimation...")
     # run_video_to_depth(
     #     video_path=video_path,
     #     depth_folder=depth_dir,
     #     intrinsics_folder=intrinsics_dir,
     #     weights_path=moge_weights,
+    #     input_intrinsics_path=intrinsics_input,
     # )
 
-    # # -------------------------------------------------------------------------
-    # # Step 5: Align depth sequence to reference frame
-    # #   Correct per-frame scale drift via sparse SIFT feature matching on
-    # #   background pixels → smoothed per-frame scale in log-space → depth_aligned/
-    # # # -------------------------------------------------------------------------
-    # if align_depth:
-    #     print("Step 5: Aligning depth sequence to reference frame...")
-    #     align_depth_sequence(
-    #         depth_folder=depth_dir,
-    #         frames_folder=frames_dir,
-    #         masks_folder=f"{masks_dir}/{object_id}",
-    #         output_folder=depth_aligned_dir,
-    #         reference_frame=reference_frame,
-    #     )
-    #     tracking_depth_dir = depth_aligned_dir
-    # else:
-    #     print("Step 5: Skipping depth alignment.")
-    #     tracking_depth_dir = depth_dir
-    tracking_depth_dir = depth_aligned_dir
-    # # # ----------------------------    ---------------------------------------------
-    # # # Step 6: Simplify mesh (optional)
-    # # #   Reduce polygon count for faster FoundationPose tracking.
-    # # # # -------------------------------------------------------------------------
-    tracking_mesh = mesh_path
-    # # -------------------------------------------------------------------------
-    # # Step 6: Estimate mesh scale
-    # #   Coarse-to-fine grid search: register mesh at candidate scales, score
-    # #   rendered depth/mask against MoGe depth/SAM2 mask → rescaled_mesh.obj
-    # # -------------------------------------------------------------------------
-    # if estimate_scale:
-    #     print("Step 6: Estimating mesh scale...")
-    #     rescaled_mesh = f"{output_dir}/rescaled_mesh.obj"
-    #     run_estimate_mesh_scale(
-    #         mesh_path=tracking_mesh,
-    #         rgb_path=f"{frames_dir}/{ref}.png",
-    #         depth_path=f"{tracking_depth_dir}/{ref}.png",
-    #         mask_path=f"{masks_dir}/{object_id}/{ref}.png",
-    #         intrinsics_path=f"{intrinsics_dir}/{ref}.json",
-    #         weights_dir=fp_weights,
-    #         scale_path=f"{output_dir}/mesh_scale.json",
-    #         rescaled_mesh_path=rescaled_mesh,
-    #         iou_weight=1.0,
-    #         depth_weight=0.0
-    #     )
-    #     tracking_mesh = rescaled_mesh
-    # else:
-    #     print("Step 6: Skipping scale estimation.")
+    intrinsics_stable = intrinsics_input
+    # -------------------------------------------------------------------------
+    # Step 4b: Stabilise intrinsics
+    #   Median of per-frame fx/fy/cx/cy → single stable intrinsics JSON.
+    #   Avoids per-frame focal-length jitter causing apparent scale changes in FP.
+    # -------------------------------------------------------------------------
+    # print("Step 4b: Stabilising intrinsics...")
+    stabilize_intrinsics(
+        intrinsics_folder=intrinsics_dir,
+        output_path=intrinsics_stable,
+    )
 
+    tracking_depth_dir = depth_dir
     # -------------------------------------------------------------------------
     # Step 7: FoundationPose tracking
     #   Track the mesh across all video frames using MoGe depth + SAM2 masks.
     #   Output: poses/{000000,...}.json  (per-frame Transform3d object-to-camera)
     # -------------------------------------------------------------------------
-    # print("Step 7: FoundationPose tracking...")
-    # run_video_to_poses(
-    #     video_path=video_path,
-    #     depth_folder=tracking_depth_dir,
-    #     masks_folder=f"{masks_dir}/{object_id}",
-    #     camera_intrinsics_path=f"{intrinsics_dir}/{ref}.json",
-    #     mesh_path=tracking_mesh,
-    #     poses_dir=poses_dir,
-    #     weights_dir=fp_weights,
-    #     reference_frame=reference_frame,
-    #     reregister_iou_thresh=0.3
-    # )
-
+    tracking_mesh = mesh_path
+    print("Step 7: FoundationPose tracking...")
+    run_video_to_poses(
+        video_path=video_path,
+        depth_folder=tracking_depth_dir,
+        masks_folder=f"{masks_dir}/{object_id}",
+        camera_intrinsics_path=intrinsics_stable,
+        mesh_path=tracking_mesh,
+        poses_dir=poses_dir,
+        weights_dir=fp_weights,
+        reference_frame=reference_frame,
+        reregister_iou_thresh=0.3,
+        register_iteration=5,
+        track_iteration=5,
+        n_particles=128,
+        particle_process_noise_t = 0.005,
+        particle_process_noise_r = 0.02,
+        particle_iteration = 10
+    )
+    # -------------------------------------------------------------------------
+    # Step 7b+7c: FP-guided depth scale correction (optional)
+    #   Render mesh at each FP pose → compare rendered vs MoGe depth at object
+    #   region → per-frame scale correction → re-track with corrected depth.
+    # -------------------------------------------------------------------------
+    final_poses_dir = poses_dir
     # -------------------------------------------------------------------------
     # Step 8: EKF + RTS pose smoothing
     #   Forward ESKF + RTS backward smoother on the raw FP poses.
@@ -226,18 +220,21 @@ def run_premade_mesh_tracking(
     print("Step 8: EKF smoothing poses...")
     poses_smoothed_dir = f"{output_dir}/poses_smoothed"
     run_ekf_smoothing(
-        poses_dir=poses_dir,
+        poses_dir=final_poses_dir,
         mesh_path=tracking_mesh,
-        intrinsics_path=f"{intrinsics_dir}/{ref}.json",
+        intrinsics_path=intrinsics_stable,
         weights_dir=fp_weights,
         output_dir=poses_smoothed_dir,
         masks_folder=f"{masks_dir}/{object_id}",
-        process_noise_t=0.01,
+        process_noise_xy=0.02,
+        process_noise_z=0.02,
         process_noise_r=0.02,
-        measurement_noise_t=0.02,
+        measurement_noise_xy=0.02,
+        measurement_noise_z=0.1,
         measurement_noise_r=0.05,
         min_iou=0.1,
     )
+    # poses_smoothed_dir = final_poses_dir
 
     # -------------------------------------------------------------------------
     # Step 9: Render mesh overlays
@@ -249,7 +246,7 @@ def run_premade_mesh_tracking(
         mesh_path=tracking_mesh,
         poses_dir=poses_smoothed_dir,
         frames_dir=frames_dir,
-        intrinsics_path=f"{intrinsics_dir}/{ref}.json",
+        intrinsics_path=intrinsics_stable,
         output_dir=renders_dir,
     )
 
@@ -277,7 +274,8 @@ def main():
         d for d in os.listdir(sessions_dir)
         if os.path.isdir(os.path.join(sessions_dir, d))
     )
-    for session in sessions[0:1]:
+    sessions = [s for s in sessions if "Session_20260310_132206" in s]
+    for session in sessions:
         print(f"\n{'='*60}\nProcessing {session}\n{'='*60}")
         run_premade_mesh_tracking(
             video_path=f"{sessions_dir}/{session}/{session}_color.mp4",
@@ -289,6 +287,7 @@ def main():
             moge_weights="data/weights/moge",
             fp_weights="data/weights/foundation_pose",
             dino_weights="data/weights/grounding_dino",
+            correct_depth=False,
         )
 
 

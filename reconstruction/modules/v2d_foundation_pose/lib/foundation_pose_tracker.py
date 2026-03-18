@@ -8,6 +8,10 @@ Lifecycle:
     tracker.reset_to_pose(pose0)   # rewind for backward pass
     pose_bk = tracker.track_one(rgb_prev, depth_prev, intrinsics, iteration=2)
 
+Particle filter tracking (multi-hypothesis):
+    pose1   = tracker.track_one_particles(rgb1, depth1, intrinsics, n_particles=20)
+    pose2   = tracker.track_one_particles(rgb2, depth2, intrinsics, n_particles=20)
+
 Scale estimation:
     scale = tracker.estimate_scale_grid_search(rgb, depth, mask, intrinsics)
     # tracker is now in the best-scale state; use it directly for tracking
@@ -18,6 +22,7 @@ import sys
 
 import numpy as np
 import torch
+from scipy.spatial.transform import Rotation as _Rotation
 
 from v2d.common.datatypes import CameraIntrinsics, DepthImage, Mask, Transform3d
 from v2d.common.datatypes import Image as V2dImage
@@ -29,10 +34,80 @@ sys.path.insert(0, _FP_DIR)
 from estimater import FoundationPose  # noqa: E402
 from learning.training.predict_score import ScorePredictor  # noqa: E402
 from learning.training.predict_pose_refine import PoseRefinePredictor  # noqa: E402
-from Utils import nvdiffrast_render  # noqa: E402
+from Utils import nvdiffrast_render, erode_depth, bilateral_filter_depth, depth2xyzmap_batch  # noqa: E402
 import nvdiffrast.torch as dr  # noqa: E402
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# SE(3) particle filter helpers
+# ---------------------------------------------------------------------------
+
+def _perturb_se3(poses: np.ndarray, sigma_t: float, sigma_r: float) -> np.ndarray:
+    """Add independent SE(3) noise to each pose.
+
+    Translation noise is additive. Rotation noise is a left-perturbation in
+    so(3): R_new = exp(δr) @ R_old, where δr ~ N(0, σ_r² I).
+
+    Args:
+        poses:   (N, 4, 4) float32 poses.
+        sigma_t: Translation std (metres).
+        sigma_r: Rotation std (radians).
+
+    Returns:
+        (N, 4, 4) float32 perturbed poses.
+    """
+    N = len(poses)
+    out = poses.copy()
+    out[:, :3, 3] += np.random.randn(N, 3).astype(np.float32) * sigma_t
+    delta_r = _Rotation.from_rotvec(
+        np.random.randn(N, 3).astype(np.float32) * sigma_r
+    ).as_matrix()                                  # (N, 3, 3)
+    out[:, :3, :3] = (delta_r @ poses[:, :3, :3])
+    return out
+
+
+def _ess(weights: np.ndarray) -> float:
+    """Effective sample size 1 / Σw²."""
+    return 1.0 / float(np.sum(weights ** 2))
+
+
+def _resample(particles: np.ndarray, weights: np.ndarray) -> np.ndarray:
+    """Multinomial resampling."""
+    indices = np.random.choice(len(particles), size=len(particles), p=weights)
+    return particles[indices].copy()
+
+
+def _weighted_mean_se3(particles: np.ndarray, weights: np.ndarray) -> np.ndarray:
+    """Weighted Fréchet mean on SE(3).
+
+    Translation is linearly averaged. Rotation uses iterative geodesic mean
+    on SO(3) (Riemannian gradient descent), converging in ~3 iterations.
+
+    Args:
+        particles: (N, 4, 4) poses.
+        weights:   (N,) normalised weights summing to 1.
+
+    Returns:
+        (4, 4) float32 mean pose.
+    """
+    t_mean = (weights[:, None] * particles[:, :3, 3]).sum(0)
+
+    # Initialise at the highest-weight particle
+    R_mean = _Rotation.from_matrix(particles[int(weights.argmax()), :3, :3])
+    for _ in range(5):
+        # Tangent vectors from R_mean to each particle (left formulation)
+        tangents = (_Rotation.from_matrix(particles[:, :3, :3]) * R_mean.inv()).as_rotvec()
+        mean_tangent = (weights[:, None] * tangents).sum(0)
+        R_mean = _Rotation.from_rotvec(mean_tangent) * R_mean
+        if np.linalg.norm(mean_tangent) < 1e-7:
+            break
+
+    M = np.eye(4, dtype=np.float32)
+    M[:3, :3] = R_mean.as_matrix().astype(np.float32)
+    M[:3, 3] = t_mean.astype(np.float32)
+    return M
 
 
 class FoundationPoseTracker:
@@ -48,6 +123,8 @@ class FoundationPoseTracker:
         self._original_mesh = mesh
         self._mesh = mesh
         self._current_scale = 1.0
+        self._particles: np.ndarray | None = None  # (N, 4, 4) poses in pose_last frame
+        self._weights: np.ndarray | None = None    # (N,) normalised
         self._init_fp(mesh)
 
     def _init_fp(self, mesh: Mesh) -> None:
@@ -135,6 +212,154 @@ class FoundationPoseTracker:
             return pose, True
         return pose, False
 
+    def track_one_particles(
+        self,
+        rgb: V2dImage,
+        depth: DepthImage,
+        intrinsics: CameraIntrinsics,
+        mask: Mask | None = None,
+        n_particles: int = 20,
+        process_noise_t: float = 0.005,
+        process_noise_r: float = 0.02,
+        iteration: int = 3,
+        mask_iou_weight: float = 1.0,
+    ) -> Transform3d:
+        """Track using a particle filter with FP's refiner and scorer as measurement model.
+
+        Each frame: perturb particles → refine (single batched GPU call) →
+        score (single batched GPU call) → optionally weight by mask IoU
+        (single batched render) → softmax weight → conditional resample.
+
+        The scorer captures appearance quality (RGB+depth match); mask IoU adds
+        an independent geometric silhouette constraint that is robust to lateral
+        drift. When mask is provided, the combined log-weight is:
+            log_w_i = scorer_logit_i + mask_iou_weight * log(iou_i + ε)
+
+        Particles are lazily initialised on the first call from pose_last, and
+        cleared by reset_to_pose() so forward/backward passes are independent.
+
+        Args:
+            rgb:              Current frame image.
+            depth:            Current frame depth.
+            intrinsics:       Camera intrinsics.
+            mask:             Optional segmentation mask for IoU weighting.
+                              When provided, particles are additionally weighted
+                              by their silhouette overlap with this mask.
+            n_particles:      Number of particles. Default 20.
+            process_noise_t:  Per-frame translation perturbation std (metres).
+                              Default 0.005.
+            process_noise_r:  Per-frame rotation perturbation std (radians).
+                              Default 0.02.
+            iteration:        Refiner iterations per particle per frame. Default 3.
+            mask_iou_weight:  Log-space weight for the mask IoU term. Default 1.0.
+                              Set to 0.0 to disable mask weighting.
+
+        Returns:
+            Weighted mean pose as Transform3d.
+        """
+        if self._est.pose_last is None:
+            raise RuntimeError("Call register() before track_one_particles()")
+
+        # Lazy-init or reinit if n_particles changed
+        if self._particles is None or len(self._particles) != n_particles:
+            seed = np.tile(
+                self._est.pose_last.cpu().numpy().astype(np.float32),
+                (n_particles, 1, 1),
+            )
+            self._particles = _perturb_se3(seed, process_noise_t, process_noise_r)
+            self._weights = np.full(n_particles, 1.0 / n_particles, dtype=np.float32)
+
+        K = intrinsics.to_matrix()
+
+        # Depth preprocessing — mirrors _est.track_one internals
+        depth_t = torch.as_tensor(depth.depth, device='cuda', dtype=torch.float)
+        depth_t = erode_depth(depth_t, radius=2, device='cuda')
+        depth_t = bilateral_filter_depth(depth_t, radius=2, device='cuda')
+        K_t = torch.as_tensor(K, device='cuda', dtype=torch.float)
+        xyz_map = depth2xyzmap_batch(depth_t[None], K_t[None], zfar=np.inf)[0]
+
+        # 1. Propagate: perturb each particle
+        candidates = _perturb_se3(self._particles, process_noise_t, process_noise_r)
+
+        # 2. Refine: single batched call over all particles
+        with torch.no_grad():
+            refined, _ = self._est.refiner.predict(
+                mesh=self._est.mesh,
+                mesh_tensors=self._est.mesh_tensors,
+                rgb=rgb.data,
+                depth=depth_t,
+                K=K,
+                ob_in_cams=candidates,
+                xyz_map=xyz_map,
+                mesh_diameter=self._est.diameter,
+                glctx=self._glctx,
+                iteration=iteration,
+                get_vis=False,
+            )
+        refined_np = refined.cpu().numpy()
+
+        # 3. Score: single batched call over all particles
+        with torch.no_grad():
+            scores, _ = self._est.scorer.predict(
+                mesh=self._est.mesh,
+                mesh_tensors=self._est.mesh_tensors,
+                rgb=rgb.data,
+                depth=depth_t.cpu().numpy(),
+                K=K,
+                ob_in_cams=refined_np,
+                glctx=self._glctx,
+                mesh_diameter=self._est.diameter,
+                get_vis=False,
+            )
+
+        # 4. Combine scorer logits with optional mask IoU in log-space
+        log_w = scores.cpu().numpy().astype(np.float64)
+
+        if mask is not None and mask_iou_weight > 0.0:
+            # Batch render all N refined particles — one GPU call
+            pose_batch = torch.as_tensor(refined_np, device='cuda', dtype=torch.float)
+            with torch.no_grad():
+                _, rendered_depths, _ = nvdiffrast_render(
+                    K, intrinsics.height, intrinsics.width, pose_batch,
+                    glctx=self._glctx,
+                    mesh_tensors=self._est.mesh_tensors,
+                    get_normal=False,
+                )
+            rendered_masks = rendered_depths.cpu().numpy() > 0.001   # (N, H, W)
+            obs_mask = mask.mask.astype(bool)
+            intersection = (obs_mask[None] & rendered_masks).sum(axis=(1, 2))
+            union       = (obs_mask[None] | rendered_masks).sum(axis=(1, 2))
+            iou_scores  = intersection / (union + 1e-6)               # (N,)
+            log_w += mask_iou_weight * np.log(np.maximum(iou_scores, 1e-6))
+            logger.debug(f"  IoU scores — mean={iou_scores.mean():.3f}  min={iou_scores.min():.3f}")
+
+        log_w -= log_w.max()   # numerical stability
+        w = np.exp(log_w)
+        self._weights = (w / w.sum()).astype(np.float32)
+        self._particles = refined_np
+
+        logger.debug(
+            f"Particle filter: ESS={_ess(self._weights):.1f}/{n_particles}  "
+            f"best_score={log_w.max():.3f}"
+        )
+
+        # 5. Conditional resample when diversity collapses
+        if _ess(self._weights) < n_particles / 2.0:
+            logger.debug("Resampling particles")
+            self._particles = _resample(self._particles, self._weights)
+            self._weights = np.full(n_particles, 1.0 / n_particles, dtype=np.float32)
+
+        # 6. Keep pose_last = best particle (maintains reset_to_pose compatibility)
+        best_idx = int(self._weights.argmax())
+        self._est.pose_last = torch.as_tensor(
+            self._particles[best_idx], device='cuda', dtype=torch.float
+        )
+
+        # 7. Return weighted mean as Transform3d
+        mean_centered = _weighted_mean_se3(self._particles, self._weights)
+        mean_pose = mean_centered @ self._est.get_tf_to_centered_mesh().cpu().numpy()
+        return Transform3d.from_matrix(mean_pose)
+
     def _mask_iou(
         self,
         mask: Mask,
@@ -165,6 +390,8 @@ class FoundationPoseTracker:
         """Reset internal pose state. Use before a backward tracking pass."""
         torch.cuda.empty_cache()
         self._est.pose_last = torch.as_tensor(pose.to_matrix(), device='cuda', dtype=torch.float)
+        self._particles = None
+        self._weights = None
 
     def rescale_mesh(self, scale: float) -> None:
         """Rescale the current mesh by `scale` relative to its current size."""
@@ -181,6 +408,8 @@ class FoundationPoseTracker:
         )
         self._mesh = scaled
         self._current_scale = scale
+        self._particles = None
+        self._weights = None
         self._init_fp(scaled)
 
     def _score_scale(
