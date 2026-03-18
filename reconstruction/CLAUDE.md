@@ -174,6 +174,7 @@ from v2d.sam3d.docker.run_image_to_mesh import run_image_to_mesh
 | `v2d_detectron2` | Person detection + IoU tracking from images/video (Detectron2 ViTDet) |
 | `v2d_moge` | Monocular depth + camera intrinsics from video (MoGe model) |
 | `v2d_unidepth` | Monocular depth estimation (UniDepth model) |
+| `v2d_depth_anything` | Monocular depth estimation (Depth Anything V3 model) |
 | `v2d_sam2` | Video segmentation with interactive annotation UI |
 | `v2d_sam3d` | 3D mesh reconstruction from image + mask |
 | `v2d_grounding_dino` | Text-guided object detection → bounding boxes |

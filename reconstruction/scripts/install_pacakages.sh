@@ -12,6 +12,7 @@ pip install -e modules/v2d_depth \
   -e modules/v2d_sam3d/docker \
   -e modules/v2d_unidepth/docker \
   -e modules/v2d_moge/docker \
+  -e modules/v2d_depth_anything/docker \
   -e modules/v2d_nlf/docker \
   -e modules/v2d_foundation_pose/docker \
   -e modules/v2d_foundation_stereo/docker \
