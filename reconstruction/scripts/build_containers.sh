@@ -13,4 +13,12 @@ for module in "${MODULES[@]}"; do
   python -m "v2d.${module}.docker.build"
 done
 
+# These modules use a different package namespace
+echo "Building v2d_cusfm..."
+python modules/v2d_cusfm/docker/build.py
+echo "Building v2d_bundlesdf..."
+python modules/v2d_bundlesdf/docker/build.py
+echo "Building v2d_hoi_object_reconstruction..."
+python modules/v2d_hoi_object_reconstruction/docker/build.py
+
 echo "All containers built successfully."

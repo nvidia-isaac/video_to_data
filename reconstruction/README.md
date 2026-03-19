@@ -53,6 +53,9 @@ run_video_to_depth(
 | **v2d_foundation_stereo** | `run_image_to_depth`, `run_image_list_to_depth`, `run_export_engine`, `run_download_weights`, `run_shell` | Stereo depth (left/right pairs) | `python -m v2d.foundation_stereo.docker.build` | `python -m v2d.foundation_stereo.docker.run_<tool> --args` |
 | **v2d_foundation_pose** | `run_video_to_poses`, `run_render_overlay`, `run_estimate_scale`, `run_align_mesh_scale`, `run_transform_mesh`, `run_simplify_mesh`, `run_download_weights`, `run_shell` | 6D pose tracking, mesh ops | `python -m v2d.foundation_pose.docker.build` | `python -m v2d.foundation_pose.docker.run_<tool> --args` |
 | **v2d_nlf** | `run_video_to_smpl`, `run_render_smpl_overlay`, `run_render_smpl_depth`, `run_align_depth_to_smpl`, `run_align_nlf_to_depth`, `run_download_weights`, `run_shell` | Video → SMPL body model | `python -m v2d.nlf.docker.build` | `python -m v2d.nlf.docker.run_<tool> --args` |
+| **v2d_hoi_object_reconstruction** | `run_reconstruction`, `run_fp_tracking` | End-to-end textured mesh reconstruction from hand-object interaction video (two-stage scan) | `python v2d_hoi_object_reconstruction/docker/build.py` | `python v2d_hoi_object_reconstruction/docker/run_reconstruction.py --args` |
+| **v2d_cusfm** | `run_image_list_to_sfm` | Structure-from-motion: stereo image list → camera poses | `python v2d_cusfm/docker/build.py` | `python v2d_cusfm/docker/run_image_list_to_sfm.py --input_dir ... --output_dir ...` |
+| **v2d_bundlesdf** | `run_reconstruct`, `run_download_weights` | SDF learning + texture baking from pre-computed poses, depth, and masks | `python v2d_bundlesdf/docker/build.py` | `python v2d_bundlesdf/docker/run_reconstruct.py --output_path ... --weights_dir ...` |
 
 ---
 
@@ -72,7 +75,7 @@ Each module exposes a **docker** package (lightweight Python wrappers that build
 
 ```bash
 cd reconstruction
-./install_lightweight.sh
+./scripts/install_pacakages.sh
 ```
 
 Install only the modules you need:
@@ -96,7 +99,9 @@ Or install all docker packages at once (including the example pipeline):
 # From reconstruction/ - install all docker packages + v2d_pipelines in one command
 pip install -e modules/v2d_sam2/docker -e modules/v2d_sam3d/docker -e modules/v2d_unidepth/docker \
   -e modules/v2d_moge/docker -e modules/v2d_nlf/docker -e modules/v2d_foundation_pose/docker \
-  -e modules/v2d_foundation_stereo/docker -e modules/v2d_grounding_dino/docker -e modules/v2d_pipelines
+  -e modules/v2d_foundation_stereo/docker -e modules/v2d_grounding_dino/docker \
+  -e modules/v2d_cusfm/docker -e modules/v2d_bundlesdf/docker \
+  -e modules/v2d_hoi_object_reconstruction/docker -e modules/v2d_pipelines
 ```
 
 This installs `v2d-pipelines` and all docker packages (v2d_pipelines declares them as dependencies). Alternatively:
@@ -294,6 +299,91 @@ Neural layered field: video to SMPL body parameters.
 
 ---
 
+### v2d_hoi_object_reconstruction
+
+End-to-end textured 3D mesh reconstruction from hand-object interaction video using a two-stage scan (object stationary → rotated → stationary).
+
+| Tool | Description |
+|------|-------------|
+| `run_reconstruction` | Full pipeline: CuSFM → depth → mask → Stage-1 NeRF → FoundationPose → Stage-2 NeRF → textured mesh |
+| `run_fp_tracking` | FoundationPose tracking only: center mesh → depth → mask → FP tracking → render overlay |
+
+**Build (from `reconstruction/modules/`):** `python v2d_hoi_object_reconstruction/docker/build.py` (builds the HOI image); `python v2d_bundlesdf/docker/build.py` and `python v2d_cusfm/docker/build.py` build their respective images separately.
+
+**Example (from `reconstruction/`):**
+
+The repo includes example data at `modules/v2d_hoi_object_reconstruction/assets/basketball_example/` (203 stereo frames, 960×600) for quick testing.
+
+```bash
+python modules/v2d_hoi_object_reconstruction/docker/run_reconstruction.py \
+    --mapping_data_dir modules/v2d_hoi_object_reconstruction/assets/basketball_example \
+    --job_dir          data/outputs/hoi_recon/basketball_example \
+    --prompt           "basketball"
+```
+
+**Inputs:** `mapping_data_dir/` — stereo images (`front_stereo_camera_left/`, `front_stereo_camera_right/`), `frames_meta.json`, `frame_metadata.jsonl`
+**Outputs:** `job_dir/merged_recon/textured_mesh.obj` — final textured mesh; `job_dir/stage1_recon/textured_mesh.obj` — Stage-1 mesh
+
+See [`modules/v2d_hoi_object_reconstruction/README.md`](modules/v2d_hoi_object_reconstruction/README.md) for full pipeline details and troubleshooting.
+
+---
+
+### v2d_cusfm
+
+Structure-from-motion using CuSFM. Produces camera poses for a stereo image sequence.
+
+**Inputs:**
+- `input_dir/` — stereo images (e.g. `front_stereo_camera_left/*.jpeg`) and `frames_meta.json` with camera calibration
+
+**Outputs:**
+- `output_dir/keyframes/frames_meta.json` — camera poses for each keyframe
+
+**Build:** `python modules/v2d_cusfm/docker/build.py`
+
+**Example (from `reconstruction/`):**
+
+The repo includes example data at `modules/v2d_hoi_object_reconstruction/assets/basketball_example/` (shared with the HOI reconstruction pipeline).
+
+```bash
+python modules/v2d_cusfm/docker/run_image_list_to_sfm.py \
+    --input_dir  modules/v2d_hoi_object_reconstruction/assets/basketball_example \
+    --output_dir data/outputs/cusfm/basketball_example
+```
+
+---
+
+### v2d_bundlesdf
+
+SDF learning and texture baking from pre-computed camera poses. Takes keyframes with depth and masks, outputs a textured mesh.
+
+> **Note:** This module only covers SDF learning and texture baking. Pose tracking (BundleTrack) is not supported — camera poses must be pre-computed externally (e.g. via `v2d_cusfm`).
+
+**Inputs:**
+- `recon_dir/keyframes.yml` — camera-to-object poses per keyframe
+- `recon_dir/left/` — RGB images (one per keyframe)
+- `recon_dir/depth/` — depth maps (uint16 PNG, one per keyframe)
+- `recon_dir/masks/` — object masks (grayscale PNG, one per keyframe)
+- `config.yaml` — NeRF/SDF config (e.g. `theseus_optimizer_hawk.yaml`)
+
+**Outputs:**
+- `recon_dir/textured_mesh.obj` — final textured mesh (+ `.mtl`, `_0.png` texture atlas)
+- `recon_dir/mesh_cleaned.obj` — untextured SDF mesh
+
+**Build:** `python modules/v2d_bundlesdf/docker/build.py`
+
+**Example (from `reconstruction/`):**
+
+The repo includes example data at `modules/v2d_bundlesdf/assets/stage1_example/` (19 keyframes with RGB, depth, and masks) for quick testing. A per-dataset config with correct intrinsics is required (the default config has Hawk 1920×1200 intrinsics):
+
+```bash
+python modules/v2d_bundlesdf/docker/run_reconstruct.py \
+    --output_path modules/v2d_bundlesdf/assets/stage1_example \
+    --weights_dir data/weights \
+    --config     modules/v2d_bundlesdf/assets/stage1_example/config.yaml
+```
+
+---
+
 ## Build & Execute (Summary)
 
 All modules share the same build pattern. Each Dockerfile uses `reconstruction/modules` as build context (parent of each `v2d_*` folder).
@@ -310,7 +400,9 @@ Example pipeline usage (install `v2d-pipelines` and docker packages; see Setup a
 # From reconstruction/ - install all in one command
 pip install -e modules/v2d_sam2/docker -e modules/v2d_sam3d/docker -e modules/v2d_unidepth/docker \
   -e modules/v2d_moge/docker -e modules/v2d_nlf/docker -e modules/v2d_foundation_pose/docker \
-  -e modules/v2d_foundation_stereo/docker -e modules/v2d_grounding_dino/docker -e modules/v2d_pipelines
+  -e modules/v2d_foundation_stereo/docker -e modules/v2d_grounding_dino/docker \
+  -e modules/v2d_cusfm/docker -e modules/v2d_bundlesdf/docker \
+  -e modules/v2d_hoi_object_reconstruction/docker -e modules/v2d_pipelines
 ```
 
 Then run from `reconstruction/` or repo root:

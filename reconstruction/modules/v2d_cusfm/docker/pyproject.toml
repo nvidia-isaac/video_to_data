@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "v2d-cusfm-docker"
+version = "0.1.0"
+description = "Docker orchestration scripts for CuSFM structure-from-motion"
+requires-python = ">=3.10"
+dependencies = ["v2d-docker"]
+
+[tool.setuptools]
+packages = ["v2d_cusfm.docker"]
+
+[tool.setuptools.package-dir]
+"v2d_cusfm.docker" = "."

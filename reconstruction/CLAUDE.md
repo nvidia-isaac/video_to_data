@@ -174,6 +174,8 @@ from v2d.sam3d.docker.run_image_to_mesh import run_image_to_mesh
 | `v2d_foundation_stereo` | Stereo depth estimation from left/right image pairs |
 | `v2d_foundation_pose` | 6D pose tracking + mesh alignment/simplification |
 | `v2d_nlf` | SMPL body model estimation (Neural Layered Fields) |
+| `v2d_cusfm` | Structure-from-motion: stereo image list → camera poses |
+| `v2d_bundlesdf` | SDF learning + texture baking from pre-computed poses, depth, and masks |
 | `v2d_pipelines` | Example end-to-end pipelines (no Docker) |
 
 ### CUDA Targets

@@ -1,0 +1,15 @@
+node_branch_number: 9
+tree_depth_levels: 7
+incremental_build_radius_threshold: 0.1
+weighted_kmeans_number_of_thread: 12
+weighted_kmeans_max_number_of_iterations: 10
+shared_node_levelsup: 2
+min_shared_word_number: 0
+query_result_number: 1
+min_inlier_number: 20
+max_reprojection_error: 10
+remove_duplicate_feature: true
+select_clustering_map_frames: true
+apple_compress_for_super_point: true
+float_node_centroid: true
+max_frame_number_in_memory: 20000
