@@ -387,9 +387,15 @@ class FoundationPoseTracker:
         return intersection / (union + 1e-6)
 
     def reset_to_pose(self, pose: Transform3d) -> None:
-        """Reset internal pose state. Use before a backward tracking pass."""
+        """Reset internal pose state. Use before a backward tracking pass.
+
+        pose is in the caller's frame (with get_tf_to_centered_mesh applied), but
+        pose_last must be stored in the pre-centering frame that track_one expects.
+        """
         torch.cuda.empty_cache()
-        self._est.pose_last = torch.as_tensor(pose.to_matrix(), device='cuda', dtype=torch.float)
+        matrix = torch.as_tensor(pose.to_matrix(), device='cuda', dtype=torch.float)
+        tf_to_center = self._est.get_tf_to_centered_mesh()
+        self._est.pose_last = matrix @ torch.linalg.inv(tf_to_center)
         self._particles = None
         self._weights = None
 
