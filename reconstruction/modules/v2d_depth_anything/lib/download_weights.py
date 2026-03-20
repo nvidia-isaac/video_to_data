@@ -1,7 +1,7 @@
 import os
 from huggingface_hub import snapshot_download
 
-MODEL_REPO = "depth-anything/DA3METRIC-LARGE"
+MODEL_REPO = "depth-anything/DA3NESTED-GIANT-LARGE-1.1"
 
 def download_depth_anything(output_dir: str | None = None) -> None:
     if output_dir is None:

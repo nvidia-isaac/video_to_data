@@ -220,7 +220,7 @@ def run_ekf_smoothing(
     process_noise_z: float = 0.005,
     process_noise_r: float = 0.01,
     measurement_noise_xy: float = 0.02,
-    measurement_noise_z: float = 0.1,
+    measurement_noise_z: float = 0.08,
     measurement_noise_r: float = 0.05,
     min_iou: float = 0.1,
 ) -> None:

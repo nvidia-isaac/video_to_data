@@ -253,13 +253,13 @@ def run_premade_mesh_tracking(
             poses_dir=poses_dir,
             weights_dir=fp_weights,
             reference_frame=reference_frame,
-            reregister_iou_thresh=0.3,
+            reregister_iou_thresh=0.5,
             register_iteration=5,
             track_iteration=5,
             n_particles=128,
             particle_process_noise_t=0.005,
             particle_process_noise_r=0.02,
-            particle_iteration=10,
+            particle_iteration=5,
         )
     else:
         print("Step 9: Skipping (poses already computed)")

@@ -16,6 +16,10 @@ def image_to_depth(
     intrinsics_path: str,
     weights_path: str,
     input_intrinsics_path: str = None,
+    process_res: int = 504,
+    process_res_method: str = "upper_bound_resize",
+    use_ray_pose: bool = False,
+    ref_view_strategy: str = "saddle_balanced",
 ):
     """Process a single image to depth using Depth Anything 3.
 
@@ -28,6 +32,14 @@ def image_to_depth(
                                  known calibrated intrinsics. When provided, the
                                  intrinsics are passed to DA3 as conditioning and
                                  written as output instead of DA3's estimates.
+        process_res:             Resolution cap for inference (default 504).
+        process_res_method:      Resize method: "upper_bound_resize" or "pad_to_square"
+                                 (default "upper_bound_resize").
+        use_ray_pose:            Use ray-based pose estimation instead of the camera
+                                 decoder (default False).
+        ref_view_strategy:       Reference view selection strategy: "saddle_balanced",
+                                 "first", "middle", or "saddle_sim_range"
+                                 (default "saddle_balanced").
     """
     model = _get_model(weights_path)
     os.makedirs(os.path.dirname(os.path.abspath(depth_path)), exist_ok=True)
@@ -36,7 +48,12 @@ def image_to_depth(
     image = Image.open(image_path).convert("RGB")
     h, w = image.height, image.width
 
-    infer_kwargs = {}
+    infer_kwargs = {
+        "process_res": process_res,
+        "process_res_method": process_res_method,
+        "use_ray_pose": use_ray_pose,
+        "ref_view_strategy": ref_view_strategy,
+    }
     known_intrinsics: CameraIntrinsics | None = None
     if input_intrinsics_path is not None:
         known_intrinsics = CameraIntrinsics.load(input_intrinsics_path)
@@ -85,9 +102,17 @@ if __name__ == "__main__":
     parser.add_argument("--intrinsics_path", type=str, required=True, help="Output path for camera intrinsics")
     parser.add_argument("--weights_path", type=str, required=True, help="Path to weights")
     parser.add_argument("--input_intrinsics_path", type=str, default=None, help="Optional known camera intrinsics JSON")
+    parser.add_argument("--process_res", type=int, default=504, help="Resolution cap for inference")
+    parser.add_argument("--process_res_method", type=str, default="upper_bound_resize", help="Resize method for processing")
+    parser.add_argument("--use_ray_pose", action="store_true", help="Use ray-based pose estimation")
+    parser.add_argument("--ref_view_strategy", type=str, default="saddle_balanced", help="Reference view selection strategy")
 
     args = parser.parse_args()
     image_to_depth(
         args.image_path, args.depth_path, args.intrinsics_path, args.weights_path,
         input_intrinsics_path=args.input_intrinsics_path,
+        process_res=args.process_res,
+        process_res_method=args.process_res_method,
+        use_ray_pose=args.use_ray_pose,
+        ref_view_strategy=args.ref_view_strategy,
     )
