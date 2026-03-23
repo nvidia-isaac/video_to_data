@@ -7,6 +7,7 @@ def run_video_to_depth(
     depth_folder: str,
     intrinsics_folder: str,
     weights_path: str,
+    model: str = "nested",
     input_intrinsics_path: str = None,
     process_res: int = 504,
     process_res_method: str = "upper_bound_resize",
@@ -25,6 +26,7 @@ def run_video_to_depth(
         inputs=inputs,
         outputs={"depth_folder": depth_folder, "intrinsics_folder": intrinsics_folder},
         extra_args={
+            "model": model,
             "process_res": process_res,
             "process_res_method": process_res_method,
             "use_ray_pose": use_ray_pose,
@@ -47,6 +49,8 @@ if __name__ == "__main__":
     parser.add_argument("--depth_folder", type=str, required=True)
     parser.add_argument("--intrinsics_folder", type=str, required=True)
     parser.add_argument("--weights_path", type=str, required=True)
+    parser.add_argument("--model", type=str, default="nested", choices=["nested", "metric"],
+                        help="Model variant: 'nested' (default) or 'metric'")
     parser.add_argument("--input_intrinsics_path", type=str, default=None)
     parser.add_argument("--process_res", type=int, default=504)
     parser.add_argument("--process_res_method", type=str, default="upper_bound_resize")
@@ -58,6 +62,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     run_video_to_depth(
         args.video_path, args.depth_folder, args.intrinsics_folder, args.weights_path,
+        model=args.model,
         input_intrinsics_path=args.input_intrinsics_path,
         process_res=args.process_res,
         process_res_method=args.process_res_method,

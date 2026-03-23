@@ -8,6 +8,7 @@ cd "$SCRIPT_DIR/.."
 
 echo "Installing v2d docker packages..."
 pip install -e modules/v2d_depth \
+  -e modules/v2d_viz \
   -e modules/v2d_sam2/docker \
   -e modules/v2d_sam3d/docker \
   -e modules/v2d_unidepth/docker \

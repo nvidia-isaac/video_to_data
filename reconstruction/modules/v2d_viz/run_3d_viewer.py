@@ -5,7 +5,7 @@ Serves an interactive Three.js viewer to inspect unprojected depth point clouds
 and FP mesh poses for a given session.
 
 Usage (from reconstruction/):
-    python tools/depth_3d_viewer/server.py \
+    python -m v2d.viz.run_3d_viewer \
         --mesh_path       data/objects/electric_drill_toy/mesh/textured_mesh.obj \
         --depth_folder    data/objects/electric_drill_toy/sessions/Session_20260310_133326_f50/outputs/depth_moge_aligned \
         --intrinsics_path data/objects/electric_drill_toy/sessions/Session_20260310_133326_f50/outputs/intrinsics_moge_stable.json \
