@@ -469,6 +469,89 @@ class FoundationPoseTracker:
 
         return score
 
+    def align_depth_to_object(
+        self,
+        rgb: V2dImage,
+        depth_raw: DepthImage,
+        mask: Mask,
+        intrinsics: CameraIntrinsics,
+        scale_lo: float = 0.5,
+        scale_hi: float = 2.0,
+        shift_lo: float = -0.5,
+        shift_hi: float = 0.5,
+        n_scale_samples: int = 7,
+        n_shift_samples: int = 5,
+        n_levels: int = 3,
+        iou_weight: float = 1.0,
+        depth_weight: float = 1.0,
+        registration_iterations: int = 5,
+    ) -> DepthImage:
+        """Find the depth affine (scale, shift) that best aligns raw monocular depth to the mesh.
+
+        Searches over D_aligned = scale * D_raw + shift via coarse-to-fine 2D grid search.
+        For each candidate, registers with FP and scores via mask IoU + depth MARE.
+        Leaves the tracker registered at the best-fit depth, ready for tracking.
+
+        Args:
+            rgb:                    Reference frame image.
+            depth_raw:              Raw (uncalibrated) monocular depth.
+            mask:                   Object segmentation mask.
+            intrinsics:             Camera intrinsics.
+            scale_lo:               Lower bound of scale search range. Default 0.5.
+            scale_hi:               Upper bound of scale search range. Default 2.0.
+            shift_lo:               Lower bound of shift search range (metres). Default -0.5.
+            shift_hi:               Upper bound of shift search range (metres). Default 0.5.
+            n_scale_samples:        Scale candidates per level. Default 7.
+            n_shift_samples:        Shift candidates per level. Default 5.
+            n_levels:               Refinement levels. Default 3.
+            iou_weight:             Weight for mask IoU in score. Default 1.0.
+            depth_weight:           Weight for depth MARE in score. Default 1.0.
+            registration_iterations: FP register() iterations per candidate. Default 5.
+
+        Returns:
+            Corrected DepthImage with the best-fitting affine applied.
+        """
+        best_score = -np.inf
+        best_scale = 1.0
+        best_shift = 0.0
+        log_scale_lo = np.log(scale_lo)
+        log_scale_hi = np.log(scale_hi)
+
+        for level in range(n_levels):
+            scales = np.exp(np.linspace(log_scale_lo, log_scale_hi, n_scale_samples))
+            shifts = np.linspace(shift_lo, shift_hi, n_shift_samples)
+
+            for scale in scales:
+                for shift in shifts:
+                    depth_candidate = DepthImage(
+                        depth=np.clip(scale * depth_raw.depth + shift, 0.0, None).astype(np.float32)
+                    )
+                    pose = self.register(rgb, depth_candidate, mask, intrinsics, iteration=registration_iterations)
+                    score = self._score_scale(depth_candidate, mask, intrinsics, pose, iou_weight, depth_weight)
+                    logger.debug(f"  scale={scale:.4f}  shift={shift:.4f}  score={score:.4f}")
+                    if score > best_score:
+                        best_score = score
+                        best_scale = float(scale)
+                        best_shift = float(shift)
+
+            logger.info(
+                f"Level {level + 1}/{n_levels}: "
+                f"best_scale={best_scale:.4f}  best_shift={best_shift:.4f}  score={best_score:.4f}"
+            )
+            log_scale_radius = (log_scale_hi - log_scale_lo) / 4
+            log_scale_lo = np.log(best_scale) - log_scale_radius
+            log_scale_hi = np.log(best_scale) + log_scale_radius
+            shift_radius = (shift_hi - shift_lo) / 4
+            shift_lo = best_shift - shift_radius
+            shift_hi = best_shift + shift_radius
+
+        logger.info(f"Best depth affine: scale={best_scale:.4f}  shift={best_shift:.4f}")
+        corrected = np.clip(best_scale * depth_raw.depth + best_shift, 0.0, None).astype(np.float32)
+        best_depth = DepthImage(depth=corrected)
+        # Leave tracker registered at best depth
+        self.register(rgb, best_depth, mask, intrinsics, iteration=registration_iterations)
+        return best_depth
+
     def estimate_scale_grid_search(
         self,
         rgb: V2dImage,
