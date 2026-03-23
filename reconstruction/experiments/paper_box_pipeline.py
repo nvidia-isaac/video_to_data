@@ -21,9 +21,9 @@ Run from reconstruction/:
 import json
 import os
 
-from v2d.pipelines.extract_images import extract_images
-from v2d.pipelines.frames_to_video import frames_to_video
-from v2d.pipelines.stitch_videos import stitch_videos
+from v2d.common.utils import extract_images
+from v2d.common.utils import frames_to_video
+from v2d.common.utils import stitch_videos
 from v2d.grounding_dino.docker.run_image_to_object_bboxes import run_image_to_object_bboxes
 from v2d.sam2.docker.run_video_to_masks import run_video_to_masks
 from v2d.moge.docker.run_video_to_depth import run_video_to_depth

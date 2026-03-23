@@ -156,7 +156,7 @@ That said, modules can add other module's lib as a direct python dependency to u
 
 ### Composing Pipelines
 
-`v2d_pipelines` has no Docker image — it's a meta-package that imports and chains docker-layer `run_*` functions:
+Pipeline scripts live in `experiments/` and compose docker-layer `run_*` functions directly:
 ```python
 from v2d.detectron2.docker.run_mv_track_bboxes import run_mv_track_bboxes
 from v2d.sam2.docker.run_video_to_masks import run_video_to_masks
@@ -164,11 +164,13 @@ from v2d.moge.docker.run_video_to_depth import run_video_to_depth
 from v2d.sam3d.docker.run_image_to_mesh import run_image_to_mesh
 ```
 
+Video utilities (`extract_images`, `frames_to_video`, `stitch_videos`) live in `v2d.common.utils`.
+
 ### Modules at a Glance
 
 | Module | Purpose |
 |--------|---------|
-| `v2d_common` | Shared datatypes + multi-camera rig config (no Docker) |
+| `v2d_common` | Shared datatypes + video utils (no Docker) |
 | `v2d_io` | Shared I/O: `FrameSource`, video read/write, tiling (no Docker) |
 | `v2d_math` | Shared torch math: projective geometry, rotations (no Docker) |
 | `v2d_detectron2` | Person detection + IoU tracking from images/video (Detectron2 ViTDet) |
@@ -183,7 +185,6 @@ from v2d.sam3d.docker.run_image_to_mesh import run_image_to_mesh
 | `v2d_nlf` | SMPL body model estimation (Neural Layered Fields) |
 | `v2d_cusfm` | Structure-from-motion: stereo image list → camera poses |
 | `v2d_bundlesdf` | SDF learning + texture baking from pre-computed poses, depth, and masks |
-| `v2d_pipelines` | Example end-to-end pipelines (no Docker) |
 
 ### Multi-View Config Pattern
 

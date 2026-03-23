@@ -2,9 +2,7 @@ import json
 import os
 from typing import Literal
 
-from v2d.pipelines.extract_images import extract_images
-from v2d.pipelines.frames_to_video import frames_to_video
-from v2d.pipelines.stitch_videos import stitch_videos
+from v2d.common.utils import extract_images, frames_to_video, stitch_videos
 from v2d.grounding_dino.docker.run_image_to_object_bboxes import run_image_to_object_bboxes
 from v2d.sam2.docker.run_video_to_masks import run_video_to_masks
 from v2d.common.datatypes import BoundingBox, Sam2Prompt, Sam2Prompts
@@ -16,9 +14,6 @@ from v2d.foundation_pose.docker.run_ekf_smoothing import run_ekf_smoothing
 from v2d.foundation_pose.docker.run_correct_depth_scale import run_correct_depth_scale
 from v2d.depth.lib.align_depth_sequence import align_depth_sequence
 from v2d.depth.lib.stabilize_intrinsics import stabilize_intrinsics
-from v2d.pipelines.extract_images import extract_images
-from v2d.pipelines.frames_to_video import frames_to_video
-from v2d.pipelines.stitch_videos import stitch_videos
 from v2d.depth_anything.docker.run_video_to_depth import run_video_to_depth as run_video_to_depth_depth_anything
 from v2d.moge.docker.run_video_to_depth import run_video_to_depth as run_video_to_depth_moge
 
@@ -86,7 +81,7 @@ depth_anything_dir = os.path.join(output_dir, "depth_anything")
 depth_dir_depth_anything = os.path.join(depth_anything_dir, "depth")
 intrinsics_dir_depth_anything = os.path.join(depth_anything_dir, "intrinsics")
 intrinsics_depth_anything_stable_path = os.path.join(depth_anything_dir, "intrinsics_stable.json")
-    
+
 moge_intrinsics_stable_path = os.path.join(output_dir, "moge", "intrinsics_stable.json")
 if False:
     run_video_to_depth_depth_anything(

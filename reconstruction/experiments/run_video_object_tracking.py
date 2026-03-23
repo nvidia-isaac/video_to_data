@@ -13,10 +13,10 @@ Steps:
   9. Render overlays  — mesh + poses + frames → renders/
 
 Run from reconstruction/:
-    python -m v2d.pipelines.run_video_object_tracking
+    python experiments/run_video_object_tracking.py
 """
 
-from v2d.pipelines.extract_images import extract_images
+from v2d.common.utils import extract_images
 from v2d.sam2.docker.run_video_to_masks import run_video_to_masks
 from v2d.moge.docker.run_video_to_depth import run_video_to_depth
 from v2d.sam3d.docker.run_image_to_mesh import run_image_to_mesh

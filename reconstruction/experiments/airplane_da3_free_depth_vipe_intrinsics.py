@@ -13,8 +13,8 @@ Run from reconstruction/:
 
 import os
 
-from v2d.pipelines.frames_to_video import frames_to_video
-from v2d.pipelines.stitch_videos import stitch_videos
+from v2d.common.utils import frames_to_video
+from v2d.common.utils import stitch_videos
 from v2d.depth_anything.docker.run_video_to_depth import run_video_to_depth
 from v2d.foundation_pose.docker.run_video_to_poses import run_video_to_poses
 from v2d.foundation_pose.docker.run_ekf_smoothing import run_ekf_smoothing

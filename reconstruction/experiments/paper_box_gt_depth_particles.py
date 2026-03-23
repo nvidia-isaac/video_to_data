@@ -12,8 +12,8 @@ Run from reconstruction/ after paper_box_pipeline.py:
 
 import os
 
-from v2d.pipelines.frames_to_video import frames_to_video
-from v2d.pipelines.stitch_videos import stitch_videos
+from v2d.common.utils import frames_to_video
+from v2d.common.utils import stitch_videos
 from v2d.foundation_pose.docker.run_video_to_poses import run_video_to_poses
 from v2d.foundation_pose.docker.run_ekf_smoothing import run_ekf_smoothing
 from v2d.foundation_pose.docker.run_render_poses import run_render_poses

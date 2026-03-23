@@ -1,6 +1,6 @@
 """
 Example pipeline composing v2d Docker modules.
-Run from reconstruction/ or repo root: python -m v2d.pipelines.run_example_pipeline
+Run from reconstruction/ or repo root: python experiments/run_example_pipeline.py
 """
 from v2d.moge.docker.run_video_to_depth import run_video_to_depth
 

@@ -1,6 +1,6 @@
 """
 Pipeline: SAM3D image-to-mesh, then render depth, mask, and image.
-Run from reconstruction/: python -m v2d.pipelines.run_sam3d_mesh_render
+Run from reconstruction/: python experiments/run_sam3d_mesh_render.py
 
 Steps:
   1. SAM3D  : image + mask → mesh + transform + intrinsics

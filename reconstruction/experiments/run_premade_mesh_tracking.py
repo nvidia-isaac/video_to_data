@@ -22,7 +22,7 @@ Steps:
 Each step checks for cached outputs and skips if already complete.
 
 Run from reconstruction/:
-    python -m v2d.pipelines.run_premade_mesh_tracking \\
+    python experiments/run_premade_mesh_tracking.py \\
         --video_path  <video> \\
         --mesh_path   <mesh> \\
         --output_dir  <dir> \\
@@ -38,9 +38,7 @@ import json
 import os
 from typing import Literal
 
-from v2d.pipelines.extract_images import extract_images
-from v2d.pipelines.frames_to_video import frames_to_video
-from v2d.pipelines.stitch_videos import stitch_videos
+from v2d.common.utils import extract_images, frames_to_video, stitch_videos
 from v2d.grounding_dino.docker.run_image_to_object_bboxes import run_image_to_object_bboxes
 from v2d.sam2.docker.run_video_to_masks import run_video_to_masks
 from v2d.common.datatypes import BoundingBox, Sam2Prompt, Sam2Prompts
