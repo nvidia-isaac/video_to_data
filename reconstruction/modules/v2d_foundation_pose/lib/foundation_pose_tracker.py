@@ -22,6 +22,7 @@ import sys
 
 import numpy as np
 import torch
+from scipy.spatial import cKDTree as _cKDTree
 from scipy.spatial.transform import Rotation as _Rotation
 
 from v2d.common.datatypes import CameraIntrinsics, DepthImage, Mask, Transform3d
@@ -418,6 +419,57 @@ class FoundationPoseTracker:
         self._weights = None
         self._init_fp(scaled)
 
+    def _chamfer_score(
+        self,
+        obs_depth: np.ndarray,
+        rendered_mask: np.ndarray,
+        intrinsics: CameraIntrinsics,
+        pose: Transform3d,
+        max_pts: int = 5000,
+    ) -> float:
+        """Symmetric Chamfer score between unprojected depth and mesh vertices.
+
+        Unprojects depth pixels inside `rendered_mask` to camera-space 3D points,
+        then computes the symmetric mean Chamfer distance against the mesh vertices
+        transformed to camera space by `pose`.
+
+        Returns exp(-chamfer_dist), so 1.0 is a perfect match and the score
+        decreases as the two point sets diverge.  Returns 0.0 if there are not
+        enough valid depth points.
+        """
+        valid = rendered_mask & (obs_depth > 0.001)
+        if valid.sum() < 10:
+            return 0.0
+
+        fx, fy = intrinsics.fx, intrinsics.fy
+        cx, cy = intrinsics.cx, intrinsics.cy
+        H, W = obs_depth.shape
+        u, v = np.meshgrid(np.arange(W, dtype=np.float32), np.arange(H, dtype=np.float32))
+        z = obs_depth[valid]
+        obs_pts = np.stack([(u[valid] - cx) / fx * z,
+                            (v[valid] - cy) / fy * z,
+                            z], axis=-1)
+        if len(obs_pts) > max_pts:
+            idx = np.random.choice(len(obs_pts), max_pts, replace=False)
+            obs_pts = obs_pts[idx]
+
+        # Transform mesh vertices to camera space
+        M = pose.to_matrix().astype(np.float64)
+        verts = self._mesh.vertices                                      # (N, 3)
+        verts_h = np.concatenate([verts, np.ones((len(verts), 1))], axis=-1)
+        mesh_pts = (M @ verts_h.T).T[:, :3].astype(np.float32)
+        mesh_pts = mesh_pts[mesh_pts[:, 2] > 0.001]                     # behind-camera cull
+        if len(mesh_pts) == 0:
+            return 0.0
+        if len(mesh_pts) > max_pts:
+            idx = np.random.choice(len(mesh_pts), max_pts, replace=False)
+            mesh_pts = mesh_pts[idx]
+
+        d_obs,  _ = _cKDTree(mesh_pts).query(obs_pts,  k=1)
+        d_mesh, _ = _cKDTree(obs_pts).query(mesh_pts, k=1)
+        chamfer = float(np.mean(d_obs) + np.mean(d_mesh))
+        return float(np.exp(-chamfer))
+
     def _score_scale(
         self,
         depth: DepthImage,
@@ -426,6 +478,7 @@ class FoundationPoseTracker:
         pose: Transform3d,
         iou_weight: float = 1.0,
         depth_weight: float = 1.0,
+        chamfer_weight: float = 0.0,
     ) -> float:
         """Score how well the current mesh scale fits the observed depth and mask.
 
@@ -433,6 +486,9 @@ class FoundationPoseTracker:
           - Mask IoU: overlap between rendered and observed masks.
           - Depth consistency: exp(-MARE) where MARE = median |obs/rendered - 1|
             over valid pixels. Equals 1.0 at perfect match.
+          - Chamfer: exp(-chamfer_dist) where chamfer_dist is the symmetric mean
+            Chamfer distance between depth points (inside rendered mask) and mesh
+            vertices, both in camera space. Equals 1.0 at perfect match.
 
         Returns a higher value for a better fit.
         """
@@ -467,6 +523,9 @@ class FoundationPoseTracker:
                 mare = float(np.median(np.abs(ratios - 1.0)))
                 score += depth_weight * float(np.exp(-mare))
 
+        if chamfer_weight > 0.0:
+            score += chamfer_weight * self._chamfer_score(obs_depth, rendered_mask, intrinsics, pose)
+
         return score
 
     def align_depth_to_object(
@@ -484,12 +543,13 @@ class FoundationPoseTracker:
         n_levels: int = 3,
         iou_weight: float = 1.0,
         depth_weight: float = 1.0,
+        chamfer_weight: float = 0.0,
         registration_iterations: int = 5,
     ) -> DepthImage:
         """Find the depth affine (scale, shift) that best aligns raw monocular depth to the mesh.
 
         Searches over D_aligned = scale * D_raw + shift via coarse-to-fine 2D grid search.
-        For each candidate, registers with FP and scores via mask IoU + depth MARE.
+        For each candidate, registers with FP and scores via mask IoU + depth MARE + Chamfer.
         Leaves the tracker registered at the best-fit depth, ready for tracking.
 
         Args:
@@ -506,6 +566,7 @@ class FoundationPoseTracker:
             n_levels:               Refinement levels. Default 3.
             iou_weight:             Weight for mask IoU in score. Default 1.0.
             depth_weight:           Weight for depth MARE in score. Default 1.0.
+            chamfer_weight:         Weight for Chamfer distance score. Default 0.0 (disabled).
             registration_iterations: FP register() iterations per candidate. Default 5.
 
         Returns:
@@ -527,7 +588,7 @@ class FoundationPoseTracker:
                         depth=np.clip(scale * depth_raw.depth + shift, 0.0, None).astype(np.float32)
                     )
                     pose = self.register(rgb, depth_candidate, mask, intrinsics, iteration=registration_iterations)
-                    score = self._score_scale(depth_candidate, mask, intrinsics, pose, iou_weight, depth_weight)
+                    score = self._score_scale(depth_candidate, mask, intrinsics, pose, iou_weight, depth_weight, chamfer_weight)
                     logger.debug(f"  scale={scale:.4f}  shift={shift:.4f}  score={score:.4f}")
                     if score > best_score:
                         best_score = score
@@ -564,6 +625,7 @@ class FoundationPoseTracker:
         n_levels: int = 3,
         iou_weight: float = 1.0,
         depth_weight: float = 1.0,
+        chamfer_weight: float = 0.0,
         registration_iterations: int = 5,
     ) -> float:
         """Coarse-to-fine grid search for the optimal mesh scale.
@@ -589,6 +651,10 @@ class FoundationPoseTracker:
             n_levels:               Refinement levels. Default 3.
             iou_weight:             Weight for mask IoU in the score. Default 1.0.
             depth_weight:           Weight for depth consistency in the score. Default 1.0.
+            chamfer_weight:         Weight for Chamfer distance score. Computes symmetric
+                                    mean Chamfer distance between depth points (inside rendered
+                                    mask) and mesh vertices in camera space, scored as
+                                    exp(-chamfer_dist). Default 0.0 (disabled).
             registration_iterations: FP register() iterations per candidate. Default 5.
 
         Returns:
@@ -605,7 +671,7 @@ class FoundationPoseTracker:
             for scale in scales:
                 self.rescale_to(scale)
                 pose = self.register(rgb, depth, mask, intrinsics, iteration=registration_iterations)
-                score = self._score_scale(depth, mask, intrinsics, pose, iou_weight, depth_weight)
+                score = self._score_scale(depth, mask, intrinsics, pose, iou_weight, depth_weight, chamfer_weight)
                 logger.debug(f"  scale={scale:.4f}  score={score:.4f}")
                 if score > best_score:
                     best_score = score

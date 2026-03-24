@@ -37,6 +37,7 @@ def run_estimate_mesh_scale(
     n_levels: int = 3,
     iou_weight: float = 1.0,
     depth_weight: float = 1.0,
+    chamfer_weight: float = 0.0,
     registration_iterations: int = 5,
 ) -> float:
     """Estimate mesh scale via coarse-to-fine grid search.
@@ -56,6 +57,10 @@ def run_estimate_mesh_scale(
         n_levels:                Refinement levels. Default 3.
         iou_weight:              Weight for mask IoU score component. Default 1.0.
         depth_weight:            Weight for depth consistency score component. Default 1.0.
+        chamfer_weight:          Weight for Chamfer distance score component. Symmetric mean
+                                 Chamfer distance between depth points (inside rendered mask)
+                                 and mesh vertices in camera space, scored as
+                                 exp(-chamfer_dist). Default 0.0 (disabled).
         registration_iterations: FP register() iterations per candidate. Default 5.
 
     Returns:
@@ -78,6 +83,7 @@ def run_estimate_mesh_scale(
         lo=lo, hi=hi,
         n_samples=n_samples, n_levels=n_levels,
         iou_weight=iou_weight, depth_weight=depth_weight,
+        chamfer_weight=chamfer_weight,
         registration_iterations=registration_iterations,
     )
     logger.info(f"Best scale: {scale:.4f}")
@@ -110,6 +116,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_levels", type=int, default=3)
     parser.add_argument("--iou_weight", type=float, default=1.0)
     parser.add_argument("--depth_weight", type=float, default=1.0)
+    parser.add_argument("--chamfer_weight", type=float, default=0.0)
     parser.add_argument("--registration_iterations", type=int, default=5)
 
     args = parser.parse_args()
@@ -128,5 +135,6 @@ if __name__ == "__main__":
         n_levels=args.n_levels,
         iou_weight=args.iou_weight,
         depth_weight=args.depth_weight,
+        chamfer_weight=args.chamfer_weight,
         registration_iterations=args.registration_iterations,
     )

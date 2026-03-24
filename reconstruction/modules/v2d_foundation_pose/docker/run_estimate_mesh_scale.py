@@ -18,6 +18,7 @@ def run_estimate_mesh_scale(
     n_levels: int = 3,
     iou_weight: float = 1.0,
     depth_weight: float = 1.0,
+    chamfer_weight: float = 0.0,
     registration_iterations: int = 5,
     dev: bool = False,
 ) -> None:
@@ -46,6 +47,7 @@ def run_estimate_mesh_scale(
             "n_levels": n_levels,
             "iou_weight": iou_weight,
             "depth_weight": depth_weight,
+            "chamfer_weight": chamfer_weight,
             "registration_iterations": registration_iterations,
         },
         dev=dev,
@@ -73,6 +75,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_levels", type=int, default=3)
     parser.add_argument("--iou_weight", type=float, default=1.0)
     parser.add_argument("--depth_weight", type=float, default=1.0)
+    parser.add_argument("--chamfer_weight", type=float, default=0.0)
     parser.add_argument("--registration_iterations", type=int, default=5)
     parser.add_argument("--dev", action="store_true")
     args = parser.parse_args()
@@ -91,6 +94,7 @@ if __name__ == "__main__":
         n_levels=args.n_levels,
         iou_weight=args.iou_weight,
         depth_weight=args.depth_weight,
+        chamfer_weight=args.chamfer_weight,
         registration_iterations=args.registration_iterations,
         dev=args.dev,
     )

@@ -16,6 +16,7 @@ def extract_images(video_path: str, output_folder: str) -> int:
     subprocess.run([
         "ffmpeg", "-y",
         "-i", video_path,
+        "-start_number", "0",
         os.path.join(os.path.abspath(output_folder), "%06d.png"),
     ], check=True)
     return len(glob.glob(os.path.join(output_folder, "*.png")))
