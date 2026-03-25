@@ -1,0 +1,32 @@
+connected_keyframe_num: 1
+## one stereo dataset, dictionary is very small, old 50 is for 8 camera large dataset
+loop_closure_min_words: 1
+loop_closure_query_count: 20
+# ratio = loop_closure_interval_time / whole_session_time
+loop_closure_interval_ratio: 0.08
+use_incremental: true
+loop_residual_weight: 0.25
+good_loop_threshold: 25
+num_votes: 1
+use_switchable_pgo: true
+## 2e-2 to 2e-3, small value prune more loop, larger keep more loop
+confidence_to_pose_error_ratio: 2e-3
+loop_edge_prune_threshold: 0.25
+## filter loop edge by relative pose norm
+loop_edge_translation_threshold_meters: 3
+loop_edge_rotation_threshold_degrees: 60
+use_sequential_edge_pose_estimation: false
+optimization_config {
+  # TRIVIAL
+  # SOFT_L1
+  # CAUCHY
+  loss_type: CAUCHY
+  loss_function_scale: 1.0
+  minimizer_progress_to_stdout: true
+  max_num_iterations: 200
+  max_linear_solver_iterations: 100
+  num_threads: 8
+  absolute_position_constraint_error_meters: 1
+  reprojection_error_standard_deviation: 10
+  verbose: false
+}

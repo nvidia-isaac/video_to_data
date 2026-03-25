@@ -1,0 +1,64 @@
+cuvslam:
+  # Core SLAM settings
+  cfg_enable_slam: true # override: true
+  ros_frame_conversion: true # override: true
+  print_format: "tum" # override: "tum"
+
+  # Performance & throttling
+  max_fps: 0
+  verbosity: 2
+
+  # Image processing & quality
+  cfg_denoising: false
+  cfg_max_frame_delta_s: 0.034
+  cfg_horizontal: false
+
+  # Image masking
+  border_bottom: 0
+  border_left: 0
+  border_right: 0
+  border_top: 0
+
+  # SLAM algorithm configuration
+  cfg_multicam_mode: 2
+  cfg_odom_mode: 0
+  cfg_planar: false
+  cfg_slam_max_map_size: 300
+  cfg_sync_slam: false
+
+  # Processing & error handling
+  ignore_tracking_errors: false
+  repeat: 1
+  start_frame: 0
+  cache_uncompressed: false
+
+  # Depth camera settings
+  cfg_enable_depth_stereo_tracking: false
+  cfg_depth_camera: 0
+  cfg_depth_scale_factor: 1.0
+
+  # Export & debug settings
+  cfg_enable_export: false
+
+  # debug_dump:
+  # - If set to true, logs will be dumped to the standard log directory.
+  # - If set to false, debug dumping is disabled.
+  debug_dump: false
+
+  shuttle: false
+
+  # Localization settings
+  loc_input_map: ""
+  loc_input_hints: ""
+  loc_hint_ts_format: "detect"
+  loc_hint_noise: 0.0
+  loc_random_rot: false
+  loc_retries: 0
+  loc_skip_frames: 0
+  loc_start_frame: 0
+  localize_forever: false
+  localize_wait: false
+  print_nan_on_failure: false
+
+  # Camera selection
+  cameras: ""

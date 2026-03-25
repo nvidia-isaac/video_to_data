@@ -15,6 +15,10 @@ Usage:
         --intrinsics_folder /data/intrinsics \
         --calibration_file /data/calibration.json \
         --model_dir /data/models
+
+    # process a subset of frames (for parallel workers):
+    python -m v2d.foundation_stereo.lib.image_list_to_depth ... --start_idx 0 --end_idx 505
+    python -m v2d.foundation_stereo.lib.image_list_to_depth ... --start_idx 505 --end_idx 1010
 """
 
 import argparse
@@ -86,8 +90,14 @@ def image_list_to_depth(
     intrinsics_folder: str,
     calibration: dict,
     model_dir: str,
+    start_idx: int = 0,
+    end_idx: int | None = None,
 ):
-    """Process all image pairs from left_dir / right_dir and write outputs."""
+    """Process image pairs from left_dir / right_dir and write outputs.
+
+    start_idx / end_idx slice the sorted file list, enabling parallel workers
+    to process non-overlapping frame ranges concurrently.
+    """
     os.makedirs(depth_folder, exist_ok=True)
     os.makedirs(intrinsics_folder, exist_ok=True)
 
@@ -103,6 +113,7 @@ def image_list_to_depth(
         p for p in Path(left_dir).iterdir()
         if p.suffix.lower() in IMAGE_EXTENSIONS
     )
+    left_files = left_files[start_idx:end_idx]
 
     if not left_files:
         raise FileNotFoundError(f"No image files found in left_dir: {left_dir}")
@@ -112,6 +123,12 @@ def image_list_to_depth(
 
     for left_path in left_files:
         stem = left_path.stem
+
+        out_depth = os.path.join(depth_folder, f"{stem}.png")
+        if os.path.exists(out_depth):
+            skipped += 1
+            continue
+
         right_path = _find_matching(right_dir, stem)
         if right_path is None:
             print(f"  [skip] no matching right image for: {left_path.name}")
@@ -171,6 +188,10 @@ def main():
 
     parser.add_argument('--model_dir', required=True,
                         help='Directory containing ONNX/engine files')
+    parser.add_argument('--start_idx', type=int, default=0,
+                        help='Index of first frame to process, inclusive (default: 0)')
+    parser.add_argument('--end_idx', type=int, default=None,
+                        help='Index of last frame to process, exclusive (default: all)')
 
     args = parser.parse_args()
 
@@ -188,6 +209,8 @@ def main():
         intrinsics_folder=args.intrinsics_folder,
         calibration=calibration,
         model_dir=args.model_dir,
+        start_idx=args.start_idx,
+        end_idx=args.end_idx,
     )
 
 
