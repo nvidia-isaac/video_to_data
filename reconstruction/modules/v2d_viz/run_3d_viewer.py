@@ -12,27 +12,72 @@ Usage (from reconstruction/):
         --poses_folder    data/objects/electric_drill_toy/sessions/Session_20260310_133326_f50/outputs/poses_moge_aligned_smoothed \
         [--frames_folder  data/objects/electric_drill_toy/sessions/Session_20260310_133326_f50/outputs/frames] \
         [--masks_folder   data/objects/electric_drill_toy/sessions/Session_20260310_133326_f50/outputs/masks/1] \
+        [--hand_mesh_path data/objects/.../hand/hand_mesh/traj.npz] \
         [--port 5000]
 """
 
 import argparse
 import json
 import os
+from io import BytesIO
 from pathlib import Path
 
 import numpy as np
 from flask import Flask, jsonify, request, send_file, send_from_directory
-from PIL import Image
+from PIL import Image, ImageDraw
 
 # ---------------------------------------------------------------------------
 # Config (populated from CLI args)
 # ---------------------------------------------------------------------------
-MESH_PATH      = None
-DEPTH_FOLDER   = None
+MESH_PATH       = None
+DEPTH_FOLDER    = None
 INTRINSICS_PATH = None
-POSES_FOLDER   = None
-FRAMES_FOLDER  = None
-MASKS_FOLDER   = None
+POSES_FOLDER    = None
+FRAMES_FOLDER   = None
+MASKS_FOLDER    = None
+HAND_MESH_PATH  = None
+
+_hand_data = None       # lazy-loaded NPZ cache
+_obj_verts = None       # parsed OBJ vertices (N, 3)
+_obj_faces = None       # parsed OBJ faces    (M, 3) int indices
+
+
+def _load_hand_data():
+    global _hand_data
+    if _hand_data is None and HAND_MESH_PATH:
+        _hand_data = np.load(HAND_MESH_PATH, allow_pickle=True)
+    return _hand_data
+
+
+def _load_obj_geometry() -> tuple[np.ndarray | None, np.ndarray | None]:
+    """Parse OBJ file once and cache (verts, faces) as numpy arrays."""
+    global _obj_verts, _obj_faces
+    if _obj_verts is None and MESH_PATH and os.path.exists(MESH_PATH):
+        verts, faces = [], []
+        with open(MESH_PATH) as f:
+            for line in f:
+                parts = line.split()
+                if not parts:
+                    continue
+                if parts[0] == 'v' and len(parts) >= 4:
+                    verts.append([float(parts[1]), float(parts[2]), float(parts[3])])
+                elif parts[0] == 'f' and len(parts) >= 4:
+                    faces.append([int(p.split('/')[0]) - 1 for p in parts[1:4]])
+        _obj_verts = np.array(verts, dtype=np.float32)
+        _obj_faces = np.array(faces, dtype=np.int32)
+    return _obj_verts, _obj_faces
+
+
+def _project_to_image(pts_cv: np.ndarray, intrinsics: dict) -> tuple[np.ndarray, np.ndarray]:
+    """(N,3) CV-space points → (N,2) pixel coords + boolean valid mask (z > 0.01)."""
+    fx, fy = intrinsics['fx'], intrinsics['fy']
+    cx, cy = intrinsics['cx'], intrinsics['cy']
+    z = pts_cv[:, 2]
+    valid = z > 0.01
+    z_safe = np.where(valid, z, 1.0)
+    u = fx * pts_cv[:, 0] / z_safe + cx
+    v = fy * pts_cv[:, 1] / z_safe + cy
+    return np.stack([u, v], axis=-1), valid
 
 app = Flask(__name__, static_folder="static")
 
@@ -237,6 +282,123 @@ def get_mesh_asset(filename):
     return send_from_directory(mesh_dir, filename)
 
 
+@app.route("/api/hand/<int:frame_id>")
+def get_hand(frame_id):
+    """Return hand mesh vertices and faces for a frame, in Three.js space."""
+    data = _load_hand_data()
+    if data is None:
+        return jsonify({"hands": []})
+
+    verts     = data["verts"]      # (n_hands, n_frames, n_verts, 3) — CV camera space, metres
+    is_right  = data["is_right"]   # (n_hands, n_frames)
+    vis_mask  = data["vis_mask"]   # (n_hands, n_frames)
+    faces_left  = data["faces_left"].tolist()
+    faces_right = data["faces_right"].tolist()
+
+    n_frames = verts.shape[1]
+    if frame_id >= n_frames:
+        return jsonify({"hands": []})
+
+    hands = []
+    for h in range(verts.shape[0]):
+        if not vis_mask[h, frame_id]:
+            continue
+        v_cv    = verts[h, frame_id]          # (n_verts, 3)
+        v_three = cv_to_threejs(v_cv)
+        right   = int(is_right[h, frame_id])
+        hands.append({
+            "is_right": right,
+            "vertices": v_three.tolist(),
+            "faces":    faces_right if right else faces_left,
+        })
+
+    return jsonify({"hands": hands})
+
+
+@app.route("/api/overlay/<int:frame_id>")
+def get_overlay(frame_id):
+    """Return the RGB frame with hand + object mesh overlaid as a JPEG."""
+    if not FRAMES_FOLDER:
+        return jsonify({"error": "no frames folder"}), 404
+    frame_path = Path(FRAMES_FOLDER) / f"{frame_id:06d}.png"
+    if not frame_path.exists():
+        return jsonify({"error": "frame not found"}), 404
+
+    with open(INTRINSICS_PATH) as f:
+        intrinsics = json.load(f)
+    iw, ih = intrinsics['width'], intrinsics['height']
+
+    img = Image.open(frame_path).convert('RGB')
+    if img.size != (iw, ih):
+        img = img.resize((iw, ih))
+
+    overlay = Image.new('RGBA', (iw, ih), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    # --- Hand meshes ---
+    hand_data = _load_hand_data()
+    if hand_data is not None:
+        verts    = hand_data['verts']     # (n_hands, n_frames, n_verts, 3)
+        is_right = hand_data['is_right']  # (n_hands, n_frames)
+        vis_mask = hand_data['vis_mask']  # (n_hands, n_frames)
+        n_frames = verts.shape[1]
+        if frame_id < n_frames:
+            for h in range(verts.shape[0]):
+                if not vis_mask[h, frame_id]:
+                    continue
+                v_cv   = verts[h, frame_id]  # (n_verts, 3) — already in CV camera space
+                uv, ok = _project_to_image(v_cv, intrinsics)
+                right  = bool(is_right[h, frame_id])
+                faces  = hand_data['faces_right'] if right else hand_data['faces_left']
+                fill   = (255, 100,  50,  60) if right else ( 50, 150, 255,  60)
+                edge   = (255, 100,  50, 200) if right else ( 50, 150, 255, 200)
+                for tri in faces:
+                    a, b, c = int(tri[0]), int(tri[1]), int(tri[2])
+                    if not (ok[a] and ok[b] and ok[c]):
+                        continue
+                    pts = [(float(uv[a, 0]), float(uv[a, 1])),
+                           (float(uv[b, 0]), float(uv[b, 1])),
+                           (float(uv[c, 0]), float(uv[c, 1]))]
+                    draw.polygon(pts, fill=fill, outline=edge)
+
+    # --- Object mesh ---
+    obj_verts, obj_faces = _load_obj_geometry()
+    if obj_verts is not None and POSES_FOLDER:
+        pose_path = Path(POSES_FOLDER) / f"{frame_id:06d}.json"
+        if pose_path.exists():
+            with open(pose_path) as f:
+                pd = json.load(f)
+            qw, qx, qy, qz = pd['rotation']
+            tx, ty, tz      = pd['translation']
+            sx, sy, sz      = pd['scale']
+            R = np.array([
+                [1-2*qy*qy-2*qz*qz, 2*qx*qy-2*qw*qz,   2*qx*qz+2*qw*qy],
+                [2*qx*qy+2*qw*qz,   1-2*qx*qx-2*qz*qz, 2*qy*qz-2*qw*qx],
+                [2*qx*qz-2*qw*qy,   2*qy*qz+2*qw*qx,   1-2*qx*qx-2*qy*qy],
+            ], dtype=np.float64)
+            v_cam = (R @ np.diag([sx, sy, sz]) @ obj_verts.T).T + np.array([tx, ty, tz])
+            uv, ok = _project_to_image(v_cam, intrinsics)
+            edge   = (80, 255, 80, 200)
+            for tri in obj_faces:
+                a, b, c = int(tri[0]), int(tri[1]), int(tri[2])
+                if not (ok[a] and ok[b] and ok[c]):
+                    continue
+                # Back-face cull: cross product z > 0 means facing away (CV convention)
+                pa, pb, pc = v_cam[a], v_cam[b], v_cam[c]
+                if np.cross(pb - pa, pc - pa)[2] > 0:
+                    continue
+                pts = [(float(uv[a, 0]), float(uv[a, 1])),
+                       (float(uv[b, 0]), float(uv[b, 1])),
+                       (float(uv[c, 0]), float(uv[c, 1]))]
+                draw.polygon(pts, fill=None, outline=edge)
+
+    result = Image.alpha_composite(img.convert('RGBA'), overlay).convert('RGB')
+    buf = BytesIO()
+    result.save(buf, format='JPEG', quality=85)
+    buf.seek(0)
+    return send_file(buf, mimetype='image/jpeg')
+
+
 @app.route("/api/info")
 def get_info():
     with open(INTRINSICS_PATH) as f:
@@ -247,6 +409,7 @@ def get_info():
         "poses_folder":    POSES_FOLDER,
         "has_frames":      FRAMES_FOLDER is not None,
         "has_masks":       MASKS_FOLDER is not None,
+        "has_hands":       HAND_MESH_PATH is not None,
         "intrinsics":      intrinsics,
     })
 
@@ -263,6 +426,7 @@ if __name__ == "__main__":
     parser.add_argument("--poses_folder",    default=None)
     parser.add_argument("--frames_folder",   default=None)
     parser.add_argument("--masks_folder",    default=None)
+    parser.add_argument("--hand_mesh_path", default=None)
     parser.add_argument("--port",            type=int, default=5000)
     args = parser.parse_args()
 
@@ -272,6 +436,7 @@ if __name__ == "__main__":
     POSES_FOLDER    = args.poses_folder
     FRAMES_FOLDER   = args.frames_folder
     MASKS_FOLDER    = args.masks_folder
+    HAND_MESH_PATH  = args.hand_mesh_path
 
     print(f"Serving at http://localhost:{args.port}")
     app.run(port=args.port, debug=False)

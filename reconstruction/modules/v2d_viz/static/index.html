@@ -38,6 +38,14 @@
   #canvas-wrap { flex: 1; position: relative; }
   canvas { display: block; }
 
+  #overlay-panel {
+    width: 300px; flex-shrink: 0;
+    background: #1a1a1a; border-left: 1px solid #444;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  #overlay-panel .panel { flex-shrink: 0; }
+  #overlay-img { width: 100%; display: block; flex: 1; object-fit: contain; background: #111; }
+
   #loading {
     position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
     background: rgba(0,0,0,0.7); padding: 12px 20px; border-radius: 6px;
@@ -66,6 +74,7 @@
       <h3>Visibility</h3>
       <button class="toggle-btn on" id="btn-cloud">⬤ Point Cloud</button>
       <button class="toggle-btn on" id="btn-mesh">⬤ Mesh</button>
+      <button class="toggle-btn on" id="btn-hands">⬤ Hands</button>
       <button class="toggle-btn off" id="btn-mask">⬤ Mask (object only)</button>
     </div>
 
@@ -88,6 +97,12 @@
     </div>
 
     <div class="panel">
+      <h3>Hands</h3>
+      <label>Opacity</label>
+      <input type="range" id="hand-opacity" min="0" max="1" step="0.05" value="0.7">
+    </div>
+
+    <div class="panel">
       <h3>Info</h3>
       <div id="pose-info">—</div>
     </div>
@@ -97,6 +112,13 @@
 
   <div id="canvas-wrap">
     <div id="loading">Loading frame…</div>
+  </div>
+
+  <div id="overlay-panel">
+    <div class="panel" style="flex-shrink:0">
+      <h3>RGB + Mesh Overlay</h3>
+    </div>
+    <img id="overlay-img" alt="overlay">
   </div>
 </div>
 
@@ -173,14 +195,20 @@ animate();
 let frames     = [];
 let cloudObj   = null;
 let meshObj    = null;
+let handObjs   = [];   // array of THREE.Mesh, one per visible hand per frame
 let cloudVis   = true;
 let meshVis    = true;
+let handVis    = true;
 let wireframe  = false;
 let useMask    = false;
 let currentFrame = 0;
 let loadingCloud = false;
 
 const meshMaterials = [];
+const handMaterials = [];  // tracked for opacity control
+
+// Left hand = blue, right hand = orange
+const HAND_COLORS = [0x4488ff, 0xff6633];
 
 
 // ---------------------------------------------------------------------------
@@ -242,6 +270,42 @@ async function loadMesh() {
 
 
 // ---------------------------------------------------------------------------
+// Hand mesh helpers
+// ---------------------------------------------------------------------------
+function disposeHands() {
+  handObjs.forEach(o => {
+    scene.remove(o);
+    o.geometry.dispose();
+    o.material.dispose();
+  });
+  handObjs = [];
+  handMaterials.length = 0;
+}
+
+function buildHandMesh(handData) {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position',
+    new THREE.BufferAttribute(new Float32Array(handData.vertices.flat()), 3));
+  geo.setIndex(handData.faces.flat());
+  geo.computeVertexNormals();
+
+  const color = handData.is_right ? HAND_COLORS[1] : HAND_COLORS[0];
+  const mat = new THREE.MeshPhongMaterial({
+    color,
+    transparent: true,
+    opacity: parseFloat(document.getElementById('hand-opacity').value),
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  handMaterials.push(mat);
+
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.visible = handVis;
+  return mesh;
+}
+
+
+// ---------------------------------------------------------------------------
 // Load point cloud for a frame
 // ---------------------------------------------------------------------------
 async function loadFrame(frameId) {
@@ -252,14 +316,19 @@ async function loadFrame(frameId) {
   const maxPts = document.getElementById('max-pts').value;
 
   try {
-    // Fetch cloud and pose in parallel
-    const [cloudRes, poseRes] = await Promise.all([
+    // Fetch cloud, pose, and hand mesh in parallel; kick off overlay separately (non-blocking)
+    const [cloudRes, poseRes, handRes] = await Promise.all([
       fetch(`/api/pointcloud/${frameId}?max_points=${maxPts}&use_mask=${useMask}`),
       fetch(`/api/pose/${frameId}`),
+      fetch(`/api/hand/${frameId}`),
     ]);
+
+    // Overlay image: set src directly — browser loads asynchronously
+    document.getElementById('overlay-img').src = `/api/overlay/${frameId}?t=${frameId}`;
 
     const cloudData = await cloudRes.json();
     const poseData  = await poseRes.json();
+    const handData  = await handRes.json();
 
     // ----- Point cloud -----
     if (cloudObj) {
@@ -284,6 +353,16 @@ async function loadFrame(frameId) {
     cloudObj = new THREE.Points(geo, mat);
     cloudObj.visible = cloudVis;
     scene.add(cloudObj);
+
+    // ----- Hand meshes -----
+    disposeHands();
+    if (handData && handData.hands) {
+      handData.hands.forEach(h => {
+        const handMesh = buildHandMesh(h);
+        scene.add(handMesh);
+        handObjs.push(handMesh);
+      });
+    }
 
     // ----- Pose / mesh -----
     if (meshObj) {
@@ -379,6 +458,16 @@ document.getElementById('btn-mesh').addEventListener('click', () => {
   meshVis = !meshVis;
   if (meshObj) meshObj.visible = meshVis && !!meshObj.matrix;
   setBtn(document.getElementById('btn-mesh'), meshVis);
+});
+
+document.getElementById('btn-hands').addEventListener('click', () => {
+  handVis = !handVis;
+  handObjs.forEach(o => o.visible = handVis);
+  setBtn(document.getElementById('btn-hands'), handVis);
+});
+
+document.getElementById('hand-opacity').addEventListener('input', e => {
+  handMaterials.forEach(m => m.opacity = parseFloat(e.target.value));
 });
 
 document.getElementById('btn-wireframe').addEventListener('click', () => {
