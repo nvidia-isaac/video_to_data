@@ -17,6 +17,26 @@ from scipy.spatial.transform import Rotation
 
 _pipeline = None
 
+# ---------------------------------------------------------------------------
+# Patch: render_frames defaults the Gaussian backend to "inria" which requires
+# diff_gaussian_rasterization (not installed).  Override to "gsplat" so that
+# texture baking (render_multiview → render_frames) works out of the box.
+# ---------------------------------------------------------------------------
+try:
+    import sam3d_objects.model.backbone.tdfy_dit.utils.render_utils as _render_utils_mod
+    from sam3d_objects.model.backbone.tdfy_dit.representations import Gaussian as _Gaussian
+
+    _orig_render_frames = _render_utils_mod.render_frames
+
+    def _render_frames_gsplat(sample, extrinsics, intrinsics, options={}, **kwargs):
+        if isinstance(sample, _Gaussian) and "backend" not in options:
+            options = {**options, "backend": "gsplat"}
+        return _orig_render_frames(sample, extrinsics, intrinsics, options=options, **kwargs)
+
+    _render_utils_mod.render_frames = _render_frames_gsplat
+except Exception as _e:
+    print(f"Warning: could not patch render_frames backend: {_e}")
+
 def _get_pipeline(weights_dir: str):
     global _pipeline
     if _pipeline is None:
@@ -119,6 +139,31 @@ def _to_opencv_transform(rotation_wxyz: list, translation: list, scale: list) ->
     )
 
 
+def _export_mesh(mesh_scene, mesh_path: str) -> None:
+    """Export a trimesh Scene to the given path.
+
+    For .glb: writes binary GLB bytes directly.
+    For .obj (and any other format): trimesh.Scene.export(file_type='obj')
+    returns a dict of {filename: content} — write the main OBJ under the
+    requested name and all companion files (MTL, textures) beside it so that
+    relative references inside the OBJ/MTL resolve correctly.
+    """
+    ext = os.path.splitext(mesh_path)[1].lower()
+    out_dir = os.path.dirname(os.path.abspath(mesh_path))
+    os.makedirs(out_dir, exist_ok=True)
+
+    if ext == '.glb':
+        with open(mesh_path, "wb") as f:
+            f.write(mesh_scene.export(file_type='glb'))
+        return
+
+    # For OBJ (and other non-GLB formats) pass the file path directly.
+    # trimesh writes the main file AND all companion files (MTL, textures)
+    # into the same directory when given a path string.  Passing file_type='obj'
+    # instead only returns the OBJ text and silently drops the texture images.
+    mesh_scene.export(mesh_path)
+
+
 def _merge_mask_to_rgba(image: np.ndarray, mask: np.ndarray) -> np.ndarray:
     """Merge mask into image alpha channel"""
     mask = mask.astype(np.uint8) * 255
@@ -174,8 +219,7 @@ def image_to_mesh(image_path: str, mask_path: str, mesh_path: str, transform_pat
         height=image_height
     )
 
-    with open(mesh_path, "wb") as f:
-        f.write(mesh_scene.export(file_type='glb'))
+    _export_mesh(mesh_scene, mesh_path)
 
     transform.save(transform_path)
     intrinsics.save(intrinsics_path)
@@ -184,7 +228,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process image to mesh using SAM3D")
     parser.add_argument("--image_path", type=str, required=True, help="Path to input image")
     parser.add_argument("--mask_path", type=str, required=True, help="Path to input mask")
-    parser.add_argument("--mesh_path", type=str, required=True, help="Output path for mesh GLB")
+    parser.add_argument("--mesh_path", type=str, required=True, help="Output path for mesh (.glb or .obj)")
     parser.add_argument("--transform_path", type=str, required=True, help="Output path for transform JSON")
     parser.add_argument("--intrinsics_path", type=str, required=True, help="Output path for intrinsics JSON")
     parser.add_argument("--weights_dir", type=str, required=True, help="Path to weights directory")

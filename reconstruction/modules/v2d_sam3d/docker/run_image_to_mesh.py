@@ -47,7 +47,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process image to mesh using SAM3D")
     parser.add_argument("--image_path", type=str, required=True, help="Path to input image")
     parser.add_argument("--mask_path", type=str, required=True, help="Path to input mask")
-    parser.add_argument("--mesh_path", type=str, required=True, help="Output path for mesh GLB")
+    parser.add_argument("--mesh_path", type=str, required=True, help="Output path for mesh (.glb or .obj)")
     parser.add_argument("--transform_path", type=str, required=True, help="Output path for transform JSON")
     parser.add_argument("--intrinsics_path", type=str, required=True, help="Output path for intrinsics JSON")
     parser.add_argument("--weights_dir", type=str, required=True, help="Path to weights directory")
