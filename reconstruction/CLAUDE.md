@@ -176,6 +176,7 @@ from v2d.sam3d.docker.run_image_to_mesh import run_image_to_mesh
 | `v2d_unidepth` | Monocular depth estimation (UniDepth model) |
 | `v2d_sam2` | Video segmentation with interactive annotation UI |
 | `v2d_sam3d` | 3D mesh reconstruction from image + mask |
+| `v2d_sam3d_body` | Human body pose and shape estimation (SAM3D-Body MHR) |
 | `v2d_grounding_dino` | Text-guided object detection → bounding boxes |
 | `v2d_foundation_stereo` | Stereo depth estimation from left/right image pairs |
 | `v2d_foundation_pose` | 6D pose tracking + mesh alignment/simplification |
@@ -190,7 +191,7 @@ Multi-camera modules (e.g. `v2d_detectron2`) use OmegaConf-based `<mv_config>.ya
 
 ### CUDA Targets
 
-Dockerfiles build native extensions for `TORCH_CUDA_ARCH_LIST="8.0 8.6 8.9 9.0"` (Ampere and Hopper). Modules with native CUDA extensions (pybind11/nvdiffrast/pytorch3d/kaolin): `v2d_sam3d`, `v2d_foundation_pose`.
+Dockerfiles build native extensions for `TORCH_CUDA_ARCH_LIST="8.0 8.6 8.9 9.0"` (Ampere and Hopper). Modules with native CUDA extensions (pybind11/nvdiffrast/pytorch3d/kaolin): `v2d_sam3d`, `v2d_sam3d_body`, `v2d_foundation_pose`.
 
 ### Active Refactor (branch: `jwelsh/refactor-shared-packages`)
 

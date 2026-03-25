@@ -57,6 +57,7 @@ run_video_to_depth(
 | **v2d_cusfm** | `run_image_list_to_sfm` | Structure-from-motion: stereo image list → camera poses | `python v2d_cusfm/docker/build.py` | `python v2d_cusfm/docker/run_image_list_to_sfm.py --input_dir ... --output_dir ...` |
 | **v2d_bundlesdf** | `run_reconstruct`, `run_download_weights` | SDF learning + texture baking from pre-computed poses, depth, and masks | `python v2d_bundlesdf/docker/build.py` | `python v2d_bundlesdf/docker/run_reconstruct.py --output_path ... --weights_dir ...` |
 | **v2d_detectron2** | `run_track_bboxes`, `run_mv_track_bboxes`, `run_download_weights`, `run_shell` | Person detection + IoU tracking (ViTDet) | `python -m v2d.detectron2.docker.build` | `python -m v2d.detectron2.docker.run_<tool> --args` |
+| **v2d_sam3d_body** | `run_estimate_mhr_params`, `run_mv_optimize_mhr_params`, `run_mv_render_mhr_mesh`, `run_download_weights`, `run_shell` | Human body pose & shape (SAM3D-Body MHR) | `python -m v2d.sam3d_body.docker.build` | `python -m v2d.sam3d_body.docker.run_<tool> --args` |
 
 **Shared packages** (no Docker images — installed inside other modules' containers as dependencies):
 
@@ -95,6 +96,7 @@ cd reconstruction
 
 # Install docker packages for the modules you want to use
 pip install -e modules/v2d_sam3d/docker
+pip install -e modules/v2d_sam3d_body/docker
 pip install -e modules/v2d_moge/docker
 pip install -e modules/v2d_sam2/docker
 pip install -e modules/v2d_foundation_pose/docker
@@ -107,10 +109,10 @@ Or install all docker packages at once (including the example pipeline):
 
 ```bash
 # From reconstruction/ - install all docker packages + v2d_pipelines in one command
-pip install -e modules/v2d_sam2/docker -e modules/v2d_sam3d/docker -e modules/v2d_unidepth/docker \
-  -e modules/v2d_moge/docker -e modules/v2d_nlf/docker -e modules/v2d_foundation_pose/docker \
-  -e modules/v2d_foundation_stereo/docker -e modules/v2d_grounding_dino/docker \
-  -e modules/v2d_cusfm/docker -e modules/v2d_bundlesdf/docker \
+pip install -e modules/v2d_sam2/docker -e modules/v2d_sam3d/docker -e modules/v2d_sam3d_body/docker \
+  -e modules/v2d_unidepth/docker -e modules/v2d_moge/docker -e modules/v2d_nlf/docker \
+  -e modules/v2d_foundation_pose/docker -e modules/v2d_foundation_stereo/docker \
+  -e modules/v2d_grounding_dino/docker -e modules/v2d_cusfm/docker -e modules/v2d_bundlesdf/docker \
   -e modules/v2d_hoi_object_reconstruction/docker -e modules/v2d_detectron2/docker \
   -e modules/v2d_pipelines
 ```
@@ -427,6 +429,24 @@ python -m v2d.detectron2.docker.run_track_bboxes \
 
 ---
 
+### v2d_sam3d_body
+
+Human body pose and shape estimation using SAM3D-Body with multi-view MHR (Multi-Hypothesis Recovery) optimization.
+
+| Tool | Function | Description |
+|------|----------|-------------|
+| `run_estimate_mhr_params` | `run_estimate_mhr_params(cam_intrinsics_path, weights_dir, bbox_path, output_params_path, image_dir=None, video_path=None, output_mesh_path=None, debug=-1, dev=False)` | Estimate MHR body parameters from a single camera (image dir or video) |
+| `run_mv_optimize_mhr_params` | `run_mv_optimize_mhr_params(camera_params_path, weights_dir, bbox_dir, output_dir, image_dir=None, video_dir=None, config_path=..., debug=-1, dev=False)` | Multi-view MHR parameter optimization across cameras |
+| `run_mv_render_mhr_mesh` | `run_mv_render_mhr_mesh(data_path, config_path=None, dev=False)` | Render MHR mesh overlay for all cameras |
+| `run_download_weights` | `run_download(output_dir, dev=False)` | Download SAM3D-Body and MoGe-2 weights |
+| `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
+
+**Build:** `python -m v2d.sam3d_body.docker.build`
+**Execute (single-cam):** `python -m v2d.sam3d_body.docker.run_estimate_mhr_params --image_dir ... --cam_intrinsics_path ... --weights_dir ... --bbox_path ... --output_params_path ...`
+**Execute (multi-view):** `python -m v2d.sam3d_body.docker.run_mv_optimize_mhr_params --image_dir ... --camera_params_path ... --weights_dir ... --bbox_dir ... --output_dir ...`
+
+---
+
 ## Build & Execute (Summary)
 
 All modules share the same build pattern. Each Dockerfile uses `reconstruction/modules` as build context (parent of each `v2d_*` folder).
@@ -441,10 +461,10 @@ Example pipeline usage (install `v2d-pipelines` and docker packages; see Setup a
 
 ```bash
 # From reconstruction/ - install all in one command
-pip install -e modules/v2d_sam2/docker -e modules/v2d_sam3d/docker -e modules/v2d_unidepth/docker \
-  -e modules/v2d_moge/docker -e modules/v2d_nlf/docker -e modules/v2d_foundation_pose/docker \
-  -e modules/v2d_foundation_stereo/docker -e modules/v2d_grounding_dino/docker \
-  -e modules/v2d_cusfm/docker -e modules/v2d_bundlesdf/docker \
+pip install -e modules/v2d_sam2/docker -e modules/v2d_sam3d/docker -e modules/v2d_sam3d_body/docker \
+  -e modules/v2d_unidepth/docker -e modules/v2d_moge/docker -e modules/v2d_nlf/docker \
+  -e modules/v2d_foundation_pose/docker -e modules/v2d_foundation_stereo/docker \
+  -e modules/v2d_grounding_dino/docker -e modules/v2d_cusfm/docker -e modules/v2d_bundlesdf/docker \
   -e modules/v2d_hoi_object_reconstruction/docker -e modules/v2d_detectron2/docker \
   -e modules/v2d_pipelines
 ```

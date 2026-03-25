@@ -10,7 +10,7 @@ ENV/
 env/
 
 # Large data directories
-data/
+/data/
 modules/*/data/
 *.pt
 *.pth
@@ -59,4 +59,3 @@ Thumbs.db
 # Logs
 *.log
 .venv
-data

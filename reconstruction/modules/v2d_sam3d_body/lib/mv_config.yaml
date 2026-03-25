@@ -1,0 +1,20 @@
+camera_params_path: ???
+weights_dir: ???
+image_dir: null
+video_dir: null
+bbox_dir: ???
+
+output_dir: ???
+
+rig_config: stereo-4
+cameras: [0, 2, 4, 6]
+
+image_path_template: "${image_dir}/{cam_name}/{side}/image_compressed"
+video_path_template: "${video_dir}/{cam_name}.mp4"
+bbox_path_template: "${bbox_dir}/{cam_name}_bbox_track.pt"
+
+mhr_params_path_template: "${output_dir}/{cam_name}/mhr_params.pt"
+mhr_params_mv_path: "${output_dir}/mhr_params_mv.pt"
+mhr_mesh_mv_path: "${output_dir}/mhr_mesh_mv.pt"
+
+debug: 1
