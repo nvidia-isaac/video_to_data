@@ -3,20 +3,17 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "v2d-common"
+name = "v2d-math"
 version = "0.1.0"
-description = "Common data types shared across v2d services"
+description = "Shared math utilities for v2d modules"
 requires-python = ">=3.10"
 dependencies = [
     "numpy",
-    "Pillow",
-    "pydantic",
-    "scipy",
-    "omegaconf",
+    "torch",
 ]
 
 [tool.setuptools]
-packages = ["v2d.common"]
+packages = ["v2d.math"]
 
 [tool.setuptools.package-dir]
-"v2d.common" = "."
+"v2d.math" = "."

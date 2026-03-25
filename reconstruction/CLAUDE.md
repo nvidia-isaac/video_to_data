@@ -110,7 +110,8 @@ The core design pattern: **host Python orchestrates, containers infer**.
 
 - **Host installs** (`modules/v2d_*/docker/`): Zero ML dependencies. Expose `run_*()` functions that build and execute `docker run` commands. Path resolution, volume mounts, and output directory creation happen here.
 - **Container installs** (`modules/v2d_*/lib/`): Heavy ML code (PyTorch, ONNX, model-specific deps). Never installed on the host.
-- **`v2d_common`**: Shared datatypes used by both layers — `DepthImage`, `CameraIntrinsics`, `Transform3d`, `BoundingBox`, `Point`, `Mask`. Installed on both host and in containers.
+- **`v2d_common`**: Shared datatypes used by both layers — `DepthImage`, `CameraIntrinsics`, `Transform3d`, `BoundingBox`, `Point`, `Mask`, plus `mv_config` (multi-camera rig configs, `CameraParam`, EDEX calibration). Installed on both host and in containers.
+- **`v2d_io`**, **`v2d_math`**: Shared container-side libraries (no Docker images). Installed inside other modules' containers as dependencies.
 
 ### Module Layout
 
@@ -149,6 +150,7 @@ Modules communicate via files, not in-process objects. Outputs are written to fo
 - **Masks**: grayscale PNG
 - **Poses**: `Transform3d` JSON `{rotation, translation, scale}` per frame (object-to-camera)
 - **SMPL**: `.npz` files per frame named `{frame_id:06d}.npz`
+- **Bounding box tracks**: `.pt` file (via `torch.save`) containing dict `{det_cat_id, scores, bbox_track}` with numpy arrays
 
 That said, modules can add other module's lib as a direct python dependency to use in-memory utilities.
 
@@ -156,6 +158,7 @@ That said, modules can add other module's lib as a direct python dependency to u
 
 `v2d_pipelines` has no Docker image — it's a meta-package that imports and chains docker-layer `run_*` functions:
 ```python
+from v2d.detectron2.docker.run_mv_track_bboxes import run_mv_track_bboxes
 from v2d.sam2.docker.run_video_to_masks import run_video_to_masks
 from v2d.moge.docker.run_video_to_depth import run_video_to_depth
 from v2d.sam3d.docker.run_image_to_mesh import run_image_to_mesh
@@ -165,7 +168,10 @@ from v2d.sam3d.docker.run_image_to_mesh import run_image_to_mesh
 
 | Module | Purpose |
 |--------|---------|
-| `v2d_common` | Shared datatypes (no Docker) |
+| `v2d_common` | Shared datatypes + multi-camera rig config (no Docker) |
+| `v2d_io` | Shared I/O: `FrameSource`, video read/write, tiling (no Docker) |
+| `v2d_math` | Shared torch math: projective geometry, rotations (no Docker) |
+| `v2d_detectron2` | Person detection + IoU tracking from images/video (Detectron2 ViTDet) |
 | `v2d_moge` | Monocular depth + camera intrinsics from video (MoGe model) |
 | `v2d_unidepth` | Monocular depth estimation (UniDepth model) |
 | `v2d_sam2` | Video segmentation with interactive annotation UI |
@@ -177,6 +183,10 @@ from v2d.sam3d.docker.run_image_to_mesh import run_image_to_mesh
 | `v2d_cusfm` | Structure-from-motion: stereo image list → camera poses |
 | `v2d_bundlesdf` | SDF learning + texture baking from pre-computed poses, depth, and masks |
 | `v2d_pipelines` | Example end-to-end pipelines (no Docker) |
+
+### Multi-View Config Pattern
+
+Multi-camera modules (e.g. `v2d_detectron2`) use OmegaConf-based `mv_config.yaml` files to define rig layout, path templates, and per-module settings. The config uses `???` placeholders for required paths (`weights_dir`, `output_dir`) that are filled at runtime via CLI overrides merged with `OmegaConf.merge`. Path templates like `${output_dir}/{cam_name}_bbox_track.pt` use OmegaConf interpolation for directory roots and Python `str.format()` for per-camera expansion. The `RigConfig` class (from `v2d_common.mv_config`) loads camera topology from YAML files in `v2d_common/mv_config/rigs/`.
 
 ### CUDA Targets
 

@@ -1,0 +1,31 @@
+cameras:
+  - name: front_stereo_camera_left
+    cam_id: 0
+  - name: front_stereo_camera_right
+    cam_id: 1
+  - name: back_stereo_camera_left
+    cam_id: 2
+  - name: back_stereo_camera_right
+    cam_id: 3
+  - name: left_stereo_camera_left
+    cam_id: 4
+  - name: left_stereo_camera_right
+    cam_id: 5
+  - name: right_stereo_camera_left
+    cam_id: 6
+  - name: right_stereo_camera_right
+    cam_id: 7
+
+stereo_pairs:
+  - name: front
+    left: 0
+    right: 1
+  - name: back
+    left: 2
+    right: 3
+  - name: left
+    left: 4
+    right: 5
+  - name: right
+    left: 6
+    right: 7
