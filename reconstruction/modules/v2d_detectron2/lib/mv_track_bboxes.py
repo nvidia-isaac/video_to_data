@@ -81,8 +81,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--config_path",
         type=str,
-        default=str(Path(__file__).parent / "mv_config.yaml"),
-        help="Path to mv_config.yaml (default: module's built-in config)",
+        default=str(Path(__file__).parent / "mv_track_bboxes.yaml"),
+        help="Path to mv_track_bboxes.yaml (default: module's built-in config)",
     )
     parser.add_argument("--debug", type=int, default=None, help="Debug level override")
     args = parser.parse_args()

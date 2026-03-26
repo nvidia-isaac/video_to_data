@@ -186,7 +186,7 @@ from v2d.sam3d.docker.run_image_to_mesh import run_image_to_mesh
 
 ### Multi-View Config Pattern
 
-Multi-camera modules (e.g. `v2d_detectron2`) use OmegaConf-based `mv_config.yaml` files to define rig layout, path templates, and per-module settings. The config uses `???` placeholders for required paths (`weights_dir`, `output_dir`) that are filled at runtime via CLI overrides merged with `OmegaConf.merge`. Path templates like `${output_dir}/{cam_name}_bbox_track.pt` use OmegaConf interpolation for directory roots and Python `str.format()` for per-camera expansion. The `RigConfig` class (from `v2d_common.mv_config`) loads camera topology from YAML files in `v2d_common/mv_config/rigs/`.
+Multi-camera modules (e.g. `v2d_detectron2`) use OmegaConf-based `<mv_config>.yaml` files to define rig layout, path templates, and per-module settings. The config uses `???` placeholders for required paths (`weights_dir`, `output_dir`) that are filled at runtime via CLI overrides merged with `OmegaConf.merge`. Path templates like `${output_dir}/{cam_name}_bbox_track.pt` use OmegaConf interpolation for directory roots and Python `str.format()` for per-camera expansion. The `RigConfig` class (from `v2d_common.mv_config`) loads camera topology from YAML files in `v2d_common/mv_config/rigs/`.
 
 ### CUDA Targets
 
