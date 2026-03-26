@@ -32,6 +32,7 @@ import json
 import os
 
 import numpy as np
+from scipy.ndimage import gaussian_filter1d
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +269,10 @@ def main():
     parser.add_argument('--align', choices=['scale', 'offset'], default='scale',
                         help='Alignment mode: "scale" (multiplicative, s*z≈z_moge) or '
                              '"offset" (additive, z+d≈z_moge, rigid ray translation). Default: scale')
+    parser.add_argument('--smooth_sigma', type=float, default=0.0,
+                        help='Gaussian sigma (frames) for temporal smoothing of per-frame offsets/scales '
+                             'before applying them. Smoothing fills gaps with the per-hand global median '
+                             'first, then smooths, making it robust to frames with bad image alignment.')
     parser.add_argument('--diag_dir',   default=None,
                         help='If set, save depth comparison images here')
     parser.add_argument('--diag_frames', type=int, nargs='+', default=None,
@@ -371,6 +376,24 @@ def main():
             per_hand_global[h] = float(np.median(per_hand_all_scales[h]))
             print(f"  hand {h}: global median scale={per_hand_global[h]:.4f}  "
                   f"n_frames={len(per_hand_all_scales[h])}")
+
+    # ------------------------------------------------------------------
+    # Optional: temporally smooth per-frame per-hand estimates
+    # Fill missing frames with per-hand global median, then Gaussian-smooth.
+    # This makes alignment robust to frames with poor image alignment.
+    # ------------------------------------------------------------------
+    if args.smooth_sigma > 0 and args.per_hand:
+        print(f"\nSmoothing per-frame per-hand offsets with sigma={args.smooth_sigma} frames...")
+        for h in range(n_hands):
+            fallback = per_hand_global.get(h, global_scale)
+            raw = np.array([
+                per_hand_frame_scales.get((fid, h), fallback)
+                for fid in range(n_frames)
+            ])
+            smoothed = gaussian_filter1d(raw, sigma=args.smooth_sigma)
+            for fid in range(n_frames):
+                per_hand_frame_scales[(fid, h)] = float(smoothed[fid])
+            print(f"  hand {h}: raw std={raw.std():.4f}  smoothed std={smoothed.std():.4f}")
 
     # ------------------------------------------------------------------
     # Pass 2: apply alignment
