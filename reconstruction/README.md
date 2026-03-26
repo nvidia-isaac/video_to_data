@@ -401,14 +401,29 @@ Person detection and IoU-based tracking using Detectron2 ViTDet models. Supports
 
 | Tool | Function | Description |
 |------|----------|-------------|
-| `run_track_bboxes` | `run_track_bboxes(output_dir, image_dir=None, video_path=None, checkpoint_path=None, model_size="b", bbox_thr=0.5, iou_threshold=0.3, max_lost=30, min_hits=3, batch_size=1, debug=0, dev=False)` | Detect + track person bboxes on a single camera (image dir or video) |
+| `run_track_bboxes` | `run_track_bboxes(weights_dir, output_path, image_dir=None, video_path=None, model_size="b", bbox_thr=0.5, iou_threshold=0.3, max_lost=30, min_hits=3, batch_size=1, debug=0, dev=False)` | Detect + track person bboxes on a single camera (image dir or video) |
 | `run_mv_track_bboxes` | `run_mv_track_bboxes(weights_dir, output_dir, image_dir=None, video_dir=None, config_path=..., debug=-1, dev=False)` | Multi-view detection + tracking across cameras defined by rig config |
 | `run_download_weights` | `run_download_weights(output_dir, model_sizes=["b"], dev=False)` | Download ViTDet checkpoint(s) (b/l/h) |
 | `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
 
 **Build:** `python -m v2d.detectron2.docker.build`  
-**Execute (single-cam):** `python -m v2d.detectron2.docker.run_track_bboxes --image_dir ... --output_dir ... --model_size b`  
-**Execute (multi-view):** `python -m v2d.detectron2.docker.run_mv_track_bboxes --image_dir ... --weights_dir data/weights/detectron2 --output_dir data/outputs/detectron2`
+**Execute (single-cam):** `python -m v2d.detectron2.docker.run_track_bboxes --video_path ... --weights_dir ... --output_path ... --model_size b`  
+**Execute (multi-view):** `python -m v2d.detectron2.docker.run_mv_track_bboxes --video_dir ... --weights_dir data/weights/detectron2 --output_dir data/outputs/detectron2`
+
+**Example (single-cam):** From `reconstruction/`:
+
+```bash
+# 1. Download weights
+python -m v2d.detectron2.docker.run_download_weights --output_dir data/weights/detectron2
+
+# 2. Run person detection + tracking (sample video at modules/v2d_detectron2/assets/test_video.mp4)
+python -m v2d.detectron2.docker.run_track_bboxes \
+  --video_path modules/v2d_detectron2/assets/test_video.mp4 \
+  --weights_dir data/weights/detectron2 \
+  --output_path data/outputs/detectron2/bbox_track.pt
+```
+
+**Output:** `bbox_track.pt` — a dict with `{det_cat_id, scores, bbox_track}` (numpy arrays). `bbox_track` has shape `(N, 4)` in `[x1, y1, x2, y2]` format, one row per frame.
 
 ---
 
