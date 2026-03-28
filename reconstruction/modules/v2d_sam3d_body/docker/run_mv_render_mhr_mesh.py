@@ -27,7 +27,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Render MHR mesh overlay for all cameras")
     parser.add_argument("--data_path", type=str, required=True, help="Root data directory")
-    parser.add_argument("--config_path", type=str, default=None, help="Path to mv_config.yaml")
+    parser.add_argument("--config_path", type=str, default=None, help="Path to config YAML")
     parser.add_argument("--dev", action="store_true")
     args = parser.parse_args()
 

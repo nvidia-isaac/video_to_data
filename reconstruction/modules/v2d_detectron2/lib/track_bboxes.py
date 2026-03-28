@@ -11,7 +11,7 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from v2d.io.video import FrameSource, get_video_writer
+from v2d.mv.io.video import FrameSource, get_video_writer
 
 from .build_detector import Detector
 from .tracker import IoUTracker

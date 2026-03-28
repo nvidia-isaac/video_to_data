@@ -10,9 +10,7 @@ requires-python = ">=3.10"
 dependencies = [
     "numpy",
     "Pillow",
-    "pydantic",
     "scipy",
-    "omegaconf",
 ]
 
 [tool.setuptools]

@@ -3,6 +3,7 @@ from typing import Callable
 import numpy as np
 import torch
 import torch.nn.functional as F
+from pytorch3d.ops import knn_points
 
 
 #### Projective Geometry ####
@@ -355,6 +356,30 @@ def matrix_to_rotation_6d(R: torch.Tensor) -> torch.Tensor:
     """
     batch_dim = R.shape[:-2]
     return R[..., :2, :].clone().reshape(batch_dim + (6,))
+
+
+#### Point-Set Distances ####
+
+def chamfer_distance(
+    pts_a: torch.Tensor,
+    pts_b: torch.Tensor,
+) -> float:
+    """Bidirectional chamfer distance (mean of L2 nearest-neighbor distances).
+
+    Requires ``pytorch3d`` at runtime (lazy import).
+
+    Args:
+        pts_a: (N, 3) first point set.
+        pts_b: (M, 3) second point set.
+
+    Returns:
+        Scalar chamfer distance.
+    """
+    a = pts_a.unsqueeze(0)
+    b = pts_b.unsqueeze(0)
+    d_a2b = knn_points(a, b, K=1).dists.sqrt().mean()
+    d_b2a = knn_points(b, a, K=1).dists.sqrt().mean()
+    return (d_a2b + d_b2a).item()
 
 
 #### Loss Functions ####

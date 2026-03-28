@@ -63,9 +63,8 @@ run_video_to_depth(
 
 | Package | Description |
 |---------|-------------|
-| **v2d_common** | Shared datatypes, multi-camera rig config (`RigConfig`, `CameraParam`), EDEX calibration parsing |
-| **v2d_io** | `FrameSource` (lazy image-dir / video reader), video read/write, video tiling |
-| **v2d_math** | Torch math utilities: projective geometry, rotation conversions, interpolation |
+| **v2d_common** | Shared datatypes (`DepthImage`, `CameraIntrinsics`, `Transform3d`, `BoundingBox`, `Mask`, etc.) |
+| **v2d_mv** | Multi-view utilities: rig config (`v2d.mv.rig`), video I/O (`v2d.mv.io`), math (`v2d.mv.math`). Optional deps: `[io]`, `[math]`, `[all]` |
 
 ---
 

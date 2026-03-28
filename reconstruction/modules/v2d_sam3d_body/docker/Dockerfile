@@ -29,8 +29,7 @@ RUN pip install git+https://github.com/microsoft/MoGe.git
 COPY . /workspace
 
 RUN pip install -e /workspace/v2d_common \
-                -e /workspace/v2d_io \
-                -e /workspace/v2d_math \
+                -e /workspace/v2d_mv \
                 -e /workspace/v2d_sam3d_body/lib
 
 # sam_3d_body and tools are accessed via PYTHONPATH (legacy package structure)

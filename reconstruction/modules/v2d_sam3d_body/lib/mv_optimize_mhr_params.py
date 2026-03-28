@@ -18,9 +18,9 @@ from pytorch3d.transforms import (
 import torch
 from tqdm import tqdm
 
-from v2d.common.mv_config import RigConfig
-from v2d.io.video import FrameSource, get_video_writer
-from v2d.math.torch_fn import (
+from v2d.mv.rig import RigConfig
+from v2d.mv.io.video import FrameSource, get_video_writer
+from v2d.mv.math.torch_fn import (
     geman_mcclure_distance,
     l2_distance,
     reproject,
@@ -712,8 +712,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--config_path",
         type=str,
-        default=str(Path(__file__).parent / "mv_config.yaml"),
-        help="Path to mv_config.yaml",
+        default=str(Path(__file__).parent / "mv_optimize_mhr_params.yaml"),
     )
     parser.add_argument("--debug", type=int, default=None, help="Debug level override")
     args = parser.parse_args()

@@ -2,8 +2,8 @@ from pathlib import Path
 
 import torch
 
-from v2d.common.mv_config import RigConfig
-from v2d.io.video import FrameSource
+from v2d.mv.rig import RigConfig
+from v2d.mv.io.video import FrameSource
 
 from .build_detector import Detector
 from .track_bboxes import DetectorConfig, TrackerConfig, track_bboxes

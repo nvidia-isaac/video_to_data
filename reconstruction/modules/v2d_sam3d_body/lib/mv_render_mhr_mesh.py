@@ -10,8 +10,8 @@ pyglet.options['headless'] = True
 import torch
 from tqdm import tqdm
 
-from v2d.common.rig import RigConfig
-from v2d.io.video import FrameSource, get_video_writer
+from v2d.mv.rig import RigConfig
+from v2d.mv.io.video import FrameSource, get_video_writer
 from .renderer import Renderer
 
 
@@ -100,8 +100,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--config_path",
         type=str,
-        default=str(Path(__file__).parent / "mv_config.yaml"),
-        help="Path to mv_config.yaml",
+        default=str(Path(__file__).parent / "mv_optimize_mhr_params.yaml"),
     )
     args = parser.parse_args()
 

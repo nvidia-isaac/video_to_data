@@ -11,7 +11,7 @@ pyglet.options['headless'] = True
 import torch
 from tqdm import tqdm
 
-from v2d.io.video import FrameSource, get_video_writer
+from v2d.mv.io.video import FrameSource, get_video_writer
 
 from sam_3d_body import load_sam_3d_body, SAM3DBodyEstimator
 from .renderer import Renderer
