@@ -1,0 +1,32 @@
+<?xml version="1.0" ?>
+<robot name="capsulemachine">
+   <material name="obj_color">
+      <color rgba="1.0 0.423529411765 0.0392156862745 1.0"/>
+   </material>
+
+   <mujoco>
+      <compiler meshdir="../../meshes/arctic/capsulemachine/" balanceinertia="true" discardvisual="false"/>
+   </mujoco>
+
+   <link name="object">
+      <inertial>
+         <origin xyz="0.05136700289804626 0.07950908968081023 0.03230708184257082" rpy="0.00169385750923834 0.003967045683350672 0.004405174207893504"/>
+         <mass value="1.048362679505015"/>
+         <inertia ixx="0.002888615483331892" ixy="-0.00113440803234408" ixz="4.390395226812951e-05" iyy="0.002773756085873763" iyz="4.527114231560062e-05" izz="0.004403705831276858"/>
+      </inertial>
+      <visual>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/capsulemachine/mesh_tex_tiny.obj" scale="1 1 1"/>
+         </geometry>
+         <material name="obj_color"/>
+      </visual>
+      <collision>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/capsulemachine/mesh_tex_tiny.obj" scale="1 1 1"/>
+         </geometry>
+      </collision>
+   </link>
+
+</robot>

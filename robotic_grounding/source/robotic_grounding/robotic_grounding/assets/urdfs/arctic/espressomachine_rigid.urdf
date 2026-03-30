@@ -1,0 +1,32 @@
+<?xml version="1.0" ?>
+<robot name="espressomachine">
+   <material name="obj_color">
+      <color rgba="1.0 0.423529411765 0.0392156862745 1.0"/>
+   </material>
+
+   <mujoco>
+      <compiler meshdir="../../meshes/arctic/espressomachine/" balanceinertia="true" discardvisual="false"/>
+   </mujoco>
+
+   <link name="object">
+      <inertial>
+         <origin xyz="-0.04169068669083825 -0.03542646983331282 -0.01861851357806351" rpy="0.006824255882152636 0.01152968483575309 0.01501223289888379"/>
+         <mass value="1.892773469188377"/>
+         <inertia ixx="0.009613588437882863" ixy="-0.003859634336621988" ixz="-7.812862557022443e-05" iyy="0.0121859629421628" iyz="0.0004242342099542514" izz="0.01156662223674385"/>
+      </inertial>
+      <visual>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/espressomachine/mesh_tex_tiny.obj" scale="1 1 1"/>
+         </geometry>
+         <material name="obj_color"/>
+      </visual>
+      <collision>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/espressomachine/mesh_tex_tiny.obj" scale="1 1 1"/>
+         </geometry>
+      </collision>
+   </link>
+
+</robot>

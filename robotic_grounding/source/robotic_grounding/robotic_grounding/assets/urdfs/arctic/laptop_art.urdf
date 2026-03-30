@@ -1,0 +1,61 @@
+<?xml version="1.0" ?>
+<robot name="laptop">
+   <material name="obj_color">
+      <color rgba="1.0 0.423529411765 0.0392156862745 1.0"/>
+   </material>
+
+   <mujoco>
+      <compiler meshdir="../../meshes/arctic/laptop/" balanceinertia="true" discardvisual="false"/>
+   </mujoco>
+
+   <!-- ============================================================= -->
+
+   <link name="top">
+      <inertial>
+         <origin rpy="0.000468333199779994 0.001309848016486047 0.001775822402443375" xyz="0.09234436641317699 0.006075113652042829 0.02510462908261365"/>
+         <mass value="0.1507240862464203"/>
+         <inertia ixx="0.001321332813976229" ixy="-7.25507284905277e-05" ixz="-1.021758863557115e-05" iyy="0.001764191022580137" iyz="6.454725224060649e-06" izz="0.0004684797821530495"/>
+      </inertial>
+      <visual>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/laptop/top_watertight_tiny.stl" scale="1 1 1"/>
+         </geometry>
+         <material name="obj_color"/>
+      </visual>
+      <collision>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/laptop/top_watertight_tiny.obj" scale="1 1 1"/>
+         </geometry>
+      </collision>
+   </link>
+   <link name="bottom">
+      <inertial>
+         <origin rpy="0.002777582143581941 0.008681208759242947 0.01141552115865579" xyz="0.08410791367409441 0.0202715256581484 0.0248963730360478"/>
+         <mass value="0.9048766224119441"/>
+         <inertia ixx="0.00876146539651752" ixy="-0.0004653772068443166" ixz="-9.006138866453718e-05" iyy="0.01133389859389719" iyz="-2.428998048699039e-06" izz="0.002778948071065965"/>
+      </inertial>
+      <visual>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/laptop/bottom_watertight_tiny.stl" scale="1 1 1"/>
+         </geometry>
+         <material name="obj_color"/>
+      </visual>
+      <collision>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/laptop/bottom_watertight_tiny.obj" scale="1 1 1"/>
+         </geometry>
+      </collision>
+   </link>
+   <joint name="rotation" type="revolute">
+      <origin xyz="0 0 0"/>
+      <axis xyz="0 0 -1"/>
+      <parent link="bottom"/>
+      <child link="top"/>
+      <dynamics damping="0.0" friction="0.000"/>
+      <limit effort="1000" velocity="200" lower="0" upper="3.141592653589793"/>
+   </joint>
+</robot>

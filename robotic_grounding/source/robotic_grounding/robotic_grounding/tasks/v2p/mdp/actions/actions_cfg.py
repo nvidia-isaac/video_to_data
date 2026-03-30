@@ -16,6 +16,9 @@ from robotic_grounding.tasks.v2p.mdp.actions.action_direct import (
 from robotic_grounding.tasks.v2p.mdp.actions.action_track_residual import (
     JointResidualWithTrackingAction,
 )
+from robotic_grounding.tasks.v2p.mdp.actions.virtual_articulated_object_control import (
+    VirtualArticulatedObjectControl,
+)
 from robotic_grounding.tasks.v2p.mdp.actions.virtual_rigid_object_control import (
     VirtualRigidObjectControl,
 )
@@ -79,14 +82,14 @@ class JointResidualWithTrackingActionCfg(ActionTermCfg):
     wrist_position_clip: float = 0.2
     """Clip factor for policy's residual action for wrist position."""
 
-    wrist_orientation_clip: float = 0.8
+    wrist_orientation_clip: float = 1.0
     """Clip factor for policy's residual action for wrist orientation."""
 
-    finger_joint_clip: float = 0.8
+    finger_joint_clip: float = 1.0
     """Clip factor for policy's residual action for finger joints."""
 
-    ema_factor: float = 0.9
-    """The EMA decay factor for the actions. The higher the factor, the more weight is given to the previous actions. Defaults to 0.9."""
+    ema_factor: float = 0.1
+    """The EMA decay factor for the actions. The higher the factor, the more weight is given to the previous actions. Defaults to 0.1."""
 
     preserve_order: bool = False
     """Whether to preserve the order of the joint names in the action output. Defaults to False."""
@@ -176,7 +179,7 @@ class JointDirectPositionActionCfg(ActionTermCfg):
 
 @configclass
 class VirtualRigidObjectControlCfg(ActionTermCfg):
-    """Configuration for the virtual object control action term.
+    """Configuration for the virtual rigid object control action term.
 
     See :class:`VirtualRigidObjectControl` for more details.
     """
@@ -186,16 +189,47 @@ class VirtualRigidObjectControlCfg(ActionTermCfg):
     command_name: str = "dual_hands_object_tracking_command"
     """Name of the command to use for the action."""
 
-    tracking_controller_linear_stiffness: float = 200.0
+    tracking_controller_linear_stiffness: float = 50.0
     """Stiffness gain for the tracking controller in linear direction."""
 
-    tracking_controller_linear_damping: float = 15.0
+    tracking_controller_linear_damping: float = 10.0
     """Damping gain for the tracking controller in linear direction."""
 
-    tracking_controller_angular_stiffness: float = 100.0
+    tracking_controller_angular_stiffness: float = 10.0
     """Stiffness gain for the tracking controller in angular direction."""
 
-    tracking_controller_angular_damping: float = 2.0
+    tracking_controller_angular_damping: float = 0.1
+    """Damping gain for the tracking controller in angular direction."""
+
+    max_force: float = 60.0
+    """Maximum force for the tracking controller."""
+
+    max_torque: float = 60.0
+    """Maximum torque for the tracking controller."""
+
+
+@configclass
+class VirtualArticulatedObjectControlCfg(ActionTermCfg):
+    """Configuration for the virtual articulated object control action term.
+
+    See :class:`VirtualArticulatedObjectControl` for more details.
+    """
+
+    class_type: type[ActionTerm] = VirtualArticulatedObjectControl
+
+    command_name: str = "dual_hands_object_tracking_command"
+    """Name of the command to use for the action."""
+
+    tracking_controller_linear_stiffness: float = 50.0
+    """Stiffness gain for the tracking controller in linear direction."""
+
+    tracking_controller_linear_damping: float = 10.0
+    """Damping gain for the tracking controller in linear direction."""
+
+    tracking_controller_angular_stiffness: float = 10.0
+    """Stiffness gain for the tracking controller in angular direction."""
+
+    tracking_controller_angular_damping: float = 0.1
     """Damping gain for the tracking controller in angular direction."""
 
     max_force: float = 60.0

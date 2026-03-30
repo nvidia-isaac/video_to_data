@@ -368,7 +368,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--dataset",
         choices=("taco", "arctic", "oakink2"),
-        default="taco",
+        default="oakink2",
         help="Dataset for default input_dir when --input_dir not set (default: taco).",
     )
     parser.add_argument(

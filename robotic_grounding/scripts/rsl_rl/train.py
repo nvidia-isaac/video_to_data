@@ -79,6 +79,12 @@ parser.add_argument(
     default=None,
     help="Path to the scene configuration file.",
 )
+parser.add_argument(
+    "--motion_file",
+    type=str,
+    default=None,
+    help="Motion file to load.",
+)
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -186,8 +192,13 @@ def main(
         args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
     )
 
-    # apply scene configuration if provided
-    if args_cli.scene_config is not None:
+    # Apply scene config: motion_file (from Hydra override) takes priority,
+    # then --scene_config YAML, then the env_cfg default.
+    env_cfg.motion_file = args_cli.motion_file
+    if hasattr(env_cfg, "motion_file"):
+        scene_config = SceneConfig.from_motion_file(env_cfg.motion_file)
+        apply_scene_config(env_cfg, scene_config)
+    elif args_cli.scene_config is not None:
         env_cfg.scene_config_path = args_cli.scene_config
         scene_config = SceneConfig.from_yaml(args_cli.scene_config)
         apply_scene_config(env_cfg, scene_config)

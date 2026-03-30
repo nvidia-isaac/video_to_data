@@ -33,6 +33,12 @@ parser.add_argument(
     choices=["zero"],
     help="Action mode.",
 )
+parser.add_argument(
+    "--motion_file",
+    type=str,
+    default=None,
+    help="Motion file to load.",
+)
 
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
@@ -40,8 +46,25 @@ args_cli = parser.parse_args()
 ###################################
 # Debug
 ###################################
-args_cli.task = "Sharpa-V2P-Tracking-v0-Play"
-# args_cli.headless = True
+args_cli.task = "Sharpa-V2P-v0-Play"
+args_cli.headless = True
+
+# Multiple rigid objects
+# args_cli.motion_file = (
+#     "taco_processed/taco_empty__kettle__plate_20231031_060/sharpa_wave"
+# )
+
+# Multiple rigid objects with invalid object names
+# args_cli.motion_file = "oakink2_processed/scene_01__A001%252B%252Bseq__9e46184387ba83f60895__2023-04-27-18-43-58/sharpa_wave"
+
+# Single rigid object
+# args_cli.motion_file = (
+#     "arctic_processed/arctic_s01_rigid_mixer_grab_01/sharpa_wave"
+# )
+
+# Single articulated object
+args_cli.motion_file = "arctic_processed/arctic_s01_mixer_use_01/sharpa_wave"
+
 ###################################
 
 # launch omniverse app
@@ -56,8 +79,12 @@ import torch.nn.functional as F
 
 import isaaclab.utils.math as math_utils
 import isaaclab_tasks  # noqa: F401
-from robotic_grounding.tasks import *
 from isaaclab_tasks.utils import parse_env_cfg
+from robotic_grounding.tasks import *
+from robotic_grounding.tasks.scene_utils import (
+    SceneConfig,
+    apply_scene_config,
+)  # noqa: E402
 
 
 def main():
@@ -69,6 +96,11 @@ def main():
         num_envs=args_cli.num_envs,
         use_fabric=not args_cli.disable_fabric,
     )
+
+    env_cfg.motion_file = args_cli.motion_file
+    if hasattr(env_cfg, "motion_file"):
+        scene_config = SceneConfig.from_motion_file(env_cfg.motion_file)
+        apply_scene_config(env_cfg, scene_config)
 
     # create environment
     env = gym.make(args_cli.task, cfg=env_cfg)
@@ -82,7 +114,7 @@ def main():
     while simulation_app.is_running():
         with torch.inference_mode():
 
-            actions = torch.zeros(*env.action_space.shape, device=env.unwrapped.device)
+            # actions = torch.zeros(*env.action_space.shape, device=env.unwrapped.device)
             # actions = torch.randn(*env.action_space.shape, device=env.unwrapped.device)
             env.step(actions)
 

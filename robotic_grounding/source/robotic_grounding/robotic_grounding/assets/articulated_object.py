@@ -18,7 +18,7 @@ object_name = "box"
 
 ARTICULATED_OBJECT_CFG = ArticulationCfg(
     spawn=sim_utils.UrdfFileCfg(
-        fix_base=True,
+        fix_base=False,
         asset_path=f"{ASSET_DIR}/objects/arctic/{object_name}.urdf",
         activate_contact_sensors=True,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
@@ -39,13 +39,16 @@ ARTICULATED_OBJECT_CFG = ArticulationCfg(
             sleep_threshold=0.005,
             stabilization_threshold=0.0005,
         ),
-        # FIXME(xzhu): what are these parameters?
+        collision_props=sim_utils.CollisionPropertiesCfg(
+            contact_offset=0.001,
+            rest_offset=0.0,
+        ),
         joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
             gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(
                 stiffness=0, damping=0
             )
         ),
-        collider_type="convex_hull",
+        collider_type="convex_decomposition",
     ),
     init_state=ArticulationCfg.InitialStateCfg(
         pos=(0.0, 0.0, 0.0),
@@ -54,21 +57,13 @@ ARTICULATED_OBJECT_CFG = ArticulationCfg(
     ),
     soft_joint_pos_limit_factor=1.0,
     actuators={
-        "base": ImplicitActuatorCfg(
-            joint_names_expr=["base_.*"],
-            effort_limit_sim={"base_.*": 100.0},
-            velocity_limit_sim={"base_.*": 10.0},
-            stiffness={"base_.*": 0.0},
-            damping={"base_.*": 0.0},
-            armature={"base_.*": 0.0},
-        ),
         "joint": ImplicitActuatorCfg(
-            joint_names_expr=["rotation"],
-            effort_limit_sim={"rotation": 1000.0},
-            velocity_limit_sim={"rotation": 200.0},
-            stiffness={"rotation": 0.0},
-            damping={"rotation": 0.0},
-            armature={"rotation": 0.0},
+            joint_names_expr=[".*"],
+            effort_limit_sim={".*": 150.0},
+            velocity_limit_sim={".*": 30.0},
+            stiffness={".*": 0.0},
+            damping={".*": 0.0},
+            armature={".*": 0.0},
         ),
     },
 )

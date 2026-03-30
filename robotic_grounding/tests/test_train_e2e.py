@@ -112,6 +112,8 @@ class TestTrainE2E(unittest.TestCase):
                         "--headless",
                         # Hydra override to use temp directory
                         f"hydra.run.dir={temp_dir}",
+                        "--motion_file",
+                        "arctic_processed/arctic_s01_mixer_use_01/sharpa_wave",
                     ]
 
                     print(f"Command: {' '.join(cmd)}")

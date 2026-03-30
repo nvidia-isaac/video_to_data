@@ -312,7 +312,7 @@ def object_orientation_e(env: ManagerBasedEnv, command_name: str) -> torch.Tenso
 
 
 def object_t_wrist(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
-    """Wrist in object transformation.
+    """Wrist in object transformation. FIXME: Adapt to multiple objects.
 
     Args:
         env: The environment instance.

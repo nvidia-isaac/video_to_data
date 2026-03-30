@@ -33,7 +33,7 @@ from typing import Any
 
 import numpy as np
 import torch
-from robotic_grounding.retarget import HUMAN_MOTION_DATA_DIR
+from robotic_grounding.retarget import ASSETS_DIR, HUMAN_MOTION_DATA_DIR
 from robotic_grounding.retarget.dataset_loader_base import (
     DatasetLoaderBase,
     SequenceInfo,
@@ -48,7 +48,8 @@ warnings.filterwarnings("ignore", category=UserWarning, module="manotorch")
 
 DEFAULT_OAKINK_DIR = HUMAN_MOTION_DATA_DIR / "oakink2"
 LOADED_SAVE_DIR = HUMAN_MOTION_DATA_DIR / "oakink2_loaded"
-OAKINK2_FPS = 30.0
+OAKINK2_FPS = 120.0
+OAKINK2_OBJECT_URDF_DIR = ASSETS_DIR / "urdfs" / "oakink2"
 
 # Rotation: OakInk2/OptiTrack y-up world -> z-up convention used by ARCTIC/TACO
 #   x_new =  x_old
@@ -390,6 +391,17 @@ class OakInk2DatasetLoader(DatasetLoaderBase):
                 paths.append("")
         return paths
 
+    def get_object_urdf_paths(self, sequence_info: SequenceInfo) -> list[str]:
+        """Return paths to OakInk2 object URDF files (one per object_id)."""
+        src: OakInk2SequenceSource = sequence_info.source
+        object_urdf_root = Path(
+            getattr(self._args, "object_urdf_root", OAKINK2_OBJECT_URDF_DIR)
+        )
+        paths = []
+        for oid in src.object_ids:
+            paths.append(str(object_urdf_root / f"{oid}_rigid.urdf"))
+        return paths
+
 
 # ---------------------------------------------------------------------------
 # CLI
@@ -406,6 +418,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=DEFAULT_OAKINK_DIR,
         help="Path to OakInk-v2-hub root directory.",
+    )
+    parser.add_argument(
+        "--object_urdf_root",
+        type=Path,
+        default=OAKINK2_OBJECT_URDF_DIR,
+        help="Directory with {name}_rigid.urdf URDF files.",
     )
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--visualize", action="store_true", default=False)

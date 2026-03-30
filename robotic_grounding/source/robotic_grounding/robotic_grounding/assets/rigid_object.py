@@ -41,7 +41,7 @@ RIGID_OBJECT_CFG = RigidObjectCfg(
             contact_offset=0.001,
             rest_offset=0.0,
         ),
-        collider_type="convex_hull",
+        collider_type="convex_decomposition",
     ),
     init_state=RigidObjectCfg.InitialStateCfg(
         pos=(0.0, 0.0, 0.0),

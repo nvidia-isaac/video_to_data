@@ -56,6 +56,12 @@ parser.add_argument(
     default=False,
     help="Run in real-time, if possible.",
 )
+parser.add_argument(
+    "--motion_file",
+    type=str,
+    default=None,
+    help="Motion file to load.",
+)
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -109,6 +115,7 @@ except ImportError:
 
 import isaaclab_tasks  # noqa: F401
 import robotic_grounding.tasks  # noqa: F401
+from robotic_grounding.tasks.scene_utils import SceneConfig, apply_scene_config
 
 from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import hydra_task_config
@@ -131,6 +138,17 @@ def main(
     env_cfg.scene.num_envs = (
         args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
     )
+
+    # Apply scene config: motion_file (from Hydra override) takes priority,
+    # then --scene_config YAML, then the env_cfg default.
+    env_cfg.motion_file = args_cli.motion_file
+    if hasattr(env_cfg, "motion_file"):
+        scene_config = SceneConfig.from_motion_file(env_cfg.motion_file)
+        apply_scene_config(env_cfg, scene_config)
+    elif args_cli.scene_config is not None:
+        env_cfg.scene_config_path = args_cli.scene_config
+        scene_config = SceneConfig.from_yaml(args_cli.scene_config)
+        apply_scene_config(env_cfg, scene_config)
 
     # set the environment seed
     # note: certain randomizations occur in the environment initialization so we set the seed here
