@@ -33,8 +33,7 @@ Run on the included example data (from `reconstruction/`):
 python modules/v2d_hoi_object_reconstruction/docker/run_reconstruction.py \
   --mapping_data_dir modules/v2d_hoi_object_reconstruction/assets/basketball_example \
   --job_dir          data/outputs/hoi_recon/basketball_example \
-  --prompt           "basketball" \
-  --config           modules/v2d_hoi_object_reconstruction/lib/data/configs/theseus_optimizer_hawk.yaml
+  --prompt           "basketball"
 ```
 
 Or on your own data:

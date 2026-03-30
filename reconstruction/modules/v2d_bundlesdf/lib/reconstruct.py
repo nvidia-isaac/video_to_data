@@ -2,13 +2,14 @@
 """
 Run BundleSDF reconstruction with pre-computed camera poses.
 
-Expects the output directory to already contain:
-  - keyframes.yml  (pre-computed camera poses)
-  - left/          (RGB images)
-  - depth/         (depth maps — one per keyframe)
-  - masks/         (object masks — one per keyframe)
+Expects the output directory to already contain (or have custom paths supplied):
+  - keyframes.yml  (pre-computed camera poses)    override with --poses_file
+  - left/          (RGB images)                   override with --images_dir
+  - depth/         (depth maps — one per keyframe) override with --depth_dir
+  - masks/         (object masks — one per keyframe) override with --masks_dir
+  - calibration.json (camera intrinsics)          override with --intrinsics_file
 
-Outputs written to the same directory:
+Outputs written to output_path:
   - mesh_cleaned.obj    untextured SDF mesh
   - textured_mesh.obj   textured mesh (+ .mtl, _0.png atlas)
   - model_latest.pth    saved SDF model
@@ -17,6 +18,16 @@ Usage:
   python reconstruct.py \\
     --output_path /path/to/recon_dir \\
     --weights_dir /path/to/weights
+
+  # With custom input directories:
+  python reconstruct.py \\
+    --output_path /path/to/recon_dir \\
+    --weights_dir /path/to/weights \\
+    --images_dir /path/to/images \\
+    --depth_dir /path/to/depth \\
+    --masks_dir /path/to/masks \\
+    --poses_file /path/to/keyframes.yml \\
+    --intrinsics_file /path/to/calibration.json
 """
 
 import argparse
@@ -127,6 +138,53 @@ def _subsample_keyframes_for_texture(
         yaml.dump({k: keyframes[k] for k in selected}, f)
 
 
+def setup_input_dirs(
+    output_path: Path,
+    images_dir: str = None,
+    depth_dir: str = None,
+    masks_dir: str = None,
+    poses_file: str = None,
+    intrinsics_file: str = None,
+) -> None:
+    """Symlink custom input dirs/files into the expected output_path structure."""
+    import shutil
+
+    def _link(src: str, dst: Path, is_dir: bool) -> None:
+        if src is None:
+            return
+        # Resolve src — if it raises OSError (e.g. symlink loop caused by
+        # Docker mounting the same host directory at two container paths),
+        # the data is already accessible at dst, so skip.
+        try:
+            src_path = Path(src).resolve(strict=True)
+        except OSError:
+            if dst.is_symlink():
+                dst.unlink()  # remove the looping symlink so validate_inputs sees real data
+            return
+        # Skip if dst is already the same filesystem object as src.
+        if dst.exists() or dst.is_symlink():
+            try:
+                if os.path.samefile(dst, src_path):
+                    return
+            except (OSError, ValueError):
+                pass
+            # Only remove symlinks — never delete real directories/files.
+            if dst.is_symlink():
+                dst.unlink()
+            else:
+                raise FileExistsError(
+                    f"Cannot create symlink at {dst}: a real file/directory already exists. "
+                    f"Remove it manually or do not pass --{'images_dir' if is_dir else 'poses_file'}."
+                )
+        dst.symlink_to(src_path)
+
+    _link(images_dir,      output_path / "left",           is_dir=True)
+    _link(depth_dir,       output_path / "depth",          is_dir=True)
+    _link(masks_dir,       output_path / "masks",          is_dir=True)
+    _link(poses_file,      output_path / "keyframes.yml",  is_dir=False)
+    _link(intrinsics_file, output_path / "calibration.json", is_dir=False)
+
+
 def validate_inputs(output_path: Path) -> None:
     """Validate that the output directory has required pre-computed inputs."""
     if not output_path.exists():
@@ -154,7 +212,7 @@ def main():
         description="BundleSDF reconstruction with pre-computed poses, depth, and masks",
     )
     parser.add_argument("--output_path", "--output-path", dest="output_path", required=True,
-                        help="Directory containing keyframes.yml, left/, depth/, masks/")
+                        help="Output directory for mesh results")
     parser.add_argument("--config", default=_DEFAULT_CONFIG,
                         help=f"NeRF/SDF config YAML (default: {_DEFAULT_CONFIG})")
     parser.add_argument("--weights_dir", default=None,
@@ -165,6 +223,16 @@ def main():
                         help="Skip texture baking (faster; produces untextured mesh only)")
     parser.add_argument("--skip-sdf", action="store_true",
                         help="Skip SDF training; reuse existing model_latest.pth and run texture baking only")
+    parser.add_argument("--images_dir", default=None,
+                        help="Directory of RGB images (default: <output_path>/left/)")
+    parser.add_argument("--depth_dir", default=None,
+                        help="Directory of depth maps (default: <output_path>/depth/)")
+    parser.add_argument("--masks_dir", default=None,
+                        help="Directory of object masks (default: <output_path>/masks/)")
+    parser.add_argument("--poses_file", default=None,
+                        help="Camera poses YAML file (default: <output_path>/keyframes.yml)")
+    parser.add_argument("--intrinsics_file", default=None,
+                        help="Camera intrinsics JSON file (default: <output_path>/calibration.json)")
     parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args()
 
@@ -176,6 +244,15 @@ def main():
 
     try:
         output_path = Path(args.output_path)
+        output_path.mkdir(parents=True, exist_ok=True)
+        setup_input_dirs(
+            output_path,
+            images_dir=args.images_dir,
+            depth_dir=args.depth_dir,
+            masks_dir=args.masks_dir,
+            poses_file=args.poses_file,
+            intrinsics_file=args.intrinsics_file,
+        )
         validate_inputs(output_path)
 
         config = {}
