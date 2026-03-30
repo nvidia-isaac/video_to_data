@@ -1,0 +1,27 @@
+image_dir: null
+video_dir: null
+
+output_dir: ???
+
+rig_config: stereo-4
+cameras: [0, 2, 4, 6]
+
+image_path_template: "${image_dir}/{cam_name}/{side}/image_compressed"
+video_path_template: "${video_dir}/{cam_name}.mp4"
+output_path_template: "${output_dir}/{cam_name}_bbox_track.pt"
+
+batch_size: 2
+
+detector:
+  weights_dir: ???
+  model_size: b  # "b" (ViT-Base, fastest), "l" (ViT-Large), "h" (ViT-Huge, most accurate)
+  det_cat_id: 0  # 0: person
+  bbox_thr: 0.5  # minimum confidence score for a detection to be considered valid
+  default_to_full_image: True  # if no valid detections, return the full image as a detection
+
+tracker:
+  iou_threshold: 0.3
+  max_lost: 30
+  min_hits: 3
+
+debug: 2

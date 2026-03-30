@@ -56,6 +56,15 @@ run_video_to_depth(
 | **v2d_hoi_object_reconstruction** | `run_reconstruction`, `run_fp_tracking` | End-to-end textured mesh reconstruction from hand-object interaction video (two-stage scan) | `python v2d_hoi_object_reconstruction/docker/build.py` | `python v2d_hoi_object_reconstruction/docker/run_reconstruction.py --args` |
 | **v2d_cusfm** | `run_image_list_to_sfm` | Structure-from-motion: stereo image list → camera poses | `python v2d_cusfm/docker/build.py` | `python v2d_cusfm/docker/run_image_list_to_sfm.py --input_dir ... --output_dir ...` |
 | **v2d_bundlesdf** | `run_reconstruct`, `run_download_weights` | SDF learning + texture baking from pre-computed poses, depth, and masks | `python v2d_bundlesdf/docker/build.py` | `python v2d_bundlesdf/docker/run_reconstruct.py --output_path ... --weights_dir ...` |
+| **v2d_detectron2** | `run_track_bboxes`, `run_mv_track_bboxes`, `run_download_weights`, `run_shell` | Person detection + IoU tracking (ViTDet) | `python -m v2d.detectron2.docker.build` | `python -m v2d.detectron2.docker.run_<tool> --args` |
+
+**Shared packages** (no Docker images — installed inside other modules' containers as dependencies):
+
+| Package | Description |
+|---------|-------------|
+| **v2d_common** | Shared datatypes, multi-camera rig config (`RigConfig`, `CameraParam`), EDEX calibration parsing |
+| **v2d_io** | `FrameSource` (lazy image-dir / video reader), video read/write, video tiling |
+| **v2d_math** | Torch math utilities: projective geometry, rotation conversions, interpolation |
 
 ---
 
@@ -90,6 +99,7 @@ pip install -e modules/v2d_moge/docker
 pip install -e modules/v2d_sam2/docker
 pip install -e modules/v2d_foundation_pose/docker
 pip install -e modules/v2d_nlf/docker
+pip install -e modules/v2d_detectron2/docker
 # ... and/or: v2d_unidepth, v2d_grounding_dino, v2d_foundation_stereo
 ```
 
@@ -101,7 +111,8 @@ pip install -e modules/v2d_sam2/docker -e modules/v2d_sam3d/docker -e modules/v2
   -e modules/v2d_moge/docker -e modules/v2d_nlf/docker -e modules/v2d_foundation_pose/docker \
   -e modules/v2d_foundation_stereo/docker -e modules/v2d_grounding_dino/docker \
   -e modules/v2d_cusfm/docker -e modules/v2d_bundlesdf/docker \
-  -e modules/v2d_hoi_object_reconstruction/docker -e modules/v2d_pipelines
+  -e modules/v2d_hoi_object_reconstruction/docker -e modules/v2d_detectron2/docker \
+  -e modules/v2d_pipelines
 ```
 
 This installs `v2d-pipelines` and all docker packages (v2d_pipelines declares them as dependencies). Alternatively:
@@ -384,6 +395,38 @@ python modules/v2d_bundlesdf/docker/run_reconstruct.py \
 
 ---
 
+### v2d_detectron2
+
+Person detection and IoU-based tracking using Detectron2 ViTDet models. Supports single-camera and multi-view operation. Outputs `.pt` files containing `{det_cat_id, scores, bbox_track}`.
+
+| Tool | Function | Description |
+|------|----------|-------------|
+| `run_track_bboxes` | `run_track_bboxes(weights_dir, output_path, image_dir=None, video_path=None, model_size="b", bbox_thr=0.5, iou_threshold=0.3, max_lost=30, min_hits=3, batch_size=1, debug=0, dev=False)` | Detect + track person bboxes on a single camera (image dir or video) |
+| `run_mv_track_bboxes` | `run_mv_track_bboxes(weights_dir, output_dir, image_dir=None, video_dir=None, config_path=..., debug=-1, dev=False)` | Multi-view detection + tracking across cameras defined by rig config |
+| `run_download_weights` | `run_download_weights(output_dir, model_sizes=["b"], dev=False)` | Download ViTDet checkpoint(s) (b/l/h) |
+| `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
+
+**Build:** `python -m v2d.detectron2.docker.build`  
+**Execute (single-cam):** `python -m v2d.detectron2.docker.run_track_bboxes --video_path ... --weights_dir ... --output_path ... --model_size b`  
+**Execute (multi-view):** `python -m v2d.detectron2.docker.run_mv_track_bboxes --video_dir ... --weights_dir data/weights/detectron2 --output_dir data/outputs/detectron2`
+
+**Example (single-cam):** From `reconstruction/`:
+
+```bash
+# 1. Download weights
+python -m v2d.detectron2.docker.run_download_weights --output_dir data/weights/detectron2
+
+# 2. Run person detection + tracking (sample video at modules/v2d_detectron2/assets/test_video.mp4)
+python -m v2d.detectron2.docker.run_track_bboxes \
+  --video_path modules/v2d_detectron2/assets/test_video.mp4 \
+  --weights_dir data/weights/detectron2 \
+  --output_path data/outputs/detectron2/bbox_track.pt
+```
+
+**Output:** `bbox_track.pt` — a dict with `{det_cat_id, scores, bbox_track}` (numpy arrays). `bbox_track` has shape `(N, 4)` in `[x1, y1, x2, y2]` format, one row per frame.
+
+---
+
 ## Build & Execute (Summary)
 
 All modules share the same build pattern. Each Dockerfile uses `reconstruction/modules` as build context (parent of each `v2d_*` folder).
@@ -402,7 +445,8 @@ pip install -e modules/v2d_sam2/docker -e modules/v2d_sam3d/docker -e modules/v2
   -e modules/v2d_moge/docker -e modules/v2d_nlf/docker -e modules/v2d_foundation_pose/docker \
   -e modules/v2d_foundation_stereo/docker -e modules/v2d_grounding_dino/docker \
   -e modules/v2d_cusfm/docker -e modules/v2d_bundlesdf/docker \
-  -e modules/v2d_hoi_object_reconstruction/docker -e modules/v2d_pipelines
+  -e modules/v2d_hoi_object_reconstruction/docker -e modules/v2d_detectron2/docker \
+  -e modules/v2d_pipelines
 ```
 
 Then run from `reconstruction/` or repo root:
