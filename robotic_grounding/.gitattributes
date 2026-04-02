@@ -39,3 +39,4 @@ source/robotic_grounding/robotic_grounding/assets/human_motion_data/hot3d/assets
 source/robotic_grounding/robotic_grounding/assets/human_motion_data/hot3d_loaded/** filter=lfs diff=lfs merge=lfs -text
 source/robotic_grounding/robotic_grounding/assets/human_motion_data/hot3d_processed/** filter=lfs diff=lfs merge=lfs -text
 source/robotic_grounding/robotic_grounding/assets/meshes/hot3d/** filter=lfs diff=lfs merge=lfs -text
+source/robotic_grounding/robotic_grounding/assets/meshes/hot3d/instance.json !filter !diff !merge text
