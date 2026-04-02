@@ -1,0 +1,290 @@
+{
+  "106434519822892": {
+    "instance_bop_id": "14",
+    "instance_id": "106434519822892",
+    "instance_name": "bottle_bbq",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "106957734975303": {
+    "instance_bop_id": "30",
+    "instance_id": "106957734975303",
+    "instance_name": "puzzle_toy",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "111305855142671": {
+    "instance_bop_id": "23",
+    "instance_id": "111305855142671",
+    "instance_name": "aria_small",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "117658302265452": {
+    "instance_bop_id": "8",
+    "instance_id": "117658302265452",
+    "instance_name": "mug_patterned",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "125863066770940": {
+    "instance_bop_id": "17",
+    "instance_id": "125863066770940",
+    "instance_name": "carton_milk",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "137177224426257": {
+    "instance_bop_id": "10",
+    "instance_id": "137177224426257",
+    "instance_name": "aria_d1283",
+    "instance_type": "headset",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "143541090750632": {
+    "instance_bop_id": "25",
+    "instance_id": "143541090750632",
+    "instance_name": "holder_gray",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "163340972252026": {
+    "instance_bop_id": "16",
+    "instance_id": "163340972252026",
+    "instance_name": "vase",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "171735388712249": {
+    "instance_bop_id": "11",
+    "instance_id": "171735388712249",
+    "instance_name": "can_parmesan",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "183136364331389": {
+    "instance_bop_id": "12",
+    "instance_id": "183136364331389",
+    "instance_name": "can_tomato_sauce",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "194930206998778": {
+    "instance_bop_id": "2",
+    "instance_id": "194930206998778",
+    "instance_name": "bowl",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "195041665639898": {
+    "instance_bop_id": "26",
+    "instance_id": "195041665639898",
+    "instance_name": "birdhouse_toy",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "204462113746498": {
+    "instance_bop_id": "18",
+    "instance_id": "204462113746498",
+    "instance_name": "carton_oj",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "208243983021975": {
+    "instance_bop_id": "27",
+    "instance_id": "208243983021975",
+    "instance_name": "dino_toy",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "223371871635142": {
+    "instance_bop_id": "9",
+    "instance_id": "223371871635142",
+    "instance_name": "mug_white",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "225397651484143": {
+    "instance_bop_id": "4",
+    "instance_id": "225397651484143",
+    "instance_name": "spoon_wooden",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "228358276546933": {
+    "instance_bop_id": "7",
+    "instance_id": "228358276546933",
+    "instance_name": "coffee_pot",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "232501673989606": {
+    "instance_bop_id": "1",
+    "instance_id": "232501673989606",
+    "instance_name": "holder_black",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "238686662724712": {
+    "instance_bop_id": "32",
+    "instance_id": "238686662724712",
+    "instance_name": "whiteboard_marker",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "248247003992116": {
+    "instance_bop_id": "3",
+    "instance_id": "248247003992116",
+    "instance_name": "plate_bamboo",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "249541253457812": {
+    "instance_bop_id": "33",
+    "instance_id": "249541253457812",
+    "instance_name": "dvd_remote",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "253405647833885": {
+    "instance_bop_id": "20",
+    "instance_id": "253405647833885",
+    "instance_name": "food_waffles",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "258906041248094": {
+    "instance_bop_id": "29",
+    "instance_id": "258906041248094",
+    "instance_name": "whiteboard_eraser",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "261746112525368": {
+    "instance_bop_id": "13",
+    "instance_id": "261746112525368",
+    "instance_name": "bottle_mustard",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "265826671143948": {
+    "instance_bop_id": "31",
+    "instance_id": "265826671143948",
+    "instance_name": "mouse",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "270231216246839": {
+    "instance_bop_id": "6",
+    "instance_id": "270231216246839",
+    "instance_name": "spatula_red",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "27078911029651": {
+    "instance_bop_id": "22",
+    "instance_id": "27078911029651",
+    "instance_name": "dumbbell_5lb",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "37787722328019": {
+    "instance_bop_id": "28",
+    "instance_id": "37787722328019",
+    "instance_name": "keyboard",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "4111539686391": {
+    "instance_bop_id": "19",
+    "instance_id": "4111539686391",
+    "instance_name": "flask",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "5411364721403": {
+    "instance_bop_id": "10",
+    "instance_id": "5411364721403",
+    "instance_name": "aria_g1283",
+    "instance_type": "headset",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "5462893327580": {
+    "instance_bop_id": "24",
+    "instance_id": "5462893327580",
+    "instance_name": "cellphone",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "58635154735610": {
+    "instance_bop_id": "10",
+    "instance_id": "58635154735610",
+    "instance_name": "quest3",
+    "instance_type": "headset",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "70709727230291": {
+    "instance_bop_id": "15",
+    "instance_id": "70709727230291",
+    "instance_name": "bottle_ranch",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "79582884925181": {
+    "instance_bop_id": "5",
+    "instance_id": "79582884925181",
+    "instance_name": "potato_masher",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "96945373046044": {
+    "instance_bop_id": "21",
+    "instance_id": "96945373046044",
+    "instance_name": "food_vegetables",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  },
+  "98604936546412": {
+    "instance_bop_id": "10",
+    "instance_id": "98604936546412",
+    "instance_name": "can_soup",
+    "instance_type": "object",
+    "motion_type": "dynamic",
+    "rigidity": "rigid"
+  }
+}

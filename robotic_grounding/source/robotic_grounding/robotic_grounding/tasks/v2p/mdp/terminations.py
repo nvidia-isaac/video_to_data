@@ -130,16 +130,16 @@ def object_away_from_trajectory(
     """Terminate when the object is away from the trajectory."""
     command = env.command_manager.get_term(command_name)
     object_position_difference = torch.norm(
-        command.object_body_position_command_e - command.object_position_e.squeeze(1),
+        command.object_body_position_command_e - command.object_position_e,
         dim=-1,
     )
     object_orientation_difference = math_utils.quat_error_magnitude(
-        command.object_orientation_e.squeeze(1),
-        command.object_body_wxyz_command_e.squeeze(1),
+        command.object_orientation_e,
+        command.object_body_wxyz_command_e,
     )
     return torch.logical_or(
-        object_position_difference > position_threshold,
-        object_orientation_difference > orientation_threshold,
+        (object_position_difference > position_threshold).any(dim=-1),
+        (object_orientation_difference > orientation_threshold).any(dim=-1),
     )
 
 

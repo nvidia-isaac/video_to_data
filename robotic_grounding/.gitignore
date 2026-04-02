@@ -232,6 +232,9 @@ CLAUDE.md
 # Temporary usd files
 *.tmp.usd
 
+# Dataset download bookkeeping
+.download_status.json
+
 # videos
 videos/
 

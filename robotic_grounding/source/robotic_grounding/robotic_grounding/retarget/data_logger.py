@@ -356,8 +356,11 @@ DEX3_FIELDS: list[FieldSpec] = [
 #############################################################
 OBJECT_FIELDS: list[FieldSpec] = [
     ("object_name", pa.string(), str, False),
+    ("safe_object_name", pa.string(), str, False),
     ("object_body_names", pa.list_(pa.string()), list[str], False),
+    ("safe_object_body_names", pa.list_(pa.string()), list[str], False),
     ("object_mesh_paths", pa.list_(pa.string()), list[str], False),
+    ("object_urdf_paths", pa.list_(pa.string()), list[str], False),
     ("object_mesh_radius", pa.list_(pa.float32()), list[float], False),
     # Time series
     ("object_articulation", pa.list_(pa.float32()), list[float], True),

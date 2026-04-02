@@ -25,7 +25,7 @@ import numpy as np
 import torch
 import trimesh
 import viser
-from robotic_grounding.retarget import HUMAN_MOTION_DATA_DIR
+from robotic_grounding.retarget import HUMAN_MOTION_DATA_DIR, MESHES_DIR
 from robotic_grounding.retarget.data_logger import ManoSharpaData, list_sequence_ids
 from robotic_grounding.retarget.retarget_utils import (
     DEFAULT_PARTITION_COLS,
@@ -43,9 +43,7 @@ DEFAULT_INPUT_DIR = HUMAN_MOTION_DATA_DIR / "taco_loaded"
 DEFAULT_OUTPUT_DIR = HUMAN_MOTION_DATA_DIR / "taco_processed"
 
 # TACO object meshes: {name}_cm.obj in object_model_root (scale 0.01 cm -> m)
-TACO_OBJECT_MODEL_DIR = (
-    HUMAN_MOTION_DATA_DIR / "taco" / "Object_Models" / "object_models_released"
-)
+TACO_OBJECT_MODEL_DIR = MESHES_DIR / "taco"
 
 # TACO uses MANO with no special wrist link-to-site offset (unlike ARCTIC)
 TACO_LINK_TO_SITE_QUAT_XYZW = None

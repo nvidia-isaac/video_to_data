@@ -28,7 +28,7 @@ from typing import Any
 
 import numpy as np
 import torch
-from robotic_grounding.retarget import HUMAN_MOTION_DATA_DIR
+from robotic_grounding.retarget import ASSETS_DIR, HUMAN_MOTION_DATA_DIR, MESHES_DIR
 from robotic_grounding.retarget.dataset_loader_base import (
     DatasetLoaderBase,
     SequenceInfo,
@@ -52,7 +52,8 @@ class TacoSequenceSource:
 
 # TACO paths
 TACO_DATA_DIR = HUMAN_MOTION_DATA_DIR / "taco"
-TACO_OBJECT_MODEL_DIR = TACO_DATA_DIR / "Object_Models" / "object_models_released"
+TACO_OBJECT_MODEL_DIR = MESHES_DIR / "taco"
+TACO_OBJECT_URDF_DIR = ASSETS_DIR / "urdfs" / "taco"
 LOADED_SAVE_DIR = HUMAN_MOTION_DATA_DIR / "taco_loaded"
 
 TACO_OBJECT_BODY_NAMES = ["tool", "target"]
@@ -75,6 +76,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=TACO_OBJECT_MODEL_DIR,
         help="Directory with {name}_cm.obj meshes.",
+    )
+    parser.add_argument(
+        "--object_urdf_root",
+        type=Path,
+        default=TACO_OBJECT_URDF_DIR,
+        help="Directory with {name}_rigid.urdf URDF files.",
     )
     parser.add_argument(
         "--triplet",
@@ -379,6 +386,17 @@ class TacoDatasetLoader(DatasetLoaderBase):
         return [
             str(object_model_root / f"{src.tool_name}_cm.obj"),
             str(object_model_root / f"{src.target_name}_cm.obj"),
+        ]
+
+    def get_object_urdf_paths(self, sequence_info: SequenceInfo) -> list[str]:
+        """Return paths to TACO object URDF files (tool and target _rigid.urdf)."""
+        src: TacoSequenceSource = sequence_info.source
+        object_urdf_root = Path(
+            getattr(self._args, "object_urdf_root", TACO_OBJECT_URDF_DIR)
+        )
+        return [
+            str(object_urdf_root / f"{src.tool_name}_rigid.urdf"),
+            str(object_urdf_root / f"{src.target_name}_rigid.urdf"),
         ]
 
 

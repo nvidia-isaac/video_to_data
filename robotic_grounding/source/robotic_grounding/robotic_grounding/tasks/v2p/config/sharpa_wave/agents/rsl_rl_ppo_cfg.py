@@ -36,4 +36,4 @@ class SharpaV2PPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         max_grad_norm=1.0,
     )
     logger = "wandb"
-    wandb_project = "xzhu_v2p_hands"
+    wandb_project = "v2p_hands"

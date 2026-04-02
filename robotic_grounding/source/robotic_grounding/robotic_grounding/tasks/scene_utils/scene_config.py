@@ -1,26 +1,28 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import unquote
 
-import h5py
 import numpy as np
 import pyarrow.parquet as pq
-import torch
-import yaml
 from scipy.spatial.transform import Rotation as R
 
+from robotic_grounding.assets import ASSET_DIR
 from robotic_grounding.assets.object_registry import get_object_spec
+
+HUMAN_MOTION_DATA_DIR = os.path.join(ASSET_DIR, "human_motion_data")
 
 
 @dataclass
 class ObjectConfig:
-    """Configuration for a scene object (target or fixed)."""
+    """Configuration for a rigid scene object (target or fixed)."""
 
     name: str
     usd_path: str
-    position_key: str
-    quaternion_key: str
+    position_key: str = ""
+    quaternion_key: str = ""
     scale: tuple[float, float, float] = (1.0, 1.0, 1.0)
     pos_offset: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
 
@@ -28,322 +30,313 @@ class ObjectConfig:
     init_rot: list[float] | None = None
 
 
-def _resolve_object(
-    obj_name: str, obj_cfg: dict | None = None
-) -> tuple[str | None, tuple[float, float, float] | None]:
-    """Resolve USD path and scale from config or registry.
+@dataclass
+class ArticulatedObjectConfig:
+    """Configuration for an articulated (multi-body) scene object loaded from URDF."""
 
-    Args:
-        obj_name: Name of the object.
-        obj_cfg: Optional config dict with usd_path and scale overrides.
+    name: str
+    urdf_path: str
+    body_names: list[str] = field(default_factory=list)
+    scale: tuple[float, float, float] = (1.0, 1.0, 1.0)
+    pos_offset: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
 
-    Returns:
-        Tuple of (usd_path, scale).
-    """
-    obj_cfg = obj_cfg or {}
-    if "usd_path" in obj_cfg:
-        usd_path = obj_cfg["usd_path"]
-        scale = tuple(obj_cfg.get("scale", [1.0, 1.0, 1.0]))
-    else:
-        spec = get_object_spec(obj_name)
-        if spec is None:
-            print(f"Object '{obj_name}' not in registry and no usd_path provided")
-            return None, None
-        usd_path = spec.usd_path
-        scale = obj_cfg.get("scale", spec.scale)
-    return usd_path, scale
+    init_pos: list[float] | None = None
+    init_rot: list[float] | None = None  # wxyz quaternion
 
+    body_init_positions: list[list[float]] | None = None
+    body_init_rotations: list[list[float]] | None = None  # wxyz quaternions
 
-def _parse_object_config(obj_cfg: dict) -> ObjectConfig | None:
-    """Parse an object configuration dict into an ObjectConfig.
-
-    Args:
-        obj_cfg: Config dict with name, optional usd_path, scale, position_key, quaternion_key, pos_offset.
-                 Can also include init_pos and init_rot for fixed objects not from motion file.
-
-    Returns:
-        Parsed ObjectConfig.
-    """
-    obj_name = obj_cfg["name"]
-    position_key = obj_cfg.get("position_key", f"{obj_name}_position")
-    quaternion_key = obj_cfg.get("quaternion_key", f"{obj_name}_wxyz")
-    usd_path, scale = _resolve_object(obj_name, obj_cfg)
-    if usd_path is None or scale is None:
-        return None
-
-    return ObjectConfig(
-        name=obj_name,
-        usd_path=usd_path,
-        scale=scale,
-        position_key=position_key,
-        quaternion_key=quaternion_key,
-        pos_offset=obj_cfg.get("pos_offset", [0.0, 0.0, 0.0]),
-        init_pos=obj_cfg.get("init_pos"),
-        init_rot=obj_cfg.get("init_rot"),
-    )
-
-
-def _discover_objects_from_file(motion_file: str) -> list[str]:
-    """Discover object names from file by finding *_position keys.
-
-    Args:
-        motion_file: Path to file.
-
-    Returns:
-        List of object names found in the file.
-    """
-    objects = []
-    if motion_file.endswith(".h5"):
-        with h5py.File(motion_file, "r") as f:
-            for key in f.keys():
-                if key.endswith("_position"):
-                    obj_name = key[:-9]
-                    objects.append(obj_name)
-    elif motion_file.endswith(".yaml"):
-        with open(motion_file, "r") as f:
-            data = yaml.safe_load(f)
-            print(data.keys())
-            for obj_name in data.keys():
-                if obj_name.endswith("_position"):
-                    base_name = obj_name[:-9]
-                    objects.append(base_name)
-    elif motion_file.endswith(".parquet"):
-        table = pq.read_table(motion_file)
-        if "object_name" in table.column_names:
-            obj_name = table.column("object_name")[0].as_py()
-            if obj_name:
-                objects.append(obj_name)
-    else:
-        raise ValueError(f"Unsupported file type: {motion_file}")
-    return objects
+    init_joint_pos: float | None = None
 
 
 @dataclass
 class SceneConfig:
-    """Scene configuration loaded from YAML, HDF5, or Parquet.
+    """Scene configuration auto-discovered from parquet data.
 
-    Defines the target object, fixed objects, and robot configuration for a scene.
-    Objects can be specified explicitly in YAML or auto-discovered from data files.
-
-    For end-effector motion files, the motion data contains EE poses (6dof) + hand joints (7dof)
-    rather than full body joint positions. The robot_init_qpos will be set to defaults
-    and EE-specific fields will be populated instead.
+    ``scene_objects[0]`` is the primary object used for command tracking and
+    contact sensors. All objects are spawned into the scene.
     """
 
     motion_file: str
-    robot_qpos_key: str
-    robot_anchor_offset: list[float]
-    target_object: ObjectConfig
+    episode_length_s: float
+    scene_objects: list[ObjectConfig | ArticulatedObjectConfig]
     fixed_objects: list[ObjectConfig]
-    robot_type: str = "g1"
-    file_joint_order: str | list[str] | None = None
-    ee_links: list[str] | None = None
 
-    # Full robot joint positions (for h5/yaml files)
-    robot_init_qpos: torch.Tensor | None = None
-
-    # EE-based
-    left_hand_init_qpos: list[float] | None = None
-    right_hand_init_qpos: list[float] | None = None
-    head_init_translation: list[float] | None = None
-    head_init_wxyz: list[float] | None = None
-    root_init_translation: list[float] | None = None
-    root_init_wxyz: list[float] | None = None
-
-    # Flag indicating if motion data is EE-based (parquet) vs full joints
-    is_ee_motion: bool = False
+    # Auto-discovered from partition path
+    robot_name: str | None = None
+    sequence_id: str | None = None
+    motion_folder: str | None = None
+    motion_filters: list[tuple[str, str, str]] | None = None
+    object_body_names: list[str] | None = None
 
     @classmethod
-    def from_yaml(cls, yaml_path: str) -> SceneConfig:
-        """Load scene configuration from a YAML file.
+    def from_motion_file(cls, motion_file: str) -> SceneConfig:
+        """Build a SceneConfig from a parquet motion file path. Everything is auto-discovered."""
+        motion_file = cls._resolve_motion_file(motion_file)
+        data = pq.read_table(motion_file).to_pydict()
+        partition = cls._parse_partition_path(motion_file)
 
-        Args:
-            yaml_path: Path to the YAML configuration file.
+        object_type = cls._detect_object_type(data)
+        scene_objects = cls._build_scene_objects(data, object_type)
+        fixed_objects = cls._build_fixed_objects(motion_file)
+        object_body_names = (
+            data.get("safe_object_body_names", [[]])[0]
+            or data.get("object_body_names", [[]])[0]
+            or None
+        )
+        episode_length_s = cls._build_episode_length_s(data)
 
-        Returns:
-            Populated SceneConfig with initial poses loaded from HDF5.
+        return cls(
+            motion_file=motion_file,
+            episode_length_s=episode_length_s,
+            scene_objects=scene_objects,
+            fixed_objects=fixed_objects,
+            robot_name=partition.get("robot_name"),
+            sequence_id=partition.get("sequence_id"),
+            motion_folder=partition.get("motion_folder"),
+            motion_filters=partition.get("motion_filters"),
+            object_body_names=object_body_names,
+        )
+
+    @staticmethod
+    def _resolve_motion_file(raw_path: str) -> str:
+        """Resolve a motion file path.
+
+        Accepts:
+        - Full path to a parquet file or partitioned dir
+        - dataset/sequence_id/robot_name like "arctic_processed/arctic_s01_ketchup_use_01/sharpa_wave"
         """
-        path = Path(yaml_path)
-
-        if not path.exists():
-            raise FileNotFoundError(f"Scene config file not found: {path.absolute()}")
-
-        with open(path, "r") as f:
-            cfg = yaml.safe_load(f)
-
-        motion_file: str = cfg["motion_file"]
+        motion_file = raw_path
         if not Path(motion_file).is_absolute():
             motion_file = str(Path.cwd() / motion_file)
 
-        robot_cfg = cfg.get("robot", {})
-        target_object = _parse_object_config(cfg["target_object"])
-        if target_object is None:
-            raise ValueError("Could not resolve target_object from config")
-
-        fixed_objects: list[ObjectConfig] = []
-        if "fixed_objects" in cfg:
-            for obj_cfg in cfg["fixed_objects"]:
-                parsed = _parse_object_config(obj_cfg)
-                if parsed is not None:
-                    fixed_objects.append(parsed)
-        else:
-            discovered = _discover_objects_from_file(motion_file)
-            for obj_name in discovered:
-                if obj_name == target_object.name or obj_name in robot_cfg.get(
-                    "ee_links", []
-                ):
-                    continue
-                spec = get_object_spec(obj_name)
-                if spec is None:
-                    continue
-                fixed_objects.append(
-                    ObjectConfig(
-                        name=obj_name,
-                        usd_path=spec.usd_path,
-                        scale=spec.scale,
-                        position_key=f"{obj_name}_position",
-                        quaternion_key=f"{obj_name}_wxyz",
-                    )
+        if not Path(motion_file).exists():
+            parts = raw_path.strip("/").split("/")
+            if len(parts) == 3:
+                dataset, seq_id, robot = parts
+                motion_file = os.path.join(
+                    HUMAN_MOTION_DATA_DIR,
+                    dataset,
+                    f"sequence_id={seq_id}",
+                    f"robot_name={robot}",
                 )
 
-        ee_links = robot_cfg.get("ee_links")
+        if not Path(motion_file).exists():
+            raise FileNotFoundError(
+                f"Motion file not found: {raw_path} (resolved: {motion_file})"
+            )
 
-        config = cls(
-            motion_file=motion_file,
-            robot_qpos_key=robot_cfg.get("qpos_key", "qpos"),
-            robot_anchor_offset=robot_cfg.get("anchor_offset", [0.0, 0.0, 0.0]),
-            target_object=target_object,
-            fixed_objects=fixed_objects,
-            robot_type=robot_cfg.get("type", "g1"),
-            file_joint_order=robot_cfg.get("file_joint_order"),
-            ee_links=ee_links,
-            is_ee_motion=ee_links is not None and len(ee_links) > 0,
+        return motion_file
+
+    @staticmethod
+    def _parse_partition_path(motion_file: str) -> dict:
+        """Extract robot_name, sequence_id, motion_folder, motion_filters from partition path."""
+        result: dict = {}
+        path = Path(motion_file).resolve()
+        for parent in [path] + list(path.parents):
+            name = parent.name
+            if name.startswith("robot_name="):
+                result["robot_name"] = unquote(name.split("=", 1)[1])
+            elif name.startswith("sequence_id="):
+                result["sequence_id"] = unquote(name.split("=", 1)[1])
+                result["motion_folder"] = str(parent.parent)
+
+        if "robot_name" in result and "sequence_id" in result:
+            result["motion_filters"] = [
+                ("robot_name", "=", result["robot_name"]),
+                ("sequence_id", "=", result["sequence_id"]),
+            ]
+        return result
+
+    @staticmethod
+    def _detect_object_type(data: dict) -> str:
+        """Detect whether the scene object is articulated or rigid.
+
+        Uses ``object_articulation`` non-zero values as the signal, not body count.
+        Multiple rigid bodies (TACO tool+target, OakInk2 multi-object) should still
+        be treated as rigid.
+        """
+        art = data.get("object_articulation")
+        if art and art[0]:
+            arr = np.array(art[0], dtype=np.float32)
+            if np.any(np.abs(arr) > 1e-6):
+                obj_name = (
+                    data.get("safe_object_name", [None])[0]
+                    or data.get("object_name", [None])[0]
+                )
+                if obj_name:
+                    spec = get_object_spec(obj_name)
+                    if spec and spec.urdf_path:
+                        return "articulated"
+        return "rigid"
+
+    @classmethod
+    def _build_scene_objects(
+        cls, data: dict, object_type: str
+    ) -> list[ObjectConfig | ArticulatedObjectConfig]:
+        """Build all scene objects from parquet data.
+
+        For articulated objects (Arctic), builds a single ArticulatedObjectConfig.
+        For rigid objects (TACO/OakInk2), builds one ObjectConfig per body.
+        """
+        if object_type == "articulated":
+            return [cls._build_articulated_object(data)]
+
+        body_names = (
+            data.get("safe_object_body_names", [[]])[0]
+            or data.get("object_body_names", [[]])[0]
+            or []
         )
+        urdf_paths = data.get("object_urdf_paths", [[]])[0] or []
+        obj_name = (
+            data.get("safe_object_name", [None])[0]
+            or data.get("object_name", [None])[0]
+        )
+        objects: list[ObjectConfig | ArticulatedObjectConfig] = []
 
-        config._load_initial_poses()
-        return config
+        for i, body_name in enumerate(body_names):
 
-    def _load_initial_poses(self) -> None:
-        """Load initial poses from file frame 0 for all objects."""
-        if self.motion_file.endswith(".h5"):
-            with h5py.File(self.motion_file, "r") as f:
-                self.robot_init_qpos = f[self.robot_qpos_key][0]
+            # Try registry first (for first body with known object name)
+            if i == 0 and obj_name:
+                spec = get_object_spec(obj_name)
+                if spec and spec.rigid_urdf_path:
+                    obj = ObjectConfig(name=body_name, usd_path=spec.rigid_urdf_path)
+                    _load_body_pose(data, obj, i)
+                    objects.append(obj)
+                    continue
 
-                pos = f[self.target_object.position_key][0].tolist()
-                rot = f[self.target_object.quaternion_key][0].tolist()
-                self.target_object.init_pos = [
-                    p + o
-                    for p, o in zip(pos, self.target_object.pos_offset, strict=True)
-                ]
-                self.target_object.init_rot = rot
+            # Resolve from generated URDFs
+            urdf_path = urdf_paths[i] if i < len(urdf_paths) else None
+            assert urdf_path and Path(urdf_path).exists(), (
+                f"Could not resolve rigid object for object_name='{obj_name}', "
+                f"body='{body_name}'. Generate URDFs with scripts/generate_rigid_urdfs.py"
+            )
 
-                for fixed_obj in self.fixed_objects:
-                    # Skip if init_pos/init_rot already set from config
-                    if (
-                        fixed_obj.init_pos is not None
-                        and fixed_obj.init_rot is not None
-                    ):
-                        continue
-                    pos = f[fixed_obj.position_key][0].tolist()
-                    rot = f[fixed_obj.quaternion_key][0].tolist()
-                    fixed_obj.init_pos = [
-                        p + o for p, o in zip(pos, fixed_obj.pos_offset, strict=True)
-                    ]
-                    fixed_obj.init_rot = rot
+            obj = ObjectConfig(name=body_name, usd_path=urdf_path)
+            _load_body_pose(data, obj, i)
+            objects.append(obj)
 
-        elif self.motion_file.endswith(".yaml"):
-            with open(self.motion_file, "r") as f:
-                data = yaml.safe_load(f)
-                self.robot_init_qpos = [float(v) for v in data[self.robot_qpos_key][0]]
+        if not objects:
+            raise ValueError("No scene objects could be built from parquet data")
 
-                pos = data[self.target_object.position_key][0]
-                rot = data[self.target_object.quaternion_key][0]
-                self.target_object.init_pos = [
-                    float(p) + float(o)
-                    for p, o in zip(pos, self.target_object.pos_offset, strict=True)
-                ]
-                self.target_object.init_rot = [float(r) for r in rot]
+        return objects
 
-                for fixed_obj in self.fixed_objects:
-                    # Skip if init_pos/init_rot already set from config
-                    if (
-                        fixed_obj.init_pos is not None
-                        and fixed_obj.init_rot is not None
-                    ):
-                        continue
-                    pos = data[fixed_obj.position_key][0]
-                    rot = data[fixed_obj.quaternion_key][0]
-                    fixed_obj.init_pos = [
-                        float(p) + float(o)
-                        for p, o in zip(pos, fixed_obj.pos_offset, strict=True)
-                    ]
-                    fixed_obj.init_rot = [float(r) for r in rot]
+    @staticmethod
+    def _build_articulated_object(data: dict) -> ArticulatedObjectConfig:
+        """Build an articulated object from parquet data and the object registry."""
+        obj_name = (
+            data.get("safe_object_name", [None])[0]
+            or data.get("object_name", [None])[0]
+        )
+        if not obj_name:
+            raise ValueError("Could not discover object_name from parquet")
 
-        elif self.motion_file.endswith(".parquet"):
-            if self.is_ee_motion:
-                self._load_ee_parquet_poses()
-            else:
-                raise ValueError(
-                    "Parquet files are only supported for end-effector motion right now."
+        spec = get_object_spec(obj_name)
+        if not spec or not spec.urdf_path:
+            raise ValueError(f"No urdf_path for '{obj_name}' — add to object registry")
+
+        obj = ArticulatedObjectConfig(name=obj_name, urdf_path=spec.urdf_path)
+        _load_articulated_poses(data, obj)
+        return obj
+
+    @staticmethod
+    def _build_fixed_objects(motion_file: str) -> list[ObjectConfig]:
+        """Auto-discover fixed objects (support surfaces) from the motion file path."""
+        fixed: list[ObjectConfig] = []
+        support_path = _discover_support_surface(motion_file)
+        if support_path is not None:
+            fixed.append(
+                ObjectConfig(
+                    name="support_surface",
+                    usd_path=support_path,
+                    init_pos=[0.0, 0.0, 0.0],
+                    init_rot=[1.0, 0.0, 0.0, 0.0],
                 )
+            )
+        return fixed
 
-    def _load_ee_parquet_poses(self) -> None:
-        """Load initial poses from end-effector motion file frame 0."""
-        table = pq.read_table(self.motion_file)
-        data = table.to_pydict()
+    @staticmethod
+    def _build_episode_length_s(data: dict) -> float:
+        """Build the episode length from the parquet data."""
+        try:
+            timesteps = len(data.get("object_articulation", [[]])[0])
+            fps = data.get("fps", [30.0])[0]
+            episode_length_s = float(timesteps / fps)
+        except Exception:
+            episode_length_s = 20.0
+        return episode_length_s
 
-        # Load EE-based hand data (first timestep of first trajectory)
-        if "robot_left_qpos" in data and data["robot_left_qpos"]:
-            left_qpos_trajectory = data["robot_left_qpos"][0]  # First trajectory
-            if left_qpos_trajectory:
-                self.left_hand_init_qpos = list(
-                    left_qpos_trajectory[0]
-                )  # First timestep
 
-        if "robot_right_qpos" in data and data["robot_right_qpos"]:
-            right_qpos_trajectory = data["robot_right_qpos"][0]
-            if right_qpos_trajectory:
-                self.right_hand_init_qpos = list(right_qpos_trajectory[0])
+# Parquet pose loading
 
-        # Load head pose
-        if "nvhuman_head_translation" in data and data["nvhuman_head_translation"]:
-            head_trans_trajectory = data["nvhuman_head_translation"][0]
-            if head_trans_trajectory:
-                self.head_init_translation = list(head_trans_trajectory[0])
 
-        if "nvhuman_head_wxyz" in data and data["nvhuman_head_wxyz"]:
-            head_wxyz_trajectory = data["nvhuman_head_wxyz"][0]
-            if head_wxyz_trajectory:
-                self.head_init_wxyz = list(head_wxyz_trajectory[0])
+def _load_articulated_poses(data: dict, obj: ArticulatedObjectConfig) -> None:
+    """Populate an ArticulatedObjectConfig with frame-0 poses from parquet."""
+    offset = obj.pos_offset
 
-        # Load root pose
-        if "nvhuman_root_translation" in data and data["nvhuman_root_translation"]:
-            root_trans_trajectory = data["nvhuman_root_translation"][0]
-            if root_trans_trajectory:
-                self.root_init_translation = list(root_trans_trajectory[0])
+    if not obj.body_names:
+        names = (
+            data.get("safe_object_body_names", [[]])[0]
+            or data.get("object_body_names", [[]])[0]
+            or []
+        )
+        if names:
+            obj.body_names = list(names)
 
-        if "nvhuman_root_wxyz" in data and data["nvhuman_root_wxyz"]:
-            root_wxyz_trajectory = data["nvhuman_root_wxyz"][0]
-            if root_wxyz_trajectory:
-                self.root_init_wxyz = list(root_wxyz_trajectory[0])
+    root_pos = data.get("object_root_position")
+    if root_pos and root_pos[0]:
+        pos = list(root_pos[0][0])
+        obj.init_pos = [p + o for p, o in zip(pos, offset, strict=True)]
 
-        # Load object pose - convert axis-angle to quaternion wxyz
-        if "object_translation" in data and data["object_translation"]:
-            obj_trans_trajectory = data["object_translation"][0]
-            if obj_trans_trajectory:
-                pos = list(obj_trans_trajectory[0])
-                self.target_object.init_pos = [
-                    p + o
-                    for p, o in zip(pos, self.target_object.pos_offset, strict=True)
-                ]
+    root_aa = data.get("object_root_axis_angle")
+    if root_aa and root_aa[0]:
+        aa = np.array(root_aa[0][0])
+        obj.init_rot = R.from_rotvec(aa).as_quat(scalar_first=True).tolist()
 
-        if "object_axis_angle" in data and data["object_axis_angle"]:
-            obj_aa_trajectory = data["object_axis_angle"][0]
-            if obj_aa_trajectory:
-                axis_angle = np.array(obj_aa_trajectory[0])
-                # Convert axis-angle to quaternion (wxyz format)
-                rot = R.from_rotvec(axis_angle)
-                wxyz = rot.as_quat(scalar_first=True)
-                self.target_object.init_rot = wxyz.tolist()
+    body_pos = data.get("object_body_position")
+    if body_pos and body_pos[0]:
+        frame0 = body_pos[0][0]
+        obj.body_init_positions = [
+            [p + o for p, o in zip(bp, offset, strict=True)] for bp in frame0
+        ]
 
-        self.robot_init_qpos = None
+    body_rot = data.get("object_body_wxyz")
+    if body_rot and body_rot[0]:
+        frame0 = body_rot[0][0]
+        obj.body_init_rotations = [list(bw) for bw in frame0]
+
+    art = data.get("object_articulation")
+    if art and art[0]:
+        obj.init_joint_pos = float(art[0][0])
+
+
+def _load_body_pose(data: dict, obj: ObjectConfig, body_index: int) -> None:
+    """Load frame-0 pose for a specific body index from parquet body arrays."""
+    offset = obj.pos_offset
+
+    body_pos = data.get("object_body_position")
+    if body_pos and body_pos[0]:
+        frame0 = body_pos[0][0]
+        if body_index < len(frame0):
+            pos = list(frame0[body_index])
+            obj.init_pos = [p + o for p, o in zip(pos, offset, strict=True)]
+
+    body_rot = data.get("object_body_wxyz")
+    if body_rot and body_rot[0]:
+        frame0 = body_rot[0][0]
+        if body_index < len(frame0):
+            obj.init_rot = list(frame0[body_index])
+
+
+def _discover_support_surface(motion_file: str) -> str | None:
+    """Find reconstructed support surface USDA from partitioned parquet path."""
+    path = Path(motion_file).resolve()
+    for parent in [path] + list(path.parents):
+        if parent.name.startswith("sequence_id="):
+            seq_id = parent.name.split("=", 1)[1]
+            stage_dir = parent.parent.parent / "reconstructed_stage"
+            support_path = stage_dir / f"{seq_id}_support.usda"
+            if support_path.exists():
+                return str(support_path)
+            return None
+    return None

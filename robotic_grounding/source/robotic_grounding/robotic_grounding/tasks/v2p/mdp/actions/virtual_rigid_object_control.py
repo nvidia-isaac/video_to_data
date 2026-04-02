@@ -40,11 +40,8 @@ class VirtualRigidObjectControl(ActionTerm):
 
         # Pointer to the command term and object attribute
         self.command = env.command_manager.get_term(self.cfg.command_name)
-        self.object = self.command.object
-        self.num_bodies = len(self.command.object_body_ids)
-        assert (
-            self.num_bodies == 1
-        ), "VirtualRigidObjectControl only supports one body in a rigid object."
+        self.object_idx = self.command.cfg.object_body_names.index(cfg.asset_name)
+        self.object = self.command.objects[self.object_idx]
 
         self.object_mass = self.object.root_physx_view.get_masses().to(
             self.device
@@ -130,14 +127,19 @@ class VirtualRigidObjectControl(ActionTerm):
     def apply_actions(self) -> None:
         """Apply virtual force torque to the rigid object using a Position PD Controller."""
         # 1. Extract current object state
-        object_position_e = self.command.object_position_e.squeeze(1)  # world_p_object
-        object_wxyz = self.command.object_orientation_e.squeeze(1)  # world_q_object
+        object_position_e = self.command.object_position_e[
+            :, self.object_idx
+        ]  # world_p_object
+        object_wxyz = self.command.object_orientation_e[
+            :, self.object_idx
+        ]  # world_q_object
         object_linvel_b = self.object.data.root_link_lin_vel_b
         object_angvel_b = self.object.data.root_link_ang_vel_b
 
         # 2. PD for force control
         object_position_error_e = (
-            self.command.object_body_position_command_e - object_position_e
+            self.command.object_body_position_command_e[:, self.object_idx]
+            - object_position_e
         )
         object_position_error_b = math_utils.quat_apply_inverse(
             object_wxyz, object_position_error_e
@@ -150,7 +152,7 @@ class VirtualRigidObjectControl(ActionTerm):
         # 3. PD for torque control
         object_orientation_error_b = math_utils.quat_mul(
             math_utils.quat_inv(object_wxyz),
-            self.command.object_body_wxyz_command_e,
+            self.command.object_body_wxyz_command_e[:, self.object_idx],
         )
         object_orientation_error_b = math_utils.axis_angle_from_quat(
             object_orientation_error_b
@@ -184,7 +186,7 @@ class VirtualRigidObjectControl(ActionTerm):
         self._processed_actions = self._raw_actions
 
         self.object.set_external_force_and_torque(
-            forces=force.reshape(self.num_envs, self.num_bodies, 3),
-            torques=torque.reshape(self.num_envs, self.num_bodies, 3),
+            forces=force.reshape(self.num_envs, 1, 3),
+            torques=torque.reshape(self.num_envs, 1, 3),
             is_global=False,
         )

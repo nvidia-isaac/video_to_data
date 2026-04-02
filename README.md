@@ -1,6 +1,6 @@
-# Video to Policy
+# Video to Data
 
-Monorepo for Video to Policy (V2P) — learning robotic manipulation policies from human video demonstrations.
+Monorepo for Video to Data (V2D) — converting human demonstration videos into simulation environments and physics-grounded robot training data.
 
 ## Packages
 

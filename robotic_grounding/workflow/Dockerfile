@@ -13,7 +13,7 @@
 FROM nvcr.io/nvidia/isaac-lab:2.3.1 AS base
 
 # Set working directory
-WORKDIR /workspace/robotic_grounding
+WORKDIR /workspace/video_to_data/robotic_grounding
 
 RUN apt-get update && apt-get install -y \
     curl \
@@ -60,6 +60,7 @@ RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
     judo-rai>=0.0.5 \
     "pin-pink>=4.0.0" \
     pin==3.7.0 \
+    usd-core \
     deprecation
 
 # Install QPSolvers

@@ -193,29 +193,33 @@ def object_keypoints_tracking_exp(
     command = env.command_manager.get_term(command_name)
 
     # Get current object state
-    object_position = command.object_position_e  # (num_envs, 1, 3)
-    object_wxyz = command.object_orientation_e  # (num_envs, 1, 4)
+    object_position = command.object_position_e.unsqueeze(2).expand(
+        -1, -1, 6, -1
+    )  # (num_envs, k, 6, 3)
+    object_wxyz = command.object_orientation_e.unsqueeze(2).expand(
+        -1, -1, 6, -1
+    )  # (num_envs, k, 6, 4)
 
     # Compute keypoints
     object_keypoints, _ = math_utils.combine_frame_transforms(
-        object_position.repeat(1, 6, 1),
-        object_wxyz.repeat(1, 6, 1),
+        object_position,
+        object_wxyz,
         command.KEYPOINT_VECS,
         q12=None,
-    )  # (num_envs, 6, 3)
+    )  # (num_envs, k, 6, 3)
     object_command_keypoints, _ = math_utils.combine_frame_transforms(
-        command.object_body_position_command_e.unsqueeze(1).repeat(1, 6, 1),
-        command.object_body_wxyz_command_e.unsqueeze(1).repeat(1, 6, 1),
+        command.object_body_position_command_e.unsqueeze(2).expand(-1, -1, 6, -1),
+        command.object_body_wxyz_command_e.unsqueeze(2).expand(-1, -1, 6, -1),
         command.KEYPOINT_VECS,
         q12=None,
-    )  # (num_envs, 6, 3)
+    )  # (num_envs, k, 6, 3)
 
     # Compute keypoints error
     object_keypoints_error = torch.norm(
         object_keypoints - object_command_keypoints, p=2, dim=-1
-    )  # (num_envs, 6)
+    )  # (num_envs, k, 6)
     object_keypoints_tracking_rew = torch.exp(-object_keypoints_error / var).mean(
-        dim=-1
+        dim=(-2, -1)
     )
 
     return object_keypoints_tracking_rew

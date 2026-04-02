@@ -13,6 +13,8 @@ the object_mesh_paths field (one path per object body). Plays back robot hands +
 """
 
 import argparse
+import shutil
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -21,13 +23,21 @@ import numpy as np
 import torch
 import trimesh
 import viser
-from pxr import Usd, UsdGeom
+
+try:
+    from pxr import Usd, UsdGeom
+
+    _USD_AVAILABLE = True
+except ImportError:
+    _USD_AVAILABLE = False
 from robotic_grounding.retarget import HUMAN_MOTION_DATA_DIR
 from robotic_grounding.retarget.data_logger import ManoSharpaData, list_sequence_ids
 from robotic_grounding.retarget.hand_kinematics import HandKinematics
 from robotic_grounding.retarget.params import MANO_FINGERTIP_INDICES, MANO_HAND_LINKS
 from robotic_grounding.retarget.read_mano import MANO
 from robotic_grounding.retarget.retarget_utils import setup_sharpa_kinematics
+
+DEFAULT_HTML_DIR = HUMAN_MOTION_DATA_DIR / "html"
 
 FINGER_NAMES = ["thumb", "index", "middle", "ring", "pinky"]
 
@@ -58,7 +68,7 @@ def load_object_meshes_from_paths(
             continue
         mesh = trimesh.load(path)
         if isinstance(mesh, trimesh.Scene):
-            mesh = mesh.dump(concatenate=True)
+            mesh = mesh.to_geometry()
         if path.endswith("_cm.obj"):
             mesh.vertices *= 0.01
         handles[part] = viser_server.scene.add_mesh_trimesh(
@@ -117,17 +127,38 @@ def load_support_surfaces_from_usd(
     return handles
 
 
+DATASET_DIRS: dict[str, str] = {
+    "arctic": "arctic_processed",
+    "taco": "taco_processed",
+    "oakink2": "oakink2_processed",
+    "hot3d": "hot3d_processed",
+}
+
+
 def parse_args() -> argparse.Namespace:
     """Parse the command line arguments."""
-    default_input = HUMAN_MOTION_DATA_DIR / "arctic_processed"
     parser = argparse.ArgumentParser(
         description="Visualize retargeted Parquet data (hands + optional object meshes)."
     )
     parser.add_argument(
+        "--dataset",
+        type=str,
+        choices=list(DATASET_DIRS),
+        default=None,
+        help=(
+            "Dataset shorthand; sets --input_dir to the corresponding processed directory "
+            f"under HUMAN_MOTION_DATA_DIR. Choices: {list(DATASET_DIRS)}. "
+            "Ignored when --input_dir is set explicitly."
+        ),
+    )
+    parser.add_argument(
         "--input_dir",
         type=Path,
-        default=default_input,
-        help="Root directory of retargeted Parquet (e.g. .../mano_object_robot_processed).",
+        default=None,
+        help=(
+            "Root directory of retargeted Parquet (e.g. .../arctic_processed). "
+            "Defaults to arctic_processed when neither --input_dir nor --dataset is given."
+        ),
     )
     parser.add_argument(
         "--sequence_id",
@@ -163,6 +194,22 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Explicit path to a support-surface .usda file (overrides auto-discovery).",
+    )
+    parser.add_argument(
+        "--save_html",
+        action="store_true",
+        default=False,
+        help=(
+            "Record the animation to a .viser file and build a local viser client for offline "
+            "playback. Outputs to --html_dir. After running, scp that directory to your local "
+            "machine, then: cd <html_dir> && python -m http.server 8000"
+        ),
+    )
+    parser.add_argument(
+        "--html_dir",
+        type=Path,
+        default=None,
+        help=f"Output directory for --save_html (default: {DEFAULT_HTML_DIR}).",
     )
     return parser.parse_args()
 
@@ -244,6 +291,7 @@ def visualize_one_trajectory(
     visualize_contacts: bool = False,
     visualize_fingertip_distances: bool = False,
     support_usd: Path | None = None,
+    serializer: Any = None,
 ) -> dict[str, Any]:
     """Load one sequence and visualize playback (hands + objects from object_mesh_paths)."""
     for _, handle in viser_object_handles.items():
@@ -253,8 +301,13 @@ def visualize_one_trajectory(
     # Auto-discover or use explicit support-surface USD
     usd_path = support_usd or find_support_usd(input_dir, sequence_id)
     if usd_path is not None:
-        print(f"  Loading support surfaces from {usd_path}")
-        load_support_surfaces_from_usd(viser_server, usd_path)
+        if not _USD_AVAILABLE:
+            print(
+                "WARNING: pxr (USD) is not available on this platform; skipping support surfaces."
+            )
+        else:
+            print(f"  Loading support surfaces from {usd_path}")
+            load_support_surfaces_from_usd(viser_server, usd_path)
 
     contact_points_handles: list[Any] = []
 
@@ -397,14 +450,48 @@ def visualize_one_trajectory(
                     joints_wxyz=mano_results[side]["joints_wxyz"][frame_id],
                 )
 
-        time.sleep(1.0 / logger_data.fps)
+        dt = 1.0 / logger_data.fps
+        if serializer is not None:
+            serializer.insert_sleep(dt)
+        else:
+            time.sleep(dt)
 
     return viser_object_handles
 
 
+def _build_viser_client(html_dir: Path) -> None:
+    """Copy the viser JS client build into html_dir/viser-client/.
+
+    Copies directly from the installed viser package rather than calling the
+    viser-build-client binary, which fails in Isaac Sim's environment because
+    imageio is only on sys.path when launched via isaaclab.sh.
+    """
+    client_dir = html_dir / "viser-client"
+    if client_dir.exists():
+        return
+
+    viser_client_build = Path(viser.__file__).parent / "client" / "build"
+    if not viser_client_build.is_dir():
+        print(
+            f"WARNING: viser client build not found at {viser_client_build}; skipping."
+        )
+        sys.exit(-1)
+        return
+
+    print(f"Copying viser client → {client_dir}")
+    shutil.copytree(viser_client_build, client_dir)
+    print(f"  Viser client ready at {client_dir}")
+
+
 def main(args: argparse.Namespace) -> None:
     """List or use sequence, setup kinematics, run visualization."""
-    input_dir = args.input_dir
+    if args.input_dir is not None:
+        input_dir = args.input_dir
+    elif args.dataset is not None:
+        input_dir = HUMAN_MOTION_DATA_DIR / DATASET_DIRS[args.dataset]
+    else:
+        input_dir = HUMAN_MOTION_DATA_DIR / DATASET_DIRS["arctic"]
+
     if not input_dir.is_dir():
         raise FileNotFoundError(f"Input directory not found: {input_dir}")
 
@@ -419,6 +506,18 @@ def main(args: argparse.Namespace) -> None:
         print(
             f"No sequence_id specified, will iterate through all {len(sequence_ids)} sequences."
         )
+
+    # Resolve HTML output directory and build the viser client (once)
+    html_dir: Path | None = None
+    if args.save_html:
+        _html_dir: Path = args.html_dir or DEFAULT_HTML_DIR
+        (_html_dir / "recordings").mkdir(parents=True, exist_ok=True)
+        _build_viser_client(_html_dir)
+        index_src = DEFAULT_HTML_DIR / "index.html"
+        index_dst = _html_dir / "index.html"
+        if index_src.exists() and not index_dst.exists():
+            shutil.copy2(index_src, index_dst)
+        html_dir = _html_dir
 
     viser_server = viser.ViserServer()
     viser_object_handles: dict[str, Any] = {}
@@ -438,6 +537,7 @@ def main(args: argparse.Namespace) -> None:
         print(
             f"[{seq_idx + 1}/{len(sequence_ids)}] Visualizing sequence: {sequence_id}"
         )
+        serializer = viser_server.get_scene_serializer() if args.save_html else None
         visualize_one_trajectory(
             viser_server,
             right_sharpa_kinematics,
@@ -450,7 +550,19 @@ def main(args: argparse.Namespace) -> None:
             visualize_contacts=args.visualize_contacts,
             visualize_fingertip_distances=args.visualize_fingertip_distances,
             support_usd=support_usd,
+            serializer=serializer,
         )
+        if serializer is not None and html_dir is not None:
+            out_path = html_dir / "recordings" / f"{sequence_id}.viser"
+            out_path.write_bytes(serializer.serialize())
+            print(f"  Saved → {out_path}")
+            print(
+                f"\n  Playback instructions:\n"
+                f"    scp -r {html_dir} <local-machine>:/tmp/viser_replay\n"
+                f"    cd /tmp/viser_replay && python -m http.server 8000\n"
+                f"    http://localhost:8000/viser-client/"
+                f"?playbackPath=http://localhost:8000/recordings/{sequence_id}.viser\n"
+            )
 
 
 if __name__ == "__main__":

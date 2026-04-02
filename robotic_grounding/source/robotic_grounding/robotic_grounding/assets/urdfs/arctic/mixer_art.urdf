@@ -1,0 +1,61 @@
+<?xml version="1.0" ?>
+<robot name="mixer">
+   <material name="obj_color">
+      <color rgba="1.0 0.423529411765 0.0392156862745 1.0"/>
+   </material>
+
+   <mujoco>
+      <compiler meshdir="../../meshes/arctic/mixer/" balanceinertia="true" discardvisual="false"/>
+   </mujoco>
+
+   <!-- ============================================================= -->
+
+   <link name="top">
+      <inertial>
+         <origin rpy="0.0001769282216030165 0.0004441932116604897 0.0004761848253390118" xyz="0.04595592001656145 0.05191277514101027 -0.00719851972377035"/>
+         <mass value="0.1826894304070795"/>
+         <inertia ixx="0.0004400333706988125" ixy="-3.516830113098367e-05" ixz="3.987106241468934e-06" iyy="0.0001816310394063618" iyz="-1.305771880397837e-06" izz="0.0004756418484973437"/>
+      </inertial>
+      <visual>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/mixer/top_watertight_tiny.stl" scale="1 1 1"/>
+         </geometry>
+         <material name="obj_color"/>
+      </visual>
+      <collision>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/mixer/top_watertight_tiny.obj" scale="1 1 1"/>
+         </geometry>
+      </collision>
+   </link>
+   <link name="bottom">
+      <inertial>
+         <origin rpy="0.00131702071842884 0.002440735498276227 0.002736025514173999" xyz="-0.05365839842743351 0.02319175774029796 -0.009248111938972445"/>
+         <mass value="0.5896949643710692"/>
+         <inertia ixx="0.001543765934130475" ixy="0.0004510005223313524" ixz="-1.191154064024929e-05" iyy="0.002214332959615809" iyz="-4.355848651422951e-06" izz="0.002735682837132782"/>
+      </inertial>
+      <visual>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/mixer/bottom_watertight_tiny.stl" scale="1 1 1"/>
+         </geometry>
+         <material name="obj_color"/>
+      </visual>
+      <collision>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/mixer/bottom_watertight_tiny.obj" scale="1 1 1"/>
+         </geometry>
+      </collision>
+   </link>
+   <joint name="rotation" type="revolute">
+      <origin xyz="0 0 0"/>
+      <axis xyz="0 0 -1"/>
+      <parent link="bottom"/>
+      <child link="top"/>
+      <dynamics damping="0.0" friction="0.000"/>
+      <limit effort="1000" velocity="200" lower="0" upper="3.141592653589793"/>
+   </joint>
+</robot>

@@ -1,0 +1,33 @@
+<?xml version="1.0" ?>
+<robot name="waffleiron">
+   <material name="obj_color">
+      <color rgba="1.0 0.423529411765 0.0392156862745 1.0"/>
+   </material>
+
+   <mujoco>
+      <compiler meshdir="../../meshes/arctic/waffleiron/" balanceinertia="true" discardvisual="false"/>
+   </mujoco>
+
+   <link name="object">
+      <inertial>
+         <origin xyz="0.09624654269935466 0.02366628504861968 0.04590963024498602" rpy="0.001992789349100054 0.002529068396471172 0.004490094021441377"/>
+         <!-- <mass value="1.068060912552084"/> -->
+         <mass value="0.3"/>
+         <inertia ixx="0.002047044585022042" ixy="-0.0003614911524404876" ixz="1.990915096733769e-05" iyy="0.004436604772894065" iyz="3.853203336872841e-06" izz="0.002528302409096502"/>
+      </inertial>
+      <visual>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/waffleiron/mesh_tex_tiny.obj" scale="1 1 1"/>
+         </geometry>
+         <material name="obj_color"/>
+      </visual>
+      <collision>
+         <origin rpy="0 0 0" xyz="0 0 0"/>
+         <geometry>
+            <mesh filename="../../meshes/arctic/waffleiron/mesh_tex_tiny.obj" scale="1 1 1"/>
+         </geometry>
+      </collision>
+   </link>
+
+</robot>

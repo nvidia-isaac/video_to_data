@@ -32,6 +32,7 @@ DEFAULT_PARTITION_COLS = ["sequence_id", "robot_name"]
 def setup_sharpa_kinematics(
     side: Literal["right", "left"],
     frequency: float = 200.0,
+    max_iter: int = 100,
     frame_tasks_converged_threshold: float = 1e-6,
 ) -> HandKinematics:
     """Create HandKinematics for the Sharpa hand.
@@ -39,6 +40,7 @@ def setup_sharpa_kinematics(
     Args:
         side: "right" or "left".
         frequency: Solver frequency (Hz).
+        max_iter: Maximum number of IK iterations.
         frame_tasks_converged_threshold: Convergence threshold for IK.
 
     Returns:
@@ -50,6 +52,7 @@ def setup_sharpa_kinematics(
         robot_asset_path=robot_asset_path,
         source_model="mano",
         use_relative_frames=False,
+        max_iter=max_iter,
         frequency=frequency,
         frame_tasks_converged_threshold=frame_tasks_converged_threshold,
     )

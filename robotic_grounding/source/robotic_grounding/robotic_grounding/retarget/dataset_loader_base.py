@@ -37,6 +37,14 @@ from robotic_grounding.retarget.retarget_utils import (
 )
 
 
+def make_usd_safe(name: str) -> str:
+    """Make a name safe for USD prim paths (no leading digits, no @ etc.)."""
+    safe = name.replace("@", "_")
+    if safe and (safe[0].isdigit() or not (safe[0].isalpha() or safe[0] == "_")):
+        safe = f"obj_{safe}"
+    return safe
+
+
 @dataclass
 class SequenceInfo:
     """Metadata for one sequence to process."""
@@ -310,6 +318,10 @@ class DatasetLoaderBase(ABC):
         """Return paths to object mesh files (one per object body, same order as object_body_names). Override in subclass."""
         return []
 
+    def get_object_urdf_paths(self, sequence_info: SequenceInfo) -> list[str]:
+        """Return paths to object URDF files (one per object body, same order as object_body_names). Override in subclass."""
+        return []
+
     def get_frame_range(self, num_frames: int) -> tuple[int, int]:
         """Return (start, end) frame indices to process. Override to trim frames."""
         return 0, num_frames
@@ -391,6 +403,7 @@ class DatasetLoaderBase(ABC):
                     sequence_id=sequence_info.sequence_id,
                     raw_motion_file=sequence_info.raw_motion_file,
                     object_name=sequence_info.object_name,
+                    safe_object_name=make_usd_safe(sequence_info.object_name),
                     robot_name="sharpa_wave",
                     fps=self.get_fps(),
                     mano_flat_hand_mean=mano_kwargs.get("flat_hand_mean", True),
@@ -405,7 +418,11 @@ class DatasetLoaderBase(ABC):
                     left_robot_frame_names=[],
                     left_robot_frame_task_names=[],
                     object_body_names=sequence_info.object_body_names,
+                    safe_object_body_names=[
+                        make_usd_safe(name) for name in sequence_info.object_body_names
+                    ],
                     object_mesh_paths=self.get_object_mesh_paths(sequence_info),
+                    object_urdf_paths=self.get_object_urdf_paths(sequence_info),
                     object_mesh_radius=object_mesh_radius,
                     mano_link_names=list(MANO_HAND_LINKS.keys()),
                 )

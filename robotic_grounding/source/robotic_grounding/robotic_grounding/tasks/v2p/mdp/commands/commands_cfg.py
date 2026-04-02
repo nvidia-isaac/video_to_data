@@ -14,8 +14,11 @@ from isaaclab.markers.config import FRAME_MARKER_CFG
 from isaaclab.utils import configclass
 
 from robotic_grounding.tasks.v2p.mdp.commands.commands import (
-    DualHandsObjectTrackingCommand,
+    DualHandsTrackingCommand,
     TrackingCommand,
+)
+from robotic_grounding.tasks.v2p.mdp.commands.hand_object_commands import (
+    DualHandsObjectTrackingCommand,
 )
 
 
@@ -79,10 +82,11 @@ class DualHandsObjectTrackingCommandCfg(CommandTermCfg):
     """Configuration for the tracking command term."""
 
     class_type: type = DualHandsObjectTrackingCommand
-    resampling_time_range: tuple[float, float] = (
-        1e6,
-        1e6,
-    )  # no resampling based on time
+    resampling_time_range: tuple[float, float] = (1e6, 1e6)
+    """No resampling based on time."""
+
+    debug_vis: bool = True
+    """Whether to visualize the debug markers."""
 
     right_robot_name: str = "right_robot"
     """Name of the robot in the environment for which the commands are generated."""
@@ -101,9 +105,6 @@ class DualHandsObjectTrackingCommandCfg(CommandTermCfg):
 
     fingertip_body_name: str = ""
     """Name of the fingertip body in the robot."""
-
-    object_name: str = "object"
-    """Name of the object in the environment for which the commands are generated."""
 
     object_body_names: list[str] = ["object"]
     """Names of the object body in the environment for which the commands are generated."""
@@ -126,16 +127,10 @@ class DualHandsObjectTrackingCommandCfg(CommandTermCfg):
     motion_id: int = 0
     """Index of the motion to use after applying the filters."""
 
-    reset_state_file_path: str = ""
-    """Path to the file containing the reset states."""
+    target_fps: float = 40.0
+    """Target FPS to interpolate the motion data to."""
 
-    target_fps: float | None = None
-    """Target FPS to interpolate the motion data to. If None, use the 1 / env.step_dt."""
-
-    reset_to_initial: bool = False
-    """Whether to reset the command to the initial frame of the motion."""
-
-    reset_finger_openness: float = 0.5
+    reset_finger_openness: float = 0.7
     """Max interpolation factor for finger joints at reset.
 
     At reset, each env samples a uniform factor in [0, reset_finger_openness].
@@ -146,10 +141,10 @@ class DualHandsObjectTrackingCommandCfg(CommandTermCfg):
     initial_virtual_object_control_curriculum_scale: float = 1.0
     """Initial virtual object control curriculum scale."""
 
-    virtual_object_control_decay_steps: int = 50
+    virtual_object_control_decay_steps: int = 20
     """Number of steps over which the virtual object control factor decays after reset."""
 
-    virtual_object_control_decay_mode: str = "linear"
+    virtual_object_control_decay_mode: str = "step"
     """Decay mode for the virtual object control factor after reset.
 
     - ``"linear"``: linearly decay from 1 to ``virtual_object_control_curriculum_scale``
@@ -158,6 +153,9 @@ class DualHandsObjectTrackingCommandCfg(CommandTermCfg):
       ``virtual_object_control_decay_steps`` instantly.
     """
 
+    recompute_hand_keypoints_from_object: bool = True
+    """Whether to recompute the hand keypoints based on the object frame."""
+
     ###################################################
     # Visualizer markers
     ###################################################
@@ -165,7 +163,7 @@ class DualHandsObjectTrackingCommandCfg(CommandTermCfg):
     object_pose_visualizer_cfg: VisualizationMarkersCfg = FRAME_MARKER_CFG.replace(
         prim_path="/Visuals/Command/object_marker"
     )
-    object_pose_visualizer_cfg.markers["frame"].scale = (0.14, 0.14, 0.14)
+    object_pose_visualizer_cfg.markers["frame"].scale = (0.07, 0.07, 0.07)
     """Visualizer for the object pose."""
 
     right_hand_pose_visualizer_cfg: VisualizationMarkersCfg = FRAME_MARKER_CFG.replace(
@@ -183,7 +181,7 @@ class DualHandsObjectTrackingCommandCfg(CommandTermCfg):
     object_goal_pose_visualizer_cfg: VisualizationMarkersCfg = FRAME_MARKER_CFG.replace(
         prim_path="/Visuals/Command/object_goal_marker"
     )
-    object_goal_pose_visualizer_cfg.markers["frame"].scale = (0.2, 0.2, 0.2)
+    object_goal_pose_visualizer_cfg.markers["frame"].scale = (0.1, 0.1, 0.1)
     """Visualizer for the object goal pose."""
 
     right_hand_goal_pose_visualizer_cfg: VisualizationMarkersCfg = (
@@ -251,3 +249,115 @@ class DualHandsObjectTrackingCommandCfg(CommandTermCfg):
             },
         )
     )
+
+
+@configclass
+class DualHandsTrackingCommandCfg(CommandTermCfg):
+    """Configuration for the dual-hand tracking command term (no object)."""
+
+    class_type: type = DualHandsTrackingCommand
+    resampling_time_range: tuple[float, float] = (
+        1e6,
+        1e6,
+    )  # no resampling based on time
+
+    right_robot_name: str = "right_robot"
+    """Name of the robot in the environment for which the commands are generated."""
+
+    left_robot_name: str = "left_robot"
+    """Name of the left robot in the environment for which the commands are generated."""
+
+    wrist_joint_names: list[str] = [""]
+    """Names of the wrist joints in the robot."""
+
+    finger_joint_names: list[str] = [""]
+    """Names of the finger joints in the robot."""
+
+    wrist_body_name: str = ""
+    """Name of the hand body in the robot."""
+
+    fingertip_body_name: str = ""
+    """Name of the fingertip body in the robot."""
+
+    make_quat_unique: bool = True
+    """Whether to make the quaternion unique or not.
+
+    If True, the quaternion is made unique by ensuring the real part is positive.
+    """
+
+    motion_folder: str = ""
+    """Path to the folder containing the motion data."""
+
+    motion_filters: list[tuple[str, str, str]] = [
+        ("robot_name", "=", "sharpa_wave"),
+        ("sequence_id", "contains", "box_grab"),
+    ]
+    """Filters to apply to the motion data."""
+
+    motion_id: int = 0
+    """Index of the motion to use after applying the filters."""
+
+    target_fps: float = 40.0
+    """Target FPS to interpolate the motion data to."""
+
+    reset_finger_openness: float = 0.7
+    """Max interpolation factor for finger joints at reset.
+
+    At reset, each env samples a uniform factor in [0, reset_finger_openness].
+    The finger joint positions are then: factor * reference_finger_joints.
+    0.0 = fully open, 1.0 = fully matching reference.
+    """
+
+    ###################################################
+    # Visualizer markers
+    ###################################################
+
+    right_hand_pose_visualizer_cfg: VisualizationMarkersCfg = FRAME_MARKER_CFG.replace(
+        prim_path="/Visuals/Command/right_hand_marker"
+    )
+    right_hand_pose_visualizer_cfg.markers["frame"].scale = (0.05, 0.05, 0.05)
+    """Visualizer for the right hand pose."""
+
+    left_hand_pose_visualizer_cfg: VisualizationMarkersCfg = FRAME_MARKER_CFG.replace(
+        prim_path="/Visuals/Command/left_hand_marker"
+    )
+    left_hand_pose_visualizer_cfg.markers["frame"].scale = (0.05, 0.05, 0.05)
+    """Visualizer for the left hand pose."""
+
+    right_hand_goal_pose_visualizer_cfg: VisualizationMarkersCfg = (
+        FRAME_MARKER_CFG.replace(prim_path="/Visuals/Command/right_hand_goal_marker")
+    )
+    right_hand_goal_pose_visualizer_cfg.markers["frame"].scale = (0.07, 0.07, 0.07)
+    """Visualizer for the right hand goal pose."""
+
+    left_hand_goal_pose_visualizer_cfg: VisualizationMarkersCfg = (
+        FRAME_MARKER_CFG.replace(prim_path="/Visuals/Command/left_hand_goal_marker")
+    )
+    left_hand_goal_pose_visualizer_cfg.markers["frame"].scale = (0.07, 0.07, 0.07)
+    """Visualizer for the left hand goal pose."""
+
+    target_fingertip_visualizer_cfg: VisualizationMarkersCfg = VisualizationMarkersCfg(
+        prim_path="/Visuals/Command/TargetFingertip",
+        markers={
+            "sphere": sim_utils.SphereCfg(
+                radius=0.005,
+                visual_material=sim_utils.PreviewSurfaceCfg(
+                    diffuse_color=(1.0, 0.0, 0.0)
+                ),
+            ),
+        },
+    )
+    """Visualizer for target fingertip positions (red)."""
+
+    current_fingertip_visualizer_cfg: VisualizationMarkersCfg = VisualizationMarkersCfg(
+        prim_path="/Visuals/Command/CurrentFingertip",
+        markers={
+            "sphere": sim_utils.SphereCfg(
+                radius=0.005,
+                visual_material=sim_utils.PreviewSurfaceCfg(
+                    diffuse_color=(0.0, 1.0, 0.0)
+                ),
+            ),
+        },
+    )
+    """Visualizer for current fingertip positions (green)."""
