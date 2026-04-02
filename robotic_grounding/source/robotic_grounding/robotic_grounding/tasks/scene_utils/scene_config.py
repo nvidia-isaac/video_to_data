@@ -14,9 +14,6 @@ from robotic_grounding.assets.object_registry import get_object_spec
 
 HUMAN_MOTION_DATA_DIR = os.path.join(ASSET_DIR, "human_motion_data")
 
-# Prefix baked into TACO parquet mesh paths (from Docker container)
-_WORKSPACE_PREFIX = "/workspace/robotic_grounding/"
-
 
 @dataclass
 class ObjectConfig:
