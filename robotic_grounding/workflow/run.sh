@@ -7,6 +7,7 @@
 #   ./run.sh pull [version]          - Pull the Docker image from NVIDIA registry (default: latest)
 #   ./run.sh start [version] [gpu]   - Run the container and enter the shell (default version: latest, gpu: 0)
 #   ./run.sh shell [version] [gpu]   - Enter the shell of a running container with specific version and GPU
+#   ./run.sh exec [version] [gpu] -- <cmd>  - Run a command in a running container
 #   ./run.sh stop [version] [gpu]    - Stop the running container
 
 set -e
@@ -107,6 +108,25 @@ case "$1" in
         docker exec -it ${CONTAINER_NAME} /bin/bash
         ;;
 
+    exec)
+        # Shift past the subcommand, version, and gpu args to find "--"
+        shift 3 2>/dev/null || true
+        # Skip the "--" separator if present
+        [ "$1" = "--" ] && shift
+        if [ $# -eq 0 ]; then
+            echo "Usage: $0 exec [version] [gpu] -- <command>"
+            exit 1
+        fi
+
+        if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+            echo "Error: Container ${CONTAINER_NAME} is not running."
+            echo "Use './run.sh start' to start the container first."
+            exit 1
+        fi
+
+        docker exec -it ${CONTAINER_NAME} "$@"
+        ;;
+
     stop)
         echo "Stopping container: ${CONTAINER_NAME}"
 
@@ -121,13 +141,14 @@ case "$1" in
         ;;
 
     *)
-        echo "Usage: $0 {build|pull|push|start|shell|stop} [version] [gpu]"
+        echo "Usage: $0 {build|pull|push|start|shell|exec|stop} [version] [gpu]"
         echo ""
         echo "  build [version]         - Build the Docker image (default: latest)"
         echo "  pull [version]          - Pull the Docker image from NVIDIA registry (default: latest)"
         echo "  push [version]          - Push the Docker image to NVIDIA registry (default: latest)"
         echo "  start [version] [gpu]   - Run the container and enter the shell (default version: latest, gpu: 0)"
         echo "  shell                   - Enter the shell of a running container"
+        echo "  exec [version] [gpu] -- <cmd> - Run a command in a running container"
         echo "  stop                    - Stop the running container"
         exit 1
         ;;
