@@ -450,7 +450,7 @@ def main():
             })
         )
         print(f"result.json written with stage1_end_frame=null — pipeline will stop.")
-        sys.exit(1)
+        sys.exit(0)  # exit 0: script ran correctly; the data has no detectable plateau
 
 
 if __name__ == '__main__':
