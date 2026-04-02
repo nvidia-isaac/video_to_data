@@ -107,53 +107,83 @@ def sliding_window_slope(angles_deg, window):
 # ── Plateau detection ──────────────────────────────────────────────────────────
 
 def detect_longest_plateau(slopes, median_slope, drop_frac, min_len,
-                           tail_exclude_frac=0.15):
+                           tail_exclude_frac=0.15, qualify_frac=0.65,
+                           spread_frac=1.5):
     """
-    Find the longest sustained low-slope period across the entire sequence,
-    ignoring any plateau whose start falls in the last tail_exclude_frac of
-    the sequence (to avoid picking up end-of-scan pauses after Stage 2).
+    Find the longest contiguous region where the rolling-mean absolute slope
+    (window = min_len frames) is significantly lower than the active-scanning
+    median slope.  This is the transition pause where the person stops moving
+    and rotates the object between Stage 1 and Stage 2.
 
-    A "low-slope" frame satisfies: abs(slope) < abs(median_slope) * drop_frac.
-    Only runs of >= min_len consecutive low-slope frames are considered.
+    Algorithm:
+      1. Compute rolling-mean of |slope| over min_len frames → window_mean[i].
+      2. Find the global minimum of window_mean (before the tail exclusion zone).
+         This is the "quietest" part of the scan.
+      3. Qualify check: min_wm must be < median * qualify_frac (default 0.65).
+         Scans with no real transition have no deep minimum and fail here.
+      4. Adaptive threshold = max(min_wm * spread_frac, |median| * drop_frac).
+         • For a clean, crisp pause  : spread term is tiny → strict drop_frac wins.
+         • For a noisy / partial pause: spread term gives a threshold relative to
+           the actual minimum, catching the whole neighbourhood even when the
+           camera never fully stops.
+      5. Find the longest contiguous run of positions below this threshold
+         (start must be before tail_start).
 
     Returns (plateau_start_idx, plateau_len, method_str):
       plateau_start_idx — keyframe index of the first frame of the longest plateau
-      plateau_len       — number of consecutive low-slope frames in that plateau
+      plateau_len       — length of the plateau in frames
       method_str        — 'longest_plateau' if found, 'no_plateau' otherwise
-
-    If no qualifying plateau is found, returns (None, 0, 'no_plateau').
-    The caller should treat 'no_plateau' as a fatal error: it means the scan
-    does not have a detectable Stage-1 → Stage-2 transition and cannot be
-    processed by this pipeline without manual --stage1_end_frame specification.
     """
     N = len(slopes)
-    threshold  = abs(median_slope) * drop_frac
+    if N < min_len:
+        return None, 0, 'no_plateau'
+
     tail_start = int(N * (1.0 - tail_exclude_frac))
 
-    best_start = None
-    best_len   = 0
+    abs_slopes  = np.abs(slopes)
+    cumsum      = np.concatenate([[0.0], np.cumsum(abs_slopes)])
+    window_mean = (cumsum[min_len:] - cumsum[:-min_len]) / min_len  # length N-min_len+1
 
-    run_start = None
-    run_len   = 0
+    # Step 2: global minimum before tail
+    search_end = min(tail_start, len(window_mean))
+    if search_end <= 0:
+        return None, 0, 'no_plateau'
+    i_min  = int(np.argmin(window_mean[:search_end]))
+    min_wm = window_mean[i_min]
 
-    for i in range(N):
-        if abs(slopes[i]) < threshold:
-            if run_start is None:
-                run_start = i
-            run_len += 1
+    # Step 3: qualify check — the minimum must be a meaningful slowdown
+    abs_median = abs(median_slope)
+    if min_wm >= abs_median * qualify_frac:
+        return None, 0, 'no_plateau'
+
+    # Step 4: adaptive threshold
+    threshold = max(min_wm * spread_frac, abs_median * drop_frac)
+
+    # Step 5: longest contiguous qualifying run (start < tail_start)
+    best_start    = None
+    best_len      = 0
+    run_start_pos = None
+    run_len_pos   = 0
+
+    for i in range(min(len(window_mean), tail_start)):
+        if window_mean[i] < threshold:
+            if run_start_pos is None:
+                run_start_pos = i
+            run_len_pos += 1
         else:
-            if run_start is not None and run_len >= min_len:
-                if run_start < tail_start and run_len > best_len:
-                    best_start = run_start
-                    best_len   = run_len
-            run_start = None
-            run_len   = 0
+            if run_start_pos is not None:
+                actual_len = run_len_pos + min_len - 1
+                if actual_len > best_len:
+                    best_start = run_start_pos
+                    best_len   = actual_len
+            run_start_pos = None
+            run_len_pos   = 0
 
-    # Handle a plateau that extends to the very end of the sequence
-    if run_start is not None and run_len >= min_len:
-        if run_start < tail_start and run_len > best_len:
-            best_start = run_start
-            best_len   = run_len
+    if run_start_pos is not None:
+        actual_len = run_len_pos + min_len - 1
+        if actual_len > best_len:
+            best_start = run_start_pos
+            best_len   = actual_len
 
     if best_start is not None:
         return best_start, best_len, 'longest_plateau'
@@ -250,8 +280,10 @@ def main():
     lo, hi       = int(0.2 * N), int(0.8 * N)
     median_slope  = np.median(slopes_smooth[lo:hi])
     print(f"Median slope (active scanning): {median_slope:.3f} °/keyframe")
-    print(f"Plateau threshold:              < {median_slope * args.slope_drop_frac:.3f} °/keyframe  "
+    print(f"Strict drop threshold:          < {median_slope * args.slope_drop_frac:.3f} °/keyframe  "
           f"({args.slope_drop_frac*100:.0f}% of median)")
+    print(f"Qualify threshold:              global min must be < {median_slope * 0.65:.3f} °/keyframe  "
+          f"(65% of median)")
 
     # ── Detect longest sustained low-slope plateau (full sequence) ───────────
     plateau_idx, plateau_len, method = detect_longest_plateau(
@@ -376,11 +408,19 @@ def main():
     print(f"Saved: {out_dir}/3_cumulative_angle.png")
 
     # ── Plot 4: Slope (raw + smoothed) + threshold ────────────────────────────
-    thr_line = abs(median_slope) * args.slope_drop_frac
+    strict_thr = abs(median_slope) * args.slope_drop_frac
+    # Recompute the adaptive threshold used by detect_longest_plateau for display
+    abs_slopes_disp = np.abs(slopes_smooth)
+    cumsum_disp = np.concatenate([[0.0], np.cumsum(abs_slopes_disp)])
+    wm_disp = (cumsum_disp[args.min_plateau_len:] - cumsum_disp[:-args.min_plateau_len]) / args.min_plateau_len
+    tail_s = int(N * (1.0 - args.tail_exclude_frac))
+    min_wm_disp = float(np.min(wm_disp[:min(tail_s, len(wm_disp))]))
+    adapt_thr = max(min_wm_disp * 1.5, strict_thr)
+    thr_line = adapt_thr
     fig, ax = plt.subplots(figsize=(12, 4))
     ax.plot(seq_indices, slopes_smooth, color='blue', lw=1.8, label=f'slope (sliding window, w={W})')
     ax.axhline(thr_line,  color='green', ls='--', lw=1.5,
-               label=f'plateau threshold ({args.slope_drop_frac*100:.0f}% of median = {thr_line:.2f}°/kf)')
+               label=f'adaptive threshold ({thr_line:.2f}°/kf = max(min×1.5, {strict_thr:.2f}))')
     ax.axhline(-thr_line, color='green', ls='--', lw=1.5)   # mirror for CW scans
     ax.axhline(median_slope, color='gray', ls=':', lw=1, label=f'median slope ({median_slope:.2f}°/kf)')
     ax.axhline(0, color='k', lw=0.5)
