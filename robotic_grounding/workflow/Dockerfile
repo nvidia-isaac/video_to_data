@@ -13,7 +13,7 @@
 FROM nvcr.io/nvidia/isaac-lab:2.3.1 AS base
 
 # Set working directory
-WORKDIR /workspace/robotic_grounding
+WORKDIR /workspace/video_to_data/robotic_grounding
 
 RUN apt-get update && apt-get install -y \
     curl \

@@ -77,7 +77,7 @@ case "$1" in
                 --gpus device=${GPU_DEVICE} \
                 --network host \
                 --name ${CONTAINER_NAME} \
-                -v $(pwd):/workspace/robotic_grounding \
+                -v $(pwd)/..:/workspace/video_to_data \
                 -v ~/.ssh:/root/.ssh:ro \
                 -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
                 -e DISPLAY=${DISPLAY} \

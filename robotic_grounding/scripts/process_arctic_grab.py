@@ -37,6 +37,7 @@ if __name__ == "__main__":
         )
 
         data.object_body_names = ["object"]
+        data.safe_object_body_names = ["object"]
 
         object_mesh_path = Path(data.object_mesh_paths[0]).parent / "mesh_tex.obj"
         object_mesh = trimesh.load(str(object_mesh_path)).apply_scale(0.001)

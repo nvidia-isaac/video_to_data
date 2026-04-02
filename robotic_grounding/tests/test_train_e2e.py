@@ -72,6 +72,14 @@ class TestTrainE2E(unittest.TestCase):
             # ====================================================================
         ]
 
+    def get_motion_files_to_test(self) -> list[str]:
+        """Get motion files to test for training."""
+        return [
+            "arctic_processed/arctic_s01_mixer_use_01/sharpa_wave",
+            "arctic_processed/arctic_s01_rigid_mixer_grab_01/sharpa_wave",
+            "taco_processed/taco_empty__kettle__plate_20231031_060/sharpa_wave",
+        ]
+
     def _get_env_vars(self) -> dict:
         """Get environment variables for running commands."""
         env = dict(os.environ)
@@ -93,65 +101,72 @@ class TestTrainE2E(unittest.TestCase):
         failed_tasks = []
 
         for task in self.get_tasks_to_test():
-            with self.subTest(task=task):
-                print(f"\n{'=' * 60}")
-                print(f"Testing training: {task}")
-                print("=" * 60)
+            for motion_file in self.get_motion_files_to_test():
+                with self.subTest(task=task):
+                    print(f"\n{'=' * 60}")
+                    print(f"Testing training: {task}")
+                    print("=" * 60)
 
-                with tempfile.TemporaryDirectory() as temp_dir:
-                    cmd = [
-                        self.isaaclab_script,
-                        "-p",
-                        str(train_script),
-                        "--task",
-                        task,
-                        "--max_iterations",
-                        str(num_iterations),
-                        "--num_envs",
-                        str(num_envs),
-                        "--headless",
-                        # Hydra override to use temp directory
-                        f"hydra.run.dir={temp_dir}",
-                        "--motion_file",
-                        "arctic_processed/arctic_s01_mixer_use_01/sharpa_wave",
-                    ]
+                    with tempfile.TemporaryDirectory() as temp_dir:
+                        cmd = [
+                            self.isaaclab_script,
+                            "-p",
+                            str(train_script),
+                            "--task",
+                            task,
+                            "--max_iterations",
+                            str(num_iterations),
+                            "--num_envs",
+                            str(num_envs),
+                            "--headless",
+                            # Hydra override to use temp directory
+                            f"hydra.run.dir={temp_dir}",
+                            "--motion_file",
+                            motion_file,
+                        ]
 
-                    print(f"Command: {' '.join(cmd)}")
+                        print(f"Command: {' '.join(cmd)}")
 
-                    try:
-                        result = subprocess.run(
-                            cmd,
-                            check=True,
-                            timeout=180,  # 3 minutes timeout
-                            capture_output=True,
-                            text=True,
-                            env=self._get_env_vars(),
-                        )
-                        print(f"✅ Training {task} passed")
+                        try:
+                            result = subprocess.run(
+                                cmd,
+                                check=True,
+                                timeout=180,  # 3 minutes timeout
+                                capture_output=True,
+                                text=True,
+                                env=self._get_env_vars(),
+                            )
+                            print(f"✅ Training {task} passed")
 
-                        if os.environ.get("VERBOSE_E2E_TESTS") == "true":
-                            print("STDOUT (last 1000 chars):")
-                            print(result.stdout[-1000:])
+                            if os.environ.get("VERBOSE_E2E_TESTS") == "true":
+                                print("STDOUT (last 1000 chars):")
+                                print(result.stdout[-1000:])
 
-                    except subprocess.CalledProcessError as e:
-                        failed_tasks.append(task)
-                        print(f"❌ Training {task} failed (exit code {e.returncode})")
-                        print("STDERR (last 2000 chars):")
-                        print(e.stderr[-2000:] if e.stderr else "No stderr")
+                        except subprocess.CalledProcessError as e:
+                            failed_tasks.append(task)
+                            print(
+                                f"❌ Training {task} failed (exit code {e.returncode})"
+                            )
+                            print("STDERR (last 2000 chars):")
+                            print(e.stderr[-2000:] if e.stderr else "No stderr")
 
-                    except subprocess.TimeoutExpired as e:
-                        failed_tasks.append(task)
-                        print(f"❌ Training {task} timed out")
-                        if e.stdout:
-                            print("Partial output:")
-                            print(e.stdout[-2000:])
+                        except subprocess.TimeoutExpired as e:
+                            failed_tasks.append(task)
+                            print(f"❌ Training {task} timed out")
+                            if e.stdout:
+                                print("Partial output:")
+                                print(e.stdout[-2000:])
 
         # Summary
         print(f"\n{'=' * 60}")
         print("Training Test Summary")
         print("=" * 60)
-        print(f"Total: {len(self.get_tasks_to_test())}")
-        print(f"Passed: {len(self.get_tasks_to_test()) - len(failed_tasks)}")
+        print(
+            f"Total: {len(self.get_tasks_to_test()) * len(self.get_motion_files_to_test())}"
+        )
+        print(
+            f"Passed: {len(self.get_tasks_to_test()) * len(self.get_motion_files_to_test()) - len(failed_tasks)}"
+        )
         print(f"Failed: {len(failed_tasks)}")
 
         if failed_tasks:
