@@ -11,6 +11,7 @@
 OakInk2 layout:
   oakink_dir/
     anno_preview/   -> {sequence}.pkl  (keys: raw_mano, obj_transf, obj_list, cam_extr)
+  meshes/oakink2/
     object_repair/align_ds/{object_id}/model.obj
     object_raw/align_ds/{object_id}/model.obj
 
@@ -46,10 +47,11 @@ logging.getLogger().setLevel(logging.ERROR)
 # manotorch uses torch.cross without dim arg (deprecated in newer PyTorch); suppress.
 warnings.filterwarnings("ignore", category=UserWarning, module="manotorch")
 
-DEFAULT_OAKINK_DIR = HUMAN_MOTION_DATA_DIR / "oakink2"
-LOADED_SAVE_DIR = HUMAN_MOTION_DATA_DIR / "oakink2_loaded"
+DEFAULT_OAKINK_DIR = HUMAN_MOTION_DATA_DIR / "oakink2" / "dataset"
+LOADED_SAVE_DIR = HUMAN_MOTION_DATA_DIR / "oakink2" / "oakink2_loaded"
 OAKINK2_FPS = 120.0
 OAKINK2_OBJECT_URDF_DIR = ASSETS_DIR / "urdfs" / "oakink2"
+OAKINK2_MESH_DIR = ASSETS_DIR / "meshes" / "oakink2"
 
 # Rotation: OakInk2/OptiTrack y-up world -> z-up convention used by ARCTIC/TACO
 #   x_new =  x_old
@@ -149,18 +151,18 @@ def _extract_hand_from_entry(
     return global_orient, finger_pose, trans, betas
 
 
-def _resolve_mesh_path(oakink_dir: Path, object_id: str, use_object_raw: bool) -> Path:
+def _resolve_mesh_path(object_id: str, use_object_raw: bool) -> Path:
     """Resolve object mesh path; prefers object_repair, falls back to object_raw."""
     primary = "object_raw" if use_object_raw else "object_repair"
-    path = oakink_dir / primary / "align_ds" / object_id / "model.obj"
+    path = OAKINK2_MESH_DIR / primary / "align_ds" / object_id / "model.obj"
     if path.exists():
         return path
     fallback = "object_repair" if use_object_raw else "object_raw"
-    path2 = oakink_dir / fallback / "align_ds" / object_id / "model.obj"
+    path2 = OAKINK2_MESH_DIR / fallback / "align_ds" / object_id / "model.obj"
     if path2.exists():
         return path2
     raise FileNotFoundError(
-        f"No mesh for '{object_id}' in {oakink_dir} (checked {primary} and {fallback})"
+        f"No mesh for '{object_id}' in {OAKINK2_MESH_DIR} (checked {primary} and {fallback})"
     )
 
 
@@ -229,7 +231,11 @@ class OakInk2DatasetLoader(DatasetLoaderBase):
     """OakInk2 dataset loader."""
 
     def list_sequences(self, args: Any) -> list[SequenceInfo]:
-        """Discover all anno_preview .pkl sequences."""
+        """Discover all anno_preview .pkl sequences.
+
+        Only scans filenames — pkl contents are loaded lazily in load_mano_data
+        to avoid deserializing every file during discovery.
+        """
         oakink_dir = Path(args.oakink_dir)
         use_object_raw = getattr(args, "use_object_raw", False)
         seq_name_filter = getattr(args, "seq_name", None)
@@ -244,31 +250,18 @@ class OakInk2DatasetLoader(DatasetLoaderBase):
 
         out = []
         for pkl_path in pkls:
-            try:
-                seq_data = _load_seq_pkl(pkl_path)
-            except Exception as e:
-                print(f"Skipping {pkl_path.name}: failed to load pkl: {e}")
-                continue
-
-            if not {"raw_mano", "obj_transf", "obj_list"}.issubset(seq_data.keys()):
-                continue
-
-            object_ids = list(seq_data["obj_list"])
-            if not object_ids or not seq_data["raw_mano"]:
-                continue
-
             sequence_id = pkl_path.stem
             out.append(
                 SequenceInfo(
                     sequence_id=sequence_id,
                     raw_motion_file=pkl_path.stem,
-                    object_name="+".join(object_ids),
-                    object_body_names=list(object_ids),
+                    object_name="",
+                    object_body_names=[],
                     source=OakInk2SequenceSource(
                         seq_pkl=pkl_path,
                         oakink_dir=oakink_dir,
                         use_object_raw=use_object_raw,
-                        object_ids=object_ids,
+                        object_ids=[],
                     ),
                 )
             )
@@ -281,6 +274,18 @@ class OakInk2DatasetLoader(DatasetLoaderBase):
         src: OakInk2SequenceSource = sequence_info.source
         seq_data = _load_seq_pkl(src.seq_pkl)
 
+        if not {"raw_mano", "obj_transf", "obj_list"}.issubset(seq_data.keys()):
+            raise ValueError(f"Missing required keys in {src.seq_pkl.name}")
+
+        object_ids = list(seq_data["obj_list"])
+        if not object_ids or not seq_data["raw_mano"]:
+            raise ValueError(f"Empty object list or mano data in {src.seq_pkl.name}")
+
+        # Populate object info deferred from list_sequences
+        src.object_ids = object_ids
+        sequence_info.object_name = "+".join(object_ids)
+        sequence_info.object_body_names = list(object_ids)
+
         (
             valid_frame_ids,
             rg_list,
@@ -291,7 +296,7 @@ class OakInk2DatasetLoader(DatasetLoaderBase):
             lt_list,
             right_betas,
             left_betas,
-        ) = _extract_valid_frames(seq_data, src.object_ids)
+        ) = _extract_valid_frames(seq_data, object_ids)
 
         if not valid_frame_ids:
             raise ValueError(f"No valid frames in {src.seq_pkl.name}")
@@ -364,7 +369,7 @@ class OakInk2DatasetLoader(DatasetLoaderBase):
         for oid in src.object_ids:
             try:
                 mesh_paths[oid] = str(
-                    _resolve_mesh_path(src.oakink_dir, oid, src.use_object_raw)
+                    _resolve_mesh_path(oid, src.use_object_raw)
                 )
             except FileNotFoundError as e:
                 print(f"Warning: {e}")
@@ -385,7 +390,7 @@ class OakInk2DatasetLoader(DatasetLoaderBase):
         for oid in src.object_ids:
             try:
                 paths.append(
-                    str(_resolve_mesh_path(src.oakink_dir, oid, src.use_object_raw))
+                    str(_resolve_mesh_path(oid, src.use_object_raw))
                 )
             except FileNotFoundError:
                 paths.append("")
@@ -453,6 +458,7 @@ def parse_args() -> argparse.Namespace:
         default=False,
         help="List available sequences and exit.",
     )
+    DatasetLoaderBase.add_filter_args(parser)
     return parser.parse_args()
 
 

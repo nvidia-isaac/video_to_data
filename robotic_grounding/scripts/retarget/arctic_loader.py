@@ -24,6 +24,7 @@ import torch
 from robotic_grounding.retarget import (
     ASSETS_DIR,
     HUMAN_MOTION_DATA_DIR,
+    MESHES_DIR,
 )
 from robotic_grounding.retarget.dataset_loader_base import (
     DatasetLoaderBase,
@@ -35,11 +36,11 @@ from scipy.spatial.transform import Rotation as R
 # Suppress warnings about joint limits being slightly out of bounds
 logging.getLogger().setLevel(logging.ERROR)
 
-# ARCTIC paths
-ARCTIC_MOTION_DIR = HUMAN_MOTION_DATA_DIR / "arctic"
+# ARCTIC paths (defaults; overridable via CLI args)
+ARCTIC_MOTION_DIR = HUMAN_MOTION_DATA_DIR / "arctic" / "dataset"
 ARCTIC_URDF_DIR = ASSETS_DIR / "urdfs" / "arctic"
-ARCTIC_MESH_DIR = ASSETS_DIR / "meshes" / "arctic"
-LOADED_SAVE_DIR = HUMAN_MOTION_DATA_DIR / "arctic_loaded"
+ARCTIC_MESH_DIR = MESHES_DIR / "arctic"
+LOADED_SAVE_DIR = HUMAN_MOTION_DATA_DIR / "arctic" / "arctic_loaded"
 
 OBJECT_BODY_NAMES = ["bottom", "top"]
 FRAME_START = 0
@@ -54,6 +55,24 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Load ARCTIC sequences into ManoSharpaData schema (MANO + object only)."
     )
+    parser.add_argument(
+        "--dataset_root",
+        type=Path,
+        default=ARCTIC_MOTION_DIR,
+        help="ARCTIC dataset root containing subject dirs with .mano.npy files.",
+    )
+    parser.add_argument(
+        "--object_model_root",
+        type=Path,
+        default=ARCTIC_URDF_DIR,
+        help="Directory with {object_name}.urdf files for MuJoCo FK.",
+    )
+    parser.add_argument(
+        "--mesh_dir",
+        type=Path,
+        default=ARCTIC_MESH_DIR,
+        help="Directory with ARCTIC object meshes ({object}/{part}_watertight_tiny.obj).",
+    )
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--visualize", action="store_true", default=False)
     parser.add_argument("--save", action="store_true", default=False)
@@ -63,6 +82,7 @@ def parse_args() -> argparse.Namespace:
         default=LOADED_SAVE_DIR,
         help="Parent directory for Parquet output; data is written to <output_dir>.",
     )
+    DatasetLoaderBase.add_filter_args(parser)
     return parser.parse_args()
 
 
@@ -98,9 +118,10 @@ def load_arctic_object_data(
 
 def setup_arctic_mujoco_object(
     object_name: str,
+    urdf_dir: Path | None = None,
 ) -> tuple[mujoco.MjModel, mujoco.MjData, int, int]:
     """Load MuJoCo model for ARCTIC object; return body/joint ids for FK."""
-    object_urdf_path = ARCTIC_URDF_DIR / f"{object_name}.urdf"
+    object_urdf_path = (urdf_dir or ARCTIC_URDF_DIR) / f"{object_name}.urdf"
     model = mujoco.MjModel.from_xml_path(str(object_urdf_path))
     data = mujoco.MjData(model)
     top_body_id = model.body("top").id
@@ -179,12 +200,9 @@ class ArcticDatasetLoader(DatasetLoaderBase):
 
     def list_sequences(self, args: Any) -> list[SequenceInfo]:
         """List ARCTIC sequences (discover *.mano.npy, exclude scissor)."""
+        dataset_root = Path(getattr(args, "dataset_root", ARCTIC_MOTION_DIR))
         mano_files = sorted(
-            [
-                f
-                for f in ARCTIC_MOTION_DIR.glob("*/*.mano.npy")
-                if "scissor" not in f.name
-            ]
+            [f for f in dataset_root.glob("*/*.mano.npy") if "scissor" not in f.name]
         )
         out = []
         for mano_data_file in mano_files:
@@ -217,8 +235,9 @@ class ArcticDatasetLoader(DatasetLoaderBase):
         if mano_data_file is None:
             raise FileNotFoundError("ARCTIC sequence has no source path")
         art, axis, trans = load_arctic_object_data(str(mano_data_file))
+        urdf_dir = Path(getattr(self._args, "object_model_root", ARCTIC_URDF_DIR))
         mj_model, mj_data, top_id, rot_id = setup_arctic_mujoco_object(
-            sequence_info.object_name
+            sequence_info.object_name, urdf_dir=urdf_dir
         )
         n_frames = len(art)
         bottom_poses = np.zeros((n_frames, 4, 4), dtype=np.float64)
@@ -248,11 +267,10 @@ class ArcticDatasetLoader(DatasetLoaderBase):
         bool,
     ]:
         """Load ARCTIC object part meshes (bottom/top) for the sequence object."""
+        mesh_dir = Path(getattr(self._args, "mesh_dir", ARCTIC_MESH_DIR))
         mesh_paths = {
             part: str(
-                ARCTIC_MESH_DIR
-                / sequence_info.object_name
-                / f"{part}_watertight_tiny.obj"
+                mesh_dir / sequence_info.object_name / f"{part}_watertight_tiny.obj"
             )
             for part in sequence_info.object_body_names
         }
@@ -268,12 +286,9 @@ class ArcticDatasetLoader(DatasetLoaderBase):
 
     def get_object_mesh_paths(self, sequence_info: SequenceInfo) -> list[str]:
         """Return paths to ARCTIC object part meshes (bottom/top watertight_tiny.obj)."""
+        mesh_dir = Path(getattr(self._args, "mesh_dir", ARCTIC_MESH_DIR))
         return [
-            str(
-                ARCTIC_MESH_DIR
-                / sequence_info.object_name
-                / f"{part}_watertight_tiny.obj"
-            )
+            str(mesh_dir / sequence_info.object_name / f"{part}_watertight_tiny.obj")
             for part in sequence_info.object_body_names
         ]
 

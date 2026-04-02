@@ -26,7 +26,12 @@ import torch
 import trimesh
 import viser
 from robotic_grounding.retarget import HUMAN_MOTION_DATA_DIR
-from robotic_grounding.retarget.data_logger import ManoSharpaData, list_sequence_ids
+from robotic_grounding.retarget.data_logger import (
+    ManoSharpaData,
+    add_sequence_filter_args,
+    filter_sequence_ids,
+    list_sequence_ids,
+)
 from robotic_grounding.retarget.retarget_utils import (
     DEFAULT_PARTITION_COLS,
     run_frame_ik,
@@ -37,8 +42,8 @@ from tqdm import tqdm
 
 logging.getLogger().setLevel(logging.ERROR)
 
-DEFAULT_INPUT_DIR = HUMAN_MOTION_DATA_DIR / "oakink2_loaded"
-DEFAULT_OUTPUT_DIR = HUMAN_MOTION_DATA_DIR / "oakink2_processed"
+DEFAULT_INPUT_DIR = HUMAN_MOTION_DATA_DIR / "oakink2" / "oakink2_loaded"
+DEFAULT_OUTPUT_DIR = HUMAN_MOTION_DATA_DIR / "oakink2" / "oakink2_processed"
 
 # OakInk2 has no wrist link-to-site rotation offset (unlike ARCTIC)
 OAKINK2_LINK_TO_SITE_QUAT_XYZW = None
@@ -80,6 +85,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--visualize", action="store_true", default=False)
     parser.add_argument("--save", action="store_true", default=False)
     parser.add_argument("--mano_to_robot_scale", type=float, default=1.2)
+    add_sequence_filter_args(parser)
     return parser.parse_args()
 
 
@@ -101,12 +107,14 @@ def main(args: argparse.Namespace) -> None:
     )
 
     sequence_ids = list_sequence_ids(str(args.input_dir))
+    sequence_ids = filter_sequence_ids(sequence_ids, args)
     print(f"Found {len(sequence_ids)} sequences in {args.input_dir}")
 
     link_to_site_xyzw = OAKINK2_LINK_TO_SITE_QUAT_XYZW
 
     viser_object_handles: dict[str, Any] = {}
     for sequence_id in tqdm(sequence_ids):
+        print(f"Processing sequence {sequence_id}")
         if args.visualize:
             for handle in viser_object_handles.values():
                 handle.remove()

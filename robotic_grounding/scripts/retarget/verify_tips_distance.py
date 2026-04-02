@@ -17,7 +17,7 @@ FINGERS = ["thumb", "index", "middle", "ring", "pinky"]
 
 def main() -> None:
     """Load processed parquet and verify tips_distance data."""
-    processed_dir = str(HUMAN_MOTION_DATA_DIR / "arctic_processed")
+    processed_dir = str(HUMAN_MOTION_DATA_DIR / "arctic" / "arctic_processed")
     data = ManoSharpaData.from_parquet(
         processed_dir,
         filters=[

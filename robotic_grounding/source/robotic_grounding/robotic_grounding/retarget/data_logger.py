@@ -6,10 +6,13 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
+import argparse
+import re
 import shutil
 from dataclasses import MISSING, field, fields, make_dataclass
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import unquote
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -523,11 +526,50 @@ def create_data_logger_class(
 
 
 def list_sequence_ids(root_path: str) -> list[str]:
-    """Return sorted list of unique sequence_id values in the Parquet dataset."""
+    """Return sorted list of unique sequence_id values in the Parquet dataset.
+
+    Reads partition directory names when ``sequence_id`` is a partition column,
+    avoiding a full table scan.  Falls back to reading the column if the
+    directory structure doesn't match.
+    """
+    root = Path(root_path)
+    # Partitioned datasets store sequence_id as directory names: sequence_id=<value>/
+    partition_dirs = sorted(root.glob("sequence_id=*/"))
+    if partition_dirs:
+        return [unquote(d.name.split("=", 1)[1]) for d in partition_dirs]
+    # Fallback: read the column from Parquet files
     table = pq.read_table(root_path, columns=["sequence_id"])
     ids = pc.unique(table["sequence_id"])
-    # pc.unique() may return a DictionaryArray, which has to_pylist() not as_py()
     return sorted(ids.to_pylist())
+
+
+def add_sequence_filter_args(parser: argparse.ArgumentParser) -> None:
+    """Add --sequence_pattern, --sequence_id, and --max_sequences args."""
+    group = parser.add_argument_group("sequence filtering")
+    group.add_argument(
+        "--sequence_id", type=str, default=None, help="Process a single sequence by exact ID."
+    )
+    group.add_argument(
+        "--sequence_pattern",
+        type=str,
+        default=None,
+        help="Regex pattern to filter sequence IDs (e.g., '.*box.*').",
+    )
+    group.add_argument(
+        "--max_sequences", type=int, default=None, help="Limit to first N sequences after filtering."
+    )
+
+
+def filter_sequence_ids(sequence_ids: list[str], args: argparse.Namespace) -> list[str]:
+    """Apply --sequence_id, --sequence_pattern, and --max_sequences filters."""
+    if getattr(args, "sequence_id", None):
+        sequence_ids = [s for s in sequence_ids if s == args.sequence_id]
+    if getattr(args, "sequence_pattern", None):
+        pat = re.compile(args.sequence_pattern)
+        sequence_ids = [s for s in sequence_ids if pat.search(s)]
+    if getattr(args, "max_sequences", None):
+        sequence_ids = sequence_ids[: args.max_sequences]
+    return sequence_ids
 
 
 #############################################################
