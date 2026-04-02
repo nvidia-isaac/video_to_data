@@ -83,7 +83,7 @@ jobs:
           echo "::group::E2E Tests"
           docker run --name robotic-grounding-e2e-${{ github.run_id }} \
             --entrypoint bash --gpus all --network=host \
-            -v ${{ github.workspace }}/robotic_grounding/tests:/workspace/robotic_grounding/tests \
+            -v ${{ github.workspace }}/robotic_grounding/tests:/workspace/video_to_data/robotic_grounding/tests \
             -e ACCEPT_EULA=Y \
             -e OMNI_KIT_ACCEPT_EULA=yes \
             -e OMNI_KIT_DISABLE_CUP=1 \
@@ -93,7 +93,7 @@ jobs:
             -e CI=true \
             -e PYTHONUNBUFFERED=1 \
             $DOCKER_IMAGE \
-            -c "\${ISAACLAB_PATH}/isaaclab.sh -p -m pytest /workspace/robotic_grounding/tests/test_train_e2e.py -v"
+            -c "\${ISAACLAB_PATH}/isaaclab.sh -p -m pytest /workspace/video_to_data/robotic_grounding/tests/test_train_e2e.py -v"
           echo "::endgroup::"
       - name: Cleanup
         if: always()
