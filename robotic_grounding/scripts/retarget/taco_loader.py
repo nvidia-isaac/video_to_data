@@ -19,6 +19,7 @@ TACO layout (see vis_taco_data.py):
 """
 
 import argparse
+import logging
 import pickle
 import random
 import re
@@ -36,6 +37,8 @@ from robotic_grounding.retarget.dataset_loader_base import (
     poses_to_root_position_and_axis_angle,
 )
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class TacoSequenceSource:
@@ -51,10 +54,10 @@ class TacoSequenceSource:
 
 
 # TACO paths
-TACO_DATA_DIR = HUMAN_MOTION_DATA_DIR / "taco"
+TACO_DATA_DIR = HUMAN_MOTION_DATA_DIR / "taco" / "dataset"
 TACO_OBJECT_MODEL_DIR = MESHES_DIR / "taco"
 TACO_OBJECT_URDF_DIR = ASSETS_DIR / "urdfs" / "taco"
-LOADED_SAVE_DIR = HUMAN_MOTION_DATA_DIR / "taco_loaded"
+LOADED_SAVE_DIR = HUMAN_MOTION_DATA_DIR / "taco" / "taco_loaded"
 
 TACO_OBJECT_BODY_NAMES = ["tool", "target"]
 TACO_FPS = 30.0
@@ -104,6 +107,7 @@ def parse_args() -> argparse.Namespace:
         default=LOADED_SAVE_DIR,
         help="Parent directory for Parquet; data written to <output_dir>.",
     )
+    DatasetLoaderBase.add_filter_args(parser)
     return parser.parse_args()
 
 
@@ -169,7 +173,10 @@ def load_taco_hand_shape(hand_pose_dir: Path, side: str) -> np.ndarray:
     if not path.exists():
         raise FileNotFoundError(f"Hand shape not found: {path}")
     with open(path, "rb") as f:
-        data = pickle.load(f)
+        try:
+            data = pickle.load(f)
+        except (pickle.UnpicklingError, EOFError, ValueError, ModuleNotFoundError) as e:
+            raise RuntimeError(f"Failed to unpickle {path}: {e}") from e
     beta = data["hand_shape"]
     if hasattr(beta, "detach"):
         beta = beta.detach().cpu().numpy()
@@ -187,7 +194,11 @@ def _mano_params_from_pkl(
     if not path.exists():
         return None
     with open(path, "rb") as f:
-        data = pickle.load(f)
+        try:
+            data = pickle.load(f)
+        except (pickle.UnpicklingError, EOFError, ValueError, ModuleNotFoundError) as e:
+            logger.warning("Failed to unpickle %s: %s", path, e)
+            return None
     keys = sorted(data.keys())
     theta_list = []
     trans_list = []

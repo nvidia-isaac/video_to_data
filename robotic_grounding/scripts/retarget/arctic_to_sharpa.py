@@ -26,8 +26,13 @@ import torch
 import trimesh
 import viser
 from arctic_loader import ARCTIC_MANO_KWARGS
-from robotic_grounding.retarget import ASSETS_DIR, HUMAN_MOTION_DATA_DIR
-from robotic_grounding.retarget.data_logger import ManoSharpaData, list_sequence_ids
+from robotic_grounding.retarget import HUMAN_MOTION_DATA_DIR, MESHES_DIR
+from robotic_grounding.retarget.data_logger import (
+    ManoSharpaData,
+    add_sequence_filter_args,
+    filter_sequence_ids,
+    list_sequence_ids,
+)
 from robotic_grounding.retarget.read_mano import MANO
 from robotic_grounding.retarget.retarget_utils import (
     DEFAULT_PARTITION_COLS,
@@ -42,10 +47,10 @@ from tqdm import tqdm
 logging.getLogger().setLevel(logging.ERROR)
 
 # Default paths: loader output (mano_object_only subdir) -> retarget output
-DEFAULT_INPUT_DIR = HUMAN_MOTION_DATA_DIR / "arctic_loaded"
-DEFAULT_OUTPUT_DIR = HUMAN_MOTION_DATA_DIR / "arctic_processed"
+DEFAULT_INPUT_DIR = HUMAN_MOTION_DATA_DIR / "arctic" / "arctic_loaded"
+DEFAULT_OUTPUT_DIR = HUMAN_MOTION_DATA_DIR / "arctic" / "arctic_processed"
 
-ARCTIC_MESH_DIR = ASSETS_DIR / "meshes" / "arctic"
+ARCTIC_MESH_DIR = MESHES_DIR / "arctic"
 
 # Rotation offset from MANO link frame to site (wxyz); used for wrist init (ARCTIC convention)
 ARCTIC_MANO_LINK_TO_SITE_WXYZ = np.array([0.5, -0.5, 0.5, 0.5])
@@ -55,15 +60,17 @@ def _load_object_viser_handles(
     viser_server: viser.ViserServer,
     object_name: str,
     object_body_names: list[str],
+    mesh_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Load ARCTIC object part meshes and add them to the viser scene.
 
     Returns:
         Dict mapping body name to viser mesh handle (for updating position/wxyz per frame).
     """
+    mesh_root = mesh_dir or ARCTIC_MESH_DIR
     handles: dict[str, Any] = {}
     for part in object_body_names:
-        mesh_path = ARCTIC_MESH_DIR / object_name / f"{part}_watertight_tiny.obj"
+        mesh_path = mesh_root / object_name / f"{part}_watertight_tiny.obj"
         if not mesh_path.exists():
             continue
         mesh = trimesh.load(str(mesh_path))
@@ -85,6 +92,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--input_dir", type=Path, default=DEFAULT_INPUT_DIR)
     parser.add_argument("--output_dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument(
+        "--mesh_dir",
+        type=Path,
+        default=ARCTIC_MESH_DIR,
+        help="Directory with ARCTIC object meshes for visualization.",
+    )
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--visualize", action="store_true", default=False)
     parser.add_argument(
@@ -92,6 +105,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--save", action="store_true", default=False)
     parser.add_argument("--mano_to_robot_scale", type=float, default=1.0)
+    add_sequence_filter_args(parser)
     return parser.parse_args()
 
 
@@ -113,6 +127,7 @@ def main(args: argparse.Namespace) -> None:
     )
 
     sequence_ids = list_sequence_ids(str(args.input_dir))
+    sequence_ids = filter_sequence_ids(sequence_ids, args)
     print(f"Found {len(sequence_ids)} sequences in {args.input_dir}")
 
     link_to_site_xyzw = R.from_quat(
@@ -139,6 +154,7 @@ def main(args: argparse.Namespace) -> None:
                 viser_server,
                 data.object_name,
                 data.object_body_names,
+                mesh_dir=args.mesh_dir,
             )
 
             mano_kwargs = ARCTIC_MANO_KWARGS

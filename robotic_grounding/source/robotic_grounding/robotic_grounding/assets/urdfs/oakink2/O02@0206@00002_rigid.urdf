@@ -1,7 +1,7 @@
 <?xml version="1.0" ?>
 <robot name="O02_0206_00002">
    <mujoco>
-      <compiler meshdir="../../human_motion_data/oakink2/object_repair/align_ds/O02@0206@00002/" balanceinertia="true" discardvisual="false"/>
+      <compiler meshdir="../../meshes/oakink2/object_repair/align_ds/O02@0206@00002/" balanceinertia="true" discardvisual="false"/>
    </mujoco>
 
    <link name="object">
@@ -13,13 +13,13 @@
       <visual>
          <origin rpy="0 0 0" xyz="0 0 0"/>
          <geometry>
-            <mesh filename="../../human_motion_data/oakink2/object_repair/align_ds/O02@0206@00002/O02_0206_00002_visual.stl" scale="1 1 1"/>
+            <mesh filename="../../meshes/oakink2/object_repair/align_ds/O02@0206@00002/O02_0206_00002_visual.stl" scale="1 1 1"/>
          </geometry>
       </visual>
       <collision>
          <origin rpy="0 0 0" xyz="0 0 0"/>
          <geometry>
-            <mesh filename="../../human_motion_data/oakink2/object_repair/align_ds/O02@0206@00002/O02_0206_00002_visual.stl" scale="1 1 1"/>
+            <mesh filename="../../meshes/oakink2/object_repair/align_ds/O02@0206@00002/O02_0206_00002_visual.stl" scale="1 1 1"/>
          </geometry>
       </collision>
    </link>

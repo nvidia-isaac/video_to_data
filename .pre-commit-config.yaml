@@ -56,10 +56,12 @@ repos:
   hooks:
   -   id: check-yaml
   -   id: check-json
+      exclude: ^robotic_grounding/source/robotic_grounding/robotic_grounding/assets/meshes/
   -   id: check-xml
   -   id: check-ast
   -   id: end-of-file-fixer
   -   id: pretty-format-json
       args: ['--autofix']
+      exclude: ^robotic_grounding/source/robotic_grounding/robotic_grounding/assets/meshes/
   -   id: detect-private-key
   -   id: trailing-whitespace

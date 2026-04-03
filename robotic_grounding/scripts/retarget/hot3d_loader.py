@@ -74,8 +74,8 @@ from scipy.spatial.transform import Rotation  # noqa: E402
 logging.getLogger().setLevel(logging.ERROR)
 warnings.filterwarnings("ignore", category=UserWarning, module="manotorch")
 
-DEFAULT_HOT3D_DIR = Path("/home/mnoori/hot3d/dataset")
-LOADED_SAVE_DIR = HUMAN_MOTION_DATA_DIR / "hot3d_loaded"
+DEFAULT_HOT3D_DIR = HUMAN_MOTION_DATA_DIR / "hot3d" / "dataset"
+LOADED_SAVE_DIR = HUMAN_MOTION_DATA_DIR / "hot3d" / "hot3d_loaded"
 HOT3D_FPS = 30.0
 
 # Quest3 world frame is Y-UP; Aria world frame is Z-UP (our pipeline convention).
@@ -699,6 +699,7 @@ def parse_args() -> argparse.Namespace:
         default=False,
         help="List available sequences and exit.",
     )
+    DatasetLoaderBase.add_filter_args(parser)
     return parser.parse_args()
 
 

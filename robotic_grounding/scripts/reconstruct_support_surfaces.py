@@ -18,15 +18,21 @@ import numpy as np
 import trimesh
 from pxr import Gf, Usd, UsdGeom, UsdPhysics
 from robotic_grounding.retarget import HUMAN_MOTION_DATA_DIR
-from robotic_grounding.retarget.data_logger import ManoSharpaData, list_sequence_ids
+from robotic_grounding.retarget.data_logger import (
+    ManoSharpaData,
+    add_sequence_filter_args,
+    filter_sequence_ids,
+    list_sequence_ids,
+)
 from scipy.spatial.transform import Rotation
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-DEFAULT_INPUT_DIR_TACO = HUMAN_MOTION_DATA_DIR / "taco_loaded"
-DEFAULT_INPUT_DIR_ARCTIC = HUMAN_MOTION_DATA_DIR / "arctic_loaded"
-DEFAULT_INPUT_DIR_OAKINK2 = HUMAN_MOTION_DATA_DIR / "oakink2_loaded"
+DEFAULT_INPUT_DIR_TACO = HUMAN_MOTION_DATA_DIR / "taco" / "taco_loaded"
+DEFAULT_INPUT_DIR_ARCTIC = HUMAN_MOTION_DATA_DIR / "arctic" / "arctic_loaded"
+DEFAULT_INPUT_DIR_OAKINK2 = HUMAN_MOTION_DATA_DIR / "oakink2" / "oakink2_loaded"
+DEFAULT_INPUT_DIR_HOT3D = HUMAN_MOTION_DATA_DIR / "hot3d" / "hot3d_loaded"
 
 DISK_HEIGHT = 0.01  # thin disk thickness in meters
 
@@ -344,6 +350,8 @@ def write_support_surfaces_usd(
             safe_name = "".join(
                 c if c.isalnum() or c == "_" else "_" for c in body_name
             )
+            if safe_name and safe_name[0].isdigit():
+                safe_name = f"_{safe_name}"
             prim_path = f"/support_surfaces/{safe_name}_{disk_idx}"
             create_disk(stage, prim_path, radius=radius, center=(cx, cy, z))
             disk_idx += 1
@@ -367,16 +375,11 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--dataset",
-        choices=("taco", "arctic", "oakink2"),
+        choices=("taco", "arctic", "oakink2", "hot3d"),
         default="oakink2",
         help="Dataset for default input_dir when --input_dir not set (default: taco).",
     )
-    parser.add_argument(
-        "--sequence_id",
-        type=str,
-        default=None,
-        help="Sequence to load; if omitted, run on all sequences.",
-    )
+    add_sequence_filter_args(parser)
     parser.add_argument(
         "--list",
         action="store_true",
@@ -473,6 +476,8 @@ def main() -> None:
         input_dir = DEFAULT_INPUT_DIR_TACO
     elif args.dataset == "arctic":
         input_dir = DEFAULT_INPUT_DIR_ARCTIC
+    elif args.dataset == "hot3d":
+        input_dir = DEFAULT_INPUT_DIR_HOT3D
     else:
         input_dir = DEFAULT_INPUT_DIR_OAKINK2
     if not input_dir.is_dir():
@@ -491,16 +496,8 @@ def main() -> None:
             print(sid)
         return
 
-    if args.sequence_id:
-        if args.sequence_id not in sequence_ids:
-            print(f"Sequence {args.sequence_id} not found. Available: {sequence_ids}")
-            return
-        ids_to_process = [args.sequence_id]
-    else:
-        ids_to_process = sequence_ids
-        print(
-            f"No --sequence_id given, processing all {len(ids_to_process)} sequence(s)."
-        )
+    ids_to_process = filter_sequence_ids(sequence_ids, args)
+    print(f"Processing {len(ids_to_process)} of {len(sequence_ids)} sequence(s).")
 
     for sequence_id in ids_to_process:
         _process_sequence(input_dir, sequence_id, args.output)

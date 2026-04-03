@@ -11,6 +11,9 @@
 Subclass and implement the abstract methods to add a new dataset (e.g. ARCTIC, TACO).
 """
 
+import argparse
+import pickle
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
@@ -326,6 +329,59 @@ class DatasetLoaderBase(ABC):
         """Return (start, end) frame indices to process. Override to trim frames."""
         return 0, num_frames
 
+    @staticmethod
+    def add_filter_args(parser: argparse.ArgumentParser) -> None:
+        """Add common sequence filtering args. Call from each loader's parse_args()."""
+        group = parser.add_argument_group("sequence filtering")
+        group.add_argument(
+            "--sequence_id",
+            type=str,
+            default=None,
+            help="Process a single sequence by exact ID.",
+        )
+        group.add_argument(
+            "--sequence_pattern",
+            type=str,
+            default=None,
+            help="Regex pattern to filter sequence IDs (e.g., '.*box.*').",
+        )
+        group.add_argument(
+            "--sequence_file",
+            type=str,
+            default=None,
+            help="Text file with sequence IDs to process (one per line).",
+        )
+        group.add_argument(
+            "--max_sequences",
+            type=int,
+            default=None,
+            help="Limit to first N sequences after filtering.",
+        )
+        group.add_argument(
+            "--list_only",
+            action="store_true",
+            default=False,
+            help="List matching sequence IDs and exit without processing.",
+        )
+
+    @staticmethod
+    def _apply_sequence_filters(
+        sequences: list["SequenceInfo"], args: Any
+    ) -> list["SequenceInfo"]:
+        """Apply common sequence filters to the discovered sequence list."""
+        if getattr(args, "sequence_id", None):
+            sequences = [s for s in sequences if s.sequence_id == args.sequence_id]
+        if getattr(args, "sequence_pattern", None):
+            pat = re.compile(args.sequence_pattern)
+            sequences = [s for s in sequences if pat.search(s.sequence_id)]
+        if getattr(args, "sequence_file", None):
+            with open(args.sequence_file) as f:
+                ids = {line.strip() for line in f if line.strip()}
+            sequences = [s for s in sequences if s.sequence_id in ids]
+        if getattr(args, "max_sequences", None):
+            sequences = sequences[: args.max_sequences]
+        return sequences
+
     def run(self, args: Any) -> None:
         """Common pipeline: list sequences, load MANO/object, log timesteps, save."""
         self._args = args
@@ -340,6 +396,13 @@ class DatasetLoaderBase(ABC):
             args.output_dir.mkdir(parents=True, exist_ok=True)
 
         sequences = self.list_sequences(args)
+        sequences = self._apply_sequence_filters(sequences, args)
+
+        if getattr(args, "list_only", False):
+            for s in sequences:
+                print(s.sequence_id)
+            return
+
         print(f"Found {len(sequences)} sequences")
 
         mano_kwargs = self.get_mano_kwargs()
@@ -350,7 +413,12 @@ class DatasetLoaderBase(ABC):
         for sequence_info in tqdm(sequences):
             try:
                 raw_data = self.load_mano_data(sequence_info, device)
-            except (FileNotFoundError, ValueError, KeyError) as e:
+            except (
+                FileNotFoundError,
+                ValueError,
+                KeyError,
+                pickle.UnpicklingError,
+            ) as e:
                 print(f"Skipping {sequence_info.sequence_id}: {e}")
                 continue
 

@@ -42,7 +42,7 @@ class SharpaV2PTrackingEnvCfg(V2PHandTrackingEnvCfg):
 
         # Set commands
         self.commands.dual_hands_tracking_command.motion_folder = os.path.join(
-            ASSET_DIR, "human_motion_data", "arctic_processed"
+            ASSET_DIR, "human_motion_data", "arctic", "arctic_processed"
         )
         self.commands.dual_hands_tracking_command.wrist_joint_names = WRIST_JOINTS
         self.commands.dual_hands_tracking_command.finger_joint_names = FINGER_JOINTS

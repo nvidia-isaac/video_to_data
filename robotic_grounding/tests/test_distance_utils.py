@@ -202,7 +202,7 @@ def test_load_object_mesh() -> None:
 def test_integration_with_real_data() -> None:
     """Integration test with actual ARCTIC data (if available)."""
     # Check for processed parquet data
-    processed_dir = HUMAN_MOTION_DATA_DIR / "arctic_processed"
+    processed_dir = HUMAN_MOTION_DATA_DIR / "arctic" / "arctic_processed"
     if not processed_dir.exists():
         print(
             f"\nSkipping integration test: processed data not found at {processed_dir}"

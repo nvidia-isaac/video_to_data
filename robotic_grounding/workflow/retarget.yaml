@@ -1,0 +1,187 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+# Retarget pipeline: raw data -> loaded Parquet -> retargeted Parquet -> support surfaces.
+#
+# Controls which stages run via the `stages` parameter:
+#   all         - run load + process + reconstruct (default)
+#   load        - raw dataset -> Parquet (MANO + object only)
+#   process     - loaded Parquet -> retargeted Parquet (IK)
+#   reconstruct - loaded Parquet -> support surface USD
+#
+# Usage:
+#   # Full pipeline
+#   python scripts/run_osmo.py --experiment-name retarget-taco \
+#     --image nvcr.io/nvstaging/isaac-amr/robotic-grounding:datasets \
+#     --workflow-yaml workflow/retarget.yaml --set dataset=taco
+#
+#   # Load only
+#   python scripts/run_osmo.py --experiment-name retarget-taco-load \
+#     --workflow-yaml workflow/retarget.yaml --set dataset=taco --set stages=load
+#
+#   # Process only (IK retargeting)
+#   python scripts/run_osmo.py --experiment-name retarget-taco-process \
+#     --workflow-yaml workflow/retarget.yaml --set dataset=taco --set stages=process
+#
+#   # With filtering:
+#   python scripts/run_osmo.py --experiment-name retarget-taco-screw \
+#     --image nvcr.io/nvstaging/isaac-amr/robotic-grounding:datasets \
+#     --workflow-yaml workflow/retarget.yaml --set dataset=taco \
+#     --set 'sequence_pattern=.*(screw|stir).*'
+
+workflow:
+  name: {{workflow_name}}
+  resources:
+    default:
+      cpu: 8
+      gpu: 1
+      memory: 64Gi
+      storage: 200Gi
+
+  tasks:
+  - name: retarget
+    image: {{image}}
+    command:
+    - /bin/bash
+    args:
+    - /tmp/entry.sh
+    environment:
+      ACCEPT_EULA: Y
+    inputs:
+    - url: {{input_url}}
+      regex: {{sequence_pattern}}
+    outputs:
+    - url: {{output_url}}
+      regex: {{dataset}}_loaded/.*
+    - url: {{output_url}}
+      regex: {{dataset}}_processed/.*
+    - url: {{output_url}}
+      regex: reconstructed_stage/.*
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        OUTPUT={{output}}
+        STAGES={{stages}}
+
+        # Symlink downloaded dataset into the expected path structure
+        export HUMAN_MOTION_DATA_DIR=/tmp/human_motion_data
+        mkdir -p ${HUMAN_MOTION_DATA_DIR}
+        ln -sfn {{input:0}} ${HUMAN_MOTION_DATA_DIR}/{{dataset}}
+
+        FILTER_ARGS=""
+        if [ -n "{{sequence_pattern}}" ]; then
+          FILTER_ARGS="${FILTER_ARGS} --sequence_pattern '{{sequence_pattern}}'"
+        fi
+        if [ -n "{{sequence_id}}" ]; then
+          FILTER_ARGS="${FILTER_ARGS} --sequence_id {{sequence_id}}"
+        fi
+        if [ -n "{{max_sequences}}" ]; then
+          FILTER_ARGS="${FILTER_ARGS} --max_sequences {{max_sequences}}"
+        fi
+
+        LOADED_DIR=${HUMAN_MOTION_DATA_DIR}/{{dataset}}/{{dataset}}_loaded
+        PROCESSED_DIR=${HUMAN_MOTION_DATA_DIR}/{{dataset}}/{{dataset}}_processed
+        RECONSTRUCTED_DIR=${HUMAN_MOTION_DATA_DIR}/{{dataset}}/reconstructed_stage
+
+        # Stage 1: Load raw data -> Parquet
+        if [ "${STAGES}" = "all" ] || [ "${STAGES}" = "load" ]; then
+          echo "=== Stage 1: Loading {{dataset}} ==="
+          if [ "{{dataset}}" = "taco" ]; then
+            eval python scripts/retarget/taco_loader.py \
+              --output_dir ${LOADED_DIR} \
+              --device cuda:0 \
+              --save ${FILTER_ARGS}
+          elif [ "{{dataset}}" = "arctic" ]; then
+            eval python scripts/retarget/arctic_loader.py \
+              --output_dir ${LOADED_DIR} \
+              --device cuda:0 \
+              --save ${FILTER_ARGS}
+          elif [ "{{dataset}}" = "oakink2" ]; then
+            eval python scripts/retarget/oakink2_loader.py \
+              --output_dir ${LOADED_DIR} \
+              --device cuda:0 \
+              --save ${FILTER_ARGS}
+          elif [ "{{dataset}}" = "hot3d" ]; then
+            eval python scripts/retarget/hot3d_loader.py \
+              --output_dir ${LOADED_DIR} \
+              --device cuda:0 \
+              --save ${FILTER_ARGS}
+          else
+            echo "Error: Unknown dataset '{{dataset}}'. Use 'taco', 'arctic', 'oakink2', or 'hot3d'."
+            exit 1
+          fi
+          echo "=== Copying loaded data to output ==="
+          cp -r ${LOADED_DIR} ${OUTPUT}/{{dataset}}_loaded
+        fi
+
+        # Stage 2: IK retargeting -> retargeted Parquet
+        if [ "${STAGES}" = "all" ] || [ "${STAGES}" = "process" ]; then
+          echo "=== Stage 2: Retargeting {{dataset}} ==="
+          if [ "{{dataset}}" = "taco" ]; then
+            eval python scripts/retarget/taco_to_sharpa.py \
+              --input_dir ${LOADED_DIR} \
+              --output_dir ${PROCESSED_DIR} \
+              --device cuda:0 \
+              --save ${FILTER_ARGS}
+          elif [ "{{dataset}}" = "arctic" ]; then
+            eval python scripts/retarget/arctic_to_sharpa.py \
+              --input_dir ${LOADED_DIR} \
+              --output_dir ${PROCESSED_DIR} \
+              --device cuda:0 \
+              --save ${FILTER_ARGS}
+          elif [ "{{dataset}}" = "oakink2" ]; then
+            eval python scripts/retarget/oakink2_to_sharpa.py \
+              --input_dir ${LOADED_DIR} \
+              --output_dir ${PROCESSED_DIR} \
+              --device cuda:0 \
+              --save ${FILTER_ARGS}
+          elif [ "{{dataset}}" = "hot3d" ]; then
+            eval python scripts/retarget/hot3d_to_sharpa.py \
+              --input_dir ${LOADED_DIR} \
+              --output_dir ${PROCESSED_DIR} \
+              --device cuda:0 \
+              --save ${FILTER_ARGS}
+          else
+            echo "Error: Unknown dataset '{{dataset}}'. Use 'taco', 'arctic', 'oakink2', or 'hot3d'."
+            exit 1
+          fi
+          echo "=== Copying processed data to output ==="
+          cp -r ${PROCESSED_DIR} ${OUTPUT}/{{dataset}}_processed
+        fi
+
+        # Stage 3: Reconstruct support surfaces -> USD
+        if [ "${STAGES}" = "all" ] || [ "${STAGES}" = "reconstruct" ]; then
+          echo "=== Stage 3: Reconstructing support surfaces for {{dataset}} ==="
+          eval python scripts/reconstruct_support_surfaces.py \
+            --input_dir ${LOADED_DIR} \
+            --dataset {{dataset}} ${FILTER_ARGS}
+          echo "=== Copying reconstructed data to output ==="
+          cp -r ${RECONSTRUCTED_DIR} ${OUTPUT}/reconstructed_stage
+        fi
+
+        echo "=== Done ==="
+
+default-values:
+  workflow_name: robotic_grounding_retarget
+  image: nvcr.io/nvstaging/isaac-amr/robotic-grounding:datasets
+  stages: all
+  dataset: arctic
+  input_url: swift://pdx.s8k.io/AUTH_team-isaac/datasets/v2d/human_motion_data/{{dataset}}/
+  output_url: swift://pdx.s8k.io/AUTH_team-isaac/datasets/v2d/human_motion_data/{{dataset}}/
+  sequence_pattern: ".*"
+  sequence_id: ""
+  max_sequences: ""

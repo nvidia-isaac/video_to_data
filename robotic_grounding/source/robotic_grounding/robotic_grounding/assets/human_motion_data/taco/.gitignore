@@ -1,2 +1,14 @@
 *
-\!.gitignore
+!.gitignore
+
+# CI test sequence: taco_empty__kettle__plate_20231031_060
+!taco_loaded/
+!taco_loaded/sequence_id=taco_empty__kettle__plate_20231031_060/
+!taco_loaded/sequence_id=taco_empty__kettle__plate_20231031_060/**
+
+!taco_processed/
+!taco_processed/sequence_id=taco_empty__kettle__plate_20231031_060/
+!taco_processed/sequence_id=taco_empty__kettle__plate_20231031_060/**
+
+!reconstructed_stage/
+!reconstructed_stage/taco_empty__kettle__plate_20231031_060_support.usda

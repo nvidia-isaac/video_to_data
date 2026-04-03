@@ -128,10 +128,10 @@ def load_support_surfaces_from_usd(
 
 
 DATASET_DIRS: dict[str, str] = {
-    "arctic": "arctic_processed",
-    "taco": "taco_processed",
-    "oakink2": "oakink2_processed",
-    "hot3d": "hot3d_processed",
+    "arctic": "arctic/arctic_processed",
+    "taco": "taco/taco_processed",
+    "oakink2": "oakink2/oakink2_processed",
+    "hot3d": "hot3d/hot3d_processed",
 }
 
 

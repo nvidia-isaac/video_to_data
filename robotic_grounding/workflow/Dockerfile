@@ -23,17 +23,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 ##############################################################
-# Copy source code and scripts
-##############################################################
-
-COPY pyproject.toml ./
-COPY README.md ./
-
-COPY source/ ./source/
-COPY scripts/ ./scripts/
-
-##############################################################
-# Install Python Dependencies
+# Install Python Dependencies (before source copy for caching)
 ##############################################################
 
 # Install general dependencies
@@ -79,15 +69,26 @@ RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
     imageio \
     imageio-ffmpeg \
     pytorch-ignite \
-    pytest
-
-# Install the project in editable mode
-RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
-    -e ./source/robotic_grounding
+    pytest \
+    boto3
 
 # Install numpy < 2.0.0 to avoid compatibility issues in Isaac Lab
 RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
     "numpy<2.0.0"
+
+##############################################################
+# Copy source code and scripts
+##############################################################
+
+COPY pyproject.toml ./
+COPY README.md ./
+
+COPY source/ ./source/
+COPY scripts/ ./scripts/
+
+# Install the project in editable mode
+RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
+    -e ./source/robotic_grounding
 
 # Create wrapper script for python (for convenience in container shell)
 RUN echo '#!/bin/bash' > /usr/local/bin/python && \
