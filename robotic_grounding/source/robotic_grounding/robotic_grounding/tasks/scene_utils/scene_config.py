@@ -104,7 +104,7 @@ class SceneConfig:
 
         Accepts:
         - Full path to a parquet file or partitioned dir
-        - dataset/sequence_id/robot_name like "arctic_processed/arctic_s01_ketchup_use_01/sharpa_wave"
+        - dataset/dataset_retargeted/sequence_id/robot_name like "arctic/arctic_processed/arctic_s01_ketchup_use_01/sharpa_wave"
         """
         motion_file = raw_path
         if not Path(motion_file).is_absolute():
@@ -112,11 +112,12 @@ class SceneConfig:
 
         if not Path(motion_file).exists():
             parts = raw_path.strip("/").split("/")
-            if len(parts) == 3:
-                dataset, seq_id, robot = parts
+            if len(parts) == 4:
+                dataset, dataset_retargeted, seq_id, robot = parts
                 motion_file = os.path.join(
                     HUMAN_MOTION_DATA_DIR,
                     dataset,
+                    dataset_retargeted,
                     f"sequence_id={seq_id}",
                     f"robot_name={robot}",
                 )
