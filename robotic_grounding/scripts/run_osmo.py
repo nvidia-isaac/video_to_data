@@ -116,7 +116,10 @@ def main() -> None:
     print(f"\nSubmitting OSMO workflow: {args.workflow_yaml}")
     workflow_name = f"robotic_grounding_{args.experiment_name}"
 
-    all_sets = [f'workflow_name="{workflow_name}"', f'image="{image_name}"'] + args.extra_sets
+    all_sets = [
+        f'workflow_name="{workflow_name}"',
+        f'image="{image_name}"',
+    ] + args.extra_sets
     set_str = " ".join(all_sets)
 
     osmo_cmd = (

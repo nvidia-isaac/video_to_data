@@ -547,7 +547,10 @@ def add_sequence_filter_args(parser: argparse.ArgumentParser) -> None:
     """Add --sequence_pattern, --sequence_id, and --max_sequences args."""
     group = parser.add_argument_group("sequence filtering")
     group.add_argument(
-        "--sequence_id", type=str, default=None, help="Process a single sequence by exact ID."
+        "--sequence_id",
+        type=str,
+        default=None,
+        help="Process a single sequence by exact ID.",
     )
     group.add_argument(
         "--sequence_pattern",
@@ -556,7 +559,10 @@ def add_sequence_filter_args(parser: argparse.ArgumentParser) -> None:
         help="Regex pattern to filter sequence IDs (e.g., '.*box.*').",
     )
     group.add_argument(
-        "--max_sequences", type=int, default=None, help="Limit to first N sequences after filtering."
+        "--max_sequences",
+        type=int,
+        default=None,
+        help="Limit to first N sequences after filtering.",
     )
 
 

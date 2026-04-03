@@ -368,9 +368,7 @@ class OakInk2DatasetLoader(DatasetLoaderBase):
         mesh_paths: dict[str, str] = {}
         for oid in src.object_ids:
             try:
-                mesh_paths[oid] = str(
-                    _resolve_mesh_path(oid, src.use_object_raw)
-                )
+                mesh_paths[oid] = str(_resolve_mesh_path(oid, src.use_object_raw))
             except FileNotFoundError as e:
                 print(f"Warning: {e}")
         return load_meshes_to_device(mesh_paths, device)
@@ -389,9 +387,7 @@ class OakInk2DatasetLoader(DatasetLoaderBase):
         paths = []
         for oid in src.object_ids:
             try:
-                paths.append(
-                    str(_resolve_mesh_path(oid, src.use_object_raw))
-                )
+                paths.append(str(_resolve_mesh_path(oid, src.use_object_raw)))
             except FileNotFoundError:
                 paths.append("")
         return paths
