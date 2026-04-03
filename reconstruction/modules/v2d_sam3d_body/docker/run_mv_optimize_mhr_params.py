@@ -13,6 +13,7 @@ def run_mv_optimize_mhr_params(
     output_dir: str,
     image_dir: str | None = None,
     video_dir: str | None = None,
+    mask_dir: str | None = None,
     config_path: str = str(_LIB_CONFIG),
     debug: int = -1,
     dev: bool = False,
@@ -27,6 +28,8 @@ def run_mv_optimize_mhr_params(
         inputs["image_dir"] = image_dir
     if video_dir:
         inputs["video_dir"] = video_dir
+    if mask_dir:
+        inputs["mask_dir"] = mask_dir
 
     outputs = {"output_dir": output_dir}
 
@@ -61,6 +64,7 @@ if __name__ == "__main__":
     parser.add_argument("--camera_params_path", type=str, required=True, help="Path to camera parameters")
     parser.add_argument("--weights_dir", type=str, required=True, help="Directory containing model weights")
     parser.add_argument("--bbox_dir", type=str, required=True, help="Directory containing bounding boxes")
+    parser.add_argument("--mask_dir", type=str, default=None, help="Directory containing SAM2 masks (optional)")
     parser.add_argument("--output_dir", type=str, required=True, help="Directory for outputs")
     parser.add_argument("--config_path", type=str, default=str(_LIB_CONFIG), help="Path to config YAML")
     parser.add_argument("--debug", type=int, default=-1, help="Debug level")
@@ -74,6 +78,7 @@ if __name__ == "__main__":
         output_dir=args.output_dir,
         image_dir=args.image_dir,
         video_dir=args.video_dir,
+        mask_dir=args.mask_dir,
         config_path=args.config_path,
         debug=args.debug,
         dev=args.dev,

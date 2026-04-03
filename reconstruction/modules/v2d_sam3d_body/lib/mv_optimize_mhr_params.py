@@ -7,8 +7,6 @@ import time
 import cv2
 import imageio.v3 as iio
 import numpy as np
-import pyglet
-pyglet.options['headless'] = True
 from pytorch3d.transforms import (
     matrix_to_rotation_6d,
     rotation_6d_to_matrix,
@@ -18,6 +16,8 @@ from pytorch3d.transforms import (
 import torch
 from tqdm import tqdm
 
+from v2d.common.datatypes import Mask
+from v2d.mv.math.numpy_fn import xyz_to_uv
 from v2d.mv.rig import RigConfig
 from v2d.mv.io.video import FrameSource, get_video_writer
 from v2d.mv.math.torch_fn import (
@@ -33,6 +33,11 @@ from sam_3d_body.models.modules import mhr_utils
 from sam_3d_body.metadata.mhr70 import pose_info as mhr70_pose_info
 from .estimate_mhr_params import estimate_mhr_params
 from .renderer import Renderer
+from .renderer_gpu import GPURenderer
+from .visibility import (
+    compute_keypoint_visibility_raycast,
+    compute_keypoint_visibility_raycast_gpu,
+)
 
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -219,7 +224,7 @@ def export_mhr_outputs(
     }
 
     mhr_mesh = {
-        "faces": mhr_layer.faces.cpu().numpy(),
+        "faces": mhr_layer.faces,
         "pred_vertices": processed["pred_vertices"],
     }
 
@@ -277,30 +282,31 @@ def opt_params_to_mhr_inputs(opt_params: dict) -> dict:
 
 def reprojection_error(
     gt_keypoints_2d: torch.Tensor,
-    gt_masks: torch.Tensor,
+    gt_weights: torch.Tensor,
     pred_keypoints_3d: torch.Tensor,
     cam_intrinsics: torch.Tensor,
     cam_extrinsics: torch.Tensor,
     keypoint_weights: torch.Tensor = KEYPOINT_WEIGHTS,
     gm_scale: float = 50,
 ):
-    """Masked L2 reprojection error across multiple camera views.
+    """Weighted reprojection error across multiple camera views.
 
-    Projects pred_keypoints_3d into each camera and computes the mean L2
-    distance to the ground-truth 2D detections.  Points behind the camera
-    or with non-finite projections are excluded via a mask.  If no valid
-    points remain, returns zero (with grad).
+    Projects pred_keypoints_3d into each camera and computes the weighted mean
+    L2 distance to the ground-truth 2D detections.  Points behind the camera
+    or with non-finite projections are zeroed via depth_mask / reproj_mask.
+    If no valid points remain, returns zero (with grad).
 
     Args:
         gt_keypoints_2d: (C, N, P, 2) ground-truth 2D keypoints per camera,
             where C = cameras, N = batch (frames), P = keypoints.
-        gt_masks: (C, N, P) masks of valid ground truth keypoints per camera.
+        gt_weights: (C, N, P) float weights for ground truth keypoints per camera.
+            0.0 = fully excluded, 1.0 = fully included.
         pred_keypoints_3d: (N, K, 3) predicted 3D keypoints in world frame.
         cam_intrinsics: (C, 3, 3) camera intrinsic matrices.
         cam_extrinsics: (C, 4, 4) world-to-camera extrinsic matrices.
 
     Returns:
-        Scalar mean reprojection error over all valid keypoints.
+        Scalar weighted mean reprojection error over all keypoints.
     """
     pred_keypoints_2d, depth_mask = reproject_multiview(
         pred_keypoints_3d,
@@ -308,19 +314,18 @@ def reprojection_error(
         se3_inv(cam_extrinsics),
     )  # (C, N, P, 2), (C, N, P)
 
-    # We want to keep the gradient flowing even for points that are reprojected
-    # outside the image or behind the camera. NaNs in pred_keypoints_2d will kill the gradient.
     reproj_mask = torch.isfinite(pred_keypoints_2d).all(dim=-1, keepdim=True)  # (C, N, P, 1)
     pred_keypoints_2d_clean = torch.where(reproj_mask, pred_keypoints_2d, gt_keypoints_2d + 1000.0)
 
-    mask = gt_masks & depth_mask & reproj_mask.squeeze(-1)
-    if not mask.any():
+    weights = gt_weights * depth_mask.float() * reproj_mask.squeeze(-1).float()
+    total_weight = weights.sum()
+    if total_weight == 0:
         return torch.tensor(0.0, device=pred_keypoints_2d.device, requires_grad=True)
 
     error = geman_mcclure_distance(pred_keypoints_2d_clean, gt_keypoints_2d, gm_scale)  # (C, N, P)
     error = error * keypoint_weights.to(error.device)[None, None, :]
-    error = error[mask]
-    return error.mean()
+    error = error * weights
+    return error.sum() / total_weight
 
 
 def temporal_smoothness(opt_params: dict, pred_cam_t: torch.Tensor):
@@ -336,7 +341,7 @@ def temporal_smoothness(opt_params: dict, pred_cam_t: torch.Tensor):
 def optimize_multiview(
     mhr_layer: MHRLayer,
     gt_keypoints_2d: torch.Tensor,
-    gt_masks: torch.Tensor,
+    gt_weights: torch.Tensor,
     mhr_inputs: dict,
     pred_cam_t: torch.Tensor,
     cam_intrinsics: torch.Tensor,
@@ -352,7 +357,7 @@ def optimize_multiview(
         mhr_layer: The MHR layer.
         gt_keypoints_2d: (C, N, P, 2) ground truth 2D keypoints per camera,
             where C = cameras, N = batch (frames), P = keypoints.
-        gt_masks: (C, N, P) masks of valid ground truth keypoints per camera.
+        gt_weights: (C, N, P) float weights for ground truth keypoints per camera.
         mhr_inputs: The MHR inputs.
         pred_cam_t: (N, 3) tensor of predicted camera translation.
         cam_intrinsics: (C, 3, 3) tensor of camera intrinsic matrices.
@@ -398,7 +403,7 @@ def optimize_multiview(
 
             chunk_reproj = reprojection_error(
                 gt_keypoints_2d[:, start:end],
-                gt_masks[:, start:end],
+                gt_weights[:, start:end],
                 chunk_kp3d,
                 cam_intrinsics,
                 cam_extrinsics,
@@ -428,9 +433,9 @@ def render_mhr_mesh(
     output_path: Path,
     pred_vertices: torch.Tensor,
     pred_cam_t: torch.Tensor,
-    cam_intrinsics: np.ndarray,
-    cam_extrinsics: np.ndarray,
-    faces: np.ndarray,
+    cam_intrinsics: torch.Tensor,
+    cam_extrinsics: torch.Tensor,
+    faces: torch.Tensor,
 ):
     """Render MHR outputs in the camera frame.
     Assumes that the mhr_outputs are in the world frame.
@@ -441,25 +446,75 @@ def render_mhr_mesh(
         pred_cam_t: (N, 3) predicted camera translation in world frame.
         cam_intrinsics: (3, 3) camera intrinsic matrix.
         cam_extrinsics: (4, 4) camera extrinsic matrix.
+        faces: (F, 3) face indices.
     """
     pred_vertices = pred_vertices + pred_cam_t.unsqueeze(1)
 
-    renderer = Renderer(
-        cam_intrinsics,
-        source.image_size,
-        num_vertices=pred_vertices.shape[1],
-        faces=faces,
-    )
+    K = cam_intrinsics.cpu().numpy() if isinstance(cam_intrinsics, torch.Tensor) else cam_intrinsics
+    T = cam_extrinsics.cpu().numpy() if isinstance(cam_extrinsics, torch.Tensor) else cam_extrinsics
+    faces_np = faces.cpu().numpy() if isinstance(faces, torch.Tensor) else faces
+
     writer = get_video_writer(output_path, fps=30, crf=23)
-    for i, image in enumerate(tqdm(source.iter_frames(), total=source.n_frames, desc="Rendering MHR outputs")):
-        rendered_image = renderer(
-            vertices=pred_vertices[i].cpu().numpy(),
-            camera_pose=cam_extrinsics,
-            image=image,
-        ) * 255.0
-        cv2.putText(rendered_image, f"Frame {i}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        writer.write_frame(rendered_image.astype(np.uint8))
-    renderer.close()
+    with Renderer(image_size=source.image_size) as renderer:
+        for i, image in enumerate(tqdm(source.iter_frames(), total=source.n_frames, desc="Rendering MHR outputs")):
+            verts_i = pred_vertices[i].cpu().numpy()
+            frame = renderer.render_overlay(verts_i, faces_np, K, T, image=image)
+            frame = (frame * 255.0).astype(np.uint8)
+            label = f"Frame {i}"
+            (tw, _), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)
+            cv2.putText(frame, label, (frame.shape[1] - tw - 10, 40),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            writer.write_frame(frame)
+    writer.close()
+
+
+def render_mhr_mesh_gpu(
+    source: FrameSource,
+    output_path: Path,
+    pred_vertices: torch.Tensor,
+    pred_cam_t: torch.Tensor,
+    cam_intrinsics: torch.Tensor,
+    cam_extrinsics: torch.Tensor,
+    faces: torch.Tensor,
+    batch_size: int = 32,
+):
+    """GPU-batched version of render_mhr_mesh using PyTorch3D.
+
+    Args:
+        source: The frame source.
+        output_path: The output path.
+        pred_vertices: (N, V, 3) predicted vertices in world frame.
+        pred_cam_t: (N, 3) predicted camera translation in world frame.
+        cam_intrinsics: (3, 3) camera intrinsic matrix.
+        cam_extrinsics: (4, 4) camera extrinsic matrix.
+        faces: (F, 3) face indices.
+        batch_size: Number of frames to render in one GPU call.
+    """
+    pred_vertices = pred_vertices + pred_cam_t.unsqueeze(1)
+
+    renderer = GPURenderer(image_size=source.image_size, device=DEVICE)
+    K = torch.as_tensor(cam_intrinsics, dtype=torch.float32, device=DEVICE)
+    T = torch.as_tensor(cam_extrinsics, dtype=torch.float32, device=DEVICE)
+
+    writer = get_video_writer(output_path, fps=30, crf=23)
+    batch_images: list[np.ndarray] = []
+    batch_start = 0
+    for i, image in enumerate(tqdm(source.iter_frames(), total=source.n_frames, desc="Rendering MHR outputs (GPU)")):
+        batch_images.append(image)
+        if len(batch_images) == batch_size or i == source.n_frames - 1:
+            images_t = torch.from_numpy(np.stack(batch_images)).to(DEVICE)
+            verts_batch = pred_vertices[batch_start:batch_start + len(batch_images)]
+            rendered = renderer.render_overlay(verts=verts_batch, faces=faces, K=K, T=T, images=images_t)
+            rendered_np = (rendered * 255.0).cpu().numpy().astype(np.uint8)
+            for j in range(len(batch_images)):
+                frame = rendered_np[j]
+                label = f"Frame {batch_start + j}"
+                (tw, _), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)
+                cv2.putText(frame, label, (frame.shape[1] - tw - 10, 40),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                writer.write_frame(frame)
+            batch_images = []
+            batch_start = i + 1
     writer.close()
 
 
@@ -469,8 +524,9 @@ def render_keypoints(
     gt_keypoints_2d: torch.Tensor,
     pred_keypoints_3d: torch.Tensor,
     pred_cam_t: torch.Tensor,
-    cam_intrinsics: np.ndarray,
-    cam_extrinsics: np.ndarray,
+    cam_intrinsics: torch.Tensor,
+    cam_extrinsics: torch.Tensor,
+    gt_weights: torch.Tensor | None = None,
 ):
     """Render the keypoints 2D in the camera frame.
 
@@ -482,26 +538,36 @@ def render_keypoints(
         pred_cam_t: (N, 3) predicted camera translation in world frame.
         cam_intrinsics: (3, 3) camera intrinsic matrix.
         cam_extrinsics: (4, 4) camera extrinsic matrix.
+        gt_weights: (N, P) float in [0, 1] visibility weights for GT keypoints.
+            If provided, GT circles are colored from black (0) to green (1).
     """
     gt_keypoints_2d = gt_keypoints_2d.cpu().numpy()
 
     pred_keypoints_3d = pred_keypoints_3d + pred_cam_t.unsqueeze(1)
     pred_keypoints_2d, _ = reproject(
         pred_keypoints_3d.reshape(-1, 3),
-        torch.from_numpy(cam_intrinsics).to(pred_keypoints_3d.device),
-        se3_inv(torch.from_numpy(cam_extrinsics)).to(pred_keypoints_3d.device),
+        cam_intrinsics.to(pred_keypoints_3d.device),
+        se3_inv(cam_extrinsics.to(pred_keypoints_3d.device)),
     )
     pred_keypoints_2d = pred_keypoints_2d.cpu().numpy().reshape(pred_keypoints_3d.shape[0], -1, 2)
 
     writer = get_video_writer(output_path, fps=30, crf=23)
     for i, image in enumerate(tqdm(source.iter_frames(), total=source.n_frames, desc="Rendering keypoints 2D")):
         for j in range(gt_keypoints_2d.shape[1]):
-            cv2.circle(image, tuple(gt_keypoints_2d[i, j].astype(int)), 2, (0, 255, 0), -1)
+            if gt_weights is not None:
+                w = float(gt_weights[i, j])
+                color = (0, int(255 * w), 0)
+            else:
+                color = (0, 255, 0)
+            cv2.circle(image, tuple(gt_keypoints_2d[i, j].astype(int)), 2, color, -1)
         for j in range(pred_keypoints_2d.shape[1]):
             cv2.circle(image, tuple(pred_keypoints_2d[i, j].astype(int)), 2, (255, 0, 0), -1)
-        cv2.putText(image, f"Frame {i}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        cv2.putText(image, f"Green = GT", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        cv2.putText(image, f"Red = Pred", (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+        label = f"Frame {i}"
+        (tw, _), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)
+        cv2.putText(image, label, (image.shape[1] - tw - 10, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        cv2.putText(image, "Green = GT", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        cv2.putText(image, "Red = Pred", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
         writer.write_frame(image.astype(np.uint8))
     writer.close()
 
@@ -514,8 +580,12 @@ def mv_optimize_mhr_params(
     frame_sources: list[FrameSource],
     bbox_paths: list[Path],
     mhr_params_paths: list[Path],
+    mhr_mesh_paths: list[Path],
     mhr_params_mv_path: Path,
     mhr_mesh_mv_path: Path | None = None,
+    mask_dirs: list[Path] | None = None,
+    keypoint_invisible_weight: float = 0.3,
+    keypoint_occluded_weight: float = 0.3,
     debug: int = 0,
 ):
     body_model_path = weights_dir / "sam-3d-body-dinov3/model.ckpt"
@@ -530,16 +600,22 @@ def mv_optimize_mhr_params(
         sam_3d_body_model=model,
         model_cfg=model_cfg,
     )
+    cam_intrinsics_all = torch.from_numpy(np.stack(cam_intrinsics)).to(DEVICE)
+    cam_extrinsics_all = torch.from_numpy(np.stack(cam_extrinsics)).to(DEVICE)
 
+    # --- Pass 1: Estimation & data collection ---
     mhr_inputs_all: list[dict] = []
     pred_cam_t_all: list[torch.Tensor] = []
     gt_keypoints_2d_all: list[torch.Tensor] = []
     image_size_all: list[tuple[int, int]] = []
+    cam_verts_list: list[torch.Tensor] = []
+    cam_kp3d_list: list[torch.Tensor] = []
     n_frames = -1
-    for cam_name, K, T_world_from_cam, frame_source, bbox_path, params_path in zip(
-        cam_names, cam_intrinsics, cam_extrinsics, frame_sources, bbox_paths, mhr_params_paths,
+    for cam_name, K, T_world_from_cam, frame_source, bbox_path, params_path, mesh_path in zip(
+        cam_names, cam_intrinsics_all, cam_extrinsics_all, frame_sources, bbox_paths, mhr_params_paths, mhr_mesh_paths,
     ):
         params_path = Path(params_path)
+        mesh_path = Path(mesh_path)
         if params_path.exists():
             print(f"Loading cached MHR params for camera {cam_name}: {params_path}")
             mhr_outputs = torch.load(params_path)
@@ -548,12 +624,27 @@ def mv_optimize_mhr_params(
             mhr_outputs = estimate_mhr_params(
                 frame_source=frame_source,
                 bbox_path=bbox_path,
-                cam_intrinsics=K,
+                cam_intrinsics=K.cpu().numpy(),
                 output_params_path=params_path,
+                output_mesh_path=mesh_path,
                 estimator=estimator,
                 debug=debug,
             )
-        T_world_from_cam = torch.from_numpy(T_world_from_cam).to(DEVICE)
+
+        if mesh_path.exists():
+            mhr_mesh_cam = torch.load(mesh_path)
+        else:
+            print(f"Mesh not cached for camera {cam_name}, generating from mhr_outputs")
+            mhr_inputs_cam = extract_mhr_inputs(mhr_outputs)
+            with torch.no_grad():
+                cam_out = mhr_layer(mhr_inputs_cam, keypoints_only=True)
+            mhr_mesh_cam = {
+                "faces": mhr_layer.faces,
+                "pred_vertices": cam_out["pred_vertices"],
+            }
+            mesh_path.parent.mkdir(parents=True, exist_ok=True)
+            torch.save(mhr_mesh_cam, mesh_path)
+
         mhr_inputs = extract_mhr_inputs(mhr_outputs)
         mhr_inputs = transform_mhr_params(mhr_inputs, T_world_from_cam)
         mhr_inputs_all.append(mhr_inputs)
@@ -564,11 +655,56 @@ def mv_optimize_mhr_params(
 
         gt_keypoints_2d_all.append(mhr_outputs["pred_keypoints_2d"])
 
+        cam_t = mhr_outputs["pred_cam_t"]
+        cam_verts_list.append(mhr_mesh_cam["pred_vertices"] + cam_t.unsqueeze(1))
+        cam_kp3d_list.append(mhr_outputs["pred_keypoints_3d"] + cam_t.unsqueeze(1))
+
         image_size_all.append(frame_source.image_size)
         if n_frames == -1:
             n_frames = frame_source.n_frames
         elif n_frames != frame_source.n_frames:
             raise ValueError(f"Number of frames mismatch for camera {cam_name}: {n_frames} != {frame_source.n_frames}")
+
+    # Free the SAM3D model to reclaim GPU memory for visibility computation.
+    # mhr_layer survives via its own reference to model.head_pose.
+    del estimator, model
+    torch.cuda.empty_cache()
+
+    # --- Pass 2: Keypoint weights by raycasting visibility and optional occlusion mask ---
+    gt_weights_all: list[torch.Tensor] = []
+    for i in range(len(cam_names)):
+        raycast_vis = compute_keypoint_visibility_raycast_gpu(
+            pred_keypoints_3d=cam_kp3d_list[i],
+            pred_vertices=cam_verts_list[i],
+            faces=mhr_layer.faces,
+            K=cam_intrinsics_all[i],
+            T=torch.eye(4, device=DEVICE),
+            image_size=image_size_all[i],
+        )
+        w_inv = keypoint_invisible_weight
+        gt_weights = w_inv + (1.0 - w_inv) * raycast_vis
+
+        if mask_dirs is not None:
+            mask_dir = mask_dirs[i]
+            mask_paths = sorted(mask_dir.glob("*.png"))
+            K_np = cam_intrinsics_all[i].cpu().numpy()
+            kps_np = cam_kp3d_list[i].cpu().numpy()  # (N, P, 3) camera frame
+
+            N, P = kps_np.shape[:2]
+            mask_vis = np.ones((N, P), dtype=np.float32)
+            n_masks = min(N, len(mask_paths))
+            for n in range(n_masks):
+                mask_arr = Mask.load(str(mask_paths[n])).mask
+                H_m, W_m = mask_arr.shape[:2]
+                uv_int, in_bounds = xyz_to_uv(kps_np[n], K_np, image_size=(W_m, H_m))
+                valid = np.where(in_bounds)[0]
+                mask_vis[n] = 0.0
+                mask_vis[n, valid] = (mask_arr[uv_int[valid, 1], uv_int[valid, 0]] > 0.5).astype(np.float32)
+
+            w_occ = keypoint_occluded_weight
+            gt_weights = gt_weights * (w_occ + (1.0 - w_occ) * torch.from_numpy(mask_vis).to(DEVICE))
+
+        gt_weights_all.append(gt_weights)
 
     mhr_params_mv_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -585,21 +721,20 @@ def mv_optimize_mhr_params(
                 gt_keypoints_2d=gt_keypoints_2d_all[i],
                 pred_keypoints_3d=mhr_outputs_avg["pred_keypoints_3d"],
                 pred_cam_t=pred_cam_t_avg,
-                cam_intrinsics=cam_intrinsics[i],
-                cam_extrinsics=cam_extrinsics[i],
+                cam_intrinsics=cam_intrinsics_all[i],
+                cam_extrinsics=cam_extrinsics_all[i],
+                gt_weights=gt_weights_all[i],
             )
             if debug <= 1:
                 break
 
     gt_keypoints_2d_all = torch.stack(gt_keypoints_2d_all)
-    gt_masks_all = torch.ones_like(gt_keypoints_2d_all[..., 0], dtype=torch.bool)
-    cam_intrinsics_all = torch.from_numpy(np.stack(cam_intrinsics))
-    cam_extrinsics_all = torch.from_numpy(np.stack(cam_extrinsics))
+    gt_weights_all = torch.stack(gt_weights_all)  # (C, N, P)
 
     mhr_inputs_opt, pred_cam_t_opt = optimize_multiview(
         mhr_layer=mhr_layer,
         gt_keypoints_2d=gt_keypoints_2d_all,
-        gt_masks=gt_masks_all,
+        gt_weights=gt_weights_all,
         mhr_inputs=mhr_inputs_avg,
         pred_cam_t=pred_cam_t_avg,
         cam_intrinsics=cam_intrinsics_all,
@@ -623,8 +758,9 @@ def mv_optimize_mhr_params(
                 gt_keypoints_2d=gt_keypoints_2d_all[i],
                 pred_keypoints_3d=mhr_params_opt["pred_keypoints_3d"],
                 pred_cam_t=pred_cam_t_opt,
-                cam_intrinsics=cam_intrinsics[i],
-                cam_extrinsics=cam_extrinsics[i],
+                cam_intrinsics=cam_intrinsics_all[i],
+                cam_extrinsics=cam_extrinsics_all[i],
+                gt_weights=gt_weights_all[i],
             )
         for i in range(len(cam_names)):
             render_mhr_mesh(
@@ -632,9 +768,9 @@ def mv_optimize_mhr_params(
                 output_path=mhr_params_mv_path.parent / f"mhr_mesh_opt_{i}.mp4",
                 pred_vertices=mhr_mesh_opt["pred_vertices"],
                 pred_cam_t=pred_cam_t_opt,
-                cam_intrinsics=cam_intrinsics[i],
-                cam_extrinsics=cam_extrinsics[i],
-                faces=mhr_layer.faces.cpu().numpy(),
+                cam_intrinsics=cam_intrinsics_all[i],
+                cam_extrinsics=cam_extrinsics_all[i],
+                faces=mhr_layer.faces,
             )
             if debug <= 1:
                 break
@@ -650,6 +786,11 @@ def mv_optimize_mhr_params_from_config(cfg, rig: RigConfig):
     frame_sources: list[FrameSource] = []
     bbox_paths: list[Path] = []
     mhr_params_paths: list[Path] = []
+    mhr_mesh_paths: list[Path] = []
+    mask_dirs: list[Path] | None = None
+
+    if cfg.get("mask_dir", None) is not None:
+        mask_dirs = []
 
     for cam_id in cfg.cameras:
         cam = rig.get_camera(cam_id)
@@ -657,16 +798,13 @@ def mv_optimize_mhr_params_from_config(cfg, rig: RigConfig):
         cam_intrinsics.append(cam.param.K)
         cam_extrinsics.append(cam.param.T)
 
-        name_components = cam.name.split("_")
-        cam_name_prefix = "_".join(name_components[:-1])
-        side = name_components[-1]
         if cfg.image_dir is not None:
             frame_sources.append(
-                FrameSource(image_dir=Path(cfg.image_path_template.format(cam_name=cam_name_prefix, side=side)))
+                FrameSource(image_dir=Path(cfg.image_path_template.format(cam_name=cam.name)))
             )
         elif cfg.video_dir is not None:
             frame_sources.append(
-                FrameSource(video_path=Path(cfg.video_path_template.format(cam_name=cam_name_prefix, side=side)))
+                FrameSource(video_path=Path(cfg.video_path_template.format(cam_name=cam.name)))
             )
         else:
             raise ValueError("at least one of image_dir or video_dir is required")
@@ -676,6 +814,13 @@ def mv_optimize_mhr_params_from_config(cfg, rig: RigConfig):
         mhr_params_paths.append(
             Path(cfg.mhr_params_path_template.format(cam_name=cam.name))
         )
+        mhr_mesh_paths.append(
+            Path(cfg.mhr_mesh_path_template.format(cam_name=cam.name))
+        )
+        if mask_dirs is not None:
+            mask_dirs.append(
+                Path(cfg.mask_path_template.format(cam_name=cam.name))
+            )
 
     weights_dir = Path(cfg.weights_dir)
     mhr_params_mv_path = Path(cfg.mhr_params_mv_path)
@@ -689,8 +834,12 @@ def mv_optimize_mhr_params_from_config(cfg, rig: RigConfig):
         frame_sources=frame_sources,
         bbox_paths=bbox_paths,
         mhr_params_paths=mhr_params_paths,
+        mhr_mesh_paths=mhr_mesh_paths,
         mhr_params_mv_path=mhr_params_mv_path,
         mhr_mesh_mv_path=mhr_mesh_mv_path,
+        mask_dirs=mask_dirs,
+        keypoint_invisible_weight=cfg.keypoint_invisible_weight,
+        keypoint_occluded_weight=cfg.keypoint_occluded_weight,
         debug=cfg.debug,
     )
 
@@ -708,6 +857,7 @@ if __name__ == "__main__":
     parser.add_argument("--camera_params_path", type=str, required=True, help="Path to camera parameters")
     parser.add_argument("--weights_dir", type=str, required=True, help="Directory containing model weights")
     parser.add_argument("--bbox_dir", type=str, required=True, help="Directory containing bounding boxes")
+    parser.add_argument("--mask_dir", type=str, default=None, help="Directory containing SAM2 masks (optional)")
     parser.add_argument("--output_dir", type=str, required=True, help="Directory for outputs")
     parser.add_argument(
         "--config_path",
@@ -728,6 +878,8 @@ if __name__ == "__main__":
         overrides["image_dir"] = args.image_dir
     elif args.video_dir is not None:
         overrides["video_dir"] = args.video_dir
+    if args.mask_dir is not None:
+        overrides["mask_dir"] = args.mask_dir
     if args.debug is not None:
         overrides["debug"] = args.debug
 

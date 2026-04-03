@@ -62,28 +62,46 @@ def depth_to_xyz(
 def xyz_to_uv(
     xyz: np.ndarray,
     K: np.ndarray,
-    T: np.ndarray,
-) -> np.ndarray:
-    """Project 3D world points to 2D pixel coordinates.
+    T: np.ndarray | None = None,
+    image_size: tuple[int, int] | None = None,
+) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
+    """Project 3D points to 2D pixel coordinates.
 
     Args:
-        xyz: (N, 3) points in world frame.
+        xyz: (N, 3) points. In world frame if T is given, otherwise camera frame.
         K: (3, 3) camera intrinsic matrix.
-        T: (4, 4) world-to-camera extrinsic matrix.
+        T: (4, 4) camera-to-world extrinsic. If None, xyz is in camera frame.
+        image_size: (W, H). When given, returns integer uv and in-bounds mask.
 
     Returns:
-        (N, 2) pixel coordinates [u, v].
+        If image_size is None: (N, 2) float pixel coordinates [u, v].
+        If image_size is given: ((N, 2) int pixel coords, (N,) bool in-bounds mask).
     """
     assert xyz.ndim == 2 and xyz.shape[1] == 3, (
         f"points must be a 2D array with shape (N, 3), but got {xyz.shape}"
     )
 
-    xyz = np.concatenate((xyz, np.ones_like(xyz[:, :1])), axis=1)
-    xyz = xyz @ np.linalg.inv(T).T
-    xyz = xyz[:, :3]
-    xyz = xyz / xyz[:, 2:3]
-    pixels = xyz @ K.T
-    return pixels[:, :2]
+    if T is not None:
+        xyz_hom = np.concatenate((xyz, np.ones_like(xyz[:, :1])), axis=1)
+        cam = (xyz_hom @ se3_inv(T).T)[:, :3]
+    else:
+        cam = xyz
+
+    cam_z = cam[:, 2]
+    uv = (cam / cam_z[:, None]) @ K.T
+    uv = uv[:, :2]
+
+    if image_size is not None:
+        W, H = image_size
+        uv_int = np.round(uv).astype(int)
+        in_bounds = (
+            (uv_int[:, 0] >= 0) & (uv_int[:, 0] < W)
+            & (uv_int[:, 1] >= 0) & (uv_int[:, 1] < H)
+            & (cam_z > 0)
+        )
+        return uv_int, in_bounds
+
+    return uv
 
 
 def reproject(

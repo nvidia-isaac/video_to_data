@@ -6,7 +6,7 @@ output_dir: ???
 rig_config: stereo-4
 cameras: [0, 2, 4, 6]
 
-image_path_template: "${image_dir}/{cam_name}/{side}/image_compressed"
+image_path_template: "${image_dir}/{cam_name}"
 video_path_template: "${video_dir}/{cam_name}.mp4"
 output_path_template: "${output_dir}/{cam_name}_bbox_track.pt"
 

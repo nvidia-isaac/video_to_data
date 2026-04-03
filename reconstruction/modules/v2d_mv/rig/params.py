@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .edex import Camera, EDEXMetadata
+from .edex import Camera, DistortionModel, EDEXMetadata
 
 
 @dataclass
@@ -77,3 +77,34 @@ def load_camera_params(source_path: Path) -> list[CameraParam]:
         ]
 
     raise ValueError(f"Unsupported camera params format: {name}")
+
+
+def param_overwrite_in_edex(edex: EDEXMetadata, cam_id: int, param: CameraParam) -> None:
+    """Write a CameraParam back into an EDEXMetadata object (inverse of edex_camera_to_param)."""
+    camera = edex.header.cameras[cam_id]
+    camera.intrinsics.resolution = param.resolution.astype(np.int32)
+    camera.intrinsics.distortion_model = DistortionModel(param.D_model)
+    camera.intrinsics.distortion_params = param.D
+    camera.intrinsics.focal = np.array([param.K[0, 0], param.K[1, 1]], dtype=np.float32)
+    camera.intrinsics.principal = np.array([param.K[0, 2], param.K[1, 2]], dtype=np.float32)
+    camera.intrinsics.projection = param.P
+    camera.intrinsics.rectification = param.R
+    if param.T is not None:
+        camera.transform = param.T[:3, :].astype(np.float32)
+    else:
+        camera.transform = None
+
+
+def edex_merge_extrinsics(target: EDEXMetadata, source: EDEXMetadata) -> None:
+    """Copy camera extrinsic transforms from source EDEX into target EDEX.
+
+    Copies the transform (3x4 [R|t]) from each camera in source into the
+    corresponding camera in target, matched by index. Intrinsics are left
+    unchanged.
+    """
+    assert len(target.header.cameras) == len(source.header.cameras), (
+        f"Camera count mismatch: target has {len(target.header.cameras)}, "
+        f"source has {len(source.header.cameras)}"
+    )
+    for cam_id in range(len(target.header.cameras)):
+        target.header.cameras[cam_id].transform = source.header.cameras[cam_id].transform

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from v2d.docker.container import run_in_container
 from v2d.sam3d_body.docker._config import IMAGE_NAME, MODULES_DIR
 
@@ -27,6 +29,8 @@ def run_estimate_mhr_params(
     if output_mesh_path:
         outputs["output_mesh_path"] = output_mesh_path
 
+    weights_abs = Path(weights_dir).resolve()
+    weights_container = f"/data/weights_dir/{weights_abs.name}"
     run_in_container(
         image=IMAGE_NAME,
         module="v2d.sam3d_body.lib.estimate_mhr_params",
@@ -38,6 +42,8 @@ def run_estimate_mhr_params(
         gpus=True,
         env={
             "PYTHONUNBUFFERED": "1",
+            "TORCH_HOME": f"{weights_container}/torch_home",
+            "HF_HOME": f"{weights_container}/hf_home",
         },
     )
 

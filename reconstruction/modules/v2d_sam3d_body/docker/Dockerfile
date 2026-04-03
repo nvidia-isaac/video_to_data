@@ -9,27 +9,24 @@ RUN apt-get update && apt-get install -y \
     zip \
     libosmesa6-dev \
     libegl1-mesa-dev \
+    libspatialindex-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Heavy Python dependencies
 RUN pip install pytorch-lightning pyrender opencv-python yacs scikit-image einops timm dill \
     pandas rich hydra-core hydra-submitit-launcher hydra-colorlog pyrootutils \
     networkx==3.2.1 roma joblib cython jsonlines loguru optree fvcore pycocotools \
-    tensorboard huggingface_hub webdataset
+    tensorboard huggingface_hub webdataset rtree
 
-# Pytorch3D (requires CUDA build)
-RUN pip install "git+https://github.com/facebookresearch/pytorch3d.git@v0.7.9"
-
-# Detectron2 (requires --no-build-isolation)
-RUN pip install 'detectron2[all] @ git+https://github.com/facebookresearch/detectron2.git@a1ce2f9' --no-build-isolation
-
-# MoGe
-RUN pip install git+https://github.com/microsoft/MoGe.git
+# Pytorch3D (requires CUDA build; no GPU visible during docker build so we
+# must specify architectures explicitly)
+RUN FORCE_CUDA=1 TORCH_CUDA_ARCH_LIST="8.0 8.6 8.9 9.0" \
+    pip install "git+https://github.com/facebookresearch/pytorch3d.git@v0.7.9"
 
 COPY . /workspace
 
 RUN pip install -e /workspace/v2d_common \
-                -e /workspace/v2d_mv \
+                -e "/workspace/v2d_mv[all]" \
                 -e /workspace/v2d_sam3d_body/lib
 
 # sam_3d_body and tools are accessed via PYTHONPATH (legacy package structure)

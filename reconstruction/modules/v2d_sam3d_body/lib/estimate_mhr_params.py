@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 import time
 
+import cv2
 import imageio.v3 as iio
 import numpy as np
 import pyglet
@@ -11,6 +12,7 @@ pyglet.options['headless'] = True
 import torch
 from tqdm import tqdm
 
+from v2d.common.datatypes import CameraIntrinsics
 from v2d.mv.io.video import FrameSource, get_video_writer
 
 from sam_3d_body import load_sam_3d_body, SAM3DBodyEstimator
@@ -120,17 +122,8 @@ def estimate_mhr_params(
             model_cfg=model_cfg,
         )
 
-    cam_int = None
-    if cam_intrinsics is not None:
-        cam_int = torch.from_numpy(cam_intrinsics).unsqueeze(0)
-
     if debug > 0:
-        renderer = Renderer(
-            cam_intrinsics if cam_intrinsics is not None else np.eye(3),
-            image_size,
-            num_vertices=estimator.num_vertices,
-            faces=estimator.faces,
-        )
+        renderer = Renderer(image_size=image_size)
         (output_params_path.parent / "mhr_overlay").mkdir(parents=True, exist_ok=True)
         if debug > 1:
             writer = get_video_writer(output_params_path.parent / "mhr_overlay.mp4", fps=30, crf=23)
@@ -144,7 +137,7 @@ def estimate_mhr_params(
         outputs = estimator.process_one_image(
             img=image,
             bboxes=bbox,
-            cam_int=cam_int,
+            cam_int=torch.from_numpy(cam_intrinsics).unsqueeze(0),
             inference_type="body",
         )
         inference_time = time.time() - start_time
@@ -159,20 +152,24 @@ def estimate_mhr_params(
                 pred_cam_t = frame_output["pred_cam_t"].cpu().numpy()
                 cam_pose = np.eye(4)
                 cam_pose[:3, 3] = -pred_cam_t
-                start_time = time.time()
-                rendered_image = renderer(
+                rendered_image = renderer.render_overlay(
                     vertices=frame_output["pred_vertices"].cpu().numpy(),
-                    camera_pose=cam_pose,
+                    faces=estimator.faces,
+                    K=cam_intrinsics,
+                    T=cam_pose,
                     image=image,
                 ) * 255.0
-                render_time = time.time() - start_time
+                rendered_image = rendered_image.astype(np.uint8)
+                label = f"Frame {i}"
+                (tw, _), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)
+                cv2.putText(rendered_image, label, (rendered_image.shape[1] - tw - 10, 40),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
                 if debug > 1:
-                    writer.write_frame(rendered_image.astype(np.uint8))
+                    writer.write_frame(rendered_image)
                 if i % 30 == 0:
                     tqdm.write(f"Frame {i} inference time: {inference_time:.3f}s")
-                    tqdm.write(f"Frame {i} rendering time: {render_time:.3f}s")
                     iio.imwrite(output_params_path.parent / "mhr_overlay" / f"{i:06d}.png",
-                                rendered_image.astype(np.uint8))
+                                rendered_image)
 
     mhr_outputs = coalesce_mhr_outputs_dict(all_mhr_outputs_dicts=all_outputs)
     mhr_params, mhr_mesh = export_mhr_outputs(
@@ -203,8 +200,8 @@ if __name__ == "__main__":
     input_group.add_argument("--image_dir", type=Path, help="Directory of PNG images")
     input_group.add_argument("--video_path", type=Path, help="Path to video file")
 
-    parser.add_argument("--cam_intrinsics_path", type=Path, default=None,
-                        help="Path to 3x3 camera intrinsics matrix (.npy)")
+    parser.add_argument("--cam_intrinsics_path", type=Path, required=True,
+                        help="Path to camera intrinsics JSON (CameraIntrinsics format)")
     parser.add_argument("--weights_dir", type=Path, required=True, help="Directory containing model weights")
     parser.add_argument("--bbox_path", type=Path, required=True, help="Path to bbox track .npy file")
     parser.add_argument("--output_params_path", type=Path, default=Path("mhr_params.pt"))
@@ -213,9 +210,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    cam_intrinsics = None
-    if args.cam_intrinsics_path is not None:
-        cam_intrinsics = np.load(args.cam_intrinsics_path)
+    cam_intrinsics = CameraIntrinsics.load(str(args.cam_intrinsics_path)).to_matrix()
 
     estimate_mhr_params(
         cam_intrinsics=cam_intrinsics,

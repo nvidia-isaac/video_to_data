@@ -24,7 +24,6 @@ math = [
     "torch",
     "scipy",
     "pytransform3d",
-    "pytorch3d",
 ]
 all = [
     "v2d-mv[io]",

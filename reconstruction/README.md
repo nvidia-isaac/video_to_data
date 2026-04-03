@@ -407,8 +407,10 @@ Person detection and IoU-based tracking using Detectron2 ViTDet models. Supports
 | `run_download_weights` | `run_download_weights(output_dir, model_sizes=["b"], dev=False)` | Download ViTDet checkpoint(s) (b/l/h) |
 | `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
 
-**Build:** `python -m v2d.detectron2.docker.build`  
-**Execute (single-cam):** `python -m v2d.detectron2.docker.run_track_bboxes --video_path ... --weights_dir ... --output_path ... --model_size b`  
+**Build:** `python -m v2d.detectron2.docker.build`
+
+**Execute (single-cam):** `python -m v2d.detectron2.docker.run_track_bboxes --video_path ... --weights_dir ... --output_path ... --model_size b`
+
 **Execute (multi-view):** `python -m v2d.detectron2.docker.run_mv_track_bboxes --video_dir ... --weights_dir data/weights/detectron2 --output_dir data/outputs/detectron2`
 
 **Example (single-cam):** From `reconstruction/`:
@@ -421,7 +423,8 @@ python -m v2d.detectron2.docker.run_download_weights --output_dir data/weights/d
 python -m v2d.detectron2.docker.run_track_bboxes \
   --video_path modules/v2d_detectron2/assets/test_video.mp4 \
   --weights_dir data/weights/detectron2 \
-  --output_path data/outputs/detectron2/bbox_track.pt
+  --output_path data/outputs/detectron2/bbox_track.pt \
+  --debug 2
 ```
 
 **Output:** `bbox_track.pt` — a dict with `{det_cat_id, scores, bbox_track}` (numpy arrays). `bbox_track` has shape `(N, 4)` in `[x1, y1, x2, y2]` format, one row per frame.
@@ -441,8 +444,27 @@ Human body pose and shape estimation using SAM3D-Body with multi-view MHR (Multi
 | `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
 
 **Build:** `python -m v2d.sam3d_body.docker.build`
+
 **Execute (single-cam):** `python -m v2d.sam3d_body.docker.run_estimate_mhr_params --image_dir ... --cam_intrinsics_path ... --weights_dir ... --bbox_path ... --output_params_path ...`
+
 **Execute (multi-view):** `python -m v2d.sam3d_body.docker.run_mv_optimize_mhr_params --image_dir ... --camera_params_path ... --weights_dir ... --bbox_dir ... --output_dir ...`
+
+**Example (single-cam):** From `reconstruction/`:
+
+```bash
+# 1. Download weights
+python -m v2d.sam3d_body.docker.run_download_weights --output_dir data/weights/sam3d_body
+
+# 2. Run MHR body estimation (uses bundled test assets)
+python -m v2d.sam3d_body.docker.run_estimate_mhr_params \
+  --video_path modules/v2d_sam3d_body/assets/test_video.mp4 \
+  --cam_intrinsics_path modules/v2d_sam3d_body/assets/cam_intrinsics.json \
+  --weights_dir data/weights/sam3d_body \
+  --bbox_path modules/v2d_sam3d_body/assets/bbox_track.pt \
+  --output_params_path data/outputs/sam3d_body/params \
+  --output_mesh_path data/outputs/sam3d_body/meshes \
+  --debug 2
+```
 
 ---
 
