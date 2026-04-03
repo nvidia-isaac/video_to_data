@@ -28,3 +28,6 @@ robotic_grounding/source/robotic_grounding/robotic_grounding/assets/human_motion
 robotic_grounding/source/robotic_grounding/robotic_grounding/assets/meshes/oakink2/object_raw/** filter=lfs diff=lfs merge=lfs -text
 robotic_grounding/source/robotic_grounding/robotic_grounding/assets/meshes/oakink2/object_repair/** filter=lfs diff=lfs merge=lfs -text
 robotic_grounding/source/robotic_grounding/robotic_grounding/assets/meshes/hot3d/** filter=lfs diff=lfs merge=lfs -text
+robotic_grounding/source/robotic_grounding/robotic_grounding/assets/human_motion_data/taco/taco_loaded/sequence_id=taco_empty__kettle__plate_20231031_060/**/*.parquet filter=lfs diff=lfs merge=lfs -text
+robotic_grounding/source/robotic_grounding/robotic_grounding/assets/human_motion_data/taco/taco_processed/sequence_id=taco_empty__kettle__plate_20231031_060/**/*.parquet filter=lfs diff=lfs merge=lfs -text
+robotic_grounding/source/robotic_grounding/robotic_grounding/assets/human_motion_data/taco/reconstructed_stage/taco_empty__kettle__plate_20231031_060_support.usda filter=lfs diff=lfs merge=lfs -text

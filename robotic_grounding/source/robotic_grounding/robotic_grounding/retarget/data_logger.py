@@ -533,6 +533,9 @@ def list_sequence_ids(root_path: str) -> list[str]:
     directory structure doesn't match.
     """
     root = Path(root_path)
+    if not root.is_dir():
+        print(f"Input directory not found: {root_path}. Run the loader first.")
+        return []
     # Partitioned datasets store sequence_id as directory names: sequence_id=<value>/
     partition_dirs = sorted(root.glob("sequence_id=*/"))
     if partition_dirs:

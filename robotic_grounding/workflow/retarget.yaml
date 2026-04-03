@@ -65,6 +65,11 @@ workflow:
       regex: {{sequence_pattern}}
     outputs:
     - url: {{output_url}}
+      regex: {{dataset}}_loaded/.*
+    - url: {{output_url}}
+      regex: {{dataset}}_processed/.*
+    - url: {{output_url}}
+      regex: reconstructed_stage/.*
     files:
     - path: /tmp/entry.sh
       contents: |-
@@ -90,6 +95,7 @@ workflow:
 
         LOADED_DIR=${HUMAN_MOTION_DATA_DIR}/{{dataset}}/{{dataset}}_loaded
         PROCESSED_DIR=${HUMAN_MOTION_DATA_DIR}/{{dataset}}/{{dataset}}_processed
+        RECONSTRUCTED_DIR=${HUMAN_MOTION_DATA_DIR}/{{dataset}}/reconstructed_stage
 
         # Stage 1: Load raw data -> Parquet
         if [ "${STAGES}" = "all" ] || [ "${STAGES}" = "load" ]; then
@@ -118,6 +124,8 @@ workflow:
             echo "Error: Unknown dataset '{{dataset}}'. Use 'taco', 'arctic', 'oakink2', or 'hot3d'."
             exit 1
           fi
+          echo "=== Copying loaded data to output ==="
+          cp -r ${LOADED_DIR} ${OUTPUT}/{{dataset}}_loaded
         fi
 
         # Stage 2: IK retargeting -> retargeted Parquet
@@ -151,6 +159,8 @@ workflow:
             echo "Error: Unknown dataset '{{dataset}}'. Use 'taco', 'arctic', 'oakink2', or 'hot3d'."
             exit 1
           fi
+          echo "=== Copying processed data to output ==="
+          cp -r ${PROCESSED_DIR} ${OUTPUT}/{{dataset}}_processed
         fi
 
         # Stage 3: Reconstruct support surfaces -> USD
@@ -159,6 +169,8 @@ workflow:
           eval python scripts/reconstruct_support_surfaces.py \
             --input_dir ${LOADED_DIR} \
             --dataset {{dataset}} ${FILTER_ARGS}
+          echo "=== Copying reconstructed data to output ==="
+          cp -r ${RECONSTRUCTED_DIR} ${OUTPUT}/reconstructed_stage
         fi
 
         echo "=== Done ==="
