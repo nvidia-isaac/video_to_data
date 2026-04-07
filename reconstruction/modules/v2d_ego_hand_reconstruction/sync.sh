@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO="https://github.com/NVIDIA/IsaacTeleop.git"
-BRANCH="ego4robo/0.0.1"
+BRANCH="main"
 DIR="src/postprocessing/egocentric_hand_reconstruction"
 
 echo "Syncing $DIR from $REPO ($BRANCH)..."
