@@ -2,8 +2,8 @@ from pathlib import Path
 
 import torch
 
-from v2d.common.mv_config import RigConfig
-from v2d.io.video import FrameSource
+from v2d.mv.rig import RigConfig
+from v2d.mv.io.video import FrameSource
 
 from .build_detector import Detector
 from .track_bboxes import DetectorConfig, TrackerConfig, track_bboxes
@@ -43,14 +43,10 @@ def mv_track_bboxes(cfg, rig: RigConfig):
         cam = rig.get_camera(cam_id)
         print(f"Running Detectron2 bbox tracking for camera: {cam.name}")
 
-        name_components = cam.name.split("_")
-        cam_name = "_".join(name_components[:-1])
-        side = name_components[-1]
-
         if cfg.image_dir is not None:
-            frame_source = FrameSource(image_dir=Path(cfg.image_path_template.format(cam_name=cam_name, side=side)))
+            frame_source = FrameSource(image_dir=Path(cfg.image_path_template.format(cam_name=cam.name)))
         elif cfg.video_dir is not None:
-            frame_source = FrameSource(video_path=Path(cfg.video_path_template.format(cam_name=cam_name, side=side)))
+            frame_source = FrameSource(video_path=Path(cfg.video_path_template.format(cam_name=cam.name)))
 
         output_path = Path(cfg.output_path_template.format(cam_name=cam.name))
 

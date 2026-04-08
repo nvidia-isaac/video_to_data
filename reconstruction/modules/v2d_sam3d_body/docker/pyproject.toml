@@ -3,17 +3,14 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "v2d-math"
+name = "v2d-sam3d-body-docker"
 version = "0.1.0"
-description = "Shared math utilities for v2d modules"
+description = "Docker orchestration scripts for SAM3D-Body"
 requires-python = ">=3.10"
-dependencies = [
-    "numpy",
-    "torch",
-]
+dependencies = ["v2d-docker", "omegaconf"]
 
 [tool.setuptools]
-packages = ["v2d.math"]
+packages = ["v2d.sam3d_body.docker"]
 
 [tool.setuptools.package-dir]
-"v2d.math" = "."
+"v2d.sam3d_body.docker" = "."

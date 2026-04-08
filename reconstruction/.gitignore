@@ -10,9 +10,10 @@ ENV/
 env/
 
 # Large data directories
-data/
+/data/
 modules/*/data/
 *.pt
+!modules/v2d_sam3d_body/assets/bbox_track.pt
 *.pth
 *.safetensors
 *.bin
@@ -59,4 +60,3 @@ Thumbs.db
 # Logs
 *.log
 .venv
-data

@@ -57,14 +57,14 @@ run_video_to_depth(
 | **v2d_cusfm** | `run_image_list_to_sfm` | Structure-from-motion: stereo image list → camera poses | `python v2d_cusfm/docker/build.py` | `python v2d_cusfm/docker/run_image_list_to_sfm.py --input_dir ... --output_dir ...` |
 | **v2d_bundlesdf** | `run_reconstruct`, `run_download_weights` | SDF learning + texture baking from pre-computed poses, depth, and masks | `python v2d_bundlesdf/docker/build.py` | `python v2d_bundlesdf/docker/run_reconstruct.py --output_path ... --weights_dir ...` |
 | **v2d_detectron2** | `run_track_bboxes`, `run_mv_track_bboxes`, `run_download_weights`, `run_shell` | Person detection + IoU tracking (ViTDet) | `python -m v2d.detectron2.docker.build` | `python -m v2d.detectron2.docker.run_<tool> --args` |
+| **v2d_sam3d_body** | `run_estimate_mhr_params`, `run_mv_optimize_mhr_params`, `run_mv_render_mhr_mesh`, `run_download_weights`, `run_shell` | Human body pose & shape (SAM3D-Body MHR) | `python -m v2d.sam3d_body.docker.build` | `python -m v2d.sam3d_body.docker.run_<tool> --args` |
 
 **Shared packages** (no Docker images — installed inside other modules' containers as dependencies):
 
 | Package | Description |
 |---------|-------------|
-| **v2d_common** | Shared datatypes, multi-camera rig config (`RigConfig`, `CameraParam`), EDEX calibration parsing |
-| **v2d_io** | `FrameSource` (lazy image-dir / video reader), video read/write, video tiling |
-| **v2d_math** | Torch math utilities: projective geometry, rotation conversions, interpolation |
+| **v2d_common** | Shared datatypes (`DepthImage`, `CameraIntrinsics`, `Transform3d`, `BoundingBox`, `Mask`, etc.) |
+| **v2d_mv** | Multi-view utilities: rig config (`v2d.mv.rig`), video I/O (`v2d.mv.io`), math (`v2d.mv.math`). Optional deps: `[io]`, `[math]`, `[all]` |
 
 ---
 
@@ -95,6 +95,7 @@ cd reconstruction
 
 # Install docker packages for the modules you want to use
 pip install -e modules/v2d_sam3d/docker
+pip install -e modules/v2d_sam3d_body/docker
 pip install -e modules/v2d_moge/docker
 pip install -e modules/v2d_sam2/docker
 pip install -e modules/v2d_foundation_pose/docker
@@ -107,10 +108,10 @@ Or install all docker packages at once (including the example pipeline):
 
 ```bash
 # From reconstruction/ - install all docker packages + v2d_pipelines in one command
-pip install -e modules/v2d_sam2/docker -e modules/v2d_sam3d/docker -e modules/v2d_unidepth/docker \
-  -e modules/v2d_moge/docker -e modules/v2d_nlf/docker -e modules/v2d_foundation_pose/docker \
-  -e modules/v2d_foundation_stereo/docker -e modules/v2d_grounding_dino/docker \
-  -e modules/v2d_cusfm/docker -e modules/v2d_bundlesdf/docker \
+pip install -e modules/v2d_sam2/docker -e modules/v2d_sam3d/docker -e modules/v2d_sam3d_body/docker \
+  -e modules/v2d_unidepth/docker -e modules/v2d_moge/docker -e modules/v2d_nlf/docker \
+  -e modules/v2d_foundation_pose/docker -e modules/v2d_foundation_stereo/docker \
+  -e modules/v2d_grounding_dino/docker -e modules/v2d_cusfm/docker -e modules/v2d_bundlesdf/docker \
   -e modules/v2d_hoi_object_reconstruction/docker -e modules/v2d_detectron2/docker \
   -e modules/v2d_pipelines
 ```
@@ -406,8 +407,10 @@ Person detection and IoU-based tracking using Detectron2 ViTDet models. Supports
 | `run_download_weights` | `run_download_weights(output_dir, model_sizes=["b"], dev=False)` | Download ViTDet checkpoint(s) (b/l/h) |
 | `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
 
-**Build:** `python -m v2d.detectron2.docker.build`  
-**Execute (single-cam):** `python -m v2d.detectron2.docker.run_track_bboxes --video_path ... --weights_dir ... --output_path ... --model_size b`  
+**Build:** `python -m v2d.detectron2.docker.build`
+
+**Execute (single-cam):** `python -m v2d.detectron2.docker.run_track_bboxes --video_path ... --weights_dir ... --output_path ... --model_size b`
+
 **Execute (multi-view):** `python -m v2d.detectron2.docker.run_mv_track_bboxes --video_dir ... --weights_dir data/weights/detectron2 --output_dir data/outputs/detectron2`
 
 **Example (single-cam):** From `reconstruction/`:
@@ -420,10 +423,48 @@ python -m v2d.detectron2.docker.run_download_weights --output_dir data/weights/d
 python -m v2d.detectron2.docker.run_track_bboxes \
   --video_path modules/v2d_detectron2/assets/test_video.mp4 \
   --weights_dir data/weights/detectron2 \
-  --output_path data/outputs/detectron2/bbox_track.pt
+  --output_path data/outputs/detectron2/bbox_track.pt \
+  --debug 2
 ```
 
 **Output:** `bbox_track.pt` — a dict with `{det_cat_id, scores, bbox_track}` (numpy arrays). `bbox_track` has shape `(N, 4)` in `[x1, y1, x2, y2]` format, one row per frame.
+
+---
+
+### v2d_sam3d_body
+
+Human body pose and shape estimation using SAM3D-Body with multi-view MHR (Multi-Hypothesis Recovery) optimization.
+
+| Tool | Function | Description |
+|------|----------|-------------|
+| `run_estimate_mhr_params` | `run_estimate_mhr_params(cam_intrinsics_path, weights_dir, bbox_path, output_params_path, image_dir=None, video_path=None, output_mesh_path=None, debug=-1, dev=False)` | Estimate MHR body parameters from a single camera (image dir or video) |
+| `run_mv_optimize_mhr_params` | `run_mv_optimize_mhr_params(camera_params_path, weights_dir, bbox_dir, output_dir, image_dir=None, video_dir=None, config_path=..., debug=-1, dev=False)` | Multi-view MHR parameter optimization across cameras |
+| `run_mv_render_mhr_mesh` | `run_mv_render_mhr_mesh(data_path, config_path=None, dev=False)` | Render MHR mesh overlay for all cameras |
+| `run_download_weights` | `run_download(output_dir, dev=False)` | Download SAM3D-Body and MoGe-2 weights |
+| `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
+
+**Build:** `python -m v2d.sam3d_body.docker.build`
+
+**Execute (single-cam):** `python -m v2d.sam3d_body.docker.run_estimate_mhr_params --image_dir ... --cam_intrinsics_path ... --weights_dir ... --bbox_path ... --output_params_path ...`
+
+**Execute (multi-view):** `python -m v2d.sam3d_body.docker.run_mv_optimize_mhr_params --image_dir ... --camera_params_path ... --weights_dir ... --bbox_dir ... --output_dir ...`
+
+**Example (single-cam):** From `reconstruction/`:
+
+```bash
+# 1. Download weights
+python -m v2d.sam3d_body.docker.run_download_weights --output_dir data/weights/sam3d_body
+
+# 2. Run MHR body estimation (uses bundled test assets)
+python -m v2d.sam3d_body.docker.run_estimate_mhr_params \
+  --video_path modules/v2d_sam3d_body/assets/test_video.mp4 \
+  --cam_intrinsics_path modules/v2d_sam3d_body/assets/cam_intrinsics.json \
+  --weights_dir data/weights/sam3d_body \
+  --bbox_path modules/v2d_sam3d_body/assets/bbox_track.pt \
+  --output_params_path data/outputs/sam3d_body/params \
+  --output_mesh_path data/outputs/sam3d_body/meshes \
+  --debug 2
+```
 
 ---
 
@@ -441,10 +482,10 @@ Example pipeline usage (install `v2d-pipelines` and docker packages; see Setup a
 
 ```bash
 # From reconstruction/ - install all in one command
-pip install -e modules/v2d_sam2/docker -e modules/v2d_sam3d/docker -e modules/v2d_unidepth/docker \
-  -e modules/v2d_moge/docker -e modules/v2d_nlf/docker -e modules/v2d_foundation_pose/docker \
-  -e modules/v2d_foundation_stereo/docker -e modules/v2d_grounding_dino/docker \
-  -e modules/v2d_cusfm/docker -e modules/v2d_bundlesdf/docker \
+pip install -e modules/v2d_sam2/docker -e modules/v2d_sam3d/docker -e modules/v2d_sam3d_body/docker \
+  -e modules/v2d_unidepth/docker -e modules/v2d_moge/docker -e modules/v2d_nlf/docker \
+  -e modules/v2d_foundation_pose/docker -e modules/v2d_foundation_stereo/docker \
+  -e modules/v2d_grounding_dino/docker -e modules/v2d_cusfm/docker -e modules/v2d_bundlesdf/docker \
   -e modules/v2d_hoi_object_reconstruction/docker -e modules/v2d_detectron2/docker \
   -e modules/v2d_pipelines
 ```

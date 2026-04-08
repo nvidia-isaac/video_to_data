@@ -11,7 +11,7 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from v2d.io.video import FrameSource, get_video_writer
+from v2d.mv.io.video import FrameSource, get_video_writer
 
 from .build_detector import Detector
 from .tracker import IoUTracker
@@ -104,7 +104,7 @@ def track_bboxes(
 
             if debug > 0 and frame_idx % 30 == 0:
                 elapsed = time.time() - start_time
-                print(f"Frame {frame_idx} detection time: {elapsed:.3f}s")
+                tqdm.write(f"Frame {frame_idx} detection time: {elapsed:.3f}s")
                 image = batch_frames[offset].copy()
                 bboxes_int = bboxes.astype(int)
                 for j, bbox in enumerate(bboxes_int):
@@ -116,6 +116,7 @@ def track_bboxes(
     tracks = tracker.finalize()
     tracks = IoUTracker.merge_fragmented_tracks(tracks)
     if debug > 0:
+        print("=== Tracking Results ===")
         for track in tracks:
             print(track)
 

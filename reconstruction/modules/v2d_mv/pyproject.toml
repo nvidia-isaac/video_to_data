@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "v2d-mv"
+version = "0.1.0"
+description = "Shared multi-view utilities: rig config, video I/O, and math"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "pydantic",
+    "omegaconf",
+]
+
+[project.optional-dependencies]
+io = [
+    "opencv-python",
+    "imageio[pyav]",
+    "av",
+    "tqdm",
+]
+math = [
+    "torch",
+    "scipy",
+    "pytransform3d",
+]
+all = [
+    "v2d-mv[io]",
+    "v2d-mv[math]",
+]
+
+[tool.setuptools]
+packages = ["v2d.mv", "v2d.mv.io", "v2d.mv.math", "v2d.mv.rig"]
+
+[tool.setuptools.package-dir]
+"v2d.mv" = "."
+"v2d.mv.io" = "io"
+"v2d.mv.math" = "math"
+"v2d.mv.rig" = "rig"
+
+[tool.setuptools.package-data]
+"v2d.mv.rig" = ["rigs/*.yaml"]

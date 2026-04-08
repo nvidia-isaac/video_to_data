@@ -106,7 +106,12 @@ def generate_video_from_image_dir(
 class FrameSource:
     """Lazy frame source backed by either an image directory or a video file."""
 
-    def __init__(self, image_dir: Path | None = None, video_path: Path | None = None):
+    def __init__(
+        self,
+        image_dir: Path | None = None,
+        video_path: Path | None = None,
+        frames_slice: slice | None = None,
+    ):
         if (image_dir is None) == (video_path is None):
             raise ValueError("Provide exactly one of image_dir or video_path")
 
@@ -114,6 +119,8 @@ class FrameSource:
             self._image_paths = sorted(Path(image_dir).glob("*.png"))
             if not self._image_paths:
                 raise FileNotFoundError(f"No PNG images found in {image_dir}")
+            if frames_slice is not None:
+                self._image_paths = self._image_paths[frames_slice]
             self._video_path = None
             first = iio.imread(self._image_paths[0])
             self.n_frames = len(self._image_paths)
@@ -127,6 +134,12 @@ class FrameSource:
             self.n_frames = n
 
         self.image_size = (first.shape[1], first.shape[0])  # (width, height)
+
+    @property
+    def image_paths(self) -> list[Path]:
+        if self._image_paths is None:
+            raise RuntimeError("image_paths is not available for video-backed FrameSource")
+        return self._image_paths
 
     def iter_batches(self, batch_size: int):
         """Yield ``(batch_start_index, list[np.ndarray])`` tuples."""
@@ -156,34 +169,42 @@ class FrameSource:
 
 
 def tile_videos(
-    video_paths: list[Path],
+    sources: list[Path | FrameSource],
     output_path: Path,
     tile_shape: tuple[int, int],
     video_names: list[str] | None = None,
 ):
-    if len(video_paths) > tile_shape[0] * tile_shape[1]:
-        raise ValueError(f"Too many videos to tile: {len(video_paths)} > {tile_shape[0] * tile_shape[1]}")
+    if len(sources) > tile_shape[0] * tile_shape[1]:
+        raise ValueError(f"Too many sources to tile: {len(sources)} > {tile_shape[0] * tile_shape[1]}")
 
-    L, W, H = get_video_lwh(video_paths[0])
-    for video_path in video_paths:
-        l, w, h = get_video_lwh(video_path)
-        if l != L or w != W or h != H:
-            raise ValueError(f"Video {video_path} has different dimensions")
+    frame_sources = [
+        s if isinstance(s, FrameSource) else FrameSource(video_path=s)
+        for s in sources
+    ]
+
+    L = frame_sources[0].n_frames
+    W, H = frame_sources[0].image_size
+    for fs in frame_sources[1:]:
+        if fs.n_frames != L or fs.image_size != (W, H):
+            raise ValueError(
+                f"Source dimension mismatch: expected {L} frames at {W}x{H}, "
+                f"got {fs.n_frames} frames at {fs.image_size[0]}x{fs.image_size[1]}"
+            )
 
     W_frame = W * tile_shape[1]
     H_frame = H * tile_shape[0]
 
     writer = get_video_writer(output_path, fps=30, crf=23)
-    readers = [get_video_reader(video_path) for video_path in video_paths]
+    iterators = [fs.iter_frames() for fs in frame_sources]
     for l in tqdm(range(L), desc="Tiling videos"):
         img = np.zeros((H_frame, W_frame, 3), dtype=np.uint8)
-        for i, reader in enumerate(readers):
-            img_tile = next(reader)
-            h = i // tile_shape[1]
-            w = i % tile_shape[1]
-            img[h * H: (h + 1) * H, w * W: (w + 1) * W] = img_tile
+        for i, it in enumerate(iterators):
+            img_tile = next(it)
+            r = i // tile_shape[1]
+            c = i % tile_shape[1]
+            img[r * H: (r + 1) * H, c * W: (c + 1) * W] = img_tile
             if video_names is not None:
-                cv2.putText(img, video_names[i], (w * W + 10, h * H + 30),
+                cv2.putText(img, video_names[i], (c * W + 10, r * H + 30),
                             cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
         cv2.putText(img, f"Frame {l}", (W_frame - 420, 60),
                     cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 2)
