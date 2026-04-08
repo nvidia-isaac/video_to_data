@@ -1,0 +1,27 @@
+# Topic names:
+camera_info_topics:
+  - /front_stereo_camera/left/camera_info
+  - /front_stereo_camera/right/camera_info
+  - /back_stereo_camera/left/camera_info
+  - /back_stereo_camera/right/camera_info
+  - /left_stereo_camera/left/camera_info
+  - /left_stereo_camera/right/camera_info
+  - /right_stereo_camera/left/camera_info
+  - /right_stereo_camera/right/camera_info
+image_topics:
+  - /front_stereo_camera/left/image_compressed
+  - /front_stereo_camera/right/image_compressed
+  - /back_stereo_camera/left/image_compressed
+  - /back_stereo_camera/right/image_compressed
+  - /left_stereo_camera/left/image_compressed
+  - /left_stereo_camera/right/image_compressed
+  - /right_stereo_camera/left/image_compressed
+  - /right_stereo_camera/right/image_compressed
+
+# Frame names:
+rig_frame: base_link
+imu_frame: front_stereo_camera_imu
+
+# Resize images.
+output_width: 1920
+output_height: 1200

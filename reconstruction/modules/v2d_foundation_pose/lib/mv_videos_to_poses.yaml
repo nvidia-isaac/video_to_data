@@ -1,0 +1,23 @@
+rig_config: stereo-4
+cameras: [0, 2, 4, 6]
+
+camera_params_path: ???
+image_dir: null
+video_dir: null
+depth_dir: ???
+mask_dir: ???
+mesh_path: ???
+weights_dir: ???
+output_dir: ???
+
+image_path_template: "${image_dir}/{cam_name}"
+video_path_template: "${video_dir}/{cam_name}.mp4"
+depth_path_template: "${depth_dir}/{cam_name}/depth"
+mask_path_template: "${mask_dir}/{cam_name}/0"
+pose_path: "${output_dir}/poses.npy"
+
+scale: 0.5
+est_refine_iter: 5
+track_refine_iter: 2
+
+debug: 2

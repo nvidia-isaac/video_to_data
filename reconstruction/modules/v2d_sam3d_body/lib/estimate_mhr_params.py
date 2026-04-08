@@ -16,7 +16,8 @@ from v2d.common.datatypes import CameraIntrinsics
 from v2d.mv.io.video import FrameSource, get_video_writer
 
 from sam_3d_body import load_sam_3d_body, SAM3DBodyEstimator
-from .renderer import Renderer
+import trimesh
+from v2d.mv.vis.renderer import Renderer
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -71,6 +72,7 @@ def export_mhr_outputs(
     mhr_mesh = {
         "faces": faces,
         "pred_vertices": mhr_outputs["pred_vertices"],
+        "pred_cam_t": mhr_outputs["pred_cam_t"],
     }
     return mhr_params, mhr_mesh
 
@@ -152,9 +154,15 @@ def estimate_mhr_params(
                 pred_cam_t = frame_output["pred_cam_t"].cpu().numpy()
                 cam_pose = np.eye(4)
                 cam_pose[:3, 3] = -pred_cam_t
-                rendered_image = renderer.render_overlay(
-                    vertices=frame_output["pred_vertices"].cpu().numpy(),
+                verts = frame_output["pred_vertices"].cpu().numpy()
+                mesh = trimesh.Trimesh(
+                    vertices=verts,
                     faces=estimator.faces,
+                    process=False,
+                )
+                mesh.visual.vertex_colors = np.full((len(verts), 4), [102, 230, 179, 255], dtype=np.uint8)
+                rendered_image = renderer.render_overlay(
+                    meshes=[mesh],
                     K=cam_intrinsics,
                     T=cam_pose,
                     image=image,

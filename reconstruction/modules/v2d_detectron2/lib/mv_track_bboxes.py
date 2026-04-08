@@ -11,8 +11,10 @@ from .track_bboxes import DetectorConfig, TrackerConfig, track_bboxes
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def mv_track_bboxes(cfg, rig: RigConfig):
+def mv_track_bboxes_from_config(cfg):
     """Run detection + tracking across multiple cameras defined by a rig config."""
+    rig = RigConfig(cfg.rig_config)
+
     if cfg.image_dir is None and cfg.video_dir is None:
         raise ValueError("At least one of image_dir or video_dir is required")
 
@@ -96,5 +98,4 @@ if __name__ == "__main__":
         overrides["debug"] = args.debug
 
     cfg = OmegaConf.merge(cfg, overrides)
-    rig = RigConfig(cfg.rig_config)
-    mv_track_bboxes(cfg, rig)
+    mv_track_bboxes_from_config(cfg)

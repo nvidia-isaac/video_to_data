@@ -6,7 +6,7 @@ import torch
 import trimesh
 from tqdm import tqdm
 
-from v2d.mv.math.numpy_fn import se3_inv
+from v2d.mv.math.numpy_fn import se3_inv, visible_vertices
 
 ZBUF_EPS = 0.005  # 5mm — accounts for rasterization discretization
 
@@ -21,50 +21,6 @@ def _front_facing_mask(
     view_dirs = cam_pos - verts  # (V, 3)
     dots = (normals * view_dirs).sum(axis=1)
     return dots > 0
-
-
-def visible_vertices(
-    verts: np.ndarray,
-    mesh_zbuf: np.ndarray,
-    K: np.ndarray,
-    T: np.ndarray,
-) -> np.ndarray:
-    """Determine vertex visibility using a rasterized mesh z-buffer.
-
-    A vertex is visible if:
-    1. It projects inside image bounds with positive z
-    2. Its camera-frame z matches the mesh z-buffer within ZBUF_EPS
-
-    Args:
-        verts: (V, 3) world-frame vertices.
-        mesh_zbuf: (H, W) mesh z-buffer from pyrender (0 = background).
-        K: (3, 3) intrinsics at render resolution.
-        T: (4, 4) camera-to-world extrinsic.
-
-    Returns:
-        (V,) boolean array.
-    """
-    H, W = mesh_zbuf.shape[:2]
-    T_inv = se3_inv(T)
-
-    verts_hom = np.concatenate([verts, np.ones((verts.shape[0], 1))], axis=1)
-    verts_cam = (verts_hom @ T_inv.T)[:, :3]
-    vert_z = verts_cam[:, 2]
-
-    uv = (verts_cam / vert_z[:, None]) @ K.T
-    u = np.round(uv[:, 0]).astype(int)
-    v = np.round(uv[:, 1]).astype(int)
-
-    in_bounds = (u >= 0) & (u < W) & (v >= 0) & (v < H) & (vert_z > 0)
-    visible = np.zeros(verts.shape[0], dtype=bool)
-
-    idx = np.where(in_bounds)[0]
-    u_valid, v_valid = u[idx], v[idx]
-    zbuf_at_pixel = mesh_zbuf[v_valid, u_valid]
-
-    zbuf_matches = np.abs(vert_z[idx] - zbuf_at_pixel) < ZBUF_EPS
-    visible[idx] = zbuf_matches & (zbuf_at_pixel > 0)
-    return visible
 
 
 def compute_keypoint_visibility(
@@ -94,7 +50,8 @@ def compute_keypoint_visibility(
     Returns:
         (N, P) float32 array in [0, 1] — fraction of visible neighbors per keypoint.
     """
-    from v2d.sam3d_body.lib.renderer import Renderer, vertex_normals
+    from v2d.mv.vis.renderer import Renderer
+    import trimesh
 
     n_frames, n_kp, _ = pred_keypoints_3d.shape
     n_verts = pred_vertices.shape[1]
@@ -106,10 +63,11 @@ def compute_keypoint_visibility(
             verts_i = pred_vertices[i]
             kps_i = pred_keypoints_3d[i]
 
-            mesh_zbuf = renderer.render_depth(verts_i, faces, K, T)
-            vert_vis = visible_vertices(verts_i, mesh_zbuf, K, T)
+            frame_mesh = trimesh.Trimesh(vertices=verts_i, faces=faces, process=False)
+            mesh_zbuf = renderer.render_depth([frame_mesh], K, T)
+            vert_vis = visible_vertices(verts_i, mesh_zbuf, K, T, zbuf_eps=ZBUF_EPS)
 
-            normals_i = vertex_normals(verts_i, faces)
+            normals_i = frame_mesh.vertex_normals
             front = _front_facing_mask(verts_i, normals_i, T)
             front_idx = np.where(front)[0]
 

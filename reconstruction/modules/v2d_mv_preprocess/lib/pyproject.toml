@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "v2d-mv-preprocess-lib"
+version = "0.1.0"
+description = "Stereo image preprocessing: undistortion, rectification, rescaling, cropping"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "opencv-python",
+    "imageio[pillow]",
+    "tqdm",
+    "omegaconf",
+    "v2d-mv[io]",
+]
+
+[tool.setuptools]
+packages = ["v2d.mv.preprocess.lib", "v2d.mv.preprocess.lib.image_proc"]
+
+[tool.setuptools.package-dir]
+"v2d.mv.preprocess.lib" = "."
+"v2d.mv.preprocess.lib.image_proc" = "image_proc"
+
+[tool.setuptools.package-data]
+"v2d.mv.preprocess.lib" = ["*.yaml"]

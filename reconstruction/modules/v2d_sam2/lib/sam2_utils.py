@@ -182,7 +182,7 @@ class LazyFrameLoader:
         frame_names = [
             p
             for p in os.listdir(jpg_folder)
-            if os.path.splitext(p)[-1] in [".jpg", ".jpeg", ".JPG", ".JPEG"]
+            if os.path.splitext(p)[-1].lower() in [".jpg", ".jpeg", ".png"]
         ]
         frame_names.sort(key=lambda p: int(os.path.splitext(p)[0]))
         self.num_frames = len(frame_names)

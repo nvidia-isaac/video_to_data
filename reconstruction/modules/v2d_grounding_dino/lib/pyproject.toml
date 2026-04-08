@@ -11,7 +11,9 @@ dependencies = [
     "numpy",
     "Pillow",
     "opencv-python",
+    "omegaconf",
     "v2d-common",
+    "v2d-mv",
 ]
 
 [tool.setuptools]

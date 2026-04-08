@@ -26,7 +26,7 @@ RUN FORCE_CUDA=1 TORCH_CUDA_ARCH_LIST="8.0 8.6 8.9 9.0" \
 COPY . /workspace
 
 RUN pip install -e /workspace/v2d_common \
-                -e "/workspace/v2d_mv[all]" \
+                -e "/workspace/v2d_mv[io,math,vis]" \
                 -e /workspace/v2d_sam3d_body/lib
 
 # sam_3d_body and tools are accessed via PYTHONPATH (legacy package structure)

@@ -151,17 +151,36 @@ Modules communicate via files, not in-process objects. Outputs are written to fo
 - **Poses**: `Transform3d` JSON `{rotation, translation, scale}` per frame (object-to-camera)
 - **SMPL**: `.npz` files per frame named `{frame_id:06d}.npz`
 - **Bounding box tracks**: `.pt` file (via `torch.save`) containing dict `{det_cat_id, scores, bbox_track}` with numpy arrays
+- **Object bounding boxes (Grounding DINO)**: per-camera JSON with frame-stem-keyed detections (`{frame_stem: [{label, box}]}`)
+- **Object prompt**: plain text file (`prompt.txt`) — extracted from `hoi_metadata.yaml` by preprocessing
+- **Object poses**: `poses.npy` — `(N, 4, 4)` filtered SE(3) world-frame poses
 
 That said, modules can add other module's lib as a direct python dependency to use in-memory utilities.
 
 ### Composing Pipelines
 
-`v2d_pipelines` has no Docker image — it's a meta-package that imports and chains docker-layer `run_*` functions:
+`v2d_pipelines` has no Docker image — it's a meta-package that imports and chains docker-layer `run_*` functions.
+
+**`run_mv_reconstruction.py`** — full multi-view reconstruction pipeline:
 ```python
+from v2d.rosbag.docker.run_rosbag_to_edex import run_rosbag_to_edex
+from v2d.mv.preprocess.docker.run_mv_preprocess import run_mv_preprocess
+from v2d.foundation_stereo.docker.run_mv_image_list_to_depth import run_mv_image_list_to_depth
+from v2d.grounding_dino.docker.run_mv_image_list_to_object_bboxes import run_mv_image_list_to_object_bboxes
 from v2d.detectron2.docker.run_mv_track_bboxes import run_mv_track_bboxes
-from v2d.sam2.docker.run_video_to_masks import run_video_to_masks
-from v2d.moge.docker.run_video_to_depth import run_video_to_depth
-from v2d.sam3d.docker.run_image_to_mesh import run_image_to_mesh
+from v2d.sam2.docker.run_mv_videos_to_masks import run_mv_videos_to_masks
+from v2d.foundation_pose.docker.run_mv_videos_to_poses import run_mv_videos_to_poses
+from v2d.sam3d_body.docker.run_mv_optimize_mhr_params import run_mv_optimize_mhr_params
+from v2d.mv.postprocess.docker.run_mv_eval_chamfer_object import run_mv_eval_chamfer_object
+from v2d.mv.postprocess.docker.run_mv_eval_chamfer_human import run_mv_eval_chamfer_human
+from v2d.mv.postprocess.docker.run_mv_render_hoi_overlay import run_mv_render_hoi_overlay
+from v2d.mv.postprocess.docker.run_mv_visualize_wis3d import run_mv_visualize_wis3d
+```
+
+**`run_mv_calibration.py`** — chessboard extrinsic calibration pipeline:
+```python
+from v2d.rosbag.docker.run_rosbag_to_edex import run_rosbag_to_edex
+from v2d.mv.calibration.docker.run_calibrate_extrinsics import run_calibrate_extrinsics
 ```
 
 ### Modules at a Glance
@@ -170,23 +189,50 @@ from v2d.sam3d.docker.run_image_to_mesh import run_image_to_mesh
 |--------|---------|
 | `v2d_common` | Shared datatypes: `DepthImage`, `CameraIntrinsics`, `Transform3d`, `BoundingBox`, `Mask` (no Docker) |
 | `v2d_mv` | Multi-view shared utils: rig config (`v2d.mv.rig`), video I/O (`v2d.mv.io`), math (`v2d.mv.math`). Optional deps: `[io]`, `[math]`, `[all]` (no Docker) |
-| `v2d_detectron2` | Person detection + IoU tracking from images/video (Detectron2 ViTDet) |
+| `v2d_rosbag` | ROS bag extraction → EDEX images + intrinsics |
+| `v2d_mv_preprocess` | MV stereo rectification, rescaling, video encoding, HOI bbox remap, prompt extraction (no Docker — shares `v2d_rosbag` or own image) |
+| `v2d_mv_calibration` | Chessboard extrinsic calibration: correspondences → PnP → Ceres bundle adjustment |
+| `v2d_mv_postprocess` | HOI overlay rendering, Wis3D 3D visualization, chamfer distance evaluation (object + human) |
+| `v2d_detectron2` | Person detection + IoU tracking from images/video (Detectron2 ViTDet). MV: `run_mv_track_bboxes` |
 | `v2d_moge` | Monocular depth + camera intrinsics from video (MoGe model) |
 | `v2d_unidepth` | Monocular depth estimation (UniDepth model) |
-| `v2d_sam2` | Video segmentation with interactive annotation UI |
+| `v2d_sam2` | Video segmentation with interactive annotation UI. MV: `run_mv_videos_to_masks` (bbox track `.pt` or grounding dino `.json`) |
 | `v2d_sam3d` | 3D mesh reconstruction from image + mask |
-| `v2d_sam3d_body` | Human body pose and shape estimation (SAM3D-Body MHR) |
-| `v2d_grounding_dino` | Text-guided object detection → bounding boxes |
-| `v2d_foundation_stereo` | Stereo depth estimation from left/right image pairs |
-| `v2d_foundation_pose` | 6D pose tracking + mesh alignment/simplification |
+| `v2d_sam3d_body` | Human body pose and shape estimation (SAM3D-Body MHR). MV: `run_mv_optimize_mhr_params` |
+| `v2d_grounding_dino` | Text-guided object detection → bounding boxes. MV: `run_mv_image_list_to_object_bboxes` (reads prompt from `prompt.txt`) |
+| `v2d_foundation_stereo` | Stereo depth estimation from left/right image pairs. MV: `run_mv_image_list_to_depth` |
+| `v2d_foundation_pose` | 6D pose tracking + mesh alignment/simplification. MV: `run_mv_videos_to_poses` (shared-weight multi-view tracker) |
 | `v2d_nlf` | SMPL body model estimation (Neural Layered Fields) |
 | `v2d_cusfm` | Structure-from-motion: stereo image list → camera poses |
 | `v2d_bundlesdf` | SDF learning + texture baking from pre-computed poses, depth, and masks |
-| `v2d_pipelines` | Example end-to-end pipelines (no Docker) |
+| `v2d_pipelines` | End-to-end pipelines: `run_mv_reconstruction`, `run_mv_calibration` (no Docker) |
 
 ### Multi-View Config Pattern
 
-Multi-camera modules (e.g. `v2d_detectron2`) use OmegaConf-based `<mv_config>.yaml` files to define rig layout, path templates, and per-module settings. The config uses `???` placeholders for required paths (`weights_dir`, `output_dir`) that are filled at runtime via CLI overrides merged with `OmegaConf.merge`. Path templates like `${output_dir}/{cam_name}_bbox_track.pt` use OmegaConf interpolation for directory roots and Python `str.format()` for per-camera expansion. The `RigConfig` class (from `v2d.mv.rig`) loads camera topology from YAML files in `v2d_mv/rig/rigs/`.
+Multi-camera programs live in `lib/` as `mv_*.py` files. Each has a same-named `.yaml` config alongside it (e.g. `mv_track_bboxes.py` + `mv_track_bboxes.yaml`).
+
+**YAML config:**
+- Pre-populated fields have sensible defaults; unpopulated fields use `???` (required) or `null` (optional)
+- Path templates use OmegaConf interpolation for directory roots (`${output_dir}/...`) and Python `str.format()` for per-camera expansion (`{cam_name}`)
+- Config specifies `rig_config` (or `rig_name`) to select a rig YAML from `v2d_mv/rig/rigs/`
+
+**CLI / `__main__` block:**
+- Only accept unpopulated fields (`???` and `null`) plus `--config_path` and `--debug` (if applicable) as CLI arguments
+- Load the default YAML, merge CLI overrides via `OmegaConf.merge`, then call `*_from_config(cfg)`
+
+**`*_from_config` function:**
+- Takes only `cfg` (no `rig` parameter); creates the `RigConfig` internally
+- For simple programs (e.g. running a model on each camera independently): all logic can live directly in `*_from_config`
+- For complex programs (e.g. `mv_preprocess`): `*_from_config` resolves config fields into concrete arguments (paths, dicts, etc.) and calls a main function whose signature has all parameters expanded out. The main function has no config/YAML awareness
+
+**`RigConfig`:**
+- Central carrier of camera topology and `CameraParam` objects
+- Handles format-dispatched load/save/merge of camera params (e.g. EDEX by index, future formats by name)
+- `*_from_config` resolves path templates per camera using `rig.get_camera()` / `rig.get_stereo_pairs()`
+
+**Reference examples:**
+- Simple: `mv_track_bboxes.py` — logic lives in `*_from_config`, iterates over cameras and calls `track_bboxes` per camera
+- Complex: `mv_preprocess.py` — `*_from_config` resolves templates into dicts, calls `mv_preprocess()` which has a full expanded signature
 
 ### CUDA Targets
 

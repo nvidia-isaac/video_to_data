@@ -47,17 +47,21 @@ run_video_to_depth(
 |---------|-------|-------------|-------|---------|
 | **v2d_unidepth** | `run_image_to_depth`, `run_video_to_depth`, `run_download_weights`, `run_shell` | Monocular depth estimation | `python -m v2d.unidepth.docker.build` | `python -m v2d.unidepth.docker.run_<tool> --args` |
 | **v2d_moge** | `run_image_to_depth`, `run_video_to_depth`, `run_download_weights`, `run_shell` | Video-to-depth (Midas + MoG) | `python -m v2d.moge.docker.build` | `python -m v2d.moge.docker.run_<tool> --args` |
-| **v2d_sam2** | `run_video_to_masks`, `run_annotate`, `run_download_weights`, `run_shell` | SAM2 video segmentation | `python -m v2d.sam2.docker.build` | `python -m v2d.sam2.docker.run_<tool> --args` |
+| **v2d_sam2** | `run_video_to_masks`, `run_mv_videos_to_masks`, `run_annotate`, `run_download_weights`, `run_shell` | SAM2 video segmentation (single + multi-view) | `python -m v2d.sam2.docker.build` | `python -m v2d.sam2.docker.run_<tool> --args` |
 | **v2d_sam3d** | `run_image_to_mesh`, `run_render_debug_image`, `run_download_weights`, `run_shell` | 3D mesh from image+mask | `python -m v2d.sam3d.docker.build` | `python -m v2d.sam3d.docker.run_<tool> --args` |
-| **v2d_grounding_dino** | `run_image_to_object_bboxes`, `run_image_list_to_object_bboxes`, `run_video_to_object_bboxes`, `run_download_weights`, `run_shell` | Text-guided object detection | `python -m v2d.grounding_dino.docker.build` | `python -m v2d.grounding_dino.docker.run_<tool> --args` |
-| **v2d_foundation_stereo** | `run_image_to_depth`, `run_image_list_to_depth`, `run_export_engine`, `run_download_weights`, `run_shell` | Stereo depth (left/right pairs) | `python -m v2d.foundation_stereo.docker.build` | `python -m v2d.foundation_stereo.docker.run_<tool> --args` |
-| **v2d_foundation_pose** | `run_video_to_poses`, `run_render_overlay`, `run_estimate_scale`, `run_align_mesh_scale`, `run_transform_mesh`, `run_simplify_mesh`, `run_download_weights`, `run_shell` | 6D pose tracking, mesh ops | `python -m v2d.foundation_pose.docker.build` | `python -m v2d.foundation_pose.docker.run_<tool> --args` |
+| **v2d_grounding_dino** | `run_image_to_object_bboxes`, `run_image_list_to_object_bboxes`, `run_video_to_object_bboxes`, `run_mv_image_list_to_object_bboxes`, `run_download_weights`, `run_shell` | Text-guided object detection (single + multi-view) | `python -m v2d.grounding_dino.docker.build` | `python -m v2d.grounding_dino.docker.run_<tool> --args` |
+| **v2d_foundation_stereo** | `run_image_to_depth`, `run_image_list_to_depth`, `run_mv_image_list_to_depth`, `run_export_engine`, `run_download_weights`, `run_shell` | Stereo depth (single + multi-view) | `python -m v2d.foundation_stereo.docker.build` | `python -m v2d.foundation_stereo.docker.run_<tool> --args` |
+| **v2d_foundation_pose** | `run_video_to_poses`, `run_mv_videos_to_poses`, `run_render_overlay`, `run_estimate_scale`, `run_align_mesh_scale`, `run_transform_mesh`, `run_simplify_mesh`, `run_download_weights`, `run_shell` | 6D pose tracking (single + multi-view), mesh ops | `python -m v2d.foundation_pose.docker.build` | `python -m v2d.foundation_pose.docker.run_<tool> --args` |
 | **v2d_nlf** | `run_video_to_smpl`, `run_render_smpl_overlay`, `run_render_smpl_depth`, `run_align_depth_to_smpl`, `run_align_nlf_to_depth`, `run_download_weights`, `run_shell` | Video → SMPL body model | `python -m v2d.nlf.docker.build` | `python -m v2d.nlf.docker.run_<tool> --args` |
 | **v2d_hoi_object_reconstruction** | `run_reconstruction`, `run_fp_tracking` | End-to-end textured mesh reconstruction from hand-object interaction video (two-stage scan) | `python v2d_hoi_object_reconstruction/docker/build.py` | `python v2d_hoi_object_reconstruction/docker/run_reconstruction.py --args` |
 | **v2d_cusfm** | `run_image_list_to_sfm` | Structure-from-motion: stereo image list → camera poses | `python v2d_cusfm/docker/build.py` | `python v2d_cusfm/docker/run_image_list_to_sfm.py --input_dir ... --output_dir ...` |
 | **v2d_bundlesdf** | `run_reconstruct`, `run_download_weights` | SDF learning + texture baking from pre-computed poses, depth, and masks | `python v2d_bundlesdf/docker/build.py` | `python v2d_bundlesdf/docker/run_reconstruct.py --output_path ... --weights_dir ...` |
 | **v2d_detectron2** | `run_track_bboxes`, `run_mv_track_bboxes`, `run_download_weights`, `run_shell` | Person detection + IoU tracking (ViTDet) | `python -m v2d.detectron2.docker.build` | `python -m v2d.detectron2.docker.run_<tool> --args` |
-| **v2d_sam3d_body** | `run_estimate_mhr_params`, `run_mv_optimize_mhr_params`, `run_mv_render_mhr_mesh`, `run_download_weights`, `run_shell` | Human body pose & shape (SAM3D-Body MHR) | `python -m v2d.sam3d_body.docker.build` | `python -m v2d.sam3d_body.docker.run_<tool> --args` |
+| **v2d_sam3d_body** | `run_estimate_mhr_params`, `run_mv_optimize_mhr_params`, `run_download_weights`, `run_shell` | Human body pose & shape (SAM3D-Body MHR) | `python -m v2d.sam3d_body.docker.build` | `python -m v2d.sam3d_body.docker.run_<tool> --args` |
+| **v2d_rosbag** | `run_rosbag_to_edex` | Extract images + intrinsics from ROS bags to EDEX format | `python -m v2d.rosbag.docker.build` | `python -m v2d.rosbag.docker.run_rosbag_to_edex --args` |
+| **v2d_mv_preprocess** | `run_mv_preprocess`, `run_preprocess_stereo` | Multi-view stereo rectification, rescaling, video encoding, HOI bbox remap | `python -m v2d.mv.preprocess.docker.build` | `python -m v2d.mv.preprocess.docker.run_mv_preprocess --args` |
+| **v2d_mv_calibration** | `run_calibrate_extrinsics` | Chessboard extrinsic calibration (PnP + Ceres bundle adjustment) | `python -m v2d.mv.calibration.docker.build` | `python -m v2d.mv.calibration.docker.run_calibrate_extrinsics --args` |
+| **v2d_mv_postprocess** | `run_mv_render_hoi_overlay`, `run_mv_visualize_wis3d`, `run_mv_eval_chamfer_object`, `run_mv_eval_chamfer_human` | HOI overlay rendering, Wis3D 3D visualization, chamfer distance evaluation | `python -m v2d.mv.postprocess.docker.build` | `python -m v2d.mv.postprocess.docker.run_<tool> --args` |
 
 **Shared packages** (no Docker images — installed inside other modules' containers as dependencies):
 
@@ -213,12 +217,14 @@ Segment Anything Model 2 for video segmentation.
 | Tool | Function | Description |
 |------|----------|-------------|
 | `run_video_to_masks` | `run_video_to_masks(video_path, prompts_path, masks_dir, weights_dir, dev=False)` | Generate masks from video using prompts JSON |
+| `run_mv_videos_to_masks` | `run_mv_videos_to_masks(bbox_dir, output_dir, weights_dir, image_dir=None, video_dir=None, config_path=..., dev=False)` | Multi-view segmentation from bbox tracks (`.pt`) or grounding dino JSONs |
 | `run_annotate` | `run_annotate(video_path, prompts_path, port=8080, dev=False)` | Web UI to annotate video and save prompts JSON |
 | `run_download_weights` | `run_download(output_dir, dev=False)` | Download SAM2 model weights |
 | `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
 
 **Build:** `python -m v2d.sam2.docker.build`  
-**Execute:** `python -m v2d.sam2.docker.run_video_to_masks --video_path ... --prompts_path ... --masks_dir ... --weights_dir ...`
+**Execute (single):** `python -m v2d.sam2.docker.run_video_to_masks --video_path ... --prompts_path ... --masks_dir ... --weights_dir ...`  
+**Execute (multi-view):** `python -m v2d.sam2.docker.run_mv_videos_to_masks --bbox_dir ... --image_dir ... --output_dir ... --weights_dir ...`
 
 ---
 
@@ -247,11 +253,13 @@ Text-guided object detection using Grounding DINO.
 | `run_image_to_object_bboxes` | `run_image_to_object_bboxes(image_path, output_path, prompt, model_dir, ...)` | Detect objects in a single image by text prompt |
 | `run_image_list_to_object_bboxes` | `run_image_list_to_object_bboxes(image_dir, output_path, prompt, model_dir, ...)` | Batch object detection on image directory |
 | `run_video_to_object_bboxes` | `run_video_to_object_bboxes(video_path, output_path, prompt, model_dir, ...)` | Per-frame object detection on video |
+| `run_mv_image_list_to_object_bboxes` | `run_mv_image_list_to_object_bboxes(image_dir, prompt_path, output_dir, model_dir, config_path=..., dev=False)` | Multi-view detection from a plain-text prompt file across rig cameras |
 | `run_download_weights` | `run_download(output_dir, dev=False)` | Download Grounding DINO model weights |
 | `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
 
 **Build:** `python -m v2d.grounding_dino.docker.build`  
-**Execute:** `python -m v2d.grounding_dino.docker.run_image_to_object_bboxes --image_path ... --output_path ... --prompt "person" --model_dir ...`
+**Execute (single):** `python -m v2d.grounding_dino.docker.run_image_to_object_bboxes --image_path ... --output_path ... --prompt "person" --model_dir ...`  
+**Execute (multi-view):** `python -m v2d.grounding_dino.docker.run_mv_image_list_to_object_bboxes --image_dir ... --prompt_path ... --output_dir ... --model_dir ...`
 
 ---
 
@@ -263,12 +271,14 @@ Stereo depth estimation from left/right image pairs.
 |------|----------|-------------|
 | `run_image_to_depth` | `run_image_to_depth(left_image_path, right_image_path, depth_path, intrinsics_path, model_dir, calibration_file|fx,fy,cx,cy,baseline, ...)` | Single stereo pair → depth map |
 | `run_image_list_to_depth` | `run_image_list_to_depth(left_dir, right_dir, depth_folder, intrinsics_folder, model_dir, ...)` | Batch stereo pairs → depth maps |
+| `run_mv_image_list_to_depth` | `run_mv_image_list_to_depth(camera_params_path, image_dir, output_dir, model_dir, scale=None, config_path=..., dev=False)` | Multi-view stereo depth for all pairs in a rig |
 | `run_export_engine` | `run_export_engine(model_dir, dev=False)` | Export ONNX model to TensorRT engine |
 | `run_download_weights` | `run_download(output_dir, dev=False)` | Download Foundation Stereo model weights |
 | `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
 
 **Build:** `python -m v2d.foundation_stereo.docker.build`  
-**Execute:** `python -m v2d.foundation_stereo.docker.run_image_to_depth --left_image_path ... --right_image_path ... --depth_path ... --intrinsics_path ... --model_dir ... --calibration_file ...`
+**Execute (single):** `python -m v2d.foundation_stereo.docker.run_image_to_depth --left_image_path ... --right_image_path ... --depth_path ... --intrinsics_path ... --model_dir ... --calibration_file ...`  
+**Execute (multi-view):** `python -m v2d.foundation_stereo.docker.run_mv_image_list_to_depth --camera_params_path ... --image_dir ... --output_dir ... --model_dir ...`
 
 ---
 
@@ -279,6 +289,7 @@ Stereo depth estimation from left/right image pairs.
 | Tool | Function | Description |
 |------|----------|-------------|
 | `run_video_to_poses` | `run_video_to_poses(video_path, depth_folder, masks_folder, camera_intrinsics_path, mesh_path, poses_dir, weights_dir, ...)` | Track object pose per frame using mesh, depth, masks |
+| `run_mv_videos_to_poses` | `run_mv_videos_to_poses(camera_params_path, depth_dir, mask_dir, mesh_path, weights_dir, output_dir, image_dir=None, video_dir=None, config_path=..., debug=-1, dev=False)` | Multi-view 6-DoF tracking with shared-weight FoundationPose estimators and SE(3) pose fusion |
 | `run_render_overlay` | `run_render_overlay(video_path, poses_dir, mesh_path, camera_intrinsics_path, output_dir, dev=False)` | Render mesh overlay on video given poses |
 | `run_estimate_scale` | `run_estimate_scale(mesh_path, rgb_path, depth_path, mask_path, intrinsics_path, transform_path, output_transform_path, weights_dir, ...)` | Estimate mesh scale from RGBD alignment |
 | `run_align_mesh_scale` | `run_align_mesh_scale(mesh_path, depth_path, mask_path, intrinsics_path, transform_path, output_transform_path, dev=False)` | Align mesh scale to depth map |
@@ -288,7 +299,8 @@ Stereo depth estimation from left/right image pairs.
 | `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
 
 **Build:** `python -m v2d.foundation_pose.docker.build`  
-**Execute:** `python -m v2d.foundation_pose.docker.run_video_to_poses --video_path ... --depth_folder ... --masks_folder ... --camera_intrinsics_path ... --mesh_path ... --poses_dir ... --weights_dir ...`
+**Execute (single):** `python -m v2d.foundation_pose.docker.run_video_to_poses --video_path ... --depth_folder ... --masks_folder ... --camera_intrinsics_path ... --mesh_path ... --poses_dir ... --weights_dir ...`  
+**Execute (multi-view):** `python -m v2d.foundation_pose.docker.run_mv_videos_to_poses --camera_params_path ... --image_dir ... --depth_dir ... --mask_dir ... --mesh_path ... --weights_dir ... --output_dir ...`
 
 ---
 
@@ -439,7 +451,6 @@ Human body pose and shape estimation using SAM3D-Body with multi-view MHR (Multi
 |------|----------|-------------|
 | `run_estimate_mhr_params` | `run_estimate_mhr_params(cam_intrinsics_path, weights_dir, bbox_path, output_params_path, image_dir=None, video_path=None, output_mesh_path=None, debug=-1, dev=False)` | Estimate MHR body parameters from a single camera (image dir or video) |
 | `run_mv_optimize_mhr_params` | `run_mv_optimize_mhr_params(camera_params_path, weights_dir, bbox_dir, output_dir, image_dir=None, video_dir=None, config_path=..., debug=-1, dev=False)` | Multi-view MHR parameter optimization across cameras |
-| `run_mv_render_mhr_mesh` | `run_mv_render_mhr_mesh(data_path, config_path=None, dev=False)` | Render MHR mesh overlay for all cameras |
 | `run_download_weights` | `run_download(output_dir, dev=False)` | Download SAM3D-Body and MoGe-2 weights |
 | `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
 
@@ -465,6 +476,124 @@ python -m v2d.sam3d_body.docker.run_estimate_mhr_params \
   --output_mesh_path data/outputs/sam3d_body/meshes \
   --debug 2
 ```
+
+---
+
+### v2d_rosbag
+
+Extract images and camera intrinsics from ROS bags into EDEX format (per-camera image directories + calibration files).
+
+| Tool | Function | Description |
+|------|----------|-------------|
+| `run_rosbag_to_edex` | `run_rosbag_to_edex(rosbag_path, output_dir, config_path=..., no_extrinsics=False, dev=False)` | Extract ROS bag to EDEX images + intrinsics |
+
+**Build:** `python -m v2d.rosbag.docker.build`
+**Execute:** `python -m v2d.rosbag.docker.run_rosbag_to_edex --rosbag_path ... --output_dir ...`
+
+---
+
+### v2d_mv_preprocess
+
+Multi-view stereo rectification, rescaling, video encoding, and HOI metadata processing. Processes all stereo pairs defined by a rig config: rectifies left/right images, applies scaling/cropping, optionally encodes output videos, remaps HOI bounding boxes through the preprocessing pipeline, and extracts the object prompt to `prompt.txt`.
+
+| Tool | Function | Description |
+|------|----------|-------------|
+| `run_mv_preprocess` | `run_mv_preprocess(image_dir, output_dir, camera_params_path=None, extrinsics_camera_params_path=None, hoi_metadata_path=None, config_path=..., dev=False)` | Multi-view preprocessing for all stereo pairs in a rig |
+| `run_preprocess_stereo` | `run_preprocess_stereo(left_image_dir, right_image_dir, left_output_image_dir, right_output_image_dir, camera_params_path, left_cam_id, right_cam_id, ...)` | Single stereo pair rectification |
+
+**Build:** `python -m v2d.mv.preprocess.docker.build`
+**Execute:** `python -m v2d.mv.preprocess.docker.run_mv_preprocess --image_dir ... --output_dir ... --camera_params_path ...`
+
+---
+
+### v2d_mv_calibration
+
+Chessboard-based extrinsic camera calibration. Detects chessboard corners across all cameras and frames, initializes camera extrinsics via PnP chain, then refines with Ceres bundle adjustment.
+
+| Tool | Function | Description |
+|------|----------|-------------|
+| `run_calibrate_extrinsics` | `run_calibrate_extrinsics(camera_params_path, image_dir, output_dir, config_path=..., start=None, stop=None, step=None, num_workers=None, dev=False)` | Calibrate multi-camera extrinsics from chessboard images |
+
+**Build:** `python -m v2d.mv.calibration.docker.build`
+**Execute:** `python -m v2d.mv.calibration.docker.run_calibrate_extrinsics --camera_params_path ... --image_dir ... --output_dir ...`
+
+---
+
+### v2d_mv_postprocess
+
+Post-processing visualization and evaluation for multi-view reconstruction results. Renders human-object interaction overlay videos, exports interactive 3D visualizations, and evaluates chamfer distance between reconstructed meshes and depth point clouds.
+
+| Tool | Function | Description |
+|------|----------|-------------|
+| `run_mv_render_hoi_overlay` | `run_mv_render_hoi_overlay(camera_params_path, object_mesh_path, object_pose_dir, human_pose_dir, output_dir, image_dir=None, video_dir=None, config_path=..., dev=False)` | Render object + human mesh overlay videos per camera |
+| `run_mv_visualize_wis3d` | `run_mv_visualize_wis3d(camera_params_path, object_mesh_path, object_pose_dir, human_pose_dir, output_dir, config_path=..., dev=False)` | Export Wis3D interactive 3D visualization |
+| `run_mv_eval_chamfer_object` | `run_mv_eval_chamfer_object(camera_params_path, object_mesh_path, object_pose_dir, output_dir, depth_dir, mask_dir, config_path=..., dev=False)` | Evaluate chamfer distance: object mesh vs. depth point clouds |
+| `run_mv_eval_chamfer_human` | `run_mv_eval_chamfer_human(camera_params_path, human_pose_dir, output_dir, depth_dir, mask_dir, config_path=..., dev=False)` | Evaluate chamfer distance: human mesh vs. depth point clouds |
+
+**Build:** `python -m v2d.mv.postprocess.docker.build`
+**Execute:** `python -m v2d.mv.postprocess.docker.run_mv_render_hoi_overlay --image_dir ... --camera_params_path ... --object_mesh_path ... --object_pose_dir ... --human_pose_dir ... --output_dir ...`
+
+---
+
+## Multi-View Pipelines
+
+### run_mv_reconstruction.py
+
+Full multi-view reconstruction pipeline. After shared preprocessing and depth estimation, two independent branches run for the object and human, then join for final visualization:
+
+```
+                                     ┌─ object detection → object masks → pose tracking ───┐
+rosbag → preprocess → stereo depth ──┤                                                     ├─ eval + overlay + wis3d
+                                     └─ human detection  → human masks  → body estimation ─┘
+```
+
+**Shared stages:**
+1. **Rosbag extraction** — extract images + intrinsics to EDEX format
+2. **Preprocessing** — stereo rectification, rescaling, video encoding, HOI bbox remap, prompt extraction
+3. **Stereo depth** — Foundation Stereo depth estimation for all stereo pairs
+
+**Object branch:**
+4. **Object detection** — Grounding DINO text-prompted bounding boxes (reads `prompt.txt`)
+5. **Object segmentation** — SAM2 masks from grounding dino detections
+6. **Object pose tracking** — Multi-view FoundationPose 6-DoF tracking
+
+**Human branch:**
+7. **Human detection** — Detectron2 person bbox tracking
+8. **Human segmentation** — SAM2 masks from detectron2 tracks
+9. **Body estimation** — Multi-view MHR body parameter optimization
+
+**Post-processing:**
+10. **Chamfer evaluation** — Mesh vs. depth point cloud distance (object + human)
+11. **HOI overlay** — Render object + human mesh overlay videos
+12. **Wis3D export** — Interactive 3D visualization
+
+**Usage:**
+
+```bash
+python -m v2d.pipelines.run_mv_reconstruction \
+    --rosbag_path /data/rosbags/2026-03-28_session1 \
+    --data_dir /data/datasets/2026-03-28_session1 \
+    --extrinsics_camera_params_path /data/datasets/2026-03-28_calibration/extrinsics/edex \
+    --obj_mesh_path /data/meshes/object.glb
+```
+
+### run_mv_calibration.py
+
+Calibration pipeline for datasets containing chessboard images. Produces an EDEX file with calibrated camera extrinsics.
+
+**Stages:**
+1. **Rosbag extraction** — extract calibration images + intrinsics
+2. **Extrinsic calibration** — chessboard detection → PnP → Ceres bundle adjustment
+
+**Usage:**
+
+```bash
+python -m v2d.pipelines.run_mv_calibration \
+    --rosbag_path /data/rosbags/2026-03-28_calibration \
+    --output_dir /data/datasets/2026-03-28_calibration
+```
+
+The output extrinsics path (`<output_dir>/extrinsics/edex`) is passed as `--extrinsics_camera_params_path` to `run_mv_reconstruction.py`.
 
 ---
 

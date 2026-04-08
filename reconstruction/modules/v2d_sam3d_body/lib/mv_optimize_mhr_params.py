@@ -14,6 +14,7 @@ from pytorch3d.transforms import (
     euler_angles_to_matrix,
 )
 import torch
+import trimesh
 from tqdm import tqdm
 
 from v2d.common.datatypes import Mask
@@ -32,7 +33,7 @@ from sam_3d_body.models.heads import MHRHead
 from sam_3d_body.models.modules import mhr_utils
 from sam_3d_body.metadata.mhr70 import pose_info as mhr70_pose_info
 from .estimate_mhr_params import estimate_mhr_params
-from .renderer import Renderer
+from v2d.mv.vis.renderer import Renderer
 from .renderer_gpu import GPURenderer
 from .visibility import (
     compute_keypoint_visibility_raycast,
@@ -226,6 +227,7 @@ def export_mhr_outputs(
     mhr_mesh = {
         "faces": mhr_layer.faces,
         "pred_vertices": processed["pred_vertices"],
+        "pred_cam_t": pred_cam_t,
     }
 
     return mhr_params, mhr_mesh
@@ -458,11 +460,13 @@ def render_mhr_mesh(
     with Renderer(image_size=source.image_size) as renderer:
         for i, image in enumerate(tqdm(source.iter_frames(), total=source.n_frames, desc="Rendering MHR outputs")):
             verts_i = pred_vertices[i].cpu().numpy()
-            frame = renderer.render_overlay(verts_i, faces_np, K, T, image=image)
+            mesh = trimesh.Trimesh(vertices=verts_i, faces=faces_np, process=False)
+            mesh.visual.vertex_colors = np.full((len(verts_i), 4), [102, 230, 179, 255], dtype=np.uint8)
+            frame = renderer.render_overlay([mesh], K, T, image=image)
             frame = (frame * 255.0).astype(np.uint8)
             label = f"Frame {i}"
-            (tw, _), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)
-            cv2.putText(frame, label, (frame.shape[1] - tw - 10, 40),
+            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)
+            cv2.putText(frame, label, (frame.shape[1] - tw - 10, th + 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
             writer.write_frame(frame)
     writer.close()
@@ -509,8 +513,8 @@ def render_mhr_mesh_gpu(
             for j in range(len(batch_images)):
                 frame = rendered_np[j]
                 label = f"Frame {batch_start + j}"
-                (tw, _), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)
-                cv2.putText(frame, label, (frame.shape[1] - tw - 10, 40),
+                (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)
+                cv2.putText(frame, label, (frame.shape[1] - tw - 10, th + 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
                 writer.write_frame(frame)
             batch_images = []
@@ -563,8 +567,8 @@ def render_keypoints(
         for j in range(pred_keypoints_2d.shape[1]):
             cv2.circle(image, tuple(pred_keypoints_2d[i, j].astype(int)), 2, (255, 0, 0), -1)
         label = f"Frame {i}"
-        (tw, _), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)
-        cv2.putText(image, label, (image.shape[1] - tw - 10, 40),
+        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)
+        cv2.putText(image, label, (image.shape[1] - tw - 10, th + 10),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
         cv2.putText(image, "Green = GT", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
         cv2.putText(image, "Red = Pred", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
@@ -573,7 +577,6 @@ def render_keypoints(
 
 
 def mv_optimize_mhr_params(
-    cam_names: list[str],
     cam_intrinsics: list[np.ndarray],
     cam_extrinsics: list[np.ndarray],
     weights_dir: Path,
@@ -611,16 +614,16 @@ def mv_optimize_mhr_params(
     cam_verts_list: list[torch.Tensor] = []
     cam_kp3d_list: list[torch.Tensor] = []
     n_frames = -1
-    for cam_name, K, T_world_from_cam, frame_source, bbox_path, params_path, mesh_path in zip(
-        cam_names, cam_intrinsics_all, cam_extrinsics_all, frame_sources, bbox_paths, mhr_params_paths, mhr_mesh_paths,
-    ):
+    for cam_idx, (K, T_world_from_cam, frame_source, bbox_path, params_path, mesh_path) in enumerate(zip(
+        cam_intrinsics_all, cam_extrinsics_all, frame_sources, bbox_paths, mhr_params_paths, mhr_mesh_paths,
+    )):
         params_path = Path(params_path)
         mesh_path = Path(mesh_path)
         if params_path.exists():
-            print(f"Loading cached MHR params for camera {cam_name}: {params_path}")
+            print(f"Loading cached MHR params for camera {cam_idx}: {params_path}")
             mhr_outputs = torch.load(params_path)
         else:
-            print(f"Running SAM3D body estimation for camera: {cam_name}")
+            print(f"Running SAM3D body estimation for camera {cam_idx}")
             mhr_outputs = estimate_mhr_params(
                 frame_source=frame_source,
                 bbox_path=bbox_path,
@@ -634,7 +637,7 @@ def mv_optimize_mhr_params(
         if mesh_path.exists():
             mhr_mesh_cam = torch.load(mesh_path)
         else:
-            print(f"Mesh not cached for camera {cam_name}, generating from mhr_outputs")
+            print(f"Mesh not cached for camera {cam_idx}, generating from mhr_outputs")
             mhr_inputs_cam = extract_mhr_inputs(mhr_outputs)
             with torch.no_grad():
                 cam_out = mhr_layer(mhr_inputs_cam, keypoints_only=True)
@@ -663,7 +666,7 @@ def mv_optimize_mhr_params(
         if n_frames == -1:
             n_frames = frame_source.n_frames
         elif n_frames != frame_source.n_frames:
-            raise ValueError(f"Number of frames mismatch for camera {cam_name}: {n_frames} != {frame_source.n_frames}")
+            raise ValueError(f"Number of frames mismatch for camera {cam_idx}: {n_frames} != {frame_source.n_frames}")
 
     # Free the SAM3D model to reclaim GPU memory for visibility computation.
     # mhr_layer survives via its own reference to model.head_pose.
@@ -672,7 +675,7 @@ def mv_optimize_mhr_params(
 
     # --- Pass 2: Keypoint weights by raycasting visibility and optional occlusion mask ---
     gt_weights_all: list[torch.Tensor] = []
-    for i in range(len(cam_names)):
+    for i in range(len(cam_intrinsics)):
         raycast_vis = compute_keypoint_visibility_raycast_gpu(
             pred_keypoints_3d=cam_kp3d_list[i],
             pred_vertices=cam_verts_list[i],
@@ -714,7 +717,7 @@ def mv_optimize_mhr_params(
     if debug > 0:
         mhr_outputs_avg = mhr_layer(mhr_inputs_avg, keypoints_only=True)
         # Visualize the GT and predicted averaged MHR keypoints
-        for i in range(len(cam_names)):
+        for i in range(len(cam_intrinsics)):
             render_keypoints(
                 source=frame_sources[i],
                 output_path=mhr_params_mv_path.parent / f"mhr_keypoints_avg_{i}.mp4",
@@ -751,7 +754,7 @@ def mv_optimize_mhr_params(
         torch.save(mhr_mesh_opt, mhr_mesh_mv_path)
 
     if debug > 0:
-        for i in range(len(cam_names)):
+        for i in range(len(cam_intrinsics)):
             render_keypoints(
                 source=frame_sources[i],
                 output_path=mhr_params_mv_path.parent / f"mhr_keypoints_opt_{i}.mp4",
@@ -762,7 +765,7 @@ def mv_optimize_mhr_params(
                 cam_extrinsics=cam_extrinsics_all[i],
                 gt_weights=gt_weights_all[i],
             )
-        for i in range(len(cam_names)):
+        for i in range(len(cam_intrinsics)):
             render_mhr_mesh(
                 source=frame_sources[i],
                 output_path=mhr_params_mv_path.parent / f"mhr_mesh_opt_{i}.mp4",
@@ -778,9 +781,10 @@ def mv_optimize_mhr_params(
     return mhr_params_opt
 
 
-def mv_optimize_mhr_params_from_config(cfg, rig: RigConfig):
-    """Wrapper that resolves config/rig fields into explicit arguments for mv_optimize_mhr_params."""
-    cam_names: list[str] = []
+def mv_optimize_mhr_params_from_config(cfg):
+    """Wrapper that resolves config fields into explicit arguments for mv_optimize_mhr_params."""
+    rig = RigConfig(cfg.rig_config, camera_params_path=cfg.camera_params_path)
+
     cam_intrinsics: list[np.ndarray] = []
     cam_extrinsics: list[np.ndarray] = []
     frame_sources: list[FrameSource] = []
@@ -794,7 +798,6 @@ def mv_optimize_mhr_params_from_config(cfg, rig: RigConfig):
 
     for cam_id in cfg.cameras:
         cam = rig.get_camera(cam_id)
-        cam_names.append(cam.name)
         cam_intrinsics.append(cam.param.K)
         cam_extrinsics.append(cam.param.T)
 
@@ -827,7 +830,6 @@ def mv_optimize_mhr_params_from_config(cfg, rig: RigConfig):
     mhr_mesh_mv_path = Path(cfg.mhr_mesh_mv_path)
 
     return mv_optimize_mhr_params(
-        cam_names=cam_names,
         cam_intrinsics=cam_intrinsics,
         cam_extrinsics=cam_extrinsics,
         weights_dir=weights_dir,
@@ -884,5 +886,4 @@ if __name__ == "__main__":
         overrides["debug"] = args.debug
 
     cfg = OmegaConf.merge(cfg, overrides)
-    rig = RigConfig(cfg.rig_config, camera_params_path=cfg.camera_params_path)
-    mv_optimize_mhr_params_from_config(cfg, rig)
+    mv_optimize_mhr_params_from_config(cfg)

@@ -172,7 +172,9 @@ def tile_videos(
     sources: list[Path | FrameSource],
     output_path: Path,
     tile_shape: tuple[int, int],
+    output_image_size: tuple[int, int] | None = None,
     video_names: list[str] | None = None,
+    frame_count: bool = False,
 ):
     if len(sources) > tile_shape[0] * tile_shape[1]:
         raise ValueError(f"Too many sources to tile: {len(sources)} > {tile_shape[0] * tile_shape[1]}")
@@ -183,30 +185,33 @@ def tile_videos(
     ]
 
     L = frame_sources[0].n_frames
-    W, H = frame_sources[0].image_size
-    for fs in frame_sources[1:]:
-        if fs.n_frames != L or fs.image_size != (W, H):
-            raise ValueError(
-                f"Source dimension mismatch: expected {L} frames at {W}x{H}, "
-                f"got {fs.n_frames} frames at {fs.image_size[0]}x{fs.image_size[1]}"
-            )
+    if output_image_size is not None:
+        W, H = output_image_size
+    else:
+        W, H = frame_sources[0].image_size
 
     W_frame = W * tile_shape[1]
     H_frame = H * tile_shape[0]
 
-    writer = get_video_writer(output_path, fps=30, crf=23)
+    writer = get_video_writer(output_path, fps=30, crf=17)
     iterators = [fs.iter_frames() for fs in frame_sources]
     for l in tqdm(range(L), desc="Tiling videos"):
         img = np.zeros((H_frame, W_frame, 3), dtype=np.uint8)
         for i, it in enumerate(iterators):
             img_tile = next(it)
+            if video_names is not None:
+                (tw, th), _ = cv2.getTextSize(video_names[i], cv2.FONT_HERSHEY_SIMPLEX, 1, 2)
+                cv2.putText(img_tile, video_names[i], (10, th + 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            if img_tile.shape[:2] != (H, W):
+                img_tile = cv2.resize(img_tile, (W, H), interpolation=cv2.INTER_AREA)
             r = i // tile_shape[1]
             c = i % tile_shape[1]
             img[r * H: (r + 1) * H, c * W: (c + 1) * W] = img_tile
-            if video_names is not None:
-                cv2.putText(img, video_names[i], (c * W + 10, r * H + 30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        cv2.putText(img, f"Frame {l}", (W_frame - 420, 60),
-                    cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 2)
+        if frame_count:
+            frame_text = f"Frame {l}"
+            (tw, th), _ = cv2.getTextSize(frame_text, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)
+            cv2.putText(img, frame_text, (W_frame - tw - 10, th + 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
         writer.write_frame(img)
     writer.close()

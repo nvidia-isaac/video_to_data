@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import argparse
 import json
 from pathlib import Path
 
 import cv2
 import numpy as np
-import torch
 from PIL import Image as PILImage
 from tqdm import tqdm
 
@@ -14,12 +12,12 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.cm as cm
 
-from v2d.common.datatypes import CameraIntrinsics, DepthImage, Mask
-from v2d.mv.rig import RigConfig
-from v2d.mv.io.video import get_video_writer
-from v2d.mv.math.numpy_fn import depth_to_xyz, se3_inv, xyz_to_uv
-from v2d.sam3d_body.lib.renderer import Renderer
-from v2d.sam3d_body.lib.visibility import visible_vertices
+import trimesh
+
+from v2d.common.datatypes import DepthImage, Mask
+from v2d.mv.io.video import FrameSource, get_video_writer, tile_videos
+from v2d.mv.math.numpy_fn import depth_to_xyz, visible_vertices, xyz_to_uv
+from v2d.mv.vis.renderer import Renderer
 
 VERTEX_RADIUS = 2
 
@@ -86,9 +84,9 @@ def _render_vertex_heatmap(
     _draw_colorbar(canvas, vmax_mm)
 
     label = f"Frame {frame_idx}"
-    (tw, _), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)
-    cv2.putText(canvas, label, (W - tw - 10, 40),
-                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+    (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)
+    cv2.putText(canvas, label, (W - tw - 10, th + 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
     if anomaly_msg:
         cv2.putText(canvas, anomaly_msg, (10, H - 20),
@@ -97,26 +95,27 @@ def _render_vertex_heatmap(
     return canvas
 
 
-def eval_chamfer(
+def mv_eval_chamfer(
     cam_names: list[str],
     cam_intrinsics: list[np.ndarray],
     cam_extrinsics: list[np.ndarray],
     depth_dirs: list[Path],
     mask_dirs: list[Path],
     faces: np.ndarray,
-    pred_vertices: np.ndarray,
-    pred_cam_t: np.ndarray,
+    mesh_verts: np.ndarray,
     output_path: Path,
     eval_image_size: tuple[int, int] | None = None,
-    anomaly_median_mm: float = 50.0,
+    anomaly_median_mm: float = 30.0,
     anomaly_outlier_pct: float = 10.0,
     debug: int = 0,
     vis_dir: Path | None = None,
+    tile_shape: tuple[int, int] = (2, 2),
+    tile_image_size: tuple[int, int] | None = None,
 ) -> dict:
     """Compute per-camera distance from visible mesh vertices to depth cloud.
 
     Vertex visibility is determined by rasterizing the mesh z-buffer via
-    pyrender, then checking the human mask for object occlusion.
+    pyrender, then checking the mask for occlusion.
 
     Args:
         cam_names: List of camera names.
@@ -125,9 +124,11 @@ def eval_chamfer(
         depth_dirs: List of directories with per-frame depth PNGs.
         mask_dirs: List of directories with per-frame mask PNGs.
         faces: (F, 3) mesh face indices (constant topology).
-        pred_vertices: (N, V, 3) mesh vertices in body frame.
-        pred_cam_t: (N, 3) world-frame translation.
+        mesh_verts: (N, V, 3) mesh vertices in world frame.
         output_path: Where to save the JSON metrics.
+        eval_image_size: (W, H) to resize depth/mask for evaluation.
+        anomaly_median_mm: Threshold for anomaly detection.
+        anomaly_outlier_pct: Threshold for anomaly detection.
         debug: If > 0, save per-camera heatmap videos to vis_dir.
         vis_dir: Directory for heatmap videos (used when debug > 0).
 
@@ -136,9 +137,7 @@ def eval_chamfer(
     """
     from scipy.spatial import cKDTree
 
-    n_frames = pred_vertices.shape[0]
-    n_verts = pred_vertices.shape[1]
-    mesh_verts = pred_vertices + pred_cam_t[:, None, :]
+    n_frames = mesh_verts.shape[0]
 
     per_camera: dict[str, dict] = {}
     all_frame_dists: list[float] = []
@@ -194,7 +193,8 @@ def eval_chamfer(
                     continue
 
                 verts_np = mesh_verts[i]
-                mesh_zbuf = renderer.render_depth(verts_np, faces, K_eval, T)
+                frame_mesh = trimesh.Trimesh(vertices=verts_np, faces=faces, process=False)
+                mesh_zbuf = renderer.render_depth([frame_mesh], K_eval, T)
 
                 vis = visible_vertices(verts_np, mesh_zbuf, K_eval, T)
 
@@ -253,6 +253,19 @@ def eval_chamfer(
                   f"median={per_camera[cam_name]['median_mm']:.1f}mm  "
                   f"({len(cam_dists)} frames)")
 
+    if debug > 0 and vis_dir and len(cam_names) > 1:
+        vis_paths = [vis_dir / f"{name}.mp4" for name in cam_names if (vis_dir / f"{name}.mp4").exists()]
+        if len(vis_paths) > 1:
+            tiled_path = vis_dir / "tiled_chamfer.mp4"
+            print(f"Tiling {len(vis_paths)} chamfer videos into {tiled_path}...")
+            tile_videos(
+                sources=[FrameSource(video_path=p) for p in vis_paths],
+                output_path=tiled_path,
+                tile_shape=tile_shape,
+                output_image_size=tile_image_size,
+                video_names=[p.stem for p in vis_paths],
+            )
+
     combined = {}
     if all_frame_dists:
         arr = np.array(all_frame_dists)
@@ -270,89 +283,3 @@ def eval_chamfer(
         json.dump(metrics, f, indent=2)
     print(f"\nSaved metrics to {output_path}")
     return metrics
-
-
-def eval_chamfer_from_config(cfg, rig: RigConfig):
-    """Config-driven wrapper for eval_chamfer."""
-    mhr_mesh = torch.load(cfg.mhr_mesh_mv_path, weights_only=False)
-    mhr_params = torch.load(cfg.mhr_params_mv_path, weights_only=False)
-
-    pred_vertices = mhr_mesh["pred_vertices"].cpu().numpy()
-    faces = mhr_mesh["faces"].cpu().numpy()
-    pred_cam_t = mhr_params["pred_cam_t"].cpu().numpy()
-
-    cam_names: list[str] = []
-    cam_intrinsics: list[np.ndarray] = []
-    cam_extrinsics: list[np.ndarray] = []
-    depth_dirs: list[Path] = []
-    mask_dirs: list[Path] = []
-
-    for cam_id in cfg.cameras:
-        cam = rig.get_camera(cam_id)
-        cam_names.append(cam.name)
-        cam_extrinsics.append(cam.param.T)
-
-        intrinsics_dir = Path(cfg.depth_intrinsics_path_template.format(cam_name=cam.name))
-        first_json = next(intrinsics_dir.glob("*.json"), None)
-        if first_json is None:
-            raise FileNotFoundError(f"No intrinsics JSON found in {intrinsics_dir}")
-        K = CameraIntrinsics.load(str(first_json)).to_matrix()
-        cam_intrinsics.append(K)
-
-        depth_dirs.append(Path(cfg.depth_path_template.format(cam_name=cam.name)))
-        mask_dirs.append(Path(cfg.mask_path_template.format(cam_name=cam.name)))
-
-    output_path = Path(cfg.output_path)
-
-    eval_image_size = tuple(cfg.eval_image_size) if cfg.get("eval_image_size") else None
-    debug = cfg.get("debug", 0)
-    vis_dir = Path(cfg.vis_path) if cfg.get("vis_path") else None
-
-    return eval_chamfer(
-        cam_names=cam_names,
-        cam_intrinsics=cam_intrinsics,
-        cam_extrinsics=cam_extrinsics,
-        depth_dirs=depth_dirs,
-        mask_dirs=mask_dirs,
-        faces=faces,
-        pred_vertices=pred_vertices,
-        pred_cam_t=pred_cam_t,
-        output_path=output_path,
-        eval_image_size=eval_image_size,
-        anomaly_median_mm=float(cfg.get("anomaly_median_mm", 50.0)),
-        anomaly_outlier_pct=float(cfg.get("anomaly_outlier_pct", 10.0)),
-        debug=debug,
-        vis_dir=vis_dir,
-    )
-
-
-if __name__ == "__main__":
-    from omegaconf import OmegaConf
-
-    parser = argparse.ArgumentParser(
-        description="Compute chamfer distance using rasterized mesh visibility"
-    )
-    parser.add_argument("--camera_params_path", type=str, required=True)
-    parser.add_argument("--output_dir", type=str, required=True,
-                        help="Directory containing mhr_mesh_mv.pt / mhr_params_mv.pt (metrics JSON also saved here)")
-    parser.add_argument("--depth_dir", type=str, required=True,
-                        help="Root directory of per-camera depth PNGs")
-    parser.add_argument("--mask_dir", type=str, required=True,
-                        help="Root directory of per-camera mask PNGs")
-    parser.add_argument(
-        "--config_path",
-        type=str,
-        default=str(Path(__file__).parent / "mv_eval_chamfer.yaml"),
-    )
-    args = parser.parse_args()
-
-    cfg = OmegaConf.load(args.config_path)
-    overrides = {
-        "output_dir": args.output_dir,
-        "camera_params_path": args.camera_params_path,
-        "depth_dir": args.depth_dir,
-        "mask_dir": args.mask_dir,
-    }
-    cfg = OmegaConf.merge(cfg, overrides)
-    rig = RigConfig(cfg.rig_config, camera_params_path=cfg.camera_params_path)
-    eval_chamfer_from_config(cfg, rig)

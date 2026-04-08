@@ -1,0 +1,11 @@
+rig_config: stereo-4
+cameras: [0, 2, 4, 6]
+
+camera_params_path: ???
+object_mesh_path: ???
+object_pose_dir: ???
+human_pose_dir: ???
+output_dir: ???
+
+object_pose_path: "${object_pose_dir}/poses.npy"
+mhr_mesh_mv_path: "${human_pose_dir}/mhr_mesh_mv.pt"

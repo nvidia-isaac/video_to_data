@@ -13,8 +13,10 @@ dependencies = [
     "opencv-python",
     "trimesh",
     "scikit-learn",
+    "omegaconf",
     "v2d-common",
     "v2d-mesh-lib",
+    "v2d-mv[io,math]",
 ]
 
 [tool.setuptools]

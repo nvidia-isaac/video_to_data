@@ -842,3 +842,52 @@ def pose_two_euro_filter(
     poses_filt[:, :3, 3] = trans_filt
     poses_filt[:, 3, 3] = 1
     return poses_filt
+
+
+#### Visibility ####
+
+
+def visible_vertices(
+    verts: np.ndarray,
+    mesh_zbuf: np.ndarray,
+    K: np.ndarray,
+    T: np.ndarray,
+    zbuf_eps: float = 0.005,
+) -> np.ndarray:
+    """Determine vertex visibility using a rasterized mesh z-buffer.
+
+    A vertex is visible if:
+    1. It projects inside image bounds with positive z
+    2. Its camera-frame z matches the mesh z-buffer within zbuf_eps
+
+    Args:
+        verts: (V, 3) world-frame vertices.
+        mesh_zbuf: (H, W) mesh z-buffer from pyrender (0 = background).
+        K: (3, 3) intrinsics at render resolution.
+        T: (4, 4) camera-to-world extrinsic.
+        zbuf_eps: Tolerance for z-buffer matching (meters).
+
+    Returns:
+        (V,) boolean array.
+    """
+    H, W = mesh_zbuf.shape[:2]
+    T_inv = se3_inv(T)
+
+    verts_hom = np.concatenate([verts, np.ones((verts.shape[0], 1))], axis=1)
+    verts_cam = (verts_hom @ T_inv.T)[:, :3]
+    vert_z = verts_cam[:, 2]
+
+    uv = (verts_cam / vert_z[:, None]) @ K.T
+    u = np.round(uv[:, 0]).astype(int)
+    v = np.round(uv[:, 1]).astype(int)
+
+    in_bounds = (u >= 0) & (u < W) & (v >= 0) & (v < H) & (vert_z > 0)
+    visible = np.zeros(verts.shape[0], dtype=bool)
+
+    idx = np.where(in_bounds)[0]
+    u_valid, v_valid = u[idx], v[idx]
+    zbuf_at_pixel = mesh_zbuf[v_valid, u_valid]
+
+    zbuf_matches = np.abs(vert_z[idx] - zbuf_at_pixel) < zbuf_eps
+    visible[idx] = zbuf_matches & (zbuf_at_pixel > 0)
+    return visible
