@@ -13,7 +13,8 @@ dependencies = [
 ]
 
 [tool.setuptools]
-packages = ["v2d_hoi_object_reconstruction.docker"]
+packages = ["v2d_hoi_object_reconstruction.docker", "v2d_hoi_object_reconstruction.lib"]
 
 [tool.setuptools.package-dir]
 "v2d_hoi_object_reconstruction.docker" = "."
+"v2d_hoi_object_reconstruction.lib" = "../lib"
