@@ -161,6 +161,35 @@ RUN git clone \
         https://github.com/NVIDIA/3DObjectReconstruction.git \
         /workspace/3d-object-reconstruction
 
+# Fix upstream bug in 3d-object-reconstruction:
+#   zfar dynamic computation to prevent mesh clipping during texture baking
+#   (default far*sc_factor is too small when cameras are far from the origin)
+RUN python3 - <<'EOF'
+import pathlib
+
+f = pathlib.Path("/workspace/3d-object-reconstruction/src/nvidia/objectreconstruction/networks/nerf_runner.py")
+src = f.read_text()
+
+old = "    renderer = ModelRendererOffscreen([], cam_K=K, H=Height, W=Width, zfar=far*sc_factor)"
+new = (
+    "    # Compute zfar from actual camera distances to avoid clipping the mesh.\n"
+    "    # The default far*sc_factor is often too small when cameras are far from the origin\n"
+    "    # in normalized space (e.g. far=1.0, sc_factor=1.56 -> zfar=1.56, but cameras may\n"
+    "    # sit at distance >1.9 from the mesh center).\n"
+    "    cam_dists = np.linalg.norm(poses[:, :3, 3], axis=-1)\n"
+    "    computed_zfar = max(far * sc_factor, float(cam_dists.max()) * 2.0)\n"
+    "    logger.info(f\"Texture baking zfar: {computed_zfar:.3f} \"\n"
+    "                f\"(far={far}, sc_factor={sc_factor:.3f}, max_cam_dist={cam_dists.max():.3f})\")\n"
+    "\n"
+    "    renderer = ModelRendererOffscreen([], cam_K=K, H=Height, W=Width, zfar=computed_zfar)"
+)
+assert old in src, "zfar anchor not found in nerf_runner.py"
+src = src.replace(old, new, 1)
+
+f.write_text(src)
+print("nerf_runner.py patched successfully")
+EOF
+
 # Install Python dependencies from repo requirements
 RUN pip3 install --no-cache-dir packaging setuptools wheel
 RUN pip3 install --no-cache-dir -r /workspace/3d-object-reconstruction/src/requirements.txt
