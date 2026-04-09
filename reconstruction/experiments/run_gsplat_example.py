@@ -193,9 +193,9 @@ def run_gsplat(intrinsics_path: str, dev: bool = False, quick: bool = False, fra
 
     # Quick mode: fewer iterations, quarter-res training
     n_cycles                       = 10    if quick else 3
-    iterations_canonical_per_cycle = 400  if quick else 1000
-    iterations_pose_per_cycle      = 400  if quick else 500
-    iterations_refine              = 800  if quick else 1000
+    iterations_canonical_per_cycle = 100  if quick else 1000
+    iterations_pose_per_cycle      = 100  if quick else 500
+    iterations_refine              = 200  if quick else 1000
     train_scale                    = 0.5 if quick else 0.5
     num_frames                     = None
 
@@ -272,6 +272,16 @@ def run_gsplat(intrinsics_path: str, dev: bool = False, quick: bool = False, fra
     # Densify every N canonical-phase iterations.
     densify_every       = 50
 
+    # Prune Gaussians whose max scale exceeds (max_scale_factor * scene_extent).
+    # Eliminates needle/streak artifacts from over-grown Gaussians across all entities.
+    # 0.0 = disabled; 0.1 = default (recommended).
+    max_scale_factor    = 0.1
+
+    # Reset all Gaussian opacities to ~0.018 every N canonical/joint iters.
+    # Forces Gaussians to re-earn opacity; culls elongated floaters over time.
+    # 0 = disabled; 500 = default.
+    reset_opacity_every = 500
+
     # Passes over the full video in the final pose-only sweep.
     # Each pass does one backward per frame (canonical frozen).
     # 0 = skip sweep; 1 = one clean pass (default); 2+ = more refinement.
@@ -318,6 +328,8 @@ def run_gsplat(intrinsics_path: str, dev: bool = False, quick: bool = False, fra
         prune_opacity_threshold=prune_opacity_threshold,
         grad_threshold=grad_threshold,
         densify_every=densify_every,
+        max_scale_factor=max_scale_factor,
+        reset_opacity_every=reset_opacity_every,
         n_pose_sweep_passes=n_pose_sweep_passes,
         alternating=alternating,
         dev=dev,

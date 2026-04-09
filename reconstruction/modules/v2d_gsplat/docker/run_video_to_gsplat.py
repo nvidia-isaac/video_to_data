@@ -41,6 +41,8 @@ def run_video_to_gsplat(
     prune_opacity_threshold: float = 0.005,
     grad_threshold: float = 0.0002,
     densify_every: int = 100,
+    max_scale_factor: float = 0.1,
+    reset_opacity_every: int = 500,
     dev: bool = False,
 ) -> None:
     """
@@ -113,6 +115,8 @@ def run_video_to_gsplat(
             'prune_opacity_threshold': prune_opacity_threshold,
             'grad_threshold': grad_threshold,
             'densify_every': densify_every,
+            'max_scale_factor': max_scale_factor,
+            'reset_opacity_every': reset_opacity_every,
         },
         dev=dev,
         modules_dir=MODULES_DIR,
@@ -163,6 +167,8 @@ if __name__ == '__main__':
     parser.add_argument('--prune_opacity_threshold',    type=float, default=0.005)
     parser.add_argument('--grad_threshold',             type=float, default=0.0002)
     parser.add_argument('--densify_every',              type=int,   default=100)
+    parser.add_argument('--max_scale_factor',           type=float, default=0.1)
+    parser.add_argument('--reset_opacity_every',        type=int,   default=500)
     parser.add_argument('--dev',                    action='store_true')
     args = parser.parse_args()
 
@@ -203,5 +209,7 @@ if __name__ == '__main__':
         prune_opacity_threshold=args.prune_opacity_threshold,
         grad_threshold=args.grad_threshold,
         densify_every=args.densify_every,
+        max_scale_factor=args.max_scale_factor,
+        reset_opacity_every=args.reset_opacity_every,
         dev=args.dev,
     )

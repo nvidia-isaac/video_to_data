@@ -135,12 +135,14 @@ def densify_and_prune(
     prune_opacity_threshold: float = 0.005,
     max_scene_extent: float = 10.0,
     max_gaussians: int = 500_000,
+    max_scale_factor: float = 0.1,
 ) -> GaussianScene:
     """
     Entity-aware densification + pruning pass.
 
     - All Gaussians (background, body, object) are densification candidates.
-    - Body and object Gaussians are protected from opacity-based pruning.
+    - Body and object Gaussians are protected from opacity-based pruning but
+      are still pruned if their scale exceeds max_scale_factor * max_scene_extent.
     Returns a new GaussianScene with the updated set of Gaussians.
     """
     device = scene._positions.device
@@ -163,18 +165,29 @@ def densify_and_prune(
 
     new_scene = GaussianScene.concat(parts) if len(parts) > 1 else scene
 
-    # Prune low-opacity background Gaussians only.
-    # Body Gaussians are SMPL-grounded — occluded parts get their opacity pushed
-    # down by the 2D entity mask loss (projects behind body = outside mask = BCE
-    # drives alpha→0), and would be wrongly removed. Trust SMPL to place them
-    # correctly; they will recover opacity once they become visible.
-    # Object Gaussians are mesh-grounded for the same reason.
+    # Pruning:
+    #   Opacity — background only. Body/object Gaussians may be legitimately
+    #     occluded (low opacity) and are mesh/SMPL-grounded; they recover once
+    #     visible. Pruning them by opacity would destroy the canonical shape.
+    #   Scale — all entities. A Gaussian whose max scale exceeds
+    #     max_scale_factor * scene_extent is a needle/streak artifact regardless
+    #     of which entity it belongs to. These never recover and must be removed.
     with torch.no_grad():
         opacities = new_scene.opacities
-        prune_eligible = ~new_scene.body_mask()
+        body_m = new_scene.body_mask()
+        obj_m = torch.zeros(new_scene.num_gaussians, dtype=torch.bool, device=device)
         for rid in range(new_scene.n_objects()):
-            prune_eligible = prune_eligible & ~new_scene.object_mask(rid)
-        keep = ~prune_eligible | (opacities > prune_opacity_threshold)
+            obj_m = obj_m | new_scene.object_mask(rid)
+
+        # Opacity pruning: background only
+        opacity_prune_eligible = ~body_m & ~obj_m
+        keep = ~opacity_prune_eligible | (opacities > prune_opacity_threshold)
+
+        # Scale pruning: all entities
+        if max_scale_factor > 0.0:
+            new_scales = torch.exp(new_scene._log_scales).max(dim=-1).values
+            max_scale = max_scale_factor * max_scene_extent
+            keep = keep & (new_scales <= max_scale)
 
     if not keep.all():
         new_scene = _filter_scene(new_scene, keep)

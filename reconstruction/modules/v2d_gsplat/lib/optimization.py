@@ -67,6 +67,14 @@ class OptimConfig:
     grad_threshold: float = 0.0002
     prune_opacity_threshold: float = 0.005
     max_gaussians: int = 500_000
+    # Prune any Gaussian whose max scale exceeds (max_scale_factor * scene_extent).
+    # Removes needle/streak artifacts from over-grown Gaussians. Applies to all
+    # entities (background, body, object). 0.0 = disabled.
+    max_scale_factor: float = 0.1
+    # Reset all Gaussian opacities to a small value every N canonical/joint iters.
+    # Forces Gaussians to re-earn their opacity; culls dead elongated floaters.
+    # 0 = disabled. Typical: 500–1000.
+    reset_opacity_every: int = 500
     # ---- Frames / batching --------------------------------------------------
     batch_size: int = 4
     # ---- Loss weights -------------------------------------------------------
@@ -97,6 +105,34 @@ def _load_frame_rgb(video_path: str, frame_idx: int) -> np.ndarray:
     if not ok:
         raise RuntimeError(f"Cannot read frame {frame_idx} from {video_path}")
     return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+
+def _lookat(eye: torch.Tensor, target: torch.Tensor, device: str) -> torch.Tensor:
+    """Build a (1, 4, 4) OpenCV-convention view matrix (+Y down, +Z forward)."""
+    z = torch.nn.functional.normalize(target - eye, dim=0)
+    up = torch.tensor([0., -1., 0.], device=device)
+    x = torch.nn.functional.normalize(torch.linalg.cross(z, up), dim=0)
+    y = torch.linalg.cross(z, x)
+    R = torch.stack([x, y, z], dim=0)        # (3, 3) rows = cam axes
+    t = -(R @ eye)                            # (3,)
+    vm = torch.eye(4, device=device)
+    vm[:3, :3] = R
+    vm[:3,  3] = t
+    return vm.unsqueeze(0)                    # (1, 4, 4)
+
+
+def _orbit_viewmat(centroid: torch.Tensor, yaw_deg: float, device: str) -> torch.Tensor:
+    """Camera orbiting ±yaw_deg (Y-axis) around centroid; original camera at origin, looking +Z."""
+    yaw = torch.tensor(yaw_deg * np.pi / 180., dtype=torch.float32, device=device)
+    c, s = torch.cos(yaw), torch.sin(yaw)
+    Ry = torch.stack([
+        torch.stack([ c, torch.zeros(1, device=device).squeeze(), s]),
+        torch.tensor([0., 1., 0.], device=device),
+        torch.stack([-s, torch.zeros(1, device=device).squeeze(), c]),
+    ])
+    cam_offset = -centroid
+    eye = centroid + Ry @ cam_offset
+    return _lookat(eye, centroid, device)
 
 
 def _load_depth_tensor(depth_folder: str, frame_idx: int, device: str) -> torch.Tensor:
@@ -487,13 +523,49 @@ def run_optimization(
         else:
             print(line, end='\r', flush=True)
 
+    # Orbit cameras fixed at frame-0 body centroid (same as final render video).
+    with torch.no_grad():
+        _wp_f0 = compute_world_positions(
+            scene, body_pose_params, obj_pose_params, smpl_deformer, frame_indices[0]
+        )
+        _body_sel = scene.body_mask()
+        _orbit_centroid = _wp_f0[_body_sel].mean(dim=0) if _body_sel.any() else _wp_f0.mean(dim=0)
+    _viewmat_m30 = _orbit_viewmat(_orbit_centroid, -30., device)
+    _viewmat_p30 = _orbit_viewmat(_orbit_centroid, +30., device)
+
     def _checkpoint(tag: str, frame_t: int):
+        try:
+            orig_rgb = _load_frame_rgb(video_path, frame_t)  # (H, W, 3) uint8
+            if orig_rgb.shape[0] != H or orig_rgb.shape[1] != W:
+                orig_rgb = cv2.resize(orig_rgb, (W, H))
+        except Exception:
+            orig_rgb = np.zeros((H, W, 3), dtype=np.uint8)
+
         with torch.no_grad():
             _wp = compute_world_positions(
                 scene, body_pose_params, obj_pose_params, smpl_deformer, frame_t
             )
-        _save_render(scene, _wp, viewmat, K, H, W, cfg.sh_degree,
-                     os.path.join(renders_dir, f"{tag}.png"))
+            rend_orig = _render_np(scene, _wp, viewmat,        K, H, W, cfg.sh_degree, device)
+            rend_m30  = _render_np(scene, _wp, _viewmat_m30,   K, H, W, cfg.sh_degree, device)
+            rend_p30  = _render_np(scene, _wp, _viewmat_p30,   K, H, W, cfg.sh_degree, device)
+
+        label_h = 40
+        canvas = np.zeros((H + label_h, 4 * W, 3), dtype=np.uint8)
+        canvas[label_h:, 0*W:1*W] = orig_rgb
+        canvas[label_h:, 1*W:2*W] = rend_orig
+        canvas[label_h:, 2*W:3*W] = rend_m30
+        canvas[label_h:, 3*W:4*W] = rend_p30
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        cv2.putText(canvas, 'Original', (10,       28), font, 0.9, (255, 255, 255), 2)
+        cv2.putText(canvas, 'Rendered', (W   + 10, 28), font, 0.9, (255, 255, 255), 2)
+        cv2.putText(canvas, '-30 deg',  (2*W + 10, 28), font, 0.9, (255, 255, 255), 2)
+        cv2.putText(canvas, '+30 deg',  (3*W + 10, 28), font, 0.9, (255, 255, 255), 2)
+
+        out_path = os.path.join(renders_dir, f"{tag}.png")
+        try:
+            cv2.imwrite(out_path, cv2.cvtColor(canvas, cv2.COLOR_RGB2BGR))
+        except Exception as e:
+            print(f"  [render save failed: {e}]")
 
     total_iter = 0
 
@@ -541,11 +613,20 @@ def run_optimization(
                     prune_opacity_threshold=cfg.prune_opacity_threshold,
                     max_scene_extent=scene_extent,
                     max_gaussians=cfg.max_gaussians,
+                    max_scale_factor=cfg.max_scale_factor,
                 )
                 optimizer = _setup_optimizer(scene, body_pose_params, obj_pose_params, cfg, opt_mode)
                 pos_grad_accum = torch.zeros(scene.num_gaussians, device=device)
                 pos_grad_count = torch.zeros(scene.num_gaussians, device=device)
                 print(f"  [densify] N={scene.num_gaussians}")
+
+            if do_densify and cfg.reset_opacity_every > 0 and (i + 1) % cfg.reset_opacity_every == 0:
+                with torch.no_grad():
+                    # sigmoid(-4) ≈ 0.018 — small but nonzero so Gaussians aren't
+                    # immediately pruned; they must re-earn opacity from the loss.
+                    scene._opacities_raw.data.fill_(-4.0)
+                optimizer = _setup_optimizer(scene, body_pose_params, obj_pose_params, cfg, opt_mode)
+                print(f"  [opacity reset] iter {i+1}")
 
             if (i + 1) % 500 == 0 or i == n_iters - 1:
                 _checkpoint(f"{log_label.lower().replace(' ', '_')}_iter{i+1:05d}", batch_frames[0])
@@ -654,13 +735,7 @@ def _load_target_rgb(video_path: str, frame_idx: int, H: int, W: int, device: st
     return torch.tensor(rgb, dtype=torch.float32, device=device)
 
 
-def _save_render(scene, world_pos, viewmat, K, H, W, sh_degree, path):
-    """Save a rendered frame to disk (no grad)."""
-    try:
-        from PIL import Image
-        with torch.no_grad():
-            result = render(scene, world_pos, viewmat, K, H, W, sh_degree=sh_degree)
-        rgb_np = (result.rgb.clamp(0, 1).cpu().numpy() * 255).astype(np.uint8)
-        Image.fromarray(rgb_np).save(path)
-    except Exception as e:
-        print(f"  [render save failed: {e}]")
+def _render_np(scene, world_pos, viewmat, K, H, W, sh_degree, device) -> np.ndarray:
+    """Render one view; return (H, W, 3) uint8 numpy array."""
+    result = render(scene, world_pos, viewmat, K, H, W, sh_degree=sh_degree)
+    return (result.rgb.clamp(0, 1).cpu().numpy() * 255).astype(np.uint8)
