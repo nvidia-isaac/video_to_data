@@ -12,6 +12,7 @@ def run_estimate_mesh_scale(
     weights_dir: str,
     scale_path: str,
     rescaled_mesh_path: str = None,
+    pose_path: str = None,
     lo: float = 0.5,
     hi: float = 2.0,
     n_samples: int = 7,
@@ -35,6 +36,8 @@ def run_estimate_mesh_scale(
     outputs = {"scale_path": scale_path}
     if rescaled_mesh_path is not None:
         outputs["rescaled_mesh_path"] = rescaled_mesh_path
+    if pose_path is not None:
+        outputs["pose_path"] = pose_path
     run_in_container(
         image=IMAGE_NAME,
         module="v2d.foundation_pose.lib.run_estimate_mesh_scale",
@@ -69,6 +72,7 @@ if __name__ == "__main__":
     parser.add_argument("--weights_dir", required=True)
     parser.add_argument("--scale_path", required=True)
     parser.add_argument("--rescaled_mesh_path", default=None)
+    parser.add_argument("--pose_path", default=None)
     parser.add_argument("--lo", type=float, default=0.5)
     parser.add_argument("--hi", type=float, default=2.0)
     parser.add_argument("--n_samples", type=int, default=7)
@@ -88,6 +92,7 @@ if __name__ == "__main__":
         args.weights_dir,
         args.scale_path,
         rescaled_mesh_path=args.rescaled_mesh_path,
+        pose_path=args.pose_path,
         lo=args.lo,
         hi=args.hi,
         n_samples=args.n_samples,

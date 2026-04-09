@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "v2d-gsplat-lib"
+version = "0.1.0"
+description = "4D Gaussian Splatting scene reconstruction library"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "Pillow",
+    "opencv-python",
+    "trimesh",
+    "scipy",
+    "tqdm",
+    "pytorch-msssim",
+    "smplx",
+    "v2d-common",
+]
+
+[tool.setuptools]
+packages = ["v2d.gsplat.lib"]
+
+[tool.setuptools.package-dir]
+"v2d.gsplat.lib" = "."

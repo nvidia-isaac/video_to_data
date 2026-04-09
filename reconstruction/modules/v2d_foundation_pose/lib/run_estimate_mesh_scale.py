@@ -31,6 +31,7 @@ def run_estimate_mesh_scale(
     weights_dir: str,
     scale_path: str,
     rescaled_mesh_path: str = None,
+    pose_path: str = None,
     lo: float = 0.5,
     hi: float = 2.0,
     n_samples: int = 7,
@@ -51,6 +52,8 @@ def run_estimate_mesh_scale(
         weights_dir:             FoundationPose weights directory.
         scale_path:              Output JSON path for {"scale": <best scale factor>}.
         rescaled_mesh_path:      If provided, saves the rescaled mesh here.
+        pose_path:               If provided, saves the object-to-camera Transform3d JSON
+                                 for the best-scale registration (rotation, translation, scale).
         lo:                      Lower bound of initial scale search range. Default 0.5.
         hi:                      Upper bound of initial scale search range. Default 2.0.
         n_samples:               Scales to evaluate per level. Default 7.
@@ -97,6 +100,16 @@ def run_estimate_mesh_scale(
         tracker._mesh.save(rescaled_mesh_path)
         logger.info(f"Saved rescaled mesh to {rescaled_mesh_path}")
 
+    if pose_path:
+        # Re-register at the winning scale to get the aligned 6-DoF pose.
+        # estimate_scale_grid_search leaves the mesh at best_scale but the
+        # tracker's internal pose is from the last candidate evaluated, not
+        # necessarily the best one — so we register once more here.
+        pose = tracker.register(rgb, depth, mask, intrinsics)
+        os.makedirs(os.path.dirname(os.path.abspath(pose_path)), exist_ok=True)
+        pose.save(pose_path)
+        logger.info(f"Saved aligned pose to {pose_path}")
+
     return scale
 
 
@@ -110,6 +123,7 @@ if __name__ == "__main__":
     parser.add_argument("--weights_dir", required=True)
     parser.add_argument("--scale_path", required=True)
     parser.add_argument("--rescaled_mesh_path", default=None)
+    parser.add_argument("--pose_path", default=None)
     parser.add_argument("--lo", type=float, default=0.5)
     parser.add_argument("--hi", type=float, default=2.0)
     parser.add_argument("--n_samples", type=int, default=7)
@@ -129,6 +143,7 @@ if __name__ == "__main__":
         args.weights_dir,
         args.scale_path,
         rescaled_mesh_path=args.rescaled_mesh_path,
+        pose_path=args.pose_path,
         lo=args.lo,
         hi=args.hi,
         n_samples=args.n_samples,
