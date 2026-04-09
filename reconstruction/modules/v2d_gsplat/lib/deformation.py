@@ -284,3 +284,29 @@ class ObjectPoseParams(nn.Module):
             loaded += 1
 
         print(f"[gsplat] Loaded FP poses for object {obj_id}: {loaded} frames from {poses_dir}")
+
+
+class ExposureParams(nn.Module):
+    """
+    Per-frame learned global exposure correction.
+
+    Applies a scalar multiplier exp(log_exposure[t]) to rendered RGB before
+    computing the RGB loss, so Gaussians learn appearance at neutral exposure
+    and the camera's auto-exposure variation is absorbed here instead.
+
+    log_exposure is initialised to 0 (neutral, multiplier=1.0).
+    L2 regularisation on log_exposure keeps values near 0 and prevents the
+    exposure from absorbing real scene colour variation.
+    """
+
+    def __init__(self, n_frames: int, device: str = 'cuda'):
+        super().__init__()
+        self.log_exposure = nn.Parameter(torch.zeros(n_frames, device=device))
+
+    def get(self, frame_t: int) -> torch.Tensor:
+        """Return scalar exposure multiplier for frame t (always positive)."""
+        return torch.exp(self.log_exposure[frame_t])
+
+    def to(self, device):
+        super().to(device)
+        return self

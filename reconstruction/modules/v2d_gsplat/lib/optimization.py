@@ -22,7 +22,7 @@ import torch.optim as optim
 
 from v2d.common.datatypes import CameraIntrinsics, DepthImage
 from v2d.gsplat.lib.scene import GaussianScene, ENTITY_BODY, ENTITY_OBJECT_BASE
-from v2d.gsplat.lib.deformation import SmplDeformer, BodyPoseParams, ObjectPoseParams, apply_lbs
+from v2d.gsplat.lib.deformation import SmplDeformer, BodyPoseParams, ObjectPoseParams, ExposureParams, apply_lbs
 from v2d.gsplat.lib.rasterizer import render, render_entity_silhouette, build_viewmat, build_K
 from v2d.gsplat.lib.losses import compute_total_loss, loss_mask, loss_mask_asymmetric, loss_anchor
 from v2d.gsplat.lib.densification import densify_and_prune
@@ -62,6 +62,10 @@ class OptimConfig:
     lr_body_shape: float = 1e-4
     lr_body_transl: float = 1e-3
     lr_obj_pose: float = 1e-3
+    lr_exposure: float = 1e-2   # per-frame log-exposure learning rate
+    # L2 penalty on log_exposure — keeps values near 0 (neutral), prevents
+    # exposure from absorbing real scene colour variation.
+    weight_exposure_reg: float = 0.1
     # ---- Densification (canonical sub-phase only) ---------------------------
     densify_every: int = 100
     grad_threshold: float = 0.0002
@@ -93,6 +97,11 @@ class OptimConfig:
     # 0.1 = gentle (default, avoids penalising occluded parts).
     # 0.5–1.0 = aggressive ghost elimination at hands/feet (faster convergence).
     body_mask_outside_weight: float = 0.5
+    # Penalise anisotropic (needle/flat) Gaussians by penalising the spread
+    # between max and min log-scale across the 3 axes.
+    # 0.0 = disabled; 0.01–0.1 = gentle; higher = more spherical Gaussians.
+    # Improves novel-view (side-view) consistency at the cost of some detail.
+    weight_isotropy: float = 0.0
     device: str = 'cuda'
 
 
@@ -213,6 +222,7 @@ def _setup_optimizer(
     obj_pose_params: Optional[ObjectPoseParams],
     cfg: OptimConfig,
     mode: str = 'canonical',
+    exposure_params: Optional['ExposureParams'] = None,
 ) -> optim.Adam:
     """
     Build Adam optimizer.
@@ -252,6 +262,15 @@ def _setup_optimizer(
             {'params': [obj_pose_params.translations],  'lr': cfg.lr_obj_pose * s, 'name': 'obj_t'},
         ]
 
+    # Exposure is always active in every mode — it's a per-frame appearance
+    # correction, not a geometry or pose param.
+    if exposure_params is not None:
+        param_groups.append({
+            'params': [exposure_params.log_exposure],
+            'lr': cfg.lr_exposure,
+            'name': 'exposure',
+        })
+
     _gaussian_geom = {'positions', 'rotations', 'scales', 'sh_dc', 'sh_rest', 'skinning'}
     _pose_params   = {'go', 'bp', 'betas', 'transl', 'obj_rot', 'obj_t'}
 
@@ -286,6 +305,7 @@ def _compute_batch_loss(
     object_oids: List[int],
     device: str,
     compute_entity_mask: bool,
+    exposure_params: Optional[ExposureParams] = None,
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
     """Forward pass over batch_frames; return (total_loss, per-term breakdown)."""
     batch_loss = torch.tensor(0.0, device=device)
@@ -296,6 +316,13 @@ def _compute_batch_loss(
             scene, body_pose_params, obj_pose_params, smpl_deformer, t
         )
         result = render(scene, world_pos, viewmat, K_tr, H_tr, W_tr, sh_degree=cfg.sh_degree)
+
+        # Apply per-frame exposure correction before RGB loss so Gaussians learn
+        # appearance at neutral exposure and camera auto-exposure is absorbed here.
+        if exposure_params is not None:
+            rendered_rgb = result.rgb * exposure_params.get(t)
+        else:
+            rendered_rgb = result.rgb
 
         target_rgb   = _cache_rgb[t]
         target_depth = _cache_depth[t]
@@ -309,7 +336,7 @@ def _compute_batch_loss(
                     combined_mask = om if combined_mask is None else (combined_mask + om).clamp(0, 1)
 
         total, terms = compute_total_loss(
-            rendered_rgb=result.rgb,
+            rendered_rgb=rendered_rgb,
             target_rgb=target_rgb,
             rendered_depth=result.depth,
             target_depth=target_depth,
@@ -395,6 +422,23 @@ def _compute_batch_loss(
         body_smooth_loss = (dgo ** 2).mean() + (dbp ** 2).mean() + (dtr ** 2).mean()
         batch_loss = batch_loss + cfg.weight_body_pose_smooth * body_smooth_loss
 
+    # Isotropy regularisation — penalise anisotropic (needle/flat) Gaussians.
+    # max_log_scale - min_log_scale is the log ratio between the longest and
+    # shortest axis; minimising it pushes Gaussians toward spherical shapes,
+    # which improves appearance from novel (side) viewpoints.
+    if cfg.weight_isotropy > 0.0:
+        anisotropy = (
+            scene._log_scales.max(dim=-1).values - scene._log_scales.min(dim=-1).values
+        ).mean()
+        batch_loss = batch_loss + cfg.weight_isotropy * anisotropy
+        loss_terms_accum['isotropy'] = anisotropy.item()
+
+    # Exposure regularisation — L2 on log_exposure keeps values near 0 (neutral).
+    if exposure_params is not None and cfg.weight_exposure_reg > 0.0:
+        exposure_reg = exposure_params.log_exposure.pow(2).mean()
+        batch_loss = batch_loss + cfg.weight_exposure_reg * exposure_reg
+        loss_terms_accum['exposure_reg'] = exposure_reg.item()
+
     return batch_loss, loss_terms_accum
 
 
@@ -412,6 +456,7 @@ def run_optimization(
     smpl_deformer: Optional[SmplDeformer],
     cfg: OptimConfig,
     output_dir: str,
+    total_frames: int = 0,
 ) -> GaussianScene:
     """
     Run alternating canonical/pose cycles then a final refinement.
@@ -489,6 +534,12 @@ def run_optimization(
 
     print(f"  [optim] Data cache ready.", flush=True)
 
+    # Per-frame exposure correction (absorbs camera auto-exposure variation).
+    n_frames_total = total_frames if total_frames > 0 else (max(all_frame_indices) + 1)
+    exposure_params = ExposureParams(n_frames_total, device=device) if cfg.lr_exposure > 0.0 else None
+    if exposure_params is not None:
+        print(f"  [optim] Per-frame exposure learning enabled (lr={cfg.lr_exposure})")
+
     # ------------------------------------------------------------------ #
     # Shared keyword args for _compute_batch_loss (everything except
     # scene, batch_frames, compute_entity_mask — those vary per call).
@@ -508,6 +559,7 @@ def run_optimization(
         human_oids=human_oids,
         object_oids=object_oids,
         device=device,
+        exposure_params=exposure_params,
     )
 
     def _sample_batch() -> List[int]:
@@ -578,7 +630,7 @@ def run_optimization(
         may replace the scene object.
         """
         nonlocal scene
-        optimizer = _setup_optimizer(scene, body_pose_params, obj_pose_params, cfg, opt_mode)
+        optimizer = _setup_optimizer(scene, body_pose_params, obj_pose_params, cfg, opt_mode, exposure_params)
         pos_grad_accum = torch.zeros(scene.num_gaussians, device=device)
         pos_grad_count = torch.zeros(scene.num_gaussians, device=device)
 
@@ -615,7 +667,7 @@ def run_optimization(
                     max_gaussians=cfg.max_gaussians,
                     max_scale_factor=cfg.max_scale_factor,
                 )
-                optimizer = _setup_optimizer(scene, body_pose_params, obj_pose_params, cfg, opt_mode)
+                optimizer = _setup_optimizer(scene, body_pose_params, obj_pose_params, cfg, opt_mode, exposure_params)
                 pos_grad_accum = torch.zeros(scene.num_gaussians, device=device)
                 pos_grad_count = torch.zeros(scene.num_gaussians, device=device)
                 print(f"  [densify] N={scene.num_gaussians}")
@@ -625,7 +677,7 @@ def run_optimization(
                     # sigmoid(-4) ≈ 0.018 — small but nonzero so Gaussians aren't
                     # immediately pruned; they must re-earn opacity from the loss.
                     scene._opacities_raw.data.fill_(-4.0)
-                optimizer = _setup_optimizer(scene, body_pose_params, obj_pose_params, cfg, opt_mode)
+                optimizer = _setup_optimizer(scene, body_pose_params, obj_pose_params, cfg, opt_mode, exposure_params)
                 print(f"  [opacity reset] iter {i+1}")
 
             if (i + 1) % 500 == 0 or i == n_iters - 1:
@@ -651,7 +703,7 @@ def run_optimization(
     # Final refinement phase (all params, 0.1× LR)
     # ------------------------------------------------------------------ #
     n_iters = cfg.iterations_refine
-    optimizer = _setup_optimizer(scene, body_pose_params, obj_pose_params, cfg, 'refine')
+    optimizer = _setup_optimizer(scene, body_pose_params, obj_pose_params, cfg, 'refine', exposure_params)
     print(f"\n--- Refinement ({n_iters} iters, 0.1× LR) ---")
 
     for i in range(n_iters):
@@ -696,7 +748,7 @@ def run_optimization(
                     _cache_masks[(oid, t)] = _resize_to_tr(raw_m) if raw_m is not None else None
 
         optimizer_sweep = _setup_optimizer(
-            scene, body_pose_params, obj_pose_params, cfg, 'pose'
+            scene, body_pose_params, obj_pose_params, cfg, 'pose', exposure_params
         )
         n_frames = len(all_frame_indices)
         print(f"\n--- Pose sweep: {cfg.n_pose_sweep_passes} pass(es) × {n_frames} frames ---")

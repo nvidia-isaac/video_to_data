@@ -137,6 +137,9 @@ def video_to_gsplat(
     weight_body_pose_smooth: float = 0.0,
     weight_body_anchor: float = 0.0,
     weight_obj_anchor: float = 0.0,
+    lr_exposure: float = 1e-2,
+    weight_exposure_reg: float = 0.1,
+    weight_isotropy: float = 0.0,
     max_gaussians: int = 500_000,
     prune_opacity_threshold: float = 0.005,
     grad_threshold: float = 0.0002,
@@ -300,6 +303,9 @@ def video_to_gsplat(
         weight_body_pose_smooth=weight_body_pose_smooth,
         weight_body_anchor=weight_body_anchor,
         weight_obj_anchor=weight_obj_anchor,
+        lr_exposure=lr_exposure,
+        weight_exposure_reg=weight_exposure_reg,
+        weight_isotropy=weight_isotropy,
         device=device,
     )
 
@@ -317,6 +323,7 @@ def video_to_gsplat(
         smpl_deformer=smpl_deformer,
         cfg=cfg,
         output_dir=output_dir,
+        total_frames=total_frames,
     )
 
     # ------------------------------------------------------------------ #
@@ -505,7 +512,10 @@ if __name__ == '__main__':
     parser.add_argument('--weight_obj_pose_smooth',    type=float, default=0.0)
     parser.add_argument('--weight_body_pose_smooth', type=float, default=0.0)
     parser.add_argument('--weight_body_anchor',     type=float, default=0.0)
-    parser.add_argument('--weight_obj_anchor',          type=float, default=0.0)
+    parser.add_argument('--weight_obj_anchor',      type=float, default=0.0)
+    parser.add_argument('--lr_exposure',            type=float, default=1e-2)
+    parser.add_argument('--weight_exposure_reg',    type=float, default=0.1)
+    parser.add_argument('--weight_isotropy',        type=float, default=0.0)
     parser.add_argument('--max_gaussians',              type=int,   default=500_000)
     parser.add_argument('--prune_opacity_threshold',    type=float, default=0.005)
     parser.add_argument('--grad_threshold',             type=float, default=0.0002)
@@ -549,6 +559,9 @@ if __name__ == '__main__':
         weight_body_pose_smooth=args.weight_body_pose_smooth,
         weight_body_anchor=args.weight_body_anchor,
         weight_obj_anchor=args.weight_obj_anchor,
+        lr_exposure=args.lr_exposure,
+        weight_exposure_reg=args.weight_exposure_reg,
+        weight_isotropy=args.weight_isotropy,
         max_gaussians=args.max_gaussians,
         prune_opacity_threshold=args.prune_opacity_threshold,
         grad_threshold=args.grad_threshold,

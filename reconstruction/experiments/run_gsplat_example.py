@@ -192,9 +192,9 @@ def run_gsplat(intrinsics_path: str, dev: bool = False, quick: bool = False, fra
     """Run the Gaussian Splatting optimization."""
 
     # Quick mode: fewer iterations, quarter-res training
-    n_cycles                       = 10    if quick else 3
-    iterations_canonical_per_cycle = 100  if quick else 1000
-    iterations_pose_per_cycle      = 100  if quick else 500
+    n_cycles                       = 20    if quick else 3
+    iterations_canonical_per_cycle = 200  if quick else 1000
+    iterations_pose_per_cycle      = 200  if quick else 500
     iterations_refine              = 200  if quick else 1000
     train_scale                    = 0.5 if quick else 0.5
     num_frames                     = None
@@ -202,13 +202,19 @@ def run_gsplat(intrinsics_path: str, dev: bool = False, quick: bool = False, fra
     # --------------------------------------------------------------------------- #
     # Optimization parameters — tune these to improve object quality
     # --------------------------------------------------------------------------- #
+    # Spherical harmonics degree for view-dependent color.
+    # 0 = constant color (no view-dependence, eliminates SH-baked lighting artifacts).
+    # 1 = linear (recommended for dynamic human scenes).
+    # 3 = full (default, can bake spurious exposure/lighting variation into body Gaussians).
+    sh_degree           = 0
+
     # Entity mask loss weight: drives object opacity up and pose to match SAM2 mask.
     # Higher = stronger mask adherence. Default 1.0; 3.0 works well for objects.
-    weight_entity_mask  = 3.0
+    weight_entity_mask  = 0.1
 
     # Depth loss weight: L1 between rendered and monocular depth (MoGe).
     # Acts as a per-frame geometric prior. 0.0 = disabled; 0.1 = default.
-    weight_depth        = 1.0
+    weight_depth        = 0.1
 
     # How often to compute per-entity silhouette losses (every N iters).
     # 1 = every iteration (best quality, slower); 5 = default (faster).
@@ -216,17 +222,17 @@ def run_gsplat(intrinsics_path: str, dev: bool = False, quick: bool = False, fra
 
     # Global learning rate multiplier applied to all parameter groups.
     # 1.0 = default; 0.5 = half speed (more stable, slower); 2.0 = double (faster, may diverge).
-    lr_scale            = 1.0
+    lr_scale            = 2.0
 
     # Object pose learning rate (scaled independently by lr_obj_pose, then lr_scale).
     # Lower = smoother convergence, less oscillation.
-    lr_obj_pose         = 1e-4
+    lr_obj_pose         = 1e-5
 
     # Body joint angle LR. 0 = lock to NLF initialization (recommended).
     # The rendering loss gradient through LBS is too noisy to reliably improve joint
     # angles — NLF was trained specifically for this and provides much better priors.
     # Set > 0 only if NLF quality is poor and you want rendering to override it.
-    lr_body_joints      = 1e-4
+    lr_body_joints      = 1e-5
 
     # Frames sampled per iteration. Higher = smoother pose gradients, less noise.
     batch_size          = 4
@@ -244,17 +250,31 @@ def run_gsplat(intrinsics_path: str, dev: bool = False, quick: bool = False, fra
     # Weight on body entity-mask loss *outside* the SAM2 body silhouette.
     # Low = gentle (avoids penalising occluded parts).
     # High = aggressively removes hand/foot ghosts. 0.5 is a good starting point.
-    body_mask_outside_weight = 0.0
+    body_mask_outside_weight = 1.0
+
+    # Per-frame exposure learning: absorbs camera auto-exposure variation so
+    # Gaussians learn appearance at neutral exposure.
+    # lr_exposure=0.0 disables it entirely.
+    # weight_exposure_reg: L2 penalty keeping log-exposure near 0 (neutral).
+    lr_exposure         = 1e-2
+    weight_exposure_reg = 0.1
+
+    # Isotropy regularisation: penalises anisotropic (needle/flat) Gaussians by
+    # minimising the spread between max and min log-scale across the 3 axes.
+    # Improves side-view / novel-view consistency. 0.0 = disabled.
+    # Start at 0.01 and increase if side views are still streaky. Too high
+    # forces all Gaussians spherical and hurts front-view detail.
+    weight_isotropy     = 0.01
 
     # Temporal smoothness on object SE(3) poses.
     # Penalises frame-to-frame delta in translation and rotation.
     # 0 = disabled; ~0.1 gentle; ~1.0 strong. Start at 0.2 and tune up if still shaky.
-    weight_obj_pose_smooth  = 1e-1
+    weight_obj_pose_smooth  = 1.0
 
     # Temporal smoothness on body SMPL pose (global orient, body joints, root translation).
     # Same idea. Body pose has many more dimensions so needs a higher weight for equivalent
     # regularisation strength. Start at 1.0 and tune up if body still skips.
-    weight_body_pose_smooth = 1e-1
+    weight_body_pose_smooth = 0.1
 
     # Maximum number of Gaussians across the whole scene.
     # Lower = faster training and rendering; higher = more detail.
@@ -267,7 +287,7 @@ def run_gsplat(intrinsics_path: str, dev: bool = False, quick: bool = False, fra
 
     # Position gradient norm threshold for clone/split candidates.
     # Lower = more Gaussians densified; higher = fewer, only where error is large.
-    grad_threshold      = 0.0001
+    grad_threshold      = 0.0002
 
     # Densify every N canonical-phase iterations.
     densify_every       = 50
@@ -280,12 +300,12 @@ def run_gsplat(intrinsics_path: str, dev: bool = False, quick: bool = False, fra
     # Reset all Gaussian opacities to ~0.018 every N canonical/joint iters.
     # Forces Gaussians to re-earn opacity; culls elongated floaters over time.
     # 0 = disabled; 500 = default.
-    reset_opacity_every = 500
+    reset_opacity_every = 50
 
     # Passes over the full video in the final pose-only sweep.
     # Each pass does one backward per frame (canonical frozen).
     # 0 = skip sweep; 1 = one clean pass (default); 2+ = more refinement.
-    n_pose_sweep_passes = 1
+    n_pose_sweep_passes = 3
 
     # If True (default): alternate canonical and pose phases each cycle.
     # If False: optimize all parameters jointly each cycle (canonical+pose simultaneously).
@@ -303,6 +323,7 @@ def run_gsplat(intrinsics_path: str, dev: bool = False, quick: bool = False, fra
         smpl_path=SMPL_ALIGNED,
         object_meshes_dir=OBJECTS_DIR,
         camera_mode='static',
+        sh_degree=sh_degree,
         num_frames=num_frames,
         frame_step=frame_step,
         n_cycles=n_cycles,
@@ -324,6 +345,9 @@ def run_gsplat(intrinsics_path: str, dev: bool = False, quick: bool = False, fra
         weight_body_pose_smooth=weight_body_pose_smooth,
         weight_body_anchor=0.0,
         weight_obj_anchor=0.0,
+        lr_exposure=lr_exposure,
+        weight_exposure_reg=weight_exposure_reg,
+        weight_isotropy=weight_isotropy,
         max_gaussians=max_gaussians,
         prune_opacity_threshold=prune_opacity_threshold,
         grad_threshold=grad_threshold,
