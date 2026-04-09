@@ -127,17 +127,6 @@ This constraint means:
 
 If you supply external depth or mask directories outside `job_dir`, the pipeline will fail silently with broken symlinks inside BundleSDF. Keep all intermediate data within `job_dir`.
 
-## Input from MCAP bag
-
-If raw data is an MCAP bag instead of a `mapping_data` directory:
-
-```bash
-python modules/v2d_hoi_object_reconstruction/docker/run_reconstruction.py \
-  --mcap_file /path/to/2026-03-12_airplane/ \
-  --job_dir   data/hoi_obj_recon/jobs/2026-03-12_airplane \
-  --prompt    "airplane"
-```
-
 ## FoundationPose Tracking Only
 
 To run FoundationPose tracking with an existing mesh (skips reconstruction), prepare the job directory first then skip all reconstruction steps:

@@ -4,8 +4,6 @@ End-to-end object reconstruction pipeline (HOST-SIDE orchestrator).
 Two-stage scan (object stationary → rotated → stationary) → complete textured mesh.
 
 Steps:
-  0.  MCAP convert (optional)     – convert ROS2 MCAP bag → mapping_data directory
-                                    (only when --mcap_file is used instead of --mapping_data_dir)
   1.  prepare_FP_folder           – copy images, write calibration + video
   2.  CuSFM                       – run on mapping_data_dir (original images)
                                     → job_dir/sfm/keyframes/frames_meta.json with poses
@@ -33,19 +31,12 @@ Two frames_meta.json files are used:
   - job_dir/sfm/keyframes/frames_meta.json : CuSFM output (poses for keyframes)
                                              → used for camera-to-world poses
 
-Usage (from mapping_data directory):
+Usage:
     python run_reconstruction.py \\
         --mapping_data_dir /home/.../mapping_data/2026-02-18_..._bowl \\
         --job_dir          /data/hoi_obj_recon/2026-02-18_..._bowl \\
         --prompt           "bowl" \\
         --config           /workspace/v2d_bundlesdf/lib/data/configs/theseus_optimizer_hawk.yaml
-
-Usage (from raw MCAP bag directory):
-    python run_reconstruction.py \\
-        --mcap_file  /path/to/2026-03-12_airplane/ \\
-        --job_dir    /data/hoi_obj_recon/2026-03-12_airplane \\
-        --prompt     "airplane" \\
-        --real2sim_path /home/jryu/workspaces/real2sim   # optional if real2sim is pip-installed
 
     # Optional: override auto-detected Stage-1 split
         --stage1_end_frame 400          # explicit frame index
@@ -53,7 +44,6 @@ Usage (from raw MCAP bag directory):
         --stage1_buffer_deg 10          # buffer before detected transition (default: 10°)
 
 Skip flags (to resume from a checkpoint):
-    --skip_mcap_convert
     --skip_prepare  --skip_sfm  --skip_dino  --skip_depth  --skip_mask
     --skip_stage1_setup  --skip_stage1_nerf  --skip_center_mesh
     --skip_fp_tracking  --skip_fp_render  --skip_world_poses  --skip_merged_setup  --skip_full_nerf
@@ -243,16 +233,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    input_group = parser.add_mutually_exclusive_group(required=True)
-    input_group.add_argument("--mapping_data_dir",
+    parser.add_argument("--mapping_data_dir", required=True,
                         help="Raw mapping data directory (frames_meta.json + images)")
-    input_group.add_argument("--mcap_file",
-                        help="ROS2 MCAP bag directory (e.g. /data/2026-03-12_airplane/); "
-                             "will be auto-converted to mapping_data at <job_dir>/mapping_data/ "
-                             "(requires real2sim)")
-    parser.add_argument("--real2sim_path", default=None,
-                        help="Path to real2sim repo (used with --mcap_file). "
-                             "If not set, uses installed real2sim package.")
     parser.add_argument("--job_dir", required=True,
                         help="Output root (e.g. /data/hoi_obj_recon/<job>)")
     parser.add_argument("--prompt", required=True,
@@ -285,8 +267,6 @@ def main():
                         help="GPU IDs (default: auto-detect)")
 
     # Skip flags
-    parser.add_argument("--skip_mcap_convert",   action="store_true",
-                        help="Skip MCAP→mapping_data conversion (mapping_data must already exist)")
     parser.add_argument("--skip_prepare",        action="store_true")
     parser.add_argument("--skip_sfm",            action="store_true")
     parser.add_argument("--skip_stage1_detect",  action="store_true",
@@ -334,32 +314,7 @@ def main():
     job_dir = os.path.abspath(args.job_dir)
     os.makedirs(job_dir, exist_ok=True)
 
-    # ── Step 0: MCAP → mapping_data conversion ────────────────────────────────
-    if args.mcap_file:
-        mapping_data_dir = Path(job_dir) / "mapping_data"
-        if not args.skip_mcap_convert:
-            print(f"[pipeline] converting MCAP → {mapping_data_dir}")
-            mapping_data_dir.mkdir(parents=True, exist_ok=True)
-
-            env = os.environ.copy()
-            if args.real2sim_path:
-                env["PYTHONPATH"] = f"{args.real2sim_path}:{env.get('PYTHONPATH', '')}"
-
-            convert_cmd = [
-                sys.executable, "-m", "real2sim.rosbag_to_mapping_data.main",
-                "--sensor_data_bag_file", args.mcap_file,
-                "--output_folder_path",  str(mapping_data_dir),
-                "--no-generate_edex",
-            ]
-
-            result = subprocess.run(convert_cmd, env=env)
-            if result.returncode != 0:
-                raise RuntimeError("MCAP conversion failed")
-            print(f"[pipeline] MCAP conversion done → {mapping_data_dir}")
-        else:
-            print(f"[pipeline] skipping MCAP conversion, using {mapping_data_dir}")
-    else:
-        mapping_data_dir = Path(os.path.abspath(args.mapping_data_dir))
+    mapping_data_dir = Path(os.path.abspath(args.mapping_data_dir))
 
     ref_frame        = ref_frame_cfg
     gpu_ids          = args.gpu_ids or detect_gpu_ids()
