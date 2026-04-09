@@ -31,6 +31,7 @@ def mv_videos_to_poses(
     weights_dir: str,
     pose_path: Path,
     scale: float = 0.5,
+    depth_direction_trust: float = 0.5,
     est_refine_iter: int = 5,
     track_refine_iter: int = 2,
     debug: int = 0,
@@ -64,7 +65,7 @@ def mv_videos_to_poses(
     tm = mesh.to_trimesh()
     _, obb_extents = trimesh.bounds.oriented_bounds(tm)
     print(f"Mesh: {len(tm.vertices)} verts, OBB extents={obb_extents}, min={obb_extents.min():.4f}")
-    tracker = MultiViewTracker(mesh, weights_dir, num_cameras)
+    tracker = MultiViewTracker(mesh, weights_dir, num_cameras, depth_direction_trust=depth_direction_trust)
 
     mask_file_lists = []
     for d in mask_dirs:
@@ -341,6 +342,7 @@ def mv_videos_to_poses_from_config(cfg):
         weights_dir=cfg.weights_dir,
         pose_path=Path(cfg.pose_path),
         scale=scale,
+        depth_direction_trust=cfg.get("depth_direction_trust", 0.5),
         est_refine_iter=cfg.get("est_refine_iter", 5),
         track_refine_iter=cfg.get("track_refine_iter", 2),
         debug=cfg.get("debug", 0),

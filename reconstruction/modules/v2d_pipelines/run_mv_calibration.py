@@ -42,7 +42,7 @@ def main(
 
     print("\n=== Calibration Complete ===")
     print(f"Extrinsics camera params: {os.path.join(output_dir, 'extrinsics', 'edex')}")
-    print(f"Reference this path as --extrinsics_camera_params_path in run_mv_reconstruction.py")
+    print(f"Reference this path as --extrinsics_camera_params_path in run_mv_hoi_reconstruction.py")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Calibration dataset pipeline")

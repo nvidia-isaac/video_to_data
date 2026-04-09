@@ -537,7 +537,7 @@ Post-processing visualization and evaluation for multi-view reconstruction resul
 
 ## Multi-View Pipelines
 
-### run_mv_reconstruction.py
+### run_mv_hoi_reconstruction.py
 
 Full multi-view reconstruction pipeline. After shared preprocessing and depth estimation, two independent branches run for the object and human, then join for final visualization:
 
@@ -570,9 +570,9 @@ rosbag → preprocess → stereo depth ──┤                                
 **Usage:**
 
 ```bash
-python -m v2d.pipelines.run_mv_reconstruction \
+python -m v2d.pipelines.run_mv_hoi_reconstruction \
     --rosbag_path /data/rosbags/2026-03-28_session1 \
-    --data_dir /data/datasets/2026-03-28_session1 \
+    --output_dir /data/datasets/2026-03-28_session1 \
     --extrinsics_camera_params_path /data/datasets/2026-03-28_calibration/extrinsics/edex \
     --obj_mesh_path /data/meshes/object.glb
 ```
@@ -593,7 +593,7 @@ python -m v2d.pipelines.run_mv_calibration \
     --output_dir /data/datasets/2026-03-28_calibration
 ```
 
-The output extrinsics path (`<output_dir>/extrinsics/edex`) is passed as `--extrinsics_camera_params_path` to `run_mv_reconstruction.py`.
+The output extrinsics path (`<output_dir>/extrinsics/edex`) is passed as `--extrinsics_camera_params_path` to `run_mv_hoi_reconstruction.py`.
 
 ---
 

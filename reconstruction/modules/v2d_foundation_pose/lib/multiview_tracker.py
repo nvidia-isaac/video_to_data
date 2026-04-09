@@ -1,7 +1,8 @@
 """Multi-view 6-DoF object tracker using FoundationPose.
 
 Creates N FoundationPose estimators with shared weights (scorer, refiner,
-glctx) and fuses per-camera poses each frame via se3_pose_select.
+glctx) and fuses per-camera poses each frame via visibility-based selection
+and anisotropic pose averaging.
 """
 
 import logging
@@ -13,7 +14,7 @@ import torch
 import trimesh
 
 from v2d.mesh.lib.mesh import Mesh
-from v2d.mv.math.numpy_fn import xyz_to_uv, se3_split_mean
+from v2d.mv.math.numpy_fn import xyz_to_uv, se3_split_mean_anisotropic
 
 
 @contextmanager
@@ -40,7 +41,13 @@ import nvdiffrast.torch as dr  # noqa: E402
 class MultiViewTracker:
     """Coordinate N FoundationPose estimators with shared weights."""
 
-    def __init__(self, mesh: Mesh, weights_dir: str, num_cameras: int):
+    def __init__(
+        self,
+        mesh: Mesh,
+        weights_dir: str,
+        num_cameras: int,
+        depth_direction_trust: float = 0.5,
+    ):
         if weights_dir:
             os.environ.setdefault("FOUNDATIONPOSE_WEIGHTS_DIR", weights_dir)
 
@@ -72,6 +79,7 @@ class MultiViewTracker:
             
         self.mesh = mesh
         self.pose_last = None
+        self.depth_direction_trust = depth_direction_trust
 
     @property
     def num_cameras(self) -> int:
@@ -91,7 +99,7 @@ class MultiViewTracker:
         Returns:
             avg_pose: (4,4) best world-frame pose
             world_poses: list of (4,4) per-camera world poses
-            select_idx: indices selected by se3_pose_select
+            select_idx: boolean mask of cameras where object is visible
         """
         world_poses = []
         with _suppress_fp_logging():
@@ -122,7 +130,7 @@ class MultiViewTracker:
         Returns:
             avg_pose: (4,4) best world-frame pose
             world_poses: list of (4,4) per-camera world poses
-            select_idx: indices selected by se3_pose_select
+            select_idx: boolean mask of cameras where object is visible
         """
         world_poses = []
         with _suppress_fp_logging():
@@ -162,7 +170,14 @@ class MultiViewTracker:
         if not select_idx.any():
             print(f"Object not visible from any camera, using last pose")
             return select_idx, self.pose_last
-        avg_pose = se3_split_mean(np.array(world_poses)[select_idx])
+        selected = np.where(select_idx)[0]
+        cam_rotations = np.array([Ts[j][:3, :3] for j in selected])
+        W = np.diag([1.0, 1.0, self.depth_direction_trust])
+        avg_pose = se3_split_mean_anisotropic(
+            np.array(world_poses)[select_idx],
+            cam_rotations,
+            W,
+        )
         return select_idx, avg_pose
 
     def _sync_to_avg(self, avg_pose: np.ndarray, Ts: list[np.ndarray]):

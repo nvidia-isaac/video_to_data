@@ -161,7 +161,7 @@ That said, modules can add other module's lib as a direct python dependency to u
 
 `v2d_pipelines` has no Docker image — it's a meta-package that imports and chains docker-layer `run_*` functions.
 
-**`run_mv_reconstruction.py`** — full multi-view reconstruction pipeline:
+**`run_mv_hoi_reconstruction.py`** — full multi-view reconstruction pipeline:
 ```python
 from v2d.rosbag.docker.run_rosbag_to_edex import run_rosbag_to_edex
 from v2d.mv.preprocess.docker.run_mv_preprocess import run_mv_preprocess
@@ -205,7 +205,7 @@ from v2d.mv.calibration.docker.run_calibrate_extrinsics import run_calibrate_ext
 | `v2d_nlf` | SMPL body model estimation (Neural Layered Fields) |
 | `v2d_cusfm` | Structure-from-motion: stereo image list → camera poses |
 | `v2d_bundlesdf` | SDF learning + texture baking from pre-computed poses, depth, and masks |
-| `v2d_pipelines` | End-to-end pipelines: `run_mv_reconstruction`, `run_mv_calibration` (no Docker) |
+| `v2d_pipelines` | End-to-end pipelines: `run_mv_hoi_reconstruction`, `run_mv_calibration` (no Docker) |
 
 ### Multi-View Config Pattern
 

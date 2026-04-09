@@ -1,9 +1,9 @@
 """Pipeline: rosbag -> preprocessing -> depth -> detection -> segmentation -> body reconstruction.
 
 Usage:
-    python -m v2d.pipelines.run_mv_reconstruction \
+    python -m v2d.pipelines.run_mv_hoi_reconstruction \
         --rosbag_path /data/rosbags/2026-03-28_session1 \
-        --data_dir /data/datasets/2026-03-28_session1 \
+        --output_dir /data/datasets/2026-03-28_session1 \
         --extrinsics_camera_params_path /data/datasets/2026-03-28_calibration/extrinsics/edex
 """
 
@@ -29,25 +29,25 @@ MV_CONFIGS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mv_co
 
 def main(
     rosbag_path: str,
-    data_dir: str,
+    output_dir: str,
     extrinsics_camera_params_path: str,
     obj_mesh_path: str,
     dev: bool = False,
 ):
-    raw_dir = os.path.join(data_dir, "raw")
-    preprocess_dir = os.path.join(data_dir, "preprocess")
+    raw_dir = os.path.join(output_dir, "raw")
+    preprocess_dir = os.path.join(output_dir, "preprocess")
     preprocess_images_dir = os.path.join(preprocess_dir, "images")
-    foundation_stereo_dir = os.path.join(data_dir, "foundation_stereo")
-    grounding_dino_dir = os.path.join(data_dir, "grounding_dino")
-    sam2_object_dir = os.path.join(data_dir, "sam2", "object")
-    foundation_pose_dir = os.path.join(data_dir, "foundation_pose")
-    detectron2_dir = os.path.join(data_dir, "detectron2")
-    sam2_human_dir = os.path.join(data_dir, "sam2", "human")
-    sam3d_body_dir = os.path.join(data_dir, "sam3d_body")
-    chamfer_human_dir = os.path.join(data_dir, "postprocess", "chamfer_human")
-    chamfer_object_dir = os.path.join(data_dir, "postprocess", "chamfer_object")
-    hoi_overlay_dir = os.path.join(data_dir, "postprocess", "hoi_overlay")
-    wis3d_dir = os.path.join(data_dir, "postprocess", "wis3d")
+    foundation_stereo_dir = os.path.join(output_dir, "foundation_stereo")
+    grounding_dino_dir = os.path.join(output_dir, "grounding_dino")
+    sam2_object_dir = os.path.join(output_dir, "sam2", "object")
+    foundation_pose_dir = os.path.join(output_dir, "foundation_pose")
+    detectron2_dir = os.path.join(output_dir, "detectron2")
+    sam2_human_dir = os.path.join(output_dir, "sam2", "human")
+    sam3d_body_dir = os.path.join(output_dir, "sam3d_body")
+    chamfer_human_dir = os.path.join(output_dir, "postprocess", "chamfer_human")
+    chamfer_object_dir = os.path.join(output_dir, "postprocess", "chamfer_object")
+    hoi_overlay_dir = os.path.join(output_dir, "postprocess", "hoi_overlay")
+    wis3d_dir = os.path.join(output_dir, "postprocess", "wis3d")
 
     # Extract images + intrinsics from rosbag
     run_rosbag_to_edex(
@@ -184,7 +184,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Multi-view reconstruction pipeline")
     parser.add_argument("--rosbag_path", type=str, required=True,
                         help="Path to the ROS bag")
-    parser.add_argument("--data_dir", type=str, required=True,
+    parser.add_argument("--output_dir", type=str, required=True,
                         help="Root output directory for all pipeline outputs")
     parser.add_argument("--extrinsics_camera_params_path", type=str, required=True,
                         help="Path to calibration camera params file with extrinsics")
@@ -195,7 +195,7 @@ if __name__ == "__main__":
 
     main(
         rosbag_path=args.rosbag_path,
-        data_dir=args.data_dir,
+        output_dir=args.output_dir,
         extrinsics_camera_params_path=args.extrinsics_camera_params_path,
         obj_mesh_path=args.obj_mesh_path,
         dev=args.dev,
