@@ -676,6 +676,308 @@ def action_norm(
     return action_norm
 
 
+def contact_wrench_reward(
+    env: ManagerBasedRLEnv,
+    command_name: str = "dual_hands_object_tracking_command",
+    in_contact_force_threshold: float = 1e-3,
+) -> torch.Tensor:
+    r"""Contact wrench reward based on per-direction alignment with the reference.
+
+    Reference and agent wrench supports are evaluated **per hand** (left / right)
+    against ``retargeted_{left,right}_contact_wrench_supports`` and
+    ``{left,right}_hand_contact_wrench_supports``; combined activity is derived
+    as the union of left and right reference supports.
+
+    For each hand and sampled wrench-space basis direction ``b_i``:
+
+    * If that hand's reference is zero (``ref_{h,i} \approx 0``) and its agent
+      support is zero: **no contribution** from that hand for this direction.
+    * If ``ref_{h,i} \approx 0`` but the agent support is non-zero: a per-cell
+      penalty of **-1** (spurious wrench support where the demo has none).
+    * If ``ref_{h,i} > 0`` and the agent support is non-zero: alignment
+      ``clamp(agent_{h,i} / ref_{h,i}, 0, 1)`` (partial credit, capped at 1 when
+      the agent meets or exceeds the reference).
+    * If ``ref_{h,i} > 0`` but the agent support is zero: per-cell penalty **-1**
+      (missing support where the demo requires it).
+
+    Per basis direction, scores from hands with ``ref_{h,i} > 0`` are averaged.
+    If **both** hands have zero reference on that direction but either hand shows
+    non-zero agent support, the direction scores **-1**; if both agent supports
+    are zero, the score is **0**.
+
+    Alignment contributions are averaged over directions where the **combined**
+    demo reference is non-zero; spurious-support penalties on directions where
+    the combined reference is zero are averaged separately over all basis
+    directions (so each such fault contributes ``-1 / B`` on average).
+
+    Reward is only positive when the agent has at least one hand in contact with
+    the object (contact force exceeds ``in_contact_force_threshold``).  When the
+    reference requires contact but the agent has none at all, a **negative**
+    penalty of ``-1`` is added, so the overall signal can span ``[-1, +1]``.
+
+    Args:
+        env: The RL environment.
+        command_name: Command term that provides reference contact wrench repr.
+        in_contact_force_threshold: Minimum contact force magnitude (N) to count
+            a link as in contact.
+
+    Returns:
+        Reward tensor of shape (num_envs,) in [-1, 1].
+    """
+    cmd = env.command_manager.get_term(command_name)
+
+    # ── reference and current wrench supports ─────────────────────────────────
+    # Shapes: (N, num_bodies, B) — one support scalar per body per basis direction.
+    ref_L = cmd.retargeted_left_contact_wrench_supports[cmd.timestep_counter]
+    ref_R = cmd.retargeted_right_contact_wrench_supports[cmd.timestep_counter]
+    curr_L = cmd.left_hand_contact_wrench_supports
+    curr_R = cmd.right_hand_contact_wrench_supports
+
+    eps = 1e-6
+
+    def _hand_cell_score(ref_h: torch.Tensor, curr_h: torch.Tensor) -> torch.Tensor:
+        """Per-hand per-body per-direction score in {-1, 0} ∪ (0, 1]."""
+        pos_ref = ref_h > eps
+        pos_curr = curr_h > eps
+        align = (curr_h / ref_h.clamp(min=eps)).clamp(0.0, 1.0)
+        return torch.where(
+            pos_ref & pos_curr,
+            align,
+            torch.where(
+                pos_ref & ~pos_curr,
+                torch.full_like(ref_h, -1.0),
+                torch.where(
+                    ~pos_ref & pos_curr,
+                    torch.full_like(ref_h, -1.0),
+                    torch.zeros_like(ref_h),
+                ),
+            ),
+        )
+
+    mask_L = ref_L > eps                                    # (N, num_bodies, B)
+    mask_R = ref_R > eps                                    # (N, num_bodies, B)
+    w = mask_L.float() + mask_R.float()                    # (N, num_bodies, B)
+    hs_L = _hand_cell_score(ref_L, curr_L)
+    hs_R = _hand_cell_score(ref_R, curr_R)
+    # Combined activity: either hand has non-zero reference for this body/direction
+    active_c = (ref_L > eps) | (ref_R > eps)               # (N, num_bodies, B)
+    s_dir = torch.where(
+        w > 0,
+        (hs_L * mask_L.float() + hs_R * mask_R.float()) / w.clamp(min=1.0),
+        torch.zeros_like(ref_L),
+    )                                                       # (N, num_bodies, B)
+    num_active = active_c.float().sum(dim=-1)              # (N, num_bodies)
+    has_ref_dir = num_active > 0                            # (N, num_bodies)
+    mean_from_ref = torch.where(
+        has_ref_dir,
+        (s_dir * active_c.float()).sum(dim=-1) / num_active.clamp(min=1.0),
+        torch.zeros_like(num_active),
+    )                                                       # (N, num_bodies)
+    spurious_inactive = (~active_c) & ((curr_L > eps) | (curr_R > eps))
+    mean_spurious = -spurious_inactive.float().mean(dim=-1) # (N, num_bodies)
+    mean_alignment = mean_from_ref + mean_spurious          # (N, num_bodies)
+
+    # ── contact gating ────────────────────────────────────────────────────────
+    right_in_contact = (
+        cmd.right_hand_object_contact_forces_w.norm(dim=1).norm(dim=-1)
+        > in_contact_force_threshold
+    ).any(dim=-1).any(dim=-1)  # (N,)
+    left_in_contact = (
+        cmd.left_hand_object_contact_forces_w.norm(dim=1).norm(dim=-1)
+        > in_contact_force_threshold
+    ).any(dim=-1).any(dim=-1)  # (N,)
+    in_contact = right_in_contact | left_in_contact         # (N,)
+
+    # Per-body: is the demo requesting contact on this body?
+    ref_active_per_body = active_c.any(dim=-1)              # (N, num_bodies)
+
+    # Average quality and penalty over bodies then return (N,)
+    quality = (
+        mean_alignment * in_contact.unsqueeze(-1).float() * ref_active_per_body.float()
+    ).mean(dim=-1)
+    penalty = -(ref_active_per_body.float() * (~in_contact).unsqueeze(-1).float()).mean(dim=-1)
+
+    return quality + penalty
+
+
+def contact_wrench_cumulative_reward(
+    env: ManagerBasedRLEnv,
+    command_name: str = "dual_hands_object_tracking_command",
+    eps: float = 1e-6,
+    streak_scale: float = 20.0,
+) -> torch.Tensor:
+    """Per-body streak reward encouraging sustained contact on the correct object bodies.
+
+    For each object body, tracks how many consecutive steps the policy has maintained
+    wrench support where the reference requires it.  Streaks are per-body, so touching
+    the wrong body does not inflate the reward for a body the demo actually needs.
+
+    * **Reference active & policy active (per body):** positive streak increments;
+      reward is ``+tanh(streak / streak_scale)`` in ``(0, 1)``.
+    * **Reference inactive & policy active (per body):** spurious contact — negative
+      streak increments; reward is ``-tanh(streak / streak_scale)`` in ``(-1, 0)``.
+    * **Reference active & policy inactive:** streak resets; reward is **0**.
+    * **Both inactive:** streak resets; reward is **0**.
+
+    Per-body rewards are averaged over bodies where the reference wants contact.
+    Streaks reset at episode boundaries.
+
+    Args:
+        env: The RL environment.
+        command_name: Command term providing retargeted wrench repr and current
+            hand wrench repr.
+        eps: Threshold for treating a support scalar as non-zero.
+        streak_scale: Step count at which tanh reaches ~0.76.  Larger values
+            make the reward grow more slowly with streak length.
+
+    Returns:
+        Reward tensor of shape ``(num_envs,)`` in ``(-1, 1)``.
+    """
+    cmd = env.command_manager.get_term(command_name)
+
+    # Shapes: (N, num_bodies, B)
+    ref_L = cmd.retargeted_left_contact_wrench_supports[cmd.timestep_counter]
+    ref_R = cmd.retargeted_right_contact_wrench_supports[cmd.timestep_counter]
+    curr_L = cmd.left_hand_contact_wrench_supports
+    curr_R = cmd.right_hand_contact_wrench_supports
+
+    # Collapse only basis directions → (N, num_bodies), keeping per-body resolution
+    ref_active = ((ref_L > eps) | (ref_R > eps)).any(dim=-1)    # (N, num_bodies)
+    policy_active = (
+        (curr_L > eps).any(dim=-1) | (curr_R > eps).any(dim=-1)
+    )  # (N, num_bodies)
+
+    N, num_bodies = ref_active.shape
+
+    # Lazy init: streaks are (N, num_bodies) so we can track persistence per body
+    if not hasattr(env, "_cwc_good_steps") or env._cwc_good_steps.shape != (N, num_bodies):
+        env._cwc_good_steps = torch.zeros(N, num_bodies, dtype=torch.long, device=env.device)
+        env._cwc_bad_steps = torch.zeros(N, num_bodies, dtype=torch.long, device=env.device)
+        env._cwc_prev_ep_len = torch.zeros(N, dtype=torch.long, device=env.device)
+
+    g = env._cwc_good_steps
+    b = env._cwc_bad_steps
+
+    # Reset streaks at episode boundaries; unsqueeze to broadcast over num_bodies
+    el = env.episode_length_buf
+    reset_episode = ((el == 0) | (el < env._cwc_prev_ep_len)).unsqueeze(-1)  # (N, 1)
+    env._cwc_prev_ep_len = el.clone()
+    g = torch.where(reset_episode, torch.zeros_like(g), g)
+    b = torch.where(reset_episode, torch.zeros_like(b), b)
+
+    good = ref_active & policy_active           # (N, num_bodies)
+    bad_spurious = (~ref_active) & policy_active  # (N, num_bodies)
+
+    g_new = torch.where(good, g + 1, torch.zeros_like(g))
+    b_new = torch.where(bad_spurious, b + 1, torch.zeros_like(b))
+
+    env._cwc_good_steps = g_new
+    env._cwc_bad_steps = b_new
+
+    scale = max(float(streak_scale), 1e-6)
+    good_mag = torch.tanh(g_new.float() / scale)   # (N, num_bodies)
+    bad_mag = torch.tanh(b_new.float() / scale)    # (N, num_bodies)
+    per_body_reward = torch.where(
+        good,
+        good_mag,
+        torch.where(bad_spurious, -bad_mag, torch.zeros_like(good_mag)),
+    )  # (N, num_bodies)
+
+    # Average over bodies where reference wants contact
+    num_ref_bodies = ref_active.float().sum(dim=-1).clamp(min=1.0)  # (N,)
+    return (per_body_reward * ref_active.float()).sum(dim=-1) / num_ref_bodies
+
+
+def contact_wrench_continuous_reward(
+    env: ManagerBasedRLEnv,
+    command_name: str = "dual_hands_object_tracking_command",
+    approach_var: float = 0.05,
+    in_contact_force_threshold: float = 1e-3,
+) -> torch.Tensor:
+    """Continuous contact wrench reward combining wrench alignment (A) and approach distance (B).
+
+    ``total = A + B`` where:
+
+    * **A** = ``contact_wrench_reward``: quality in (0, 1] when in contact with the
+      object as the demo requires; ``-1`` flat penalty when the reference is active but
+      the agent has no contact at all.
+    * **B** = ``exp(-avg_min_dist / approach_var)``, gated to **zero** whenever the
+      agent is already in contact.  ``avg_min_dist`` is the average over all valid
+      reference contact points of the distance to the nearest fingertip.
+
+    Args:
+        env: The RL environment.
+        command_name: Command term that provides reference contact wrench repr and
+            contact positions.
+        approach_var: Distance scale for the exponential approach reward (metres).
+        in_contact_force_threshold: Minimum contact force (N) to count a link as
+            in contact.
+
+    Returns:
+        Reward tensor of shape (num_envs,) in [-1, 1].
+    """
+    A = contact_wrench_reward(env, command_name, in_contact_force_threshold)
+
+    cmd = env.command_manager.get_term(command_name)
+
+    right_in_contact = (
+        cmd.right_hand_object_contact_forces_w.norm(dim=1).norm(dim=-1)
+        > in_contact_force_threshold
+    ).any(dim=-1).any(dim=-1)  # (N,)
+    left_in_contact = (
+        cmd.left_hand_object_contact_forces_w.norm(dim=1).norm(dim=-1)
+        > in_contact_force_threshold
+    ).any(dim=-1).any(dim=-1)  # (N,)
+    in_contact = right_in_contact | left_in_contact  # (N,)
+
+    ref_L = cmd.retargeted_left_contact_wrench_supports[cmd.timestep_counter]   # (N, num_bodies, B)
+    ref_R = cmd.retargeted_right_contact_wrench_supports[cmd.timestep_counter]  # (N, num_bodies, B)
+    ref_active = ((ref_L > 1e-6) | (ref_R > 1e-6)).any(dim=-1).any(dim=-1)    # (N,)
+
+    right_ref_pts = cmd.right_hand_object_contact_command_positions_e  # (N, P_r, 3)
+    right_ref_valid = cmd.retargeted_right_object_contact_is_valid[
+        cmd.timestep_counter
+    ]  # (N, P_r)
+    left_ref_pts = cmd.left_hand_object_contact_command_positions_e  # (N, P_l, 3)
+    left_ref_valid = cmd.retargeted_left_object_contact_is_valid[
+        cmd.timestep_counter
+    ]  # (N, P_l)
+
+    right_tips = cmd.right_hand_fingertip_position_e[..., :3]  # (N, F_r, 3)
+    left_tips = cmd.left_hand_fingertip_position_e[..., :3]  # (N, F_l, 3)
+
+    right_pair_dist = torch.norm(
+        right_ref_pts.unsqueeze(2) - right_tips.unsqueeze(1), dim=-1
+    )  # (N, P_r, F_r)
+    right_min_dist = right_pair_dist.min(dim=-1).values  # (N, P_r)
+    right_num_valid = right_ref_valid.float().sum(dim=-1).clamp(min=1.0)  # (N,)
+    right_avg_dist = (right_min_dist * right_ref_valid.float()).sum(
+        dim=-1
+    ) / right_num_valid  # (N,)
+
+    left_pair_dist = torch.norm(
+        left_ref_pts.unsqueeze(2) - left_tips.unsqueeze(1), dim=-1
+    )  # (N, P_l, F_l)
+    left_min_dist = left_pair_dist.min(dim=-1).values  # (N, P_l)
+    left_num_valid = left_ref_valid.float().sum(dim=-1).clamp(min=1.0)  # (N,)
+    left_avg_dist = (left_min_dist * left_ref_valid.float()).sum(
+        dim=-1
+    ) / left_num_valid  # (N,)
+
+    has_right_valid = right_ref_valid.any(dim=-1)  # (N,)
+    has_left_valid = left_ref_valid.any(dim=-1)  # (N,)
+    num_valid_hands = (has_right_valid.float() + has_left_valid.float()).clamp(min=1.0)
+    avg_dist = (
+        right_avg_dist * has_right_valid.float()
+        + left_avg_dist * has_left_valid.float()
+    ) / num_valid_hands  # (N,)
+
+    needs_approach = ref_active & ~in_contact & (has_right_valid | has_left_valid)
+    B = torch.exp(-avg_dist / approach_var) * needs_approach.float()  # (N,) in (0, 1]
+
+    return A + B
+
+
 def contact_wrench_support_reward(
     env: ManagerBasedRLEnv,
     command_name: str = "dual_hands_object_tracking_command",
