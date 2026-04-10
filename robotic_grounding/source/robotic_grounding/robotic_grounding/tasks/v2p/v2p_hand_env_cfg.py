@@ -68,7 +68,7 @@ class CommandsCfg:
     dual_hands_object_tracking_command = mdp.DualHandsObjectTrackingCommandCfg(
         motion_speed=0.5,
         reset_finger_openness=0.7,
-        initial_virtual_object_control_curriculum_scale=0.1,
+        initial_virtual_object_control_curriculum_scale=1.0,
         virtual_object_control_decay_steps=20,
         virtual_object_control_decay_mode="step",
         recompute_hand_keypoints_from_object=True,
