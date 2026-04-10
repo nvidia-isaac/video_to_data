@@ -26,7 +26,14 @@ logger = logging.getLogger(__name__)
 
 
 class VirtualArticulatedObjectControl(ActionTerm):
-    """Virtual rigid object control action that applies to the object's joints."""
+    """Virtual articulated object control: PD force on root body + joint teleportation.
+
+    Applies a PD-based wrench to the root body (identical to VirtualRigidObjectControl)
+    to track the reference base position/orientation, then directly teleports all joints
+    to the reference joint angles each step.  Controlling child bodies via independent
+    forces is avoided because joint coupling transmits child-body control forces back to
+    the base, causing unstable coupled oscillations when joints are undamped.
+    """
 
     cfg: actions_cfg.VirtualArticulatedObjectControlCfg
     """The configuration of the action term."""
@@ -35,7 +42,6 @@ class VirtualArticulatedObjectControl(ActionTerm):
         self, cfg: actions_cfg.VirtualArticulatedObjectControlCfg, env: ManagerBasedEnv
     ) -> None:
         """Initialize the action term."""
-        # initialize the action term
         super().__init__(cfg, env)
 
         # Pointer to the command term and object attribute
@@ -57,25 +63,24 @@ class VirtualArticulatedObjectControl(ActionTerm):
             f"but {self.object.data.body_names} in the object."
         )
 
-        self.object_mass = (
-            self.object.root_physx_view.get_masses().to(self.device).unsqueeze(2)
-        )  # (num_envs, 2, 1)
-        self.object_inertia = self.object.root_physx_view.get_inertias().to(
-            self.device
-        )  # (num_envs, 2, 9)
-        self.object_com = self.object.root_physx_view.get_coms().to(
-            self.device
-        )  # (num_envs, 2, 7)
+        # Root body physical properties (index 0) — shape matches VirtualRigidObjectControl
+        root_masses = self.object.root_physx_view.get_masses().to(self.device)
+        self.object_mass = root_masses[:, 0:1]  # (num_envs, 1)
+        root_inertias = self.object.root_physx_view.get_inertias().to(self.device)
+        self.object_inertia = root_inertias[:, 0, :]  # (num_envs, 9)
+        root_coms = self.object.root_physx_view.get_coms().to(self.device)
+        self.object_com = root_coms[:, 0, :]  # (num_envs, 7)
 
-        # Create tensors for raw and processed actions with force and torque
-        self._raw_actions = torch.zeros(self.num_envs, 2 * 6, device=self.device)
+        # Joint IDs for teleportation
+        joint_ids, _ = self.object.find_joints(".*")
+        self._joint_ids = joint_ids
+        self._num_joints = len(joint_ids)
+
+        # Raw/processed actions store root-body 6D wrench only
+        self._raw_actions = torch.zeros(self.num_envs, 6, device=self.device)
         self._processed_actions = torch.zeros_like(self._raw_actions)
 
-        self.GRAVITY_VEC_E = self.object.data.GRAVITY_VEC_W.unsqueeze(1).expand(
-            -1, self.num_bodies, -1
-        )
-
-        # Set stiffness and damping for the tracking controller
+        # PD gains
         self._tracking_controller_linear_stiffness = float(
             self.cfg.tracking_controller_linear_stiffness
         )
@@ -110,18 +115,6 @@ class VirtualArticulatedObjectControl(ActionTerm):
 
     @property
     def IO_descriptor(self) -> GenericActionIODescriptor:  # noqa: N802
-        """The IO descriptor of the action term.
-
-        This descriptor is used to describe the action term of the joint action.
-        It adds the following information to the base descriptor:
-        - joint_names: The names of the joints.
-        - scale: The scale of the action term.
-        - offset: The offset of the action term.
-        - clip: The clip of the action term.
-
-        Returns:
-            The IO descriptor of the action term.
-        """
         super().IO_descriptor  # noqa: B018
         self._IO_descriptor.shape = (self.action_dim,)
         self._IO_descriptor.dtype = str(self.raw_actions.dtype)
@@ -143,18 +136,16 @@ class VirtualArticulatedObjectControl(ActionTerm):
         self._processed_actions[env_ids] = 0.0
 
     def apply_actions(self) -> None:
-        """Apply virtual force torque to the rigid object using a Position PD Controller."""
-        # 1. Extract current object state
-        object_position_e = self.command.object_position_e  # (num_envs, 2, 3)
-        object_wxyz = self.command.object_orientation_e  # (num_envs, 2, 4)
-        object_linvel_w = self.object.data.body_lin_vel_w  # (num_envs, 2, 3)
-        object_linvel_b = math_utils.quat_apply_inverse(object_wxyz, object_linvel_w)
-        object_angvel_w = self.object.data.body_ang_vel_w  # (num_envs, 2, 3)
-        object_angvel_b = math_utils.quat_apply_inverse(object_wxyz, object_angvel_w)
+        """Apply PD wrench to root body and teleport joints to reference trajectory."""
+        # ---- Root body state (identical to VirtualRigidObjectControl) ----
+        object_position_e = self.command.object_position_e[:, 0, :]  # (num_envs, 3)
+        object_wxyz = self.command.object_orientation_e[:, 0, :]  # (num_envs, 4)
+        object_linvel_b = self.object.data.root_link_lin_vel_b  # (num_envs, 3)
+        object_angvel_b = self.object.data.root_link_ang_vel_b  # (num_envs, 3)
 
-        # 2. PD for force control
+        # ---- PD force (root body position) ----
         object_position_error_e = (
-            self.command.object_body_position_command_e - object_position_e
+            self.command.object_body_position_command_e[:, 0, :] - object_position_e
         )
         object_position_error_b = math_utils.quat_apply_inverse(
             object_wxyz, object_position_error_e
@@ -164,10 +155,10 @@ class VirtualArticulatedObjectControl(ActionTerm):
             - self._tracking_controller_linear_damping * object_linvel_b
         )
 
-        # 3. PD for torque control
+        # ---- PD torque (root body orientation) ----
         object_orientation_error_b = math_utils.quat_mul(
             math_utils.quat_inv(object_wxyz),
-            self.command.object_body_wxyz_command_e,
+            self.command.object_body_wxyz_command_e[:, 0, :],
         )
         object_orientation_error_b = math_utils.axis_angle_from_quat(
             object_orientation_error_b
@@ -177,11 +168,10 @@ class VirtualArticulatedObjectControl(ActionTerm):
             - self._tracking_controller_angular_damping * object_angvel_b
         )
 
-        # 4. Gravity compensation
-        body_projected_gravity_b = math_utils.quat_apply_inverse(
-            object_wxyz, self.GRAVITY_VEC_E
+        # ---- Gravity compensation (root body) ----
+        gravity_compensation_force = (
+            -9.81 * self.object_mass * self.object.data.projected_gravity_b
         )
-        gravity_compensation_force = -9.81 * self.object_mass * body_projected_gravity_b
         force = force + gravity_compensation_force
 
         gravity_compensation_torque = torch.cross(
@@ -189,30 +179,38 @@ class VirtualArticulatedObjectControl(ActionTerm):
         )
         torque = torque + gravity_compensation_torque
 
-        # 5. Scale based on curriculum
-        force = (
-            force
-            * self.command.virtual_object_controller_scale_factor_per_env.unsqueeze(1)
-        )
-        torque = (
-            torque
-            * self.command.virtual_object_controller_scale_factor_per_env.unsqueeze(1)
-        )
+        # ---- Curriculum scale ----
+        force = force * self.command.virtual_object_controller_scale_factor_per_env
+        torque = torque * self.command.virtual_object_controller_scale_factor_per_env
 
-        # 6. Clip
+        # ---- Clip ----
         force = torch.clamp(force, min=-self.cfg.max_force, max=self.cfg.max_force)
         torque = torch.clamp(torque, min=-self.cfg.max_torque, max=self.cfg.max_torque)
 
-        self._raw_actions[..., : 3 * self.num_bodies] = force.view(
-            -1, 3 * self.num_bodies
-        )
-        self._raw_actions[..., 3 * self.num_bodies :] = torque.view(
-            -1, 3 * self.num_bodies
-        )
+        self._raw_actions[..., :3] = force
+        self._raw_actions[..., 3:] = torque
         self._processed_actions = self._raw_actions
 
+        # Apply force to root body only; zero out child bodies
+        all_forces = torch.zeros(self.num_envs, self.num_bodies, 3, device=self.device)
+        all_torques = torch.zeros(self.num_envs, self.num_bodies, 3, device=self.device)
+        all_forces[:, 0] = force
+        all_torques[:, 0] = torque
+
         self.object.set_external_force_and_torque(
-            forces=force.reshape(self.num_envs, self.num_bodies, 3),
-            torques=torque.reshape(self.num_envs, self.num_bodies, 3),
+            forces=all_forces,
+            torques=all_torques,
             is_global=False,
         )
+
+        # ---- Teleport joints to reference trajectory ----
+        if self._num_joints > 0:
+            joint_pos = self.command.retargeted_object_articulation[
+                self.command.timestep_counter
+            ].float()  # (num_envs, N_joints)
+            if joint_pos.dim() == 1:
+                joint_pos = joint_pos.unsqueeze(-1)
+            self.object.write_joint_state_to_sim(
+                joint_pos,
+                torch.zeros_like(joint_pos),
+            )
