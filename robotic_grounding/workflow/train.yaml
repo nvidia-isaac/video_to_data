@@ -41,21 +41,9 @@ workflow:
       contents: |-
         set -ex
 
-        python scripts/rsl_rl/train.py --task Sharpa-V2P-v0 --headless --resume \
+        python scripts/rsl_rl/train.py --task Sharpa-V2P-v0 --headless \
           --motion_file arctic_processed/arctic_s01_rigid_capsulemachine_grab_01/sharpa_wave \
-          --set-std 0.1 \
-          --checkpoint source/robotic_grounding/robotic_grounding/assets/policies/checkpoints/2026-04-07_23-24-27.pt \
-          --run_name support_10_unintended_2.5_missed_0.25_rate_5e-3_l1_2e-3_obj_0.2_voc_0.25 \
-          env.commands.dual_hands_object_tracking_command.initial_virtual_object_control_curriculum_scale=0.25 \
-          env.rewards.action_rate_l2.weight=-5e-3 \
-          env.rewards.action_l1.weight=-2e-3 \
-          env.rewards.object_keypoints_tracking_exp.weight=0.2 \
-          env.rewards.hand_keypoints_tracking_exp.weight=0.0 \
-          env.rewards.hand_joint_pos_tracking_exp.weight=0.0 \
-          env.rewards.contact_wrench_support_reward.weight=10.0 \
-          env.rewards.unintended_contact_penalty.weight=-2.5 \
-          env.rewards.missed_contact_penalty.weight=-0.25 \
-          env.rewards.contact_force_reward.weight=0.0
+          --run_name v2d_arctic_s01_rigid_capsulemachine_grab_01
 
 default-values:
   workflow_name: robotic_grounding_train

@@ -1416,6 +1416,7 @@ class DualHandsObjectTrackingCommand(CommandTerm):
     @property
     def right_hand_contact_wrench_supports(self) -> torch.Tensor:
         """The wrench representation for the right hand contact. Shape is (num_envs, num_bodies, num_wrench_space_basis_samples)."""
+        # TODO (xzhu): clean the right/left duplication code
         active_contact = (
             self.right_hand_object_contact_positions_w.norm(dim=-1) > 1e-3
         )  # (num_envs, num_bodies, num_robot_contacts_right)
