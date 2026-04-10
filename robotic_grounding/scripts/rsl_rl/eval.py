@@ -57,6 +57,12 @@ parser.add_argument(
     help="Run in real-time, if possible.",
 )
 parser.add_argument(
+    "--scene_config",
+    type=str,
+    default=None,
+    help="Path to the scene configuration file.",
+)
+parser.add_argument(
     "--motion_file",
     type=str,
     default=None,
@@ -142,7 +148,7 @@ def main(
     # Apply scene config: motion_file (from Hydra override) takes priority,
     # then --scene_config YAML, then the env_cfg default.
     env_cfg.motion_file = args_cli.motion_file
-    if hasattr(env_cfg, "motion_file"):
+    if hasattr(env_cfg, "motion_file") and env_cfg.motion_file is not None:
         scene_config = SceneConfig.from_motion_file(env_cfg.motion_file)
         apply_scene_config(env_cfg, scene_config)
     elif args_cli.scene_config is not None:

@@ -33,9 +33,14 @@ parser.add_argument(
     help="Interval between video recordings (in steps).",
 )
 parser.add_argument(
-    "--num_envs", type=int, default=None, help="Number of environments to simulate."
+    "--num_envs", type=int, default=4098, help="Number of environments to simulate."
 )
-parser.add_argument("--task", type=str, default=None, help="Name of the task.")
+parser.add_argument(
+    "--task",
+    type=str,
+    default="Sharpa-V2P-v0",
+    help="Name of the task (Gym id). Must match a registered task.",
+)
 parser.add_argument(
     "--agent",
     type=str,
@@ -91,6 +96,12 @@ parser.add_argument(
     default=None,
     help="Motion file to load.",
 )
+parser.add_argument(
+    "--no-collision",
+    action="store_true",
+    default=False,
+    help="Load the *_no_collision.urdf for the object (tiny dummy collision geometry) for stage-1 collision-free warmup.",
+)
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -102,7 +113,7 @@ if args_cli.video:
     args_cli.enable_cameras = True
 
 # clear out sys.argv for Hydra
-sys.argv = [sys.argv[0]] + hydra_args
+sys.argv = [sys.argv[0]] + cli_args.coerce_hydra_float_overrides(hydra_args)
 
 # launch omniverse app
 app_launcher = AppLauncher(args_cli)
@@ -198,16 +209,26 @@ def main(
         args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
     )
 
+    scene_config = None
     # Apply scene config: motion_file (from Hydra override) takes priority,
     # then --scene_config YAML, then the env_cfg default.
-    env_cfg.motion_file = args_cli.motion_file
-    if hasattr(env_cfg, "motion_file"):
+    if args_cli.motion_file is not None:
+        env_cfg.motion_file = args_cli.motion_file
+    if hasattr(env_cfg, "motion_file") and env_cfg.motion_file is not None:
         scene_config = SceneConfig.from_motion_file(env_cfg.motion_file)
         apply_scene_config(env_cfg, scene_config)
     elif args_cli.scene_config is not None:
         env_cfg.scene_config_path = args_cli.scene_config
         scene_config = SceneConfig.from_yaml(args_cli.scene_config)
         apply_scene_config(env_cfg, scene_config)
+
+    # --no-collision: replace the primary scene object's URDF with *_no_collision.urdf.
+    if args_cli.no_collision and scene_config is not None and scene_config.scene_objects:
+        primary = scene_config.scene_objects[0]
+        scene_obj = getattr(env_cfg.scene, primary.name, None)
+        if scene_obj is not None and hasattr(scene_obj, "spawn") and hasattr(scene_obj.spawn, "asset_path"):
+            no_coll_path = scene_obj.spawn.asset_path.replace("_art.urdf", "_no_collision.urdf")
+            scene_obj.spawn = scene_obj.spawn.replace(asset_path=no_coll_path)
 
     # set max iterations
     agent_cfg.max_iterations = (
