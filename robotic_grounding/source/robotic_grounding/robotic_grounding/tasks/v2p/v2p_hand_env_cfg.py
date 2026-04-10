@@ -427,7 +427,9 @@ class CurriculumCfg:
         params={
             "reward_thresholds": {
                 "object_keypoints_tracking_exp": 0.1,
-                "hand_keypoints_tracking_exp": 1.0,
+                "hand_keypoints_tracking_exp": 0.0,
+                "contact_wrench_support_reward": 1.6,
+                "contact_force_reward": 0.0,
             },
             "episode_length_ratio_threshold": 0.95,
             "decay_mode": "exponential",
