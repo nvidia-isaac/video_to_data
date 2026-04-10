@@ -18,10 +18,13 @@ def approximate_contact_with_id(
     object_surface_normals_world: torch.Tensor,
     object_surface_points_part_ids: torch.Tensor,
     hand_verts: torch.Tensor,
+    hand_normals: torch.Tensor,
     threshold: float = 0.01,
     dist_min: float = 0.0,
     dist_max: float = 100.0,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[
+    torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
+]:
     """Find contact points between object and hand with object part IDs.
 
     For each object vertex, find the closest hand vertex.
@@ -31,6 +34,7 @@ def approximate_contact_with_id(
         object_surface_normals_world: Object surface normals in world frame (N, 3), pointing inward.
         object_surface_points_part_ids: Part ID per object surface point (N,).
         hand_verts: Hand mesh vertices in world frame (M, 3).
+        hand_normals: Hand mesh normals in world frame (M, 3), pointing outward.
         threshold: Max distance for a pair to count as contact.
         dist_min: Lower clip for distances.
         dist_max: Upper clip for distances.
@@ -40,6 +44,7 @@ def approximate_contact_with_id(
         object_contact_normals_world: (num_contact, 3) — world_normal.
         object_contact_part_ids: (num_contact,) — part_id.
         hand_contact_points_world: (num_contact, 3) — world_xyz.
+        hand_contact_normals_world: (num_contact, 3) — world_normal.
         contact_dists: (num_contact,) — distance from object to hand.
     """
     dists = torch.clamp(
@@ -51,12 +56,14 @@ def approximate_contact_with_id(
 
     closest_hand_idx = dists.argmin(dim=-1)  # (N,)
     closet_hand_verts = hand_verts[closest_hand_idx]  # (N, 3)
+    closet_hand_normals = hand_normals[closest_hand_idx]  # (N, 3)
 
     if contact_mask.sum() == 0:
         return (
             torch.zeros((0, 3), device=object_surface_points_world.device),
             torch.zeros((0, 3), device=object_surface_points_world.device),
             torch.zeros((0, 1), device=object_surface_points_world.device),
+            torch.zeros((0, 3), device=object_surface_points_world.device),
             torch.zeros((0, 3), device=object_surface_points_world.device),
             torch.zeros((0, 1), device=object_surface_points_world.device),
         )
@@ -66,7 +73,7 @@ def approximate_contact_with_id(
     object_contact_part_ids = object_surface_points_part_ids[contact_mask]
 
     hand_contact_points_world = closet_hand_verts[contact_mask]
-
+    hand_contact_normals_world = closet_hand_normals[contact_mask]
     contact_dists = object_to_hand_closest_dist[contact_mask]
 
     return (
@@ -74,6 +81,7 @@ def approximate_contact_with_id(
         object_contact_normals_world,
         object_contact_part_ids,
         hand_contact_points_world,
+        hand_contact_normals_world,
         contact_dists,
     )
 
@@ -82,8 +90,9 @@ def compute_hand_link_contact_positions(
     joint_points: torch.Tensor,
     object_contact_part_ids: torch.Tensor,
     hand_contact_points_world: torch.Tensor,
+    hand_contact_normals_world: torch.Tensor,
     contact_dists: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Assign contact points to MANO links and compute one contact position and part_id per link.
 
     For each link, average distance from each contact to the link's joints is
@@ -95,10 +104,12 @@ def compute_hand_link_contact_positions(
         joint_points: (21, 3) MANO joint positions in world frame.
         object_contact_part_ids: (N,) object part IDs with values 1 or 2.
         hand_contact_points_world: (N, 3) hand contact points in world frame.
+        hand_contact_normals_world: (N, 3) hand contact normals in world frame.
         contact_dists: (N,) distances from object to hand.
 
     Returns:
         hand_link_contact_positions: (NUM_MANO_LINKS, 3) contact positions in world frame.
+        hand_link_contact_normals: (NUM_MANO_LINKS, 3) contact normals in world frame.
         hand_link_contact_part_ids: (NUM_MANO_LINKS,) contact part IDs.
     """
     # Compute MANO link position by averaging the joint positions.
@@ -118,6 +129,9 @@ def compute_hand_link_contact_positions(
     hand_link_contact_positions = torch.zeros(
         (NUM_MANO_LINKS, 3), device=joint_points.device
     )  # (NUM_MANO_LINKS, 3)
+    hand_link_contact_normals = torch.zeros(
+        (NUM_MANO_LINKS, 3), device=joint_points.device
+    )  # (NUM_MANO_LINKS, 3)
     hand_link_contact_part_ids = torch.zeros(
         (NUM_MANO_LINKS,), device=joint_points.device
     )  # (NUM_MANO_LINKS,)
@@ -131,13 +145,23 @@ def compute_hand_link_contact_positions(
         hand_link_contact_positions[link_idx] = (
             hand_contact_points_world[mask] * weights[:, None]
         ).sum(dim=0)
+        hand_link_contact_normals[link_idx] = (
+            hand_contact_normals_world[mask] * weights[:, None]
+        ).sum(dim=0)
+        hand_link_contact_normals[link_idx] /= hand_link_contact_normals[
+            link_idx
+        ].norm()
 
         # Vote part id
         part_ids = object_contact_part_ids[mask]
         voted_part_id = part_ids.mode().values.item()
         hand_link_contact_part_ids[link_idx] = voted_part_id
 
-    return hand_link_contact_positions, hand_link_contact_part_ids
+    return (
+        hand_link_contact_positions,
+        hand_link_contact_normals,
+        hand_link_contact_part_ids,
+    )
 
 
 def find_object_contact_positions(

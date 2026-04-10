@@ -38,7 +38,7 @@ RIGID_OBJECT_CFG = RigidObjectCfg(
             )
         ),
         collision_props=sim_utils.CollisionPropertiesCfg(
-            contact_offset=0.001,
+            contact_offset=0.0,
             rest_offset=0.0,
         ),
         collider_type="convex_decomposition",

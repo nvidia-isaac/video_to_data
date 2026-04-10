@@ -82,6 +82,12 @@ MANO_FIELDS: list[FieldSpec] = [
         True,
     ),
     (
+        "mano_right_link_contact_normals",
+        pa.list_(pa.list_(pa.list_(pa.float32(), 3), 16)),
+        list[list[list[float]]],
+        True,
+    ),
+    (
         "mano_right_object_contact_positions",
         pa.list_(pa.list_(pa.list_(pa.float32(), 3), 16)),
         list[list[list[float]]],
@@ -134,6 +140,12 @@ MANO_FIELDS: list[FieldSpec] = [
     ),
     (
         "mano_left_link_contact_positions",
+        pa.list_(pa.list_(pa.list_(pa.float32(), 3), 16)),
+        list[list[list[float]]],
+        True,
+    ),
+    (
+        "mano_left_link_contact_normals",
         pa.list_(pa.list_(pa.list_(pa.float32(), 3), 16)),
         list[list[list[float]]],
         True,

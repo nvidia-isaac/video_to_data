@@ -44,24 +44,6 @@ class V2PSceneCfg(InteractiveSceneCfg):
     right_robot: ArticulationCfg = MISSING
     left_robot: ArticulationCfg = MISSING
 
-    # # table
-    # table = AssetBaseCfg(
-    #     prim_path="/World/envs/env_.*/Table",
-    #     init_state=AssetBaseCfg.InitialStateCfg(
-    #         pos=[0.0, -0.14, 0.475], rot=[1.0, 0.0, 0.0, 0.0]
-    #     ),
-    #     spawn=sim_utils.CuboidCfg(
-    #         size=(0.15, 0.15, 0.952),
-    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
-    #         mass_props=sim_utils.MassPropertiesCfg(mass=100.0),
-    #         collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
-    #         physics_material=sim_utils.RigidBodyMaterialCfg(static_friction=1.0),
-    #         visual_material=sim_utils.PreviewSurfaceCfg(
-    #             diffuse_color=(0.14, 0.14, 0.14), metallic=0.7
-    #         ),
-    #     ),
-    # )
-
     # lights
     light = AssetBaseCfg(
         prim_path="/World/light",
@@ -83,8 +65,13 @@ class CommandsCfg:
     """Command specifications for the MDP."""
 
     # Patched by apply_scene_commands with scene-specific fields.
-    dual_hands_object_tracking_command: mdp.DualHandsObjectTrackingCommandCfg = (
-        mdp.DualHandsObjectTrackingCommandCfg()
+    dual_hands_object_tracking_command = mdp.DualHandsObjectTrackingCommandCfg(
+        motion_speed=0.5,
+        reset_finger_openness=0.7,
+        initial_virtual_object_control_curriculum_scale=0.1,
+        virtual_object_control_decay_steps=20,
+        virtual_object_control_decay_mode="step",
+        recompute_hand_keypoints_from_object=True,
     )
 
 
@@ -100,11 +87,11 @@ class ActionsCfg:
         tracking_controller_linear_stiffness=50.0,
         tracking_controller_linear_damping=10.0,
         tracking_controller_angular_stiffness=12.0,
-        tracking_controller_angular_damping=0.5,
+        tracking_controller_angular_damping=0.1,
         wrist_position_scale=0.05,
         wrist_orientation_scale=0.15,
         finger_joint_scale=0.15,
-        ema_factor=0.1,
+        ema_factor=0.3,
     )
 
     left_joint_residual_action = mdp.JointResidualWithTrackingActionCfg(
@@ -113,11 +100,11 @@ class ActionsCfg:
         tracking_controller_linear_stiffness=50.0,
         tracking_controller_linear_damping=10.0,
         tracking_controller_angular_stiffness=12.0,
-        tracking_controller_angular_damping=0.5,
+        tracking_controller_angular_damping=0.1,
         wrist_position_scale=0.05,
         wrist_orientation_scale=0.15,
         finger_joint_scale=0.15,
-        ema_factor=0.1,
+        ema_factor=0.3,
     )
 
 
@@ -181,11 +168,18 @@ class ObservationsCfg:
         )
 
         actions = ObsTerm(func=isaac_mdp.last_action)
-        prev_right_actions = ObsTerm(
-            func=mdp.prev_action, params={"action_name": "right_joint_residual_action"}
+        processed_right_actions = ObsTerm(
+            func=mdp.processed_action,
+            params={"action_name": "right_joint_residual_action"},
         )
-        prev_left_actions = ObsTerm(
-            func=mdp.prev_action, params={"action_name": "left_joint_residual_action"}
+        processed_left_actions = ObsTerm(
+            func=mdp.processed_action,
+            params={"action_name": "left_joint_residual_action"},
+        )
+
+        contact_position_direction_in_wrist = ObsTerm(
+            func=mdp.contact_position_direction_in_wrist,
+            params={"command_name": "dual_hands_object_tracking_command"},
         )
 
         def __post_init__(self) -> None:
@@ -207,8 +201,8 @@ class EventCfg:
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("right_robot", body_names=".*"),
-            "static_friction_range": (0.99, 1.01),
-            "dynamic_friction_range": (0.99, 1.01),
+            "static_friction_range": (2.0, 2.01),
+            "dynamic_friction_range": (2.0, 2.01),
             "restitution_range": (0.0, 0.0),
             "num_buckets": 64,
         },
@@ -219,8 +213,8 @@ class EventCfg:
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("left_robot", body_names=".*"),
-            "static_friction_range": (0.99, 1.01),
-            "dynamic_friction_range": (0.99, 1.01),
+            "static_friction_range": (2.0, 2.01),
+            "dynamic_friction_range": (2.0, 2.01),
             "restitution_range": (0.0, 0.0),
             "num_buckets": 64,
         },
@@ -243,10 +237,10 @@ class EventCfg:
 class RewardsCfg:
     """Reward terms for the MDP."""
 
-    action_rate_l2 = RewTerm(func=isaac_mdp.action_rate_l2, weight=-5e-4)
+    action_rate_l2 = RewTerm(func=isaac_mdp.action_rate_l2, weight=-5e-3)
     action_l1 = RewTerm(
         func=mdp.action_norm,
-        weight=-5e-3,
+        weight=-2e-3,
         params={
             "action_names": [
                 "right_joint_residual_action",
@@ -268,7 +262,7 @@ class RewardsCfg:
 
     object_keypoints_tracking_exp = RewTerm(
         func=mdp.object_keypoints_tracking_exp,
-        weight=1.0,
+        weight=0.0,
         params={
             "command_name": "dual_hands_object_tracking_command",
             "var": 0.1,
@@ -277,11 +271,10 @@ class RewardsCfg:
 
     hand_keypoints_tracking_exp = RewTerm(
         func=mdp.hand_keypoints_tracking_exp,
-        weight=1.0,
+        weight=0.0,
         params={
             "command_name": "dual_hands_object_tracking_command",
-            "var": 0.05,
-            "threshold": 0.02,  # FIXME: Need to be 0 during tracking training
+            "var": 0.1,
         },
     )
 
@@ -290,7 +283,7 @@ class RewardsCfg:
         weight=0.0,
         params={
             "command_name": "dual_hands_object_tracking_command",
-            "var": 0.05,
+            "var": 1.0,
         },
     )
 
@@ -299,49 +292,78 @@ class RewardsCfg:
         weight=-100.0,
     )
 
-    # Contact tracking (chamfer) reward
-    contact_tracking = RewTerm(
-        func=mdp.contact_tracking_reward,
-        weight=1.0,
+    contact_wrench_support_reward = RewTerm(
+        func=mdp.contact_wrench_support_reward,
+        weight=10.0,
         params={
             "command_name": "dual_hands_object_tracking_command",
-            "var": 0.03,
-            "mask_zero_contact": True,
+            "tolerance": 0.1,
+            "var": 60.0,
         },
     )
 
-    contact_force = RewTerm(
+    unintended_contact_penalty = RewTerm(
+        func=mdp.unintended_contact_penalty,
+        weight=-2.5,
+        params={
+            "command_name": "dual_hands_object_tracking_command",
+        },
+    )
+    missed_contact_penalty = RewTerm(
+        func=mdp.missed_contact_penalty,
+        weight=-0.25,
+        params={
+            "command_name": "dual_hands_object_tracking_command",
+        },
+    )
+
+    contact_force_reward = RewTerm(
         func=mdp.contact_force_reward,
-        weight=1.0,
+        weight=0.0,
         params={
             "command_name": "dual_hands_object_tracking_command",
-            "var": 1.0,
-            "threshold": 2.0,
+            "var": 2.0,
+            "threshold": 0.0,
         },
     )
 
-    contact_force_rate = RewTerm(
-        func=mdp.contact_force_rate_reward,
-        weight=0.25,
-        params={
-            "command_name": "dual_hands_object_tracking_command",
-            "var": 1.0,
-        },
-    )
-
-    # FIXME: add appropriate contact reward
-    # contact_force_penalty = RewTerm(
-    #     func=mdp.contact_force_penalty, weight=-0.05, params={}
+    # contact_force_range_reward = RewTerm(
+    #     func=mdp.contact_force_range_reward,
+    #     weight=0.0,
+    #     params={
+    #         "command_name": "dual_hands_object_tracking_command",
+    #         "var": 1.0,
+    #         "lower_force_squared": 4.0,
+    #         "upper_force_squared": 16.0,
+    #     },
     # )
 
-    # # ManipTrans-style contact reward
-    # maniptrans_contact = RewTerm(
-    #     func=mdp.maniptrans_contact_reward,
+    # contact_force_rate_reward = RewTerm(
+    #     func=mdp.contact_force_rate_reward,
+    #     weight=0.0,
+    #     params={
+    #         "command_name": "dual_hands_object_tracking_command",
+    #         "var": 1.0,
+    #     },
+    # )
+
+    # contact_slippage_reward = RewTerm(
+    #     func=mdp.contact_slippage_reward,
     #     weight=1.0,
     #     params={
-    #         "contact_range_min": 0.02,
-    #         "contact_range_max": 0.03,
-    #         "decay_constant": 1.0,
+    #         "command_name": "dual_hands_object_tracking_command",
+    #         "var": 1.0,
+    #     },
+    # )
+
+    # # DexMachina Contact Tracking Reward
+    # dexmachina_contact_tracking_reward = RewTerm(
+    #     func=mdp.dexmachina_contact_tracking_reward,
+    #     weight=0.0,
+    #     params={
+    #         "command_name": "dual_hands_object_tracking_command",
+    #         "var": 0.03,
+    #         "mask_zero_contact": True,
     #     },
     # )
 
@@ -362,7 +384,7 @@ class TerminationsCfg:
         func=mdp.hand_wrist_away_from_trajectory,
         params={
             "command_name": "dual_hands_object_tracking_command",
-            "threshold": 0.15,
+            "threshold": 0.25,
         },
     )
 
@@ -419,27 +441,26 @@ class V2PHandEnvCfg(ManagerBasedRLEnvCfg):
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
-    curriculum: CurriculumCfg = CurriculumCfg()
+    # curriculum: CurriculumCfg = CurriculumCfg()
 
     def __post_init__(self) -> None:
         """Post initialization."""
-        """Post initialization."""
         # general settings
-        self.decimation = 10  # 20 Hz control
+        self.decimation = 5  # 20 Hz control
         self.episode_length_s = 20.0  # Overridden by the scene config
         # simulation settings
-        self.sim.dt = 0.005  # 200 Hz simulation
-        self.sim.render_interval = 4  # 50 Hz rendering
+        self.sim.dt = 0.01  # 100 Hz simulation
+        self.sim.render_interval = self.decimation  # 20 Hz rendering
         self.sim.physics_material = self.scene.terrain.physics_material
-        self.sim.physx.gpu_max_rigid_patch_count = 17 * 2**15
+        self.sim.physx.gpu_max_rigid_patch_count = 20 * 2**15
 
         # Make the environment more compliant
         self.sim.physics_material.compliant_contact_stiffness = 10.0
         self.sim.physics_material.compliant_contact_damping = 1.0
 
         # viewer settings
-        self.viewer.eye = (1.5, 1.5, 2.5)
-        self.viewer.lookat = (0.0, 0.0, 1.5)
+        self.viewer.eye = (-0.5, 0.5, 1.5)
+        self.viewer.lookat = (0.0, 0.0, 1.2)
         # self.viewer.resolution = (3840, 2160)
         self.viewer.origin_type = "env"
         self.viewer.env_index = 6
@@ -463,15 +484,14 @@ class V2PHandEnvCfgEnvOnly(ManagerBasedRLEnvCfg):
 
     def __post_init__(self) -> None:
         """Post initialization."""
-        """Post initialization."""
         # general settings
-        self.decimation = 10  # 20 Hz control
+        self.decimation = 5  # 20 Hz control
         self.episode_length_s = 20.0  # Overridden by the scene config
         # simulation settings
-        self.sim.dt = 0.005  # 200 Hz simulation
-        self.sim.render_interval = 4  # 50 Hz rendering
+        self.sim.dt = 0.01  # 100 Hz simulation
+        self.sim.render_interval = self.decimation  # 20 Hz rendering
         self.sim.physics_material = self.scene.terrain.physics_material
-        self.sim.physx.gpu_max_rigid_patch_count = 17 * 2**15
+        self.sim.physx.gpu_max_rigid_patch_count = 20 * 2**15
 
         # Make the environment more compliant
         self.sim.physics_material.compliant_contact_stiffness = 10.0

@@ -567,22 +567,39 @@ class DatasetLoaderBase(ABC):
                     viser_contact_handles.clear()
                     for side in ("right", "left"):
                         hand_verts = mano_results[side]["vertices"][frame_id]
+                        hand_faces = mano_results[side]["faces"]
+                        hand_normals = trimesh.Trimesh(
+                            vertices=hand_verts.cpu().numpy(),
+                            faces=hand_faces.cpu().numpy(),
+                        ).vertex_normals
+                        hand_normals = (
+                            torch.from_numpy(hand_normals).float().to(device)
+                        )  # point outward
+                        # TODO (xzhu): store all contact points and normals
                         (
                             _,
                             _,
                             object_contact_part_ids,
                             hand_contact_points_world,
+                            hand_contact_normals_world,
                             contact_dists,
                         ) = approximate_contact_with_id(
                             frame_poses.object_surface_points_world,
                             frame_poses.object_surface_normals_world,
                             frame_poses.object_surface_points_part_ids,
                             hand_verts,
+                            hand_normals,
                             threshold=0.01,
                         )
                         # Reduce the number of contacts to NUM_MANO_LINKS by averaging the contacts on the same link.
                         hand_link_contact_positions = torch.zeros(
                             (NUM_MANO_LINKS, 3), device=device
+                        )
+                        hand_link_contact_normals = torch.zeros(
+                            (NUM_MANO_LINKS, 3), device=device
+                        )
+                        hand_link_contact_part_ids = torch.zeros(
+                            (NUM_MANO_LINKS,), device=device
                         )
                         object_contact_positions = torch.zeros(
                             (NUM_MANO_LINKS, 3), device=device
@@ -590,17 +607,17 @@ class DatasetLoaderBase(ABC):
                         object_contact_normals = torch.zeros(
                             (NUM_MANO_LINKS, 3), device=device
                         )
-                        hand_link_contact_part_ids = torch.zeros(
-                            (NUM_MANO_LINKS,), device=device
-                        )
                         if len(contact_dists) > 0:
-                            hand_link_contact_positions, hand_link_contact_part_ids = (
-                                compute_hand_link_contact_positions(
-                                    joints[side],
-                                    object_contact_part_ids,
-                                    hand_contact_points_world,
-                                    contact_dists,
-                                )
+                            (
+                                hand_link_contact_positions,
+                                hand_link_contact_normals,
+                                hand_link_contact_part_ids,
+                            ) = compute_hand_link_contact_positions(
+                                joints[side],
+                                object_contact_part_ids,
+                                hand_contact_points_world,
+                                hand_contact_normals_world,
+                                contact_dists,
                             )
                             object_contact_positions, object_contact_normals = (
                                 find_object_contact_positions(
@@ -614,35 +631,56 @@ class DatasetLoaderBase(ABC):
                                 for link_idx in range(NUM_MANO_LINKS):
                                     if object_contact_positions[link_idx].norm() < 1e-3:
                                         continue
-                                    object_contact_handle = (
-                                        viser_server.scene.add_icosphere(
-                                            name=f"/object/contacts/{side}/{link_idx}",
-                                            position=object_contact_positions[link_idx]
-                                            .cpu()
-                                            .numpy(),
-                                            radius=0.003,
-                                            color=np.array([0, 0, 255]),
-                                        )
+                                    hand_link_name = list(MANO_HAND_LINKS.keys())[
+                                        link_idx
+                                    ]
+                                    object_contact_handle = viser_server.scene.add_icosphere(
+                                        name=f"/object/contacts/{side}/{hand_link_name}",
+                                        position=object_contact_positions[link_idx]
+                                        .cpu()
+                                        .numpy(),
+                                        radius=0.003,
+                                        color=np.array([0, 0, 255]),
                                     )
                                     viser_contact_handles.append(object_contact_handle)
-                                    hand_link_contact_handle = (
-                                        viser_server.scene.add_icosphere(
-                                            name=f"/mano/{side}/contacts/{link_idx}",
-                                            position=hand_link_contact_positions[
-                                                link_idx
-                                            ]
-                                            .cpu()
-                                            .numpy(),
-                                            radius=0.003,
-                                            color=np.array([0, 255, 0]),
-                                        )
+                                    hand_link_contact_handle = viser_server.scene.add_icosphere(
+                                        name=f"/mano/{side}/contacts/{hand_link_name}",
+                                        position=hand_link_contact_positions[link_idx]
+                                        .cpu()
+                                        .numpy(),
+                                        radius=0.003,
+                                        color=np.array([0, 255, 0]),
                                     )
                                     viser_contact_handles.append(
                                         hand_link_contact_handle
                                     )
+                                normal_lines = torch.cat(
+                                    [
+                                        hand_link_contact_positions.unsqueeze(1),
+                                        (
+                                            hand_link_contact_positions
+                                            + hand_link_contact_normals * 0.01
+                                        ).unsqueeze(1),
+                                    ],
+                                    dim=1,
+                                )
+                                hand_link_contact_normal_handle = (
+                                    viser_server.scene.add_line_segments(
+                                        name=f"/mano/{side}/contacts/normals",
+                                        points=normal_lines.cpu().numpy(),
+                                        colors=np.zeros_like(
+                                            normal_lines.cpu().numpy()
+                                        ),
+                                        line_width=2.0,
+                                    )
+                                )
+                                viser_contact_handles.append(
+                                    hand_link_contact_normal_handle
+                                )
 
                         contact_data[side] = {
                             "hand_link_contact_positions": hand_link_contact_positions,
+                            "hand_link_contact_normals": hand_link_contact_normals,
                             "object_contact_positions": object_contact_positions,
                             "object_contact_normals": object_contact_normals,
                             "hand_link_contact_part_ids": hand_link_contact_part_ids,
@@ -669,6 +707,11 @@ class DatasetLoaderBase(ABC):
                         mano_right_tips_distance=tips_dist.get("right"),
                         mano_right_link_contact_positions=contact_data["right"][
                             "hand_link_contact_positions"
+                        ]
+                        .cpu()
+                        .tolist(),
+                        mano_right_link_contact_normals=contact_data["right"][
+                            "hand_link_contact_normals"
                         ]
                         .cpu()
                         .tolist(),
@@ -702,6 +745,11 @@ class DatasetLoaderBase(ABC):
                         mano_left_tips_distance=tips_dist.get("left"),
                         mano_left_link_contact_positions=contact_data["left"][
                             "hand_link_contact_positions"
+                        ]
+                        .cpu()
+                        .tolist(),
+                        mano_left_link_contact_normals=contact_data["left"][
+                            "hand_link_contact_normals"
                         ]
                         .cpu()
                         .tolist(),
