@@ -26,6 +26,7 @@ from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
 from isaaclab.sensors import ContactSensorCfg
 from isaaclab.sim.schemas.schemas_cfg import RigidBodyPropertiesCfg
+from pxr import Usd, UsdGeom
 
 from robotic_grounding.assets.articulated_object import ARTICULATED_OBJECT_CFG
 from robotic_grounding.assets.rigid_object import RIGID_OBJECT_CFG
@@ -146,22 +147,42 @@ def apply_scene_objects(env_cfg: Any, scene_config: SceneConfig) -> None:
             raise ValueError(
                 f"fixed_object {fixed_obj.name} must have init_pos and init_rot"
             )
-        fixed_cfg = AssetBaseCfg(
-            prim_path=f"{{ENV_REGEX_NS}}/{fixed_obj.name}",
-            spawn=sim_utils.UsdFileCfg(
-                usd_path=fixed_obj.usd_path,
-                scale=tuple(float(s) for s in fixed_obj.scale),
-                rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
-                collision_props=sim_utils.CollisionPropertiesCfg(
-                    collision_enabled=True
+        stage = Usd.Stage.Open(fixed_obj.usd_path)
+        for idx, prim in enumerate(stage.Traverse()):
+            if not prim.IsA(UsdGeom.Cylinder):
+                continue
+            cyl = UsdGeom.Cylinder(prim)
+            radius = cyl.GetRadiusAttr().Get()
+            height = cyl.GetHeightAttr().Get()
+            xf = UsdGeom.Xformable(prim)
+            ops = xf.GetOrderedXformOps()
+            translate = ops[0].Get() if ops else (0.0, 0.0, 0.0)
+
+            fixed_cfg = AssetBaseCfg(
+                prim_path=f"{{ENV_REGEX_NS}}/{fixed_obj.name}_{idx}",
+                spawn=sim_utils.CylinderCfg(
+                    radius=radius,
+                    height=height,
+                    rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                        kinematic_enabled=True
+                    ),
+                    mass_props=sim_utils.MassPropertiesCfg(mass=100.0),
+                    collision_props=sim_utils.CollisionPropertiesCfg(
+                        collision_enabled=True
+                    ),
+                    physics_material=sim_utils.RigidBodyMaterialCfg(
+                        static_friction=1.0
+                    ),
+                    visual_material=sim_utils.PreviewSurfaceCfg(
+                        diffuse_color=(0.14, 0.14, 0.14), metallic=0.7
+                    ),
                 ),
-            ),
-            init_state=AssetBaseCfg.InitialStateCfg(
-                pos=tuple(float(p) for p in fixed_obj.init_pos),
-                rot=tuple(float(r) for r in fixed_obj.init_rot),
-            ),
-        )
-        setattr(env_cfg.scene, fixed_obj.name, fixed_cfg)
+                init_state=AssetBaseCfg.InitialStateCfg(
+                    pos=translate,
+                    rot=[1.0, 0.0, 0.0, 0.0],
+                ),
+            )
+            setattr(env_cfg.scene, f"{fixed_obj.name}_{idx}", fixed_cfg)
 
 
 def apply_scene_virtual_object_controls(
@@ -336,6 +357,9 @@ def apply_scene_config(env_cfg: Any, scene_config: SceneConfig) -> Any:
         apply_scene_commands(env_cfg, scene_config)
         apply_scene_contact_sensors(env_cfg, scene_config)
 
-    env_cfg.episode_length_s = scene_config.episode_length_s
+    env_cfg.episode_length_s = (
+        scene_config.episode_length_s
+        / env_cfg.commands.dual_hands_object_tracking_command.motion_speed
+    )
 
     return env_cfg

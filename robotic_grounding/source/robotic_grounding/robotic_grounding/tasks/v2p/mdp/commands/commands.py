@@ -340,12 +340,10 @@ class DualHandsTrackingCommand(CommandTerm):
                 filters=cfg.motion_filters,
                 trajectory_id=cfg.motion_id,
             )
-            target_fps = (
-                cfg.target_fps if cfg.target_fps is not None else 1 / self.step_dt
-            )
+            target_num_frames = int(1 / (self.step_dt * cfg.motion_speed))
             self._retargeted_motion_data = interpolate_robot_motion_data(
                 motion_data=self._retargeted_motion_data,
-                target_fps=target_fps,
+                target_num_frames=target_num_frames,
             )
         except Exception as e:
             raise ValueError(

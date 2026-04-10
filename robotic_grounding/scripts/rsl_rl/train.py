@@ -61,6 +61,12 @@ parser.add_argument(
     help="Make the last layer of the actor network a zero layer.",
 )
 parser.add_argument(
+    "--set-std",
+    type=float,
+    default=None,
+    help="Std of the policy network regardless of the checkpoint.",
+)
+parser.add_argument(
     "--export_io_descriptors",
     action="store_true",
     default=False,
@@ -319,6 +325,11 @@ def main(
         print(f"[INFO]: Loading model checkpoint from: {resume_path}")
         # load previously trained model
         runner.load(resume_path)
+
+    # Reset the std of the policy network
+    if args_cli.set_std is not None:
+        with torch.no_grad():
+            runner.alg.policy.std.fill_(args_cli.set_std)
 
     # set the actor network to zero if requested
     if args_cli.zero_actor:

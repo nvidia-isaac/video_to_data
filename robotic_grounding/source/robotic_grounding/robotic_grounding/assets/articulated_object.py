@@ -40,7 +40,7 @@ ARTICULATED_OBJECT_CFG = ArticulationCfg(
             stabilization_threshold=0.0005,
         ),
         collision_props=sim_utils.CollisionPropertiesCfg(
-            contact_offset=0.001,
+            contact_offset=0.0,
             rest_offset=0.0,
         ),
         joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(

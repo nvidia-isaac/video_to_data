@@ -127,8 +127,8 @@ class DualHandsObjectTrackingCommandCfg(CommandTermCfg):
     motion_id: int = 0
     """Index of the motion to use after applying the filters."""
 
-    target_fps: float = 40.0
-    """Target FPS to interpolate the motion data to."""
+    motion_speed: float = 0.5
+    """Speed factor to interpolate the motion data to."""
 
     reset_finger_openness: float = 0.7
     """Max interpolation factor for finger joints at reset.
@@ -137,6 +137,9 @@ class DualHandsObjectTrackingCommandCfg(CommandTermCfg):
     The finger joint positions are then: factor * reference_finger_joints.
     0.0 = fully open, 1.0 = fully matching reference.
     """
+
+    always_reset_to_first_frame: bool = False
+    """Whether to always reset to the first frame of the motion data."""
 
     initial_virtual_object_control_curriculum_scale: float = 1.0
     """Initial virtual object control curriculum scale."""
@@ -155,6 +158,15 @@ class DualHandsObjectTrackingCommandCfg(CommandTermCfg):
 
     recompute_hand_keypoints_from_object: bool = True
     """Whether to recompute the hand keypoints based on the object frame."""
+
+    num_friction_cone_edges: int = 8
+    """Number of friction cone edges to sample."""
+
+    num_wrench_space_basis_samples: int = 512
+    """Number of basis samples to draw for the wrench space support function."""
+
+    friction_coefficients: float = 0.1
+    """Friction coefficient for the wrench space support function."""
 
     ###################################################
     # Visualizer markers
@@ -297,8 +309,8 @@ class DualHandsTrackingCommandCfg(CommandTermCfg):
     motion_id: int = 0
     """Index of the motion to use after applying the filters."""
 
-    target_fps: float = 40.0
-    """Target FPS to interpolate the motion data to."""
+    motion_speed: float = 0.2
+    """Speed factor to interpolate the motion data to."""
 
     reset_finger_openness: float = 0.7
     """Max interpolation factor for finger joints at reset.

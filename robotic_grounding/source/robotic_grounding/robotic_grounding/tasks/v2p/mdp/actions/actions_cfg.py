@@ -109,10 +109,10 @@ class JointResidualWithTrackingActionCfg(ActionTermCfg):
     tracking_controller_angular_damping: float = 0.0
     """Damping gain for the tracking controller in angular direction."""
 
-    max_force: float = 100.0
+    max_force: float = 60.0
     """Maximum force for the tracking controller."""
 
-    max_torque: float = 100.0
+    max_torque: float = 60.0
     """Maximum torque for the tracking controller."""
 
 

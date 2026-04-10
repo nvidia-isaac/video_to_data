@@ -18,9 +18,9 @@ workflow:
   name: {{workflow_name}}
   resources:
     default:
-      cpu: 6
+      cpu: 8
       gpu: 1
-      memory: 200Gi
+      memory: 100Gi
       storage: 200Gi
 
   tasks:
@@ -34,15 +34,16 @@ workflow:
       ACCEPT_EULA: Y
       OMNI_SERVER: omniverse://isaac-dev.ov.nvidia.com
     credentials:
-      omni-auth:
-        OMNI_PASS: omni_pass
-        OMNI_USER: omni_user
+      wandb:
+        WANDB_API_KEY: wandb_api_key
     files:
     - path: /tmp/entry.sh
       contents: |-
         set -ex
 
-        python scripts/rsl_rl/train.py --task Sharpa-V2P-v0
+        python scripts/rsl_rl/train.py --task Sharpa-V2P-v0 --headless \
+          --motion_file arctic_processed/arctic_s01_rigid_capsulemachine_grab_01/sharpa_wave \
+          --run_name v2d_arctic_s01_rigid_capsulemachine_grab_01
 
 default-values:
   workflow_name: robotic_grounding_train

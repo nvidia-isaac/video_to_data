@@ -41,7 +41,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--workflow-yaml",
-        default="osmo_workflows/robotic_grounding_dev_env.yaml",
+        default="workflow/train.yaml",
         help="Path to OSMO workflow YAML file",
     )
     parser.add_argument(

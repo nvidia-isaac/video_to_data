@@ -347,6 +347,7 @@ HAND_CONTACT_BODIES = [
     # Palm
     ".*_hand_C_MC",  # "C_MC" stands for "Central Metacarpal"; palm/base link
     # Thumb
+    ".*_thumb_MC",
     ".*_thumb_PP",
     ".*_thumb_DP",
     # Index

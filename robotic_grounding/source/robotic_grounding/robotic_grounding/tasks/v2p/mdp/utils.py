@@ -22,7 +22,7 @@ from robotic_grounding.retarget.data_logger import ManoSharpaData
 
 def interpolate_robot_motion_data(
     motion_data: ManoSharpaData,
-    target_fps: float,
+    target_num_frames: float,
 ) -> ManoSharpaData:
     """Interpolate the robot motion data to the target FPS.
 
@@ -44,7 +44,7 @@ def interpolate_robot_motion_data(
 
     Args:
         motion_data: The motion data to interpolate.
-        target_fps: The target FPS to interpolate to.
+        target_num_frames: The target number of frames to interpolate to.
 
     Returns:
         The interpolated motion data.
@@ -55,7 +55,7 @@ def interpolate_robot_motion_data(
         """Get the timestamps for the motion data."""
         n_frames = len(motion_data.robot_right_wrist_position)
         src = np.arange(n_frames) / motion_data.fps
-        tgt = np.linspace(0, src[-1], int(src[-1] * target_fps))
+        tgt = np.linspace(0, src[-1], int(src[-1] * target_num_frames))
         return src, tgt
 
     def interp_linear(data: list[float]) -> list[float]:
@@ -163,6 +163,10 @@ def interpolate_robot_motion_data(
         getattr(motion_data, "mano_right_link_contact_positions", []),
         getattr(motion_data, "mano_right_object_contact_part_ids", []),
     )
+    motion_data.mano_right_link_contact_normals = interp_contact_linear(
+        getattr(motion_data, "mano_right_link_contact_normals", []),
+        getattr(motion_data, "mano_right_object_contact_part_ids", []),
+    )
     motion_data.mano_right_object_contact_positions = interp_contact_linear(
         getattr(motion_data, "mano_right_object_contact_positions", []),
         getattr(motion_data, "mano_right_object_contact_part_ids", []),
@@ -174,6 +178,10 @@ def interpolate_robot_motion_data(
 
     motion_data.mano_left_link_contact_positions = interp_contact_linear(
         getattr(motion_data, "mano_left_link_contact_positions", []),
+        getattr(motion_data, "mano_left_object_contact_part_ids", []),
+    )
+    motion_data.mano_left_link_contact_normals = interp_contact_linear(
+        getattr(motion_data, "mano_left_link_contact_normals", []),
         getattr(motion_data, "mano_left_object_contact_part_ids", []),
     )
     motion_data.mano_left_object_contact_positions = interp_contact_linear(
@@ -413,6 +421,7 @@ def compute_friction_cone_edges(
     sin_t: torch.Tensor,
     friction_coefficients: float = 0.5,
     eps: float = 1e-6,
+    append_normal: bool = True,
 ) -> torch.Tensor:
     """Build the edges of the friction cone based on contact normals and friction coefficients.
 
@@ -422,6 +431,7 @@ def compute_friction_cone_edges(
         sin_t: the sine of the friction cone edges phase angles (1, num_friction_cone_edges, 1)
         friction_coefficients: float
         eps: float
+        append_normal: bool whether to append the contact normal to the friction cone edges
 
     Returns:
         (batch_size, num_contacts, num_friction_cone_edges, 3)
@@ -442,7 +452,11 @@ def compute_friction_cone_edges(
     )  # (B*C, K, 3)
     edges = edges / edges.norm(dim=-1, keepdim=True).clamp_min(eps)
 
-    return edges.view(batch_size, num_contacts, cos_t.shape[1], 3)
+    if append_normal:
+        edges = torch.cat([edges, normals_flat.unsqueeze(1)], dim=1)  # (B*C, K+1, 3)
+
+    num_edges = cos_t.shape[1] + int(append_normal)
+    return edges.view(batch_size, num_contacts, num_edges, 3)
 
 
 def compute_wrench_space(
@@ -474,6 +488,8 @@ def compute_wrench_space(
         dim=-1, keepdim=True
     ).clamp_min(eps)
 
+    contact_is_active = contact_normals.norm(dim=-1) > 1e-3
+
     forces = compute_friction_cone_edges(
         normals=contact_normals,
         cos_t=cos_t,
@@ -486,12 +502,11 @@ def compute_wrench_space(
         contact_points.unsqueeze(2).expand_as(forces), forces, dim=-1
     )  # (batch_size, num_contacts, num_friction_cone_edges, 3)
 
-    wrench_space = torch.cat((forces, torques), dim=-1).view(
-        batch_size, -1, 6
-    )  # (batch_size, num_contacts * num_friction_cone_edges, 6)
-
-    # Scale the torque magnitude to match the force magnitude
-    wrench_space[..., 3:] = wrench_space[..., 3:] / rc
+    wrench_space = torch.cat(
+        (forces, torques / rc), dim=-1
+    )  # (batch_size, num_contacts, num_friction_cone_edges, 6)
+    wrench_space *= contact_is_active.view(batch_size, -1, 1, 1)
+    wrench_space = wrench_space.view(batch_size, -1, 6)
 
     return wrench_space.transpose(1, 2).contiguous()
 

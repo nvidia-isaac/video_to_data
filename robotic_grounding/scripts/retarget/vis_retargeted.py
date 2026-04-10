@@ -422,9 +422,17 @@ def visualize_one_trajectory(
             for contact_handle in contact_points_handles:
                 contact_handle.remove()
             contact_points_handles.clear()
-            for side, contact_positions in [
-                ("right", logger_data.mano_right_object_contact_positions[frame_id]),
-                ("left", logger_data.mano_left_object_contact_positions[frame_id]),
+            for side, contact_positions, contact_normals in [
+                (
+                    "right",
+                    logger_data.mano_right_object_contact_positions[frame_id],
+                    logger_data.mano_right_link_contact_normals[frame_id],
+                ),
+                (
+                    "left",
+                    logger_data.mano_left_object_contact_positions[frame_id],
+                    logger_data.mano_left_link_contact_normals[frame_id],
+                ),
             ]:
                 for contact_position, (link_name, _) in zip(
                     contact_positions, MANO_HAND_LINKS.items(), strict=False
@@ -437,6 +445,23 @@ def visualize_one_trajectory(
                             position=np.array(contact_position[:3]),
                         )
                         contact_points_handles.append(contact_handle)
+                normal_lines = np.stack(
+                    [
+                        np.asarray(contact_positions),
+                        (
+                            np.asarray(contact_positions)
+                            + np.asarray(contact_normals) * 0.01
+                        ),
+                    ],
+                    axis=1,
+                )
+                normal_handle = viser_server.scene.add_line_segments(
+                    name=f"/mano/{side}_contact_normals",
+                    points=normal_lines,
+                    colors=np.zeros_like(normal_lines),
+                    line_width=2.0,
+                )
+                contact_points_handles.append(normal_handle)
 
         # MANO hand mesh + joint frames
         if mano is not None and mano_results is not None:

@@ -68,7 +68,7 @@ class CommandsCfg:
 
     dual_hands_tracking_command = mdp.DualHandsTrackingCommandCfg(
         debug_vis=True,
-        target_fps=100.0,
+        motion_speed=0.2,
         reset_finger_openness=0.7,
     )
 
@@ -84,7 +84,7 @@ class ActionsCfg:
         tracking_controller_linear_stiffness=50.0,
         tracking_controller_linear_damping=10.0,
         tracking_controller_angular_stiffness=12.0,
-        tracking_controller_angular_damping=0.5,
+        tracking_controller_angular_damping=0.1,
         wrist_position_scale=0.05,
         wrist_orientation_scale=0.15,
         finger_joint_scale=0.15,
@@ -99,7 +99,7 @@ class ActionsCfg:
         tracking_controller_linear_stiffness=50.0,
         tracking_controller_linear_damping=10.0,
         tracking_controller_angular_stiffness=12.0,
-        tracking_controller_angular_damping=0.5,
+        tracking_controller_angular_damping=0.1,
         wrist_position_scale=0.05,
         wrist_orientation_scale=0.15,
         finger_joint_scale=0.15,

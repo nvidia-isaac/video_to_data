@@ -23,7 +23,7 @@ parser.add_argument(
     help="Disable fabric and use USD I/O operations.",
 )
 parser.add_argument(
-    "--num_envs", type=int, default=16, help="Number of environments to simulate."
+    "--num_envs", type=int, default=15, help="Number of environments to simulate."
 )
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument(
@@ -51,19 +51,16 @@ args_cli.headless = True
 
 # Multiple rigid objects
 # args_cli.motion_file = (
-#     "taco_processed/taco_empty__kettle__plate_20231031_060/sharpa_wave"
+#     "taco/taco_processed/taco_empty__kettle__plate_20231031_060/sharpa_wave"
 # )
-
-# Multiple rigid objects with invalid object names
-# args_cli.motion_file = "oakink2_processed/scene_01__A001%252B%252Bseq__9e46184387ba83f60895__2023-04-27-18-43-58/sharpa_wave"
 
 # Single rigid object
 # args_cli.motion_file = (
-#     "arctic_processed/arctic_s01_rigid_mixer_grab_01/sharpa_wave"
+#     "arctic/arctic_processed/arctic_s01_rigid_mixer_grab_01/sharpa_wave"
 # )
 
 # Single articulated object
-args_cli.motion_file = "arctic_processed/arctic_s01_mixer_use_01/sharpa_wave"
+args_cli.motion_file = "arctic/arctic_processed/arctic_s01_mixer_use_01/sharpa_wave"
 
 ###################################
 

@@ -34,7 +34,7 @@
         rpy="0 0 0"
       />
       <geometry>
-        <mesh filename="../meshes/sharpa_wave/right_cvx/right_hand_C_MC.STL" />
+        <mesh filename="../meshes/sharpa_wave/right_cvx/right_hand_C_MC_cut.STL" />
       </geometry>
     </collision>
   </link>
@@ -111,7 +111,7 @@
         rpy="0 0 0"
       />
       <geometry>
-        <mesh filename="../meshes/sharpa_wave/right_cvx/right_thumb_MC.STL" />
+        <mesh filename="../meshes/sharpa_wave/right_cvx/right_thumb_MC_cut.STL" />
       </geometry>
     </collision>
   </link>
