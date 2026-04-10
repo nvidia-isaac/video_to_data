@@ -731,7 +731,12 @@ def monitor_once(state: dict, dry_run: bool = False) -> dict:
                 and min_steps <= (r.summary.get("_step", 0) or 0) < stage2_threshold
             ]
 
-            if crashed:
+            stage2_processed_crash_ids: set[str] = set(
+                exp_state.get("stage2_processed_crash_ids", [])
+            )
+            new_crashes = [r for r in crashed if r.id not in stage2_processed_crash_ids]
+
+            if new_crashes:
                 rerun_count = exp_state.get("stage2_rerun_count", 0)
                 if rerun_count >= max_stage2_reruns:
                     _log(
@@ -744,6 +749,11 @@ def monitor_once(state: dict, dry_run: bool = False) -> dict:
                     if ok or dry_run:
                         exp_state["stage2_rerun_count"] = rerun_count + 1
                         exp_state["stage2_last_rerun"] = _now_str()
+                        for r in new_crashes:
+                            stage2_processed_crash_ids.add(r.id)
+                        exp_state["stage2_processed_crash_ids"] = sorted(
+                            stage2_processed_crash_ids
+                        )
 
     return state
 

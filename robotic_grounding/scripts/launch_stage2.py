@@ -175,7 +175,7 @@ python scripts/rsl_rl/train.py \\
   --logger wandb \\
   --log_project_name {project} \\
   --resume --checkpoint "{{{{input:0}}}}/ckpt_{obj}/{ckpt_filename}" \\
-  {overrides_str}\""""
+  {overrides_str}"""
 
     entry_indent = "\n".join("        " + line for line in entry.split("\n"))
     return f"""  - name: train-{seq_key.replace("_", "-")}

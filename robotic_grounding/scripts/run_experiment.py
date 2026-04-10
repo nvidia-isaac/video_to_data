@@ -444,8 +444,8 @@ def create_wandb_sweep(exp_id: str, config: dict) -> None:
 # Two-stage pipeline orchestration (generic, driven entirely by config.yaml)
 # ---------------------------------------------------------------------------
 
-def _find_latest_checkpoint(run_name: str) -> Path:
-    """Find the highest-iteration checkpoint for a given RSL-RL run_name.
+def _find_latest_checkpoint(run_name: str) -> Path | None:
+    """Find the highest-iteration checkpoint for a given RSL-RL run_name, or None.
 
     RSL-RL saves to logs/rsl_rl/<experiment_name>/<timestamp>_<run_name>/model_<N>.pt.
     We search recursively so we're not coupled to the experiment_name sub-dir.
@@ -454,10 +454,7 @@ def _find_latest_checkpoint(run_name: str) -> Path:
     pattern = str(RG_ROOT / "logs" / "rsl_rl" / "**" / f"*_{run_name}" / "model_*.pt")
     checkpoints = _glob.glob(pattern, recursive=True)
     if not checkpoints:
-        raise SystemExit(
-            f"[pipeline:local] No checkpoint found for run_name='{run_name}' "
-            f"under {RG_ROOT / 'logs' / 'rsl_rl'}. Did stage 1 complete successfully?"
-        )
+        return None
 
     def _iteration(p: str) -> int:
         m = re.search(r"model_(\d+)\.pt", p)
@@ -466,33 +463,100 @@ def _find_latest_checkpoint(run_name: str) -> Path:
     return Path(max(checkpoints, key=_iteration))
 
 
+def _fetch_stage1_artifact(stage2_config: dict) -> Path | None:
+    """Download the stage1 W&B artifact for stage2 and return the local .pt path, or None."""
+    import shutil
+    import sys as _sys
+    import tempfile
+    _scripts = str(Path(__file__).resolve().parent)
+    if _scripts not in _sys.path:
+        _sys.path.insert(0, _scripts)
+    try:
+        from launch_stage2 import fetch_checkpoints as _fetch
+    except ImportError:
+        return None
+
+    tmpdir_obj = tempfile.TemporaryDirectory()
+    try:
+        checkpoints = _fetch(Path(tmpdir_obj.name), stage2_config)
+    except SystemExit:
+        tmpdir_obj.cleanup()
+        return None
+    if not checkpoints:
+        tmpdir_obj.cleanup()
+        return None
+    # Copy to a stable location under logs/ before tmpdir is cleaned up
+    seq_key, tmp_path = next(iter(checkpoints.items()))
+    stable_dir = RG_ROOT / "logs" / "rsl_rl" / "sharpa_v2p" / f"stage1_ckpt_{seq_key}"
+    stable_dir.mkdir(parents=True, exist_ok=True)
+    stable_path = stable_dir / tmp_path.name
+    shutil.copy2(tmp_path, stable_path)
+    tmpdir_obj.cleanup()
+    return stable_path
+
+
 def _run_pipeline_local(exp_id: str, config: dict, args) -> None:
-    """Run the two-stage pipeline locally: stage1 → checkpoint → stage2."""
+    """Run the two-stage pipeline locally: stage1 → checkpoint → stage2.
+
+    Resume logic (skips completed stages):
+    - If --fresh: ignore existing stage2 checkpoint; start stage2 from stage1 checkpoint
+      (downloads W&B artifact if no local stage1 checkpoint found)
+    - If a stage2 checkpoint exists → resume stage2 from it (skip stage1 entirely)
+    - Elif a stage1 checkpoint exists → skip stage1, run stage2 from stage1 checkpoint
+    - Else → run stage1 from scratch, then stage2
+    """
     stage1_exp_id = config.get("stage1_exp_id", "stage1")
     stage2_config_id = config.get("stage2_config_id")
     dry_run = getattr(args, "dry_run", False)
+    fresh = getattr(args, "fresh", False)
 
-    # --- Stage 1 ---
-    _, stage1_config = load_experiment_config(stage1_exp_id)
-    print(f"\n[pipeline:local] Running stage 1 ({stage1_exp_id})...")
-    exit_code = run_local(stage1_exp_id, stage1_config, dry_run=dry_run)
-    if dry_run:
-        print("[pipeline:local] Dry-run: skipping stage 2.")
-        return
-    if exit_code != 0:
-        raise SystemExit(f"[pipeline:local] Stage 1 failed (exit {exit_code})")
-
-    # --- Find checkpoint ---
-    run_name = stage1_config.get("run_name", "stage1_nocoll")
-    checkpoint = _find_latest_checkpoint(run_name)
-    print(f"\n[pipeline:local] Stage 1 checkpoint: {checkpoint}")
-
-    # --- Stage 2 ---
     if not stage2_config_id:
         raise SystemExit("[pipeline:local] No stage2_config_id in pipeline config.")
+
+    _, stage1_config = load_experiment_config(stage1_exp_id)
     _, stage2_config = load_experiment_config(stage2_config_id)
     stage2_config = dict(stage2_config)
-    stage2_config["resume_from"] = str(checkpoint)
+
+    stage1_run_name = stage1_config.get("run_name", "stage1_nocoll")
+    stage2_run_name = stage2_config.get("run_name", f"{stage2_config_id}_run")
+
+    # --- Check for existing checkpoints ---
+    stage2_ckpt = None if fresh else _find_latest_checkpoint(stage2_run_name)
+    stage1_ckpt = _find_latest_checkpoint(stage1_run_name)
+
+    if stage2_ckpt:
+        print(f"\n[pipeline:local] Resuming stage 2 from existing checkpoint: {stage2_ckpt}")
+        stage2_config["resume_from"] = str(stage2_ckpt)
+    elif stage1_ckpt:
+        print(f"\n[pipeline:local] Stage 1 checkpoint found, skipping stage 1: {stage1_ckpt}")
+        stage2_config["resume_from"] = str(stage1_ckpt)
+    elif fresh:
+        # --fresh with no local stage1 checkpoint: download W&B artifact
+        print(f"\n[pipeline:local] --fresh: fetching stage1 artifact from W&B...")
+        artifact_ckpt = _fetch_stage1_artifact(stage2_config)
+        if artifact_ckpt:
+            print(f"[pipeline:local] Using stage1 artifact: {artifact_ckpt}")
+            stage2_config["resume_from"] = str(artifact_ckpt)
+        else:
+            raise SystemExit(
+                "[pipeline:local] --fresh: no local stage1 checkpoint and W&B artifact download failed."
+            )
+    else:
+        # --- Run stage 1 from scratch ---
+        print(f"\n[pipeline:local] Running stage 1 ({stage1_exp_id})...")
+        exit_code = run_local(stage1_exp_id, stage1_config, dry_run=dry_run)
+        if dry_run:
+            print("[pipeline:local] Dry-run: skipping stage 2.")
+            return
+        if exit_code != 0:
+            raise SystemExit(f"[pipeline:local] Stage 1 failed (exit {exit_code})")
+        stage1_ckpt = _find_latest_checkpoint(stage1_run_name)
+        if not stage1_ckpt:
+            raise SystemExit("[pipeline:local] Stage 1 completed but no checkpoint found.")
+        print(f"\n[pipeline:local] Stage 1 checkpoint: {stage1_ckpt}")
+        stage2_config["resume_from"] = str(stage1_ckpt)
+
+    # --- Stage 2 ---
     print(f"\n[pipeline:local] Running stage 2 ({stage2_config_id})...")
     exit_code = run_local(stage2_config_id, stage2_config, dry_run=dry_run)
     if exit_code != 0:
@@ -665,6 +729,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--dry-run", action="store_true", help="Print without executing"
+    )
+    parser.add_argument(
+        "--fresh",
+        action="store_true",
+        help="(pipeline --local only) Ignore existing stage2 checkpoint; start stage2 fresh from stage1 checkpoint (downloads W&B artifact if no local stage1 checkpoint found)",
     )
     parser.add_argument(
         "--variant",
