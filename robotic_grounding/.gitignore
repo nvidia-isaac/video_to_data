@@ -240,3 +240,6 @@ videos/
 
 # wandb
 wandb/
+
+# Monitor state
+scripts/monitor_state.json

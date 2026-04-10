@@ -1,0 +1,46 @@
+# Stage 2: full training resumed from stage 1 collision-free checkpoints
+#
+# Uses exp44 reward params: contact tracking + wrench rewards + VOC curriculum.
+# Checkpoints are fetched from W&B artifacts uploaded by stage 1.
+#
+# This config is loaded by scripts/launch_stage2.py — do not run directly.
+# Launch via: python scripts/run_experiment.py two_stage
+id: example_stage2
+description: "Stage 2: exp44 params, resumed from stage1 no-collision checkpoints"
+run_name_suffix: example_stage2
+
+wandb_project: v2p_hands
+
+# W&B artifact name prefix used by stage 1 to upload checkpoints.
+# Full artifact name: {stage1_artifact_prefix}{object}
+stage1_artifact_prefix: checkpoint_stage1_nocoll_
+
+sequences:
+  - arctic_s01_capsulemachine_grab_01
+  - arctic_s01_espressomachine_grab_01
+  - arctic_s01_microwave_grab_01
+  - arctic_s01_mixer_grab_01
+  - arctic_s01_waffleiron_grab_01
+  - arctic_s01_box_grab_01
+
+train_overrides:
+  env.commands.dual_hands_object_tracking_command.debug_vis: "false"
+  env.rewards.action_rate_l2.weight: "-5e-4"
+  env.rewards.action_l1.weight: "-5e-3"
+  env.rewards.object_keypoints_tracking_exp.weight: "2.0"
+  env.rewards.hand_keypoints_tracking_exp.weight: "1.0"
+  env.rewards.contact_force_reward.weight: "1.0"
+  env.rewards.dexmachina_contact_tracking_reward.weight: "1.0"
+  env.rewards.contact_wrench_continuous_reward.weight: "5.0"
+  env.rewards.contact_wrench_cumulative_reward.weight: "0.5"
+  env.commands.dual_hands_object_tracking_command.initial_virtual_object_control_curriculum_scale: "1.0"
+  env.commands.dual_hands_object_tracking_command.virtual_object_control_decay_mode: "linear"
+  env.curriculum.virtual_object_control_curriculum.params.decay_mode: "linear"
+  env.curriculum.virtual_object_control_curriculum.params.initial_wait_env_steps: "200"
+  env.curriculum.virtual_object_control_curriculum.params.wait_env_steps_since_last_decay: "200"
+  env.curriculum.virtual_object_control_curriculum.params.zero_scale_factor_threshold: "0.05"
+  env.curriculum.virtual_object_control_curriculum.params.exponential_decay_factor: "1.0"
+  env.curriculum.virtual_object_control_curriculum.params.linear_decay_step: "0.1"
+
+osmo:
+  build_image: true

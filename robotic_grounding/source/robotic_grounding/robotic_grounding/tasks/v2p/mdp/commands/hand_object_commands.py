@@ -1909,7 +1909,8 @@ class DualHandsObjectTrackingCommand(CommandTerm):
     def _debug_vis_callback(self, event: Any) -> None:
         """Visualize the goal marker."""
         del event  # unused
-        self.draw_interface.clear_lines()
+        if hasattr(self, "draw_interface"):
+            self.draw_interface.clear_lines()
 
         # Current state visualizers
         for body_idx, object_pose_visualizer in enumerate(self.object_pose_visualizers):

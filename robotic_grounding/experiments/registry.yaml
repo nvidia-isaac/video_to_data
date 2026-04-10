@@ -1,0 +1,14 @@
+# Experiment registry - maps short ids to experiment directories
+# Used by: python robotic_grounding/scripts/run_experiment.py <id> [--local|--osmo]
+#
+# Example experiments (committed):
+example_single: example_single_run
+example_sequences: example_sequence_list
+example_sweep: example_param_sweep
+stage1: example_stage1_nocoll
+stage2: example_stage2
+two_stage: example_two_stage
+
+# Private experiments: create experiments/registry.local.yaml (gitignored) with your entries:
+# exp41: exp41_my_experiment
+# exp42: exp42_another_experiment

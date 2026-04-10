@@ -302,6 +302,26 @@ class RewardsCfg:
         },
     )
 
+    contact_wrench_continuous_reward = RewTerm(
+        func=mdp.contact_wrench_continuous_reward,
+        weight=0.0,
+        params={
+            "command_name": "dual_hands_object_tracking_command",
+            "approach_var": 0.05,
+            "in_contact_force_threshold": 1e-3,
+        },
+    )
+
+    contact_wrench_cumulative_reward = RewTerm(
+        func=mdp.contact_wrench_cumulative_reward,
+        weight=0.0,
+        params={
+            "command_name": "dual_hands_object_tracking_command",
+            "eps": 1e-6,
+            "streak_scale": 20.0,
+        },
+    )
+
     unintended_contact_penalty = RewTerm(
         func=mdp.unintended_contact_penalty,
         weight=-2.5,
@@ -356,16 +376,16 @@ class RewardsCfg:
     #     },
     # )
 
-    # # DexMachina Contact Tracking Reward
-    # dexmachina_contact_tracking_reward = RewTerm(
-    #     func=mdp.dexmachina_contact_tracking_reward,
-    #     weight=0.0,
-    #     params={
-    #         "command_name": "dual_hands_object_tracking_command",
-    #         "var": 0.03,
-    #         "mask_zero_contact": True,
-    #     },
-    # )
+    # DexMachina Contact Tracking Reward
+    dexmachina_contact_tracking_reward = RewTerm(
+        func=mdp.dexmachina_contact_tracking_reward,
+        weight=0.0,
+        params={
+            "command_name": "dual_hands_object_tracking_command",
+            "var": 0.03,
+            "mask_zero_contact": True,
+        },
+    )
 
 
 @configclass
@@ -441,7 +461,7 @@ class V2PHandEnvCfg(ManagerBasedRLEnvCfg):
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
-    # curriculum: CurriculumCfg = CurriculumCfg()
+    curriculum: CurriculumCfg = CurriculumCfg()
 
     def __post_init__(self) -> None:
         """Post initialization."""
