@@ -77,11 +77,12 @@ def _spawn_articulated(
         actuators={
             "joint": ImplicitActuatorCfg(
                 joint_names_expr=[".*"],
-                effort_limit_sim={".*": 150.0},
-                velocity_limit_sim={".*": 30.0},
+                effort_limit_sim={".*": 75.0},
+                velocity_limit_sim={".*": 15.0},
                 stiffness={".*": 0.0},
                 damping={".*": 0.0},
-                armature={".*": 0.0},
+                armature={".*": 0.01},
+                friction={".*": 0.01},
             ),
         },
     )
@@ -194,6 +195,7 @@ def apply_scene_virtual_object_controls(
         if isinstance(obj, ArticulatedObjectConfig):
             voc_cfg = VirtualArticulatedObjectControlCfg(
                 asset_name=object_name,
+                root_body_name=obj.body_names[0],
                 tracking_controller_linear_stiffness=virtual_object_control_linear_stiffness,
                 tracking_controller_linear_damping=virtual_object_control_linear_damping,  # critical damping: 2 * sqrt(kp * m)
                 tracking_controller_angular_stiffness=virtual_object_control_angular_stiffness,

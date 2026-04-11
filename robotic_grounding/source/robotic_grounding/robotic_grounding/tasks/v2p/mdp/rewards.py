@@ -754,48 +754,58 @@ def contact_wrench_reward(
             ),
         )
 
-    mask_L = ref_L > eps                                    # (N, num_bodies, B)
-    mask_R = ref_R > eps                                    # (N, num_bodies, B)
-    w = mask_L.float() + mask_R.float()                    # (N, num_bodies, B)
+    mask_L = ref_L > eps  # (N, num_bodies, B)
+    mask_R = ref_R > eps  # (N, num_bodies, B)
+    w = mask_L.float() + mask_R.float()  # (N, num_bodies, B)
     hs_L = _hand_cell_score(ref_L, curr_L)
     hs_R = _hand_cell_score(ref_R, curr_R)
     # Combined activity: either hand has non-zero reference for this body/direction
-    active_c = (ref_L > eps) | (ref_R > eps)               # (N, num_bodies, B)
+    active_c = (ref_L > eps) | (ref_R > eps)  # (N, num_bodies, B)
     s_dir = torch.where(
         w > 0,
         (hs_L * mask_L.float() + hs_R * mask_R.float()) / w.clamp(min=1.0),
         torch.zeros_like(ref_L),
-    )                                                       # (N, num_bodies, B)
-    num_active = active_c.float().sum(dim=-1)              # (N, num_bodies)
-    has_ref_dir = num_active > 0                            # (N, num_bodies)
+    )  # (N, num_bodies, B)
+    num_active = active_c.float().sum(dim=-1)  # (N, num_bodies)
+    has_ref_dir = num_active > 0  # (N, num_bodies)
     mean_from_ref = torch.where(
         has_ref_dir,
         (s_dir * active_c.float()).sum(dim=-1) / num_active.clamp(min=1.0),
         torch.zeros_like(num_active),
-    )                                                       # (N, num_bodies)
+    )  # (N, num_bodies)
     spurious_inactive = (~active_c) & ((curr_L > eps) | (curr_R > eps))
-    mean_spurious = -spurious_inactive.float().mean(dim=-1) # (N, num_bodies)
-    mean_alignment = mean_from_ref + mean_spurious          # (N, num_bodies)
+    mean_spurious = -spurious_inactive.float().mean(dim=-1)  # (N, num_bodies)
+    mean_alignment = mean_from_ref + mean_spurious  # (N, num_bodies)
 
     # ── contact gating ────────────────────────────────────────────────────────
     right_in_contact = (
-        cmd.right_hand_object_contact_forces_w.norm(dim=1).norm(dim=-1)
-        > in_contact_force_threshold
-    ).any(dim=-1).any(dim=-1)  # (N,)
+        (
+            cmd.right_hand_object_contact_forces_w.norm(dim=1).norm(dim=-1)
+            > in_contact_force_threshold
+        )
+        .any(dim=-1)
+        .any(dim=-1)
+    )  # (N,)
     left_in_contact = (
-        cmd.left_hand_object_contact_forces_w.norm(dim=1).norm(dim=-1)
-        > in_contact_force_threshold
-    ).any(dim=-1).any(dim=-1)  # (N,)
-    in_contact = right_in_contact | left_in_contact         # (N,)
+        (
+            cmd.left_hand_object_contact_forces_w.norm(dim=1).norm(dim=-1)
+            > in_contact_force_threshold
+        )
+        .any(dim=-1)
+        .any(dim=-1)
+    )  # (N,)
+    in_contact = right_in_contact | left_in_contact  # (N,)
 
     # Per-body: is the demo requesting contact on this body?
-    ref_active_per_body = active_c.any(dim=-1)              # (N, num_bodies)
+    ref_active_per_body = active_c.any(dim=-1)  # (N, num_bodies)
 
     # Average quality and penalty over bodies then return (N,)
     quality = (
         mean_alignment * in_contact.unsqueeze(-1).float() * ref_active_per_body.float()
     ).mean(dim=-1)
-    penalty = -(ref_active_per_body.float() * (~in_contact).unsqueeze(-1).float()).mean(dim=-1)
+    penalty = -(ref_active_per_body.float() * (~in_contact).unsqueeze(-1).float()).mean(
+        dim=-1
+    )
 
     return quality + penalty
 
@@ -842,17 +852,24 @@ def contact_wrench_cumulative_reward(
     curr_R = cmd.right_hand_contact_wrench_supports
 
     # Collapse only basis directions → (N, num_bodies), keeping per-body resolution
-    ref_active = ((ref_L > eps) | (ref_R > eps)).any(dim=-1)    # (N, num_bodies)
-    policy_active = (
-        (curr_L > eps).any(dim=-1) | (curr_R > eps).any(dim=-1)
+    ref_active = ((ref_L > eps) | (ref_R > eps)).any(dim=-1)  # (N, num_bodies)
+    policy_active = (curr_L > eps).any(dim=-1) | (curr_R > eps).any(
+        dim=-1
     )  # (N, num_bodies)
 
     N, num_bodies = ref_active.shape
 
     # Lazy init: streaks are (N, num_bodies) so we can track persistence per body
-    if not hasattr(env, "_cwc_good_steps") or env._cwc_good_steps.shape != (N, num_bodies):
-        env._cwc_good_steps = torch.zeros(N, num_bodies, dtype=torch.long, device=env.device)
-        env._cwc_bad_steps = torch.zeros(N, num_bodies, dtype=torch.long, device=env.device)
+    if not hasattr(env, "_cwc_good_steps") or env._cwc_good_steps.shape != (
+        N,
+        num_bodies,
+    ):
+        env._cwc_good_steps = torch.zeros(
+            N, num_bodies, dtype=torch.long, device=env.device
+        )
+        env._cwc_bad_steps = torch.zeros(
+            N, num_bodies, dtype=torch.long, device=env.device
+        )
         env._cwc_prev_ep_len = torch.zeros(N, dtype=torch.long, device=env.device)
 
     g = env._cwc_good_steps
@@ -865,7 +882,7 @@ def contact_wrench_cumulative_reward(
     g = torch.where(reset_episode, torch.zeros_like(g), g)
     b = torch.where(reset_episode, torch.zeros_like(b), b)
 
-    good = ref_active & policy_active           # (N, num_bodies)
+    good = ref_active & policy_active  # (N, num_bodies)
     bad_spurious = (~ref_active) & policy_active  # (N, num_bodies)
 
     g_new = torch.where(good, g + 1, torch.zeros_like(g))
@@ -875,8 +892,8 @@ def contact_wrench_cumulative_reward(
     env._cwc_bad_steps = b_new
 
     scale = max(float(streak_scale), 1e-6)
-    good_mag = torch.tanh(g_new.float() / scale)   # (N, num_bodies)
-    bad_mag = torch.tanh(b_new.float() / scale)    # (N, num_bodies)
+    good_mag = torch.tanh(g_new.float() / scale)  # (N, num_bodies)
+    bad_mag = torch.tanh(b_new.float() / scale)  # (N, num_bodies)
     per_body_reward = torch.where(
         good,
         good_mag,
@@ -921,18 +938,30 @@ def contact_wrench_continuous_reward(
     cmd = env.command_manager.get_term(command_name)
 
     right_in_contact = (
-        cmd.right_hand_object_contact_forces_w.norm(dim=1).norm(dim=-1)
-        > in_contact_force_threshold
-    ).any(dim=-1).any(dim=-1)  # (N,)
+        (
+            cmd.right_hand_object_contact_forces_w.norm(dim=1).norm(dim=-1)
+            > in_contact_force_threshold
+        )
+        .any(dim=-1)
+        .any(dim=-1)
+    )  # (N,)
     left_in_contact = (
-        cmd.left_hand_object_contact_forces_w.norm(dim=1).norm(dim=-1)
-        > in_contact_force_threshold
-    ).any(dim=-1).any(dim=-1)  # (N,)
+        (
+            cmd.left_hand_object_contact_forces_w.norm(dim=1).norm(dim=-1)
+            > in_contact_force_threshold
+        )
+        .any(dim=-1)
+        .any(dim=-1)
+    )  # (N,)
     in_contact = right_in_contact | left_in_contact  # (N,)
 
-    ref_L = cmd.retargeted_left_contact_wrench_supports[cmd.timestep_counter]   # (N, num_bodies, B)
-    ref_R = cmd.retargeted_right_contact_wrench_supports[cmd.timestep_counter]  # (N, num_bodies, B)
-    ref_active = ((ref_L > 1e-6) | (ref_R > 1e-6)).any(dim=-1).any(dim=-1)    # (N,)
+    ref_L = cmd.retargeted_left_contact_wrench_supports[
+        cmd.timestep_counter
+    ]  # (N, num_bodies, B)
+    ref_R = cmd.retargeted_right_contact_wrench_supports[
+        cmd.timestep_counter
+    ]  # (N, num_bodies, B)
+    ref_active = ((ref_L > 1e-6) | (ref_R > 1e-6)).any(dim=-1).any(dim=-1)  # (N,)
 
     right_ref_pts = cmd.right_hand_object_contact_command_positions_e  # (N, P_r, 3)
     right_ref_valid = cmd.retargeted_right_object_contact_is_valid[
@@ -1000,10 +1029,16 @@ def contact_wrench_support_reward(
     right_command_has_contact = (
         command.right_hand_contact_wrench_supports_command.amax(dim=-1) > 1e-3
     )  # (num_envs, num_bodies)
+    right_has_contact = (
+        command.right_hand_contact_wrench_supports.amax(dim=-1) > 1e-3
+    )  # (num_envs, num_bodies)
     right_command_num_contact = right_command_has_contact.sum(dim=-1)  # (num_envs,)
 
     left_command_has_contact = (
         command.left_hand_contact_wrench_supports_command.amax(dim=-1) > 1e-3
+    )  # (num_envs, num_bodies)
+    left_has_contact = (
+        command.left_hand_contact_wrench_supports.amax(dim=-1) > 1e-3
     )  # (num_envs, num_bodies)
     left_command_num_contact = left_command_has_contact.sum(dim=-1)  # (num_envs,)
 
@@ -1032,14 +1067,16 @@ def contact_wrench_support_reward(
         dim=-1
     ) + right_not_arbitrarily_large.square().sum(dim=-1)
     right_contact_reward = (
-        right_command_has_contact * torch.exp(-right_contact_loss / var)
+        (right_command_has_contact & right_has_contact)
+        * torch.exp(-right_contact_loss / var)
     ).sum(dim=-1) / right_command_num_contact.clamp(min=1e-3)
 
     left_contact_loss = left_better_than_command.square().sum(
         dim=-1
     ) + left_not_arbitrarily_large.square().sum(dim=-1)
     left_contact_reward = (
-        left_command_has_contact * torch.exp(-left_contact_loss / var)
+        (left_command_has_contact & left_has_contact)
+        * torch.exp(-left_contact_loss / var)
     ).sum(dim=-1) / left_command_num_contact.clamp(min=1e-3)
 
     return (right_contact_reward + left_contact_reward) / 2.0

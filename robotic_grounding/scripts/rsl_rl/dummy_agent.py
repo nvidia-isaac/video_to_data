@@ -24,7 +24,7 @@ parser.add_argument(
     help="Disable fabric and use USD I/O operations.",
 )
 parser.add_argument(
-    "--num_envs", type=int, default=1, help="Number of environments to simulate."
+    "--num_envs", type=int, default=15, help="Number of environments to simulate."
 )
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument(
@@ -65,21 +65,21 @@ args_cli = parser.parse_args()
 # Debug
 ###################################
 args_cli.task = "Sharpa-V2P-v0-Play"
-args_cli.headless = False
+args_cli.headless = True
 args_cli.no_collision = False
 
 # Multiple rigid objects
 # args_cli.motion_file = (
-#     "taco_processed/taco_empty__kettle__plate_20231031_060/sharpa_wave"
+#     "taco/taco_processed/taco_empty__kettle__plate_20231031_060/sharpa_wave"
 # )
 
 # Single rigid object
 # args_cli.motion_file = (
-#     "arctic_processed/arctic_s01_rigid_mixer_grab_01/sharpa_wave"
+#     "arctic/arctic_processed/arctic_s01_rigid_mixer_grab_01/sharpa_wave"
 # )
 
 # Single articulated object
-args_cli.motion_file = "arctic_processed/arctic_s01_capsulemachine_use_01/sharpa_wave"
+# args_cli.motion_file = "arctic/arctic_processed/arctic_s01_capsulemachine_use_01/sharpa_wave"
 ###################################
 
 # launch omniverse app
@@ -125,11 +125,21 @@ def main():
         )
 
     # --no-collision: replace the primary scene object's URDF with *_no_collision.urdf.
-    if args_cli.no_collision and scene_config is not None and scene_config.scene_objects:
+    if (
+        args_cli.no_collision
+        and scene_config is not None
+        and scene_config.scene_objects
+    ):
         primary = scene_config.scene_objects[0]
         scene_obj = getattr(env_cfg.scene, primary.name, None)
-        if scene_obj is not None and hasattr(scene_obj, "spawn") and hasattr(scene_obj.spawn, "asset_path"):
-            no_coll_path = scene_obj.spawn.asset_path.replace("_art.urdf", "_no_collision.urdf")
+        if (
+            scene_obj is not None
+            and hasattr(scene_obj, "spawn")
+            and hasattr(scene_obj.spawn, "asset_path")
+        ):
+            no_coll_path = scene_obj.spawn.asset_path.replace(
+                "_art.urdf", "_no_collision.urdf"
+            )
             scene_obj.spawn = scene_obj.spawn.replace(asset_path=no_coll_path)
 
     env_cfg.commands.dual_hands_object_tracking_command.initial_virtual_object_control_curriculum_scale = (

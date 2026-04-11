@@ -412,13 +412,13 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         """
         self.retargeted_object_body_position = torch.tensor(
             self._retargeted_motion_data.object_body_position, device=self.device
-        )
+        ).float()
         self.retargeted_object_body_wxyz = torch.tensor(
             self._retargeted_motion_data.object_body_wxyz, device=self.device
-        )
+        ).float()
         self.retargeted_object_articulation = torch.tensor(
             self._retargeted_motion_data.object_articulation, device=self.device
-        )
+        ).float()
         self.retargeted_object_body_names = (
             self._retargeted_motion_data.object_body_names
         )
@@ -1624,12 +1624,13 @@ class DualHandsObjectTrackingCommand(CommandTerm):
                 object_velocity[:, object_idx], env_ids=env_ids
             )
             # For articulated objects, also reset joint state to match the reference frame.
-            # Without this, joints start at their physics-engine default (0.0) rather than
-            # the reference trajectory angle, causing a one-episode transient error.
-            if isinstance(object, Articulation) and self.retargeted_object_articulation.numel() > 0:
+            if (
+                isinstance(object, Articulation)
+                and self.retargeted_object_articulation.numel() > 0
+            ):
                 joint_pos = self.retargeted_object_articulation[
                     self.timestep_counter[env_ids]
-                ].float()  # (len(env_ids), N_joints)
+                ]  # (len(env_ids),)
                 if joint_pos.dim() == 1:
                     joint_pos = joint_pos.unsqueeze(-1)
                 object.write_joint_state_to_sim(
