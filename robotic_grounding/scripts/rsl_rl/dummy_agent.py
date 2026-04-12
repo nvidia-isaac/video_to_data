@@ -74,9 +74,9 @@ args_cli.no_collision = False
 # )
 
 # Single rigid object
-# args_cli.motion_file = (
-#     "arctic/arctic_processed/arctic_s01_rigid_mixer_grab_01/sharpa_wave"
-# )
+args_cli.motion_file = (
+    "arctic/arctic_processed/arctic_s01_rigid_capsulemachine_grab_01/sharpa_wave"
+)
 
 # Single articulated object
 # args_cli.motion_file = "arctic/arctic_processed/arctic_s01_capsulemachine_use_01/sharpa_wave"

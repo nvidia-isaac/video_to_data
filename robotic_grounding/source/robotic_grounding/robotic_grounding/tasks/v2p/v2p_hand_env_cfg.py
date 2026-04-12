@@ -298,7 +298,7 @@ class RewardsCfg:
         params={
             "command_name": "dual_hands_object_tracking_command",
             "tolerance": 0.1,
-            "var": 60.0,
+            "var": 30.0,
         },
     )
 
@@ -474,7 +474,9 @@ class V2PHandEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.dt = 0.01  # 100 Hz simulation
         self.sim.render_interval = self.decimation  # 20 Hz rendering
         self.sim.physics_material = self.scene.terrain.physics_material
-        self.sim.physx.gpu_max_rigid_patch_count = 20 * 2**15
+        self.sim.physx.bounce_threshold_velocity = 0.2
+        self.sim.physx.gpu_max_rigid_contact_count = 2**23
+        self.sim.physx.gpu_max_rigid_patch_count = 2**23
 
         # Make the environment more compliant
         self.sim.physics_material.compliant_contact_stiffness = 10.0
@@ -513,7 +515,9 @@ class V2PHandEnvCfgEnvOnly(ManagerBasedRLEnvCfg):
         self.sim.dt = 0.01  # 100 Hz simulation
         self.sim.render_interval = self.decimation  # 20 Hz rendering
         self.sim.physics_material = self.scene.terrain.physics_material
-        self.sim.physx.gpu_max_rigid_patch_count = 20 * 2**15
+        self.sim.physx.bounce_threshold_velocity = 0.2
+        self.sim.physx.gpu_max_rigid_contact_count = 2**23
+        self.sim.physx.gpu_max_rigid_patch_count = 2**23
 
         # Make the environment more compliant
         self.sim.physics_material.compliant_contact_stiffness = 10.0
