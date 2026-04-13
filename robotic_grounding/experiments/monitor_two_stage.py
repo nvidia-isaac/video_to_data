@@ -38,8 +38,6 @@ from typing import Any
 import wandb
 import yaml
 
-from experiments.utils import overrides_to_cli  # noqa: E402
-
 _RG_ROOT = Path(__file__).resolve().parent.parent
 _EXPERIMENTS_DIR = _RG_ROOT / "experiments"
 _WANDB_PROJECT = "v2p_hands"
@@ -49,6 +47,8 @@ _DEFAULT_POOL = "isaac-dev-l40s-04"
 
 if str(_RG_ROOT) not in sys.path:
     sys.path.insert(0, str(_RG_ROOT))
+
+from experiments.utils import overrides_to_cli  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -203,7 +203,7 @@ python scripts/rsl_rl/train.py \\
   --run_name {run_name} \\
   --motion_file arctic_processed/{seq_id}/sharpa_wave \\
   --max_iterations {max_iterations} \\
-  --no-collision \\
+  --disable_robot_to_object_collisions \\
   --logger wandb \\
   --log_project_name {_WANDB_PROJECT} \\
   --resume --checkpoint "{{{{input:0}}}}/ckpt_{seq_key}/{ckpt_filename}" \\
@@ -269,7 +269,7 @@ python scripts/rsl_rl/train.py \\
   --run_name {run_name} \\
   --motion_file arctic_processed/{seq_id}/sharpa_wave \\
   --max_iterations {max_iterations} \\
-  --no-collision \\
+  --disable_robot_to_object_collisions \\
   --logger wandb \\
   --log_project_name {_WANDB_PROJECT} \\
   {overrides_cli}

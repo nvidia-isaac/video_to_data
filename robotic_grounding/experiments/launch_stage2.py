@@ -66,13 +66,17 @@ def fetch_crashed_checkpoints(outdir: Path, config: dict) -> dict[str, Path]:
     """Download latest checkpoints from crashed stage2 W&B runs. Returns {seq_key: local_path}."""
     api = wandb.Api()
     project = config.get("wandb_project", "v2p_hands")
-    run_name_suffix = config.get("run_name_suffix", "stage2")
+    # crashed_run_name_suffix allows looking for checkpoints in a *different* run
+    # (e.g. the original 10k run) while still submitting under run_name_suffix.
+    search_suffix = config.get("crashed_run_name_suffix") or config.get(
+        "run_name_suffix", "stage2"
+    )
     sequences = config["sequences"]
     checkpoints: dict[str, Path] = {}
 
     for seq_id in sequences:
         seq_key = _sequence_to_seq_key(seq_id)
-        run_name = f"{run_name_suffix}_{seq_key}"
+        run_name = f"{search_suffix}_{seq_key}"
         runs = api.runs(
             f"nvidia-isaac/{project}",
             filters={"display_name": {"$regex": run_name}},
