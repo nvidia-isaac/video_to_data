@@ -203,7 +203,6 @@ python scripts/rsl_rl/train.py \\
   --run_name {run_name} \\
   --motion_file arctic/arctic_processed/{seq_id}/sharpa_wave \\
   --max_iterations {max_iterations} \\
-  --disable_robot_to_object_collisions \\
   --logger wandb \\
   --log_project_name {_WANDB_PROJECT} \\
   --resume --checkpoint "{{{{input:0}}}}/ckpt_{seq_key}/{ckpt_filename}" \\
@@ -269,7 +268,6 @@ python scripts/rsl_rl/train.py \\
   --run_name {run_name} \\
   --motion_file arctic/arctic_processed/{seq_id}/sharpa_wave \\
   --max_iterations {max_iterations} \\
-  --disable_robot_to_object_collisions \\
   --logger wandb \\
   --log_project_name {_WANDB_PROJECT} \\
   {overrides_cli}

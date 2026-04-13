@@ -1,7 +1,7 @@
 """OSMO workflow generator for exp_stage1_nocoll.
 
 For each of the 6 objects:
-  1. Launches a training task with --disable_robot_to_object_collisions so the
+  1. Launches a training task with the collision-disable Hydra override so the
      hands can freely learn to track keypoints before contact rewards are introduced.
   2. After training, uploads the final checkpoint as a W&B artifact so that
      launch_stage2.py can retrieve it for the second training stage.
@@ -143,7 +143,6 @@ python scripts/rsl_rl/train.py \\
   --task Sharpa-V2P-v0 \\
   --run_name {run_name} \\
   --motion_file arctic/arctic_processed/{seq_id}/sharpa_wave \\
-  --disable_robot_to_object_collisions \\
   --max_iterations {max_iterations} \\
   --logger wandb \\
   --log_project_name {_WANDB_PROJECT} \\

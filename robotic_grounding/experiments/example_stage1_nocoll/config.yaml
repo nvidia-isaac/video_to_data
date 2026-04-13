@@ -17,6 +17,8 @@ video: false
 max_iterations: 1000
 
 train_overrides:
+  # Disable robot-to-object collisions so hands can freely track keypoints
+  env.events.setup_collision_groups.params.disable_robot_to_object_collisions: "true"
   # Hand tracking rewards active (same as stage 2)
   env.rewards.hand_keypoints_tracking_exp.weight: "1.0"
   env.rewards.hand_joint_pos_tracking_exp.weight: "1.0"

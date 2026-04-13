@@ -1,7 +1,7 @@
 """Pipeline orchestrator for example_two_stage.
 
 Runs the full two-stage training pipeline:
-  Stage 1 — submit collision-free warm-up OSMO job (exp stage1, with --disable_robot_to_object_collisions)
+  Stage 1 — submit collision-free warm-up OSMO job (exp stage1, collision disabled via Hydra override)
   Wait    — poll OSMO until all stage1 tasks finish
   Stage 2 — fetch W&B artifacts, submit exp44-style OSMO job (launch_stage2.py)
 """

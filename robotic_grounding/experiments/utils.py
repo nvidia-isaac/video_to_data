@@ -57,7 +57,6 @@ def build_train_command(
     task: str = "Sharpa-V2P-v0",
     logger: str | None = None,
     log_project_name: str | None = None,
-    disable_robot_to_object_collisions: bool = False,
 ) -> list[str]:
     """Build train.py command as list of args."""
     cmd = [
@@ -65,11 +64,6 @@ def build_train_command(
         "scripts/rsl_rl/train.py",
         "--headless" if headless else "",
         "--video" if video else "",
-        (
-            "--disable_robot_to_object_collisions"
-            if disable_robot_to_object_collisions
-            else ""
-        ),
         "--task",
         task,
         "--run_name",

@@ -91,12 +91,6 @@ parser.add_argument(
     default=None,
     help="Motion file to load.",
 )
-parser.add_argument(
-    "--disable_robot_to_object_collisions",
-    action="store_true",
-    default=False,
-    help="Disable robot-to-object collisions via collision group filter.",
-)
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -216,15 +210,6 @@ def main(
         env_cfg.scene_config_path = args_cli.scene_config
         scene_config = SceneConfig.from_yaml(args_cli.scene_config)
         apply_scene_config(env_cfg, scene_config)
-
-    if (
-        args_cli.disable_robot_to_object_collisions
-        and hasattr(env_cfg, "events")
-        and hasattr(env_cfg.events, "setup_collision_groups")
-    ):
-        env_cfg.events.setup_collision_groups.params[
-            "disable_robot_to_object_collisions"
-        ] = True
 
     # set max iterations
     agent_cfg.max_iterations = (

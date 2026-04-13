@@ -107,16 +107,13 @@ def run_local(
     seed = config.get("seed")
     motion_file = config.get("motion_file")
     max_iterations = config.get("max_iterations")
-    disable_robot_to_object_collisions = False
-
-    # Stage 1 (osmo_multi_task): pick first sequence, derive motion_file, disable robot-object collisions.
+    # Stage 1 (osmo_multi_task): pick first sequence, derive motion_file.
     if "osmo_multi_task" in config:
         seq_ids = config["osmo_multi_task"].get("sequence_ids", [])
         if seq_ids:
             motion_file = (
                 motion_file or f"arctic/arctic_processed/{seq_ids[0]}/sharpa_wave"
             )
-            disable_robot_to_object_collisions = True
 
     # Stage 2 (sequences): pick first sequence, derive motion_file.
     elif "sequences" in config:
@@ -161,7 +158,6 @@ def run_local(
         motion_file=motion_file,
         num_envs=num_envs,
         max_iterations=max_iterations,
-        disable_robot_to_object_collisions=disable_robot_to_object_collisions,
         video=video,
     )
     cmd_str = " ".join(cmd)
