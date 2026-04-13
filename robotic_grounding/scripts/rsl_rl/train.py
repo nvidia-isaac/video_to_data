@@ -217,7 +217,11 @@ def main(
         scene_config = SceneConfig.from_yaml(args_cli.scene_config)
         apply_scene_config(env_cfg, scene_config)
 
-    if args_cli.disable_robot_to_object_collisions and hasattr(env_cfg, "events") and hasattr(env_cfg.events, "setup_collision_groups"):
+    if (
+        args_cli.disable_robot_to_object_collisions
+        and hasattr(env_cfg, "events")
+        and hasattr(env_cfg.events, "setup_collision_groups")
+    ):
         env_cfg.events.setup_collision_groups.params[
             "disable_robot_to_object_collisions"
         ] = True

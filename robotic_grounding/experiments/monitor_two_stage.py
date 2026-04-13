@@ -35,8 +35,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import wandb
 import yaml
+
+import wandb
 
 _RG_ROOT = Path(__file__).resolve().parent.parent
 _EXPERIMENTS_DIR = _RG_ROOT / "experiments"
@@ -49,7 +50,6 @@ if str(_RG_ROOT) not in sys.path:
     sys.path.insert(0, str(_RG_ROOT))
 
 from experiments.utils import overrides_to_cli  # noqa: E402
-
 
 # ---------------------------------------------------------------------------
 # Utilities

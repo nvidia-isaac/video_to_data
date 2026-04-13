@@ -65,7 +65,11 @@ def build_train_command(
         "scripts/rsl_rl/train.py",
         "--headless" if headless else "",
         "--video" if video else "",
-        "--disable_robot_to_object_collisions" if disable_robot_to_object_collisions else "",
+        (
+            "--disable_robot_to_object_collisions"
+            if disable_robot_to_object_collisions
+            else ""
+        ),
         "--task",
         task,
         "--run_name",
