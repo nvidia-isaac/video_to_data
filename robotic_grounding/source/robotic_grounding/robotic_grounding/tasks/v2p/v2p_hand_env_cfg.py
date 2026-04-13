@@ -195,6 +195,19 @@ class ObservationsCfg:
 class EventCfg:
     """Configuration for events."""
 
+    # prestartup
+    setup_collision_groups = EventTerm(
+        func=mdp.configure_collision_groups,
+        mode="prestartup",
+        params={
+            "robot_names": [],
+            "object_names": [],
+            "fixed_object_names": [],
+            "disable_robot_to_object_collisions": False,
+            "disable_robot_to_fixed_object_collisions": True,
+        },
+    )
+
     # startup
     right_physics_material = EventTerm(
         func=isaac_mdp.randomize_rigid_body_material,
@@ -454,7 +467,12 @@ class V2PHandEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the locomotion velocity-tracking environment."""
 
     # Scene settings
-    scene: V2PSceneCfg = V2PSceneCfg(num_envs=4096, env_spacing=1.5)
+    scene: V2PSceneCfg = V2PSceneCfg(
+        num_envs=4096,
+        env_spacing=1.5,
+        replicate_physics=False,
+        filter_collisions=False,
+    )
     # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
