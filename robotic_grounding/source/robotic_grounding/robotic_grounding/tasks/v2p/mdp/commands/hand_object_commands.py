@@ -1867,6 +1867,8 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             self.left_hand_goal_pose_visualizer.set_visibility(False)
             for visualizer in getattr(self, "object_pose_visualizers", []):
                 visualizer.set_visibility(False)
+            for visualizer in getattr(self, "object_com_visualizers", []):
+                visualizer.set_visibility(False)
             for visualizer in getattr(self, "contact_marker_visualizers", []):
                 visualizer.set_visibility(False)
             for visualizer in getattr(self, "robot_contact_marker_visualizers", []):
@@ -1877,6 +1879,7 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         if debug_vis:
             # Current object pose visualizers
             self.object_pose_visualizers = []
+            self.object_com_visualizers = []
             self.object_goal_pose_visualizers = []
             for body_idx in range(self.num_bodies):
                 object_pose_visualizer_cfg = (
@@ -1889,6 +1892,15 @@ class DualHandsObjectTrackingCommand(CommandTerm):
                 )
                 object_pose_visualizer.set_visibility(True)
                 self.object_pose_visualizers.append(object_pose_visualizer)
+
+                object_com_visualizer_cfg = (
+                    self.cfg.object_com_pose_visualizer_cfg.replace(
+                        prim_path=f"/Visuals/Command/object_com_marker_{body_idx}"
+                    )
+                )
+                object_com_visualizer = VisualizationMarkers(object_com_visualizer_cfg)
+                object_com_visualizer.set_visibility(True)
+                self.object_com_visualizers.append(object_com_visualizer)
 
                 object_goal_pose_visualizer_cfg = (
                     self.cfg.object_goal_pose_visualizer_cfg.replace(
@@ -1977,6 +1989,12 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             object_pose_visualizer.visualize(
                 translations=self.object_position_w[:, body_idx],
                 orientations=self.object_orientation_e[:, body_idx],
+            )
+        object_com_state_w = self.object_com_position_and_wxyz_w
+        for body_idx, object_com_visualizer in enumerate(self.object_com_visualizers):
+            object_com_visualizer.visualize(
+                translations=object_com_state_w[:, body_idx, :3],
+                orientations=object_com_state_w[:, body_idx, 3:7],
             )
         self.right_hand_pose_visualizer.visualize(
             translations=self.right_robot.data.root_link_pos_w,
