@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Monitor two-stage training experiments and auto-resume crashed runs.
+r"""Monitor two-stage training experiments and auto-resume crashed runs.
 
 Watches W&B for stage1/stage2 runs and relaunches any that crash early.
 Designed to be run periodically (e.g., via cron every 10 minutes).
@@ -11,8 +11,8 @@ Subsequent runs: checks W&B, relaunches crashed stage1 tasks, detects
 stage1 completion to trigger stage2, and monitors stage2 for crashes.
 
 Usage (first time):
-    python scripts/monitor_two_stage.py --init \\
-        --exp-ids exp52 exp53 exp54 exp55 exp56 \\
+    python scripts/monitor_two_stage.py --init \
+        --exp-ids exp52 exp53 exp54 exp55 exp56 \
         --image nvcr.io/nvstaging/isaac-amr/robotic-grounding:v2d
 
 Usage (subsequent runs via cron):
@@ -33,9 +33,12 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import wandb
 import yaml
+
+from experiments.utils import overrides_to_cli  # noqa: E402
 
 _RG_ROOT = Path(__file__).resolve().parent.parent
 _EXPERIMENTS_DIR = _RG_ROOT / "experiments"
@@ -51,6 +54,7 @@ if str(_RG_ROOT) not in sys.path:
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
 
 def _now_str() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -95,7 +99,9 @@ def _sequence_to_object(seq_id: str) -> str:
 # State management
 # ---------------------------------------------------------------------------
 
+
 def load_state(state_file: Path) -> dict:
+    """Load persisted monitoring state from disk."""
     if state_file.exists():
         with open(state_file) as f:
             return json.load(f)
@@ -103,6 +109,7 @@ def load_state(state_file: Path) -> dict:
 
 
 def save_state(state: dict, state_file: Path) -> None:
+    """Persist monitoring state to disk."""
     with open(state_file, "w") as f:
         json.dump(state, f, indent=2)
     _log(f"State saved to {state_file}")
@@ -111,6 +118,7 @@ def save_state(state: dict, state_file: Path) -> None:
 # ---------------------------------------------------------------------------
 # Stage 1 relaunch helpers
 # ---------------------------------------------------------------------------
+
 
 def _checkpoint_upload_snippet(seq_key: str, run_name: str) -> str:
     """Bash snippet that uploads the final checkpoint as a W&B artifact.
@@ -178,8 +186,6 @@ def _generate_stage1_resume_yaml(
     OSMO receives the parent directory as a dataset input and the training script reads
     the checkpoint from the container mount point {{{input:0}}}/ckpt_{seq_key}/{filename}.
     """
-    from experiments.utils import overrides_to_cli  # noqa: E402
-
     seq_key = _sequence_to_seq_key(seq_id)
     run_name = f"{exp_id}_stage1_{seq_key}"
     max_iterations = stage1_config.get("max_iterations", 1000)
@@ -247,8 +253,6 @@ def _generate_stage1_fresh_yaml(
     image: str,
 ) -> str:
     """Generate OSMO workflow YAML for a fresh (no checkpoint) stage1 restart."""
-    from experiments.utils import overrides_to_cli  # noqa: E402
-
     seq_key = _sequence_to_seq_key(seq_id)
     run_name = f"{exp_id}_stage1_{seq_key}"
     max_iterations = stage1_config.get("max_iterations", 1000)
@@ -338,6 +342,7 @@ def _download_stage1_checkpoint(seq_key: str, outdir: Path) -> Path | None:
 # Actions
 # ---------------------------------------------------------------------------
 
+
 def submit_stage1(
     exp_id: str,
     stage1_exp_id: str,
@@ -369,7 +374,7 @@ def submit_stage1(
     _log(f"Submitting stage1 for {exp_id} (config: {stage1_exp_id})")
     if build_image:
         _log(f"Building image {image} ...")
-    result = subprocess.run(cmd, cwd=_RG_ROOT)
+    result = subprocess.run(cmd, cwd=_RG_ROOT, check=False)
     if result.returncode != 0:
         _log(f"WARNING: Stage1 submission for {exp_id} exited {result.returncode}")
         return False
@@ -382,7 +387,7 @@ def submit_stage1(
 def relaunch_stage1_task(
     exp_id: str,
     seq_id: str,
-    crashed_run,
+    crashed_run: Any,
     stage1_config: dict,
     image: str,
     pool: str,
@@ -414,7 +419,9 @@ def relaunch_stage1_task(
                 _log(f"  ERROR generating resume workflow: {e}")
                 return False
         else:
-            _log(f"  No checkpoint found — relaunching fresh (stage1 is short, ~1k iters)")
+            _log(
+                "  No checkpoint found — relaunching fresh (stage1 is short, ~1k iters)"
+            )
             workflow_name = f"{exp_id}_stage1_fresh_{seq_key}"
             try:
                 workflow_yaml = _generate_stage1_fresh_yaml(
@@ -447,7 +454,7 @@ def relaunch_stage1_task(
                 _log(f"  [DRY RUN] {' '.join(cmd)}")
                 return True
             _log(f"  Submitting {'resume' if ckpt_path else 'fresh'} workflow...")
-            result = subprocess.run(cmd, cwd=_RG_ROOT)
+            result = subprocess.run(cmd, cwd=_RG_ROOT, check=False)
             if result.returncode != 0:
                 _log(f"  WARNING: OSMO submission failed (exit {result.returncode})")
                 return False
@@ -487,7 +494,7 @@ def launch_stage2(
         cmd.append("--dry-run")
     if build_image:
         _log(f"Building image {image} ...")
-    result = subprocess.run(cmd, cwd=_RG_ROOT)
+    result = subprocess.run(cmd, cwd=_RG_ROOT, check=False)
     if result.returncode != 0:
         _log(f"  WARNING: Stage2 launch failed (exit {result.returncode})")
         return False
@@ -524,7 +531,7 @@ def resume_crashed_stage2(
     ]
     if dry_run:
         cmd.append("--dry-run")
-    result = subprocess.run(cmd, cwd=_RG_ROOT)
+    result = subprocess.run(cmd, cwd=_RG_ROOT, check=False)
     if result.returncode != 0:
         _log(f"  WARNING: Stage2 resume failed (exit {result.returncode})")
         return False
@@ -534,6 +541,7 @@ def resume_crashed_stage2(
 # ---------------------------------------------------------------------------
 # Core monitoring logic
 # ---------------------------------------------------------------------------
+
 
 def monitor_once(state: dict, dry_run: bool = False) -> dict:
     """Run one monitoring pass. Mutates and returns state."""
@@ -584,7 +592,15 @@ def monitor_once(state: dict, dry_run: bool = False) -> dict:
 
         # ── Submit stage1 if not done yet ──
         if not exp_state.get("stage1_submitted"):
-            ok = submit_stage1(exp_id, stage1_exp_id, image, pool, priority, dry_run, build_image=build_image)
+            ok = submit_stage1(
+                exp_id,
+                stage1_exp_id,
+                image,
+                pool,
+                priority,
+                dry_run,
+                build_image=build_image,
+            )
             if ok or dry_run:
                 exp_state["stage1_submitted"] = True
                 exp_state["stage1_submit_time"] = _now_str()
@@ -597,13 +613,13 @@ def monitor_once(state: dict, dry_run: bool = False) -> dict:
                     api.runs(
                         f"nvidia-isaac/{_WANDB_PROJECT}",
                         filters={
-                            "display_name": {
-                                "$regex": f"{re.escape(exp_id)}_stage1_"
-                            }
+                            "display_name": {"$regex": f"{re.escape(exp_id)}_stage1_"}
                         },
                     )
                 )
-                stage1_runs = [r for r in stage1_runs_all if r.created_at > submitted_after]
+                stage1_runs = [
+                    r for r in stage1_runs_all if r.created_at > submitted_after
+                ]
             except Exception as e:
                 _log(f"  WARNING: W&B query failed for {exp_id} stage1: {e}")
                 stage1_runs = []
@@ -611,13 +627,11 @@ def monitor_once(state: dict, dry_run: bool = False) -> dict:
             # Group by seq_key; most recent run first
             runs_by_seq: dict[str, list] = {}
             for run in stage1_runs:
-                m = re.search(
-                    rf"{re.escape(exp_id)}_stage1_(.+)$", run.display_name
-                )
+                m = re.search(rf"{re.escape(exp_id)}_stage1_(.+)$", run.display_name)
                 if m:
                     sk = m.group(1)
                     runs_by_seq.setdefault(sk, []).append(run)
-            for sk in runs_by_seq:
+            for sk in runs_by_seq:  # noqa: PLC0206
                 runs_by_seq[sk].sort(key=lambda r: r.created_at, reverse=True)
 
             completed_seqs = set(exp_state.get("stage1_completed_seqs", []))
@@ -636,7 +650,9 @@ def monitor_once(state: dict, dry_run: bool = False) -> dict:
                 latest = runs[0]
                 steps = latest.summary.get("_step", 0) or 0
                 state_str = latest.state
-                print(f"  stage1/{seq_key}: {state_str} @ step {steps} ({latest.display_name})")
+                print(
+                    f"  stage1/{seq_key}: {state_str} @ step {steps} ({latest.display_name})"
+                )
 
                 if state_str == "finished":
                     completed_seqs.add(seq_key)
@@ -655,7 +671,9 @@ def monitor_once(state: dict, dry_run: bool = False) -> dict:
                         reruns = exp_state["stage1_reruns"].setdefault(seq_key, [])
                         already = any(r["run_id"] == latest.id for r in reruns)
                         if already:
-                            _log(f"    → already relaunched this crash (run_id={latest.id})")
+                            _log(
+                                f"    → already relaunched this crash (run_id={latest.id})"
+                            )
                         elif len(reruns) >= max_reruns_per_seq:
                             _log(
                                 f"    → max reruns ({max_reruns_per_seq}) reached for {seq_key}, skipping"
@@ -690,7 +708,15 @@ def monitor_once(state: dict, dry_run: bool = False) -> dict:
             )
             if all_done:
                 _log(f"  All stage1 tasks complete for {exp_id}! Launching stage2...")
-                ok = launch_stage2(exp_id, stage2_config_id, image, pool, priority, dry_run, build_image=build_image)
+                ok = launch_stage2(
+                    exp_id,
+                    stage2_config_id,
+                    image,
+                    pool,
+                    priority,
+                    dry_run,
+                    build_image=build_image,
+                )
                 if ok or dry_run:
                     exp_state["stage2_launched"] = True
                     exp_state["stage2_launch_time"] = _now_str()
@@ -709,13 +735,13 @@ def monitor_once(state: dict, dry_run: bool = False) -> dict:
                     api.runs(
                         f"nvidia-isaac/{_WANDB_PROJECT}",
                         filters={
-                            "display_name": {
-                                "$regex": f"{re.escape(stage2_suffix)}_"
-                            }
+                            "display_name": {"$regex": f"{re.escape(stage2_suffix)}_"}
                         },
                     )
                 )
-                stage2_runs = [r for r in stage2_runs_all if r.created_at > submitted_after]
+                stage2_runs = [
+                    r for r in stage2_runs_all if r.created_at > submitted_after
+                ]
             except Exception as e:
                 _log(f"  WARNING: W&B query failed for {exp_id} stage2: {e}")
                 stage2_runs = []
@@ -762,7 +788,9 @@ def monitor_once(state: dict, dry_run: bool = False) -> dict:
 # Entry point
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
+    """Parse arguments and run the two-stage training monitor."""
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -783,7 +811,9 @@ def main() -> None:
         nargs="+",
         help="Experiment IDs to monitor (required with --init)",
     )
-    parser.add_argument("--image", default=_DEFAULT_IMAGE, help="Docker image for OSMO tasks")
+    parser.add_argument(
+        "--image", default=_DEFAULT_IMAGE, help="Docker image for OSMO tasks"
+    )
     parser.add_argument("--pool", default=_DEFAULT_POOL, help="OSMO pool")
     parser.add_argument("--priority", default="NORMAL", help="OSMO priority")
     parser.add_argument(
@@ -804,8 +834,14 @@ def main() -> None:
         default=50,
         help="Ignore crashes before this many steps (system error) (default: 50)",
     )
-    parser.add_argument("--build-image", action="store_true", help="Build and push Docker image before submitting")
-    parser.add_argument("--dry-run", action="store_true", help="Preview without executing")
+    parser.add_argument(
+        "--build-image",
+        action="store_true",
+        help="Build and push Docker image before submitting",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Preview without executing"
+    )
     args = parser.parse_args()
 
     if args.init:

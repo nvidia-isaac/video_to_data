@@ -22,7 +22,7 @@ experiments/
     workflow.py               # required for multi-task/sweep OSMO jobs
 ```
 
-Only `example_*` directories are committed to the repo.  
+Only `example_*` directories are committed to the repo.
 Add your own experiment folders locally; they are gitignored (`experiments/exp*/`).
 
 ---
@@ -33,7 +33,7 @@ Add your own experiment folders locally; they are gitignored (`experiments/exp*/
 
 **Directory:** `example_single_run/`
 
-Trains on a single sequence, locally or with one OSMO task.  
+Trains on a single sequence, locally or with one OSMO task.
 No `workflow.py` needed — `run_experiment.py` generates the workflow inline.
 
 **config.yaml keys:**
@@ -57,7 +57,7 @@ python robotic_grounding/scripts/run_experiment.py example_single --print-workfl
 
 **Directory:** `example_sequence_list/`
 
-Spawns one independent OSMO task per sequence in `osmo_multi_task.sequence_ids`.  
+Spawns one independent OSMO task per sequence in `osmo_multi_task.sequence_ids`.
 Requires `workflow.py` with a `generate_workflow(exp_id, config) -> str` function.
 
 **Additional config.yaml keys:**
@@ -80,7 +80,7 @@ python robotic_grounding/scripts/run_experiment.py example_sequences --local --v
 
 **Directory:** `example_param_sweep/`
 
-Sweeps a grid of hyperparameter values, spawning one OSMO task per combination.  
+Sweeps a grid of hyperparameter values, spawning one OSMO task per combination.
 Requires `workflow.py` with `generate_workflow` and optionally `get_variant_overrides`.
 
 **Additional config.yaml keys:**
@@ -142,7 +142,7 @@ Skills are prompt templates that Claude follows when you type a slash command.
 
 ### What a skill file looks like
 
-Skills live in `.claude/skills/<skill-name>/SKILL.md`.  
+Skills live in `.claude/skills/<skill-name>/SKILL.md`.
 Two scopes are useful here:
 
 | Scope | Path | Visible to |

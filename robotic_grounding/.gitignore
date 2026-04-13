@@ -243,3 +243,6 @@ wandb/
 
 # Monitor state
 scripts/monitor_state.json
+
+experiments/exp*/
+experiments/registry.local.yaml

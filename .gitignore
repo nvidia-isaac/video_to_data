@@ -7,9 +7,5 @@ CLAUDE.md
 .claude/
 *.code-workspace
 
-# Real experiments — only example_* directories are committed
-robotic_grounding/experiments/exp*/
-robotic_grounding/experiments/registry.local.yaml
-
 # Auto-generated no-collision URDFs (created at pipeline runtime from *_rigid.urdf)
 **/*_no_collision.urdf

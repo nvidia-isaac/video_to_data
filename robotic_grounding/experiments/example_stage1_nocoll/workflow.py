@@ -37,6 +37,7 @@ _WANDB_PROJECT = "v2p_hands"
 # Local --variant support
 # ---------------------------------------------------------------------------
 
+
 def _sequence_to_seq_key(seq_id: str) -> str:
     parts = seq_id.split("_")
     return "_".join(parts[2:]) if len(parts) > 2 else seq_id
@@ -61,6 +62,7 @@ def get_variant_overrides(variant_name: str, config: dict) -> dict:
 # ---------------------------------------------------------------------------
 # Checkpoint upload snippet (embedded in entry.sh)
 # ---------------------------------------------------------------------------
+
 
 def _checkpoint_upload_snippet(seq_key: str, run_name: str) -> str:
     """Bash snippet that uploads the final checkpoint as a W&B artifact."""
@@ -117,13 +119,14 @@ fi"""
 # OSMO workflow generation
 # ---------------------------------------------------------------------------
 
+
 def generate_workflow(exp_id: str, config: dict) -> str:
     """Generate OSMO multi-task workflow YAML for stage1: one task per object."""
     mt = config["osmo_multi_task"]
     sequence_ids = mt["sequence_ids"]
     base_overrides = dict(config["train_overrides"])
     max_iterations = config.get("max_iterations", 1000)
-    video = config.get("video", False)
+    _video = config.get("video", False)
     wandb_api_key = os.environ.get("WANDB_API_KEY", "")
     if not wandb_api_key:
         print("[WARNING] WANDB_API_KEY not set — wandb will fail in the container")
@@ -133,7 +136,7 @@ def generate_workflow(exp_id: str, config: dict) -> str:
 
     tasks_yaml = []
     for seq_id in sequence_ids:
-        obj = sequence_to_object(seq_id)
+        _obj = sequence_to_object(seq_id)
         seq_key = _sequence_to_seq_key(seq_id)
 
         prefix = config.get("run_name_prefix", "")
@@ -154,7 +157,9 @@ python scripts/rsl_rl/train.py \\
   --logger wandb \\
   --log_project_name {_WANDB_PROJECT} \\
   {overrides_cli}
-""" + _checkpoint_upload_snippet(seq_key, run_name)
+""" + _checkpoint_upload_snippet(
+            seq_key, run_name
+        )
 
         entry_indent = "\n".join("        " + line for line in entry.split("\n"))
         tasks_yaml.append(

@@ -8,6 +8,7 @@ Runs the full two-stage training pipeline:
 
 from __future__ import annotations
 
+import argparse
 import re
 import subprocess
 import sys
@@ -25,10 +26,10 @@ if str(_RG_ROOT) not in sys.path:
     sys.path.insert(0, str(_RG_ROOT))
 from experiments.utils import generate_no_collision_urdfs  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Step 0: generate no-collision URDFs locally
 # ---------------------------------------------------------------------------
+
 
 def _load_registry() -> dict[str, str]:
     registry: dict[str, str] = {}
@@ -51,7 +52,7 @@ def _step0_generate_urdfs(stage1_exp_id: str) -> None:
     with open(config_path) as f:
         stage1_config = yaml.safe_load(f)
     sequence_ids = stage1_config["osmo_multi_task"]["sequence_ids"]
-    print(f"\n[pipeline] Step 0: generating no-collision URDFs...")
+    print("\n[pipeline] Step 0: generating no-collision URDFs...")
     generate_no_collision_urdfs(sequence_ids)
 
 
@@ -59,15 +60,20 @@ def _step0_generate_urdfs(stage1_exp_id: str) -> None:
 # OSMO helpers
 # ---------------------------------------------------------------------------
 
-def _submit_stage1(stage1_exp_id: str, pool: str, priority: str, build_image: bool, dry_run: bool) -> str | None:
+
+def _submit_stage1(
+    stage1_exp_id: str, pool: str, priority: str, build_image: bool, dry_run: bool
+) -> str | None:
     """Submit stage1 via run_experiment.py. Returns the OSMO workflow ID."""
     cmd = [
         sys.executable,
         str(_RG_SCRIPTS_DIR / "run_experiment.py"),
         stage1_exp_id,
         "--osmo",
-        "--pool", pool,
-        "--priority", priority,
+        "--pool",
+        pool,
+        "--priority",
+        priority,
     ]
     if build_image:
         cmd.append("--build-image")
@@ -75,11 +81,15 @@ def _submit_stage1(stage1_exp_id: str, pool: str, priority: str, build_image: bo
         cmd.append("--dry-run")
 
     print(f"\n[pipeline] Submitting stage 1 ({stage1_exp_id})...")
-    result = subprocess.run(cmd, cwd=_RG_ROOT, capture_output=True, text=True)
+    result = subprocess.run(
+        cmd, cwd=_RG_ROOT, capture_output=True, text=True, check=False
+    )
     print(result.stdout, end="")
     print(result.stderr, end="")
     if result.returncode != 0:
-        raise SystemExit(f"[pipeline] Stage 1 submission failed (exit {result.returncode})")
+        raise SystemExit(
+            f"[pipeline] Stage 1 submission failed (exit {result.returncode})"
+        )
 
     if dry_run:
         print("[pipeline] Dry-run: skipping stage1 poll and stage2 launch.")
@@ -89,7 +99,9 @@ def _submit_stage1(stage1_exp_id: str, pool: str, priority: str, build_image: bo
     match = re.search(r"Workflow ID\s+-\s+(\S+)", result.stdout + result.stderr)
     if match:
         return match.group(1)
-    raise SystemExit("[pipeline] Could not determine stage1 workflow ID from OSMO output.")
+    raise SystemExit(
+        "[pipeline] Could not determine stage1 workflow ID from OSMO output."
+    )
 
 
 def _poll_until_done(workflow_id: str, poll_interval: int) -> None:
@@ -100,7 +112,9 @@ def _poll_until_done(workflow_id: str, poll_interval: int) -> None:
     while True:
         result = subprocess.run(
             ["osmo", "workflow", "query", workflow_id],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
+            check=False,
         )
         output = result.stdout + result.stderr
 
@@ -116,7 +130,7 @@ def _poll_until_done(workflow_id: str, poll_interval: int) -> None:
         if wf_status in terminal:
             if wf_status != "SUCCEEDED":
                 raise SystemExit(f"[pipeline] Stage 1 {wf_status} — aborting pipeline.")
-            print(f"[pipeline] Stage 1 SUCCEEDED.")
+            print("[pipeline] Stage 1 SUCCEEDED.")
             return
 
         time.sleep(poll_interval)
@@ -126,14 +140,17 @@ def _poll_until_done(workflow_id: str, poll_interval: int) -> None:
 # Entry point called by run_experiment.py
 # ---------------------------------------------------------------------------
 
-def run_pipeline(exp_id: str, config: dict, args) -> None:
+
+def run_pipeline(_exp_id: str, config: dict, args: argparse.Namespace) -> None:
     """Orchestrate the full two-stage pipeline."""
     stage1_exp_id = config.get("stage1_exp_id", "stage1")
     stage2_exp_id = config.get("stage2_exp_id", "stage2_from_stage1")
     osmo_cfg = config.get("osmo", {})
     pool = getattr(args, "pool", None) or osmo_cfg.get("pool", "isaac-dev-l40s-04")
     priority = getattr(args, "priority", None) or osmo_cfg.get("priority", "NORMAL")
-    build_image = getattr(args, "build_image", False) or osmo_cfg.get("build_image", False)
+    build_image = getattr(args, "build_image", False) or osmo_cfg.get(
+        "build_image", False
+    )
     dry_run = getattr(args, "dry_run", False)
     poll_interval = config.get("poll_interval_seconds", 60)
 
@@ -150,18 +167,24 @@ def run_pipeline(exp_id: str, config: dict, args) -> None:
 
     # Stage 2
     stage2_config_id = config.get("stage2_config_id", stage2_exp_id)
-    print(f"\n[pipeline] Launching stage 2 (config: {stage2_config_id}, job: {stage2_exp_id})...")
+    print(
+        f"\n[pipeline] Launching stage 2 (config: {stage2_config_id}, job: {stage2_exp_id})..."
+    )
     cmd = [
         sys.executable,
         str(_SCRIPTS_DIR / "launch_stage2.py"),
-        "--config-id", stage2_config_id,
-        "--exp-id", stage2_exp_id,
-        "--pool", pool,
-        "--priority", priority,
+        "--config-id",
+        stage2_config_id,
+        "--exp-id",
+        stage2_exp_id,
+        "--pool",
+        pool,
+        "--priority",
+        priority,
     ]
     if build_image:
         cmd.append("--build-image")
-    result = subprocess.run(cmd, cwd=_RG_ROOT)
+    result = subprocess.run(cmd, cwd=_RG_ROOT, check=False)
     if result.returncode != 0:
         raise SystemExit(f"[pipeline] Stage 2 launch failed (exit {result.returncode})")
     print("[pipeline] Done.")

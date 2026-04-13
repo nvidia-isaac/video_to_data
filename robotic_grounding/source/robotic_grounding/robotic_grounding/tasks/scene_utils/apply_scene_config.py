@@ -267,6 +267,7 @@ def apply_scene_robot(
         env_cfg.scene.robot = _maybe_disable_gravity(robot_spec.robot_cfg).replace(
             prim_path="{ENV_REGEX_NS}/Robot"
         )
+        env_cfg.events.setup_collision_groups.params["robot_names"].append("Robot")
 
 
 def apply_scene_commands(env_cfg: Any, scene_config: SceneConfig) -> None:
