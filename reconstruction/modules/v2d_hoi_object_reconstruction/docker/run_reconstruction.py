@@ -31,8 +31,9 @@ Two modes:
  [4a. Depth (optional)]           – FoundationStereo depth, used by SRT scale (--sam3d_use_depth)
   S1. Select frames               – pick one frame per azimuthal bin (60° default)
   S2. SAM3D                       – run SAM3D on each selected frame → GLB mesh
-  S3. SRT scale                   – estimate scale+pose from silhouette IoU + optional depth
-  S4. Render debug                – render debug overlay for each SAM3D mesh
+  S3. SRT scale                   – estimate scale+pose using Stage-1 silhouettes only
+  S4. Render debug                – render debug overlay image for each SAM3D mesh
+  S5. Render video                – project SRT mesh onto all Stage-1 keyframes → render_video.mp4
 
 Two frames_meta.json files are used:
   - mapping_data_dir/frames_meta.json          : input metadata (timestamps, no poses)
@@ -57,7 +58,7 @@ Skip flags (BundleSDF):
 
 Skip flags (SAM3D):
     --skip_prepare  --skip_sfm  --skip_stage1_detect  --skip_dino  --skip_depth  --skip_mask
-    --skip_select_frames  --skip_sam3d  --skip_srt_scale  --skip_render_debug
+    --skip_select_frames  --skip_sam3d  --skip_srt_scale  --skip_render_debug  --skip_render_video
 """
 
 import argparse
@@ -326,6 +327,8 @@ def main():
                         help="SAM3D mode: skip SRT scale estimation")
     parser.add_argument("--skip_render_debug",  action="store_true",
                         help="SAM3D mode: skip SAM3D debug render")
+    parser.add_argument("--skip_render_video",  action="store_true",
+                        help="SAM3D mode: skip Stage-1 overlay video render")
 
     args = parser.parse_args()
 
@@ -474,6 +477,15 @@ def main():
         _step("sfm", _sfm)
 
     # ── Step 2b: Auto-detect Stage-1 end (if not manually specified) ─────────
+    # Even when skipping detection, try to load an existing result.json so that
+    # downstream steps (SRT, render_video) have stage1_end_frame available.
+    if stage1_end_frame is None:
+        _existing = Path(job_dir) / "stage1_detect_debug" / "result.json"
+        if _existing.exists():
+            with open(_existing) as _f:
+                stage1_end_frame = json.load(_f).get("stage1_end_frame")
+            print(f"[pipeline] stage1_end_frame={stage1_end_frame} (loaded from existing result.json)")
+
     if stage1_end_frame is None and not args.skip_stage1_detect:
         print("[pipeline] auto-detecting Stage-1 end from CuSFM trajectory")
         detect_script = Path(__file__).parent.parent / "lib" / "detect_stage1_end.py"
@@ -861,6 +873,7 @@ def main():
                     glb_path=glb_path,
                     output_dir=srt_out,
                     use_depth=args.sam3d_use_depth,
+                    stage1_end_frame=stage1_end_frame,
                 )
                 elapsed = time.time() - t0
                 _timings[f"srt_{frame_id}"] = elapsed
@@ -891,6 +904,41 @@ def main():
                 elapsed = time.time() - t0
                 _timings[f"render_debug_{frame_id}"] = elapsed
                 print(f"[pipeline] render_debug {frame_id} done in {elapsed:.1f}s")
+
+        # ── Step S5: Stage-1 textured overlay video (pyrender inside v2d_sam3d) ──────
+        if not args.skip_render_video:
+            if stage1_end_frame is None:
+                print("[pipeline] skip_render_video: stage1_end_frame unknown, cannot render Stage-1 video",
+                      file=sys.stderr)
+            else:
+                c_job = "/data/job"
+                for frame_id in selected_frames:
+                    srt_out = sam3d_dir / frame_id / "srt"
+                    if not (srt_out / "output_scaled.glb").exists():
+                        print(f"[pipeline] render_video {frame_id}: srt output not found, skipping")
+                        continue
+                    frames_dir = sam3d_dir / frame_id / "render_video_frames"
+                    video_path = sam3d_dir / frame_id / "render_video.mp4"
+                    c_glb     = f"{c_job}/sam3d/{frame_id}/srt/output_scaled.glb"
+                    c_out     = f"{c_job}/sam3d/{frame_id}/render_video_frames"
+                    print(f"[pipeline] render_video {frame_id} (stage1_end_frame={stage1_end_frame})")
+                    # Mount local modules/ as /workspace so new lib files are
+                    # picked up without rebuilding the container (editable install).
+                    _modules_dir = str(Path(__file__).parents[2])
+                    _step(f"render_video_{frame_id}", lambda _fid=frame_id, _cg=c_glb, _co=c_out, _md=_modules_dir: _run_gpu(
+                        IMAGE_SAM3D,
+                        [
+                            "python", "-m", "v2d.sam3d.lib.render_textured_video",
+                            "--job_dir",          c_job,
+                            "--glb_path",         _cg,
+                            "--output_dir",       _co,
+                            "--stage1_end_frame", str(stage1_end_frame),
+                        ],
+                        mounts=[(job_dir, "/data/job"), (_md, "/workspace")],
+                        user=f"{os.getuid()}:{os.getgid()}",
+                    ))
+                    _step(f"render_video_stitch_{frame_id}", lambda _fd=frames_dir, _vp=video_path:
+                          stitch_mp4(str(_fd), str(_vp)))
 
     total = time.time() - _t_total
     print("\n[pipeline] ── Timing summary ──────────────────────────")

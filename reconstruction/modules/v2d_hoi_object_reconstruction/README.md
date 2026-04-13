@@ -189,7 +189,10 @@ mapping_data_dir  (images + frames_meta.json)
 S1. Select frames       → sam3d/selected_frames.json  (one per azimuthal bin)
 S2. SAM3D               → sam3d/<frame_id>/mesh.glb + transform.json + intrinsics.json
 S3. SRT scale           → sam3d/<frame_id>/srt/srt_result.json + output_scaled.glb
+                          (Stage-1 frames only — object stationary)
 S4. Render debug        → sam3d/<frame_id>/render_debug.jpg
+S5. Render video        → sam3d/<frame_id>/render_video.mp4
+                          (textured mesh overlaid on Stage-1 keyframes via open3d)
 ```
 
 ### Results
@@ -197,7 +200,8 @@ S4. Render debug        → sam3d/<frame_id>/render_debug.jpg
 - `sam3d/<frame_id>/mesh.glb` — raw SAM3D mesh (SAM3D camera space)
 - `sam3d/<frame_id>/srt/output_scaled.glb` — scale-corrected mesh (world space)
 - `sam3d/<frame_id>/srt/srt_result.json` — estimated scale, rotation, translation
-- `sam3d/<frame_id>/render_debug.jpg` — SAM3D mesh overlaid on source image
+- `sam3d/<frame_id>/render_debug.jpg` — SAM3D mesh overlaid on source image (single frame)
+- `sam3d/<frame_id>/render_video.mp4` — textured mesh overlaid on all Stage-1 keyframes
 
 ### Key Options
 
@@ -211,7 +215,7 @@ S4. Render debug        → sam3d/<frame_id>/render_debug.jpg
 
 ```
 --skip_prepare  --skip_sfm  --skip_stage1_detect  --skip_dino  --skip_depth  --skip_mask
---skip_select_frames  --skip_sam3d  --skip_srt_scale  --skip_render_debug
+--skip_select_frames  --skip_sam3d  --skip_srt_scale  --skip_render_debug  --skip_render_video
 ```
 
 ---

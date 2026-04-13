@@ -372,12 +372,21 @@ def build_frame_views(
     depth_dir: Optional[Path],
     frame_step: int = 1,
     max_views: int = 0,
+    max_frame: Optional[int] = None,
 ) -> List[FrameView]:
     """Build FrameView list from SfM poses and mask directory."""
     mask_files = {p.stem: p for p in sorted(masks_dir.glob("*.png"))}
     common = sorted(set(poses.keys()) & set(mask_files.keys()))
     if not common:
         raise ValueError("No frames in common between SfM poses and masks")
+
+    if max_frame is not None:
+        common = [n for n in common if int(n) <= max_frame]
+        if not common:
+            raise ValueError(
+                f"No frames remaining after max_frame={max_frame} filter. "
+                "Check that stage1_end_frame is correct."
+            )
 
     common = _filter_pose_drift(common, poses)
     if frame_step > 1:
@@ -851,26 +860,44 @@ def estimate_srt_for_frame(
     depth_weight: float = 1.0,
     use_depth: bool = False,
     debug: bool = True,
+    stage1_end_frame: Optional[int] = None,
 ) -> dict:
     """Estimate scale+rotation+translation for a SAM3D mesh using SfM poses + masks.
 
+    Only Stage-1 frames (object stationary) are used for silhouette alignment.
+    Stage-2 frames (object moved/rotated) would provide contradictory signals and
+    degrade the estimate.
+
     Args:
-        job_dir:      HOI reconstruction job directory (must have sfm/, masks/, intrinsics/).
-        glb_path:     SAM3D output GLB mesh.
-        output_dir:   Where to write srt_result.json and output_scaled.glb.
-        frame_step:   Use every Nth keyframe (speed vs. accuracy).
-        max_views:    Cap on number of views (0 = all).
-        mode:         's' scale-only, 'st' scale+translation, 'str' all DOF.
-        maxiter:      Powell optimiser iterations.
-        iou_weight:   Weight for rasterised silhouette IoU loss.
-        depth_weight: Weight for depth loss (only when use_depth=True and depth available).
-        use_depth:    If True, load depth maps from job_dir/depth/.
-        debug:        Write per-view overlay images.
+        job_dir:           HOI reconstruction job directory (must have sfm/, masks/, intrinsics/).
+        glb_path:          SAM3D output GLB mesh.
+        output_dir:        Where to write srt_result.json and output_scaled.glb.
+        frame_step:        Use every Nth keyframe (speed vs. accuracy).
+        max_views:         Cap on number of views (0 = all).
+        mode:              's' scale-only, 'st' scale+translation, 'str' all DOF.
+        maxiter:           Powell optimiser iterations.
+        iou_weight:        Weight for rasterised silhouette IoU loss.
+        depth_weight:      Weight for depth loss (only when use_depth=True and depth available).
+        use_depth:         If True, load depth maps from job_dir/depth/.
+        debug:             Write per-view overlay images.
+        stage1_end_frame:  Inclusive upper bound on frame index for Stage-1.
+                           If None, auto-read from stage1_detect_debug/result.json.
 
     Returns:
         The srt_result dict (also written to output_dir/srt_result.json).
     """
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Auto-read stage1_end_frame if not supplied
+    if stage1_end_frame is None:
+        detect_result = job_dir / "stage1_detect_debug" / "result.json"
+        if detect_result.exists():
+            with open(detect_result) as f:
+                stage1_end_frame = json.load(f).get("stage1_end_frame")
+            if stage1_end_frame is not None:
+                print(f"[srt] stage1_end_frame={stage1_end_frame} (from {detect_result.name})")
+        if stage1_end_frame is None:
+            print("[srt] Warning: stage1_end_frame not found; using all SfM keyframes including Stage-2")
 
     # Load intrinsics from the first available file in job_dir/intrinsics/
     intrinsics_dir = job_dir / "intrinsics"
@@ -884,14 +911,16 @@ def estimate_srt_for_frame(
     poses = load_sfm_keyframe_poses(job_dir)
     print(f"[srt] {len(poses)} keyframe poses loaded")
 
-    # Build views
+    # Build views — restricted to Stage-1 frames only
     masks_dir = job_dir / "masks" / "0"
     depth_dir: Optional[Path] = (job_dir / "depth") if use_depth else None
     views = build_frame_views(
         intrinsics, poses, masks_dir, depth_dir,
         frame_step=frame_step, max_views=max_views,
+        max_frame=stage1_end_frame,
     )
-    print(f"[srt] {len(views)} views built (frame_step={frame_step}, max_views={max_views})")
+    print(f"[srt] {len(views)} views built "
+          f"(frame_step={frame_step}, max_views={max_views}, stage1_end_frame={stage1_end_frame})")
 
     # Load mesh vertices
     print(f"[srt] Loading mesh vertices from {glb_path} …")
