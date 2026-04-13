@@ -47,16 +47,16 @@ parser.add_argument(
     help="Initial VOC curriculum scale for dual-hands object tracking command.",
 )
 parser.add_argument(
-    "--no-collision",
+    "--disable_robot_to_object_collisions",
     action="store_true",
     default=False,
-    help="Load the *_no_collision.urdf for the object (tiny dummy collision geometry) for stage-1 collision-free warmup.",
+    help="Disable robot-to-object collisions.",
 )
 parser.add_argument(
-    "--real-time",
+    "--disable_robot_to_fixed_object_collisions",
     action="store_true",
     default=False,
-    help="Run in real-time, if possible.",
+    help="Disable robot-to-fixed-object collisions.",
 )
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
@@ -66,7 +66,8 @@ args_cli = parser.parse_args()
 ###################################
 args_cli.task = "Sharpa-V2P-v0-Play"
 args_cli.headless = True
-args_cli.no_collision = False
+args_cli.disable_robot_to_object_collisions = False
+args_cli.disable_robot_to_fixed_object_collisions = True
 
 # Multiple rigid objects
 # args_cli.motion_file = (
@@ -74,12 +75,12 @@ args_cli.no_collision = False
 # )
 
 # Single rigid object
-args_cli.motion_file = (
-    "arctic/arctic_processed/arctic_s01_rigid_capsulemachine_grab_01/sharpa_wave"
-)
+# args_cli.motion_file = (
+# "arctic/arctic_processed/arctic_s01_rigid_waffleiron_grab_01/sharpa_wave"
+# )
 
 # Single articulated object
-# args_cli.motion_file = "arctic/arctic_processed/arctic_s01_capsulemachine_use_01/sharpa_wave"
+args_cli.motion_file = "arctic/arctic_processed/arctic_s01_mixer_use_01/sharpa_wave"
 ###################################
 
 # launch omniverse app
@@ -111,7 +112,6 @@ def main():
     )
 
     # Apply scene config from --motion_file
-    scene_config = None
     if args_cli.motion_file is not None:
         env_cfg.motion_file = args_cli.motion_file
     if hasattr(env_cfg, "motion_file") and env_cfg.motion_file is not None:
@@ -124,27 +124,15 @@ def main():
             env_cfg.viewer.env_index, env_cfg.scene.num_envs - 1
         )
 
-    # --no-collision: replace the primary scene object's URDF with *_no_collision.urdf.
-    if (
-        args_cli.no_collision
-        and scene_config is not None
-        and scene_config.scene_objects
-    ):
-        primary = scene_config.scene_objects[0]
-        scene_obj = getattr(env_cfg.scene, primary.name, None)
-        if (
-            scene_obj is not None
-            and hasattr(scene_obj, "spawn")
-            and hasattr(scene_obj.spawn, "asset_path")
-        ):
-            no_coll_path = scene_obj.spawn.asset_path.replace(
-                "_art.urdf", "_no_collision.urdf"
-            )
-            scene_obj.spawn = scene_obj.spawn.replace(asset_path=no_coll_path)
-
-    env_cfg.commands.dual_hands_object_tracking_command.initial_virtual_object_control_curriculum_scale = (
-        1.0
+    env_cfg.commands.dual_hands_object_tracking_command.initial_virtual_object_control_curriculum_scale = float(
+        args_cli.initial_virtual_object_control_curriculum_scale
     )
+    env_cfg.events.setup_collision_groups.params[
+        "disable_robot_to_object_collisions"
+    ] = args_cli.disable_robot_to_object_collisions
+    env_cfg.events.setup_collision_groups.params[
+        "disable_robot_to_fixed_object_collisions"
+    ] = args_cli.disable_robot_to_fixed_object_collisions
 
     # create environment
     env = gym.make(args_cli.task, cfg=env_cfg)
@@ -154,34 +142,13 @@ def main():
     env.reset()
 
     actions = torch.zeros(env.action_space.shape, device=env.unwrapped.device)
-    # Use trajectory frame rate for real-time motion playback.
-    # step_dt (policy rate) is 2x slower than target_fps, so using step_dt would
-    # play the motion at 0.5x speed. Use 1/target_fps instead.
-    dt = env.unwrapped.step_dt
-    cmd_manager = env.unwrapped.command_manager
-    for term_name in [
-        "dual_hands_object_tracking_command",
-        "dual_hands_tracking_command",
-    ]:
-        try:
-            cmd_term = cmd_manager.get_term(term_name)
-            if getattr(cmd_term.cfg, "target_fps", None) is not None:
-                dt = 1.0 / cmd_term.cfg.target_fps
-            break
-        except Exception:
-            continue
 
     while simulation_app.is_running():
-        start_time = time.time()
         with torch.inference_mode():
 
             # actions = torch.zeros(*env.action_space.shape, device=env.unwrapped.device)
             # actions = torch.randn(*env.action_space.shape, device=env.unwrapped.device)
             env.step(actions)
-
-        sleep_time = dt - (time.time() - start_time)
-        if args_cli.real_time and sleep_time > 0:
-            time.sleep(sleep_time)
 
     env.close()
 

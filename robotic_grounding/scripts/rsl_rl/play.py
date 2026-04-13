@@ -34,8 +34,6 @@ import torch
 
 from isaaclab.app import AppLauncher
 
-import cli_args  # isort: skip
-
 parser = argparse.ArgumentParser(
     description="Play an IsaacLab environment without a policy checkpoint."
 )
@@ -75,7 +73,7 @@ if args_cli.video:
     args_cli.enable_cameras = True
 
 # Clear sys.argv for Hydra
-sys.argv = [sys.argv[0]] + cli_args.coerce_hydra_float_overrides(hydra_args)
+sys.argv = [sys.argv[0]] + hydra_args
 
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app

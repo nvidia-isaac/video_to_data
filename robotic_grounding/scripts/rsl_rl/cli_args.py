@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import argparse
 import random
-import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -123,17 +122,3 @@ def update_rsl_rl_cfg(agent_cfg: RslRlBaseRunnerCfg, args_cli: argparse.Namespac
         agent_cfg.neptune_project = args_cli.log_project_name
 
     return agent_cfg
-
-
-def coerce_hydra_float_overrides(argv: list[str]) -> list[str]:
-    """Rewrite key=value Hydra overrides where a plain integer is invalid for float fields."""
-    float_key_markers = ("initial_virtual_object_control_curriculum_scale",)
-    out: list[str] = []
-    for arg in argv:
-        if "=" in arg and not arg.startswith("+"):
-            key, _, val = arg.partition("=")
-            if any(m in key for m in float_key_markers):
-                if re.fullmatch(r"-?\d+", val.strip()):
-                    arg = f"{key}={float(int(val))}"
-        out.append(arg)
-    return out

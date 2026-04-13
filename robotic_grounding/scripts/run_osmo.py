@@ -9,6 +9,7 @@ Script to submit OSMO workflow for robotic grounding development environment.
 
 import argparse
 import os
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -16,10 +17,9 @@ from pathlib import Path
 
 def run_command(cmd: str, check: bool = True) -> subprocess.CompletedProcess:
     """Run a shell command and return the result."""
-    print(f"Running: {cmd}")
-    result = subprocess.run(
-        cmd, shell=True, check=check, capture_output=True, text=True
-    )
+    args = shlex.split(cmd)
+    print(f"Running: {shlex.join(args)}")
+    result = subprocess.run(args, check=check, capture_output=True, text=True)
     if result.stdout:
         print(result.stdout)
     if result.stderr:
@@ -62,6 +62,13 @@ def main() -> None:
     parser.add_argument(
         "--dry-run", action="store_true", help="Print commands without executing"
     )
+    parser.add_argument(
+        "--set",
+        action="append",
+        default=[],
+        dest="extra_sets",
+        help="Additional key=value pairs for osmo workflow submit (e.g., dataset=taco)",
+    )
 
     args = parser.parse_args()
 
@@ -77,7 +84,9 @@ def main() -> None:
             image_version = image_name.split(":")[-1]
         else:
             image_version = args.experiment_name
-            image_name = f"nvcr.io/nvstaging/isaac-amr/robotic-grounding:{image_version}"
+            image_name = (
+                f"nvcr.io/nvstaging/isaac-amr/robotic-grounding:{image_version}"
+            )
 
         print(f"\nBuilding Docker image: {image_name} ...")
         build_cmd = f"./workflow/run.sh build {image_version}"
@@ -120,10 +129,15 @@ def main() -> None:
     print(f"\nSubmitting OSMO workflow: {args.workflow_yaml}")
     workflow_name = f"robotic_grounding_{args.experiment_name}"
 
+    all_sets = [
+        f'workflow_name="{workflow_name}"',
+        f'image="{image_name}"',
+    ] + args.extra_sets
+    set_str = " ".join(all_sets)
+
     osmo_cmd = (
         f"osmo workflow submit {args.workflow_yaml} "
-        f'--set workflow_name="{workflow_name}" '
-        f'image="{image_name}" '
+        f"--set {set_str} "
         f"--pool {args.pool} "
         f"--priority {args.priority}"
     )
