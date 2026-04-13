@@ -355,7 +355,7 @@ def submit_stage1(
     """Submit stage1 OSMO multi-task workflow for one experiment."""
     cmd = [
         sys.executable,
-        str(_RG_ROOT / "scripts" / "run_experiment.py"),
+        str(_RG_ROOT / "experiments" / "run_experiment.py"),
         stage1_exp_id,
         "--osmo",
         "--run-name-prefix",

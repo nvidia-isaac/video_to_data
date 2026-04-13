@@ -5,70 +5,16 @@ Used by run_experiment.py and experiment-specific workflow.py modules.
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Any
 
-# ---------------------------------------------------------------------------
-# No-collision URDF generation
-# ---------------------------------------------------------------------------
-
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_URDFS_DIR = (
-    _REPO_ROOT
-    / "source"
-    / "robotic_grounding"
-    / "robotic_grounding"
-    / "assets"
-    / "urdfs"
-    / "arctic"
-)
-
-_NO_COLLISION_BLOCK = """\
-      <collision>
-         <origin rpy="0 0 0" xyz="0 0 0"/>
-         <geometry>
-            <box size="0.0001 0.0001 0.0001"/>
-         </geometry>
-      </collision>"""
 
 
 def sequence_to_object(sequence_id: str) -> str:
     """e.g. arctic_s01_capsulemachine_grab_01 -> capsulemachine."""
     parts = sequence_id.split("_")
     return parts[2] if len(parts) >= 3 else sequence_id
-
-
-def ensure_no_collision_urdf(object_name: str) -> Path:
-    """Return path to *_no_collision.urdf, generating it from *_rigid.urdf if absent."""
-    no_coll_path = _URDFS_DIR / f"{object_name}_no_collision.urdf"
-    if no_coll_path.exists():
-        return no_coll_path
-
-    art_path = _URDFS_DIR / f"{object_name}_art.urdf"
-    if not art_path.exists():
-        raise FileNotFoundError(f"Source URDF not found: {art_path}")
-
-    content = art_path.read_text()
-    content = re.sub(
-        r"\s*<collision>.*?</collision>",
-        "\n" + _NO_COLLISION_BLOCK,
-        content,
-        flags=re.DOTALL,
-    )
-    no_coll_path.write_text(content)
-    print(f"[step0] Generated {no_coll_path.name}")
-    return no_coll_path
-
-
-def generate_no_collision_urdfs(sequence_ids: list[str]) -> None:
-    """Generate *_no_collision.urdf for all objects in sequence_ids list."""
-    print(f"[step0] Generating no-collision URDFs for {len(sequence_ids)} objects...")
-    for seq_id in sequence_ids:
-        obj = sequence_to_object(seq_id)
-        path = ensure_no_collision_urdf(obj)
-        print(f"[step0]   {obj} -> {path.name}")
-    print("[step0] Done.")
 
 
 def is_local_path(path: str) -> bool:
@@ -111,7 +57,7 @@ def build_train_command(
     task: str = "Sharpa-V2P-v0",
     logger: str | None = None,
     log_project_name: str | None = None,
-    no_collision: bool = False,
+    disable_robot_to_object_collisions: bool = False,
 ) -> list[str]:
     """Build train.py command as list of args."""
     cmd = [
@@ -119,7 +65,7 @@ def build_train_command(
         "scripts/rsl_rl/train.py",
         "--headless" if headless else "",
         "--video" if video else "",
-        "--no-collision" if no_collision else "",
+        "--disable_robot_to_object_collisions" if disable_robot_to_object_collisions else "",
         "--task",
         task,
         "--run_name",

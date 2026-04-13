@@ -1,7 +1,7 @@
 """Pipeline orchestrator for example_two_stage.
 
 Runs the full two-stage training pipeline:
-  Stage 1 — submit collision-free warm-up OSMO job (exp stage1)
+  Stage 1 — submit collision-free warm-up OSMO job (exp stage1, with --disable_robot_to_object_collisions)
   Wait    — poll OSMO until all stage1 tasks finish
   Stage 2 — fetch W&B artifacts, submit exp44-style OSMO job (launch_stage2.py)
 """
@@ -24,11 +24,6 @@ _RG_SCRIPTS_DIR = _RG_ROOT / "scripts"
 
 if str(_RG_ROOT) not in sys.path:
     sys.path.insert(0, str(_RG_ROOT))
-from experiments.utils import generate_no_collision_urdfs  # noqa: E402
-
-# ---------------------------------------------------------------------------
-# Step 0: generate no-collision URDFs locally
-# ---------------------------------------------------------------------------
 
 
 def _load_registry() -> dict[str, str]:
@@ -41,19 +36,6 @@ def _load_registry() -> dict[str, str]:
             with open(path) as f:
                 registry.update(yaml.safe_load(f) or {})
     return registry
-
-
-def _step0_generate_urdfs(stage1_exp_id: str) -> None:
-    """Generate *_no_collision.urdf for all objects in the stage1 config."""
-    registry = _load_registry()
-    if stage1_exp_id not in registry:
-        raise SystemExit(f"[pipeline] Unknown stage1 exp id '{stage1_exp_id}'")
-    config_path = _EXPERIMENTS_DIR / registry[stage1_exp_id] / "config.yaml"
-    with open(config_path) as f:
-        stage1_config = yaml.safe_load(f)
-    sequence_ids = stage1_config["osmo_multi_task"]["sequence_ids"]
-    print("\n[pipeline] Step 0: generating no-collision URDFs...")
-    generate_no_collision_urdfs(sequence_ids)
 
 
 # ---------------------------------------------------------------------------
@@ -153,9 +135,6 @@ def run_pipeline(_exp_id: str, config: dict, args: argparse.Namespace) -> None:
     )
     dry_run = getattr(args, "dry_run", False)
     poll_interval = config.get("poll_interval_seconds", 60)
-
-    # Step 0: generate no-collision URDFs locally before submitting anything
-    _step0_generate_urdfs(stage1_exp_id)
 
     # Stage 1
     workflow_id = _submit_stage1(stage1_exp_id, pool, priority, build_image, dry_run)

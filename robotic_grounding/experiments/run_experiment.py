@@ -40,7 +40,6 @@ if str(RG_ROOT) not in sys.path:
     sys.path.insert(0, str(RG_ROOT))
 from experiments.utils import (  # noqa: E402
     build_train_command,
-    generate_no_collision_urdfs,
     make_entry_script,
     overrides_to_cli,
 )
@@ -108,14 +107,14 @@ def run_local(
     seed = config.get("seed")
     motion_file = config.get("motion_file")
     max_iterations = config.get("max_iterations")
-    no_collision = False
+    disable_robot_to_object_collisions = False
 
-    # Stage 1 (osmo_multi_task): pick first sequence, derive motion_file, enable no-collision.
+    # Stage 1 (osmo_multi_task): pick first sequence, derive motion_file, disable robot-object collisions.
     if "osmo_multi_task" in config:
         seq_ids = config["osmo_multi_task"].get("sequence_ids", [])
         if seq_ids:
             motion_file = motion_file or f"arctic_processed/{seq_ids[0]}/sharpa_wave"
-            no_collision = True
+            disable_robot_to_object_collisions = True
 
     # Stage 2 (sequences): pick first sequence, derive motion_file.
     elif "sequences" in config:
@@ -160,7 +159,7 @@ def run_local(
         motion_file=motion_file,
         num_envs=num_envs,
         max_iterations=max_iterations,
-        no_collision=no_collision,
+        disable_robot_to_object_collisions=disable_robot_to_object_collisions,
         video=video,
     )
     cmd_str = " ".join(cmd)
@@ -374,7 +373,7 @@ def run_osmo(
         workflow_path = Path(f.name)
 
     try:
-        run_osmo_py = Path(__file__).resolve().parent / "run_osmo.py"
+        run_osmo_py = RG_ROOT / "scripts" / "run_osmo.py"
         exp_name = exp_id
         if exp_id == "exp6":
             exp_name = "exp6_contact_sweep"
@@ -647,19 +646,6 @@ def _pipeline_poll_until_done(workflow_id: str, poll_interval: int) -> None:
         time.sleep(poll_interval)
 
 
-def _pipeline_generate_urdfs(stage1_exp_id: str) -> None:
-    """Generate *_no_collision.urdf for all objects in the stage1 config."""
-    registry = load_registry()
-    if stage1_exp_id not in registry:
-        raise SystemExit(f"[pipeline] Unknown stage1 exp id '{stage1_exp_id}'")
-    config_path = EXPERIMENTS_DIR / registry[stage1_exp_id] / "config.yaml"
-    with open(config_path) as f:
-        stage1_config = yaml.safe_load(f)
-    sequence_ids = stage1_config["osmo_multi_task"]["sequence_ids"]
-    print("\n[pipeline] Step 0: generating no-collision URDFs...")
-    generate_no_collision_urdfs(sequence_ids)
-
-
 def run_pipeline(exp_id: str, config: dict, args: argparse.Namespace) -> None:
     """Orchestrate the full two-stage pipeline (generic, config-driven)."""
     if getattr(args, "local", False):
@@ -680,8 +666,6 @@ def run_pipeline(exp_id: str, config: dict, args: argparse.Namespace) -> None:
     stage2_image = osmo_cfg.get("stage2_image") or image
     dry_run = getattr(args, "dry_run", False)
     poll_interval = config.get("poll_interval_seconds", 60)
-
-    _pipeline_generate_urdfs(stage1_exp_id)
 
     # Build and push the image once before any submissions so both stages use
     # the same freshly built image and we don't redundantly rebuild mid-pipeline.
