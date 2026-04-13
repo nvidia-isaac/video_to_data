@@ -113,7 +113,7 @@ def run_local(
     if "osmo_multi_task" in config:
         seq_ids = config["osmo_multi_task"].get("sequence_ids", [])
         if seq_ids:
-            motion_file = motion_file or f"arctic_processed/{seq_ids[0]}/sharpa_wave"
+            motion_file = motion_file or f"arctic/arctic_processed/{seq_ids[0]}/sharpa_wave"
             disable_robot_to_object_collisions = True
 
     # Stage 2 (sequences): pick first sequence, derive motion_file.

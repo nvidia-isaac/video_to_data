@@ -142,7 +142,7 @@ python scripts/rsl_rl/train.py \\
   --headless \\
   --task Sharpa-V2P-v0 \\
   --run_name {run_name} \\
-  --motion_file arctic_processed/{seq_id}/sharpa_wave \\
+  --motion_file arctic/arctic_processed/{seq_id}/sharpa_wave \\
   --disable_robot_to_object_collisions \\
   --max_iterations {max_iterations} \\
   --logger wandb \\
