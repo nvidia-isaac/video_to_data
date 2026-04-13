@@ -246,3 +246,8 @@ scripts/monitor_state.json
 
 experiments/exp*/
 experiments/registry.local.yaml
+
+# wandb checkpoints
+wandb_checkpoints/
+
+exps/

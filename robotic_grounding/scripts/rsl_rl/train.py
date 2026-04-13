@@ -91,6 +91,12 @@ parser.add_argument(
     default=None,
     help="Motion file to load.",
 )
+parser.add_argument(
+    "--wandb_id",
+    type=str,
+    default=None,
+    help="Wandb run ID to resume from.",
+)
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -152,6 +158,7 @@ import time
 import torch
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from download_from_wandb import download_run
 
 from rsl_rl.runners import DistillationRunner, OnPolicyRunner
 
@@ -286,6 +293,9 @@ def main(
         ):
             # allow path to be directly specified
             resume_path = os.path.abspath(agent_cfg.load_checkpoint)
+        elif args_cli.wandb_id is not None:
+            resume_path = download_run(args_cli.wandb_id)
+            agent_cfg.load_checkpoint = resume_path
         else:
             # get checkpoint from log directory
             resume_path = get_checkpoint_path(

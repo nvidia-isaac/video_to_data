@@ -24,9 +24,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 import wandb
+import yaml
 
 _ROBOTIC_GROUNDING_DIR = Path(__file__).resolve().parent.parent
 _EXPERIMENTS_DIR = _ROBOTIC_GROUNDING_DIR / "experiments"

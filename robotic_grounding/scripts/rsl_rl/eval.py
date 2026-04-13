@@ -68,6 +68,12 @@ parser.add_argument(
     default=None,
     help="Motion file to load.",
 )
+parser.add_argument(
+    "--wandb_id",
+    type=str,
+    default=None,
+    help="Wandb run ID to resume from.",
+)
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -91,6 +97,7 @@ import gymnasium as gym
 import os
 import time
 import torch
+from download_from_wandb import download_run
 
 from rsl_rl.runners import DistillationRunner, OnPolicyRunner
 
@@ -182,6 +189,9 @@ def main(
             return
     elif args_cli.checkpoint:
         resume_path = retrieve_file_path(args_cli.checkpoint)
+    elif args_cli.wandb_id is not None:
+        resume_path = download_run(args_cli.wandb_id)
+        agent_cfg.load_checkpoint = resume_path
     else:
         resume_path = get_checkpoint_path(
             log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint

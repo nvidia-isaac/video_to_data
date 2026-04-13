@@ -11,7 +11,9 @@ def extract_checkpoint_number(filename: str) -> int:
     return int(match.group(1)) if match else -1
 
 
-def download_run(run_id: str, checkpoint: str | None = None) -> None:
+def download_run(
+    run_id: str, checkpoint: str | None = None, log_dir: str | None = None
+) -> str | None:
     """Download a run from wandb."""
     # 0. Initialize wandb API
     api = wandb.Api()
@@ -19,11 +21,15 @@ def download_run(run_id: str, checkpoint: str | None = None) -> None:
         run = api.run(run_id)
     except wandb.errors.CommError as e:
         print(f"⚠️ [Wandb] Error: Could not access run '{run_id}': {e}")
-        return
+        return None
 
     # 1. Get configs
     configs = run.config
-    log_dir = configs["log_dir"]
+    log_dir = (
+        os.path.join(log_dir, configs["log_dir"].split("/")[-1])
+        if log_dir is not None
+        else configs["log_dir"]
+    )
     alg_cfg = configs["alg_cfg"]
     policy_cfg = configs["policy_cfg"]
     env_cfg = configs["env_cfg"]
@@ -50,13 +56,13 @@ def download_run(run_id: str, checkpoint: str | None = None) -> None:
     files = [f for f in run.files() if f.name.endswith(".pt")]
     if not files:
         print("⚠️ [Wandb] No checkpoint files found")
-        return
+        return None
 
     if checkpoint:
         matched = [f for f in files if checkpoint in f.name]
         if not matched:
             print(f"⚠️ [Wandb] No checkpoint matching '{checkpoint}' found")
-            return
+            return None
         files = matched
     else:
         # Download only the latest checkpoint (highest iteration number)
@@ -65,6 +71,8 @@ def download_run(run_id: str, checkpoint: str | None = None) -> None:
     print(f"📥 [Wandb] Downloading {[f.name for f in files]} to {log_dir}")
     for file in files:
         file.download(root=log_dir, replace=True)
+
+    return os.path.join(log_dir, files[0].name)
 
 
 if __name__ == "__main__":
@@ -78,6 +86,11 @@ if __name__ == "__main__":
         default=None,
         help="Checkpoint name to download (default: latest)",
     )
+    parser.add_argument(
+        "--log_dir",
+        default=None,
+        help="Log directory to download to (default: None)",
+    )
     args = parser.parse_args()
 
-    download_run(args.run_id, args.checkpoint)
+    download_run(args.run_id, args.checkpoint, args.log_dir)
