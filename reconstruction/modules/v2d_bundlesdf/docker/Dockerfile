@@ -181,7 +181,7 @@ RUN update-alternatives --install /usr/bin/python python /usr/bin/python3 1 && \
     update-alternatives --install /usr/bin/pip pip /usr/bin/pip3 1
 
 # Install BundleSDF CUDA extension
-RUN git clone https://github.com/NVLabs/BundleSDF.git /BundleSDF
+RUN git clone --branch nvbundlesdf --depth 1 https://github.com/NVLabs/BundleSDF.git /BundleSDF
 RUN cp -r /BundleSDF/mycuda /customize_cuda && \
     cd /customize_cuda && \
     TORCH_CUDA_ARCH_LIST="7.0;7.5;8.0;8.6;9.0" FORCE_CUDA=1 pip install . --no-build-isolation
