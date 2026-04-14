@@ -28,6 +28,7 @@ def run_in_container(
     modules_dir: str | None = None,
     gpus: bool = False,
     env: dict[str, str] | None = None,
+    extra_volumes: list[str] | None = None,
 ) -> None:
     """
     Run a Python module inside a Docker container with file arguments.
@@ -39,6 +40,8 @@ def run_in_container(
                   True          → add as a bare flag (--arg_name, no value)
                   other         → add as --arg_name str(value)
     env:        extra environment variables passed via -e
+    extra_volumes: raw -v arguments appended after all other mounts (e.g.
+                  anonymous volumes to preserve image-built artifacts under a dev mount)
 
     Each unique host directory gets one volume mount at /data/<arg_name>, where the
     arg_name is taken from the first argument that references that directory. Subsequent
@@ -74,6 +77,9 @@ def run_in_container(
         if modules_dir is None:
             raise ValueError("modules_dir must be provided when dev=True")
         cmd += ["-v", f"{modules_dir}:/workspace"]
+    if extra_volumes:
+        for vol in extra_volumes:
+            cmd += ["-v", vol]
 
     cmd += [image, "python", "-m", module]
 

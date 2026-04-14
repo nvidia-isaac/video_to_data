@@ -1,5 +1,3 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-
 from __future__ import annotations
 
 import os
@@ -12,19 +10,7 @@ pyglet.options['headless'] = True
 
 import numpy as np
 import pyrender
-
-
-def vertex_normals(verts: np.ndarray, faces: np.ndarray) -> np.ndarray:
-    """Area-weighted per-vertex unit normals. Returns (V, 3)."""
-    v0, v1, v2 = verts[faces[:, 0]], verts[faces[:, 1]], verts[faces[:, 2]]
-    face_normals = np.cross(v1 - v0, v2 - v0)
-    vertex_normals = np.zeros_like(verts)
-    np.add.at(vertex_normals, faces[:, 0], face_normals)
-    np.add.at(vertex_normals, faces[:, 1], face_normals)
-    np.add.at(vertex_normals, faces[:, 2], face_normals)
-    norms = np.linalg.norm(vertex_normals, axis=1, keepdims=True)
-    vertex_normals /= np.maximum(norms, 1e-8)
-    return vertex_normals
+import trimesh
 
 
 def _create_raymond_lights() -> list[pyrender.Node]:
@@ -65,10 +51,10 @@ _T_OPENGL_FROM_CV = np.array([
 
 
 class Renderer:
-    """Offscreen mesh renderer backed by pyrender.
+    """Offscreen multi-mesh renderer backed by pyrender.
 
     The EGL context, scene, camera, and lights are persistent.
-    Only the mesh and camera pose are updated per render call.
+    Meshes and camera pose are updated per render call.
     """
 
     def __init__(self, image_size: tuple[int, int]):
@@ -85,7 +71,7 @@ class Renderer:
         )
         self._camera_node = None
         self._cached_K: np.ndarray | None = None
-        self._mesh_node = None
+        self._mesh_nodes: list[pyrender.Node] = []
 
     def _ensure_camera(self, K: np.ndarray) -> None:
         if self._cached_K is not None and np.array_equal(K, self._cached_K):
@@ -100,58 +86,45 @@ class Renderer:
             self._scene.add_node(node, parent_node=self._camera_node)
         self._cached_K = K.copy()
 
-    def _set_mesh(
+    def _set_meshes(
         self,
-        vertices: np.ndarray,
-        faces: np.ndarray,
+        meshes: list[trimesh.Trimesh],
         K: np.ndarray,
         T: np.ndarray,
-        mesh_color: tuple[float, float, float] = (0.4, 0.9, 0.7),
     ) -> None:
         self._ensure_camera(K)
 
-        positions = vertices.astype(np.float32)
-        normals = vertex_normals(vertices, faces).astype(np.float32)
-        material = pyrender.MetallicRoughnessMaterial(
-            metallicFactor=0.0,
-            alphaMode="OPAQUE",
-            baseColorFactor=(*mesh_color, 1.0),
-        )
-        primitive = pyrender.Primitive(
-            positions=positions,
-            normals=normals,
-            indices=faces.astype(np.uint32),
-            material=material,
-        )
-        if self._mesh_node is not None:
-            self._scene.remove_node(self._mesh_node)
-        self._mesh_node = self._scene.add(pyrender.Mesh(primitives=[primitive]))
+        for node in self._mesh_nodes:
+            self._scene.remove_node(node)
+        self._mesh_nodes.clear()
+
+        for mesh in meshes:
+            pr_mesh = pyrender.Mesh.from_trimesh(mesh)
+            node = self._scene.add(pr_mesh)
+            self._mesh_nodes.append(node)
 
         self._scene.set_pose(self._camera_node, T @ _T_OPENGL_FROM_CV)
 
     def render_overlay(
         self,
-        vertices: np.ndarray,
-        faces: np.ndarray,
+        meshes: list[trimesh.Trimesh],
         K: np.ndarray,
         T: np.ndarray,
         image: np.ndarray,
-        mesh_color: tuple[float, float, float] = (0.4, 0.9, 0.7),
     ) -> np.ndarray:
-        """Render a Phong-shaded mesh composited over a background image.
+        """Render Phong-shaded meshes composited over a background image.
 
         Args:
-            vertices: (V, 3) mesh vertices.
-            faces: (F, 3) mesh face indices.
+            meshes: List of trimesh meshes to render. Each mesh may carry its
+                own vertex_colors; otherwise pyrender applies a default material.
             K: (3, 3) camera intrinsics matrix.
             T: (4, 4) world-from-camera extrinsic in CV convention.
             image: (H, W, 3) uint8 background image.
-            mesh_color: Base RGB color for the mesh, in [0, 1].
 
         Returns:
             (H, W, 3) float32 composited image in [0, 1].
         """
-        self._set_mesh(vertices, faces, K, T, mesh_color)
+        self._set_meshes(meshes, K, T)
 
         color, _ = self._renderer.render(self._scene, flags=pyrender.RenderFlags.RGBA)
         color = color.astype(np.float32) / 255.0
@@ -163,23 +136,21 @@ class Renderer:
 
     def render_depth(
         self,
-        vertices: np.ndarray,
-        faces: np.ndarray,
+        meshes: list[trimesh.Trimesh],
         K: np.ndarray,
         T: np.ndarray,
     ) -> np.ndarray:
-        """Render the mesh z-buffer (depth only).
+        """Render the combined z-buffer of all meshes.
 
         Args:
-            vertices: (V, 3) mesh vertices.
-            faces: (F, 3) mesh face indices.
+            meshes: List of trimesh meshes to render.
             K: (3, 3) camera intrinsics matrix.
             T: (4, 4) world-from-camera extrinsic in CV convention.
 
         Returns:
             (H, W) float32 depth in scene units. 0 = background.
         """
-        self._set_mesh(vertices, faces, K, T)
+        self._set_meshes(meshes, K, T)
         return self._renderer.render(
             self._scene, flags=pyrender.RenderFlags.DEPTH_ONLY,
         )

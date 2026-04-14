@@ -1,0 +1,26 @@
+camera_params_path: ???
+object_mesh_path: ???
+object_pose_dir: ???
+output_dir: ???
+depth_dir: ???
+mask_dir: ???
+
+rig_config: stereo-4
+cameras: [0, 2, 4, 6]
+mask_obj_id: 0
+
+depth_path_template: "${depth_dir}/{cam_name}/depth"
+depth_intrinsics_path_template: "${depth_dir}/{cam_name}/intrinsics"
+mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}"
+
+object_pose_path: "${object_pose_dir}/poses.npy"
+output_path: "${output_dir}/chamfer_metrics.json"
+vis_path: "${output_dir}/chamfer_vis"
+
+eval_image_size: [1536, 1152]
+anomaly_median_mm: 30.0
+anomaly_outlier_pct: 10.0
+
+debug: 1
+tile_shape: [2, 2]
+tile_image_size: [768, 576]

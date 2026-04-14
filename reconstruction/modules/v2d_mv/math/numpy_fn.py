@@ -256,6 +256,40 @@ def se3_split_mean(poses: np.array) -> np.array:
     return mean_pose
 
 
+def se3_split_mean_anisotropic(
+    poses: np.ndarray,
+    frame_rotations: np.ndarray,
+    W: np.ndarray,
+) -> np.ndarray:
+    """
+    Mean of SE(3) with per-axis weighted translation averaging.
+
+    Each pose's translation is weighted by a precision matrix W rotated
+    into world coordinates via the corresponding frame rotation.
+
+    Args:
+        poses: (D, 4, 4) world-frame poses
+        frame_rotations: (D, 3, 3) rotations defining each pose's local frame
+        W: (3, 3) diagonal precision matrix in the local frame
+    Returns:
+        mean_pose: (4, 4)
+    """
+    rot = poses[:, :3, :3]
+    trans = poses[:, :3, 3]  # (D, 3)
+    mean_rot = Rotation.mean(Rotation.from_matrix(rot)).as_matrix()
+
+    P_sum = np.zeros((3, 3))
+    Pt_sum = np.zeros(3)
+    for j in range(len(poses)):
+        R_j = frame_rotations[j]  # (3, 3)
+        P_j = R_j @ W @ R_j.T   # precision in world frame
+        P_sum += P_j
+        Pt_sum += P_j @ trans[j]
+    mean_trans = np.linalg.solve(P_sum, Pt_sum)
+
+    return se3_from_rot_trans(mean_rot, mean_trans)
+
+
 # Requires scipy>=1.16.0
 # def se3_karcher_mean(poses: np.array) -> np.array:
 #     """
@@ -842,3 +876,52 @@ def pose_two_euro_filter(
     poses_filt[:, :3, 3] = trans_filt
     poses_filt[:, 3, 3] = 1
     return poses_filt
+
+
+#### Visibility ####
+
+
+def visible_vertices(
+    verts: np.ndarray,
+    mesh_zbuf: np.ndarray,
+    K: np.ndarray,
+    T: np.ndarray,
+    zbuf_eps: float = 0.005,
+) -> np.ndarray:
+    """Determine vertex visibility using a rasterized mesh z-buffer.
+
+    A vertex is visible if:
+    1. It projects inside image bounds with positive z
+    2. Its camera-frame z matches the mesh z-buffer within zbuf_eps
+
+    Args:
+        verts: (V, 3) world-frame vertices.
+        mesh_zbuf: (H, W) mesh z-buffer from pyrender (0 = background).
+        K: (3, 3) intrinsics at render resolution.
+        T: (4, 4) camera-to-world extrinsic.
+        zbuf_eps: Tolerance for z-buffer matching (meters).
+
+    Returns:
+        (V,) boolean array.
+    """
+    H, W = mesh_zbuf.shape[:2]
+    T_inv = se3_inv(T)
+
+    verts_hom = np.concatenate([verts, np.ones((verts.shape[0], 1))], axis=1)
+    verts_cam = (verts_hom @ T_inv.T)[:, :3]
+    vert_z = verts_cam[:, 2]
+
+    uv = (verts_cam / vert_z[:, None]) @ K.T
+    u = np.round(uv[:, 0]).astype(int)
+    v = np.round(uv[:, 1]).astype(int)
+
+    in_bounds = (u >= 0) & (u < W) & (v >= 0) & (v < H) & (vert_z > 0)
+    visible = np.zeros(verts.shape[0], dtype=bool)
+
+    idx = np.where(in_bounds)[0]
+    u_valid, v_valid = u[idx], v[idx]
+    zbuf_at_pixel = mesh_zbuf[v_valid, u_valid]
+
+    zbuf_matches = np.abs(vert_z[idx] - zbuf_at_pixel) < zbuf_eps
+    visible[idx] = zbuf_matches & (zbuf_at_pixel > 0)
+    return visible

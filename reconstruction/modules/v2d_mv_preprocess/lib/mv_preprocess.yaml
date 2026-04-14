@@ -1,0 +1,25 @@
+rig_name: stereo-4
+
+image_dir: ???
+camera_params_path: ???
+extrinsics_camera_params_path: null
+hoi_metadata_path: null
+output_dir: ???
+
+output_camera_params_path: "${output_dir}/edex"
+output_image_path_template: "${output_dir}/images/{cam_name}"
+output_video_path_template: "${output_dir}/videos/{cam_name}.mp4"
+labeled_bbox_path_template: "${output_dir}/labeled_bboxes/{cam_name}.json"
+output_hoi_metadata_path: "${output_dir}/hoi_metadata.yaml"
+output_prompt_path: "${output_dir}/prompt.txt"
+
+start: 0
+stop: null
+step: 1
+scale: 1.0
+output_resolution: [1536, 1152]
+
+correction_focal: {
+  6: 0.985,
+  7: 0.985,
+}

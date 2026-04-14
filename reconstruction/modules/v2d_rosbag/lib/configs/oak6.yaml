@@ -1,0 +1,13 @@
+# Topic names:
+camera_info_topics:
+  - /oak_cam6/left/camera_info
+  - /oak_cam6/right/camera_info
+
+image_topics:
+  - /oak_cam6/left/image_raw/compressed
+  - /oak_cam6/right/image_raw/compressed
+
+# Frame names:
+rig_frame: base_link
+
+sync_threshold_ns: 30000000  # 30ms

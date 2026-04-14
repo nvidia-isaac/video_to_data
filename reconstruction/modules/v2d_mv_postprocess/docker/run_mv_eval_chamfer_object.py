@@ -1,13 +1,15 @@
 from pathlib import Path
 
 from v2d.docker.container import run_in_container
-from v2d.sam3d_body.docker._config import IMAGE_NAME, MODULES_DIR
+from v2d.mv.postprocess.docker._config import IMAGE_NAME, MODULES_DIR
 
-_LIB_CONFIG = Path(__file__).parent.parent / "lib" / "mv_eval_chamfer.yaml"
+_LIB_CONFIG = Path(__file__).parent.parent / "lib" / "mv_eval_chamfer_object.yaml"
 
 
-def run_mv_eval_chamfer(
+def run_mv_eval_chamfer_object(
     camera_params_path: str,
+    object_mesh_path: str,
+    object_pose_dir: str,
     output_dir: str,
     depth_dir: str,
     mask_dir: str,
@@ -16,6 +18,8 @@ def run_mv_eval_chamfer(
 ) -> None:
     inputs = {
         "camera_params_path": camera_params_path,
+        "object_mesh_path": object_mesh_path,
+        "object_pose_dir": object_pose_dir,
         "config_path": config_path,
         "depth_dir": depth_dir,
         "mask_dir": mask_dir,
@@ -24,7 +28,7 @@ def run_mv_eval_chamfer(
 
     run_in_container(
         image=IMAGE_NAME,
-        module="v2d.sam3d_body.lib.mv_eval_chamfer",
+        module="v2d.mv.postprocess.lib.mv_eval_chamfer_object",
         inputs=inputs,
         outputs=outputs,
         dev=dev,
@@ -38,19 +42,22 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Compute chamfer distance using rasterized mesh visibility"
+        description="Chamfer distance evaluation for object mesh"
     )
     parser.add_argument("--camera_params_path", type=str, required=True)
-    parser.add_argument("--output_dir", type=str, required=True,
-                        help="Directory with mhr_mesh_mv.pt / mhr_params_mv.pt; metrics saved here too")
+    parser.add_argument("--object_mesh_path", type=str, required=True)
+    parser.add_argument("--object_pose_dir", type=str, required=True)
+    parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--depth_dir", type=str, required=True)
     parser.add_argument("--mask_dir", type=str, required=True)
     parser.add_argument("--config_path", type=str, default=str(_LIB_CONFIG))
     parser.add_argument("--dev", action="store_true")
     args = parser.parse_args()
 
-    run_mv_eval_chamfer(
+    run_mv_eval_chamfer_object(
         camera_params_path=args.camera_params_path,
+        object_mesh_path=args.object_mesh_path,
+        object_pose_dir=args.object_pose_dir,
         output_dir=args.output_dir,
         depth_dir=args.depth_dir,
         mask_dir=args.mask_dir,

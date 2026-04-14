@@ -16,6 +16,7 @@ dependencies = [
     "huggingface-hub",
     "SAM-2 @ git+https://github.com/facebookresearch/sam2.git",
     "v2d-common",
+    "v2d-mv",
 ]
 
 [tool.setuptools]

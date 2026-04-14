@@ -92,11 +92,16 @@ def image_list_to_depth(
     model_dir: str,
     start_idx: int = 0,
     end_idx: int | None = None,
+    scale: float = 1.0,
 ):
     """Process image pairs from left_dir / right_dir and write outputs.
 
     start_idx / end_idx slice the sorted file list, enabling parallel workers
     to process non-overlapping frame ranges concurrently.
+
+    scale: if != 1.0, images are resized before inference and outputs are at
+    the scaled resolution. The calibration dict should already reflect the
+    scaled intrinsics.
     """
     os.makedirs(depth_folder, exist_ok=True)
     os.makedirs(intrinsics_folder, exist_ok=True)
@@ -145,6 +150,14 @@ def image_list_to_depth(
             print(f"  [skip] failed to read: {right_path}")
             skipped += 1
             continue
+
+        if scale != 1.0:
+            h, w = left_image.shape[:2]
+            new_w = int(w * scale)
+            new_h = int(h * scale)
+            interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC
+            left_image = cv2.resize(left_image, (new_w, new_h), interpolation=interp)
+            right_image = cv2.resize(right_image, (new_w, new_h), interpolation=interp)
 
         disparity_px, _ = inference.infer(left_image, right_image)
         depth_m = disparity_to_depth(disparity_px, fx, baseline)

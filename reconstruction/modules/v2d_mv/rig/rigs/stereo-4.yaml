@@ -1,20 +1,28 @@
 cameras:
   - name: front_stereo_camera_left
     cam_id: 0
+    image_path: front_stereo_camera/left/image_compressed
   - name: front_stereo_camera_right
     cam_id: 1
+    image_path: front_stereo_camera/right/image_compressed
   - name: back_stereo_camera_left
     cam_id: 2
+    image_path: back_stereo_camera/left/image_compressed
   - name: back_stereo_camera_right
     cam_id: 3
+    image_path: back_stereo_camera/right/image_compressed
   - name: left_stereo_camera_left
     cam_id: 4
+    image_path: left_stereo_camera/left/image_compressed
   - name: left_stereo_camera_right
     cam_id: 5
+    image_path: left_stereo_camera/right/image_compressed
   - name: right_stereo_camera_left
     cam_id: 6
+    image_path: right_stereo_camera/left/image_compressed
   - name: right_stereo_camera_right
     cam_id: 7
+    image_path: right_stereo_camera/right/image_compressed
 
 stereo_pairs:
   - name: front

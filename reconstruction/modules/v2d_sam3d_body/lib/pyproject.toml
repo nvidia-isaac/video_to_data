@@ -11,7 +11,7 @@ dependencies = [
     "numpy",
     "omegaconf",
     "v2d-common",
-    "v2d-mv[all]",
+    "v2d-mv[io,math,vis]",
 ]
 
 [tool.setuptools]

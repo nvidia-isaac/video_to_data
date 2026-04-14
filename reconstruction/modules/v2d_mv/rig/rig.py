@@ -1,9 +1,16 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from pathlib import Path
 
 from omegaconf import OmegaConf
 
-from .params import CameraParam, load_camera_params
+from .params import (
+    CameraParam,
+    EDEXMetadata,
+    edex_camera_to_param,
+    param_overwrite_in_edex,
+)
 
 _RIG_DIR = Path(__file__).parent / "rigs"
 
@@ -12,6 +19,7 @@ _RIG_DIR = Path(__file__).parent / "rigs"
 class CameraEntry:
     cam_id: int
     name: str
+    image_path: str | None = None
     param: CameraParam | None = None
 
 
@@ -42,14 +50,13 @@ class RigConfig:
 
         cfg = OmegaConf.load(rig_yaml_path)
 
-        params: list[CameraParam] | None = None
-        if camera_params_path is not None:
-            params = load_camera_params(Path(camera_params_path))
-
         self.cameras: dict[int, CameraEntry] = {}
         for cam in cfg.cameras:
-            param = params[cam.cam_id] if params is not None else None
-            entry = CameraEntry(cam_id=cam.cam_id, name=cam.name, param=param)
+            entry = CameraEntry(
+                cam_id=cam.cam_id,
+                name=cam.name,
+                image_path=cam.get("image_path"),
+            )
             self.cameras[cam.cam_id] = entry
 
         self.stereo_pairs: list[StereoPair] = []
@@ -59,6 +66,9 @@ class RigConfig:
                 left=self.cameras[pair.left],
                 right=self.cameras[pair.right],
             ))
+
+        if camera_params_path is not None:
+            self.load_camera_params(camera_params_path)
 
     def get_camera(self, cam_id: int) -> CameraEntry:
         return self.cameras[cam_id]
@@ -80,3 +90,72 @@ class RigConfig:
 
     def get_right_cameras(self) -> list[CameraEntry]:
         return [pair.right for pair in self.stereo_pairs]
+
+    # ------------------------------------------------------------------
+    # Format-dispatched camera param I/O
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _detect_format(path: Path) -> str:
+        name = path.name.lower()
+        suffix = path.suffix.lower()
+        if name == "edex" or suffix == ".edex":
+            return "edex"
+        raise ValueError(f"Unsupported camera params format: {path}")
+
+    def load_camera_params(self, camera_params_path: str | Path) -> None:
+        """Load camera params from a calibration file into the rig.
+
+        Dispatches to a format-specific handler that knows how each format
+        identifies cameras (e.g. by index for EDEX, by name for others).
+        """
+        path = Path(camera_params_path)
+        fmt = self._detect_format(path)
+
+        if fmt == "edex":
+            self._load_edex_params(path)
+
+    def _load_edex_params(self, path: Path) -> None:
+        """Load params from EDEX, mapping by cam_id (index-based)."""
+        edex = EDEXMetadata.read(path)
+        for cam_id, entry in self.cameras.items():
+            if cam_id < len(edex.header.cameras):
+                entry.param = edex_camera_to_param(edex.header.cameras[cam_id])
+
+    def merge_extrinsics(self, extrinsics_path: str | Path) -> None:
+        """Merge extrinsic transforms from another camera params file.
+
+        Loads params from *extrinsics_path* using the same format dispatch
+        and copies the ``.T`` field onto the corresponding ``CameraEntry.param``.
+        """
+        path = Path(extrinsics_path)
+        fmt = self._detect_format(path)
+
+        if fmt == "edex":
+            edex = EDEXMetadata.read(path)
+            for cam_id, entry in self.cameras.items():
+                if entry.param is not None and cam_id < len(edex.header.cameras):
+                    ext_param = edex_camera_to_param(edex.header.cameras[cam_id])
+                    entry.param.T = ext_param.T
+
+    def save_camera_params(
+        self,
+        source_path: str | Path,
+        output_path: str | Path,
+    ) -> None:
+        """Merge current CameraParams back into a calibration file and write.
+
+        Loads *source_path* to preserve non-camera metadata, overwrites
+        camera parameters from this rig's entries, and writes to *output_path*.
+        """
+        source_path = Path(source_path)
+        output_path = Path(output_path)
+        fmt = self._detect_format(source_path)
+
+        if fmt == "edex":
+            edex = EDEXMetadata.read(source_path)
+            for cam_id, entry in self.cameras.items():
+                if entry.param is not None:
+                    param_overwrite_in_edex(edex, cam_id, entry.param)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            edex.write(output_path)
