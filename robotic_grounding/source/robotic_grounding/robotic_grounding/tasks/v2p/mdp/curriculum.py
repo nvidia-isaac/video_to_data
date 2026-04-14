@@ -89,6 +89,14 @@ class VirtualObjectControlCurriculum(ManagerTermBase):
         # The common step counter when the last decay was applied
         self._last_decay_common_step_counter: int = 0
 
+        # Cached deque statistics — updated each curriculum call and written to
+        # the command term's metrics so convergence is visible in W&B even when
+        # the deque is cleared after a decay.
+        self._deque_reward_means = torch.zeros(len(self._reward_names), device=self._env.device)
+        self._deque_reward_stds  = torch.zeros(len(self._reward_names), device=self._env.device)
+        self._deque_ep_len_ratio_mean = torch.zeros(1, device=self._env.device)
+        self._deque_ep_len_ratio_std  = torch.zeros(1, device=self._env.device)
+
     def __call__(
         self,
         env: ManagerBasedRLEnv,
@@ -130,6 +138,30 @@ class VirtualObjectControlCurriculum(ManagerTermBase):
             self._step_dt * self._command.retargeted_horizon
         )  # (num_reset_envs, num_reward)
         self._episode_reward_deque.append_batch(episode_rewards_batch)
+
+        # 1.3 Update and log deque convergence statistics.
+        # Written to the command term's metrics so they appear in W&B.
+        # Cached so values persist across the deque clear that follows a decay.
+        n = env.num_envs
+        if len(self._episode_reward_deque) > 0:
+            all_rewards = self._episode_reward_deque.get_all()  # (size, num_rewards)
+            self._deque_reward_means = all_rewards.mean(dim=0)
+            self._deque_reward_stds = (
+                all_rewards.std(dim=0) if all_rewards.shape[0] > 1
+                else torch.zeros_like(self._deque_reward_means)
+            )
+        if len(self._episode_length_ratio_deque) > 0:
+            all_ratios = self._episode_length_ratio_deque.get_all()  # (size, 1)
+            self._deque_ep_len_ratio_mean = all_ratios.mean(dim=0)
+            self._deque_ep_len_ratio_std = (
+                all_ratios.std(dim=0) if all_ratios.shape[0] > 1
+                else torch.zeros_like(self._deque_ep_len_ratio_mean)
+            )
+        for i, name in enumerate(self._reward_names):
+            self._command.metrics[f"curriculum_reward_mean_{name}"] = self._deque_reward_means[i].expand(n)
+            self._command.metrics[f"curriculum_reward_std_{name}"]  = self._deque_reward_stds[i].expand(n)
+        self._command.metrics["curriculum_ep_len_ratio_mean"] = self._deque_ep_len_ratio_mean.expand(n)
+        self._command.metrics["curriculum_ep_len_ratio_std"]  = self._deque_ep_len_ratio_std.expand(n)
 
         # 2 Whether the control scale is already zero
         control_scale_is_zero = (

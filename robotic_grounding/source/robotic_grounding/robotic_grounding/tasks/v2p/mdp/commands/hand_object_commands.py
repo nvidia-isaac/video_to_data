@@ -113,6 +113,7 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         self._precompute_contact_positions_normals_in_object_frame()
         self._precompute_hand_keypoints_in_object_frame()
         self._precompute_contact_wrench_support_values()
+        self._precompute_bbox_corner_vecs()
         self._set_contact_vis_impl(getattr(self.cfg, "debug_vis", False))
         self._init_metrics(cfg)
 
@@ -861,6 +862,74 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             device=self.device,
         )
 
+    def _compute_object_body_half_extents(self) -> torch.Tensor:
+        """Compute per-body AABB half-extents in local frame from USD geometry.
+
+        Called once at init. Uses UsdGeom.BBoxCache on the live USD stage so no
+        precomputed tables or parquet changes are needed — generalizes to any object.
+        Falls back to isotropic sphere radius per body if the prim is not found or
+        has empty bounds.
+
+        Returns:
+            Tensor of shape (num_bodies, 3) with per-body half-extents [hx, hy, hz].
+        """
+        import isaaclab.sim.utils as sim_utils
+        from pxr import Usd, UsdGeom
+
+        half_extents: list[list[float]] = []
+        body_idx = 0
+
+        for obj in self.objects:
+            first_prim = sim_utils.find_first_matching_prim(obj.cfg.prim_path)
+            root_path = first_prim.GetPath().pathString
+            stage = first_prim.GetStage()
+            bbox_cache = UsdGeom.BBoxCache(
+                Usd.TimeCode.Default(), ["default", "proxy", "render"]
+            )
+
+            for link_name in obj.data.body_names:
+                body_prim = stage.GetPrimAtPath(f"{root_path}/{link_name}")
+                if body_prim.IsValid():
+                    bound = bbox_cache.ComputeUntransformedBound(body_prim)
+                    r3d = bound.GetRange()
+                    if not r3d.IsEmpty():
+                        mn, mx = r3d.GetMin(), r3d.GetMax()
+                        half_extents.append([(mx[i] - mn[i]) / 2.0 for i in range(3)])
+                        body_idx += 1
+                        continue
+                # Fallback: isotropic sphere radius
+                r = (
+                    self.object_mesh_radius[body_idx]
+                    if body_idx < len(self.object_mesh_radius)
+                    else 0.1
+                )
+                half_extents.append([r, r, r])
+                body_idx += 1
+
+        return torch.tensor(half_extents, device=self.device, dtype=torch.float32)
+
+    def _precompute_bbox_corner_vecs(self) -> None:
+        """Pre-compute the 8 AABB corner vectors scaled by per-body half-extents.
+
+        Stores ``self.BBOX_CORNER_VECS`` of shape (num_envs, num_bodies, 8, 3).
+        Each of the 8 corners is (±hx, ±hy, ±hz) in the body's local frame.
+        Used in ``_update_metrics`` to compute a size-normalized pose-tracking error.
+        """
+        self.object_body_half_extents = self._compute_object_body_half_extents()
+        # (num_bodies, 3)
+
+        signs = torch.tensor(
+            [[s0, s1, s2] for s0 in [1.0, -1.0] for s1 in [1.0, -1.0] for s2 in [1.0, -1.0]],
+            device=self.device,
+            dtype=torch.float32,
+        )  # (8, 3)
+
+        # Scale unit corners by per-body half-extents
+        self.BBOX_CORNER_VECS = (
+            signs.unsqueeze(0) * self.object_body_half_extents.unsqueeze(1)
+        ).unsqueeze(0).expand(self.num_envs, -1, -1, -1)
+        # (num_envs, num_bodies, 8, 3)
+
     def _init_metrics(self, cfg: CommandTermCfg) -> None:
         """Initialize all tracking-error metric buffers to zero.
 
@@ -892,6 +961,37 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             cfg.initial_virtual_object_control_curriculum_scale
             * torch.ones(self.num_envs, device=self.device)
         )
+
+        # Contact wrench level metrics (left/right separate)
+        for side in ["right", "left"]:
+            self.metrics[f"contact_wrench_command_support_mean_{side}"] = torch.zeros(
+                self.num_envs, device=self.device
+            )
+            self.metrics[f"contact_wrench_current_support_mean_{side}"] = torch.zeros(
+                self.num_envs, device=self.device
+            )
+            self.metrics[f"contact_wrench_support_ratio_{side}"] = torch.zeros(
+                self.num_envs, device=self.device
+            )
+            self.metrics[f"contact_bodies_coverage_frac_{side}"] = torch.zeros(
+                self.num_envs, device=self.device
+            )
+
+        # Object bounding-box tracking and lift metrics
+        self.metrics["object_bbox_corner_error"] = torch.zeros(self.num_envs, device=self.device)
+        self.metrics["object_body_z_error"] = torch.zeros(self.num_envs, device=self.device)
+
+        # Object contact indicator metrics
+        for suffix in ["right_contact_frac", "left_contact_frac", "any_contact_frac"]:
+            self.metrics[f"object_has_{suffix}"] = torch.zeros(self.num_envs, device=self.device)
+
+        # Hand tracking quality fraction
+        self.metrics["hand_tracking_good_frac"] = torch.zeros(self.num_envs, device=self.device)
+
+        # VOC decay event marker — 1.0 on the step a curriculum decay fires, 0.0 otherwise.
+        # Use alongside object_bbox_corner_error in W&B to see if tracking degrades post-decay.
+        self.metrics["voc_decay_fired"] = torch.zeros(self.num_envs, device=self.device)
+        self._prev_voc_scale = float(cfg.initial_virtual_object_control_curriculum_scale)
 
     ######################################################################
     # Commands
@@ -1793,6 +1893,167 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         #     * torch.ones(self.num_envs, device=self.device)
         # )
         pass
+
+        voc_scale_now = float(self.virtual_object_controller_scale_factor)
+        decay_fired = 1.0 if voc_scale_now < self._prev_voc_scale else 0.0
+        self._prev_voc_scale = voc_scale_now
+        self.metrics["voc_decay_fired"] = decay_fired * torch.ones(self.num_envs, device=self.device)
+
+        # ------------------------------------------------------------------ #
+        # Contact wrench level metrics
+        # Read the internal buffers directly (already filled by the reward
+        # function earlier in the same step) to avoid re-running the expensive
+        # wrench space computation.
+        # ------------------------------------------------------------------ #
+        right_cmd = self.right_hand_contact_wrench_supports_command  # (num_envs, num_bodies, num_basis)
+        right_curr = self.right_contact_wrench_supports              # buffer
+        left_cmd = self.left_hand_contact_wrench_supports_command
+        left_curr = self.left_contact_wrench_supports                # buffer
+
+        right_cmd_has_contact = right_cmd.amax(dim=-1) > 1e-3   # (num_envs, num_bodies)
+        right_curr_has_contact = right_curr.amax(dim=-1) > 1e-3
+        left_cmd_has_contact = left_cmd.amax(dim=-1) > 1e-3
+        left_curr_has_contact = left_curr.amax(dim=-1) > 1e-3
+
+        right_cmd_count = right_cmd_has_contact.sum(dim=-1).clamp(min=1e-3)   # (num_envs,)
+        left_cmd_count = left_cmd_has_contact.sum(dim=-1).clamp(min=1e-3)
+
+        self.metrics["contact_wrench_command_support_mean_right"] = (
+            (right_cmd.mean(dim=-1) * right_cmd_has_contact).sum(dim=-1) / right_cmd_count
+        )
+        self.metrics["contact_wrench_current_support_mean_right"] = (
+            (right_curr.mean(dim=-1) * right_cmd_has_contact).sum(dim=-1) / right_cmd_count
+        )
+        self.metrics["contact_wrench_command_support_mean_left"] = (
+            (left_cmd.mean(dim=-1) * left_cmd_has_contact).sum(dim=-1) / left_cmd_count
+        )
+        self.metrics["contact_wrench_current_support_mean_left"] = (
+            (left_curr.mean(dim=-1) * left_cmd_has_contact).sum(dim=-1) / left_cmd_count
+        )
+
+        has_demo_contact_right = right_cmd_has_contact.any(dim=-1)   # (num_envs,)
+        has_demo_contact_left  = left_cmd_has_contact.any(dim=-1)
+
+        def _contact_ratio(curr, cmd, cmd_has_contact):
+            """Per-basis alignment ratio.
+
+            For each basis direction k where the command has positive support
+            (cmd[e, b, k] > 1e-3) on a body that has commanded contact, compute
+            curr[e, b, k] / cmd[e, b, k].  Average over all active (body, basis)
+            pairs per env, then average over envs where any contact is commanded.
+            Result is broadcast back to (num_envs,).
+
+            This avoids the false-positive from the previous mean-then-divide
+            approach: a current wrench that generates force orthogonal to the
+            commanded directions would score 0 here but could look fine if we
+            first collapsed the basis dimension with .mean().
+
+            curr, cmd       : (num_envs, num_bodies, num_basis)
+            cmd_has_contact : (num_envs, num_bodies)
+            """
+            # Gate: basis direction is active only where the command has support
+            # AND the body is a commanded-contact body.
+            basis_active = (cmd > 1e-3) & cmd_has_contact.unsqueeze(-1)  # (num_envs, num_bodies, num_basis)
+            # Per-basis ratio (unbounded — diagnostic only, no clamp by design).
+            per_basis = curr / (cmd + 1e-6)  # (num_envs, num_bodies, num_basis)
+            # Mean over active (body, basis) pairs per env.
+            n_active = basis_active.float().sum(dim=(-2, -1)).clamp(min=1.0)  # (num_envs,)
+            per_env_ratio = (per_basis * basis_active.float()).sum(dim=(-2, -1)) / n_active  # (num_envs,)
+            # Mean over envs where contact is commanded (exclude non-contact-phase envs).
+            has_demo = cmd_has_contact.any(dim=-1)  # (num_envs,)
+            n_envs = has_demo.float().sum().clamp(min=1.0)
+            val = (per_env_ratio * has_demo.float()).sum() / n_envs
+            return val.expand(curr.shape[0])
+
+        self.metrics["contact_wrench_support_ratio_right"] = _contact_ratio(
+            right_curr, right_cmd, right_cmd_has_contact,
+        )
+        self.metrics["contact_wrench_support_ratio_left"] = _contact_ratio(
+            left_curr, left_cmd, left_cmd_has_contact,
+        )
+
+        # Mean only over envs where contact is commanded, so that non-contact-phase
+        # envs (which contribute 0 / clamp(0, 1e-3) ≈ 0) do not dilute the metric.
+        n_demo_right = has_demo_contact_right.float().sum().clamp(min=1.0)
+        n_demo_left  = has_demo_contact_left.float().sum().clamp(min=1.0)
+        coverage_right = (right_cmd_has_contact & right_curr_has_contact).float().sum(dim=-1) / right_cmd_count
+        coverage_left  = (left_cmd_has_contact  & left_curr_has_contact ).float().sum(dim=-1) / left_cmd_count
+        self.metrics["contact_bodies_coverage_frac_right"] = (
+            (coverage_right * has_demo_contact_right.float()).sum() / n_demo_right
+        ).expand(self.num_envs)
+        self.metrics["contact_bodies_coverage_frac_left"] = (
+            (coverage_left * has_demo_contact_left.float()).sum() / n_demo_left
+        ).expand(self.num_envs)
+
+        # ------------------------------------------------------------------ #
+        # Object contact indicator metrics — conditioned on demo contact phase
+        # so that non-contact-phase envs (which should not have contact) do not
+        # dilute the fraction.
+        # ------------------------------------------------------------------ #
+        has_curr_right = right_curr_has_contact.any(dim=-1)   # (num_envs,)
+        has_curr_left  = left_curr_has_contact.any(dim=-1)
+        has_demo_contact_any = has_demo_contact_right | has_demo_contact_left
+        n_demo_any = has_demo_contact_any.float().sum().clamp(min=1.0)
+        self.metrics["object_has_right_contact_frac"] = (
+            (has_curr_right.float() * has_demo_contact_right.float()).sum() / n_demo_right
+        ).expand(self.num_envs)
+        self.metrics["object_has_left_contact_frac"] = (
+            (has_curr_left.float() * has_demo_contact_left.float()).sum() / n_demo_left
+        ).expand(self.num_envs)
+        self.metrics["object_has_any_contact_frac"] = (
+            ((has_curr_right | has_curr_left).float() * has_demo_contact_any.float()).sum() / n_demo_any
+        ).expand(self.num_envs)
+
+        # ------------------------------------------------------------------ #
+        # Bounding-box corner tracking error
+        # BBOX_CORNER_VECS: (num_envs, num_bodies, 8, 3) — corners (±hx, ±hy, ±hz)
+        # scaled by per-body AABB half-extents computed at init from USD geometry.
+        #
+        # Conditioned on envs that are past the per-episode VOC warmup phase.
+        # During the warmup (steps_since_last_reset < virtual_object_control_decay_steps),
+        # the timestep_counter is frozen at the reset frame and VOC ≈ 1.0 — so
+        # error is trivially near 0 regardless of policy quality and would dilute
+        # the mean downward.
+        # ------------------------------------------------------------------ #
+        past_reset_phase = (
+            self.steps_since_last_reset >= self.cfg.virtual_object_control_decay_steps
+        )  # (num_envs,)
+        n_past_reset = past_reset_phase.float().sum().clamp(min=1.0)
+
+        object_position_exp = self.object_position_e.unsqueeze(2).expand(-1, -1, 8, -1)
+        object_wxyz_exp = self.object_orientation_e.unsqueeze(2).expand(-1, -1, 8, -1)
+        cmd_position_exp = self.object_body_position_command_e.unsqueeze(2).expand(-1, -1, 8, -1)
+        cmd_wxyz_exp = self.object_body_wxyz_command_e.unsqueeze(2).expand(-1, -1, 8, -1)
+
+        current_corners, _ = math_utils.combine_frame_transforms(
+            object_position_exp, object_wxyz_exp, self.BBOX_CORNER_VECS
+        )  # (num_envs, num_bodies, 8, 3)
+        command_corners, _ = math_utils.combine_frame_transforms(
+            cmd_position_exp, cmd_wxyz_exp, self.BBOX_CORNER_VECS
+        )
+        corner_error_per_env = torch.norm(
+            current_corners - command_corners, dim=-1
+        ).mean(dim=(-2, -1))  # (num_envs,), meters
+        self.metrics["object_bbox_corner_error"] = (
+            (corner_error_per_env * past_reset_phase.float()).sum() / n_past_reset
+        ).expand(self.num_envs)
+
+        # Z-only tracking error — detects "object stays on table" failure mode
+        z_error_per_env = torch.abs(
+            self.object_position_e[..., 2] - self.object_body_position_command_e[..., 2]
+        ).mean(dim=-1)  # (num_envs,), meters
+        self.metrics["object_body_z_error"] = (
+            (z_error_per_env * past_reset_phase.float()).sum() / n_past_reset
+        ).expand(self.num_envs)
+
+        # ------------------------------------------------------------------ #
+        # Hand tracking quality fraction
+        # ------------------------------------------------------------------ #
+        _WRIST_GOOD_THRESHOLD = 0.05  # 5 cm
+        self.metrics["hand_tracking_good_frac"] = (
+            (self.metrics["right_hand_wrist_position_error"] < _WRIST_GOOD_THRESHOLD)
+            & (self.metrics["left_hand_wrist_position_error"] < _WRIST_GOOD_THRESHOLD)
+        ).float()
 
     def _resample_command(self, env_ids: Sequence[int]) -> None:
         """Resample the command."""
