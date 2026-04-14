@@ -11,6 +11,8 @@ def run_download(output_dir: str, dev: bool = False) -> None:
         "docker", "run", "--rm",
         "--gpus", "all",
         "--user", f"{os.getuid()}:{os.getgid()}",
+        "-e", "HOME=/tmp",
+        "-e", "TMPDIR=/tmp",
         "-v", f"{output_dir}:/data/weights",
     ]
     if dev:

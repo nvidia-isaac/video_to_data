@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "v2d-hand-alignment-lib"
+version = "0.1.0"
+description = "Hand mesh alignment and rendering utilities"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "scipy",
+    "Pillow",
+    "trimesh",
+    "pyrender",
+    "pyopengl",
+    "v2d-common",
+]
+
+[tool.setuptools]
+packages = ["v2d.hand_alignment.lib"]
+
+[tool.setuptools.package-dir]
+"v2d.hand_alignment.lib" = "."
