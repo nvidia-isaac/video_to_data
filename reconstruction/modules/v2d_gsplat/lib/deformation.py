@@ -28,6 +28,27 @@ def rotation_6d_to_matrix(r6d: torch.Tensor) -> torch.Tensor:
     return torch.stack([b1, b2, b3], dim=-1)  # (..., 3, 3)
 
 
+def _rotation_matrix_to_axis_angle(R: torch.Tensor) -> torch.Tensor:
+    """
+    Convert rotation matrix to axis-angle.
+    R: (..., 3, 3) → (..., 3)
+    Used only for SMPL compatibility (no skinning-weight path).
+    Has known numerical issues near θ = π; prefer the 6D → matrix path
+    for gradient-sensitive operations.
+    """
+    trace = R[..., 0, 0] + R[..., 1, 1] + R[..., 2, 2]
+    theta = torch.acos(((trace - 1.0) / 2.0).clamp(-1.0, 1.0))  # (...)
+    skew = torch.stack([
+        R[..., 2, 1] - R[..., 1, 2],
+        R[..., 0, 2] - R[..., 2, 0],
+        R[..., 1, 0] - R[..., 0, 1],
+    ], dim=-1)  # (..., 3)
+    axis = skew / (2.0 * theta.sin().clamp(min=1e-7))[..., None]
+    aa = axis * theta[..., None]
+    near_zero = (theta < 1e-6).unsqueeze(-1).expand_as(aa)
+    return torch.where(near_zero, torch.zeros_like(aa), aa)
+
+
 class SmplDeformer:
     """
     Wraps the smplx SMPL model to provide:
@@ -103,14 +124,21 @@ class SmplDeformer:
 
     def get_joint_transforms(
         self,
-        global_orient: torch.Tensor,  # (1, 3)
-        body_pose: torch.Tensor,       # (1, J_body*3)
-        betas: torch.Tensor,           # (10,) or (1, 10)
-        transl: torch.Tensor,          # (1, 3)
+        global_orient: torch.Tensor,                     # (1, 3) axis-angle — ignored if global_orient_R is given
+        body_pose: torch.Tensor,                         # (1, J_body*3)
+        betas: torch.Tensor,                             # (10,) or (1, 10)
+        transl: torch.Tensor,                            # (1, 3)
+        global_orient_R: Optional[torch.Tensor] = None, # (1, 3, 3) rotation matrix — preferred, avoids θ=π singularity
     ) -> torch.Tensor:
         """
         Compute per-joint world transform matrices A for full LBS.
         Returns (1, J, 4, 4).
+
+        When global_orient_R is provided it is used directly as the root joint
+        rotation matrix, bypassing batch_rodrigues for global_orient.  This is
+        important when global_orient is stored in 6D representation — the
+        rotation matrix can be derived without going through axis-angle, keeping
+        the gradient path free of the θ=π discontinuity.
         """
         from smplx.lbs import blend_shapes, vertices2joints, batch_rodrigues, batch_rigid_transform
 
@@ -124,21 +152,22 @@ class SmplDeformer:
         # Joints from shaped mesh
         J = vertices2joints(self.body_model.J_regressor, v_shaped)
 
-        # Pose rotations
-        pose = torch.cat([global_orient, body_pose], dim=1)  # (1, J*3)
-        rot_mats = batch_rodrigues(pose.view(-1, 3)).view(B, -1, 3, 3)  # (1, J, 3, 3)
+        # Body joint rotation matrices (axis-angle → matrix)
+        body_rot_mats = batch_rodrigues(body_pose.view(-1, 3)).view(B, -1, 3, 3)  # (1, J_body, 3, 3)
 
-        # Global joint transforms (no translation yet)
-        _, A = batch_rigid_transform(rot_mats, J, self.body_model.parents, dtype=pose.dtype)
-        # A: (1, J, 4, 4)
+        if global_orient_R is not None:
+            # Use provided rotation matrix directly — no axis-angle conversion,
+            # no θ=π singularity in the gradient path.
+            go_mat = global_orient_R  # (1, 3, 3)
+            if go_mat.ndim == 3:
+                go_mat = go_mat.unsqueeze(1)  # (1, 1, 3, 3)
+            rot_mats = torch.cat([go_mat, body_rot_mats], dim=1)  # (1, J, 3, 3)
+        else:
+            go_rot = batch_rodrigues(global_orient.view(-1, 3)).view(B, 1, 3, 3)
+            rot_mats = torch.cat([go_rot, body_rot_mats], dim=1)  # (1, J, 3, 3)
 
-        # Add global translation into the root transform
-        transl_mat = torch.eye(4, device=self.device).unsqueeze(0).unsqueeze(0)  # (1, 1, 4, 4)
-        transl_mat = transl_mat.expand(1, A.shape[1], -1, -1).clone()
-        transl_mat[:, 0, :3, 3] = transl  # apply only to root column
-
-        # Broadcast translation into all joints via root
-        # Simpler: just offset by transl after computing world positions
+        # Global joint transforms
+        _, A = batch_rigid_transform(rot_mats, J, self.body_model.parents, dtype=body_pose.dtype)
         return A  # (1, J, 4, 4)
 
 
@@ -164,6 +193,11 @@ class BodyPoseParams(nn.Module):
     """
     Learnable per-frame SMPL pose parameters and shared body shape.
     Initialised from NlfResult data if provided.
+
+    global_orient is stored as 6D rotation (continuous, no θ=π singularity)
+    to prevent the optimizer from flipping the body through a discontinuity.
+    body_pose (joint angles) remains in axis-angle since joints rarely reach
+    rotations near π and skinning deformation provides a natural barrier.
     """
 
     def __init__(
@@ -174,24 +208,52 @@ class BodyPoseParams(nn.Module):
         device: str = 'cuda',
     ):
         super().__init__()
-        self.global_orient = nn.Parameter(torch.zeros(num_frames, 3, device=device))
+        # 6D rotation: first two columns of the rotation matrix.
+        # Identity = [[1,0,0],[0,1,0],[0,0,1]] → cols 0 and 1 = [1,0,0,0,1,0]
+        r6d = torch.zeros(num_frames, 6, device=device)
+        r6d[:, 0] = 1.0  # first column x-component
+        r6d[:, 4] = 1.0  # second column y-component
+        self.global_orient = nn.Parameter(r6d)          # (T, 6)
         self.body_pose = nn.Parameter(torch.zeros(num_frames, num_body_joints * 3, device=device))
         self.betas = nn.Parameter(torch.zeros(num_betas, device=device))
         self.transl = nn.Parameter(torch.zeros(num_frames, 3, device=device))
 
+    def global_orient_matrix(self, t: slice = slice(None)) -> torch.Tensor:
+        """Return (N, 3, 3) rotation matrices for frame slice t."""
+        return rotation_6d_to_matrix(self.global_orient[t])  # (N, 3, 3)
+
     def frame(self, t: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Return (global_orient, body_pose, betas, transl) for frame t."""
+        """Return (global_orient_aa, body_pose, betas, transl) for frame t.
+        global_orient_aa is (1, 3) axis-angle converted from 6D for SMPL compatibility.
+        Use frame_matrix() for gradient-sensitive paths to avoid θ=π singularity.
+        """
+        go_R = rotation_6d_to_matrix(self.global_orient[t:t+1])  # (1, 3, 3)
+        go_aa = _rotation_matrix_to_axis_angle(go_R)              # (1, 3)
         return (
-            self.global_orient[t:t+1],   # (1, 3)
-            self.body_pose[t:t+1],        # (1, J*3)
-            self.betas,                   # (10,)
-            self.transl[t:t+1],           # (1, 3)
+            go_aa,                    # (1, 3)
+            self.body_pose[t:t+1],    # (1, J*3)
+            self.betas,               # (10,)
+            self.transl[t:t+1],       # (1, 3)
+        )
+
+    def frame_matrix(self, t: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Return (global_orient_R, body_pose, betas, transl) for frame t.
+        global_orient_R is (1, 3, 3) rotation matrix — no singularity in gradient path.
+        Pass to SmplDeformer.get_joint_transforms(global_orient_R=...) for clean gradients.
+        """
+        go_R = rotation_6d_to_matrix(self.global_orient[t:t+1])  # (1, 3, 3)
+        return (
+            go_R,                     # (1, 3, 3)
+            self.body_pose[t:t+1],    # (1, J*3)
+            self.betas,               # (10,)
+            self.transl[t:t+1],       # (1, 3)
         )
 
     @torch.no_grad()
     def load_from_npz(self, path: str) -> None:
         """Initialise parameters from a depth-aligned NlfResult file (NPZ or HDF5)."""
         import h5py
+        from scipy.spatial.transform import Rotation as SciRot
         if h5py.is_hdf5(path):
             with h5py.File(path, 'r') as f:
                 poses     = torch.tensor(f['poses'][:],  dtype=torch.float32)
@@ -207,7 +269,12 @@ class BodyPoseParams(nn.Module):
         T_param = self.global_orient.shape[0]
         T = min(T_data, T_param)
 
-        self.global_orient.data[:T] = poses[:T, :3]
+        # Convert axis-angle → rotation matrix → 6D (first two columns)
+        aa_np = poses[:T, :3].numpy()  # (T, 3)
+        R_np = SciRot.from_rotvec(aa_np).as_matrix()  # (T, 3, 3)
+        r6d_np = np.concatenate([R_np[:, :, 0], R_np[:, :, 1]], axis=1).astype(np.float32)  # (T, 6)
+        self.global_orient.data[:T] = torch.from_numpy(r6d_np).to(self.global_orient.device)
+
         self.body_pose.data[:T] = poses[:T, 3:3 + self.body_pose.shape[1]]
         self.betas.data = betas_arr[:T].mean(0)
         self.transl.data[:T] = transls[:T]
@@ -215,8 +282,11 @@ class BodyPoseParams(nn.Module):
 
 class ObjectPoseParams(nn.Module):
     """
-    Learnable per-frame SE(3) transforms for each rigid object.
+    Learnable per-frame SE(3) transforms + global scale for each rigid object.
     Rotation stored in 6D form for smooth gradient flow.
+    Scale is time-independent (one scalar per object) stored in log-space for
+    positivity; initialized to 0 (scale = 1.0).  Used to correct SAM3D mesh
+    scale errors that persist after FoundationPose depth alignment.
     """
 
     def __init__(self, num_frames: int, num_objects: int, device: str = 'cuda'):
@@ -227,6 +297,8 @@ class ObjectPoseParams(nn.Module):
         r6d[:, :, 4] = 1.0  # identity: second col = (0, 1, 0)
         self.rotations_6d = nn.Parameter(r6d)
         self.translations = nn.Parameter(torch.zeros(num_frames, num_objects, 3, device=device))
+        # Per-object global scale correction (log-space; 0 = no correction)
+        self.log_scales = nn.Parameter(torch.zeros(num_objects, device=device))
 
     def get_transform(self, t: int, obj_id: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """Return (R: 3×3, t: 3) for frame t, object obj_id."""

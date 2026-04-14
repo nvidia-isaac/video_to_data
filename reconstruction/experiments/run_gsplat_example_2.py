@@ -1,5 +1,8 @@
 """
-End-to-end Gaussian Splatting pipeline using v2d_sam2 test assets.
+End-to-end Gaussian Splatting pipeline — extended video (gsplat_example_2).
+
+Same scene as gsplat_example but uses the longer source video:
+  data/outputs/gsplat_example_2/Date03_Sub03_chairblack_lift.2.color.mp4
 
 Prerequisites (weights must be downloaded before running):
   data/weights/moge/          - MoGe model weights
@@ -10,15 +13,14 @@ Prerequisites (weights must be downloaded before running):
                                 Available from https://smpl.is.tue.mpg.de/
                                 (Same files as used by v2d_nlf; place/symlink here)
 
-Test assets used:
-  modules/v2d_sam2/assets/test_video.mp4      - video with person + object
-  modules/v2d_sam2/assets/test_prompts.json   - bounding boxes for person (id=0) and object (id=1)
+Prompts reused from the original example (same object IDs):
+  modules/v2d_sam2/assets/test_prompts.json
 
 Run from reconstruction/:
-  python experiments/run_gsplat_example.py
+  python experiments/run_gsplat_example_2.py
 
 To test with a quick run (few frames, fewer iterations):
-  python experiments/run_gsplat_example.py --quick
+  python experiments/run_gsplat_example_2.py --quick
 """
 
 import os
@@ -38,11 +40,11 @@ from v2d.gsplat.docker.run_video_to_gsplat import run_video_to_gsplat
 # --------------------------------------------------------------------------- #
 # Paths
 # --------------------------------------------------------------------------- #
-VIDEO   = 'modules/v2d_sam2/assets/test_video.mp4'
+VIDEO   = 'data/outputs/gsplat_example_2/Date03_Sub03_chairblack_lift.2.color_every4.mp4'
 PROMPTS = 'modules/v2d_sam2/assets/test_prompts.json'
 WEIGHTS     = 'data/weights'
 WEIGHTS_NLF = 'data/weights/nlf'   # gsplat expects smpl/ subdir here
-OUT     = 'data/outputs/gsplat_example'
+OUT     = 'data/outputs/gsplat_example_2'
 
 # Intermediate outputs
 FRAMES_DIR     = f'{OUT}/frames'
@@ -71,13 +73,13 @@ def run_prerequisites(dev: bool = False, quick: bool = False):
     # Step 1: Depth + intrinsics (MoGe)
     # ------------------------------------------------------------------ #
     print('\n[1/8] Running MoGe depth estimation…')
-    run_video_to_depth(
-        video_path=VIDEO,
-        depth_folder=DEPTH_DIR,
-        intrinsics_folder=INTRINSICS_DIR,
-        weights_path=f'{WEIGHTS}/moge',
-        dev=dev,
-    )
+    # run_video_to_depth(
+    #     video_path=VIDEO,
+    #     depth_folder=DEPTH_DIR,
+    #     intrinsics_folder=INTRINSICS_DIR,
+    #     weights_path=f'{WEIGHTS}/moge',
+    #     dev=dev,
+    # )
     # Reference intrinsics: all frames share the same camera model from MoGe
     intrinsics_path = f'{INTRINSICS_DIR}/000000.json'
 
@@ -132,6 +134,7 @@ def run_prerequisites(dev: bool = False, quick: bool = False):
         scale_path=f'{OBJECTS_DIR}/object_{OBJECT_OBJ_ID}_fp_scale.json',
         rescaled_mesh_path=f'{OBJECTS_DIR}/object_{OBJECT_OBJ_ID}.obj',   # overwrite SAM3D mesh
         pose_path=f'{OBJECTS_DIR}/object_{OBJECT_OBJ_ID}_transform.json', # overwrite SAM3D transform
+        registration_iterations=3,
         dev=dev,
     )
 
@@ -152,6 +155,7 @@ def run_prerequisites(dev: bool = False, quick: bool = False):
         mesh_path=f'{OBJECTS_DIR}/object_{OBJECT_OBJ_ID}.obj',
         poses_dir=fp_poses_dir,
         weights_dir=f'{WEIGHTS}/foundation_pose',
+        reregister_iou_thresh=0.3,
         dev=dev,
     )
 
@@ -194,7 +198,7 @@ def run_gsplat(intrinsics_path: str, dev: bool = False, quick: bool = False, fra
     # Quick mode: fewer iterations, quarter-res training
     n_cycles                       = 5    if quick else 3
     iterations_canonical_per_cycle = 200  if quick else 1000
-    iterations_pose_per_cycle      = 200  if quick else 500
+    iterations_pose_per_cycle      = 100  if quick else 500
     iterations_refine              = 100  if quick else 1000
     train_scale                    = 0.5 if quick else 0.5
     num_frames                     = None
@@ -206,15 +210,15 @@ def run_gsplat(intrinsics_path: str, dev: bool = False, quick: bool = False, fra
     # 0 = constant color (no view-dependence, eliminates SH-baked lighting artifacts).
     # 1 = linear (recommended for dynamic human scenes).
     # 3 = full (default, can bake spurious exposure/lighting variation into body Gaussians).
-    sh_degree           = 3
+    sh_degree           = 1
 
     # Entity mask loss weight: drives object opacity up and pose to match SAM2 mask.
     # Higher = stronger mask adherence. Default 1.0; 3.0 works well for objects.
-    weight_entity_mask  = 1.0
+    weight_entity_mask  = 1
 
     # Depth loss weight: L1 between rendered and monocular depth (MoGe).
     # Acts as a per-frame geometric prior. 0.0 = disabled; 0.1 = default.
-    weight_depth        = 1.0
+    weight_depth        = 1
 
     # How often to compute per-entity silhouette losses (every N iters).
     # 1 = every iteration (best quality, slower); 5 = default (faster).
@@ -222,16 +226,16 @@ def run_gsplat(intrinsics_path: str, dev: bool = False, quick: bool = False, fra
 
     # Global learning rate multiplier applied to all parameter groups.
     # 1.0 = default; 0.5 = half speed (more stable, slower); 2.0 = double (faster, may diverge).
-    lr_scale            = 1
+    lr_scale            = 2
 
     # Object pose learning rate (scaled independently by lr_obj_pose, then lr_scale).
     # Lower = smoother convergence, less oscillation.
-    lr_obj_pose         = 1e-3
+    lr_obj_pose         = 1e-5
 
     # Per-object global scale correction LR. Lower than pose so scale adapts slowly.
     # Corrects SAM3D mesh scale errors that survive FoundationPose depth alignment.
     # Set to 0 to freeze (useful if depth loss is strong and scale is trusted).
-    lr_obj_scale        = 5e-4
+    lr_obj_scale        = 5e-5
     weight_obj_scale_reg = 0.1
 
     # LR decay schedule applied uniformly across all cycles + refinement.
@@ -248,7 +252,7 @@ def run_gsplat(intrinsics_path: str, dev: bool = False, quick: bool = False, fra
     lr_body_joints      = 1e-4
 
     # Frames sampled per iteration. Higher = smoother pose gradients, less noise.
-    batch_size          = 4
+    batch_size          = 8
 
     # Initial opacity for object Gaussians (sigmoid-space: 0–1).
     # Higher starting opacity gives the mask loss more signal early in training.
@@ -284,7 +288,7 @@ def run_gsplat(intrinsics_path: str, dev: bool = False, quick: bool = False, fra
     #   'hard_negative'    — sample proportional to per-frame loss^hard_mining_beta.
     #   'config_diversity' — sample to maximize coverage of body/object pose space;
     #                        rare configurations (phases of motion) get higher weight.
-    frame_sampling      = 'config_diversity'
+    frame_sampling      = 'uniform'
     # Temperature for config-diversity sampling: higher → more uniform (default 1.0).
     config_diversity_temperature = 1.0
 
@@ -297,12 +301,12 @@ def run_gsplat(intrinsics_path: str, dev: bool = False, quick: bool = False, fra
     # Temporal smoothness on object SE(3) poses.
     # Penalises frame-to-frame delta in translation and rotation.
     # 0 = disabled; ~0.1 gentle; ~1.0 strong. Start at 0.2 and tune up if still shaky.
-    weight_obj_pose_smooth  = 0.1
+    weight_obj_pose_smooth  = 1.0
 
     # Temporal smoothness on body SMPL pose (global orient, body joints, root translation).
     # Same idea. Body pose has many more dimensions so needs a higher weight for equivalent
     # regularisation strength. Start at 1.0 and tune up if body still skips.
-    weight_body_pose_smooth = 0.1
+    weight_body_pose_smooth = 1.0
 
     # Maximum number of Gaussians across the whole scene.
     # Lower = faster training and rendering; higher = more detail.
@@ -328,7 +332,7 @@ def run_gsplat(intrinsics_path: str, dev: bool = False, quick: bool = False, fra
     # Reset all Gaussian opacities to ~0.018 every N canonical/joint iters.
     # Forces Gaussians to re-earn opacity; culls elongated floaters over time.
     # 0 = disabled; 500 = default.
-    reset_opacity_every = 200
+    reset_opacity_every = 20000
 
     # Passes over the full video in the final pose-only sweep.
     # Each pass does one backward per frame (canonical frozen).
@@ -375,8 +379,8 @@ def run_gsplat(intrinsics_path: str, dev: bool = False, quick: bool = False, fra
         body_mask_outside_weight=body_mask_outside_weight,
         weight_obj_pose_smooth=weight_obj_pose_smooth,
         weight_body_pose_smooth=weight_body_pose_smooth,
-        weight_body_anchor=5.0,
-        weight_obj_anchor=5.0,
+        weight_body_anchor=1.0,
+        weight_obj_anchor=1.0,
         lr_exposure=lr_exposure,
         weight_exposure_reg=weight_exposure_reg,
         weight_isotropy=weight_isotropy,

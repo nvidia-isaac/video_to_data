@@ -1,0 +1,79 @@
+# Config for run_gsplat_optimize_object
+# All fields are optional — omit any to use the default from ObjectOptimConfig.
+
+# Training
+n_batches: 10000
+batch_size: 4
+render_interval: 200   # save debug renders every N batches / frames
+
+# Progressive mode
+progressive: true
+progressive_min_steps: 10
+progressive_max_steps: 500
+progressive_patience: 20
+progressive_plateau_threshold: 1.0e-4
+progressive_ema_alpha: 0.3
+
+# Loss (masked to object silhouette)
+weight_rgb: 1.0
+weight_ssim: 0.2
+
+lr_scale: 10.0
+# Gaussian learning rates
+lr_positions: 1.6e-4
+lr_rotations: 1.0e-3
+lr_scales: 5.0e-3
+lr_opacities: 5.0e-2
+lr_sh_dc: 1.0e-3
+lr_sh_rest: 1.0e-4
+
+# Mask (silhouette): asymmetric focal BCE on rendered alpha vs object mask (0 = disabled)
+weight_mask: 1.0
+mask_outside_weight: 1.0   # reduced penalty outside mask boundary
+mask_occluder_weight: 0.0  # no penalty for person-occluded pixels (0 = disabled)
+mask_focal_gamma: 2.0      # focal loss γ; 0 = plain weighted BCE
+
+# Anchor: pull canonical positions toward mesh-init reference (0 = disabled)
+weight_anchor: 1.0
+
+# Pose smoothness: penalize SE(3) change between consecutive frames (0 = disabled)
+weight_smoothness: 0.1
+
+# Centroid: pull projected Gaussian centroid toward mask centroid (0 = disabled)
+weight_centroid: 0.0
+
+# Normal: cosine similarity between normals from rendered depth vs input depth (0 = disabled)
+weight_normal: 0.0
+
+# Pose learning rate (SE(3) per frame)
+lr_pose: 1.0e-3
+
+# LR decay
+lr_decay_schedule: cosine
+lr_decay_final: 0.1
+
+# Densification
+densify_every: 50000000
+grad_threshold: 0.001
+prune_opacity_threshold: 0.005
+max_gaussians: 150000
+max_scale_factor: 0.1
+reset_opacity_every: 10000000
+
+# Scene
+sh_degree: 3         # 0=constant color, 1=linear, 3=full view-dependent
+train_scale: 0.5      # resize images for training (0.5 = half resolution)
+n_gaussians: 15000     # target Gaussian count when initializing from mesh
+initial_opacity: 0.5
+
+# Feature Gaussians — separate coarse Gaussian set with DINOv2 features for pose alignment
+# Set feature_encoder: '' to disable entirely
+feature_encoder: dinov2_vits14
+feature_proj_dim: 64        # projected feature dim
+feature_n_gaussians: 500    # much fewer than RGB Gaussians
+weight_feature: 0.1
+lr_feat_positions: 0.0 #1.6e-4
+lr_feat_rotations: 1.0e-3
+lr_feat_scales: 5.0e-3
+lr_feat_opacities: 5.0e-2
+lr_feat_features: 1.0e-3

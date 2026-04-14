@@ -8,6 +8,7 @@ Each cycle has two sub-phases:
 A final joint refinement phase runs at 0.1× LR after all cycles completes.
 """
 
+import math
 import os
 import json
 import random
@@ -22,7 +23,7 @@ import torch.optim as optim
 
 from v2d.common.datatypes import CameraIntrinsics, DepthImage
 from v2d.gsplat.lib.scene import GaussianScene, ENTITY_BODY, ENTITY_OBJECT_BASE
-from v2d.gsplat.lib.deformation import SmplDeformer, BodyPoseParams, ObjectPoseParams, ExposureParams, apply_lbs
+from v2d.gsplat.lib.deformation import SmplDeformer, BodyPoseParams, ObjectPoseParams, ExposureParams, apply_lbs, rotation_6d_to_matrix
 from v2d.gsplat.lib.rasterizer import render, render_entity_silhouette, build_viewmat, build_K
 from v2d.gsplat.lib.losses import compute_total_loss, loss_mask, loss_mask_asymmetric, loss_anchor
 from v2d.gsplat.lib.densification import densify_and_prune
@@ -62,10 +63,23 @@ class OptimConfig:
     lr_body_shape: float = 1e-4
     lr_body_transl: float = 1e-3
     lr_obj_pose: float = 1e-3
+    # Per-object global scale correction LR.  Lower than pose LR so scale adapts
+    # slowly (avoids depth-scale ambiguity early in training).  0 = frozen.
+    lr_obj_scale: float = 1e-4
+    # L2 regularization on log_scale — penalises deviating from scale=1.  Keeps
+    # scale corrections small unless the rendering loss strongly demands otherwise.
+    weight_obj_scale_reg: float = 0.1
     lr_exposure: float = 1e-2   # per-frame log-exposure learning rate
     # L2 penalty on log_exposure — keeps values near 0 (neutral), prevents
     # exposure from absorbing real scene colour variation.
     weight_exposure_reg: float = 0.1
+    # ---- LR decay -----------------------------------------------------------
+    # Schedule applied uniformly across all cycles + refinement.
+    # 'none'        — constant LR (no decay).
+    # 'cosine'      — cosine annealing: 1.0 → lr_decay_final over total iters.
+    # 'exponential' — exponential: base_lr × lr_decay_final^(t/T).
+    lr_decay_schedule: str = 'cosine'
+    lr_decay_final: float = 0.1   # final LR as a fraction of its initial value
     # ---- Densification (canonical sub-phase only) ---------------------------
     densify_every: int = 100
     grad_threshold: float = 0.0002
@@ -102,7 +116,213 @@ class OptimConfig:
     # 0.0 = disabled; 0.01–0.1 = gentle; higher = more spherical Gaussians.
     # Improves novel-view (side-view) consistency at the cost of some detail.
     weight_isotropy: float = 0.0
+    # Hard-negative mining: sample frames proportional to loss^beta instead of
+    # uniformly. beta=0 disables (uniform); beta=1 linear; beta=2 quadratic.
+    # eps is the uniform floor — each frame retains at least eps/N probability
+    # so no frame is ever completely starved of gradient updates.
+    hard_mining_beta: float = 0.0
+    hard_mining_eps: float = 0.1
+    # Frame sampling strategy across all optimization phases.
+    #   'uniform'           — random uniform (baseline).
+    #   'hard_negative'     — sample proportional to per-frame loss^beta (use with
+    #                         hard_mining_beta > 0; beta=0 falls back to uniform).
+    #   'config_diversity'  — sample to maximize spread in human/object pose space;
+    #                         under-represented configurations get higher probability.
+    #                         Complementary to hard-negative: loss-independent, more
+    #                         stable, leverages strong pose priors.
+    frame_sampling: str = 'hard_negative'
+    # Temperature for config-diversity sampling.  Higher → more uniform;
+    # lower → greedier (always picks the most isolated configurations).
+    config_diversity_temperature: float = 1.0
+    # Per-frame object confidence gating.
+    # Before optimization starts, the initial FP pose is rendered for each frame
+    # and its IoU with the SAM2 mask is computed.  Frames with IoU × √coverage
+    # below min_obj_confidence have their object entity-mask loss zeroed so
+    # poorly-tracked / occluded frames do not corrupt canonical shape learning.
+    # Those frames' poses are also SLERP-interpolated from neighboring
+    # high-confidence frames so the optimization starts from a sensible pose.
+    # 0.0 = disabled (all frames weighted equally).
+    min_obj_confidence: float = 0.1
+    # Anchor object pose parameters toward their SLERP-filled initial values,
+    # weighted by (1 - confidence).  Prevents low-confidence frame poses from
+    # drifting away from the SLERP interpolation during optimization while
+    # letting well-tracked frames refine freely.
+    # 0.0 = disabled; typical useful range: 0.5–2.0.
+    weight_obj_slerp_anchor: float = 1.0
     device: str = 'cuda'
+
+
+class HardNegativeSampler:
+    """
+    Per-frame EMA loss tracker for hard-negative mining.
+
+    Frames are sampled proportional to loss^beta (power-law weighting).
+    A uniform floor of eps prevents any frame from being completely starved.
+
+    beta=0  → uniform random (same as no hard mining).
+    beta=1  → linear proportional to current loss estimate.
+    beta=2  → quadratic — harder frames get even more focus.
+    eps     → fraction of probability mass kept uniform across all frames.
+    """
+
+    _EMA_ALPHA = 0.05  # smoothing factor — adapts slowly so estimates are stable
+
+    def __init__(
+        self,
+        frame_indices: List[int],
+        batch_size: int,
+        beta: float = 1.0,
+        eps: float = 0.1,
+    ):
+        self.frame_indices = list(frame_indices)
+        self.batch_size = min(batch_size, len(frame_indices))
+        self.beta = beta
+        self.eps = eps
+        self._loss_ema = np.ones(len(self.frame_indices), dtype=np.float64)
+        self._idx_map = {t: i for i, t in enumerate(self.frame_indices)}
+
+    def sample(self) -> List[int]:
+        if len(self.frame_indices) <= self.batch_size:
+            return list(self.frame_indices)
+        if self.beta == 0.0:
+            return random.sample(self.frame_indices, self.batch_size)
+        hard = self._loss_ema ** self.beta
+        hard /= hard.sum()
+        uniform = np.ones(len(self.frame_indices)) / len(self.frame_indices)
+        probs = (1.0 - self.eps) * hard + self.eps * uniform
+        probs /= probs.sum()
+        chosen = np.random.choice(
+            len(self.frame_indices), size=self.batch_size, replace=False, p=probs
+        )
+        return [self.frame_indices[i] for i in chosen]
+
+    def update(self, frame_losses: Dict[int, float]):
+        """Update EMA loss estimates from the latest batch."""
+        a = self._EMA_ALPHA
+        for t, v in frame_losses.items():
+            if t in self._idx_map:
+                i = self._idx_map[t]
+                self._loss_ema[i] = (1.0 - a) * self._loss_ema[i] + a * v
+
+    def log_stats(self) -> str:
+        losses = self._loss_ema
+        return (f"hard_mining: min={losses.min():.4f} mean={losses.mean():.4f} "
+                f"max={losses.max():.4f}")
+
+
+class ConfigDiversitySampler:
+    """
+    Sample frames to maximize coverage of the human/object configuration space.
+
+    Each frame is represented by a feature vector built from the current SMPL body
+    pose (global_orient, body_pose, transl) and per-object SE(3) transforms.
+    Frames are sampled proportional to their *isolation* in this space — frames
+    whose configuration is far from their neighbours are sampled more often,
+    ensuring diverse body/object poses receive proportional training.
+
+    A recency term (inverse of visit-count EMA) prevents any single pose cluster
+    from being permanently ignored, even if it's dense.
+
+    Because pose params change slowly relative to the loss, the pairwise distance
+    matrix is recomputed every `recompute_every` samples rather than every call.
+
+    update() accepts the same frame_losses dict as HardNegativeSampler (for
+    interface compatibility) but only uses it to track visit counts.
+    """
+
+    _EMA_DECAY = 0.995
+    _RECENCY_WEIGHT = 0.4  # blend between isolation (0) and recency (1)
+
+    def __init__(
+        self,
+        frame_indices: List[int],
+        batch_size: int,
+        body_pose_params: Optional['BodyPoseParams'],
+        obj_pose_params: Optional['ObjectPoseParams'],
+        temperature: float = 1.0,
+        recompute_every: int = 50,
+    ):
+        self.frame_indices = list(frame_indices)
+        self.batch_size = min(batch_size, len(frame_indices))
+        self.body_pose_params = body_pose_params
+        self.obj_pose_params = obj_pose_params
+        self.temperature = temperature
+        self.recompute_every = recompute_every
+        self._n = len(self.frame_indices)
+        self._idx_map = {t: i for i, t in enumerate(self.frame_indices)}
+        self._visit_ema = np.ones(self._n, dtype=np.float64)
+        self._cached_isolation: Optional[np.ndarray] = None
+        self._cache_age: int = 0
+
+    def _compute_isolation(self) -> np.ndarray:
+        """
+        Build normalized pose features, compute pairwise L2 distances, and
+        return per-frame isolation scores (mean kNN distance, normalized to sum=1).
+        """
+        idx = torch.tensor(self.frame_indices, dtype=torch.long)
+        parts: List[torch.Tensor] = []
+
+        with torch.no_grad():
+            if self.body_pose_params is not None:
+                parts.append(self.body_pose_params.global_orient[idx].cpu().float())   # (N, 6)
+                parts.append(self.body_pose_params.body_pose[idx].cpu().float())        # (N, J*3)
+                parts.append(self.body_pose_params.transl[idx].cpu().float())           # (N, 3)
+            if self.obj_pose_params is not None:
+                r = self.obj_pose_params.rotations_6d[idx].cpu().float().view(self._n, -1)
+                t = self.obj_pose_params.translations[idx].cpu().float().view(self._n, -1)
+                parts.extend([r, t])
+
+        if not parts:
+            return np.ones(self._n, dtype=np.float64) / self._n
+
+        feats = torch.cat(parts, dim=-1).numpy()   # (N, D)
+        std = feats.std(0).clip(min=1e-6)
+        feats = (feats - feats.mean(0)) / std      # z-score normalise per dim
+
+        dists = torch.cdist(
+            torch.from_numpy(feats), torch.from_numpy(feats)
+        ).numpy()                                   # (N, N)
+
+        k = min(5, self._n - 1)
+        knn = np.sort(dists, axis=1)[:, 1:k + 1]  # skip self (dist=0)
+        isolation = knn.mean(axis=1)               # (N,)
+        total = isolation.sum()
+        return isolation / total if total > 0.0 else np.ones(self._n) / self._n
+
+    def sample(self) -> List[int]:
+        if self._n <= self.batch_size:
+            return list(self.frame_indices)
+
+        if self._cached_isolation is None or self._cache_age >= self.recompute_every:
+            self._cached_isolation = self._compute_isolation()
+            self._cache_age = 0
+        self._cache_age += 1
+
+        recency = 1.0 / (self._visit_ema + 1e-6)
+        recency /= recency.sum()
+
+        w = self._RECENCY_WEIGHT
+        combined = (1.0 - w) * self._cached_isolation + w * recency
+
+        # Temperature-scaled softmax sampling (temperature > 1 → more uniform)
+        logits = combined / max(self.temperature, 1e-12)
+        probs = np.exp(logits - logits.max())
+        probs /= probs.sum()
+
+        chosen = np.random.choice(self._n, size=self.batch_size, replace=False, p=probs)
+        return [self.frame_indices[i] for i in chosen]
+
+    def update(self, frame_losses: Dict[int, float]):
+        """Update visit count EMA (frame_losses dict is accepted for interface compatibility)."""
+        self._visit_ema *= self._EMA_DECAY
+        for t in frame_losses:
+            if t in self._idx_map:
+                self._visit_ema[self._idx_map[t]] += 1.0 - self._EMA_DECAY
+
+    def log_stats(self) -> str:
+        v = self._visit_ema
+        return (f"config_diversity: visits min={v.min():.3f} "
+                f"mean={v.mean():.3f} max={v.max():.3f}")
 
 
 def _load_frame_rgb(video_path: str, frame_idx: int) -> np.ndarray:
@@ -182,17 +402,20 @@ def compute_world_positions(
     # ---- Body -------------------------------------------------------
     body_mask = scene.body_mask()
     if body_mask.any() and body_pose_params is not None and smpl_deformer is not None:
-        go, bp, betas, transl = body_pose_params.frame(frame_t)
-
         if scene.skinning_weights is not None:
-            # Full LBS with learned skinning weights
-            A = smpl_deformer.get_joint_transforms(go, bp, betas, transl)  # (1, J, 4, 4)
+            # Full LBS with learned skinning weights.
+            # Use frame_matrix() to pass the rotation matrix directly to
+            # get_joint_transforms, bypassing batch_rodrigues for global_orient
+            # and keeping the gradient path free of the θ=π discontinuity.
+            go_R, bp, betas, transl = body_pose_params.frame_matrix(frame_t)
+            A = smpl_deformer.get_joint_transforms(None, bp, betas, transl, global_orient_R=go_R)  # (1, J, 4, 4)
             A = A.squeeze(0)  # (J, 4, 4)
             canonical_body = scene.positions[body_mask]  # (N_body, 3)
             sw = scene.skinning_weights  # (N_body, J) softmax
             world_body = apply_lbs(canonical_body, sw, A, transl.squeeze(0))
         else:
             # Simpler: use SMPL vertex positions directly
+            go, bp, betas, transl = body_pose_params.frame(frame_t)
             verts = smpl_deformer.get_posed_vertices(go, bp, betas, transl)  # (1, V, 3)
             verts = verts.squeeze(0)  # (V, 3)
             vertex_ids = scene.smpl_vertex_ids  # (N_body,)
@@ -208,8 +431,9 @@ def compute_world_positions(
             if not obj_mask.any():
                 continue
             R, t = obj_pose_params.get_transform(frame_t, rid)
+            s_obj = torch.exp(obj_pose_params.log_scales[rid])
             canonical_obj = scene.positions[obj_mask]
-            world_obj = canonical_obj @ R.T + t.unsqueeze(0)
+            world_obj = s_obj * (canonical_obj @ R.T) + t.unsqueeze(0)
             world_pos = world_pos.clone()
             world_pos[obj_mask] = world_obj
 
@@ -258,8 +482,9 @@ def _setup_optimizer(
 
     if obj_pose_params is not None:
         param_groups += [
-            {'params': [obj_pose_params.rotations_6d],  'lr': cfg.lr_obj_pose * s, 'name': 'obj_rot'},
-            {'params': [obj_pose_params.translations],  'lr': cfg.lr_obj_pose * s, 'name': 'obj_t'},
+            {'params': [obj_pose_params.rotations_6d],  'lr': cfg.lr_obj_pose  * s, 'name': 'obj_rot'},
+            {'params': [obj_pose_params.translations],  'lr': cfg.lr_obj_pose  * s, 'name': 'obj_t'},
+            {'params': [obj_pose_params.log_scales],    'lr': cfg.lr_obj_scale * s, 'name': 'obj_scale'},
         ]
 
     # Exposure is always active in every mode — it's a per-frame appearance
@@ -272,7 +497,7 @@ def _setup_optimizer(
         })
 
     _gaussian_geom = {'positions', 'rotations', 'scales', 'sh_dc', 'sh_rest', 'skinning'}
-    _pose_params   = {'go', 'bp', 'betas', 'transl', 'obj_rot', 'obj_t'}
+    _pose_params   = {'go', 'bp', 'betas', 'transl', 'obj_rot', 'obj_t', 'obj_scale'}
 
     if mode == 'canonical':
         for pg in param_groups:
@@ -286,6 +511,10 @@ def _setup_optimizer(
         for pg in param_groups:
             pg['lr'] *= 0.1
     # mode='joint': all LRs left at full value
+
+    # Store base LRs so the decay scheduler can reconstruct the target at any step.
+    for pg in param_groups:
+        pg['_base_lr'] = pg['lr']
 
     return optim.Adam(param_groups, lr=0.0, eps=1e-15)
 
@@ -306,10 +535,14 @@ def _compute_batch_loss(
     device: str,
     compute_entity_mask: bool,
     exposure_params: Optional[ExposureParams] = None,
-) -> Tuple[torch.Tensor, Dict[str, float]]:
-    """Forward pass over batch_frames; return (total_loss, per-term breakdown)."""
+    frame_obj_confidence: Optional[torch.Tensor] = None,
+    slerp_obj_r6d: Optional[torch.Tensor] = None,
+    slerp_obj_t: Optional[torch.Tensor] = None,
+) -> Tuple[torch.Tensor, Dict[str, float], Dict[int, float]]:
+    """Forward pass over batch_frames; return (total_loss, per-term breakdown, per-frame losses)."""
     batch_loss = torch.tensor(0.0, device=device)
     loss_terms_accum: Dict[str, float] = {}
+    per_frame_losses: Dict[int, float] = {}
 
     for t in batch_frames:
         world_pos = compute_world_positions(
@@ -342,7 +575,6 @@ def _compute_batch_loss(
             target_depth=target_depth,
             rendered_alpha=result.alpha,
             target_mask=combined_mask,
-            body_pose_params=body_pose_params,
             scene=scene,
             weights=cfg.loss_weights,
         )
@@ -372,7 +604,15 @@ def _compute_batch_loss(
                     entity_alpha = render_entity_silhouette(
                         scene, entity_sel, world_pos, viewmat, K_tr, H_tr, W_tr
                     )
-                    entity_mask_loss = entity_mask_loss + loss_mask_asymmetric(entity_alpha, obj_sam2_mask)
+                    # Down-weight object mask loss for frames where the initial FP
+                    # pose had poor IoU with SAM2 (occluded or mis-tracked frames).
+                    # This prevents those frames from corrupting canonical shape.
+                    obj_conf_t = (
+                        frame_obj_confidence[t].item()
+                        if frame_obj_confidence is not None
+                        else 1.0
+                    )
+                    entity_mask_loss = entity_mask_loss + obj_conf_t * loss_mask_asymmetric(entity_alpha, obj_sam2_mask)
                     n_entity_losses += 1
             if n_entity_losses > 0:
                 entity_mask_loss = entity_mask_loss / n_entity_losses
@@ -383,6 +623,7 @@ def _compute_batch_loss(
         else:
             terms['entity_mask'] = 0.0
 
+        per_frame_losses[t] = total.item()
         batch_loss = batch_loss + total / len(batch_frames)
         for k, v in terms.items():
             loss_terms_accum[k] = loss_terms_accum.get(k, 0.0) + v / len(batch_frames)
@@ -398,13 +639,13 @@ def _compute_batch_loss(
                 scene._positions[body_mask], target_body
             )
 
-    if cfg.weight_obj_anchor > 0.0:
+    if cfg.weight_obj_anchor > 0.0 and scene._anchor_positions is not None:
         for rid in range(scene.n_objects()):
             obj_mask_a = scene.object_mask(rid)
-            initial = scene._initial_obj_positions.get(rid)
-            if obj_mask_a.any() and initial is not None:
+            if obj_mask_a.any():
                 batch_loss = batch_loss + cfg.weight_obj_anchor * loss_anchor(
-                    scene._positions[obj_mask_a], initial.to(device)
+                    scene._positions[obj_mask_a],
+                    scene._anchor_positions[obj_mask_a].to(device),
                 )
 
     # Object pose smoothness
@@ -421,6 +662,25 @@ def _compute_batch_loss(
         dtr = body_pose_params.transl[1:]       - body_pose_params.transl[:-1]
         body_smooth_loss = (dgo ** 2).mean() + (dbp ** 2).mean() + (dtr ** 2).mean()
         batch_loss = batch_loss + cfg.weight_body_pose_smooth * body_smooth_loss
+
+    # SLERP pose anchor: pull low-confidence object pose frames back toward their
+    # SLERP-filled initial values.  Weighted by (1 - confidence) so well-tracked
+    # frames are free to refine while FP-failure frames stay near the interpolation.
+    # Zero-confidence frames are additionally gradient-masked after backward().
+    if (cfg.weight_obj_slerp_anchor > 0.0
+            and obj_pose_params is not None
+            and frame_obj_confidence is not None
+            and slerp_obj_r6d is not None
+            and slerp_obj_t is not None):
+        T_pose = obj_pose_params.rotations_6d.shape[0]
+        anchor_w = (1.0 - frame_obj_confidence[:T_pose]).clamp(0.0, 1.0).to(device)  # (T,)
+        dr = obj_pose_params.rotations_6d - slerp_obj_r6d.to(device)  # (T, n_obj, 6)
+        dt_v = obj_pose_params.translations - slerp_obj_t.to(device)  # (T, n_obj, 3)
+        r_err = (dr ** 2).mean(dim=[1, 2])   # (T,)
+        t_err = (dt_v ** 2).mean(dim=[1, 2])  # (T,)
+        slerp_loss = (anchor_w * (r_err + t_err)).mean()
+        batch_loss = batch_loss + cfg.weight_obj_slerp_anchor * slerp_loss
+        loss_terms_accum['slerp_anchor'] = loss_terms_accum.get('slerp_anchor', 0.0) + slerp_loss.item()
 
     # Isotropy regularisation — penalise anisotropic (needle/flat) Gaussians.
     # max_log_scale - min_log_scale is the log ratio between the longest and
@@ -439,7 +699,164 @@ def _compute_batch_loss(
         batch_loss = batch_loss + cfg.weight_exposure_reg * exposure_reg
         loss_terms_accum['exposure_reg'] = exposure_reg.item()
 
-    return batch_loss, loss_terms_accum
+    # Object scale regularisation — L2 on log_scale keeps corrections small.
+    if obj_pose_params is not None and cfg.weight_obj_scale_reg > 0.0:
+        scale_reg = obj_pose_params.log_scales.pow(2).mean()
+        batch_loss = batch_loss + cfg.weight_obj_scale_reg * scale_reg
+        loss_terms_accum['obj_scale_reg'] = scale_reg.item()
+
+    return batch_loss, loss_terms_accum, per_frame_losses
+
+
+# --------------------------------------------------------------------------- #
+# Object-confidence utilities
+# --------------------------------------------------------------------------- #
+
+def _compute_obj_frame_confidence(
+    frame_indices: List[int],
+    obj_pose_params: ObjectPoseParams,
+    object_oids: List[int],
+    _cache_masks: Dict,
+    scene: GaussianScene,
+    viewmat: torch.Tensor,
+    K_tr: torch.Tensor,
+    H_tr: int,
+    W_tr: int,
+    device: str,
+    n_frames_total: int,
+) -> torch.Tensor:
+    """
+    Pre-compute per-frame object confidence using the *initial* FP poses.
+
+    For each frame:  confidence = IoU(rendered silhouette, SAM2 mask) × √coverage
+
+    IoU measures how well the initial FP pose aligns with the SAM2 observation.
+    Coverage (mask area / frame area) down-weights frames where the object is
+    mostly occluded (small SAM2 mask means little gradient signal anyway).
+
+    Returns a (n_frames_total,) float tensor indexed by absolute frame index.
+    Frames not in frame_indices keep the default value of 1.0 (no gating).
+    """
+    confidence = torch.ones(n_frames_total, device=device)
+    if not object_oids:
+        return confidence
+
+    with torch.no_grad():
+        for t in frame_indices:
+            frame_confs = []
+            for rid, oid in enumerate(object_oids):
+                sam2_mask = _cache_masks.get((oid, t))
+                if sam2_mask is None:
+                    frame_confs.append(0.0)
+                    continue
+
+                sam2_area = sam2_mask.float().mean().item()
+                if sam2_area < 1e-3:   # object essentially invisible
+                    frame_confs.append(0.0)
+                    continue
+
+                entity_sel = scene.entity_ids == (ENTITY_OBJECT_BASE + rid)
+                if not entity_sel.any():
+                    frame_confs.append(0.0)
+                    continue
+
+                # Render object silhouette with current (initial FP) pose.
+                # Pass body_pose_params=None / smpl_deformer=None so only
+                # the object entities are transformed; body stays at canonical.
+                world_pos_t = compute_world_positions(
+                    scene, None, obj_pose_params, None, t
+                )
+                alpha = render_entity_silhouette(
+                    scene, entity_sel, world_pos_t, viewmat, K_tr, H_tr, W_tr
+                )
+
+                rendered_binary = alpha > 0.5
+                sam2_binary     = sam2_mask > 0.5
+                intersection    = (rendered_binary & sam2_binary).float().sum()
+                union           = (rendered_binary | sam2_binary).float().sum()
+                iou             = (intersection / (union + 1e-6)).item()
+
+                frame_confs.append(iou * (sam2_area ** 0.5))
+
+            # Use minimum confidence across objects so all objects must be
+            # well-tracked for the frame to be treated as high-confidence.
+            confidence[t] = float(min(frame_confs)) if frame_confs else 1.0
+
+    n_total = len(frame_indices)
+    n_low   = sum(1 for t in frame_indices if confidence[t].item() < 0.1)
+    print(f"  [obj confidence] {n_low}/{n_total} frames below 0.10 "
+          f"(mean={confidence[frame_indices].mean().item():.3f})")
+    return confidence
+
+
+def _slerp_fill_object_poses(
+    obj_pose_params: ObjectPoseParams,
+    frame_obj_confidence: torch.Tensor,   # (n_frames_total,) indexed by frame_t
+    frame_indices: List[int],
+    min_confidence: float = 0.1,
+) -> None:
+    """
+    For each object, replace poses of frames with confidence < min_confidence
+    by SLERP interpolation from neighboring high-confidence frames.
+
+    Rotation: SLERP via scipy (smooth geodesic path on SO(3)).
+    Translation: linear interpolation.
+
+    Operates in-place on obj_pose_params.rotations_6d / translations.
+    Frames outside [first_hc, last_hc] are clamped to the nearest boundary.
+    """
+    from scipy.spatial.transform import Rotation as SciRot, Slerp as SciSlerp
+
+    with torch.no_grad():
+        T, n_obj, _ = obj_pose_params.rotations_6d.shape
+        dev = obj_pose_params.rotations_6d.device
+        conf_np = frame_obj_confidence.cpu().numpy()
+
+        for oid in range(n_obj):
+            hc_idx = np.array(
+                [t for t in frame_indices if conf_np[t] >= min_confidence],
+                dtype=int,
+            )
+            if len(hc_idx) < 2:
+                print(f"  [slerp] obj {oid}: fewer than 2 high-confidence frames "
+                      f"— skipping interpolation")
+                continue
+
+            # Build scipy Slerp from high-confidence rotations
+            r6d_all  = obj_pose_params.rotations_6d[:, oid].cpu().float()  # (T, 6)
+            R_mats   = rotation_6d_to_matrix(r6d_all).numpy()              # (T, 3, 3)
+            R_hc     = SciRot.from_matrix(R_mats[hc_idx])                  # n_hc rotations
+            slerp_fn = SciSlerp(hc_idx.astype(float), R_hc)
+
+            t_hc_min, t_hc_max = int(hc_idx[0]), int(hc_idx[-1])
+            lc_frames = [t for t in frame_indices if conf_np[t] < min_confidence]
+
+            for t in lc_frames:
+                if t <= t_hc_min:
+                    R_new = torch.from_numpy(R_mats[t_hc_min].astype(np.float32))
+                    t_new = obj_pose_params.translations[t_hc_min, oid].clone()
+                elif t >= t_hc_max:
+                    R_new = torch.from_numpy(R_mats[t_hc_max].astype(np.float32))
+                    t_new = obj_pose_params.translations[t_hc_max, oid].clone()
+                else:
+                    # SLERP rotation
+                    R_new = torch.from_numpy(
+                        slerp_fn(float(t)).as_matrix().astype(np.float32)
+                    )
+                    # Linear translation between the two bounding high-conf frames
+                    left  = int(hc_idx[hc_idx <= t].max())
+                    right = int(hc_idx[hc_idx >= t].min())
+                    alpha = (t - left) / (right - left)
+                    t_new = ((1.0 - alpha) * obj_pose_params.translations[left,  oid] +
+                             alpha          * obj_pose_params.translations[right, oid])
+
+                # Encode back as 6D (first two columns of the rotation matrix)
+                r6d_new = torch.cat([R_new[:, 0], R_new[:, 1]])
+                obj_pose_params.rotations_6d.data[t, oid] = r6d_new.to(dev)
+                obj_pose_params.translations.data[t, oid] = t_new.to(dev)
+
+            print(f"  [slerp] obj {oid}: filled {len(lc_frames)} low-confidence frames "
+                  f"from {len(hc_idx)} anchors (threshold={min_confidence:.2f})")
 
 
 def run_optimization(
@@ -560,12 +977,101 @@ def run_optimization(
         object_oids=object_oids,
         device=device,
         exposure_params=exposure_params,
+        # frame_obj_confidence is assigned after _loss_kwargs — set placeholder here,
+        # will be replaced once the confidence tensor is computed below.
+        frame_obj_confidence=None,
     )
 
-    def _sample_batch() -> List[int]:
-        if cfg.batch_size >= len(frame_indices):
-            return list(frame_indices)
-        return random.sample(frame_indices, cfg.batch_size)
+    if cfg.frame_sampling == 'config_diversity':
+        sampler = ConfigDiversitySampler(
+            frame_indices, cfg.batch_size,
+            body_pose_params=body_pose_params,
+            obj_pose_params=obj_pose_params,
+            temperature=cfg.config_diversity_temperature,
+        )
+        print(f"  [optim] Config-diversity sampling enabled "
+              f"(temp={cfg.config_diversity_temperature})")
+    else:
+        sampler = HardNegativeSampler(
+            frame_indices, cfg.batch_size,
+            beta=cfg.hard_mining_beta,
+            eps=cfg.hard_mining_eps,
+        )
+        if cfg.hard_mining_beta > 0.0:
+            print(f"  [optim] Hard-negative mining enabled "
+                  f"(beta={cfg.hard_mining_beta}, eps={cfg.hard_mining_eps})")
+
+    # Snapshot initial object poses before any optimization modifies them.
+    # Used in checkpoint renders to compare FP-initialised vs optimised object poses.
+    if obj_pose_params is not None and scene.n_objects() > 0:
+        _init_obj_r6d      = obj_pose_params.rotations_6d.detach().clone()  # (T, n_obj, 6)
+        _init_obj_t        = obj_pose_params.translations.detach().clone()   # (T, n_obj, 3)
+        _init_obj_logscale = obj_pose_params.log_scales.detach().clone()     # (n_obj,)
+    else:
+        _init_obj_r6d = _init_obj_t = _init_obj_logscale = None
+
+    # Per-frame object confidence: IoU(initial FP render, SAM2 mask) × √coverage.
+    # Computed once before training using the as-loaded FP poses.
+    # Frames below min_obj_confidence:
+    #   - have their object poses SLERP-interpolated from neighbors (better init)
+    #   - have zero weight on the object entity-mask loss (canonical not corrupted)
+    if cfg.min_obj_confidence > 0.0 and obj_pose_params is not None and object_oids:
+        print(f"  [obj confidence] Computing per-frame object confidence scores...", flush=True)
+        frame_obj_confidence = _compute_obj_frame_confidence(
+            frame_indices=frame_indices,
+            obj_pose_params=obj_pose_params,
+            object_oids=object_oids,
+            _cache_masks=_cache_masks,
+            scene=scene,
+            viewmat=viewmat,
+            K_tr=K_tr,
+            H_tr=H_tr,
+            W_tr=W_tr,
+            device=device,
+            n_frames_total=n_frames_total,
+        )
+        _slerp_fill_object_poses(
+            obj_pose_params=obj_pose_params,
+            frame_obj_confidence=frame_obj_confidence,
+            frame_indices=frame_indices,
+            min_confidence=cfg.min_obj_confidence,
+        )
+        # Snapshot SLERP-filled poses as anchors BEFORE any optimization.
+        # Used to prevent low-confidence frames drifting during training.
+        _slerp_obj_r6d = obj_pose_params.rotations_6d.detach().clone()  # (T, n_obj, 6)
+        _slerp_obj_t   = obj_pose_params.translations.detach().clone()   # (T, n_obj, 3)
+        # Zero out frames below threshold so they contribute nothing to the
+        # object entity-mask loss; frames above keep their raw [0,1] score.
+        frame_obj_confidence = torch.where(
+            frame_obj_confidence >= cfg.min_obj_confidence,
+            frame_obj_confidence,
+            torch.zeros_like(frame_obj_confidence),
+        )
+    else:
+        frame_obj_confidence = None
+        _slerp_obj_r6d = None
+        _slerp_obj_t   = None
+
+    # Patch into _loss_kwargs now that the tensor is ready.
+    _loss_kwargs['frame_obj_confidence'] = frame_obj_confidence
+    _loss_kwargs['slerp_obj_r6d'] = _slerp_obj_r6d
+    _loss_kwargs['slerp_obj_t']   = _slerp_obj_t
+
+    # Total gradient steps across all cycles + refinement — used by LR decay.
+    _iters_per_cycle = cfg.iterations_canonical_per_cycle + cfg.iterations_pose_per_cycle
+    _total_training_iters = cfg.n_cycles * _iters_per_cycle + cfg.iterations_refine
+
+    def _apply_lr_decay(opt: optim.Adam) -> None:
+        """Scale all optimizer LRs by the decay factor for the current step."""
+        if cfg.lr_decay_schedule == 'none' or cfg.lr_decay_final >= 1.0:
+            return
+        t = min(total_iter / max(_total_training_iters, 1), 1.0)
+        if cfg.lr_decay_schedule == 'cosine':
+            factor = cfg.lr_decay_final + (1.0 - cfg.lr_decay_final) * 0.5 * (1.0 + math.cos(math.pi * t))
+        else:  # 'exponential'
+            factor = cfg.lr_decay_final ** t
+        for pg in opt.param_groups:
+            pg['lr'] = pg.get('_base_lr', pg['lr']) * factor
 
     def _log(label: str, i: int, n_iters: int, loss_val: float, terms: Dict, n_gauss: int):
         terms_str = ' '.join(f"{k}={v:.4f}" for k, v in terms.items())
@@ -585,6 +1091,24 @@ def run_optimization(
     _viewmat_m30 = _orbit_viewmat(_orbit_centroid, -30., device)
     _viewmat_p30 = _orbit_viewmat(_orbit_centroid, +30., device)
 
+    def _world_pos_with_obj_override(frame_t, r6d_snap, t_snap, logscale_snap):
+        """World positions using body's current pose but overridden object SE(3)+scale."""
+        # Pass obj_pose_params=None so object entities stay at canonical; we override below.
+        world_pos = compute_world_positions(
+            scene, body_pose_params, None, smpl_deformer, frame_t
+        )
+        for rid in range(scene.n_objects()):
+            obj_mask = scene.object_mask(rid)
+            if not obj_mask.any():
+                continue
+            R = rotation_6d_to_matrix(r6d_snap[frame_t, rid].unsqueeze(0)).squeeze(0)
+            t = t_snap[frame_t, rid]
+            s = torch.exp(logscale_snap[rid])
+            canonical_obj = scene.positions[obj_mask]
+            world_pos = world_pos.clone()
+            world_pos[obj_mask] = s * (canonical_obj @ R.T) + t.unsqueeze(0)
+        return world_pos
+
     def _checkpoint(tag: str, frame_t: int):
         try:
             orig_rgb = _load_frame_rgb(video_path, frame_t)  # (H, W, 3) uint8
@@ -593,29 +1117,53 @@ def run_optimization(
         except Exception:
             orig_rgb = np.zeros((H, W, 3), dtype=np.uint8)
 
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        label_h = 40
+
+        def _make_row(panels, labels, col=(255, 255, 255)):
+            row = np.zeros((H + label_h, 4 * W, 3), dtype=np.uint8)
+            for j, (panel, lbl) in enumerate(zip(panels, labels)):
+                row[label_h:, j*W:(j+1)*W] = panel
+                cv2.putText(row, lbl, (j*W + 10, 28), font, 0.9, col, 2)
+            return row
+
         with torch.no_grad():
             _wp = compute_world_positions(
                 scene, body_pose_params, obj_pose_params, smpl_deformer, frame_t
             )
-            rend_orig = _render_np(scene, _wp, viewmat,        K, H, W, cfg.sh_degree, device)
-            rend_m30  = _render_np(scene, _wp, _viewmat_m30,   K, H, W, cfg.sh_degree, device)
-            rend_p30  = _render_np(scene, _wp, _viewmat_p30,   K, H, W, cfg.sh_degree, device)
+            rend_orig = _render_np(scene, _wp, viewmat,      K, H, W, cfg.sh_degree, device)
+            rend_m30  = _render_np(scene, _wp, _viewmat_m30, K, H, W, cfg.sh_degree, device)
+            rend_p30  = _render_np(scene, _wp, _viewmat_p30, K, H, W, cfg.sh_degree, device)
 
-        label_h = 40
-        canvas = np.zeros((H + label_h, 4 * W, 3), dtype=np.uint8)
-        canvas[label_h:, 0*W:1*W] = orig_rgb
-        canvas[label_h:, 1*W:2*W] = rend_orig
-        canvas[label_h:, 2*W:3*W] = rend_m30
-        canvas[label_h:, 3*W:4*W] = rend_p30
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        cv2.putText(canvas, 'Original', (10,       28), font, 0.9, (255, 255, 255), 2)
-        cv2.putText(canvas, 'Rendered', (W   + 10, 28), font, 0.9, (255, 255, 255), 2)
-        cv2.putText(canvas, '-30 deg',  (2*W + 10, 28), font, 0.9, (255, 255, 255), 2)
-        cv2.putText(canvas, '+30 deg',  (3*W + 10, 28), font, 0.9, (255, 255, 255), 2)
+        rows = [_make_row(
+            [orig_rgb, rend_orig, rend_m30, rend_p30],
+            ['Original', 'Rendered', '-30 deg', '+30 deg'],
+        )]
+
+        # Object pose comparison rows — only when object entities are present.
+        if _init_obj_r6d is not None:
+            with torch.no_grad():
+                _wp_fp = _world_pos_with_obj_override(
+                    frame_t, _init_obj_r6d, _init_obj_t, _init_obj_logscale
+                )
+                fp_orig = _render_np(scene, _wp_fp, viewmat,      K, H, W, cfg.sh_degree, device)
+                fp_m30  = _render_np(scene, _wp_fp, _viewmat_m30, K, H, W, cfg.sh_degree, device)
+                fp_p30  = _render_np(scene, _wp_fp, _viewmat_p30, K, H, W, cfg.sh_degree, device)
+
+            rows.append(_make_row(
+                [orig_rgb, fp_orig, fp_m30, fp_p30],
+                ['Original', 'FP obj pose', 'FP -30', 'FP +30'],
+                col=(255, 200, 50),   # amber — initial FP pose
+            ))
+            rows.append(_make_row(
+                [orig_rgb, rend_orig, rend_m30, rend_p30],
+                ['Original', 'Opt obj pose', 'Opt -30', 'Opt +30'],
+                col=(100, 255, 100),  # green — current optimised pose
+            ))
 
         out_path = os.path.join(renders_dir, f"{tag}.png")
         try:
-            cv2.imwrite(out_path, cv2.cvtColor(canvas, cv2.COLOR_RGB2BGR))
+            cv2.imwrite(out_path, cv2.cvtColor(np.vstack(rows), cv2.COLOR_RGB2BGR))
         except Exception as e:
             print(f"  [render save failed: {e}]")
 
@@ -631,21 +1179,37 @@ def run_optimization(
         """
         nonlocal scene
         optimizer = _setup_optimizer(scene, body_pose_params, obj_pose_params, cfg, opt_mode, exposure_params)
+        _apply_lr_decay(optimizer)  # sync to current position in decay schedule
         pos_grad_accum = torch.zeros(scene.num_gaussians, device=device)
         pos_grad_count = torch.zeros(scene.num_gaussians, device=device)
 
         for i in range(n_iters):
-            batch_frames = _sample_batch()
+            batch_frames = sampler.sample()
             compute_entity_mask = (
                 cfg.loss_weights.get('entity_mask', 1.0) > 0
                 and (i % cfg.entity_mask_interval == 0)
             )
             optimizer.zero_grad()
-            batch_loss, terms = _compute_batch_loss(
+            batch_loss, terms, frame_losses = _compute_batch_loss(
                 scene, batch_frames, compute_entity_mask=compute_entity_mask,
                 **_loss_kwargs
             )
             batch_loss.backward()
+
+            # Hard-freeze zero-confidence object pose frames: zero their gradients
+            # so Adam doesn't accumulate momentum from bad FP frames.
+            # The SLERP anchor loss handles soft regularization for non-zero
+            # low-confidence frames; gradient masking handles the completely bad ones.
+            if obj_pose_params is not None and frame_obj_confidence is not None:
+                T_pose = obj_pose_params.rotations_6d.shape[0]
+                bad = (frame_obj_confidence[:T_pose] == 0.0).nonzero(as_tuple=True)[0]
+                if len(bad) > 0:
+                    if obj_pose_params.rotations_6d.grad is not None:
+                        obj_pose_params.rotations_6d.grad[bad] = 0.0
+                    if obj_pose_params.translations.grad is not None:
+                        obj_pose_params.translations.grad[bad] = 0.0
+
+            sampler.update(frame_losses)
 
             if do_densify and scene._positions.grad is not None:
                 pos_grad_accum += scene._positions.grad.norm(dim=-1).detach()
@@ -654,6 +1218,7 @@ def run_optimization(
             optimizer.step()
             nonlocal total_iter
             total_iter += 1
+            _apply_lr_decay(optimizer)
             _log(f"[{log_label}]", i, n_iters, batch_loss.item(), terms, scene.num_gaussians)
 
             if do_densify and (i + 1) % cfg.densify_every == 0:
@@ -668,6 +1233,7 @@ def run_optimization(
                     max_scale_factor=cfg.max_scale_factor,
                 )
                 optimizer = _setup_optimizer(scene, body_pose_params, obj_pose_params, cfg, opt_mode, exposure_params)
+                _apply_lr_decay(optimizer)
                 pos_grad_accum = torch.zeros(scene.num_gaussians, device=device)
                 pos_grad_count = torch.zeros(scene.num_gaussians, device=device)
                 print(f"  [densify] N={scene.num_gaussians}")
@@ -678,6 +1244,7 @@ def run_optimization(
                     # immediately pruned; they must re-earn opacity from the loss.
                     scene._opacities_raw.data.fill_(-4.0)
                 optimizer = _setup_optimizer(scene, body_pose_params, obj_pose_params, cfg, opt_mode, exposure_params)
+                _apply_lr_decay(optimizer)
                 print(f"  [opacity reset] iter {i+1}")
 
             if (i + 1) % 500 == 0 or i == n_iters - 1:
@@ -704,22 +1271,25 @@ def run_optimization(
     # ------------------------------------------------------------------ #
     n_iters = cfg.iterations_refine
     optimizer = _setup_optimizer(scene, body_pose_params, obj_pose_params, cfg, 'refine', exposure_params)
+    _apply_lr_decay(optimizer)
     print(f"\n--- Refinement ({n_iters} iters, 0.1× LR) ---")
 
     for i in range(n_iters):
-        batch_frames = _sample_batch()
+        batch_frames = sampler.sample()
         compute_entity_mask = (
             cfg.loss_weights.get('entity_mask', 1.0) > 0
             and (i % cfg.entity_mask_interval == 0)
         )
         optimizer.zero_grad()
-        batch_loss, terms = _compute_batch_loss(
+        batch_loss, terms, frame_losses = _compute_batch_loss(
             scene, batch_frames, compute_entity_mask=compute_entity_mask,
             **_loss_kwargs
         )
         batch_loss.backward()
+        sampler.update(frame_losses)
         optimizer.step()
         total_iter += 1
+        _apply_lr_decay(optimizer)
         _log("[refine]", i, n_iters, batch_loss.item(), terms, scene.num_gaussians)
 
         if (i + 1) % 500 == 0 or i == n_iters - 1:
@@ -756,7 +1326,7 @@ def run_optimization(
         for pass_idx in range(cfg.n_pose_sweep_passes):
             for fi, frame_t in enumerate(all_frame_indices):
                 optimizer_sweep.zero_grad()
-                batch_loss, terms = _compute_batch_loss(
+                batch_loss, terms, frame_losses = _compute_batch_loss(
                     scene, [frame_t], compute_entity_mask=True, **_loss_kwargs
                 )
                 batch_loss.backward()

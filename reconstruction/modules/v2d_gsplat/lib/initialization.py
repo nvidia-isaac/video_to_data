@@ -529,13 +529,12 @@ def build_scene(
             if obj_mask.any():
                 scene._opacities_raw.data[obj_mask] = opacity_raw
 
-    # Store initial object canonical positions for the anchor loss.
-    # These are fixed reference points (mesh surface samples); the anchor loss
-    # pulls object Gaussians back toward these to prevent canonical drift.
-    for rid in range(scene.n_objects()):
-        obj_mask = scene.object_mask(rid)
-        if obj_mask.any():
-            scene._initial_obj_positions[rid] = scene._positions[obj_mask].detach().clone()
+    # Store initial canonical positions as a flat anchor tensor parallel to _positions.
+    # The anchor loss pulls object Gaussians back toward these fixed reference points
+    # to prevent canonical drift. The flat layout survives densification (clone/split/prune)
+    # because each new Gaussian inherits its parent's anchor entry.
+    if scene.n_objects() > 0:
+        scene._anchor_positions = scene._positions.detach().clone()
 
     print(f"  [init] Total Gaussians: {scene.num_gaussians}")
     return scene

@@ -76,9 +76,11 @@ class GaussianScene(nn.Module):
             self._skinning_weights_raw = None
             self.register_buffer('smpl_vertex_ids', None)
 
-        # Fixed reference positions for anchor losses (set after construction).
-        # {rid: (N_obj, 3) tensor} for objects; body anchor is derived from smpl_vertex_ids.
-        self._initial_obj_positions: dict = {}
+        # Fixed reference positions for anchor losses, parallel to _positions (N, 3).
+        # Set after construction via initialization; None until then.
+        # Propagated through clone/split/prune so the anchor always corresponds
+        # 1-to-1 with the current Gaussian set.
+        self._anchor_positions: Optional[torch.Tensor] = None
 
     # ------------------------------------------------------------------ #
     # Activated properties
@@ -176,9 +178,72 @@ class GaussianScene(nn.Module):
         new_scene._sh_dc.data = torch.cat([s._sh_dc.data for s in scenes])
         new_scene._sh_rest.data = torch.cat([s._sh_rest.data for s in scenes])
 
-        # Carry over initial object positions (used for anchor loss)
-        for s in scenes:
-            if s._initial_obj_positions:
-                new_scene._initial_obj_positions.update(s._initial_obj_positions)
+        # Carry over anchor positions (used for anchor loss) — concatenate in same
+        # order as the Gaussians so the tensor stays parallel to _positions.
+        if any(s._anchor_positions is not None for s in scenes):
+            device = new_scene._positions.device
+            parts = []
+            for s in scenes:
+                if s._anchor_positions is not None:
+                    parts.append(s._anchor_positions)
+                else:
+                    parts.append(torch.zeros(s.num_gaussians, 3, device=device))
+            new_scene._anchor_positions = torch.cat(parts, dim=0)
 
         return new_scene
+
+
+class FeatureGaussians(nn.Module):
+    """
+    Separate coarse Gaussian set carrying learned visual feature vectors.
+
+    Independent from GaussianScene — no entity_ids, no SH, no densification.
+    Scales start larger (log_scale=-1.0) for broader gradient reach at distance.
+    Opacities are unconstrained and not shared with the RGB Gaussians.
+
+    Used exclusively to supervise pose optimisation via feature alignment loss;
+    NOT rendered during final RGB output.
+    """
+
+    def __init__(self, positions: torch.Tensor, feature_dim: int):
+        super().__init__()
+        M = positions.shape[0]
+        device = positions.device
+
+        self._positions = nn.Parameter(positions.float().clone())
+
+        q = torch.zeros(M, 4, device=device)
+        q[:, 0] = 1.0  # identity quaternion
+        self._rotations = nn.Parameter(q)
+
+        # Larger initial scale for broader gradient reach (~e^{-1} ≈ 0.37 vs e^{-3} ≈ 0.05)
+        self._log_scales = nn.Parameter(torch.full((M, 3), -1.0, device=device))
+
+        self._opacities_raw = nn.Parameter(torch.full((M, 1), -3.0, device=device))
+
+        # Learned feature vectors (not frozen)
+        self._features = nn.Parameter(torch.randn(M, feature_dim, device=device) * 0.01)
+
+    @property
+    def positions(self) -> torch.Tensor:
+        return self._positions
+
+    @property
+    def rotations(self) -> torch.Tensor:
+        return F.normalize(self._rotations, dim=-1)
+
+    @property
+    def scales(self) -> torch.Tensor:
+        return torch.exp(self._log_scales)
+
+    @property
+    def opacities(self) -> torch.Tensor:
+        return torch.sigmoid(self._opacities_raw).squeeze(-1)  # (M,)
+
+    @property
+    def features(self) -> torch.Tensor:
+        return self._features  # (M, D)
+
+    @property
+    def num_gaussians(self) -> int:
+        return self._positions.shape[0]

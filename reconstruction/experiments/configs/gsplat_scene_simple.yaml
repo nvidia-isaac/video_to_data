@@ -1,0 +1,57 @@
+# Config for run_gsplat_scene_simple
+# All fields are optional — omit any to use the default from SceneSimpleConfig.
+
+# Training
+n_batches: 10000
+batch_size: 4
+render_interval: 200
+
+# Loss weights
+weight_rgb: 1.0
+weight_ssim: 0.2
+weight_depth: 0.1
+weight_semantic: 1.0
+semantic_focal_gamma: 2.0
+weight_obj_anchor: 0.1
+
+# Pose smoothness (0 = disabled)
+weight_obj_smooth: 0.01
+weight_body_smooth: 0.0
+
+# Gaussian learning rates
+lr_scale: 1.0e-1
+lr_positions: 1.6e-4
+lr_rotations: 1.0e-3
+lr_scales: 5.0e-3
+lr_opacities: 5.0e-2
+lr_sh_dc: 1.0e-3
+lr_sh_rest: 1.0e-4
+lr_skinning: 1.0e-4
+
+# Body pose learning rates
+lr_body_pose: 1.0e-3
+lr_body_joints: 0.0     # 0 = lock joint angles to NLF
+lr_body_shape: 1.0e-4
+lr_body_transl: 1.0e-3
+
+# Object pose learning rates
+lr_obj_pose: 1.0e-3
+lr_obj_scale: 1.0e-3
+
+# LR decay
+lr_decay_schedule: cosine
+lr_decay_final: 0.1
+
+# Densification
+densify_every: 500
+grad_threshold: 0.0002
+prune_opacity_threshold: 0.005
+max_gaussians: 500000
+max_scale_factor: 0.1
+reset_opacity_every: 500   # effectively disabled
+
+# Scene
+sh_degree: 3
+train_scale: 0.5
+initial_opacity_obj: 0.05
+body_subdivisions: 0

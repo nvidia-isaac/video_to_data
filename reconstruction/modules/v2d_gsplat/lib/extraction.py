@@ -134,7 +134,10 @@ def save_smpl_results(
     os.makedirs(output_dir, exist_ok=True)
     with torch.no_grad():
         T = body_pose_params.global_orient.shape[0]
-        go = body_pose_params.global_orient.cpu().numpy()    # (T, 3)
+        # global_orient is stored as 6D rotation; convert back to axis-angle for NPZ output
+        from v2d.gsplat.lib.deformation import rotation_6d_to_matrix, _rotation_matrix_to_axis_angle
+        go_R = rotation_6d_to_matrix(body_pose_params.global_orient)  # (T, 3, 3)
+        go = _rotation_matrix_to_axis_angle(go_R).cpu().numpy()       # (T, 3)
         bp = body_pose_params.body_pose.cpu().numpy()        # (T, J*3)
         betas = body_pose_params.betas.cpu().numpy()         # (10,)
         transl = body_pose_params.transl.cpu().numpy()       # (T, 3)

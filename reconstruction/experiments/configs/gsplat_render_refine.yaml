@@ -1,0 +1,60 @@
+# Config for run_gsplat_render_refine
+# All fields are optional — omit any to use the default from RenderRefineConfig.
+
+# ---- Keyframe selection ---------------------------------------------------
+n_keyframes: 100
+temporal_outlier_factor: 3.0   # flag frames with velocity > N * local median
+temporal_window: 5
+keyframe_min_spacing: 3
+
+# ---- Canonical training (Phase 1, fixed poses) ---------------------------
+n_batches: 1000
+batch_size: 16
+render_interval: 100
+weight_rgb: 1.0
+weight_ssim: 0.2
+weight_mask: 10.0
+mask_outside_weight: 0.1
+mask_occluder_weight: 0.0    # pixels outside obj mask but inside person mask (may be occluded)
+mask_focal_gamma: 2.0
+weight_anchor: 1.0
+
+lr_scale: 10.0
+lr_pose_canonical: 1.0e-5   # small pose corrections during canonical training
+lr_positions: 1.6e-4
+lr_rotations: 1.0e-3
+lr_scales: 5.0e-3
+lr_opacities: 5.0e-2
+lr_sh_dc: 1.0e-3
+lr_sh_rest: 1.0e-4
+
+lr_decay_schedule: cosine
+lr_decay_final: 0.1
+
+densify_every: 500
+grad_threshold: 0.0002
+prune_opacity_threshold: 0.005
+max_gaussians: 100000
+max_scale_factor: 0.05
+reset_opacity_every: 3000
+
+# ---- Render-and-compare tracking (Phase 2) --------------------------------
+n_steps_track: 200
+track_weight_rgb: 1.0
+track_weight_ssim: 0.2
+track_weight_mask: 1.0
+track_mask_outside_weight: 0.1
+track_mask_occluder_weight: 0.0    # pixels outside obj mask but inside person mask
+track_mask_focal_gamma: 2.0
+lr_pose_track: 1.0e-3
+track_min_steps: 10
+track_plateau_patience: 20
+track_plateau_threshold: 1.0e-4
+track_ema_alpha: 0.3
+track_debug_every: 10    # save debug image every N tracked frames
+
+# ---- Scene ----------------------------------------------------------------
+sh_degree: 1
+train_scale: 0.5
+n_gaussians: 15000
+initial_opacity: 0.5

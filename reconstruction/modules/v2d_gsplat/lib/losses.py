@@ -144,6 +144,28 @@ def loss_rigid(
     return F.mse_loss(world_positions, expected.detach())
 
 
+def loss_feature_alignment(
+    rendered: torch.Tensor,                  # (H, W, D)
+    target: torch.Tensor,                    # (H, W, D)
+    mask: Optional[torch.Tensor] = None,     # (H, W) bool or None
+) -> torch.Tensor:
+    """
+    Masked cosine similarity loss between rendered and target feature maps.
+
+    Scale-invariant: penalises directional disagreement between feature vectors,
+    not their magnitude.  Used to align FeatureGaussians with DINOv2 features.
+    """
+    if mask is not None:
+        r = rendered[mask]  # (N, D)
+        t = target[mask]    # (N, D)
+    else:
+        r = rendered.reshape(-1, rendered.shape[-1])
+        t = target.reshape(-1, target.shape[-1])
+    if r.shape[0] == 0:
+        return rendered.sum() * 0.0
+    return (1.0 - F.cosine_similarity(r, t, dim=-1)).mean()
+
+
 def compute_total_loss(
     rendered_rgb: torch.Tensor,
     target_rgb: torch.Tensor,
@@ -151,20 +173,20 @@ def compute_total_loss(
     target_depth: Optional[torch.Tensor],
     rendered_alpha: Optional[torch.Tensor],
     target_mask: Optional[torch.Tensor],
-    body_pose_params=None,
     scene=None,
     weights: Optional[dict] = None,
 ) -> Tuple['torch.Tensor', dict]:
     """
     Compute weighted total loss and return per-term breakdown.
-    weights: override default loss weights (keys: rgb, ssim, depth, mask, smooth, skinning)
+    weights: override default loss weights (keys: rgb, ssim, depth, mask, skinning)
+    Body pose smoothness is handled separately in _compute_batch_loss via
+    weight_body_pose_smooth to avoid double-application.
     """
     w = {
         'rgb': 1.0,
         'ssim': 0.2,
         'depth': 0.1,
         'mask': 0.5,
-        'smooth': 0.01,
         'skinning': 0.01,
     }
     if weights is not None:
@@ -184,18 +206,6 @@ def compute_total_loss(
         terms['mask'] = loss_mask(rendered_alpha, target_mask)
     else:
         terms['mask'] = torch.tensor(0.0, device=rendered_rgb.device)
-
-    if body_pose_params is not None:
-        go = body_pose_params.global_orient  # (T, 3)
-        bp = body_pose_params.body_pose      # (T, J*3)
-        tr = body_pose_params.transl         # (T, 3)
-        terms['smooth'] = (
-            loss_temporal_smooth(go)
-            + loss_temporal_smooth(bp)
-            + loss_temporal_smooth(tr)
-        ) / 3.0
-    else:
-        terms['smooth'] = torch.tensor(0.0, device=rendered_rgb.device)
 
     if scene is not None and scene.skinning_weights is not None:
         terms['skinning'] = loss_skinning_sparsity(scene.skinning_weights)

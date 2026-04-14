@@ -61,6 +61,11 @@ def _clone_gaussians(scene: GaussianScene, clone_mask: torch.Tensor) -> Gaussian
         cloned._sh_dc.data = scene._sh_dc[clone_mask].clone()
         cloned._sh_rest.data = scene._sh_rest[clone_mask].clone()
 
+        # Each cloned Gaussian inherits its parent's anchor position so the
+        # anchor loss remains valid after densification.
+        if scene._anchor_positions is not None:
+            cloned._anchor_positions = scene._anchor_positions[clone_mask].clone()
+
     return cloned
 
 
@@ -107,6 +112,10 @@ def _split_gaussians(scene: GaussianScene, split_mask: torch.Tensor, n_splits: i
         split_scene._opacities_raw.data = scene._opacities_raw[split_mask].repeat(n_splits, 1)
         split_scene._sh_dc.data = scene._sh_dc[split_mask].repeat(n_splits, 1, 1)
         split_scene._sh_rest.data = scene._sh_rest[split_mask].repeat(n_splits, 1, 1)
+
+        # Each split child inherits its parent's anchor position.
+        if scene._anchor_positions is not None:
+            split_scene._anchor_positions = scene._anchor_positions[split_mask].repeat(n_splits, 1)
 
     return split_scene
 
@@ -236,9 +245,9 @@ def _filter_scene(scene: GaussianScene, keep: torch.Tensor) -> GaussianScene:
         new_scene._sh_dc.data = scene._sh_dc[keep].clone()
         new_scene._sh_rest.data = scene._sh_rest[keep].clone()
 
-        # Carry over initial object positions (object Gaussians are never pruned,
-        # so the stored tensors remain valid for the anchor loss)
-        if scene._initial_obj_positions:
-            new_scene._initial_obj_positions.update(scene._initial_obj_positions)
+        # Propagate anchor positions through pruning — the anchor tensor must stay
+        # parallel to _positions after any Gaussians are removed.
+        if scene._anchor_positions is not None:
+            new_scene._anchor_positions = scene._anchor_positions[keep].clone()
 
     return new_scene

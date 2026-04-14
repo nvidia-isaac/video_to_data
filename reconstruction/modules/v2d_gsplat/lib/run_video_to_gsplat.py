@@ -128,6 +128,10 @@ def video_to_gsplat(
     weight_depth: float = 0.1,
     lr_scale: float = 1.0,
     lr_obj_pose: float = 1e-3,
+    lr_obj_scale: float = 1e-4,
+    weight_obj_scale_reg: float = 0.1,
+    lr_decay_schedule: str = 'cosine',
+    lr_decay_final: float = 0.1,
     lr_body_joints: float = 0.0,
     batch_size: int = 4,
     initial_opacity_obj: float = 0.05,
@@ -140,6 +144,12 @@ def video_to_gsplat(
     lr_exposure: float = 1e-2,
     weight_exposure_reg: float = 0.1,
     weight_isotropy: float = 0.0,
+    hard_mining_beta: float = 0.0,
+    hard_mining_eps: float = 0.1,
+    frame_sampling: str = 'hard_negative',
+    config_diversity_temperature: float = 1.0,
+    min_obj_confidence: float = 0.1,
+    weight_obj_slerp_anchor: float = 1.0,
     max_gaussians: int = 500_000,
     prune_opacity_threshold: float = 0.005,
     grad_threshold: float = 0.0002,
@@ -296,6 +306,10 @@ def video_to_gsplat(
         loss_weights=loss_weights,
         lr_scale=lr_scale,
         lr_obj_pose=lr_obj_pose,
+        lr_obj_scale=lr_obj_scale,
+        weight_obj_scale_reg=weight_obj_scale_reg,
+        lr_decay_schedule=lr_decay_schedule,
+        lr_decay_final=lr_decay_final,
         lr_body_joints=lr_body_joints,
         batch_size=batch_size,
         body_mask_outside_weight=body_mask_outside_weight,
@@ -306,6 +320,12 @@ def video_to_gsplat(
         lr_exposure=lr_exposure,
         weight_exposure_reg=weight_exposure_reg,
         weight_isotropy=weight_isotropy,
+        hard_mining_beta=hard_mining_beta,
+        hard_mining_eps=hard_mining_eps,
+        frame_sampling=frame_sampling,
+        config_diversity_temperature=config_diversity_temperature,
+        min_obj_confidence=min_obj_confidence,
+        weight_obj_slerp_anchor=weight_obj_slerp_anchor,
         device=device,
     )
 
@@ -504,6 +524,11 @@ if __name__ == '__main__':
     parser.add_argument('--weight_depth',         type=float, default=0.1)
     parser.add_argument('--lr_scale',             type=float, default=1.0)
     parser.add_argument('--lr_obj_pose',          type=float, default=1e-3)
+    parser.add_argument('--lr_obj_scale',         type=float, default=1e-4)
+    parser.add_argument('--weight_obj_scale_reg', type=float, default=0.1)
+    parser.add_argument('--lr_decay_schedule',    type=str,   default='cosine',
+                        choices=['none', 'cosine', 'exponential'])
+    parser.add_argument('--lr_decay_final',       type=float, default=0.1)
     parser.add_argument('--lr_body_joints',       type=float, default=0.0)
     parser.add_argument('--batch_size',           type=int,   default=4)
     parser.add_argument('--initial_opacity_obj',       type=float, default=0.05)
@@ -516,6 +541,13 @@ if __name__ == '__main__':
     parser.add_argument('--lr_exposure',            type=float, default=1e-2)
     parser.add_argument('--weight_exposure_reg',    type=float, default=0.1)
     parser.add_argument('--weight_isotropy',        type=float, default=0.0)
+    parser.add_argument('--hard_mining_beta',       type=float, default=0.0)
+    parser.add_argument('--hard_mining_eps',        type=float, default=0.1)
+    parser.add_argument('--frame_sampling',         type=str,   default='hard_negative',
+                        choices=['uniform', 'hard_negative', 'config_diversity'])
+    parser.add_argument('--config_diversity_temperature', type=float, default=1.0)
+    parser.add_argument('--min_obj_confidence',           type=float, default=0.1)
+    parser.add_argument('--weight_obj_slerp_anchor',      type=float, default=1.0)
     parser.add_argument('--max_gaussians',              type=int,   default=500_000)
     parser.add_argument('--prune_opacity_threshold',    type=float, default=0.005)
     parser.add_argument('--grad_threshold',             type=float, default=0.0002)
@@ -550,6 +582,10 @@ if __name__ == '__main__':
         weight_depth=args.weight_depth,
         lr_scale=args.lr_scale,
         lr_obj_pose=args.lr_obj_pose,
+        lr_obj_scale=args.lr_obj_scale,
+        weight_obj_scale_reg=args.weight_obj_scale_reg,
+        lr_decay_schedule=args.lr_decay_schedule,
+        lr_decay_final=args.lr_decay_final,
         lr_body_joints=args.lr_body_joints,
         batch_size=args.batch_size,
         initial_opacity_obj=args.initial_opacity_obj,
@@ -562,6 +598,12 @@ if __name__ == '__main__':
         lr_exposure=args.lr_exposure,
         weight_exposure_reg=args.weight_exposure_reg,
         weight_isotropy=args.weight_isotropy,
+        hard_mining_beta=args.hard_mining_beta,
+        hard_mining_eps=args.hard_mining_eps,
+        frame_sampling=args.frame_sampling,
+        config_diversity_temperature=args.config_diversity_temperature,
+        min_obj_confidence=args.min_obj_confidence,
+        weight_obj_slerp_anchor=args.weight_obj_slerp_anchor,
         max_gaussians=args.max_gaussians,
         prune_opacity_threshold=args.prune_opacity_threshold,
         grad_threshold=args.grad_threshold,

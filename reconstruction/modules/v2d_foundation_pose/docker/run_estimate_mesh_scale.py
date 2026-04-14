@@ -56,7 +56,10 @@ def run_estimate_mesh_scale(
         dev=dev,
         modules_dir=MODULES_DIR,
         gpus=True,
-        env={"FOUNDATIONPOSE_WEIGHTS_DIR": weights_container},
+        env={
+            "FOUNDATIONPOSE_WEIGHTS_DIR": weights_container,
+            "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+        },
     )
 
 
