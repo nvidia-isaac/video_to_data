@@ -412,13 +412,13 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         """
         self.retargeted_object_body_position = torch.tensor(
             self._retargeted_motion_data.object_body_position, device=self.device
-        )
+        ).float()
         self.retargeted_object_body_wxyz = torch.tensor(
             self._retargeted_motion_data.object_body_wxyz, device=self.device
-        )
+        ).float()
         self.retargeted_object_articulation = torch.tensor(
             self._retargeted_motion_data.object_articulation, device=self.device
-        )
+        ).float()
         self.retargeted_object_body_names = (
             self._retargeted_motion_data.object_body_names
         )
@@ -507,6 +507,8 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         Sets:
           - ``retargeted_{side}_object_contact_positions_o`` — (horizon, N_links, 3)
           - ``retargeted_{side}_link_contact_normals_o`` — (horizon, N_links, 3)
+          - ``retargeted_{side}_object_contact_positions_com`` — (horizon, N_links, 3)
+          - ``retargeted_{side}_link_contact_normals_com`` — (horizon, N_links, 3)
           - ``retargeted_{side}_object_contact_is_valid`` — (horizon, N_links) bool
           - ``retargeted_{side}_object_has_contact`` — (horizon,) bool
 
@@ -522,8 +524,16 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             self.retargeted_object_body_position.shape[0], device=self.device
         )
 
+        object_o_t_com = torch.cat(
+            [object.data.body_com_pose_b for object in self.objects], dim=1
+        ).float()
+        object_o_p_com = object_o_t_com[..., :3].mean(dim=0)  # (num_bodies, 3)
+        object_o_q_com = object_o_t_com[0, :, 3:7]  # (num_bodies, 4)
+
         contact_positions_o = torch.zeros_like(contact_positions_e[..., :3])
         contact_normals_o = torch.zeros_like(contact_normals_e[..., :3])
+        contact_positions_com = torch.zeros_like(contact_positions_e[..., :3])
+        contact_normals_com = torch.zeros_like(contact_normals_e[..., :3])
         is_valid = contact_part_ids > 0
         has_contact = is_valid.sum(dim=-1) > 1e-5
 
@@ -532,28 +542,56 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             part_id = (contact_part_ids[:, link_idx] - 1).clamp(
                 min=0, max=self.num_bodies - 1
             )
-            object_position = self.retargeted_object_body_position[horizon_ids, part_id]
-            object_wxyz = self.retargeted_object_body_wxyz[horizon_ids, part_id]
+            # convert environment frame contact to object frame
+            object_e_p_o = self.retargeted_object_body_position[horizon_ids, part_id]
+            object_e_q_o = self.retargeted_object_body_wxyz[horizon_ids, part_id]
             contact_positions_o[:, link_idx], _ = math_utils.subtract_frame_transforms(
-                object_position,
-                object_wxyz,
+                object_e_p_o,
+                object_e_q_o,
                 contact_positions_e[:, link_idx, :3],
                 q02=None,
             )
             contact_normals_o[:, link_idx], _ = math_utils.subtract_frame_transforms(
-                torch.zeros_like(object_position),
-                object_wxyz,
+                torch.zeros_like(object_e_p_o),
+                object_e_q_o,
                 contact_normals_e[:, link_idx, :3],
+                q02=None,
+            )
+            # convert object frame contact to object com frame
+            _object_o_p_com = object_o_p_com[part_id]
+            _object_o_q_com = object_o_q_com[part_id]
+            contact_positions_com[:, link_idx], _ = (
+                math_utils.subtract_frame_transforms(
+                    _object_o_p_com,
+                    _object_o_q_com,
+                    contact_positions_o[:, link_idx, :3],
+                    q02=None,
+                )
+            )
+            contact_normals_com[:, link_idx], _ = math_utils.subtract_frame_transforms(
+                torch.zeros_like(_object_o_p_com),
+                _object_o_q_com,
+                contact_normals_o[:, link_idx, :3],
                 q02=None,
             )
 
         contact_positions_o.masked_fill_(~is_valid.unsqueeze(-1), 0.0)
         contact_normals_o.masked_fill_(~is_valid.unsqueeze(-1), 0.0)
+        contact_positions_com.masked_fill_(~is_valid.unsqueeze(-1), 0.0)
+        contact_normals_com.masked_fill_(~is_valid.unsqueeze(-1), 0.0)
 
         setattr(
             self, f"retargeted_{side}_object_contact_positions_o", contact_positions_o
         )
         setattr(self, f"retargeted_{side}_link_contact_normals_o", contact_normals_o)
+        setattr(
+            self,
+            f"retargeted_{side}_object_contact_positions_com",
+            contact_positions_com,
+        )
+        setattr(
+            self, f"retargeted_{side}_link_contact_normals_com", contact_normals_com
+        )
         setattr(self, f"retargeted_{side}_object_contact_is_valid", is_valid)
         setattr(self, f"retargeted_{side}_object_has_contact", has_contact)
 
@@ -664,12 +702,15 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         """Precompute the contact wrench space support function over sampled basis directions for each hand-body pairs."""
         # 1. Sample basis directions for each object body
         self.object_mesh_radius = self._retargeted_motion_data.object_mesh_radius
-        self.wrench_space_bases = [
-            sample_wrench_space_basis_scaled(
-                self.cfg.num_wrench_space_basis_samples, radius, self.device
-            )
-            for radius in self.object_mesh_radius
-        ]
+        self.wrench_space_bases = torch.cat(
+            [
+                sample_wrench_space_basis_scaled(
+                    self.cfg.num_wrench_space_basis_samples, rc=1.0, device=self.device
+                ).unsqueeze(0)
+                for _ in self.object_mesh_radius
+            ],
+            dim=0,
+        )
 
         # 2. Expand contact positions and normals to (horizon, num_bodies, num_hand_contact_links, 3)
         t_idx = torch.arange(self.retargeted_horizon, device=self.device)[
@@ -679,7 +720,6 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             None, :
         ]  # (1, num_hand_contact_links)
 
-        # TODO: convert to the COM frame with body_com_pose_b, we should use _com
         retargeted_left_contact_positions_com = torch.zeros(
             self.retargeted_horizon,
             self.num_bodies,
@@ -704,10 +744,10 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         )  # (horizon, num_hand_contact_links, 1)
         retargeted_left_contact_positions_com[
             t_idx, left_command_contact_part_ids, c_idx
-        ] = (self.retargeted_left_object_contact_positions_o * left_command_valid)
+        ] = (self.retargeted_left_object_contact_positions_com * left_command_valid)
         retargeted_left_contact_normals_com[
             t_idx, left_command_contact_part_ids, c_idx
-        ] = (self.retargeted_left_link_contact_normals_o * left_command_valid)
+        ] = (self.retargeted_left_link_contact_normals_com * left_command_valid)
 
         retargeted_right_contact_positions_com = torch.zeros(
             self.retargeted_horizon,
@@ -733,10 +773,10 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         )  # (horizon, num_hand_contact_links, 1)
         retargeted_right_contact_positions_com[
             t_idx, right_command_contact_part_ids, c_idx
-        ] = (self.retargeted_right_object_contact_positions_o * right_command_valid)
+        ] = (self.retargeted_right_object_contact_positions_com * right_command_valid)
         retargeted_right_contact_normals_com[
             t_idx, right_command_contact_part_ids, c_idx
-        ] = (self.retargeted_right_link_contact_normals_o * right_command_valid)
+        ] = (self.retargeted_right_link_contact_normals_com * right_command_valid)
 
         # 3. Compute support function over sampled basis directions for each hand-body pairs
         self.retargeted_left_contact_wrench_supports = torch.zeros(
@@ -1336,6 +1376,13 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         ).float()
 
     @property
+    def object_com_position_and_wxyz_w(self) -> torch.Tensor:
+        """The current position and orientation in the environment frame for the object com. Shape is (num_envs, num_bodies, 7)."""
+        return torch.cat(
+            [object.data.body_com_state_w[..., :7] for object in self.objects], dim=1
+        ).float()
+
+    @property
     def right_hand_object_contact_positions_w(self) -> torch.Tensor:
         """The current contact positions in the world frame for the right hand. Shape is (num_envs, num_bodies, num_hand_link_w_sensor, 3)."""
         contact_positions = torch.cat(
@@ -1420,17 +1467,16 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         active_contact = (
             self.right_hand_object_contact_positions_w.norm(dim=-1) > 1e-3
         )  # (num_envs, num_bodies, num_robot_contacts_right)
-        object_position_w = self.object_position_w.unsqueeze(2).expand(
+        object_com_state_w = self.object_com_position_and_wxyz_w.unsqueeze(2).expand(
             -1, -1, self.num_robot_contacts_right, -1
         )
-        object_orientation_w = self.object_orientation_e.unsqueeze(2).expand(
-            -1, -1, self.num_robot_contacts_right, -1
-        )
+        object_com_position_w = object_com_state_w[..., :3]
+        object_com_orientation_w = object_com_state_w[..., 3:7]
 
         # Compute contact positions in the object frame
         right_hand_contact_positions_com, _ = math_utils.subtract_frame_transforms(
-            object_position_w,
-            object_orientation_w,
+            object_com_position_w,
+            object_com_orientation_w,
             self.right_hand_object_contact_positions_w,
             q02=None,
         )  # (num_envs, num_bodies, num_robot_contacts_right, 3)
@@ -1445,8 +1491,8 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             / right_hand_contact_normals_w.norm(dim=-1).unsqueeze(-1).clamp(min=1e-5)
         )
         right_hand_contact_normals_com, _ = math_utils.subtract_frame_transforms(
-            torch.zeros_like(object_position_w),
-            object_orientation_w,
+            torch.zeros_like(object_com_position_w),
+            object_com_orientation_w,
             right_hand_contact_normals_w,
             q02=None,
         )  # (num_envs, num_bodies, num_robot_contacts_right, 3)
@@ -1479,17 +1525,16 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         active_contact = (
             self.left_hand_object_contact_positions_w.norm(dim=-1) > 1e-3
         )  # (num_envs, num_bodies, num_robot_contacts_left)
-        object_position_w = self.object_position_w.unsqueeze(2).expand(
-            -1, -1, self.num_robot_contacts_left, -1
+        object_com_state_w = self.object_com_position_and_wxyz_w.unsqueeze(2).expand(
+            -1, -1, self.num_robot_contacts_right, -1
         )
-        object_orientation_w = self.object_orientation_e.unsqueeze(2).expand(
-            -1, -1, self.num_robot_contacts_left, -1
-        )
+        object_com_position_w = object_com_state_w[..., :3]
+        object_com_orientation_w = object_com_state_w[..., 3:7]
 
         # Compute contact positions in the object frame
         left_hand_contact_positions_com, _ = math_utils.subtract_frame_transforms(
-            object_position_w,
-            object_orientation_w,
+            object_com_position_w,
+            object_com_orientation_w,
             self.left_hand_object_contact_positions_w,
             q02=None,
         )  # (num_envs, num_bodies, num_robot_contacts_left, 3)
@@ -1504,8 +1549,8 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             / left_hand_contact_normals_w.norm(dim=-1).unsqueeze(-1).clamp(min=1e-5)
         )
         left_hand_contact_normals_com, _ = math_utils.subtract_frame_transforms(
-            torch.zeros_like(object_position_w),
-            object_orientation_w,
+            torch.zeros_like(object_com_position_w),
+            object_com_orientation_w,
             left_hand_contact_normals_w,
             q02=None,
         )  # (num_envs, num_bodies, num_robot_contacts_left, 3)
@@ -1623,6 +1668,21 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             object.write_root_velocity_to_sim(
                 object_velocity[:, object_idx], env_ids=env_ids
             )
+            # For articulated objects, also reset joint state to match the reference frame.
+            if (
+                isinstance(object, Articulation)
+                and self.retargeted_object_articulation.numel() > 0
+            ):
+                joint_pos = self.retargeted_object_articulation[
+                    self.timestep_counter[env_ids]
+                ]  # (len(env_ids),)
+                if joint_pos.dim() == 1:
+                    joint_pos = joint_pos.unsqueeze(-1)
+                object.write_joint_state_to_sim(
+                    joint_pos,
+                    torch.zeros_like(joint_pos),
+                    env_ids=env_ids,
+                )
 
         ##########################################################
         # Reset the robot
@@ -1807,6 +1867,8 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             self.left_hand_goal_pose_visualizer.set_visibility(False)
             for visualizer in getattr(self, "object_pose_visualizers", []):
                 visualizer.set_visibility(False)
+            for visualizer in getattr(self, "object_com_visualizers", []):
+                visualizer.set_visibility(False)
             for visualizer in getattr(self, "contact_marker_visualizers", []):
                 visualizer.set_visibility(False)
             for visualizer in getattr(self, "robot_contact_marker_visualizers", []):
@@ -1817,6 +1879,7 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         if debug_vis:
             # Current object pose visualizers
             self.object_pose_visualizers = []
+            self.object_com_visualizers = []
             self.object_goal_pose_visualizers = []
             for body_idx in range(self.num_bodies):
                 object_pose_visualizer_cfg = (
@@ -1829,6 +1892,15 @@ class DualHandsObjectTrackingCommand(CommandTerm):
                 )
                 object_pose_visualizer.set_visibility(True)
                 self.object_pose_visualizers.append(object_pose_visualizer)
+
+                object_com_visualizer_cfg = (
+                    self.cfg.object_com_pose_visualizer_cfg.replace(
+                        prim_path=f"/Visuals/Command/object_com_marker_{body_idx}"
+                    )
+                )
+                object_com_visualizer = VisualizationMarkers(object_com_visualizer_cfg)
+                object_com_visualizer.set_visibility(True)
+                self.object_com_visualizers.append(object_com_visualizer)
 
                 object_goal_pose_visualizer_cfg = (
                     self.cfg.object_goal_pose_visualizer_cfg.replace(
@@ -1909,13 +1981,20 @@ class DualHandsObjectTrackingCommand(CommandTerm):
     def _debug_vis_callback(self, event: Any) -> None:
         """Visualize the goal marker."""
         del event  # unused
-        self.draw_interface.clear_lines()
+        if hasattr(self, "draw_interface"):
+            self.draw_interface.clear_lines()
 
         # Current state visualizers
         for body_idx, object_pose_visualizer in enumerate(self.object_pose_visualizers):
             object_pose_visualizer.visualize(
                 translations=self.object_position_w[:, body_idx],
                 orientations=self.object_orientation_e[:, body_idx],
+            )
+        object_com_state_w = self.object_com_position_and_wxyz_w
+        for body_idx, object_com_visualizer in enumerate(self.object_com_visualizers):
+            object_com_visualizer.visualize(
+                translations=object_com_state_w[:, body_idx, :3],
+                orientations=object_com_state_w[:, body_idx, 3:7],
             )
         self.right_hand_pose_visualizer.visualize(
             translations=self.right_robot.data.root_link_pos_w,

@@ -178,6 +178,12 @@ class DualHandsObjectTrackingCommandCfg(CommandTermCfg):
     object_pose_visualizer_cfg.markers["frame"].scale = (0.07, 0.07, 0.07)
     """Visualizer for the object pose."""
 
+    object_com_pose_visualizer_cfg: VisualizationMarkersCfg = FRAME_MARKER_CFG.replace(
+        prim_path="/Visuals/Command/object_com_marker"
+    )
+    object_com_pose_visualizer_cfg.markers["frame"].scale = (0.05, 0.05, 0.05)
+    """Visualizer for the object COM frame."""
+
     right_hand_pose_visualizer_cfg: VisualizationMarkersCfg = FRAME_MARKER_CFG.replace(
         prim_path="/Visuals/Command/right_hand_marker"
     )

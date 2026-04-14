@@ -1,0 +1,36 @@
+# Example: Multi-task training across a list of sequences
+#
+# Spawns one OSMO task per sequence_id in osmo_multi_task.sequence_ids.
+# workflow.py generates the per-task OSMO workflow YAML.
+#
+# Usage:
+#   python robotic_grounding/scripts/run_experiment.py example_sequences --osmo
+#   python robotic_grounding/scripts/run_experiment.py example_sequences --local --variant capsulemachine
+id: example_sequence_list
+description: "Example: multi-task across a list of sequences"
+run_name: example_sequences
+video: false
+
+train_overrides:
+  env.rewards.action_rate_l2.weight: "-5e-4"
+  env.rewards.action_l1.weight: "-5e-3"
+  env.rewards.object_keypoints_tracking_exp.weight: "2.0"
+  env.rewards.hand_keypoints_tracking_exp.weight: "1.0"
+  env.rewards.contact_force_reward.weight: "1.0"
+  # No virtual object curriculum — train from scratch
+  env.commands.dual_hands_object_tracking_command.initial_virtual_object_control_curriculum_scale: "0.0"
+  env.commands.dual_hands_object_tracking_command.virtual_object_control_decay_mode: "linear"
+  env.curriculum.virtual_object_control_curriculum.params.decay_mode: "linear"
+  env.curriculum.virtual_object_control_curriculum.params.linear_decay_step: "0.1"
+  env.curriculum.virtual_object_control_curriculum.params.wait_env_steps_since_last_decay: "6000"
+  env.curriculum.virtual_object_control_curriculum.params.zero_scale_factor_threshold: "0.01"
+
+osmo_multi_task:
+  sequence_ids:
+    - arctic_s01_capsulemachine_grab_01
+    - arctic_s01_espressomachine_grab_01
+    - arctic_s01_microwave_grab_01
+  run_name_suffix_template: "osmo_example_sequences_{sequence_id}"
+
+osmo:
+  build_image: false

@@ -1,5 +1,11 @@
 *.venv
-/data
+data
+wandb/
 __pycache__
 **.egg-info
+CLAUDE.md
 .claude/
+*.code-workspace
+
+# Auto-generated no-collision URDFs (created at pipeline runtime from *_rigid.urdf)
+**/*_no_collision.urdf

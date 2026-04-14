@@ -77,11 +77,12 @@ def _spawn_articulated(
         actuators={
             "joint": ImplicitActuatorCfg(
                 joint_names_expr=[".*"],
-                effort_limit_sim={".*": 150.0},
-                velocity_limit_sim={".*": 30.0},
+                effort_limit_sim={".*": 75.0},
+                velocity_limit_sim={".*": 15.0},
                 stiffness={".*": 0.0},
                 damping={".*": 0.0},
-                armature={".*": 0.0},
+                armature={".*": 0.01},
+                friction={".*": 0.01},
             ),
         },
     )
@@ -140,6 +141,7 @@ def apply_scene_objects(env_cfg: Any, scene_config: SceneConfig) -> None:
             cfg = _spawn_rigid(obj, prim_path)
 
         setattr(env_cfg.scene, attr_name, cfg)
+        env_cfg.events.setup_collision_groups.params["object_names"].append(attr_name)
 
     # Fixed objects (support surfaces, etc.)
     for fixed_obj in scene_config.fixed_objects:
@@ -149,6 +151,7 @@ def apply_scene_objects(env_cfg: Any, scene_config: SceneConfig) -> None:
             )
         stage = Usd.Stage.Open(fixed_obj.usd_path)
         for idx, prim in enumerate(stage.Traverse()):
+            attr_name = f"{fixed_obj.name}_{idx}"
             if not prim.IsA(UsdGeom.Cylinder):
                 continue
             cyl = UsdGeom.Cylinder(prim)
@@ -159,7 +162,7 @@ def apply_scene_objects(env_cfg: Any, scene_config: SceneConfig) -> None:
             translate = ops[0].Get() if ops else (0.0, 0.0, 0.0)
 
             fixed_cfg = AssetBaseCfg(
-                prim_path=f"{{ENV_REGEX_NS}}/{fixed_obj.name}_{idx}",
+                prim_path=f"{{ENV_REGEX_NS}}/{attr_name}",
                 spawn=sim_utils.CylinderCfg(
                     radius=radius,
                     height=height,
@@ -182,7 +185,10 @@ def apply_scene_objects(env_cfg: Any, scene_config: SceneConfig) -> None:
                     rot=[1.0, 0.0, 0.0, 0.0],
                 ),
             )
-            setattr(env_cfg.scene, f"{fixed_obj.name}_{idx}", fixed_cfg)
+            setattr(env_cfg.scene, attr_name, fixed_cfg)
+            env_cfg.events.setup_collision_groups.params["fixed_object_names"].append(
+                attr_name
+            )
 
 
 def apply_scene_virtual_object_controls(
@@ -194,6 +200,7 @@ def apply_scene_virtual_object_controls(
         if isinstance(obj, ArticulatedObjectConfig):
             voc_cfg = VirtualArticulatedObjectControlCfg(
                 asset_name=object_name,
+                root_body_name=obj.body_names[0],
                 tracking_controller_linear_stiffness=virtual_object_control_linear_stiffness,
                 tracking_controller_linear_damping=virtual_object_control_linear_damping,  # critical damping: 2 * sqrt(kp * m)
                 tracking_controller_angular_stiffness=virtual_object_control_angular_stiffness,
@@ -254,10 +261,13 @@ def apply_scene_robot(
         env_cfg.scene.left_robot = _maybe_disable_gravity(robot_spec.left_cfg).replace(
             prim_path="{ENV_REGEX_NS}/LeftRobot"
         )
+        env_cfg.events.setup_collision_groups.params["robot_names"].append("RightRobot")
+        env_cfg.events.setup_collision_groups.params["robot_names"].append("LeftRobot")
     elif robot_spec.robot_cfg is not None:
         env_cfg.scene.robot = _maybe_disable_gravity(robot_spec.robot_cfg).replace(
             prim_path="{ENV_REGEX_NS}/Robot"
         )
+        env_cfg.events.setup_collision_groups.params["robot_names"].append("Robot")
 
 
 def apply_scene_commands(env_cfg: Any, scene_config: SceneConfig) -> None:

@@ -124,6 +124,14 @@ class VirtualRigidObjectControl(ActionTerm):
         self._raw_actions[env_ids] = 0.0
         self._processed_actions[env_ids] = 0.0
 
+        # clear external forces and torques
+        self.object.set_external_force_and_torque(
+            forces=self._raw_actions[env_ids, :3].view(-1, 1, 3),
+            torques=self._raw_actions[env_ids, 3:].view(-1, 1, 3),
+            env_ids=env_ids,
+            is_global=False,
+        )
+
     def apply_actions(self) -> None:
         """Apply virtual force torque to the rigid object using a Position PD Controller."""
         # 1. Extract current object state
@@ -168,10 +176,10 @@ class VirtualRigidObjectControl(ActionTerm):
         )
         force = force + gravity_compensation_force
 
-        gravity_compensation_torque = torch.cross(
-            self.object_com[..., :3], gravity_compensation_force, dim=-1
-        )
-        torque = torque + gravity_compensation_torque
+        # gravity_compensation_torque = torch.cross(
+        #     self.object_com[..., :3], gravity_compensation_force, dim=-1
+        # )
+        # torque = torque + gravity_compensation_torque
 
         # 5. Scale based on curriculum
         force = force * self.command.virtual_object_controller_scale_factor_per_env

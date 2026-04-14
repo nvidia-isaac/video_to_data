@@ -56,6 +56,6 @@
       <parent link="bottom"/>
       <child link="top"/>
       <dynamics damping="0.05" friction="0.0001"/>
-      <limit effort="1000" velocity="200" lower="0" upper="3.141592653589793"/>
+      <limit effort="1000" velocity="200" lower="0" upper="1.736"/>
    </joint>
 </robot>

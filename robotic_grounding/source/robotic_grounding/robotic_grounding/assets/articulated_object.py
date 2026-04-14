@@ -59,11 +59,12 @@ ARTICULATED_OBJECT_CFG = ArticulationCfg(
     actuators={
         "joint": ImplicitActuatorCfg(
             joint_names_expr=[".*"],
-            effort_limit_sim={".*": 150.0},
-            velocity_limit_sim={".*": 30.0},
+            effort_limit_sim={".*": 75.0},
+            velocity_limit_sim={".*": 15.0},
             stiffness={".*": 0.0},
             damping={".*": 0.0},
-            armature={".*": 0.0},
+            armature={".*": 0.01},
+            friction={".*": 0.01},
         ),
     },
 )

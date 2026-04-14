@@ -11,6 +11,7 @@
 """Launch Isaac Sim Simulator first."""
 
 import argparse
+import time
 
 from isaaclab.app import AppLauncher
 
@@ -37,9 +38,26 @@ parser.add_argument(
     "--motion_file",
     type=str,
     default=None,
-    help="Motion file to load.",
+    help="Motion file to load (e.g. arctic_processed/arctic_s01_mixer_use_01/sharpa_wave).",
 )
-
+parser.add_argument(
+    "--initial_virtual_object_control_curriculum_scale",
+    type=float,
+    default=1.0,
+    help="Initial VOC curriculum scale for dual-hands object tracking command.",
+)
+parser.add_argument(
+    "--disable_robot_to_object_collisions",
+    action="store_true",
+    default=False,
+    help="Disable robot-to-object collisions.",
+)
+parser.add_argument(
+    "--disable_robot_to_fixed_object_collisions",
+    action="store_true",
+    default=False,
+    help="Disable robot-to-fixed-object collisions.",
+)
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 
@@ -48,6 +66,8 @@ args_cli = parser.parse_args()
 ###################################
 args_cli.task = "Sharpa-V2P-v0-Play"
 args_cli.headless = True
+args_cli.disable_robot_to_object_collisions = False
+args_cli.disable_robot_to_fixed_object_collisions = True
 
 # Multiple rigid objects
 # args_cli.motion_file = (
@@ -56,19 +76,18 @@ args_cli.headless = True
 
 # Single rigid object
 # args_cli.motion_file = (
-#     "arctic/arctic_processed/arctic_s01_rigid_mixer_grab_01/sharpa_wave"
+# "arctic/arctic_processed/arctic_s01_rigid_waffleiron_grab_01/sharpa_wave"
 # )
 
 # Single articulated object
 args_cli.motion_file = "arctic/arctic_processed/arctic_s01_mixer_use_01/sharpa_wave"
-
 ###################################
 
 # launch omniverse app
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
-"""Rest everything follows."""
+"""All Omniverse/Isaac Sim imports after SimulationApp is created."""
 
 import gymnasium as gym
 import torch
@@ -76,12 +95,10 @@ import torch.nn.functional as F
 
 import isaaclab.utils.math as math_utils
 import isaaclab_tasks  # noqa: F401
-from isaaclab_tasks.utils import parse_env_cfg
+from isaaclab.envs import ManagerBasedRLEnvCfg
 from robotic_grounding.tasks import *
-from robotic_grounding.tasks.scene_utils import (
-    SceneConfig,
-    apply_scene_config,
-)  # noqa: E402
+from robotic_grounding.tasks.scene_utils import SceneConfig, apply_scene_config
+from isaaclab_tasks.utils import parse_env_cfg
 
 
 def main():
@@ -94,10 +111,28 @@ def main():
         use_fabric=not args_cli.disable_fabric,
     )
 
-    env_cfg.motion_file = args_cli.motion_file
-    if hasattr(env_cfg, "motion_file"):
+    # Apply scene config from --motion_file
+    if args_cli.motion_file is not None:
+        env_cfg.motion_file = args_cli.motion_file
+    if hasattr(env_cfg, "motion_file") and env_cfg.motion_file is not None:
         scene_config = SceneConfig.from_motion_file(env_cfg.motion_file)
         apply_scene_config(env_cfg, scene_config)
+
+    # clamp viewer env_index to valid range (env_cfg may default to a higher index)
+    if isinstance(env_cfg, ManagerBasedRLEnvCfg) and hasattr(env_cfg, "viewer"):
+        env_cfg.viewer.env_index = min(
+            env_cfg.viewer.env_index, env_cfg.scene.num_envs - 1
+        )
+
+    env_cfg.commands.dual_hands_object_tracking_command.initial_virtual_object_control_curriculum_scale = float(
+        args_cli.initial_virtual_object_control_curriculum_scale
+    )
+    env_cfg.events.setup_collision_groups.params[
+        "disable_robot_to_object_collisions"
+    ] = args_cli.disable_robot_to_object_collisions
+    env_cfg.events.setup_collision_groups.params[
+        "disable_robot_to_fixed_object_collisions"
+    ] = args_cli.disable_robot_to_fixed_object_collisions
 
     # create environment
     env = gym.make(args_cli.task, cfg=env_cfg)

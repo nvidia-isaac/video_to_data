@@ -126,8 +126,8 @@ class VirtualObjectControlCurriculum(ManagerTermBase):
                 env_ids
             ]  # (num_reset_envs,)
         episode_rewards_batch = episode_rewards_batch / (
-            self._step_dt * L_max
-        )  # (num_reset_envs, 1)
+            self._step_dt * self._command.retargeted_horizon
+        )  # (num_reset_envs, num_reward)
         self._episode_reward_deque.append_batch(episode_rewards_batch)
 
         # 2 Whether the control scale is already zero
@@ -171,7 +171,7 @@ class VirtualObjectControlCurriculum(ManagerTermBase):
             self._episode_reward_deque.get_all(), dim=0
         )  # (num_reward,)
         pass_episode_reward_threshold = torch.all(
-            episode_reward_means > self._reward_thresholds
+            episode_reward_means >= self._reward_thresholds
         ).item()
         self._episode_reward_prev_means[:] = episode_reward_means
 

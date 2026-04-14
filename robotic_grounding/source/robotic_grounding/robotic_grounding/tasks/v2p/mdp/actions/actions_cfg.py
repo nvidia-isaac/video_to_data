@@ -220,6 +220,9 @@ class VirtualArticulatedObjectControlCfg(ActionTermCfg):
     command_name: str = "dual_hands_object_tracking_command"
     """Name of the command to use for the action."""
 
+    root_body_name: str = "bottom"
+    """Name of the base body of the articulated object."""
+
     tracking_controller_linear_stiffness: float = 50.0
     """Stiffness gain for the tracking controller in linear direction."""
 

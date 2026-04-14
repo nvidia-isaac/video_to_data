@@ -1,0 +1,25 @@
+# Two-stage pipeline: collision-free warm-up → full training
+#
+# Stage 1: 6 objects, collision-free, hand_kp only, 1000 iterations (exp stage1).
+# Stage 2: exp44 params, resumes each object from stage 1 checkpoint.
+#
+# Usage:
+#   python scripts/run_experiment.py two_stage           # run full pipeline
+#   python scripts/run_experiment.py two_stage --dry-run # preview without submitting
+id: example_two_stage
+description: "Full two-stage pipeline: collision-free warm-up (stage1) → exp44 training (stage2)"
+pipeline: true
+
+# IDs passed to the stage1 and stage2 scripts
+stage1_exp_id: stage1          # registry id for stage 1 experiment config
+stage2_config_id: stage2       # registry id for stage 2 experiment config
+stage2_exp_id: stage2_from_stage1  # OSMO job name for stage 2
+
+# OSMO settings forwarded to both stages
+osmo:
+  pool: isaac-dev-l40s-04
+  priority: NORMAL
+  build_image: true
+
+# How often to poll OSMO for stage1 completion (seconds)
+poll_interval_seconds: 60

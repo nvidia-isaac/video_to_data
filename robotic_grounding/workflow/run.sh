@@ -32,6 +32,8 @@ case "$1" in
         docker tag ${IMAGE_NAME} ${NGC_LOCATION}/${IMAGE_NAME}
         docker push ${NGC_LOCATION}/${IMAGE_NAME}
         echo "Push complete!"
+        echo "Removing local images to free disk space..."
+        docker rmi ${NGC_LOCATION}/${IMAGE_NAME} ${IMAGE_NAME} || true
         ;;
 
     pull)

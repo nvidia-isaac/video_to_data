@@ -195,6 +195,19 @@ class ObservationsCfg:
 class EventCfg:
     """Configuration for events."""
 
+    # prestartup
+    setup_collision_groups = EventTerm(
+        func=mdp.configure_collision_groups,
+        mode="prestartup",
+        params={
+            "robot_names": [],
+            "object_names": [],
+            "fixed_object_names": [],
+            "disable_robot_to_object_collisions": False,
+            "disable_robot_to_fixed_object_collisions": True,
+        },
+    )
+
     # startup
     right_physics_material = EventTerm(
         func=isaac_mdp.randomize_rigid_body_material,
@@ -298,7 +311,27 @@ class RewardsCfg:
         params={
             "command_name": "dual_hands_object_tracking_command",
             "tolerance": 0.1,
-            "var": 60.0,
+            "var": 30.0,
+        },
+    )
+
+    contact_wrench_continuous_reward = RewTerm(
+        func=mdp.contact_wrench_continuous_reward,
+        weight=0.0,
+        params={
+            "command_name": "dual_hands_object_tracking_command",
+            "approach_var": 0.05,
+            "in_contact_force_threshold": 1e-3,
+        },
+    )
+
+    contact_wrench_cumulative_reward = RewTerm(
+        func=mdp.contact_wrench_cumulative_reward,
+        weight=0.0,
+        params={
+            "command_name": "dual_hands_object_tracking_command",
+            "eps": 1e-6,
+            "streak_scale": 20.0,
         },
     )
 
@@ -356,16 +389,16 @@ class RewardsCfg:
     #     },
     # )
 
-    # # DexMachina Contact Tracking Reward
-    # dexmachina_contact_tracking_reward = RewTerm(
-    #     func=mdp.dexmachina_contact_tracking_reward,
-    #     weight=0.0,
-    #     params={
-    #         "command_name": "dual_hands_object_tracking_command",
-    #         "var": 0.03,
-    #         "mask_zero_contact": True,
-    #     },
-    # )
+    # DexMachina Contact Tracking Reward
+    dexmachina_contact_tracking_reward = RewTerm(
+        func=mdp.dexmachina_contact_tracking_reward,
+        weight=0.0,
+        params={
+            "command_name": "dual_hands_object_tracking_command",
+            "var": 0.03,
+            "mask_zero_contact": True,
+        },
+    )
 
 
 @configclass
@@ -407,7 +440,9 @@ class CurriculumCfg:
         params={
             "reward_thresholds": {
                 "object_keypoints_tracking_exp": 0.1,
-                "hand_keypoints_tracking_exp": 1.0,
+                "hand_keypoints_tracking_exp": 0.0,
+                "contact_wrench_support_reward": 1.6,
+                "contact_force_reward": 0.0,
             },
             "episode_length_ratio_threshold": 0.95,
             "decay_mode": "exponential",
@@ -432,7 +467,12 @@ class V2PHandEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the locomotion velocity-tracking environment."""
 
     # Scene settings
-    scene: V2PSceneCfg = V2PSceneCfg(num_envs=4096, env_spacing=1.5)
+    scene: V2PSceneCfg = V2PSceneCfg(
+        num_envs=4096,
+        env_spacing=1.5,
+        replicate_physics=False,
+        filter_collisions=False,
+    )
     # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
@@ -441,7 +481,7 @@ class V2PHandEnvCfg(ManagerBasedRLEnvCfg):
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
-    # curriculum: CurriculumCfg = CurriculumCfg()
+    curriculum: CurriculumCfg = CurriculumCfg()
 
     def __post_init__(self) -> None:
         """Post initialization."""
@@ -452,7 +492,9 @@ class V2PHandEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.dt = 0.01  # 100 Hz simulation
         self.sim.render_interval = self.decimation  # 20 Hz rendering
         self.sim.physics_material = self.scene.terrain.physics_material
-        self.sim.physx.gpu_max_rigid_patch_count = 20 * 2**15
+        self.sim.physx.bounce_threshold_velocity = 0.2
+        self.sim.physx.gpu_max_rigid_contact_count = 2**23
+        self.sim.physx.gpu_max_rigid_patch_count = 2**23
 
         # Make the environment more compliant
         self.sim.physics_material.compliant_contact_stiffness = 10.0
@@ -491,7 +533,9 @@ class V2PHandEnvCfgEnvOnly(ManagerBasedRLEnvCfg):
         self.sim.dt = 0.01  # 100 Hz simulation
         self.sim.render_interval = self.decimation  # 20 Hz rendering
         self.sim.physics_material = self.scene.terrain.physics_material
-        self.sim.physx.gpu_max_rigid_patch_count = 20 * 2**15
+        self.sim.physx.bounce_threshold_velocity = 0.2
+        self.sim.physx.gpu_max_rigid_contact_count = 2**23
+        self.sim.physx.gpu_max_rigid_patch_count = 2**23
 
         # Make the environment more compliant
         self.sim.physics_material.compliant_contact_stiffness = 10.0

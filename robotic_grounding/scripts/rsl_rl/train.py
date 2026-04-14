@@ -91,6 +91,12 @@ parser.add_argument(
     default=None,
     help="Motion file to load.",
 )
+parser.add_argument(
+    "--wandb_id",
+    type=str,
+    default=None,
+    help="Wandb run ID to resume from.",
+)
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -152,6 +158,7 @@ import time
 import torch
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from download_from_wandb import download_run
 
 from rsl_rl.runners import DistillationRunner, OnPolicyRunner
 
@@ -198,10 +205,12 @@ def main(
         args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
     )
 
+    scene_config = None
     # Apply scene config: motion_file (from Hydra override) takes priority,
     # then --scene_config YAML, then the env_cfg default.
-    env_cfg.motion_file = args_cli.motion_file
-    if hasattr(env_cfg, "motion_file"):
+    if args_cli.motion_file is not None:
+        env_cfg.motion_file = args_cli.motion_file
+    if hasattr(env_cfg, "motion_file") and env_cfg.motion_file is not None:
         scene_config = SceneConfig.from_motion_file(env_cfg.motion_file)
         apply_scene_config(env_cfg, scene_config)
     elif args_cli.scene_config is not None:
@@ -284,6 +293,9 @@ def main(
         ):
             # allow path to be directly specified
             resume_path = os.path.abspath(agent_cfg.load_checkpoint)
+        elif args_cli.wandb_id is not None:
+            resume_path = download_run(args_cli.wandb_id)
+            agent_cfg.load_checkpoint = resume_path
         else:
             # get checkpoint from log directory
             resume_path = get_checkpoint_path(

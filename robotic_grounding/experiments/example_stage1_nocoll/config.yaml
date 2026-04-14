@@ -1,0 +1,79 @@
+# Stage 1: collision-free hand-keypoint warm-up
+#
+# Trains each of the 6 objects independently for 1000 iterations using the
+# *_no_collision.urdf so the hands can freely learn to track keypoints before
+# collision contacts are introduced in stage 2.
+#
+# Rewards: hand_keypoints_tracking_exp = 1.0, everything else = 0.0.
+# No virtual object curriculum — VOC scale fixed at 0.0.
+#
+# Run:
+#   python scripts/run_experiment.py stage1 --osmo
+#   python scripts/run_experiment.py stage1 --local --variant capsulemachine
+id: exp_stage1_nocoll
+description: "Stage 1: collision-free hand keypoint warm-up, 1000 iter, 6 objects"
+run_name: stage1_nocoll
+video: false
+max_iterations: 1000
+
+train_overrides:
+  # Disable robot-to-object collisions so hands can freely track keypoints
+  env.events.setup_collision_groups.params.disable_robot_to_object_collisions: "true"
+  # Hand tracking rewards active (same as stage 2)
+  env.rewards.hand_keypoints_tracking_exp.weight: "1.0"
+  env.rewards.hand_joint_pos_tracking_exp.weight: "1.0"
+  # Everything else zeroed
+  env.rewards.object_keypoints_tracking_exp.weight: "0.0"
+  env.rewards.contact_wrench_support_reward.weight: "0.0"
+  env.rewards.unintended_contact_penalty.weight: "0.0"
+  env.rewards.missed_contact_penalty.weight: "0.0"
+  env.rewards.contact_force_reward.weight: "0.0"
+  env.rewards.dexmachina_contact_tracking_reward.weight: "0.0"
+  env.rewards.contact_wrench_continuous_reward.weight: "0.0"
+  env.rewards.contact_wrench_cumulative_reward.weight: "0.0"
+  env.rewards.action_rate_l2.weight: "-5e-4"
+  env.rewards.action_l1.weight: "-5e-4"
+  # Object-away termination effectively disabled for stage 1
+  env.terminations.object_away_from_trajectory.params.position_threshold: "100.0"
+  env.terminations.object_away_from_trajectory.params.orientation_threshold: "100.0"
+  # VOC fixed at 1.0 — object stays on trajectory throughout stage 1
+  env.commands.dual_hands_object_tracking_command.initial_virtual_object_control_curriculum_scale: "1.0"
+  env.commands.dual_hands_object_tracking_command.virtual_object_control_decay_mode: "linear"
+  env.curriculum.virtual_object_control_curriculum.params.decay_mode: "linear"
+  env.curriculum.virtual_object_control_curriculum.params.linear_decay_step: "0.0"
+  env.curriculum.virtual_object_control_curriculum.params.wait_env_steps_since_last_decay: "6000"
+  env.curriculum.virtual_object_control_curriculum.params.zero_scale_factor_threshold: "0.0"
+  # PPO runner — must match stage2 architecture so checkpoint loads cleanly
+  agent.num_steps_per_env: "24"
+  agent.save_interval: "200"
+  agent.empirical_normalization: "True"
+  # Policy — must match stage2 hidden dims exactly
+  agent.policy.init_noise_std: "0.1"
+  agent.policy.actor_hidden_dims: "[512,256,128]"
+  agent.policy.critic_hidden_dims: "[512,256,128]"
+  agent.policy.activation: "elu"
+  # Algorithm
+  agent.algorithm.value_loss_coef: "1.0"
+  agent.algorithm.use_clipped_value_loss: "True"
+  agent.algorithm.clip_param: "0.1"
+  agent.algorithm.entropy_coef: "0.001"
+  agent.algorithm.num_learning_epochs: "5"
+  agent.algorithm.num_mini_batches: "4"
+  agent.algorithm.learning_rate: "1.0e-3"
+  agent.algorithm.schedule: "adaptive"
+  agent.algorithm.gamma: "0.99"
+  agent.algorithm.lam: "0.95"
+  agent.algorithm.desired_kl: "0.005"
+  agent.algorithm.max_grad_norm: "1.0"
+
+osmo_multi_task:
+  sequence_ids:
+    - arctic_s01_capsulemachine_grab_01
+    - arctic_s01_espressomachine_grab_01
+    - arctic_s01_microwave_grab_01
+    - arctic_s01_mixer_grab_01
+    - arctic_s01_waffleiron_grab_01
+    - arctic_s01_box_grab_01
+
+osmo:
+  image: nvcr.io/nvstaging/isaac-amr/robotic-grounding:v2d
