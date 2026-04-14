@@ -89,12 +89,11 @@ def fetch_crashed_checkpoints(outdir: Path, config: dict) -> dict[str, Path]:
             f"{wandb_entity}/{project}",
             filters={"display_name": {"$regex": run_name}},
         )
-        runs = sorted(runs, key=lambda r: r.created_at, reverse=True)
         crashed = [r for r in runs if r.state == "crashed"]
         if not crashed:
             print(f"  No crashed run found for {run_name}, skipping...")
             continue
-        run = crashed[0]
+        run = max(crashed, key=lambda r: r.summary.get("_step", 0) or 0)
         print(
             f"  Found crashed run: {run.display_name} (step={run.summary.get('_step', 'N/A')})",
             end=" ",
@@ -199,7 +198,7 @@ python scripts/rsl_rl/train.py \\
   --headless \\
   --task Sharpa-V2P-v0 \\
   --run_name {run_name} \\
-  --motion_file arctic_processed/{seq_id}/sharpa_wave \\
+  --motion_file arctic/arctic_processed/{seq_id}/sharpa_wave \\
   --logger wandb \\
   --log_project_name {project} \\
   --resume --checkpoint "{{{{input:0}}}}/ckpt_{obj}/{ckpt_filename}" \\
@@ -289,6 +288,11 @@ def main() -> None:
     parser.add_argument("--priority", default="NORMAL")
     parser.add_argument("--build-image", action="store_true")
     parser.add_argument(
+        "--no-build-image",
+        action="store_true",
+        help="Skip image build even if config has build_image: true",
+    )
+    parser.add_argument(
         "--image", default=None, help="Use specific Docker image for OSMO"
     )
     parser.add_argument("--dry-run", action="store_true")
@@ -336,7 +340,8 @@ def main() -> None:
                 "--priority",
                 args.priority,
             ]
-            if args.build_image or config.get("osmo", {}).get("build_image"):
+            should_build = (args.build_image or config.get("osmo", {}).get("build_image")) and not args.no_build_image
+            if should_build:
                 cmd.append("--build-image")
             image = args.image or config.get("osmo", {}).get("image")
             if image:
