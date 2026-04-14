@@ -1,63 +1,64 @@
 """
 End-to-end object reconstruction pipeline (HOST-SIDE orchestrator).
 
-Two-stage scan (object stationary → rotated → stationary) → complete textured mesh.
+Two modes:
+  bundlesdf (default) – Two-stage scan (stationary → rotated → stationary) → textured mesh
+  sam3d               – Select representative frames → SAM3D per-frame → SRT scale estimation
 
-Steps:
-  0.  MCAP convert (optional)     – convert ROS2 MCAP bag → mapping_data directory
-                                    (only when --mcap_file is used instead of --mapping_data_dir)
+── BundleSDF steps ──────────────────────────────────────────────────────────────────
   1.  prepare_FP_folder           – copy images, write calibration + video
-  2.  CuSFM                       – run on mapping_data_dir (original images)
-                                    → job_dir/sfm/keyframes/frames_meta.json with poses
+  2.  CuSFM                       – → job_dir/sfm/keyframes/frames_meta.json with poses
   2b. Stage-1 auto-detect         – detect Stage-1 end from CuSFM trajectory slope
-                                    (skipped if --stage1_end_frame/timestamp provided)
   3.  Grounding DINO               – detect object bbox from text prompt
   4a. Depth (parallel workers)    – FoundationStereo depth for ALL frames
   4b. Mask                        – SAM2 masks for ALL frames
-  5.  Stage-1 recon setup         – filter Stage-1 SfM keyframes,
-                                    create stage1_recon/ with depth symlinks
+  5.  Stage-1 recon setup         – filter Stage-1 SfM keyframes + depth symlinks
   6.  Stage-1 NeRF                – reconstruct Stage-1 mesh (bottom missing)
   7.  Center mesh                 – shift mesh centroid to origin
   8.  FoundationPose tracking     – track all frames with Stage-1 mesh
   9.  World poses                 – compute T_world_from_obj + auto-detect stages
-  10. Merged recon setup          – align Stage-2 keyframes into Stage-1 obj frame,
-                                    create merged_recon/ with depth symlinks
+  10. Merged recon setup          – align Stage-2 keyframes into Stage-1 obj frame
   11. Full NeRF                   – reconstruct complete mesh from both stages
+  12. FP tracking (final)         – track all frames with final textured mesh
+  13. FP render (final)           – render overlay video with final textured mesh
 
-  12. FP tracking (final)     – track all frames with final textured mesh
-  13. FP render (final)        – render overlay video with final textured mesh
+── SAM3D steps ──────────────────────────────────────────────────────────────────────
+  1.  prepare_FP_folder           – copy images, write calibration + video
+  2.  CuSFM                       – camera poses for frame selection + SRT scale
+  2b. Stage-1 auto-detect         – detect Stage-1 end (used to exclude transition frames)
+  3.  Grounding DINO               – detect object bbox from text prompt
+  4b. Mask                        – SAM2 masks for ALL frames (used for SRT scale)
+ [4a. Depth (optional)]           – FoundationStereo depth, used by SRT scale (--sam3d_use_depth)
+  S1. Select frames               – pick one frame per azimuthal bin (60° default)
+  S2. SAM3D                       – run SAM3D on each selected frame → GLB mesh
+  S3. SRT scale                   – estimate scale+pose using Stage-1 silhouettes only
+  S4. Render debug                – render debug overlay image for each SAM3D mesh
+  S5. Render video                – project SRT mesh onto all Stage-1 keyframes → render_video.mp4
 
 Two frames_meta.json files are used:
-  - mapping_data_dir/frames_meta.json  : input metadata (timestamps, no poses)
-                                         → used to build timestamp → seq_idx map
-  - job_dir/sfm/keyframes/frames_meta.json : CuSFM output (poses for keyframes)
-                                             → used for camera-to-world poses
+  - mapping_data_dir/frames_meta.json          : input metadata (timestamps, no poses)
+  - job_dir/sfm/keyframes/frames_meta.json     : CuSFM output (camera-to-world poses)
 
-Usage (from mapping_data directory):
+Usage:
     python run_reconstruction.py \\
         --mapping_data_dir /home/.../mapping_data/2026-02-18_..._bowl \\
         --job_dir          /data/hoi_obj_recon/2026-02-18_..._bowl \\
-        --prompt           "bowl" \\
-        --config           /workspace/v2d_bundlesdf/lib/data/configs/theseus_optimizer_hawk.yaml
+        --prompt           "bowl"
 
-Usage (from raw MCAP bag directory):
+    # SAM3D mode:
     python run_reconstruction.py \\
-        --mcap_file  /path/to/2026-03-12_airplane/ \\
-        --job_dir    /data/hoi_obj_recon/2026-03-12_airplane \\
-        --prompt     "airplane" \\
-        --real2sim_path /home/jryu/workspaces/real2sim   # optional if real2sim is pip-installed
+        --mapping_data_dir ... --job_dir ... --prompt "bowl" \\
+        --mode sam3d [--sam3d_use_depth] [--sam3d_bin_deg 60] [--sam3d_seed 42]
 
-    # Optional: override auto-detected Stage-1 split
-        --stage1_end_frame 400          # explicit frame index
-        --stage1_end_timestamp <ns>     # or by nanosecond timestamp
-        --stage1_buffer_deg 10          # buffer before detected transition (default: 10°)
-
-Skip flags (to resume from a checkpoint):
-    --skip_mcap_convert
-    --skip_prepare  --skip_sfm  --skip_dino  --skip_depth  --skip_mask
+Skip flags (BundleSDF):
+    --skip_prepare  --skip_sfm  --skip_stage1_detect  --skip_dino  --skip_depth  --skip_mask
     --skip_stage1_setup  --skip_stage1_nerf  --skip_center_mesh
     --skip_fp_tracking  --skip_fp_render  --skip_world_poses  --skip_merged_setup  --skip_full_nerf
     --skip_final_fp_tracking  --skip_final_fp_render
+
+Skip flags (SAM3D):
+    --skip_prepare  --skip_sfm  --skip_stage1_detect  --skip_dino  --skip_depth  --skip_mask
+    --skip_select_frames  --skip_sam3d  --skip_srt_scale  --skip_render_debug  --skip_render_video
 """
 
 import argparse
@@ -75,6 +76,14 @@ import numpy as np
 from v2d.docker.container import run_in_container
 from v2d.foundation_pose.docker.run_video_to_poses import run_video_to_poses as _run_fp_tracking
 from v2d.common.datatypes import Transform3d
+from v2d.sam3d.docker.run_image_to_mesh import run_image_to_mesh as _run_sam3d
+from v2d.sam3d.docker.run_render_debug_image import run_render_debug_image as _run_sam3d_render
+
+from v2d_hoi_object_reconstruction.lib.select_sam3d_frames import (
+    select_frames_by_angle_bins,
+    select_frames_fallback,
+)
+from v2d_hoi_object_reconstruction.lib.scale_mesh_srt import estimate_srt_for_frame
 
 
 # ── Image names ────────────────────────────────────────────────────────────────
@@ -86,6 +95,7 @@ IMAGE_GROUNDING_DINO        = "v2d_grounding_dino"
 IMAGE_FOUNDATION_STEREO     = "v2d_foundation_stereo"
 IMAGE_SAM2                  = "v2d_sam2"
 IMAGE_FOUNDATIONPOSE_RENDER = "v2d_foundation_pose"
+IMAGE_SAM3D                 = "v2d_sam3d"
 
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -94,9 +104,10 @@ from v2d_hoi_object_reconstruction.docker._pipeline_utils import (
     IMAGE_EXTENSIONS, detect_gpu_ids, count_images,
 )
 
-_DATA_DIR         = Path(__file__).parents[3] / "data"    # reconstruction/data/
-_WEIGHTS_DIR      = _DATA_DIR / "weights"                 # reconstruction/data/weights/
-_FP_WEIGHTS_DIR   = _WEIGHTS_DIR / "foundationpose"       # reconstruction/data/weights/foundationpose/
+_DATA_DIR           = Path(__file__).parents[3] / "data"    # reconstruction/data/
+_WEIGHTS_DIR        = _DATA_DIR / "weights"                 # reconstruction/data/weights/
+_FP_WEIGHTS_DIR     = _WEIGHTS_DIR / "foundationpose"       # reconstruction/data/weights/foundationpose/
+_SAM3D_WEIGHTS_DIR  = _WEIGHTS_DIR / "sam3d"               # reconstruction/data/weights/sam3d/
 
 # Config paths (host-side; mounted into containers at runtime)
 _DEFAULT_PIPELINE_CONFIG_HOST = str(Path(__file__).parent.parent / "lib" / "data" / "configs" / "hoi_pipeline.yaml")
@@ -243,16 +254,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    input_group = parser.add_mutually_exclusive_group(required=True)
-    input_group.add_argument("--mapping_data_dir",
+    parser.add_argument("--mapping_data_dir", required=True,
                         help="Raw mapping data directory (frames_meta.json + images)")
-    input_group.add_argument("--mcap_file",
-                        help="ROS2 MCAP bag directory (e.g. /data/2026-03-12_airplane/); "
-                             "will be auto-converted to mapping_data at <job_dir>/mapping_data/ "
-                             "(requires real2sim)")
-    parser.add_argument("--real2sim_path", default=None,
-                        help="Path to real2sim repo (used with --mcap_file). "
-                             "If not set, uses installed real2sim package.")
     parser.add_argument("--job_dir", required=True,
                         help="Output root (e.g. /data/hoi_obj_recon/<job>)")
     parser.add_argument("--prompt", required=True,
@@ -284,9 +287,17 @@ def main():
     parser.add_argument("--gpu_ids", type=int, nargs="+", default=None,
                         help="GPU IDs (default: auto-detect)")
 
+    # Mode
+    parser.add_argument("--mode", choices=["bundlesdf", "sam3d"], default="bundlesdf",
+                        help="Reconstruction mode (default: bundlesdf)")
+    parser.add_argument("--sam3d_use_depth", action="store_true",
+                        help="SAM3D mode: also run FoundationStereo depth for SRT scale estimation")
+    parser.add_argument("--sam3d_bin_deg", type=float, default=60.0,
+                        help="SAM3D mode: azimuthal bin size for frame selection (default: 60°)")
+    parser.add_argument("--sam3d_seed", type=int, default=42,
+                        help="SAM3D mode: random seed passed to SAM3D (default: 42)")
+
     # Skip flags
-    parser.add_argument("--skip_mcap_convert",   action="store_true",
-                        help="Skip MCAP→mapping_data conversion (mapping_data must already exist)")
     parser.add_argument("--skip_prepare",        action="store_true")
     parser.add_argument("--skip_sfm",            action="store_true")
     parser.add_argument("--skip_stage1_detect",  action="store_true",
@@ -307,6 +318,17 @@ def main():
                         help="Skip FoundationPose tracking with final textured mesh")
     parser.add_argument("--skip_final_fp_render",      action="store_true",
                         help="Skip FoundationPose render overlay video with final textured mesh")
+    # SAM3D-specific skip flags
+    parser.add_argument("--skip_select_frames", action="store_true",
+                        help="SAM3D mode: skip representative-frame selection")
+    parser.add_argument("--skip_sam3d",         action="store_true",
+                        help="SAM3D mode: skip SAM3D mesh reconstruction (reuse existing GLBs)")
+    parser.add_argument("--skip_srt_scale",     action="store_true",
+                        help="SAM3D mode: skip SRT scale estimation")
+    parser.add_argument("--skip_render_debug",  action="store_true",
+                        help="SAM3D mode: skip SAM3D debug render")
+    parser.add_argument("--skip_render_video",  action="store_true",
+                        help="SAM3D mode: skip Stage-1 overlay video render")
 
     args = parser.parse_args()
 
@@ -334,32 +356,7 @@ def main():
     job_dir = os.path.abspath(args.job_dir)
     os.makedirs(job_dir, exist_ok=True)
 
-    # ── Step 0: MCAP → mapping_data conversion ────────────────────────────────
-    if args.mcap_file:
-        mapping_data_dir = Path(job_dir) / "mapping_data"
-        if not args.skip_mcap_convert:
-            print(f"[pipeline] converting MCAP → {mapping_data_dir}")
-            mapping_data_dir.mkdir(parents=True, exist_ok=True)
-
-            env = os.environ.copy()
-            if args.real2sim_path:
-                env["PYTHONPATH"] = f"{args.real2sim_path}:{env.get('PYTHONPATH', '')}"
-
-            convert_cmd = [
-                sys.executable, "-m", "real2sim.rosbag_to_mapping_data.main",
-                "--sensor_data_bag_file", args.mcap_file,
-                "--output_folder_path",  str(mapping_data_dir),
-                "--no-generate_edex",
-            ]
-
-            result = subprocess.run(convert_cmd, env=env)
-            if result.returncode != 0:
-                raise RuntimeError("MCAP conversion failed")
-            print(f"[pipeline] MCAP conversion done → {mapping_data_dir}")
-        else:
-            print(f"[pipeline] skipping MCAP conversion, using {mapping_data_dir}")
-    else:
-        mapping_data_dir = Path(os.path.abspath(args.mapping_data_dir))
+    mapping_data_dir = Path(os.path.abspath(args.mapping_data_dir))
 
     ref_frame        = ref_frame_cfg
     gpu_ids          = args.gpu_ids or detect_gpu_ids()
@@ -480,6 +477,15 @@ def main():
         _step("sfm", _sfm)
 
     # ── Step 2b: Auto-detect Stage-1 end (if not manually specified) ─────────
+    # Even when skipping detection, try to load an existing result.json so that
+    # downstream steps (SRT, render_video) have stage1_end_frame available.
+    if stage1_end_frame is None:
+        _existing = Path(job_dir) / "stage1_detect_debug" / "result.json"
+        if _existing.exists():
+            with open(_existing) as _f:
+                stage1_end_frame = json.load(_f).get("stage1_end_frame")
+            print(f"[pipeline] stage1_end_frame={stage1_end_frame} (loaded from existing result.json)")
+
     if stage1_end_frame is None and not args.skip_stage1_detect:
         print("[pipeline] auto-detecting Stage-1 end from CuSFM trajectory")
         detect_script = Path(__file__).parent.parent / "lib" / "detect_stage1_end.py"
@@ -508,7 +514,7 @@ def main():
         _timings["stage1_detect"] = time.time() - t0
         print(f"[pipeline] stage1_detect done in {_timings['stage1_detect']:.1f}s → seq_idx {stage1_end_frame}")
 
-    if stage1_end_frame is None:
+    if stage1_end_frame is None and args.mode == "bundlesdf":
         raise ValueError(
             "Stage-1 end frame could not be determined. "
             "Provide --stage1_end_frame, --stage1_end_timestamp, "
@@ -566,7 +572,10 @@ def main():
             dino_bbox_str = ",".join(str(int(b)) for b in [box['x0'], box['y0'], box['x1'], box['y1']])
 
     # ── Steps 4a + 4b: Depth + Mask (parallel) ───────────────────────────────
-    if not args.skip_depth or not args.skip_mask:
+    # In SAM3D mode depth is optional (only if --sam3d_use_depth); mask is always needed
+    _run_depth = not args.skip_depth and (args.mode == "bundlesdf" or args.sam3d_use_depth)
+    _run_mask  = not args.skip_mask
+    if _run_depth or _run_mask:
         n_frames = count_images(os.path.join(job_dir, "left"))
 
         def run_depth():
@@ -594,9 +603,9 @@ def main():
         t0 = time.time()
         tasks = {}
         with ThreadPoolExecutor(max_workers=2) as pool:
-            if not args.skip_depth:
+            if _run_depth:
                 tasks['depth'] = pool.submit(run_depth)
-            if not args.skip_mask:
+            if _run_mask:
                 tasks['mask']  = pool.submit(run_mask)
             for name, fut in tasks.items():
                 fut.result()
@@ -606,7 +615,7 @@ def main():
         print(f"[pipeline] depth+mask done in {elapsed:.1f}s")
 
     # ── Step 5: Stage-1 recon setup ───────────────────────────────────────────
-    if not args.skip_stage1_setup:
+    if args.mode == "bundlesdf" and not args.skip_stage1_setup:
         print("[pipeline] setting up Stage-1 reconstruction directory")
         _step("stage1_setup", lambda: run_in_container(
             image=IMAGE_HOI,
@@ -629,7 +638,7 @@ def main():
     if nerf_config_path:
         _nerf_inputs["config"] = nerf_config_path
 
-    if not args.skip_stage1_nerf:
+    if args.mode == "bundlesdf" and not args.skip_stage1_nerf:
         print("[pipeline] running Stage-1 NeRF reconstruction")
         bbox_str = dino_bbox_str
         _step("stage1_nerf", lambda: run_in_container(
@@ -645,7 +654,7 @@ def main():
         ))
 
     # ── Step 7: Center mesh ───────────────────────────────────────────────────
-    if not args.skip_center_mesh:
+    if args.mode == "bundlesdf" and not args.skip_center_mesh:
         print("[pipeline] centering mesh")
         _step("center_mesh", lambda: run_in_container(
             image=IMAGE_HOI,
@@ -655,7 +664,7 @@ def main():
         ))
 
     # ── Step 8: FoundationPose tracking ───────────────────────────────────────
-    if not args.skip_fp_tracking:
+    if args.mode == "bundlesdf" and not args.skip_fp_tracking:
         if not os.path.exists(mask_path):
             print(f"[error] mask not found: {mask_path}", file=sys.stderr)
             sys.exit(1)
@@ -681,7 +690,7 @@ def main():
         ))
 
     # ── Step 8b: FoundationPose render overlay ────────────────────────────────
-    if not args.skip_fp_render:
+    if args.mode == "bundlesdf" and not args.skip_fp_render:
         _convert_poses_to_matrix(poses_dir)
         print("[pipeline] rendering FoundationPose overlay video")
         _step("fp_render", lambda: _run_gpu(
@@ -703,7 +712,7 @@ def main():
             os.path.join(job_dir, "fp_render", "render.mp4")))
 
     # ── Step 9: World poses + stage detection ─────────────────────────────────
-    if not args.skip_world_poses:
+    if args.mode == "bundlesdf" and not args.skip_world_poses:
         print("[pipeline] computing world poses and detecting stages")
         _step("world_poses", lambda: run_in_container(
             image=IMAGE_HOI,
@@ -722,7 +731,7 @@ def main():
         ))
 
     # ── Step 10: Merged recon setup ───────────────────────────────────────────
-    if not args.skip_merged_setup:
+    if args.mode == "bundlesdf" and not args.skip_merged_setup:
         print("[pipeline] setting up merged reconstruction directory")
         _step("merged_setup", lambda: run_in_container(
             image=IMAGE_HOI,
@@ -741,7 +750,7 @@ def main():
         ))
 
     # ── Step 11: Full NeRF reconstruction ─────────────────────────────────────
-    if not args.skip_full_nerf:
+    if args.mode == "bundlesdf" and not args.skip_full_nerf:
         print("[pipeline] running full NeRF reconstruction (both stages)")
         bbox_str = dino_bbox_str
         _step("full_nerf", lambda: run_in_container(
@@ -757,7 +766,7 @@ def main():
         ))
 
     # ── Step 12: FP tracking with final textured mesh ────────────────────────
-    if not args.skip_final_fp_tracking:
+    if args.mode == "bundlesdf" and not args.skip_final_fp_tracking:
         print("[pipeline] running FoundationPose tracking with final textured mesh")
         _step("final_fp_tracking", lambda: _run_fp_tracking(
             video_path=os.path.join(job_dir, "video.mp4"),
@@ -771,7 +780,7 @@ def main():
         ))
 
     # ── Step 13: FP render overlay with final textured mesh ───────────────────
-    if not args.skip_final_fp_render:
+    if args.mode == "bundlesdf" and not args.skip_final_fp_render:
         _convert_poses_to_matrix(poses_final_dir)
         print("[pipeline] rendering FoundationPose overlay video with final textured mesh")
         _step("final_fp_render", lambda: _run_gpu(
@@ -791,6 +800,145 @@ def main():
         _step("final_fp_render_stitch", lambda: stitch_mp4(
             os.path.join(job_dir, "fp_render_final"),
             os.path.join(job_dir, "fp_render_final", "render.mp4")))
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SAM3D pipeline (steps S1–S4)
+    # ══════════════════════════════════════════════════════════════════════════
+    if args.mode == "sam3d":
+        sam3d_dir = Path(job_dir) / "sam3d"
+        sam3d_dir.mkdir(parents=True, exist_ok=True)
+
+        # ── Step S1: Select representative frames ─────────────────────────────
+        selected_frames: list[str] = []
+        if not args.skip_select_frames:
+            print(f"[pipeline] selecting SAM3D frames (bin_deg={args.sam3d_bin_deg}°)")
+            t0 = time.time()
+            selected_frames = select_frames_by_angle_bins(
+                Path(job_dir), bin_deg=args.sam3d_bin_deg
+            )
+            if not selected_frames:
+                print("  [pipeline] SfM fallback: using top-N mask-area frames")
+                selected_frames = select_frames_fallback(Path(job_dir), n=6)
+            _timings["select_frames"] = time.time() - t0
+            print(f"[pipeline] select_frames done in {_timings['select_frames']:.1f}s "
+                  f"→ {len(selected_frames)} frames: {selected_frames}")
+            # Persist selection so later steps can resume
+            (sam3d_dir / "selected_frames.json").write_text(
+                json.dumps(selected_frames, indent=2)
+            )
+        else:
+            sel_path = sam3d_dir / "selected_frames.json"
+            if sel_path.exists():
+                selected_frames = json.loads(sel_path.read_text())
+                print(f"[pipeline] skip_select_frames: loaded {len(selected_frames)} frames from {sel_path}")
+            else:
+                print("[warning] skip_select_frames but selected_frames.json not found; "
+                      "SAM3D and SRT steps will have no frames to process", file=sys.stderr)
+
+        # ── Step S2: SAM3D mesh reconstruction per frame ──────────────────────
+        if not args.skip_sam3d:
+            for frame_id in selected_frames:
+                frame_out = sam3d_dir / frame_id
+                frame_out.mkdir(parents=True, exist_ok=True)
+                image_path  = os.path.join(job_dir, "left",    f"{frame_id}.jpg")
+                mask_path_f = os.path.join(job_dir, "masks", "0", f"{frame_id}.png")
+                print(f"[pipeline] SAM3D frame {frame_id}")
+                t0 = time.time()
+                _run_sam3d(
+                    image_path=image_path,
+                    mask_path=mask_path_f,
+                    mesh_path=str(frame_out / "mesh.glb"),
+                    transform_path=str(frame_out / "transform.json"),
+                    intrinsics_path=str(frame_out / "intrinsics.json"),
+                    weights_dir=str(_SAM3D_WEIGHTS_DIR),
+                    seed=args.sam3d_seed,
+                )
+                elapsed = time.time() - t0
+                _timings[f"sam3d_{frame_id}"] = elapsed
+                print(f"[pipeline] SAM3D {frame_id} done in {elapsed:.1f}s")
+
+        # ── Step S3: SRT scale estimation ─────────────────────────────────────
+        if not args.skip_srt_scale:
+            for frame_id in selected_frames:
+                glb_path = sam3d_dir / frame_id / "mesh.glb"
+                if not glb_path.exists():
+                    print(f"[warning] SAM3D output not found for frame {frame_id}: {glb_path}",
+                          file=sys.stderr)
+                    continue
+                srt_out = sam3d_dir / frame_id / "srt"
+                print(f"[pipeline] SRT scale estimation for frame {frame_id}")
+                t0 = time.time()
+                srt_result = estimate_srt_for_frame(
+                    job_dir=Path(job_dir),
+                    glb_path=glb_path,
+                    output_dir=srt_out,
+                    use_depth=args.sam3d_use_depth,
+                    stage1_end_frame=stage1_end_frame,
+                )
+                elapsed = time.time() - t0
+                _timings[f"srt_{frame_id}"] = elapsed
+                scale = srt_result.get("scale", float("nan"))
+                print(f"[pipeline] SRT {frame_id} done in {elapsed:.1f}s  scale={scale:.4f}")
+
+        # ── Step S4: Render debug images ──────────────────────────────────────
+        # Uses the original SAM3D transform/intrinsics so the mesh renders back
+        # onto the source image from the SAM3D viewpoint.
+        if not args.skip_render_debug:
+            for frame_id in selected_frames:
+                frame_out = sam3d_dir / frame_id
+                glb_path        = frame_out / "mesh.glb"
+                transform_path  = frame_out / "transform.json"
+                intrinsics_path = frame_out / "intrinsics.json"
+                if not glb_path.exists() or not transform_path.exists():
+                    continue
+                image_path = os.path.join(job_dir, "left", f"{frame_id}.jpg")
+                print(f"[pipeline] SAM3D render debug frame {frame_id}")
+                t0 = time.time()
+                _run_sam3d_render(
+                    image_path=image_path,
+                    mesh_path=str(glb_path),
+                    transform_path=str(transform_path),
+                    intrinsics_path=str(intrinsics_path),
+                    output_image_path=str(frame_out / "render_debug.jpg"),
+                )
+                elapsed = time.time() - t0
+                _timings[f"render_debug_{frame_id}"] = elapsed
+                print(f"[pipeline] render_debug {frame_id} done in {elapsed:.1f}s")
+
+        # ── Step S5: Stage-1 textured overlay video (pyrender inside v2d_sam3d) ──────
+        if not args.skip_render_video:
+            if stage1_end_frame is None:
+                print("[pipeline] skip_render_video: stage1_end_frame unknown, cannot render Stage-1 video",
+                      file=sys.stderr)
+            else:
+                c_job = "/data/job"
+                for frame_id in selected_frames:
+                    srt_out = sam3d_dir / frame_id / "srt"
+                    if not (srt_out / "output_scaled.glb").exists():
+                        print(f"[pipeline] render_video {frame_id}: srt output not found, skipping")
+                        continue
+                    frames_dir = sam3d_dir / frame_id / "render_video_frames"
+                    video_path = sam3d_dir / frame_id / "render_video.mp4"
+                    c_glb     = f"{c_job}/sam3d/{frame_id}/srt/output_scaled.glb"
+                    c_out     = f"{c_job}/sam3d/{frame_id}/render_video_frames"
+                    print(f"[pipeline] render_video {frame_id} (stage1_end_frame={stage1_end_frame})")
+                    # Mount local modules/ as /workspace so new lib files are
+                    # picked up without rebuilding the container (editable install).
+                    _modules_dir = str(Path(__file__).parents[2])
+                    _step(f"render_video_{frame_id}", lambda _fid=frame_id, _cg=c_glb, _co=c_out, _md=_modules_dir: _run_gpu(
+                        IMAGE_SAM3D,
+                        [
+                            "python", "-m", "v2d.sam3d.lib.render_textured_video",
+                            "--job_dir",          c_job,
+                            "--glb_path",         _cg,
+                            "--output_dir",       _co,
+                            "--stage1_end_frame", str(stage1_end_frame),
+                        ],
+                        mounts=[(job_dir, "/data/job"), (_md, "/workspace")],
+                        user=f"{os.getuid()}:{os.getgid()}",
+                    ))
+                    _step(f"render_video_stitch_{frame_id}", lambda _fd=frames_dir, _vp=video_path:
+                          stitch_mp4(str(_fd), str(_vp)))
 
     total = time.time() - _t_total
     print("\n[pipeline] ── Timing summary ──────────────────────────")
