@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "v2d-viz"
+version = "0.1.0"
+description = "Interactive visualization tools for v2d outputs"
+requires-python = ">=3.10"
+dependencies = [
+    "flask",
+    "numpy",
+    "Pillow",
+]
+
+[tool.setuptools]
+packages = ["v2d.viz"]
+
+[tool.setuptools.package-dir]
+"v2d.viz" = "."
+
+[tool.setuptools.package-data]
+"v2d.viz" = ["static/*"]

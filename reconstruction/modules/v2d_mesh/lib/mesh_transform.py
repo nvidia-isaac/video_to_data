@@ -12,4 +12,6 @@ def mesh_transform(mesh: Mesh, transform: Transform3d) -> Mesh:
         vertices=new_verts,
         faces=mesh.faces.copy(),
         vertex_colors=mesh.vertex_colors.copy() if mesh.vertex_colors is not None else None,
+        uv=mesh.uv.copy() if mesh.uv is not None else None,
+        texture=mesh.texture.copy() if mesh.texture is not None else None,
     )

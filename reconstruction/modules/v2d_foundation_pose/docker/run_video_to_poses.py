@@ -14,6 +14,15 @@ def run_video_to_poses(
     reference_frame: int = 0,
     target_width: int = None,
     target_height: int = None,
+    reregister_iou_thresh: float = None,
+    register_iteration: int = 10,
+    track_iteration: int = 5,
+    n_particles: int = 1,
+    particle_process_noise_t: float = 0.005,
+    particle_process_noise_r: float = 0.02,
+    particle_iteration: int = 3,
+    particle_mask_iou_weight: float = 1.0,
+    mask_depth: bool = False,
     dev: bool = False,
 ) -> None:
     weights_abs = os.path.abspath(weights_dir)
@@ -23,7 +32,20 @@ def run_video_to_poses(
         module="v2d.foundation_pose.lib.run_video_to_poses",
         inputs={"video_path": video_path, "depth_folder": depth_folder, "masks_folder": masks_folder, "camera_intrinsics_path": camera_intrinsics_path, "mesh_path": mesh_path, "weights_dir": weights_dir},
         outputs={"poses_dir": poses_dir},
-        extra_args={"reference_frame": reference_frame, "target_width": target_width, "target_height": target_height},
+        extra_args={
+            "reference_frame":          reference_frame,
+            "target_width":             target_width,
+            "target_height":            target_height,
+            "reregister_iou_thresh":    reregister_iou_thresh,
+            "register_iteration":       register_iteration,
+            "track_iteration":          track_iteration,
+            "n_particles":               n_particles,
+            "particle_process_noise_t":  particle_process_noise_t,
+            "particle_process_noise_r":  particle_process_noise_r,
+            "particle_iteration":        particle_iteration,
+            "particle_mask_iou_weight":  particle_mask_iou_weight,
+            "mask_depth":                mask_depth,
+        },
         dev=dev,
         modules_dir=MODULES_DIR,
         gpus=True,
@@ -45,6 +67,15 @@ if __name__ == "__main__":
     parser.add_argument("--reference_frame", type=int, default=0)
     parser.add_argument("--target_width", type=int, default=None)
     parser.add_argument("--target_height", type=int, default=None)
+    parser.add_argument("--reregister_iou_thresh", type=float, default=None)
+    parser.add_argument("--register_iteration", type=int, default=10)
+    parser.add_argument("--track_iteration", type=int, default=5)
+    parser.add_argument("--n_particles", type=int, default=1)
+    parser.add_argument("--particle_process_noise_t", type=float, default=0.005)
+    parser.add_argument("--particle_process_noise_r", type=float, default=0.02)
+    parser.add_argument("--particle_iteration", type=int, default=3)
+    parser.add_argument("--particle_mask_iou_weight", type=float, default=1.0)
+    parser.add_argument("--mask_depth", action="store_true")
     parser.add_argument("--dev", action="store_true")
     args = parser.parse_args()
     run_video_to_poses(
@@ -52,5 +83,14 @@ if __name__ == "__main__":
         args.camera_intrinsics_path, args.mesh_path, args.poses_dir,
         args.weights_dir, reference_frame=args.reference_frame,
         target_width=args.target_width, target_height=args.target_height,
+        reregister_iou_thresh=args.reregister_iou_thresh,
+        register_iteration=args.register_iteration,
+        track_iteration=args.track_iteration,
+        n_particles=args.n_particles,
+        particle_process_noise_t=args.particle_process_noise_t,
+        particle_process_noise_r=args.particle_process_noise_r,
+        particle_iteration=args.particle_iteration,
+        particle_mask_iou_weight=args.particle_mask_iou_weight,
+        mask_depth=args.mask_depth,
         dev=args.dev,
     )
