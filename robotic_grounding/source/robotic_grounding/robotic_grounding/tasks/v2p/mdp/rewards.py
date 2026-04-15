@@ -1011,7 +1011,7 @@ def contact_wrench_support_reward(
     env: ManagerBasedRLEnv,
     command_name: str = "dual_hands_object_tracking_command",
     tolerance: float = 0.1,
-    var: float = 60.0,
+    var: float = 0.1,
 ) -> torch.Tensor:
     """Contact wrench support reward.
 
@@ -1027,20 +1027,34 @@ def contact_wrench_support_reward(
     command = env.command_manager.get_term(command_name)
 
     right_command_has_contact = (
-        command.right_hand_contact_wrench_supports_command.amax(dim=-1) > 1e-3
-    )  # (num_envs, num_bodies)
+        command.right_hand_contact_wrench_supports_command > 1e-3
+    )  # (num_envs, num_bodies, num_wrench_space_basis_samples)
     right_has_contact = (
-        command.right_hand_contact_wrench_supports.amax(dim=-1) > 1e-3
+        command.right_hand_contact_wrench_supports > 1e-3
+    )  # (num_envs, num_bodies, num_wrench_space_basis_samples)
+    right_command_num_contact = right_command_has_contact.sum(dim=-1).clamp(
+        min=1e-6
     )  # (num_envs, num_bodies)
-    right_command_num_contact = right_command_has_contact.sum(dim=-1)  # (num_envs,)
+    right_command_num_contact_body = (
+        (command.right_hand_contact_wrench_supports_command.amax(dim=-1) > 1e-3)
+        .sum(dim=-1)
+        .clamp(min=1e-6)
+    )  # (num_envs,)
 
     left_command_has_contact = (
-        command.left_hand_contact_wrench_supports_command.amax(dim=-1) > 1e-3
-    )  # (num_envs, num_bodies)
+        command.left_hand_contact_wrench_supports_command > 1e-3
+    )  # (num_envs, num_bodies, num_wrench_space_basis_samples)
     left_has_contact = (
-        command.left_hand_contact_wrench_supports.amax(dim=-1) > 1e-3
+        command.left_hand_contact_wrench_supports > 1e-3
+    )  # (num_envs, num_bodies, num_wrench_space_basis_samples)
+    left_command_num_contact = left_command_has_contact.sum(dim=-1).clamp(
+        min=1e-6
     )  # (num_envs, num_bodies)
-    left_command_num_contact = left_command_has_contact.sum(dim=-1)  # (num_envs,)
+    left_command_num_contact_body = (
+        (command.left_hand_contact_wrench_supports_command.amax(dim=-1) > 1e-3)
+        .sum(dim=-1)
+        .clamp(min=1e-6)
+    )  # (num_envs,)
 
     # Current supports needs to be better than command supports by at least tolerance
     right_better_than_command = (
@@ -1063,23 +1077,26 @@ def contact_wrench_support_reward(
     ).clamp(min=0.0)
 
     # Rewards when command has contact (inclusion contact reward)
-    right_contact_loss = right_better_than_command.square().sum(
-        dim=-1
-    ) + right_not_arbitrarily_large.square().sum(dim=-1)
+    right_contact_loss = (
+        right_better_than_command.square() + right_not_arbitrarily_large.square()
+    )
     right_contact_reward = (
         (right_command_has_contact & right_has_contact)
         * torch.exp(-right_contact_loss / var)
-    ).sum(dim=-1) / right_command_num_contact.clamp(min=1e-3)
+    ).sum(dim=-1) / right_command_num_contact
 
-    left_contact_loss = left_better_than_command.square().sum(
-        dim=-1
-    ) + left_not_arbitrarily_large.square().sum(dim=-1)
+    left_contact_loss = (
+        left_better_than_command.square() + left_not_arbitrarily_large.square()
+    )
     left_contact_reward = (
         (left_command_has_contact & left_has_contact)
         * torch.exp(-left_contact_loss / var)
-    ).sum(dim=-1) / left_command_num_contact.clamp(min=1e-3)
+    ).sum(dim=-1) / left_command_num_contact
 
-    return (right_contact_reward + left_contact_reward) / 2.0
+    return (
+        right_contact_reward.sum(dim=-1) / right_command_num_contact_body
+        + left_contact_reward.sum(dim=-1) / left_command_num_contact_body
+    ) / 2.0
 
 
 def unintended_contact_penalty(

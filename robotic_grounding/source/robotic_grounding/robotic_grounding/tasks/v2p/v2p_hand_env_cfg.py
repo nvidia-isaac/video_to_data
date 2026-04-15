@@ -311,7 +311,7 @@ class RewardsCfg:
         params={
             "command_name": "dual_hands_object_tracking_command",
             "tolerance": 0.1,
-            "var": 30.0,
+            "var": 0.1,
         },
     )
 
