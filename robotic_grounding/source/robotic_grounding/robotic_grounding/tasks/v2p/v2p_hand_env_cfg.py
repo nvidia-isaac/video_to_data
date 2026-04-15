@@ -462,6 +462,10 @@ class CurriculumCfg:
                 "contact_bodies_coverage_frac_right": 0.0,
                 "contact_bodies_coverage_frac_left": 0.0,
             },
+            # 0.0 = disabled; set > 0 to require current deque mean >= baseline * ratio
+            "reward_baseline_retention": {
+                "contact_wrench_support_reward": 0.0,
+            },
         },
     )
 
