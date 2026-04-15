@@ -32,6 +32,10 @@ from robotic_grounding.retarget.data_logger import (
     filter_sequence_ids,
     list_sequence_ids,
 )
+from robotic_grounding.retarget.dataset_registry import (
+    get_all_dataset_names,
+    get_dataset_config,
+)
 from scipy.spatial.transform import Rotation
 
 try:
@@ -44,10 +48,9 @@ except ModuleNotFoundError:
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-DEFAULT_INPUT_DIR_TACO = HUMAN_MOTION_DATA_DIR / "taco" / "taco_loaded"
-DEFAULT_INPUT_DIR_ARCTIC = HUMAN_MOTION_DATA_DIR / "arctic" / "arctic_loaded"
-DEFAULT_INPUT_DIR_OAKINK2 = HUMAN_MOTION_DATA_DIR / "oakink2" / "oakink2_loaded"
-DEFAULT_INPUT_DIR_HOT3D = HUMAN_MOTION_DATA_DIR / "hot3d" / "hot3d_loaded"
+# nvhuman_g1 is a *processed* whole-body schema, not a registered source
+# dataset — it doesn't fit the DatasetConfig shape (no raw loader, no
+# _loaded suffix), so it's kept as a separate default outside the registry.
 DEFAULT_INPUT_DIR_G1 = HUMAN_MOTION_DATA_DIR / "nvhuman_g1_processed"
 
 DISK_HEIGHT = 0.01  # thin disk thickness in meters
@@ -425,7 +428,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--dataset",
-        choices=("taco", "arctic", "oakink2", "hot3d", "nvhuman_g1"),
+        choices=get_all_dataset_names() + ("nvhuman_g1",),
         default="oakink2",
         help="Dataset for default input_dir when --input_dir not set.",
     )
@@ -531,10 +534,10 @@ def _process_sequence(
             verts_world = _transform_vertices_to_world(mesh.vertices, pos, quat)
             disk = compute_support_disk(verts_world)
             body_disks.append(disk)
-            print(
-                f"    segment frames {seg[0]}-{seg[-1]}: "
-                f"disk center=({disk[0]:.4f}, {disk[1]:.4f}), z={disk[2]:.4f}, r={disk[3]:.4f}"
-            )
+            # print(
+            #     f"    segment frames {seg[0]}-{seg[-1]}: "
+            #     f"disk center=({disk[0]:.4f}, {disk[1]:.4f}), z={disk[2]:.4f}, r={disk[3]:.4f}"
+            # )
 
         if body_disks:
             merged = merge_overlapping_disks(body_disks)
@@ -575,16 +578,13 @@ def main() -> None:
     args = _parse_args()
     if args.input_dir:
         input_dir = args.input_dir
-    elif args.dataset == "taco":
-        input_dir = DEFAULT_INPUT_DIR_TACO
-    elif args.dataset == "arctic":
-        input_dir = DEFAULT_INPUT_DIR_ARCTIC
-    elif args.dataset == "hot3d":
-        input_dir = DEFAULT_INPUT_DIR_HOT3D
     elif args.dataset == "nvhuman_g1":
         input_dir = DEFAULT_INPUT_DIR_G1
     else:
-        input_dir = DEFAULT_INPUT_DIR_OAKINK2
+        config = get_dataset_config(args.dataset)
+        input_dir = (
+            HUMAN_MOTION_DATA_DIR / config.name / f"{config.name}{config.loaded_suffix}"
+        )
     if not input_dir.is_dir():
         print(
             f"Input dir not found: {input_dir}. Run the loader first (e.g. taco_loader.py --save)."

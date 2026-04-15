@@ -35,6 +35,7 @@ import argparse
 import os
 import re
 import sys
+from pathlib import Path
 
 import boto3
 from botocore.config import Config
@@ -48,32 +49,21 @@ SECRET_KEY = os.environ.get("CSS_SECRET_KEY", "")
 REGION = os.environ.get("CSS_REGION", "us-east-1")
 
 BUCKET = "datasets"
-BASE_PREFIX = "v2d/human_motion_data"
 
-DATASETS = ("taco", "arctic", "oakink2", "hot3d")
+# Dataset registry — single source of truth for dataset names and CSS paths.
+# Add new datasets in robotic_grounding.retarget.dataset_registry, not here.
+sys.path.insert(
+    0,
+    str(Path(__file__).resolve().parent.parent / "source" / "robotic_grounding"),
+)
+from robotic_grounding.retarget.dataset_registry import (  # noqa: E402
+    get_all_dataset_names,
+    get_css_stage_prefixes,
+)
 
-# Maps dataset + stage to the S3 prefix where sequence directories live.
+DATASETS = get_all_dataset_names()
 STAGE_PREFIXES: dict[str, dict[str, str]] = {
-    "taco": {
-        "raw": f"{BASE_PREFIX}/taco/dataset/Hand_Poses/",
-        "loaded": f"{BASE_PREFIX}/taco/taco_loaded/",
-        "processed": f"{BASE_PREFIX}/taco/taco_processed/",
-    },
-    "arctic": {
-        "raw": f"{BASE_PREFIX}/arctic/dataset/",
-        "loaded": f"{BASE_PREFIX}/arctic/arctic_loaded/",
-        "processed": f"{BASE_PREFIX}/arctic/arctic_processed/",
-    },
-    "oakink2": {
-        "raw": f"{BASE_PREFIX}/oakink2/dataset/",
-        "loaded": f"{BASE_PREFIX}/oakink2/oakink2_loaded/",
-        "processed": f"{BASE_PREFIX}/oakink2/oakink2_processed/",
-    },
-    "hot3d": {
-        "raw": f"{BASE_PREFIX}/hot3d/dataset/",
-        "loaded": f"{BASE_PREFIX}/hot3d/hot3d_loaded/",
-        "processed": f"{BASE_PREFIX}/hot3d/hot3d_processed/",
-    },
+    name: get_css_stage_prefixes(name) for name in DATASETS
 }
 
 

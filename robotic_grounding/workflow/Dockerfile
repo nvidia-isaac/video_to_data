@@ -68,6 +68,7 @@ RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
     onnxruntime-gpu \
     imageio \
     imageio-ffmpeg \
+    pyrender \
     pytorch-ignite \
     pytest \
     boto3

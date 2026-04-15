@@ -442,43 +442,46 @@ class DualHandsObjectTrackingCommand(CommandTerm):
     def _init_contact_data(self) -> None:
         """Load per-link contact data from retargeted motion for both hand sides.
 
-        For each side, stores tensors with shape (horizon, num_contact_links, 4)
-        where the last dimension is xyz/normal + part_id:
+        For each side, stores tensors with shape (horizon, num_contact_links, 3):
           - ``retargeted_{side}_link_contact_positions_e``
           - ``retargeted_{side}_link_contact_normals_e`` pointing outward from the hand (inward to object).
           - ``retargeted_{side}_object_contact_positions_e``
           - ``retargeted_{side}_object_contact_normals_e``
           - ``retargeted_{side}_object_contact_part_ids`` — (horizon, num_links),
-            extracted from the 4th column of link positions (0 = no contact,
+            read from ``mano_{side}_object_contact_part_ids`` (0 = no contact,
             1-indexed body IDs).
         """
         data = self._retargeted_motion_data
+
         for side in ["left", "right"]:
             link_contact_positions = torch.tensor(
                 getattr(data, f"mano_{side}_link_contact_positions"),
                 dtype=torch.float32,
                 device=self.device,
-            )  # (horizon, num_contact_links, 4)
+            )  # (horizon, num_contact_links, 3)
             link_contact_normals = torch.tensor(
                 getattr(data, f"mano_{side}_link_contact_normals"),
                 dtype=torch.float32,
                 device=self.device,
-            )  # (horizon, num_contact_links, 4)
-            # Normalize link contact normals
-            link_contact_normals[..., :3] = link_contact_normals[
-                ..., :3
-            ] / link_contact_normals[..., :3].norm(dim=-1).unsqueeze(2).clamp(min=1e-6)
+            )  # (horizon, num_contact_links, 3)
+            link_contact_normals = link_contact_normals / link_contact_normals.norm(
+                dim=-1, keepdim=True
+            ).clamp(min=1e-6)
             object_contact_positions = torch.tensor(
                 getattr(data, f"mano_{side}_object_contact_positions"),
                 dtype=torch.float32,
                 device=self.device,
-            )  # (horizon, num_contact_links, 4)
+            )  # (horizon, num_contact_links, 3)
             object_contact_normals = torch.tensor(
                 getattr(data, f"mano_{side}_object_contact_normals"),
                 dtype=torch.float32,
                 device=self.device,
-            )  # (horizon, num_contact_links, 4)
-            contact_part_ids = link_contact_positions[..., 3].long()
+            )  # (horizon, num_contact_links, 3)
+            contact_part_ids = torch.tensor(
+                getattr(data, f"mano_{side}_object_contact_part_ids"),
+                dtype=torch.long,
+                device=self.device,
+            )  # (horizon, num_contact_links)
 
             setattr(
                 self,

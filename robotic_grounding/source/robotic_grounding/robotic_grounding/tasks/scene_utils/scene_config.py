@@ -13,6 +13,7 @@ from robotic_grounding.assets import ASSET_DIR
 from robotic_grounding.assets.object_registry import get_object_spec
 
 HUMAN_MOTION_DATA_DIR = os.path.join(ASSET_DIR, "human_motion_data")
+URDF_DIR = os.path.join(ASSET_DIR, "urdfs")
 
 
 @dataclass
@@ -75,6 +76,9 @@ class SceneConfig:
         motion_file = cls._resolve_motion_file(motion_file)
         data = pq.read_table(motion_file).to_pydict()
         partition = cls._parse_partition_path(motion_file)
+
+        # Fail fast: check required assets exist before Isaac Sim loads objects
+        cls._validate_assets(data, motion_file)
 
         object_type = cls._detect_object_type(data)
         scene_objects = cls._build_scene_objects(data, object_type)
@@ -189,6 +193,7 @@ class SceneConfig:
             or []
         )
         urdf_paths = data.get("object_urdf_paths", [[]])[0] or []
+        mesh_paths = data.get("object_mesh_paths", [[]])[0] or []
         obj_name = (
             data.get("safe_object_name", [None])[0]
             or data.get("object_name", [None])[0]
@@ -206,8 +211,16 @@ class SceneConfig:
                     objects.append(obj)
                     continue
 
-            # Resolve from generated URDFs
+            # Resolve from parquet urdf_paths
             urdf_path = urdf_paths[i] if i < len(urdf_paths) else None
+
+            # Fallback: derive URDF path from mesh path by convention
+            # e.g. meshes/hot3d/12345.glb -> urdfs/hot3d/12345_rigid.urdf
+            if not urdf_path or not Path(urdf_path).exists():
+                urdf_path = cls._urdf_from_mesh_path(
+                    mesh_paths[i] if i < len(mesh_paths) else None
+                )
+
             assert urdf_path and Path(urdf_path).exists(), (
                 f"Could not resolve rigid object for object_name='{obj_name}', "
                 f"body='{body_name}'. Generate URDFs with scripts/generate_rigid_urdfs.py"
@@ -221,6 +234,52 @@ class SceneConfig:
             raise ValueError("No scene objects could be built from parquet data")
 
         return objects
+
+    @staticmethod
+    def _urdf_from_mesh_path(mesh_path: str | None) -> str | None:
+        """Derive a rigid URDF path from an object mesh path by convention.
+
+        Example: .../meshes/hot3d/12345.glb -> .../urdfs/hot3d/12345_rigid.urdf
+        """
+        if not mesh_path:
+            return None
+        mesh = Path(mesh_path)
+        # Convention: urdfs/<dataset>/<stem>_rigid.urdf
+        # Mesh is at meshes/<dataset>/<file>, URDF is at urdfs/<dataset>/<stem>_rigid.urdf
+        dataset = mesh.parent.name
+        urdf_path = Path(URDF_DIR) / dataset / f"{mesh.stem}_rigid.urdf"
+        return str(urdf_path) if urdf_path.exists() else None
+
+    @staticmethod
+    def _validate_assets(data: dict, motion_file: str) -> None:
+        """Check that required asset files exist before building the scene.
+
+        Raises FileNotFoundError with an actionable message if any URDF or
+        mesh file explicitly referenced by the parquet is missing. This
+        catches errors early — before Isaac Sim spends time loading —
+        rather than crashing mid-startup.
+
+        Note: this only validates paths stored in the parquet. Objects
+        resolved via the object registry or the mesh-derived URDF fallback
+        are validated later in ``_build_scene_objects``.
+        """
+        urdf_paths = data.get("object_urdf_paths", [[]])[0] or []
+        mesh_paths = data.get("object_mesh_paths", [[]])[0] or []
+        missing: list[str] = []
+
+        for p in urdf_paths:
+            if p and not Path(p).exists():
+                missing.append(f"URDF: {p}")
+        for p in mesh_paths:
+            if p and not Path(p).exists():
+                missing.append(f"Mesh: {p}")
+
+        if missing:
+            raise FileNotFoundError(
+                f"Missing assets for motion file {motion_file}:\n"
+                + "\n".join(f"  - {m}" for m in missing)
+                + "\n\nFix: python scripts/generate_rigid_urdfs.py --dataset <name>"
+            )
 
     @staticmethod
     def _build_articulated_object(data: dict) -> ArticulatedObjectConfig:

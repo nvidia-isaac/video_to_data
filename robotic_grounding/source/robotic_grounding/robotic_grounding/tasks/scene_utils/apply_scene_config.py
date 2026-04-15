@@ -141,7 +141,11 @@ def apply_scene_objects(env_cfg: Any, scene_config: SceneConfig) -> None:
             cfg = _spawn_rigid(obj, prim_path)
 
         setattr(env_cfg.scene, attr_name, cfg)
-        env_cfg.events.setup_collision_groups.params["object_names"].append(attr_name)
+        # Collision groups are an RL-env concept; viewer-style envs skip this.
+        if hasattr(env_cfg.events, "setup_collision_groups"):
+            env_cfg.events.setup_collision_groups.params["object_names"].append(
+                attr_name
+            )
 
     # Fixed objects (support surfaces, etc.)
     for fixed_obj in scene_config.fixed_objects:
@@ -186,9 +190,10 @@ def apply_scene_objects(env_cfg: Any, scene_config: SceneConfig) -> None:
                 ),
             )
             setattr(env_cfg.scene, attr_name, fixed_cfg)
-            env_cfg.events.setup_collision_groups.params["fixed_object_names"].append(
-                attr_name
-            )
+            if hasattr(env_cfg.events, "setup_collision_groups"):
+                env_cfg.events.setup_collision_groups.params[
+                    "fixed_object_names"
+                ].append(attr_name)
 
 
 def apply_scene_virtual_object_controls(

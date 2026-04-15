@@ -31,7 +31,7 @@ from robotic_grounding.retarget.contact_utils import (
     compute_hand_link_contact_positions,
     find_object_contact_positions,
 )
-from robotic_grounding.retarget.data_logger import ManoSharpaData
+from robotic_grounding.retarget.data_logger import ManoSharpaData, shard_matches
 from robotic_grounding.retarget.params import MANO_HAND_LINKS, NUM_MANO_LINKS
 from robotic_grounding.retarget.read_mano import MANO
 from robotic_grounding.retarget.retarget_utils import (
@@ -363,12 +363,24 @@ class DatasetLoaderBase(ABC):
             default=False,
             help="List matching sequence IDs and exit without processing.",
         )
+        group.add_argument(
+            "--shard_id",
+            type=int,
+            default=0,
+            help="Shard index (0-based) for parallel processing.",
+        )
+        group.add_argument(
+            "--num_shards",
+            type=int,
+            default=1,
+            help="Total number of shards.  1 = no sharding (default).",
+        )
 
     @staticmethod
     def _apply_sequence_filters(
         sequences: list["SequenceInfo"], args: Any
     ) -> list["SequenceInfo"]:
-        """Apply common sequence filters to the discovered sequence list."""
+        """Apply common sequence filters (incl. shard partitioning) to the list."""
         if getattr(args, "sequence_id", None):
             sequences = [s for s in sequences if s.sequence_id == args.sequence_id]
         if getattr(args, "sequence_pattern", None):
@@ -380,6 +392,15 @@ class DatasetLoaderBase(ABC):
             sequences = [s for s in sequences if s.sequence_id in ids]
         if getattr(args, "max_sequences", None):
             sequences = sequences[: args.max_sequences]
+
+        num_shards = getattr(args, "num_shards", 1) or 1
+        shard_id = getattr(args, "shard_id", 0) or 0
+        if num_shards > 1:
+            sequences = [
+                s
+                for s in sequences
+                if shard_matches(s.sequence_id, shard_id, num_shards)
+            ]
         return sequences
 
     def run(self, args: Any) -> None:
@@ -430,14 +451,18 @@ class DatasetLoaderBase(ABC):
                 print(f"Skipping {sequence_info.sequence_id}: {e}")
                 continue
 
-            (
-                object_mesh_meshes,
-                _object_mesh_verts,
-                _object_mesh_faces,
-                object_surface_points,
-                object_surface_normals,
-                compute_tips_dist,
-            ) = self.load_object_meshes(sequence_info, device)
+            try:
+                (
+                    object_mesh_meshes,
+                    _object_mesh_verts,
+                    _object_mesh_faces,
+                    object_surface_points,
+                    object_surface_normals,
+                    compute_tips_dist,
+                ) = self.load_object_meshes(sequence_info, device)
+            except (FileNotFoundError, ValueError) as e:
+                print(f"Skipping {sequence_info.sequence_id}: {e}")
+                continue
 
             if args.visualize and viser_server is not None:
                 for handle in viser_object_handles.values():
