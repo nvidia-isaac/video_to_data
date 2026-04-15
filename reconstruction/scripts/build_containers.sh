@@ -20,5 +20,7 @@ echo "Building v2d_bundlesdf..."
 python modules/v2d_bundlesdf/docker/build.py
 echo "Building v2d_hoi_object_reconstruction..."
 python modules/v2d_hoi_object_reconstruction/docker/build.py
+echo "Building v2d_ego_hand_reconstruction..."
+python modules/v2d_ego_hand_reconstruction/docker/build.py
 
 echo "All containers built successfully."
