@@ -1,8 +1,5 @@
 <?xml version="1.0"?>
 <robot name="dual_sharpa_wave">
-  <mujoco>
-    <compiler meshdir="../meshes/sharpa_wave/left_cvx/" balanceinertia="true" discardvisual="false"/>
-  </mujoco>
   <link name="left_hand_C_MC">
     <inertial>
       <origin
@@ -33,11 +30,11 @@
     </visual>
     <collision>
       <origin
-        xyz="0.00034877 -0.0201309 0.04170487"
+        xyz="0.00034877 -0.0201309 0.05770487"
         rpy="0 0 0.01990186"
       />
       <geometry>
-        <cylinder radius="0.0209" length="0.083" />
+        <capsule radius="0.0209" length="0.013" />
       </geometry>
     </collision>
     <collision>
@@ -46,16 +43,16 @@
         rpy="0 0 0.01990186"
       />
       <geometry>
-        <cylinder radius="0.0209" length="0.078" />
+        <capsule radius="0.0209" length="0.035" />
       </geometry>
     </collision>
     <collision>
       <origin
-        xyz="0.00034877 0 0.03920487"
+        xyz="0.00034877 0 0.04120487"
         rpy="0 0 0.01990186"
       />
       <geometry>
-        <cylinder radius="0.0209" length="0.078" />
+        <capsule radius="0.0209" length="0.04" />
       </geometry>
     </collision>
   </link>
@@ -379,7 +376,7 @@
         rpy="0 0 0"
       />
       <geometry>
-        <cylinder radius="0.0107" length="0.0106" />
+        <sphere radius="0.009" />
       </geometry>
     </collision>
   </link>
@@ -635,7 +632,7 @@
         rpy="0 0 0"
       />
       <geometry>
-        <cylinder radius="0.0107" length="0.0106" />
+        <sphere radius="0.009" />
       </geometry>
     </collision>
   </link>
@@ -891,7 +888,7 @@
         rpy="0 0 0"
       />
       <geometry>
-        <cylinder radius="0.0107" length="0.0106" />
+        <sphere radius="0.009" />
       </geometry>
     </collision>
   </link>
@@ -1143,20 +1140,20 @@
     </visual>
     <collision>
       <origin
-        xyz="0.01703244 0.0055385 0.03347739"
+        xyz="0.01703244 0.0055385 0.03647739"
         rpy="0 0 -1.57079633"
       />
       <geometry>
-        <cylinder radius="0.01228" length="0.04446" />
+        <capsule radius="0.01228" length="0.02446" />
       </geometry>
     </collision>
     <collision>
       <origin
-        xyz="0.00203244 0.0055385 0.03347739"
+        xyz="0.00203244 0.0055385 0.03647739"
         rpy="0 0 -1.57079633"
       />
       <geometry>
-        <cylinder radius="0.01228" length="0.04446" />
+        <capsule radius="0.01228" length="0.02446" />
       </geometry>
     </collision>
   </link>
@@ -1204,7 +1201,7 @@
         rpy="0 0 0"
       />
       <geometry>
-        <cylinder radius="0.0107" length="0.0106" />
+        <sphere radius="0.009" />
       </geometry>
     </collision>
   </link>
