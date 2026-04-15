@@ -54,6 +54,7 @@ run_video_to_depth(
 | **v2d_foundation_pose** | `run_video_to_poses`, `run_mv_videos_to_poses`, `run_render_overlay`, `run_estimate_scale`, `run_align_mesh_scale`, `run_transform_mesh`, `run_simplify_mesh`, `run_download_weights`, `run_shell` | 6D pose tracking (single + multi-view), mesh ops | `python -m v2d.foundation_pose.docker.build` | `python -m v2d.foundation_pose.docker.run_<tool> --args` |
 | **v2d_nlf** | `run_video_to_smpl`, `run_render_smpl_overlay`, `run_render_smpl_depth`, `run_align_depth_to_smpl`, `run_align_nlf_to_depth`, `run_download_weights`, `run_shell` | Video → SMPL body model | `python -m v2d.nlf.docker.build` | `python -m v2d.nlf.docker.run_<tool> --args` |
 | **v2d_hoi_object_reconstruction** | `run_reconstruction`, `run_fp_tracking` | End-to-end textured mesh reconstruction from hand-object interaction video (two-stage scan) | `python v2d_hoi_object_reconstruction/docker/build.py` | `python v2d_hoi_object_reconstruction/docker/run_reconstruction.py --args` |
+| **v2d_ego_hand_reconstruction** | `run_reconstruction` | 4D hand reconstruction from egocentric video (ViPE + Dyn-HaMR) | `python v2d_ego_hand_reconstruction/docker/build.py` | `python v2d_ego_hand_reconstruction/docker/run_reconstruction.py --args` |
 | **v2d_cusfm** | `run_image_list_to_sfm` | Structure-from-motion: stereo image list → camera poses | `python v2d_cusfm/docker/build.py` | `python v2d_cusfm/docker/run_image_list_to_sfm.py --input_dir ... --output_dir ...` |
 | **v2d_bundlesdf** | `run_reconstruct`, `run_download_weights` | SDF learning + texture baking from pre-computed poses, depth, and masks | `python v2d_bundlesdf/docker/build.py` | `python v2d_bundlesdf/docker/run_reconstruct.py --output_path ... --weights_dir ...` |
 | **v2d_detectron2** | `run_track_bboxes`, `run_mv_track_bboxes`, `run_download_weights`, `run_shell` | Person detection + IoU tracking (ViTDet) | `python -m v2d.detectron2.docker.build` | `python -m v2d.detectron2.docker.run_<tool> --args` |
@@ -116,7 +117,8 @@ pip install -e modules/v2d_sam2/docker -e modules/v2d_sam3d/docker -e modules/v2
   -e modules/v2d_unidepth/docker -e modules/v2d_moge/docker -e modules/v2d_nlf/docker \
   -e modules/v2d_foundation_pose/docker -e modules/v2d_foundation_stereo/docker \
   -e modules/v2d_grounding_dino/docker -e modules/v2d_cusfm/docker -e modules/v2d_bundlesdf/docker \
-  -e modules/v2d_hoi_object_reconstruction/docker -e modules/v2d_detectron2/docker \
+  -e modules/v2d_hoi_object_reconstruction/docker -e modules/v2d_ego_hand_reconstruction/docker \
+  -e modules/v2d_detectron2/docker \
   -e modules/v2d_pipelines
 ```
 
@@ -349,6 +351,53 @@ python modules/v2d_hoi_object_reconstruction/docker/run_reconstruction.py \
 **Outputs:** `job_dir/merged_recon/textured_mesh.obj` — final textured mesh; `job_dir/stage1_recon/textured_mesh.obj` — Stage-1 mesh
 
 See [`modules/v2d_hoi_object_reconstruction/README.md`](modules/v2d_hoi_object_reconstruction/README.md) for full pipeline details and troubleshooting.
+
+---
+
+### v2d_ego_hand_reconstruction
+
+4D hand reconstruction from egocentric videos. Integrates ViPE and Dyn-HaMR in containerized environments. Vendored from [IsaacTeleop](https://github.com/NVIDIA/IsaacTeleop).
+
+| Tool | Description |
+|------|-------------|
+| `run_reconstruction` | Full pipeline: video → ViPE camera estimation → Dyn-HaMR hand reconstruction |
+
+**Setup:**
+
+Follow the steps in [`modules/v2d_ego_hand_reconstruction/README.md`](modules/v2d_ego_hand_reconstruction/README.md).
+
+**Build:** 
+
+`python v2d_ego_hand_reconstruction/docker/build.py` (builds both ViPE and Dyn-HaMR images).
+
+**Example:**
+
+```bash
+python modules/v2d_ego_hand_reconstruction/docker/run_reconstruction.py \
+    --video_input path/to/video.mp4 \
+    --output_dir  path/to/outputs
+```
+
+Or programmatically:
+
+```python
+from v2d_ego_hand_reconstruction.docker.run_reconstruction import run_reconstruction
+
+run_reconstruction(
+    video_input="path/to/video.mp4",
+    output_dir="path/to/outputs",
+)
+```
+
+**Inputs:**
+
+Egocentric video (local path or `s3://` URL).
+
+**Outputs:** 
+
+`<output_dir>/logs/` — hand reconstruction results and visualization grids.
+
+See [`modules/v2d_ego_hand_reconstruction/README.md`](modules/v2d_ego_hand_reconstruction/README.md) for full details.
 
 ---
 
@@ -615,7 +664,8 @@ pip install -e modules/v2d_sam2/docker -e modules/v2d_sam3d/docker -e modules/v2
   -e modules/v2d_unidepth/docker -e modules/v2d_moge/docker -e modules/v2d_nlf/docker \
   -e modules/v2d_foundation_pose/docker -e modules/v2d_foundation_stereo/docker \
   -e modules/v2d_grounding_dino/docker -e modules/v2d_cusfm/docker -e modules/v2d_bundlesdf/docker \
-  -e modules/v2d_hoi_object_reconstruction/docker -e modules/v2d_detectron2/docker \
+  -e modules/v2d_hoi_object_reconstruction/docker -e modules/v2d_ego_hand_reconstruction/docker \
+  -e modules/v2d_detectron2/docker \
   -e modules/v2d_pipelines
 ```
 

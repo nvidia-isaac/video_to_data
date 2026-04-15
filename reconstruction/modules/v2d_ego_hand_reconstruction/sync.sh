@@ -6,7 +6,9 @@ REPO="https://github.com/NVIDIA/IsaacTeleop.git"
 BRANCH="main"
 DIR="src/postprocessing/egocentric_hand_reconstruction"
 
-echo "Syncing $DIR from $REPO ($BRANCH)..."
+VENDOR_DIR="$SCRIPT_DIR/vendor"
+
+echo "Syncing $DIR from $REPO ($BRANCH) into vendor/..."
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -16,6 +18,8 @@ cd "$tmp"
 git sparse-checkout set "$DIR"
 cd - > /dev/null
 
-cp -r "$tmp/$DIR/." "$SCRIPT_DIR/"
+rm -rf "$VENDOR_DIR"
+mkdir -p "$VENDOR_DIR"
+cp -r "$tmp/$DIR/." "$VENDOR_DIR/"
 
-echo "Done. Files synced to $SCRIPT_DIR/"
+echo "Done. Files synced to $VENDOR_DIR/"
