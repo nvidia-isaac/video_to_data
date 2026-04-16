@@ -229,7 +229,10 @@ def apply_scene_virtual_object_controls(
 
 
 def apply_scene_robot(
-    env_cfg: Any, scene_config: SceneConfig, static: bool = False
+    env_cfg: Any,
+    scene_config: SceneConfig,
+    static: bool = False,
+    use_primitive_urdfs: bool = False,
 ) -> None:
     """Place robot from the robot registry based on scene_config.robot_name.
 
@@ -237,6 +240,7 @@ def apply_scene_robot(
         env_cfg: The environment configuration to modify.
         scene_config: The scene configuration with robot_name.
         static: If True, disable gravity so the robot holds its initial pose.
+        use_primitive_urdfs: If True, use primitive URDFs for the robot.
     """
     if scene_config.robot_name is None:
         raise ValueError("robot_name not set — cannot configure robot")
@@ -257,10 +261,14 @@ def apply_scene_robot(
     if robot_spec.is_dual_hand:
         env_cfg.scene.right_robot = _maybe_disable_gravity(
             robot_spec.right_cfg
+            if not use_primitive_urdfs
+            else robot_spec.right_primitive_cfg
         ).replace(prim_path="{ENV_REGEX_NS}/RightRobot")
-        env_cfg.scene.left_robot = _maybe_disable_gravity(robot_spec.left_cfg).replace(
-            prim_path="{ENV_REGEX_NS}/LeftRobot"
-        )
+        env_cfg.scene.left_robot = _maybe_disable_gravity(
+            robot_spec.left_cfg
+            if not use_primitive_urdfs
+            else robot_spec.left_primitive_cfg
+        ).replace(prim_path="{ENV_REGEX_NS}/LeftRobot")
         env_cfg.events.setup_collision_groups.params["robot_names"].append("RightRobot")
         env_cfg.events.setup_collision_groups.params["robot_names"].append("LeftRobot")
     elif robot_spec.robot_cfg is not None:
@@ -349,7 +357,9 @@ def apply_scene_contact_sensors(env_cfg: Any, scene_config: SceneConfig) -> None
                 env_cfg.object_to_hand_contact_sensor_names.append(sensor_name)
 
 
-def apply_scene_config(env_cfg: Any, scene_config: SceneConfig) -> Any:
+def apply_scene_config(
+    env_cfg: Any, scene_config: SceneConfig, use_primitive_urdfs: bool = False
+) -> Any:
     """Apply scene config: objects + robot + commands + contacts.
 
     Skips commands/contacts if the env_cfg doesn't have the required fields
@@ -359,7 +369,9 @@ def apply_scene_config(env_cfg: Any, scene_config: SceneConfig) -> Any:
     apply_scene_virtual_object_controls(env_cfg, scene_config)
 
     if scene_config.robot_name:
-        apply_scene_robot(env_cfg, scene_config)
+        apply_scene_robot(
+            env_cfg, scene_config, use_primitive_urdfs=use_primitive_urdfs
+        )
 
     if hasattr(env_cfg, "commands") and hasattr(
         env_cfg.commands, "dual_hands_object_tracking_command"

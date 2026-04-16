@@ -1056,6 +1056,11 @@ def contact_wrench_support_reward(
         .clamp(min=1e-6)
     )  # (num_envs,)
 
+    num_command_active_hands = (
+        (right_command_num_contact_body > 1e-3).float()
+        + (left_command_num_contact_body > 1e-3).float()
+    ).clamp(min=1e-6)
+
     # Current supports needs to be better than command supports by at least tolerance
     right_better_than_command = (
         (1.0 - tolerance) * command.right_hand_contact_wrench_supports_command
@@ -1096,7 +1101,7 @@ def contact_wrench_support_reward(
     return (
         right_contact_reward.sum(dim=-1) / right_command_num_contact_body
         + left_contact_reward.sum(dim=-1) / left_command_num_contact_body
-    ) / 2.0
+    ) / num_command_active_hands
 
 
 def unintended_contact_penalty(
@@ -1176,27 +1181,33 @@ def missed_contact_penalty(
     """
     command = env.command_manager.get_term(command_name)
 
-    right_command_has_contact = (
-        command.right_hand_contact_wrench_supports_command > 1e-3
-    )  # (num_envs, num_bodies, num_wrench_space_basis_samples)
-    right_has_contact = (
-        command.right_hand_contact_wrench_supports > 1e-3
-    )  # (num_envs, num_bodies, num_wrench_space_basis_samples)
+    right_cmd = command.right_hand_contact_wrench_supports_command
+    right_cur = command.right_hand_contact_wrench_supports
+    left_cmd = command.left_hand_contact_wrench_supports_command
+    left_cur = command.left_hand_contact_wrench_supports
 
-    left_command_has_contact = (
-        command.left_hand_contact_wrench_supports_command > 1e-3
-    )  # (num_envs, num_bodies)
-    left_has_contact = (
-        command.left_hand_contact_wrench_supports > 1e-3
-    )  # (num_envs, num_bodies)
+    def _compute_penalty(cmd: torch.Tensor, cur: torch.Tensor) -> torch.Tensor:
+        cmd_active = cmd > 1e-3  # (N, num_bodies, num_wrench_space_basis_samples)
+        cur_active = cur > 1e-3  # (N, num_bodies, num_wrench_space_basis_samples)
+        missed = (
+            cmd_active & ~cur_active
+        )  # (N, num_bodies, num_wrench_space_basis_samples)
+        n_expected = cmd_active.sum(dim=-1)  # (N, num_bodies)
+        n_missed = missed.sum(dim=-1)  # (N, num_bodies)
+        # Fraction missed per body, 0 where no expected contact
+        missing_frac = n_missed / n_expected.clamp(min=1e-6)  # (N, num_bodies)
+        # Average over bodies that have expected contact
+        body_has_contact = n_expected > 0
+        n_active_bodies = body_has_contact.sum(dim=-1).clamp(min=1e-6)  # (N,)
+        return (missing_frac * body_has_contact).sum(dim=-1) / n_active_bodies
 
-    # Penalize missed contact
-    right_missed_contact = torch.logical_and(
-        right_command_has_contact, ~right_has_contact
-    )
-    left_missed_contact = torch.logical_and(left_command_has_contact, ~left_has_contact)
+    # Count hands with any expected contact for normalization
+    right_hand_active = (right_cmd > 1e-3).any(dim=-1).any(dim=-1)  # (N,)
+    left_hand_active = (left_cmd > 1e-3).any(dim=-1).any(dim=-1)  # (N,)
+    num_active_hands = (right_hand_active.float() + left_hand_active.float()).clamp(
+        min=1e-6
+    )  # (N,)
 
     return (
-        right_missed_contact.sum(dim=-1).any(dim=-1).float()
-        + left_missed_contact.sum(dim=-1).any(dim=-1).float()
-    )
+        _compute_penalty(right_cmd, right_cur) + _compute_penalty(left_cmd, left_cur)
+    ) / num_active_hands
