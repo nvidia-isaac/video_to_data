@@ -48,7 +48,15 @@ def _get_model(weights_path: str):
 def _preprocess_numpy(image: np.ndarray) -> torch.Tensor:
     return torch.from_numpy(image).permute(2, 0, 1).float() / 255.0
 
-def image_to_depth(image_path: str, depth_path: str, intrinsics_path: str, weights_path: str):
+def image_to_depth(
+    image_path: str,
+    depth_path: str,
+    intrinsics_path: str,
+    weights_path: str,
+    points_path: str = None,
+    normals_path: str = None,
+    mask_path: str = None,
+):
     """Process single image to depth."""
     model = _get_model(weights_path)
     image = Image.open(image_path)
@@ -81,6 +89,17 @@ def image_to_depth(image_path: str, depth_path: str, intrinsics_path: str, weigh
     depth_img.to_pil_image().save(depth_path)
     camera_intrinsics.save(intrinsics_path)
 
+    if points_path is not None:
+        os.makedirs(os.path.dirname(os.path.abspath(points_path)), exist_ok=True)
+        np.save(points_path, predictions["points"][0].cpu().numpy())
+    if normals_path is not None and "normal" in predictions:
+        os.makedirs(os.path.dirname(os.path.abspath(normals_path)), exist_ok=True)
+        np.save(normals_path, predictions["normal"][0].cpu().numpy())
+    if mask_path is not None:
+        os.makedirs(os.path.dirname(os.path.abspath(mask_path)), exist_ok=True)
+        mask_arr = (predictions["mask"][0].cpu().numpy() * 255).astype(np.uint8)
+        Image.fromarray(mask_arr).save(mask_path)
+
     print(f"Saved depth to {depth_path} and intrinsics to {intrinsics_path}")
 
 if __name__ == "__main__":
@@ -90,5 +109,14 @@ if __name__ == "__main__":
     parser.add_argument("--intrinsics_path", type=str, required=True, help="Output path for camera intrinsics JSON")
     parser.add_argument("--weights_path", type=str, required=True, help="Path to weights")
 
+    parser.add_argument("--points_path", type=str, default=None, help="Output path for pointmap .npy (H,W,3 float32)")
+    parser.add_argument("--normals_path", type=str, default=None, help="Output path for surface normals .npy (H,W,3 float32)")
+    parser.add_argument("--mask_path", type=str, default=None, help="Output path for validity mask PNG")
+
     args = parser.parse_args()
-    image_to_depth(args.image_path, args.depth_path, args.intrinsics_path, args.weights_path)
+    image_to_depth(
+        args.image_path, args.depth_path, args.intrinsics_path, args.weights_path,
+        points_path=args.points_path,
+        normals_path=args.normals_path,
+        mask_path=args.mask_path,
+    )

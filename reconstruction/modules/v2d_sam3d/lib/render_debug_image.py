@@ -26,7 +26,10 @@ def render_debug_image(
         intrinsics = json.load(f)
 
     scene = trimesh.load(mesh_path, process=False)
-    mesh = next(value for name, value in scene.geometry.items())
+    if isinstance(scene, trimesh.Scene):
+        mesh = next(value for name, value in scene.geometry.items())
+    else:
+        mesh = scene
 
     camera_intrinsics = intrinsics
 

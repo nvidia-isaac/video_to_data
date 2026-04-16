@@ -56,6 +56,9 @@ def video_to_depth(
     weights_path: str,
     batch_size: int = 8,
     input_intrinsics_path: str = None,
+    points_folder: str = None,
+    normals_folder: str = None,
+    mask_folder: str = None,
 ):
     """Process video to depth frames.
 
@@ -76,6 +79,12 @@ def video_to_depth(
     model = _get_model(weights_path)
     os.makedirs(depth_folder, exist_ok=True)
     os.makedirs(intrinsics_folder, exist_ok=True)
+    if points_folder is not None:
+        os.makedirs(points_folder, exist_ok=True)
+    if normals_folder is not None:
+        os.makedirs(normals_folder, exist_ok=True)
+    if mask_folder is not None:
+        os.makedirs(mask_folder, exist_ok=True)
 
     known_intrinsics: CameraIntrinsics | None = None
     fov_x: float | None = None
@@ -129,6 +138,17 @@ def video_to_depth(
                 camera_intrinsics.save(
                     os.path.join(intrinsics_folder, f"{frame_idx:06d}.json")
                 )
+                if points_folder is not None:
+                    np.save(os.path.join(points_folder, f"{frame_idx:06d}.npy"),
+                            predictions["points"][i].cpu().numpy())
+                if normals_folder is not None and "normal" in predictions:
+                    np.save(os.path.join(normals_folder, f"{frame_idx:06d}.npy"),
+                            predictions["normal"][i].cpu().numpy())
+                if mask_folder is not None:
+                    mask_arr = (predictions["mask"][i].cpu().numpy() * 255).astype(np.uint8)
+                    Image.fromarray(mask_arr).save(
+                        os.path.join(mask_folder, f"{frame_idx:06d}.png")
+                    )
 
             image_batch = []
 
@@ -144,10 +164,16 @@ if __name__ == "__main__":
     parser.add_argument("--weights_path", type=str, required=True, help="Path to weights")
     parser.add_argument("--batch_size", type=int, default=8, help="Batch size for processing")
     parser.add_argument("--input_intrinsics_path", type=str, default=None, help="Optional known camera intrinsics JSON")
+    parser.add_argument("--points_folder", type=str, default=None, help="Output folder for pointmap .npy files (H,W,3 float32)")
+    parser.add_argument("--normals_folder", type=str, default=None, help="Output folder for surface normal .npy files (H,W,3 float32)")
+    parser.add_argument("--mask_folder", type=str, default=None, help="Output folder for validity mask PNGs")
 
     args = parser.parse_args()
     video_to_depth(
         args.video_path, args.depth_folder, args.intrinsics_folder, args.weights_path,
         batch_size=args.batch_size,
         input_intrinsics_path=args.input_intrinsics_path,
+        points_folder=args.points_folder,
+        normals_folder=args.normals_folder,
+        mask_folder=args.mask_folder,
     )
