@@ -1,5 +1,4 @@
-*
-!.gitignore
-!sync.sh
-!README.md
+vendor/
+__pycache__/
+*.egg-info/
 
