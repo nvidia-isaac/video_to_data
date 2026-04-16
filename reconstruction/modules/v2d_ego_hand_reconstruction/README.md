@@ -54,6 +54,14 @@ python -m v2d_ego_hand_reconstruction.docker.run_reconstruction \
 
 Remote videos (S3/Swift) are also supported:
 
+Set environment variables ACCESS_KEY_ID and SECRET_ACCESS_KEY for S3/Swift permission.
+
+```bash
+export ACCESS_KEY_ID=XXX SECRET_ACCESS_KEY=XXX
+```
+
+Please check vendor/doc/quickstart.md for detail.
+
 ```bash
 python -m v2d_ego_hand_reconstruction.docker.run_reconstruction \
     --video_input s3://bucket/video.mp4 \
