@@ -75,6 +75,9 @@ VIDEO_CONFIG = {
 parser = argparse.ArgumentParser(description="E2E reconstruction for V2D ego videos")
 parser.add_argument("--video_num", required=True, choices=list(VIDEO_CONFIG.keys()),
                     help="Two-digit video number (01–10)")
+parser.add_argument("--output_base", default=None,
+                    help="Base dir for outputs (default: data/V2D_ego_reconstruction_10_videos/<num>/outputs). "
+                         "When set, outputs go to <output_base>/<num>/")
 args = parser.parse_args()
 
 NUM = args.video_num
@@ -87,7 +90,7 @@ SMOOTH_SIGMA = 5.0
 # Paths — inputs
 # ---------------------------------------------------------------------------
 BASE_DIR   = f"data/V2D_ego_reconstruction_10_videos/{NUM}"
-OUTPUT_DIR = f"{BASE_DIR}/outputs"
+OUTPUT_DIR = f"{args.output_base}/{NUM}" if args.output_base else f"{BASE_DIR}/outputs"
 
 _videos = [f for f in glob.glob(f"{BASE_DIR}/*.mp4")
            if "smooth_fit" not in f and "preview" not in f]
