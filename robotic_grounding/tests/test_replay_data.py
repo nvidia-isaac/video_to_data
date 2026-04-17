@@ -23,6 +23,7 @@ import inspect
 import sys
 import tempfile
 import traceback
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +47,7 @@ _SCENE_UTILS_DIR = (
     / "scene_utils"
 )
 
+
 def _load_module_directly(name: str, path: Path) -> Any:
     """Load a single .py module without triggering __init__ chains."""
     spec = importlib.util.spec_from_file_location(name, path)
@@ -55,6 +57,7 @@ def _load_module_directly(name: str, path: Path) -> Any:
     sys.modules[name] = mod
     spec.loader.exec_module(mod)
     return mod
+
 
 # scene_config must be loaded first because replay_data imports it.
 _scene_config_mod = _load_module_directly(
@@ -90,6 +93,7 @@ def _build_joint_reorder(
             )
         indices.append(sim_name_to_idx[pq_name])
     return torch.tensor(indices, dtype=torch.long)
+
 
 # ============================================================
 # Schema detection
@@ -192,9 +196,7 @@ def _write_g1_parquet(output_dir: Path) -> Path:
             object_body_wxyz=[[1.0, 0.0, 0.0, 0.0]],
         )
 
-    data.save_to_parquet(
-        str(output_dir), partition_cols=["sequence_id", "robot_name"]
-    )
+    data.save_to_parquet(str(output_dir), partition_cols=["sequence_id", "robot_name"])
     return output_dir / f"sequence_id={seq_id}" / f"robot_name={robot_name}"
 
 
@@ -284,9 +286,7 @@ def _write_sharpa_parquet(output_dir: Path) -> Path:
             object_root_position=[0.0, 0.0, 0.5],
         )
 
-    data.save_to_parquet(
-        str(output_dir), partition_cols=["sequence_id", "robot_name"]
-    )
+    data.save_to_parquet(str(output_dir), partition_cols=["sequence_id", "robot_name"])
     return output_dir / f"sequence_id={seq_id}" / f"robot_name={robot_name}"
 
 
@@ -336,7 +336,7 @@ def test_build_joint_reorder_permutation() -> None:
 # Script runner (no pytest)
 # ============================================================
 
-_ALL_TESTS = [
+_ALL_TESTS: list[Callable[..., Any]] = [
     test_schema_detection_g1,
     test_schema_detection_sharpa,
     test_schema_detection_dex3,

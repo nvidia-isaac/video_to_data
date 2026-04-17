@@ -108,4 +108,3 @@ class SceneViewerEnvCfg(ManagerBasedEnvCfg):
             apply_scene_objects(self, scene_config)
             if scene_config.robot_name is not None:
                 apply_scene_robot(self, scene_config, static=False)
-

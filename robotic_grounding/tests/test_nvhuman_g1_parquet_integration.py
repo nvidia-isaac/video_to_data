@@ -25,7 +25,9 @@ except ModuleNotFoundError:
         "scene_config_fallback", scene_config_path
     )
     if spec is None or spec.loader is None:
-        raise ImportError(f"Could not load SceneConfig from {scene_config_path}")
+        raise ImportError(
+            f"Could not load SceneConfig from {scene_config_path}"
+        ) from None
     scene_config_module = importlib.util.module_from_spec(spec)
     # Register module before execution so decorators (e.g., @dataclass) can
     # resolve cls.__module__ via sys.modules during import-time processing.
@@ -138,7 +140,9 @@ def test_nvhuman_g1_parquet_roundtrip_scene_config_and_loader(tmp_path: Path) ->
     assert loaded.object_urdf_paths == [str(urdf_path.resolve())]
     assert len(loaded.robot_joint_names) == len(loaded.robot_joint_positions[0])
 
-    partition_dir = output_dir / f"sequence_id={sequence_id}" / f"robot_name={robot_name}"
+    partition_dir = (
+        output_dir / f"sequence_id={sequence_id}" / f"robot_name={robot_name}"
+    )
     scene_cfg = SceneConfig.from_motion_file(str(partition_dir))
     assert scene_cfg.object_body_names == ["object"]
     assert len(scene_cfg.scene_objects) == 1

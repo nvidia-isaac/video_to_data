@@ -170,9 +170,13 @@ def _to_dual_hand_wxyz(data: Any) -> DualHandTrajectory:
         right_wrist_position=right_pos,
         left_wrist_position=left_pos,
         wrist_orientation_format="wxyz",
-        right_wrist_orientation=np.asarray(data.robot_right_wrist_wxyz, dtype=np.float32),
+        right_wrist_orientation=np.asarray(
+            data.robot_right_wrist_wxyz, dtype=np.float32
+        ),
         left_wrist_orientation=np.asarray(data.robot_left_wrist_wxyz, dtype=np.float32),
-        right_finger_joints=np.asarray(data.robot_right_finger_joints, dtype=np.float32),
+        right_finger_joints=np.asarray(
+            data.robot_right_finger_joints, dtype=np.float32
+        ),
         left_finger_joints=np.asarray(data.robot_left_finger_joints, dtype=np.float32),
         object_traj=object_traj,
     )
@@ -201,7 +205,9 @@ def _to_dual_hand_euler(data: Any) -> DualHandTrajectory:
         left_wrist_orientation=np.asarray(
             data.robot_left_wrist_euler_xyz, dtype=np.float32
         ),
-        right_finger_joints=np.asarray(data.robot_right_finger_joints, dtype=np.float32),
+        right_finger_joints=np.asarray(
+            data.robot_right_finger_joints, dtype=np.float32
+        ),
         left_finger_joints=np.asarray(data.robot_left_finger_joints, dtype=np.float32),
         object_traj=object_traj,
     )

@@ -34,7 +34,11 @@ import trimesh
 import viser
 from robotic_grounding.retarget import G1_URDF_DIR, HUMAN_MOTION_DATA_DIR
 from robotic_grounding.retarget.data_logger import NvhumanG1Data
-from robotic_grounding.retarget.params import NVHUMAN_JOINTS_ORDER
+from robotic_grounding.retarget.params import (
+    G1_FOOT_FRAME_NAMES,
+    NVHUMAN_FOOT_JOINT_NAMES,
+    NVHUMAN_JOINTS_ORDER,
+)
 from robotic_grounding.retarget.read_nvhuman import NVHuman
 from robotic_grounding.retarget.whole_body_kinematics import G1WholeBodyKinematics
 from scipy.spatial.transform import Rotation as R
@@ -234,7 +238,9 @@ def main() -> None:
         for _line in _f:
             if _line.startswith("v "):
                 _parts = _line.split()
-                _obj_verts.append([float(_parts[1]), float(_parts[2]), float(_parts[3])])
+                _obj_verts.append(
+                    [float(_parts[1]), float(_parts[2]), float(_parts[3])]
+                )
     object_mesh_vertices = np.array(_obj_verts, dtype=np.float64)
 
     # Setup data logger
@@ -335,25 +341,16 @@ def main() -> None:
 
     # Source foot joints used for robust ground estimation. Using only feet
     # avoids noisy non-foot joints pulling the ground estimate down.
-    source_foot_joint_names = [
-        "LeftFoot",
-        "RightFoot",
-        "LeftToeBase",
-        "RightToeBase",
-        "LeftToeEnd",
-        "RightToeEnd",
-    ]
     source_foot_joint_idxs = [
         NVHUMAN_JOINTS_ORDER.index(name)
-        for name in source_foot_joint_names
+        for name in NVHUMAN_FOOT_JOINT_NAMES
         if name in NVHUMAN_JOINTS_ORDER
     ]
 
     # Frame-0 foot Z reference (in IK frame) used to detect and correct
     # downward drift from noisy source reconstruction.
-    foot_frame_names = ["left_ankle_roll_link", "right_ankle_roll_link"]
     foot_frame_idxs = [
-        list(kin.robot_frame_names.values()).index(fn) for fn in foot_frame_names
+        list(kin.robot_frame_names.values()).index(fn) for fn in G1_FOOT_FRAME_NAMES
     ]
     foot_z_ref: float | None = None
 
@@ -382,14 +379,14 @@ def main() -> None:
             if drift < 0:
                 q[2] -= drift
 
-        # Compute object pose in robot coordinate system.
-        # Object rotation is a world-frame transform (not a body-local joint
-        # rotation), so we left-multiply by the coordinate change matrix
-        # rather than using the similarity transform (R @ M @ R^T) that
-        # transform_source_rotation applies for joint rotations.
+        # Compute object pose in robot coordinate system. Object rotation is
+        # a world-frame transform (not a body-local joint rotation), so we use
+        # transform_world_rotation (left-multiply by R_src_to_robot) rather
+        # than transform_source_rotation (similarity transform R @ M @ R^T
+        # used for body-local joint rotations).
         obj_pose = object_poses[frame_idx]
         obj_position = kin.transform_source_position(obj_pose[:3, 3])
-        obj_rotation_mat = kin._R_nvhuman_to_robot @ obj_pose[:3, :3]
+        obj_rotation_mat = kin.transform_world_rotation(obj_pose[:3, :3])
         obj_rotation = R.from_matrix(obj_rotation_mat)
 
         # On frame 0, estimate ground from source feet only and shift into
@@ -412,7 +409,9 @@ def main() -> None:
         # the object above the aligned skeleton/robot).
         if frame_idx == 0:
             obj_pos_for_mesh_check = obj_position.copy()
-            obj_verts_world = (obj_rotation_mat @ object_mesh_vertices.T).T + obj_pos_for_mesh_check
+            obj_verts_world = (
+                obj_rotation_mat @ object_mesh_vertices.T
+            ).T + obj_pos_for_mesh_check
             object_z_lift = max(0.0, -float(np.min(obj_verts_world[:, 2])))
 
         # Extract head trajectory in robot coordinate system

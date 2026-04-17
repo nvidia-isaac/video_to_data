@@ -81,16 +81,23 @@ def _disable_gravity_in_articulation_cfg(cfg: Any) -> Any:
 
 @configclass
 class ReplayEnvCfg(SceneViewerEnvCfg):
-    """Env cfg for kinematic trajectory replay."""
+    """Env cfg for kinematic trajectory replay.
+
+    Note: This config disables collisions and gravity on all replayed bodies
+    because the robot and object are teleported each step from the parquet
+    trajectory (no physics forces act on them). Any contact-based rewards or
+    termination signals would not be meaningful in this env; use a physics
+    env (e.g. ManagerBasedRLEnv) for those.
+    """
 
     def __post_init__(self) -> None:
         """Post-init: build viewer scene, then apply replay-only overrides."""
         super().__post_init__()
 
         # Replay: never resolve robot-object or robot-fixed collisions.
-        self.events.setup_collision_groups.params["disable_robot_to_object_collisions"] = (
-            True
-        )
+        self.events.setup_collision_groups.params[
+            "disable_robot_to_object_collisions"
+        ] = True
         self.events.setup_collision_groups.params[
             "disable_robot_to_fixed_object_collisions"
         ] = True
@@ -187,7 +194,9 @@ class Trajectory:
             )
         else:
             self.object_root_pos = torch.empty(0, 3, dtype=torch.float32, device=device)
-            self.object_root_wxyz = torch.empty(0, 4, dtype=torch.float32, device=device)
+            self.object_root_wxyz = torch.empty(
+                0, 4, dtype=torch.float32, device=device
+            )
 
         if isinstance(replay, SingleRobotTrajectory):
             self.robot_joint_names = list(replay.robot_joint_names)
@@ -330,7 +339,9 @@ def _write_dual_hand_frame(
 
     right_joints = traj.right_finger_joints[t].unsqueeze(0).expand(num_envs, -1)
     if right_reorder is not None:
-        right_sim_joints = torch.zeros(num_envs, len(right_sim_joint_names), device=device)
+        right_sim_joints = torch.zeros(
+            num_envs, len(right_sim_joint_names), device=device
+        )
         right_sim_joints[:, right_reorder] = right_joints
     else:
         right_sim_joints = right_joints
@@ -341,7 +352,9 @@ def _write_dual_hand_frame(
 
     left_joints = traj.left_finger_joints[t].unsqueeze(0).expand(num_envs, -1)
     if left_reorder is not None:
-        left_sim_joints = torch.zeros(num_envs, len(left_sim_joint_names), device=device)
+        left_sim_joints = torch.zeros(
+            num_envs, len(left_sim_joint_names), device=device
+        )
         left_sim_joints[:, left_reorder] = left_joints
     else:
         left_sim_joints = left_joints
@@ -412,9 +425,7 @@ def main() -> None:
         right_reorder = _build_joint_reorder(
             traj.right_joint_names, right_sim_joint_names
         )
-        left_reorder = _build_joint_reorder(
-            traj.left_joint_names, left_sim_joint_names
-        )
+        left_reorder = _build_joint_reorder(traj.left_joint_names, left_sim_joint_names)
 
     num_envs = env.num_envs
     env_origins = env.scene.env_origins  # (num_envs, 3)
@@ -424,8 +435,10 @@ def main() -> None:
     frame_step = cfg.sim.dt * traj.fps * args_cli.speed
     loop = not args_cli.no_loop
 
-    print(f"[INFO] Replaying {traj.num_frames} frames at {traj.fps:.0f} fps "
-          f"(speed={args_cli.speed}x, loop={loop})")
+    print(
+        f"[INFO] Replaying {traj.num_frames} frames at {traj.fps:.0f} fps "
+        f"(speed={args_cli.speed}x, loop={loop})"
+    )
     print("[INFO] Close the window to exit.")
 
     while simulation_app.is_running():

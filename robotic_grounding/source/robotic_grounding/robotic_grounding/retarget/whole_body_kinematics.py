@@ -137,9 +137,22 @@ class WholeBodyKinematics:
         return position
 
     def transform_source_rotation(self, rotation: np.ndarray) -> np.ndarray:
-        """Transform source rotation matrix to robot convention.
+        """Transform a source body-local rotation matrix to robot convention.
 
-        Override in subclass if coordinate system transformation is needed.
+        Uses a similarity transform ``R_src_to_robot @ M @ R_src_to_robot.T``
+        so the rotation remains expressed in the robot's basis while acting on
+        vectors from the body's local frame. Override in subclass if a
+        coordinate system transformation is needed.
+        """
+        return rotation
+
+    def transform_world_rotation(self, rotation: np.ndarray) -> np.ndarray:
+        """Transform a source world-frame rotation matrix to robot convention.
+
+        For world-frame transforms (e.g. an object's global pose, not a
+        body-local joint rotation), only a left-multiply by
+        ``R_src_to_robot`` is needed. Subclasses that rotate source
+        coordinates should override.
         """
         return rotation
 
@@ -400,5 +413,9 @@ class G1WholeBodyKinematics(WholeBodyKinematics):
         return position @ self._R_nvhuman_to_robot.T
 
     def transform_source_rotation(self, rotation: np.ndarray) -> np.ndarray:
-        """Transform rotation matrix from NVHuman to robot convention."""
+        """Transform a body-local rotation from NVHuman to robot convention."""
         return self._R_nvhuman_to_robot @ rotation @ self._R_nvhuman_to_robot.T
+
+    def transform_world_rotation(self, rotation: np.ndarray) -> np.ndarray:
+        """Transform a world-frame rotation from NVHuman to robot convention."""
+        return self._R_nvhuman_to_robot @ rotation

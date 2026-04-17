@@ -35,7 +35,9 @@ from robotic_grounding.retarget.data_logger import (
 from scipy.spatial.transform import Rotation
 
 try:
-    from robotic_grounding.assets.robot_registry import get_robot_spec as _get_robot_spec
+    from robotic_grounding.assets.robot_registry import (
+        get_robot_spec as _get_robot_spec,
+    )
 except ModuleNotFoundError:
     _get_robot_spec = None  # type: ignore[assignment]
 
@@ -102,7 +104,9 @@ def load_object_mesh_and_poses(
     input_dir: Path,
     sequence_id: str,
     schema: str | None = None,
-) -> tuple[ManoSharpaData | NvhumanDex3Data | NvhumanG1Data, dict[str, trimesh.Trimesh]]:
+) -> tuple[
+    ManoSharpaData | NvhumanDex3Data | NvhumanG1Data, dict[str, trimesh.Trimesh]
+]:
     """Load one sequence from Parquet and its object meshes via object_mesh_paths.
 
     Returns:
@@ -449,7 +453,9 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _compute_height_offset(data: ManoSharpaData | NvhumanDex3Data | NvhumanG1Data, schema: str) -> float:
+def _compute_height_offset(
+    data: ManoSharpaData | NvhumanDex3Data | NvhumanG1Data, schema: str
+) -> float:
     """Compute the Z offset needed to align parquet data with the spawned scene.
 
     Object and support-surface positions from the retarget pipeline are

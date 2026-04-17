@@ -313,6 +313,23 @@ G1_WHOLEBODY_TO_NVHUMAN_MAPPING = {
     "right_ankle_roll_link": ("RightFoot", 5.0, 1.0),
 }
 
+# Foot joints used for ground-plane estimation and foot-Z clamping during
+# whole-body retargeting. Source joints are from NVHUMAN_JOINTS_ORDER; robot
+# frames are the contact links used in G1_WHOLEBODY_TO_NVHUMAN_MAPPING.
+NVHUMAN_FOOT_JOINT_NAMES = [
+    "LeftFoot",
+    "RightFoot",
+    "LeftToeBase",
+    "RightToeBase",
+    "LeftToeEnd",
+    "RightToeEnd",
+]
+
+G1_FOOT_FRAME_NAMES = [
+    "left_ankle_roll_link",
+    "right_ankle_roll_link",
+]
+
 #############################################################
 # MANO hand link definitions
 #############################################################
