@@ -10,11 +10,17 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Tuple
 
-import isaaclab.utils.math as math_utils
 import torch
 from isaaclab.managers.action_manager import ActionTerm
+from isaaclab.utils.math import (
+    axis_angle_from_quat,
+    quat_apply,
+    quat_apply_inverse,
+    quat_inv,
+    quat_mul,
+)
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -23,6 +29,66 @@ if TYPE_CHECKING:
     from . import actions_cfg
 
 logger = logging.getLogger(__name__)
+
+
+@torch.jit.script
+def _compute_wrench_and_effort(
+    root_body_position_e: torch.Tensor,
+    root_body_wxyz: torch.Tensor,
+    root_link_vel_w: torch.Tensor,
+    root_link_quat_w: torch.Tensor,
+    root_com_pos_b: torch.Tensor,
+    command_position_e: torch.Tensor,
+    command_wxyz_e: torch.Tensor,
+    object_mass: torch.Tensor,
+    projected_gravity_b: torch.Tensor,
+    scale_factor: torch.Tensor,
+    command_joint_pos: torch.Tensor,
+    joint_pos: torch.Tensor,
+    joint_vel: torch.Tensor,
+    linear_stiffness: float,
+    linear_damping: float,
+    angular_stiffness: float,
+    angular_damping: float,
+    max_force: float,
+    max_torque: float,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    # Correct COM->link offset for linear velocity (mutates caller tensor, matching eager path).
+    root_link_vel_w[:, :3] += torch.linalg.cross(
+        root_link_vel_w[:, 3:],
+        quat_apply(root_link_quat_w, -root_com_pos_b),
+        dim=-1,
+    )
+    root_body_linvel_b = quat_apply_inverse(root_link_quat_w, root_link_vel_w[:, :3])
+    root_body_angvel_b = quat_apply_inverse(root_link_quat_w, root_link_vel_w[:, 3:])
+
+    # PD force (position in body frame).
+    position_error_e = command_position_e - root_body_position_e
+    position_error_b = quat_apply_inverse(root_body_wxyz, position_error_e)
+    force = linear_stiffness * position_error_b - linear_damping * root_body_linvel_b
+
+    # PD torque (orientation in body frame).
+    orientation_error_b = axis_angle_from_quat(
+        quat_mul(quat_inv(root_body_wxyz), command_wxyz_e)
+    )
+    torque = (
+        angular_stiffness * orientation_error_b - angular_damping * root_body_angvel_b
+    )
+
+    # Gravity compensation on the root body.
+    force = force + (-9.81) * object_mass * projected_gravity_b
+
+    # Curriculum scale + clamp.
+    force = torch.clamp(force * scale_factor, min=-max_force, max=max_force)
+    torque = torch.clamp(torque * scale_factor, min=-max_torque, max=max_torque)
+
+    # Joint PD effort (reusing linear stiffness / angular damping to match eager path).
+    effort = (
+        linear_stiffness * (command_joint_pos - joint_pos) - angular_damping * joint_vel
+    )
+    effort = torch.clamp(effort * scale_factor, min=-max_force, max=max_force)
+
+    return force, torque, effort
 
 
 class VirtualArticulatedObjectControl(ActionTerm):
@@ -69,6 +135,10 @@ class VirtualArticulatedObjectControl(ActionTerm):
         self.object_inertia = body_inertias[:, self._root_body_idx, :]  # (num_envs, 9)
         body_coms = self.object.root_physx_view.get_coms().to(self.device)
         self.object_com = body_coms[:, self._root_body_idx, :]  # (num_envs, 7)
+
+        self.root_com_pose_b = self.object.data._root_physx_view.get_coms()[:, 0].to(
+            self.device
+        )  # quat in xyzw format
 
         # Joint IDs
         joint_ids, _ = self.object.find_joints(".*")
@@ -170,84 +240,48 @@ class VirtualArticulatedObjectControl(ActionTerm):
 
     def apply_actions(self) -> None:
         """Apply PD wrench to root body and effort to joints based on reference trajectory."""
-        # ---- Root body state (identical to VirtualRigidObjectControl) ----
-        root_body_position_e = self.command.object_position_e[
-            :, self._root_body_idx, :
-        ]  # (num_envs, 3)
-        root_body_wxyz = self.command.object_orientation_e[
-            :, self._root_body_idx, :
-        ]  # (num_envs, 4)
-        root_body_linvel_b = self.object.data.root_link_lin_vel_b  # (num_envs, 3)
-        root_body_angvel_b = self.object.data.root_link_ang_vel_b  # (num_envs, 3)
+        command_joint_pos = self.command.retargeted_object_articulation[
+            self.command.timestep_counter
+        ].view(-1, self._num_joints)
 
-        # ---- PD force (root body position) ----
-        object_position_error_e = (
-            self.command.object_body_position_command_e[:, self._root_body_idx, :]
-            - root_body_position_e
-        )
-        object_position_error_b = math_utils.quat_apply_inverse(
-            root_body_wxyz, object_position_error_e
-        )
-        force = (
-            self._tracking_controller_linear_stiffness * object_position_error_b
-            - self._tracking_controller_linear_damping * root_body_linvel_b
-        )
-
-        # ---- PD torque (root body orientation) ----
-        object_orientation_error_b = math_utils.quat_mul(
-            math_utils.quat_inv(root_body_wxyz),
-            self.command.object_body_wxyz_command_e[:, self._root_body_idx, :],
-        )
-        object_orientation_error_b = math_utils.axis_angle_from_quat(
-            object_orientation_error_b
-        )
-        torque = (
-            self._tracking_controller_angular_stiffness * object_orientation_error_b
-            - self._tracking_controller_angular_damping * root_body_angvel_b
+        force, torque, effort = _compute_wrench_and_effort(
+            root_body_position_e=self.command.object_position_e[
+                :, self._root_body_idx, :
+            ],
+            root_body_wxyz=self.command.object_orientation_e[:, self._root_body_idx, :],
+            root_link_vel_w=self.object.data.root_com_vel_w,
+            root_link_quat_w=self.object.data.root_link_quat_w,
+            root_com_pos_b=self.root_com_pose_b[..., :3],
+            command_position_e=self.command.object_body_position_command_e[
+                :, self._root_body_idx, :
+            ],
+            command_wxyz_e=self.command.object_body_wxyz_command_e[
+                :, self._root_body_idx, :
+            ],
+            object_mass=self.object_mass,
+            projected_gravity_b=self.object.data.projected_gravity_b,
+            scale_factor=self.command.virtual_object_controller_scale_factor_per_env,
+            command_joint_pos=command_joint_pos,
+            joint_pos=self.object.data.joint_pos,
+            joint_vel=self.object.data.joint_vel,
+            linear_stiffness=self._tracking_controller_linear_stiffness,
+            linear_damping=self._tracking_controller_linear_damping,
+            angular_stiffness=self._tracking_controller_angular_stiffness,
+            angular_damping=self._tracking_controller_angular_damping,
+            max_force=float(self.cfg.max_force),
+            max_torque=float(self.cfg.max_torque),
         )
 
-        # ---- Gravity compensation (root body) ----
-        gravity_compensation_force = (
-            -9.81 * self.object_mass * self.object.data.projected_gravity_b
-        )
-        force = force + gravity_compensation_force
-
-        # gravity_compensation_torque = torch.cross(
-        #     self.object_com[..., :3], gravity_compensation_force, dim=-1
-        # )
-        # torque = torque + gravity_compensation_torque
-
-        # ---- Curriculum scale ----
-        force = force * self.command.virtual_object_controller_scale_factor_per_env
-        torque = torque * self.command.virtual_object_controller_scale_factor_per_env
-
-        # ---- Clip ----
-        force = torch.clamp(force, min=-self.cfg.max_force, max=self.cfg.max_force)
-        torque = torch.clamp(torque, min=-self.cfg.max_torque, max=self.cfg.max_torque)
-
-        # Apply force to root body
+        # Apply wrench to root body.
         self._forces[:, self._root_body_idx] = force
         self._torques[:, self._root_body_idx] = torque
-
         self.object.set_external_force_and_torque(
             forces=self._forces,
             torques=self._torques,
             is_global=False,
         )
 
-        # ---- Apply torque to joints based on reference joint position ----
-        command_joint_pos = self.command.retargeted_object_articulation[
-            self.command.timestep_counter
-        ].view(-1, self._num_joints)
-
-        effort = (
-            self._tracking_controller_linear_stiffness
-            * (command_joint_pos - self.object.data.joint_pos)
-            - self._tracking_controller_angular_damping * self.object.data.joint_vel
-        )
-        effort = effort * self.command.virtual_object_controller_scale_factor_per_env
-        effort = torch.clamp(effort, min=-self.cfg.max_force, max=self.cfg.max_force)
-
+        # Apply joint effort.
         self.object.set_joint_effort_target(effort)
         self.object.write_data_to_sim()
 
