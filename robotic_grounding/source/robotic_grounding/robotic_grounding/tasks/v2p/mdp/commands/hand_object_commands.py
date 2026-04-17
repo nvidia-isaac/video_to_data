@@ -2194,7 +2194,7 @@ class DualHandsObjectTrackingCommand(CommandTerm):
                 .clamp(min=0.0)
                 .view(self.num_envs, 1)
             )
-        elif self.cfg.virtual_object_control_decay_mode == "step":
+        elif self.cfg.virtual_object_control_decay_mode in ("step", "fixed_schedule"):
             self.virtual_object_controller_scale_factor_per_env[
                 self.steps_since_last_reset
                 >= self.cfg.virtual_object_control_decay_steps
@@ -2371,6 +2371,8 @@ class DualHandsObjectTrackingCommand(CommandTerm):
     def _debug_vis_callback(self, event: Any) -> None:
         """Visualize the goal marker."""
         del event  # unused
+        if not hasattr(self._env, "scene"):
+            return
         if hasattr(self, "draw_interface"):
             self.draw_interface.clear_lines()
 
