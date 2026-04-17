@@ -278,6 +278,9 @@ def ls(
     if not prefix.endswith("/") and prefix:
         prefix += "/"
 
+    def _fmt_mtime(dt) -> str:
+        return dt.strftime("%Y-%m-%d %H:%M:%S") if dt else " " * 19
+
     if recursive:
         paginator = client.get_paginator("list_objects_v2")
         total = 0
@@ -288,12 +291,13 @@ def ls(
                 rel = obj["Key"][len(prefix):]
                 if rel:
                     size = obj["Size"]
+                    mtime = _fmt_mtime(obj.get("LastModified"))
                     total_size += size
                     total += 1
                     if limit and total > limit:
                         truncated = True
                         break
-                    print(f"  {size:>12}  {rel}")
+                    print(f"  {mtime}  {size:>12}  {rel}")
             if truncated:
                 break
         msg = f"\n  {total:,} objects"
@@ -304,7 +308,7 @@ def ls(
     else:
         paginator = client.get_paginator("list_objects_v2")
         dirs: list[str] = []
-        files: list[tuple[str, int]] = []
+        files: list[tuple[str, int, str]] = []
         for page in paginator.paginate(Bucket=bucket, Prefix=prefix, Delimiter="/"):
             for cp in page.get("CommonPrefixes", []):
                 name = cp["Prefix"][len(prefix):].rstrip("/")
@@ -313,7 +317,7 @@ def ls(
             for obj in page.get("Contents", []):
                 rel = obj["Key"][len(prefix):]
                 if rel:
-                    files.append((rel, obj["Size"]))
+                    files.append((rel, obj["Size"], _fmt_mtime(obj.get("LastModified"))))
 
         shown = 0
         for d in sorted(dirs):
@@ -321,13 +325,13 @@ def ls(
             if limit and shown > limit:
                 print(f"  ... truncated at {limit} entries")
                 break
-            print(f"  {'DIR':>12}  {d}/")
-        for name, size in sorted(files):
+            print(f"  {' ' * 19}  {'DIR':>12}  {d}/")
+        for name, size, mtime in sorted(files):
             shown += 1
             if limit and shown > limit:
                 print(f"  ... truncated at {limit} entries")
                 break
-            print(f"  {size:>12}  {name}")
+            print(f"  {mtime}  {size:>12}  {name}")
         print(f"\n  {len(dirs)} directories, {len(files)} files")
 
 
