@@ -1,9 +1,8 @@
-FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-devel
+FROM python:3.10-slim
 ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
     ffmpeg \
@@ -12,4 +11,7 @@ RUN apt-get update && apt-get install -y \
 
 COPY . /workspace
 
-RUN pip install -e /workspace/v2d_common -e /workspace/v2d_mv -e /workspace/v2d_mv_preprocess/lib
+RUN pip install --no-cache-dir \
+    -e /workspace/v2d_common \
+    -e /workspace/v2d_mv \
+    -e /workspace/v2d_mv_preprocess/lib

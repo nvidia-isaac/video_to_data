@@ -1,0 +1,92 @@
+# MV Calibration OSMO Workflow: extract images from rosbag, calibrate extrinsics.
+#
+# Usage:
+#   osmo workflow submit reconstruction/workflows/mv_hoi/mv_calibration.yaml \
+#     --set rosbag_url=swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/... \
+#     --set swift_output_base=swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/.../calibration_output/<seq> \
+#     --pool <pool>
+
+workflow:
+  name: {{workflow_name}}
+  resources:
+    default:
+      cpu: 8
+      gpu: 1
+      memory: 64Gi
+      storage: 200Gi
+    cpu_large:
+      cpu: 32
+      gpu: 0
+      memory: 64Gi
+      storage: 200Gi
+
+  tasks:
+  - name: rosbag_to_edex
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_rosbag:{{image_tag}}
+    resource: cpu_large
+    command:
+    - /bin/bash
+    args:
+    - /tmp/entry.sh
+    inputs:
+    - url: {{rosbag_url}}
+    outputs:
+    - url: {{swift_output_base}}/rosbag_to_edex/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.rosbag.lib.rosbag_to_edex \
+          --config_path /tmp/rosbag_config.yaml \
+          --rosbag_path {{input:0}} \
+          --output_path {{output}} \
+          --no_extrinsics
+    - path: /tmp/rosbag_config.yaml
+      contents: |-
+        camera_info_topics:
+          - /front_stereo_camera/left/camera_info
+          - /front_stereo_camera/right/camera_info
+          - /back_stereo_camera/left/camera_info
+          - /back_stereo_camera/right/camera_info
+          - /left_stereo_camera/left/camera_info
+          - /left_stereo_camera/right/camera_info
+          - /right_stereo_camera/left/camera_info
+          - /right_stereo_camera/right/camera_info
+        image_topics:
+          - /front_stereo_camera/left/image_compressed
+          - /front_stereo_camera/right/image_compressed
+          - /back_stereo_camera/left/image_compressed
+          - /back_stereo_camera/right/image_compressed
+          - /left_stereo_camera/left/image_compressed
+          - /left_stereo_camera/right/image_compressed
+          - /right_stereo_camera/left/image_compressed
+          - /right_stereo_camera/right/image_compressed
+        rig_frame: base_link
+        imu_frame: front_stereo_camera_imu
+        output_width: 1920
+        output_height: 1200
+
+  - name: calibrate_extrinsics
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_calibration:{{image_tag}}
+    command:
+    - /bin/bash
+    args:
+    - /tmp/entry.sh
+    inputs:
+    - task: rosbag_to_edex
+    outputs:
+    - url: {{swift_output_base}}/calibrate_extrinsics/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.mv.calibration.lib.calibrate_extrinsics \
+          --camera_params_path {{input:0}}/edex \
+          --image_dir {{input:0}}/images \
+          --output_dir {{output}}
+
+default-values:
+  workflow_name: v2d_mv_calibration
+  image_tag: latest
+  rosbag_url: ???
+  swift_output_base: ???
