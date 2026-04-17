@@ -7,12 +7,18 @@ import isaaclab.terrains as terrain_gen
 import torch
 from isaaclab.assets import AssetBaseCfg
 from isaaclab.envs import ManagerBasedEnvCfg
+from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.utils import configclass
 
-from robotic_grounding.tasks.scene_utils import SceneConfig, apply_scene_objects
+from robotic_grounding.tasks.scene_utils import (
+    SceneConfig,
+    apply_scene_objects,
+    apply_scene_robot,
+)
+from robotic_grounding.tasks.v2p import mdp
 
 
 def _dummy_obs(env: object) -> torch.Tensor:
@@ -60,12 +66,34 @@ class SceneViewerActionsCfg:
 
 
 @configclass
-class SceneViewerEnvCfg(ManagerBasedEnvCfg):
-    """Spawns object + support surface from a SceneConfig YAML. No robot, no RL."""
+class SceneViewerEventCfg:
+    """Prestartup collision group setup; same contract as ``apply_scene_objects`` expects."""
 
-    scene: SceneViewerSceneCfg = SceneViewerSceneCfg(num_envs=1, env_spacing=3.0)
+    setup_collision_groups = EventTerm(
+        func=mdp.configure_collision_groups,
+        mode="prestartup",
+        params={
+            "robot_names": [],
+            "object_names": [],
+            "fixed_object_names": [],
+            "disable_robot_to_object_collisions": False,
+            "disable_robot_to_fixed_object_collisions": True,
+        },
+    )
+
+
+@configclass
+class SceneViewerEnvCfg(ManagerBasedEnvCfg):
+    """Spawns scene objects, optional support surface, and robot from a motion Parquet."""
+
+    scene: SceneViewerSceneCfg = SceneViewerSceneCfg(
+        num_envs=1,
+        env_spacing=3.0,
+        replicate_physics=False,
+    )
     observations: SceneViewerObsCfg = SceneViewerObsCfg()
     actions: SceneViewerActionsCfg = SceneViewerActionsCfg()
+    events: SceneViewerEventCfg = SceneViewerEventCfg()
 
     motion_file: str | None = None
 
@@ -78,3 +106,6 @@ class SceneViewerEnvCfg(ManagerBasedEnvCfg):
         if self.motion_file is not None:
             scene_config = SceneConfig.from_motion_file(self.motion_file)
             apply_scene_objects(self, scene_config)
+            if scene_config.robot_name is not None:
+                apply_scene_robot(self, scene_config, static=False)
+

@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
-"""Reconstruct support surfaces from object still-poses in TACO/ARCTIC sequences.
+"""Reconstruct support surfaces from object still-poses.
 
-Reads Parquet from the loader output; object meshes are loaded from the object_mesh_paths
-field in the schema (one path per body), like vis_retargeted.py.
+Supports all retarget schemas: ManoSharpa (TACO/ARCTIC/OakInk2/HOT3D),
+NvhumanDex3, and NvhumanG1 (whole-body).  The schema is auto-detected from
+parquet columns.
+
+Disks whose bottom Z is near the ground plane (below ``--ground_threshold``)
+are filtered out automatically — the existing ground plane in the sim scene
+already provides that surface.
 
 Usage:
-  1. Run loader first: python scripts/retarget/taco_loader.py --save  (or arctic_loader.py --save)
+  1. Run retarget/loader first (e.g. taco_loader.py --save, nvhuman_to_g1.py --save)
   2. python scripts/reconstruct_support_surfaces.py --input_dir ... [--sequence_id ID]
 """
 
@@ -15,16 +20,24 @@ import random
 from pathlib import Path
 
 import numpy as np
+import pyarrow.parquet as pq
 import trimesh
 from pxr import Gf, Usd, UsdGeom, UsdPhysics
 from robotic_grounding.retarget import HUMAN_MOTION_DATA_DIR
 from robotic_grounding.retarget.data_logger import (
     ManoSharpaData,
+    NvhumanDex3Data,
+    NvhumanG1Data,
     add_sequence_filter_args,
     filter_sequence_ids,
     list_sequence_ids,
 )
 from scipy.spatial.transform import Rotation
+
+try:
+    from robotic_grounding.assets.robot_registry import get_robot_spec as _get_robot_spec
+except ModuleNotFoundError:
+    _get_robot_spec = None  # type: ignore[assignment]
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -33,8 +46,10 @@ DEFAULT_INPUT_DIR_TACO = HUMAN_MOTION_DATA_DIR / "taco" / "taco_loaded"
 DEFAULT_INPUT_DIR_ARCTIC = HUMAN_MOTION_DATA_DIR / "arctic" / "arctic_loaded"
 DEFAULT_INPUT_DIR_OAKINK2 = HUMAN_MOTION_DATA_DIR / "oakink2" / "oakink2_loaded"
 DEFAULT_INPUT_DIR_HOT3D = HUMAN_MOTION_DATA_DIR / "hot3d" / "hot3d_loaded"
+DEFAULT_INPUT_DIR_G1 = HUMAN_MOTION_DATA_DIR / "nvhuman_g1_processed"
 
 DISK_HEIGHT = 0.01  # thin disk thickness in meters
+GROUND_Z_THRESHOLD = 0.05  # disks below this Z are on the ground plane
 
 
 # ---------------------------------------------------------------------------
@@ -61,25 +76,48 @@ def _load_object_meshes_from_paths(
     return meshes
 
 
+def _detect_parquet_schema(input_dir: Path) -> str:
+    """Detect which data logger schema a parquet dataset uses."""
+    columns = set(pq.read_table(str(input_dir), use_pandas_metadata=False).schema.names)
+    if "robot_root_position" in columns:
+        return "nvhuman_g1"
+    if "robot_right_wrist_euler_xyz" in columns:
+        return "nvhuman_dex3"
+    return "mano_sharpa"
+
+
+def _load_parquet_data(
+    input_dir: Path, sequence_id: str, schema: str
+) -> ManoSharpaData | NvhumanDex3Data | NvhumanG1Data:
+    """Load one sequence from Parquet using the appropriate data logger class."""
+    filters = [("sequence_id", "=", sequence_id)]
+    if schema == "nvhuman_g1":
+        return NvhumanG1Data.from_parquet(str(input_dir), filters=filters)
+    if schema == "nvhuman_dex3":
+        return NvhumanDex3Data.from_parquet(str(input_dir), filters=filters)
+    return ManoSharpaData.from_parquet(str(input_dir), filters=filters)
+
+
 def load_object_mesh_and_poses(
     input_dir: Path,
     sequence_id: str,
-) -> tuple[ManoSharpaData, dict[str, trimesh.Trimesh]]:
+    schema: str | None = None,
+) -> tuple[ManoSharpaData | NvhumanDex3Data | NvhumanG1Data, dict[str, trimesh.Trimesh]]:
     """Load one sequence from Parquet and its object meshes via object_mesh_paths.
 
     Returns:
-        data: ManoSharpaData with object_body_position, object_body_wxyz, etc.
+        data: Data logger instance with object_body_position, object_body_wxyz, etc.
         object_meshes: dict[body_name] -> trimesh.
     """
-    data = ManoSharpaData.from_parquet(
-        str(input_dir),
-        filters=[("sequence_id", "=", sequence_id)],
-    )
+    if schema is None:
+        schema = _detect_parquet_schema(input_dir)
+    data = _load_parquet_data(input_dir, sequence_id, schema)
     object_mesh_paths = getattr(data, "object_mesh_paths", None) or []
-    if object_mesh_paths and len(object_mesh_paths) == len(data.object_body_names):
+    object_body_names = getattr(data, "object_body_names", None) or []
+    if object_mesh_paths and len(object_mesh_paths) == len(object_body_names):
         object_meshes = _load_object_meshes_from_paths(
             object_mesh_paths,
-            data.object_body_names,
+            object_body_names,
         )
     else:
         object_meshes = {}
@@ -151,13 +189,17 @@ def _frames_where_object_still(
     return np.nonzero(result)[0]
 
 
-def still_frames_from_mano_sharpa_data(
-    data: ManoSharpaData,
+def still_frames_from_object_data(
+    data: ManoSharpaData | NvhumanDex3Data | NvhumanG1Data,
     body_index: int = 0,
     pos_threshold_m: float = 0.001,
     angle_threshold_rad: float = 0.01,
 ) -> np.ndarray:
-    """Return frame indices where the given object body is still."""
+    """Return frame indices where the given object body is still.
+
+    Works with any schema that has ``object_body_position`` and
+    ``object_body_wxyz`` fields.
+    """
     positions = np.array(data.object_body_position, dtype=np.float64)
     quats = np.array(data.object_body_wxyz, dtype=np.float64)
     positions = positions[:, body_index, :]
@@ -168,6 +210,10 @@ def still_frames_from_mano_sharpa_data(
         pos_threshold_m=pos_threshold_m,
         angle_threshold_rad=angle_threshold_rad,
     )
+
+
+# Keep the old name as an alias for backward compatibility.
+still_frames_from_mano_sharpa_data = still_frames_from_object_data
 
 
 def extract_continuous_segments(still_frames: np.ndarray) -> list[np.ndarray]:
@@ -375,9 +421,9 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--dataset",
-        choices=("taco", "arctic", "oakink2", "hot3d"),
+        choices=("taco", "arctic", "oakink2", "hot3d", "nvhuman_g1"),
         default="oakink2",
-        help="Dataset for default input_dir when --input_dir not set (default: taco).",
+        help="Dataset for default input_dir when --input_dir not set.",
     )
     add_sequence_filter_args(parser)
     parser.add_argument(
@@ -391,23 +437,59 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Output .usda path for support surfaces (default: <sequence_id>_support.usda).",
     )
+    parser.add_argument(
+        "--ground_threshold",
+        type=float,
+        default=GROUND_Z_THRESHOLD,
+        help=(
+            f"Disks with z <= this are on the ground plane and skipped "
+            f"(default: {GROUND_Z_THRESHOLD}m)."
+        ),
+    )
     return parser.parse_args()
 
 
+def _compute_height_offset(data: ManoSharpaData | NvhumanDex3Data | NvhumanG1Data, schema: str) -> float:
+    """Compute the Z offset needed to align parquet data with the spawned scene.
+
+    Object and support-surface positions from the retarget pipeline are
+    already in a ground-relative frame (Z=0 at foot level) that matches the
+    sim ground plane, so no offset is needed for any schema.
+    """
+    return 0.0
+
+
 def _process_sequence(
-    input_dir: Path, sequence_id: str, output_override: str | None
+    input_dir: Path,
+    sequence_id: str,
+    output_override: str | None,
+    schema: str | None = None,
+    ground_z_threshold: float = GROUND_Z_THRESHOLD,
 ) -> None:
     """Process a single sequence: detect still frames, compute disks, write USD."""
-    data, object_meshes = load_object_mesh_and_poses(input_dir, sequence_id)
+    if schema is None:
+        schema = _detect_parquet_schema(input_dir)
+    data, object_meshes = load_object_mesh_and_poses(
+        input_dir, sequence_id, schema=schema
+    )
 
-    num_frames = len(data.mano_right_trans)
+    height_offset = _compute_height_offset(data, schema)
+    if abs(height_offset) > 1e-6:
+        print(f"  Applying height offset: {height_offset:.4f}m (schema={schema})")
+
+    object_body_names = getattr(data, "object_body_names", None) or []
+    num_frames = len(getattr(data, "object_body_position", []))
     print(f"\nSequence: {sequence_id}")
     print(f"Frames: {num_frames}")
-    print(f"Object bodies: {data.object_body_names}")
-    for name in data.object_body_names:
+    print(f"Object bodies: {object_body_names}")
+    for name in object_body_names:
         mesh = object_meshes.get(name)
         n_verts = mesh.vertices.shape[0] if mesh is not None else 0
         print(f"  {name}: mesh vertices={n_verts}")
+
+    if num_frames == 0 or not object_body_names:
+        print("No object trajectory data — skipping.")
+        return
 
     # For articulated objects, only reconstruct support surfaces for the root body
     # (index 0). Child bodies are connected via joints and don't rest on surfaces.
@@ -416,7 +498,7 @@ def _process_sequence(
 
     all_disks: dict[str, list[tuple[float, float, float, float]]] = {}
 
-    for body_idx, body_name in enumerate(data.object_body_names):
+    for body_idx, body_name in enumerate(object_body_names):
         if is_articulated and body_idx > 0:
             print(f"  Skipping {body_name}: child body of articulated object")
             continue
@@ -425,7 +507,7 @@ def _process_sequence(
             print(f"  Skipping {body_name}: no mesh loaded")
             continue
 
-        still_frames = still_frames_from_mano_sharpa_data(data, body_index=body_idx)
+        still_frames = still_frames_from_object_data(data, body_index=body_idx)
         segments = extract_continuous_segments(still_frames)
         print(
             f"  {body_name}: {len(still_frames)} still frames, {len(segments)} segment(s)"
@@ -450,11 +532,26 @@ def _process_sequence(
 
         if body_disks:
             merged = merge_overlapping_disks(body_disks)
-            print(f"    merged {len(body_disks)} disk(s) -> {len(merged)}")
-            all_disks[body_name] = merged
+            # Apply height offset so disk positions match the spawned scene.
+            if abs(height_offset) > 1e-6:
+                merged = [(cx, cy, z + height_offset, r) for cx, cy, z, r in merged]
+            # Filter out disks on the ground plane — the sim ground handles those.
+            above_ground = [d for d in merged if d[2] > ground_z_threshold]
+            on_ground = len(merged) - len(above_ground)
+            if on_ground:
+                print(
+                    f"    filtered {on_ground} disk(s) at ground level "
+                    f"(z <= {ground_z_threshold:.3f}m)"
+                )
+            print(
+                f"    merged {len(body_disks)} disk(s) -> {len(merged)}, "
+                f"kept {len(above_ground)} above ground"
+            )
+            if above_ground:
+                all_disks[body_name] = above_ground
 
     if not all_disks:
-        print("No support disks generated.")
+        print("No support disks needed (object on ground or always held).")
         return
 
     total = sum(len(v) for v in all_disks.values())
@@ -478,6 +575,8 @@ def main() -> None:
         input_dir = DEFAULT_INPUT_DIR_ARCTIC
     elif args.dataset == "hot3d":
         input_dir = DEFAULT_INPUT_DIR_HOT3D
+    elif args.dataset == "nvhuman_g1":
+        input_dir = DEFAULT_INPUT_DIR_G1
     else:
         input_dir = DEFAULT_INPUT_DIR_OAKINK2
     if not input_dir.is_dir():
@@ -499,8 +598,17 @@ def main() -> None:
     ids_to_process = filter_sequence_ids(sequence_ids, args)
     print(f"Processing {len(ids_to_process)} of {len(sequence_ids)} sequence(s).")
 
+    schema = _detect_parquet_schema(input_dir)
+    print(f"Detected schema: {schema}")
+
     for sequence_id in ids_to_process:
-        _process_sequence(input_dir, sequence_id, args.output)
+        _process_sequence(
+            input_dir,
+            sequence_id,
+            args.output,
+            schema=schema,
+            ground_z_threshold=args.ground_threshold,
+        )
 
 
 if __name__ == "__main__":

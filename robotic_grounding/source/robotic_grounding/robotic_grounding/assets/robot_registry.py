@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 from isaaclab.assets.articulation import ArticulationCfg
 
+from robotic_grounding.assets.g1 import G1_CYLINDER_MODEL_12_HANDS_DEX_DELAYED_CFG
 from robotic_grounding.assets.sharpa_wave import (
     FINGER_JOINTS,
     FINGERTIP_BODY_NAME,
@@ -53,6 +54,15 @@ ROBOT_REGISTRY: dict[str, RobotSpec] = {
         wrist_body_name=WRIST_BODY_NAME,
         fingertip_body_name=FINGERTIP_BODY_NAME,
         hand_contact_bodies=HAND_CONTACT_BODIES,
+    ),
+    # Whole-body retarget (nvhuman_to_g1.py) uses main_with_hand.urdf — keep asset in sync.
+    "g1": RobotSpec(
+        robot_cfg=G1_CYLINDER_MODEL_12_HANDS_DEX_DELAYED_CFG,
+        wrist_joint_names=[],
+        finger_joint_names=[],
+        wrist_body_name="",
+        fingertip_body_name="",
+        hand_contact_bodies=[],
     ),
 }
 

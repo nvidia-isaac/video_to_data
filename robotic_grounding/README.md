@@ -55,6 +55,8 @@ python scripts/rsl_rl/dummy_agent.py --task Sharpa-V2P-Debug-v0
 To create a debug environment for other tasks, use `sharpa_debug_env_cfg.py` as a template—inherit from your base environment config and override the actions with GUI-controlled versions (`JointGUIActionCfg`, `ObjectPoseGUIActionCfg`, `RewardVisualizerCfg`). Remember to disable action related MDP terms since the debug env does not have the original actions.
 
 ## Retargeting
+
+### Hand-only (Sharpa / Arctic)
 ```bash
 python scripts/retarget/arctic_loader.py --save # Check the file for arguments
 python scripts/retarget/arctic_to_sharpa.py --save # Check the file for arguments
@@ -62,6 +64,53 @@ python scripts/retarget/vis_retargeted.py # Need to run retargeting and save res
 ```
 
 For Arctic motion files, download them from [here](https://drive.google.com/file/d/1rL4T9N4AwQoWRqS5pOuB6a0D0B9Y8dsP/view?usp=sharing) and extract to `source/robotic_grounding/robotic_grounding/assets/human_motion_data/arctic`. (TODO: We need to figure out an appropriate way for data storage)
+
+### Whole-body (NVHuman → G1)
+```bash
+# Retarget and save Parquet (data_folder must contain nova_params_opt.pt, poses.npy, object/textured_mesh.obj)
+python scripts/retarget/nvhuman_to_g1.py <data_folder> --save
+
+# Visualize retargeting in Viser (port 8080)
+python scripts/retarget/nvhuman_to_g1.py <data_folder> --visualize
+```
+
+### Kinematic replay (all schemas)
+Replay retargeted motion in Isaac Lab. Supports both whole-body (G1) and dual floating-hand (Sharpa/Dex3) data.
+Robot and object are teleported kinematically — no physics forces act on them.
+```bash
+# Replay G1 retargeted data (loops by default)
+python scripts/replay_motion.py \
+    --motion_file source/robotic_grounding/robotic_grounding/assets/human_motion_data/nvhuman_g1_processed/sequence_id=<seq>/robot_name=g1
+
+# Replay hand-only data
+python scripts/replay_motion.py \
+    --motion_file source/robotic_grounding/robotic_grounding/assets/human_motion_data/arctic_processed/sequence_id=<seq>/robot_name=sharpa_wave
+
+# Options
+python scripts/replay_motion.py --motion_file <path> --speed 0.5   # Slow motion
+python scripts/replay_motion.py --motion_file <path> --no-loop     # Stop at last frame
+python scripts/replay_motion.py --motion_file <path> --headless    # No GUI
+```
+
+### Support surface reconstruction
+Detect where objects rest on surfaces above the ground plane and generate collision geometry for RL training.
+```bash
+# For hand-only datasets (auto-detects schema)
+python scripts/reconstruct_support_surfaces.py --input_dir <loader_output_dir> --sequence_id <seq>
+
+# For G1 whole-body retargeted data
+python scripts/reconstruct_support_surfaces.py --input_dir source/robotic_grounding/robotic_grounding/assets/human_motion_data/nvhuman_g1_processed --sequence_id <seq>
+
+# Or use the dataset shortcut
+python scripts/reconstruct_support_surfaces.py --dataset nvhuman_g1 --sequence_id <seq>
+```
+
+Objects resting on the ground are automatically filtered out (threshold configurable via `--ground_threshold`).
+
+### Scene viewer (static spawn verification)
+```bash
+python scripts/view_scene.py --motion_file <parquet_partition_path>
+```
 
 ## RL training
 ```bash

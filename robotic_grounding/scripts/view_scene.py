@@ -1,8 +1,19 @@
-"""View a scene: spawns object + support surface from a motion file (no RL).
+"""View a scene: spawns object, optional support surface, and robot from Parquet (no RL).
 
-Usage:
+Robot articulation is added when the motion path includes a ``robot_name=...``
+partition and that name exists in ``assets/robot_registry.py`` (e.g. ``g1``).
+
+Usage (Sharpa / Arctic-style Parquet under ``human_motion_data``):
     python scripts/view_scene.py \
-        --motion_file source/.../arctic_processed/sequence_id=arctic_s01_ketchup_use_01/robot_name=sharpa_wave
+        --motion_file source/robotic_grounding/robotic_grounding/assets/human_motion_data/arctic_processed/sequence_id=arctic_s01_ketchup_use_01/robot_name=sharpa_wave
+
+NVHuman→G1 retargeted data (after ``nvhuman_to_g1.py --save``):
+    # Save motion first (writes under HUMAN_MOTION_DATA_DIR/nvhuman_g1_processed/...)
+    python scripts/retarget/nvhuman_to_g1.py <sequence_dir> --save
+
+    # Point at the partition directory (sequence_id=.../robot_name=g1) or use cwd-relative path
+    python scripts/view_scene.py \
+        --motion_file source/robotic_grounding/robotic_grounding/assets/human_motion_data/nvhuman_g1_processed/sequence_id=<your_sequence>/robot_name=g1
 
     # Headless (validate without GUI)
     python scripts/view_scene.py --motion_file <path> --headless
