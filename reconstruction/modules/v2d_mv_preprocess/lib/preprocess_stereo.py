@@ -152,7 +152,19 @@ def preprocess_stereo(
     left_files = left_source.image_paths
     right_files = right_source.image_paths
 
-    assert len(left_files) == len(right_files), "Mismatch in number of left and right images"
+    if len(left_files) != len(right_files):
+        left_names = {p.name for p in left_files}
+        right_names = {p.name for p in right_files}
+        only_left = sorted(left_names - right_names)
+        only_right = sorted(right_names - left_names)
+        logger.error(
+            f"Frame count mismatch: left={len(left_files)}, right={len(right_files)}. "
+            f"Only in left ({len(only_left)}): {only_left[:10]}. "
+            f"Only in right ({len(only_right)}): {only_right[:10]}."
+        )
+        raise AssertionError(
+            f"Mismatch in number of left ({len(left_files)}) and right ({len(right_files)}) images"
+        )
     assert len(left_files) > 0, "No frames to process"
 
     logger.info(f"Processing {len(left_files)} frames with {num_workers} workers...")

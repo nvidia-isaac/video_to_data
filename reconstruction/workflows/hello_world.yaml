@@ -1,0 +1,40 @@
+# Hello world OSMO workflow: download a file from Swift and print it.
+#
+# Usage:
+#   osmo workflow submit reconstruction/workflows/hello_world.yaml \
+#     --set input_url=swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/.../hoi_metadata.yaml \
+#     --pool <pool>
+
+workflow:
+  name: {{workflow_name}}
+  resources:
+    default:
+      cpu: 2
+      memory: 8Gi
+      storage: 10Gi
+
+  tasks:
+  - name: hello
+    image: {{image}}
+    command:
+    - /bin/bash
+    args:
+    - /tmp/entry.sh
+    inputs:
+    - url: {{input_url}}
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        echo "=== Downloaded input ==="
+        ls -la {{input:0}}
+        echo ""
+        echo "=== hoi_metadata.yaml ==="
+        cat {{input:0}}/hoi_metadata.yaml
+        echo ""
+        echo "=== Done ==="
+
+default-values:
+  workflow_name: v2d_hello_world
+  image: nvcr.io/nvidia/cuda:12.4.1-base-ubuntu22.04
+  input_url: ???

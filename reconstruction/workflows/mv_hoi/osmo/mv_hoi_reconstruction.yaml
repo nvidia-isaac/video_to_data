@@ -1,0 +1,471 @@
+# MV HOI Reconstruction OSMO Workflow.
+#
+# Usage:
+#   osmo workflow submit reconstruction/workflows/mv_hoi/mv_hoi_reconstruction.yaml \
+#     --set rosbag_url=swift://... \
+#     --set extrinsics_url=swift://... \
+#     --set mesh_url=swift://... \
+#     --set swift_output_base=swift://.../<dataset>/data_output/<seq> \
+#     --pool <pool>
+
+workflow:
+  name: {{workflow_name}}
+  resources:
+    default:
+      cpu: 8
+      gpu: 1
+      memory: 64Gi
+      storage: 200Gi
+    cpu_large:
+      cpu: 32
+      gpu: 0
+      memory: 64Gi
+      storage: 200Gi
+    cpu_small:
+      cpu: 8
+      gpu: 0
+      memory: 16Gi
+      storage: 10Gi
+
+  tasks:
+
+  # Extract images + intrinsics from rosbag
+  - name: rosbag_to_edex
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_rosbag:{{image_tag}}
+    resource: cpu_large
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - url: {{rosbag_url}}
+    outputs:
+    - url: {{swift_output_base}}/rosbag_to_edex/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.rosbag.lib.rosbag_to_edex \
+          --config_path /tmp/rosbag_config.yaml \
+          --rosbag_path {{input:0}} \
+          --output_path {{output}} \
+          --no_extrinsics
+        # Forward hoi_metadata for downstream tasks
+        if [ -f "{{input:0}}/hoi_metadata.yaml" ]; then
+          cp "{{input:0}}/hoi_metadata.yaml" "{{output}}/hoi_metadata.yaml"
+        fi
+    - path: /tmp/rosbag_config.yaml
+      contents: |-
+        camera_info_topics:
+          - /front_stereo_camera/left/camera_info
+          - /front_stereo_camera/right/camera_info
+          - /back_stereo_camera/left/camera_info
+          - /back_stereo_camera/right/camera_info
+          - /left_stereo_camera/left/camera_info
+          - /left_stereo_camera/right/camera_info
+          - /right_stereo_camera/left/camera_info
+          - /right_stereo_camera/right/camera_info
+        image_topics:
+          - /front_stereo_camera/left/image_compressed
+          - /front_stereo_camera/right/image_compressed
+          - /back_stereo_camera/left/image_compressed
+          - /back_stereo_camera/right/image_compressed
+          - /left_stereo_camera/left/image_compressed
+          - /left_stereo_camera/right/image_compressed
+          - /right_stereo_camera/left/image_compressed
+          - /right_stereo_camera/right/image_compressed
+        rig_frame: base_link
+        imu_frame: front_stereo_camera_imu
+        output_width: 1920
+        output_height: 1200
+
+  # Preprocessing (rectify, rescale, encode video, remap HOI bbox)
+  - name: mv_preprocess
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_preprocess:{{image_tag}}
+    resource: cpu_large
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: rosbag_to_edex
+    - url: {{extrinsics_url}}
+    outputs:
+    - url: {{swift_output_base}}/mv_preprocess/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.mv.preprocess.lib.mv_preprocess \
+          --image_dir {{input:0}}/images \
+          --output_dir {{output}} \
+          --camera_params_path {{input:0}}/edex \
+          --extrinsics_camera_params_path {{input:1}}/edex \
+          --hoi_metadata_path {{input:0}}/hoi_metadata.yaml
+
+  # Stereo depth estimation
+  - name: foundation_stereo
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_foundation_stereo:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: mv_preprocess
+    - dataset: {name: v2d_mv_hoi_data}
+    outputs:
+    - url: {{swift_output_base}}/foundation_stereo/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.foundation_stereo.lib.mv_image_list_to_depth \
+          --camera_params_path {{input:0}}/edex \
+          --image_dir {{input:0}}/images \
+          --output_dir {{output}} \
+          --model_dir {{input:1}}/v2d_mv_hoi_data/data/weights/foundation_stereo
+
+  # Object bounding-box detection (Grounding DINO)
+  - name: grounding_dino
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_grounding_dino:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: mv_preprocess
+    - dataset: {name: v2d_mv_hoi_data}
+    outputs:
+    - url: {{swift_output_base}}/grounding_dino/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.grounding_dino.lib.mv_image_list_to_object_bboxes \
+          --image_dir {{input:0}}/images \
+          --prompt_path {{input:0}}/prompt.txt \
+          --output_dir {{output}} \
+          --model_dir {{input:1}}/v2d_mv_hoi_data/data/weights/grounding_dino
+
+  # Object masks (SAM2 with grounding-dino JSON bboxes)
+  - name: sam2_object_masks
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_sam2:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: grounding_dino
+    - task: mv_preprocess
+    - dataset: {name: v2d_mv_hoi_data}
+    outputs:
+    - url: {{swift_output_base}}/sam2_object_masks/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.sam2.lib.mv_videos_to_masks \
+          --bbox_dir {{input:0}} \
+          --image_dir {{input:1}}/images \
+          --output_dir {{output}} \
+          --weights_dir {{input:2}}/v2d_mv_hoi_data/data/weights/sam2 \
+          --config_path /tmp/sam2_object_config.yaml
+    - path: /tmp/sam2_object_config.yaml
+      contents: |-
+        bbox_dir: ???
+        image_dir: null
+        video_dir: null
+        output_dir: ???
+        weights_dir: ???
+        rig_config: stereo-4
+        cameras: [0, 2, 4, 6]
+        image_path_template: "${image_dir}/{cam_name}"
+        video_path_template: "${video_dir}/{cam_name}.mp4"
+        bbox_path_template: "${bbox_dir}/{cam_name}.json"
+        mask_path_template: "${output_dir}/{cam_name}"
+
+  # Gate: object mask containment vs labeled bboxes
+  - name: check_object_mask
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    resource: cpu_small
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: sam2_object_masks
+    - task: mv_preprocess
+    outputs:
+    - url: {{swift_output_base}}/check_object_mask/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.mv.postprocess.lib.check_object_mask \
+          --mask_dir {{input:0}} \
+          --labeled_bbox_dir {{input:1}}/labeled_bboxes \
+          --output_dir {{output}} \
+          --min_containment {{min_mask_containment}} \
+          --bbox_padding {{mask_bbox_padding}}
+
+  # Object pose tracking (FoundationPose)
+  - name: foundation_pose
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_foundation_pose:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: check_object_mask
+    - task: mv_preprocess
+    - task: foundation_stereo
+    - task: sam2_object_masks
+    - url: {{mesh_url}}
+    - dataset: {name: v2d_mv_hoi_data}
+    outputs:
+    - url: {{swift_output_base}}/foundation_pose/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        MESH=$(find {{input:4}} -type f \( -name "*.obj" -o -name "*.glb" -o -name "*.ply" -o -name "*.stl" \) | head -1)
+        if [ -z "$MESH" ]; then
+          echo "ERROR: No mesh file found in {{input:4}}"
+          ls -laR {{input:4}}
+          exit 1
+        fi
+        echo "Using mesh: $MESH"
+        python -m v2d.foundation_pose.lib.mv_videos_to_poses \
+          --camera_params_path {{input:1}}/edex \
+          --image_dir {{input:1}}/images \
+          --depth_dir {{input:2}} \
+          --mask_dir {{input:3}} \
+          --mesh_path "$MESH" \
+          --weights_dir {{input:5}}/v2d_mv_hoi_data/data/weights/foundation_pose \
+          --output_dir {{output}}
+
+  # Human bounding-box detection + tracking (Detectron2)
+  - name: detectron2
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_detectron2:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: mv_preprocess
+    - dataset: {name: v2d_mv_hoi_data}
+    outputs:
+    - url: {{swift_output_base}}/detectron2/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.detectron2.lib.mv_track_bboxes \
+          --image_dir {{input:0}}/images \
+          --weights_dir {{input:1}}/v2d_mv_hoi_data/data/weights/detectron2 \
+          --output_dir {{output}}
+
+  # Human masks (SAM2 with detectron2 PT bboxes)
+  - name: sam2_human_masks
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_sam2:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: detectron2
+    - task: mv_preprocess
+    - dataset: {name: v2d_mv_hoi_data}
+    outputs:
+    - url: {{swift_output_base}}/sam2_human_masks/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.sam2.lib.mv_videos_to_masks \
+          --bbox_dir {{input:0}} \
+          --image_dir {{input:1}}/images \
+          --output_dir {{output}} \
+          --weights_dir {{input:2}}/v2d_mv_hoi_data/data/weights/sam2
+
+  # Human body reconstruction (SAM3D-Body)
+  - name: sam3d_body
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_sam3d_body:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: mv_preprocess
+    - task: detectron2
+    - task: sam2_human_masks
+    - dataset: {name: v2d_mv_hoi_data}
+    outputs:
+    - url: {{swift_output_base}}/sam3d_body/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.sam3d_body.lib.mv_optimize_mhr_params \
+          --camera_params_path {{input:0}}/edex \
+          --image_dir {{input:0}}/images \
+          --bbox_dir {{input:1}} \
+          --mask_dir {{input:2}} \
+          --weights_dir {{input:3}}/v2d_mv_hoi_data/data/weights/sam3d_body \
+          --output_dir {{output}}
+
+  # Chamfer evaluation – object
+  - name: eval_chamfer_object
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: mv_preprocess
+    - task: foundation_pose
+    - task: foundation_stereo
+    - task: sam2_object_masks
+    - url: {{mesh_url}}
+    outputs:
+    - url: {{swift_output_base}}/eval_chamfer_object/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        MESH=$(find {{input:4}} -type f \( -name "*.obj" -o -name "*.glb" -o -name "*.ply" -o -name "*.stl" \) | head -1)
+        if [ -z "$MESH" ]; then
+          echo "ERROR: No mesh file found in {{input:4}}"
+          exit 1
+        fi
+        python -m v2d.mv.postprocess.lib.mv_eval_chamfer_object \
+          --camera_params_path {{input:0}}/edex \
+          --object_mesh_path "$MESH" \
+          --object_pose_dir {{input:1}} \
+          --depth_dir {{input:2}} \
+          --mask_dir {{input:3}} \
+          --output_dir {{output}}
+
+  # Chamfer evaluation – human
+  - name: eval_chamfer_human
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: mv_preprocess
+    - task: sam3d_body
+    - task: foundation_stereo
+    - task: sam2_human_masks
+    outputs:
+    - url: {{swift_output_base}}/eval_chamfer_human/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.mv.postprocess.lib.mv_eval_chamfer_human \
+          --camera_params_path {{input:0}}/edex \
+          --human_pose_dir {{input:1}} \
+          --depth_dir {{input:2}} \
+          --mask_dir {{input:3}} \
+          --output_dir {{output}}
+
+  # Render HOI overlay videos
+  - name: render_hoi_overlay
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: mv_preprocess
+    - task: foundation_pose
+    - task: sam3d_body
+    - url: {{mesh_url}}
+    outputs:
+    - url: {{swift_output_base}}/render_hoi_overlay/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        MESH=$(find {{input:3}} -type f \( -name "*.obj" -o -name "*.glb" -o -name "*.ply" -o -name "*.stl" \) | head -1)
+        if [ -z "$MESH" ]; then
+          echo "ERROR: No mesh file found in {{input:3}}"
+          exit 1
+        fi
+        python -m v2d.mv.postprocess.lib.mv_render_hoi_overlay \
+          --camera_params_path {{input:0}}/edex \
+          --object_mesh_path "$MESH" \
+          --object_pose_dir {{input:1}} \
+          --human_pose_dir {{input:2}} \
+          --image_dir {{input:0}}/images \
+          --output_dir {{output}}
+
+  # # Wis3D interactive visualization
+  # - name: visualize_wis3d
+  #   image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+  #   command: [/bin/bash]
+  #   args: [/tmp/entry.sh]
+  #   inputs:
+  #   - task: mv_preprocess
+  #   - task: foundation_pose
+  #   - task: sam3d_body
+  #   - url: {{mesh_url}}
+  #   outputs:
+  #   - url: {{swift_output_base}}/visualize_wis3d/
+  #   files:
+  #   - path: /tmp/entry.sh
+  #     contents: |-
+  #       set -ex
+  #       MESH=$(find {{input:3}} -type f \( -name "*.obj" -o -name "*.glb" -o -name "*.ply" -o -name "*.stl" \) | head -1)
+  #       if [ -z "$MESH" ]; then
+  #         echo "ERROR: No mesh file found in {{input:3}}"
+  #         exit 1
+  #       fi
+  #       python -m v2d.mv.postprocess.lib.mv_visualize_wis3d \
+  #         --camera_params_path {{input:0}}/edex \
+  #         --object_mesh_path "$MESH" \
+  #         --object_pose_dir {{input:1}} \
+  #         --human_pose_dir {{input:2}} \
+  #         --output_dir {{output}}
+
+  # Final QC gate – aggregate chamfer + mask-containment checks
+  - name: check_accuracy
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    resource: cpu_small
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: eval_chamfer_object
+    - task: eval_chamfer_human
+    - task: check_object_mask
+    outputs:
+    - url: {{swift_output_base}}/check_accuracy/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.mv.postprocess.lib.check_accuracy \
+          --chamfer_object_dir {{input:0}} \
+          --chamfer_human_dir {{input:1}} \
+          --check_object_mask_dir {{input:2}} \
+          --output_dir {{output}} \
+          --max_chamfer_object {{max_chamfer_object}} \
+          --max_chamfer_human {{max_chamfer_human}}
+
+  # HITL intake staging – OSMO copies the output to both swift_output_base
+  # and hitl_s3_base. Depends on check_accuracy so it only runs on PASS.
+  - name: upload_hitl
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    resource: cpu_small
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: check_accuracy
+    - task: render_hoi_overlay
+    - task: mv_preprocess
+    outputs:
+    - url: {{swift_output_base}}/upload_hitl/
+    - url: {{hitl_s3_base}}/{{hitl_batch_name}}/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.mv.postprocess.lib.upload_hitl \
+          --overlay_dir {{input:1}} \
+          --hoi_metadata_path {{input:2}}/hoi_metadata.yaml \
+          --output_dir {{output}} \
+          --hitl_s3_base "{{hitl_s3_base}}" \
+          --hitl_batch_name "{{hitl_batch_name}}" \
+          --video_name "{{workflow_name}}" \
+          --s3_region "{{s3_region}}"
+
+default-values:
+  workflow_name: v2d_mv_hoi_reconstruction
+  image_tag: latest
+  rosbag_url: ???
+  extrinsics_url: ???
+  mesh_url: ???
+  swift_output_base: ???
+  max_chamfer_object: "30.0"
+  max_chamfer_human: "30.0"
+  min_mask_containment: "0.8"
+  mask_bbox_padding: "0.1"
+  hitl_s3_base: ???
+  hitl_batch_name: ???
+  s3_region: "us-west-2"

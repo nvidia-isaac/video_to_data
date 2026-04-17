@@ -164,10 +164,12 @@ def _producer(
 
 def _consumer(thread_id: int, frame_queue: queue.Queue, shutdown_event: threading.Event) -> None:
     """Consume frames from the queue and write them to disk."""
-    while not shutdown_event.is_set():
+    while True:
         try:
             images_base_path, topic, frame_idx, frame = frame_queue.get(timeout=1)
         except queue.Empty:
+            if shutdown_event.is_set():
+                return
             continue
         image_path = _image_path(images_base_path, topic, frame_idx)
         frame.to_image().save(str(image_path))
@@ -213,10 +215,22 @@ def image_extract_from_rosbag(
         timestamps_df = producer_future.result()
 
     logger.info(f"Image extraction took {time.time() - start:.1f}s.")
+    raw_counts = {
+        topic: int((timestamps_df[topic] >= 0).sum())
+        for topic in timestamps_df.columns
+    }
+    raw_logs = "\n".join(f"\t- {topic}: {count}" for topic, count in raw_counts.items())
+    logger.info("Raw extracted frame count per topic:\n" + raw_logs)
 
     # Synchronize
     synced_df = _synchronize_images(timestamps_df, config.output_path / "images", config.sync_threshold_ns)
     num_frames = _extract_frame_metadata(synced_df, config)
+    synced_counts = {
+        topic: len(list(_image_path(config.output_path / "images", topic, 0).parent.glob("*.png")))
+        for topic in synced_df.columns
+    }
+    synced_logs = "\n".join(f"\t- {topic}: {count}" for topic, count in synced_counts.items())
+    logger.info("Synced on-disk frame count per topic:\n" + synced_logs)
     logger.info(f"Number of synced frames: {num_frames}")
     return num_frames
 
@@ -252,8 +266,10 @@ def _synchronize_images(
             path.unlink(missing_ok=True)
             front_idx[topics[argmin]] += 1
 
+    # Final outputs are compacted to [0, frame_idx). Remove all tail files
+    # regardless of per-topic cursor state to avoid stale leftovers.
     for topic in topics:
-        for old_frame_idx in range(front_idx[topic], timestamps_df.shape[0]):
+        for old_frame_idx in range(frame_idx, timestamps_df.shape[0]):
             _image_path(images_base_path, topic, old_frame_idx).unlink(missing_ok=True)
 
     synced_df = pd.DataFrame(synced_timestamps)

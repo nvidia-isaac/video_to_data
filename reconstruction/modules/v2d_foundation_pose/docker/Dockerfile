@@ -77,13 +77,16 @@ RUN pip install \
 
 RUN pip install h5py fast_simplification gdown
 
-COPY . /workspace
+COPY v2d_foundation_pose/lib/FoundationPose/mycpp /workspace/v2d_foundation_pose/lib/FoundationPose/mycpp
+COPY v2d_foundation_pose/lib/FoundationPose/bundlesdf/mycuda /workspace/v2d_foundation_pose/lib/FoundationPose/bundlesdf/mycuda
 
 RUN cd /workspace/v2d_foundation_pose/lib/FoundationPose/mycpp \
     && mkdir -p build && cd build && cmake .. -DPYTHON_EXECUTABLE=$(which python) && make -j11
 
 RUN cd /workspace/v2d_foundation_pose/lib/FoundationPose/bundlesdf/mycuda && \
     TORCH_CUDA_ARCH_LIST="8.0 8.6 8.9 9.0" pip install -e .
+
+COPY . /workspace
 
 RUN pip install -e "/workspace/v2d_mv[io,math]" \
     -e /workspace/v2d_common -e /workspace/v2d_mesh/lib -e /workspace/v2d_foundation_pose/lib

@@ -8,8 +8,10 @@ version = "0.1.0"
 description = "Multi-view postprocessing: HOI overlay rendering and 3D visualization"
 requires-python = ">=3.10"
 dependencies = [
+    "boto3",
     "numpy",
     "omegaconf",
+    "pyyaml",
     "scipy",
     "v2d-common",
     "v2d-mv[io,vis]",
