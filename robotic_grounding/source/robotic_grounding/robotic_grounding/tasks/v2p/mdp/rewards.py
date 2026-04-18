@@ -10,6 +10,12 @@ from robotic_grounding.tasks.v2p.mdp.observations import (
     finger_contact_forces,
 )
 from robotic_grounding.tasks.v2p.mdp.utils import chamfer_distance
+from robotic_grounding.tasks.v2p.mdp.utils_jit import (
+    contact_wrench_support_reward_jit,
+    hand_keypoints_tracking_jit,
+    missed_contact_penalty_jit,
+    unintended_contact_penalty_jit,
+)
 
 
 def contact_force_penalty(
@@ -129,7 +135,7 @@ def object_position_tracking_exp(
     command = env.command_manager.get_term(command_name)
 
     # Get current object state and position error
-    object_position_e = command.object_position_e.squeeze(1)
+    object_position_e = command.object_position_e_sq
     object_position_error_e = torch.sum(
         torch.square(command.object_body_position_command_e - object_position_e),
         dim=-1,
@@ -159,7 +165,7 @@ def object_wxyz_tracking_exp(
     command = env.command_manager.get_term(command_name)
 
     # Get current object state and orientation error
-    object_wxyz = command.object_orientation_e.squeeze(1)
+    object_wxyz = command.object_wxyz_e_sq
     object_orientation_error_e = math_utils.quat_error_magnitude(
         command.object_body_wxyz_command_e, object_wxyz
     )
@@ -255,59 +261,18 @@ def hand_keypoints_tracking_exp(
         torch.Tensor: A tensor of shape (num_envs,) containing the imitation reward for each environment.
     """
     command = env.command_manager.get_term(command_name)
-
-    # Combine wrist and fingertip positions
-    left_hand_keypoints_position_command_e = torch.cat(
-        [
-            command.left_hand_wrist_pose_command_e[:, :3].unsqueeze(1),
-            command.left_hand_fingertip_position_command_e[..., :3],
-        ],
-        dim=1,
+    return hand_keypoints_tracking_jit(
+        left_wrist_cmd=command.left_hand_wrist_pose_command_e[:, :3],
+        right_wrist_cmd=command.right_hand_wrist_pose_command_e[:, :3],
+        left_fingertip_cmd=command.left_hand_fingertip_position_command_e[..., :3],
+        right_fingertip_cmd=command.right_hand_fingertip_position_command_e[..., :3],
+        left_wrist_cur=command.left_hand_wrist_position_e,
+        right_wrist_cur=command.right_hand_wrist_position_e,
+        left_fingertip_cur=command.left_hand_fingertip_position_e[..., :3],
+        right_fingertip_cur=command.right_hand_fingertip_position_e[..., :3],
+        var=float(var),
+        threshold=float(threshold),
     )
-    right_hand_keypoints_position_command_e = torch.cat(
-        [
-            command.right_hand_wrist_pose_command_e[:, :3].unsqueeze(1),
-            command.right_hand_fingertip_position_command_e[..., :3],
-        ],
-        dim=1,
-    )
-    left_hand_keypoints_position_e = torch.cat(
-        [
-            command.left_hand_wrist_position_e.unsqueeze(1),
-            command.left_hand_fingertip_position_e[..., :3],
-        ],
-        dim=1,
-    )
-    right_hand_keypoints_position_e = torch.cat(
-        [
-            command.right_hand_wrist_position_e.unsqueeze(1),
-            command.right_hand_fingertip_position_e[..., :3],
-        ],
-        dim=1,
-    )
-
-    # Compute keypoints error
-    left_hand_keypoints_position_error = torch.sum(
-        torch.square(
-            left_hand_keypoints_position_command_e - left_hand_keypoints_position_e
-        ),
-        dim=-1,
-    )  # (num_envs, num_keypoints)
-    right_hand_keypoints_position_error = torch.sum(
-        torch.square(
-            right_hand_keypoints_position_command_e - right_hand_keypoints_position_e
-        ),
-        dim=-1,
-    )  # (num_envs, num_keypoints)
-
-    left_hand_keypoints_reward = torch.exp(
-        -(left_hand_keypoints_position_error - threshold).clamp(min=0.0) / var
-    ).mean(dim=-1)
-    right_hand_keypoints_reward = torch.exp(
-        -(right_hand_keypoints_position_error - threshold).clamp(min=0.0) / var
-    ).mean(dim=-1)
-
-    return (left_hand_keypoints_reward + right_hand_keypoints_reward) / 2.0
 
 
 def hand_joint_pos_tracking_exp(
@@ -443,7 +408,6 @@ def contact_force_reward(
     command_name: str = "dual_hands_object_tracking_command",
     var: float = 1.0,
     threshold: float = 0.0,
-    in_contact_force_threshold: float = 1e-3,
 ) -> torch.Tensor:
     """Contact force reward.
 
@@ -455,36 +419,19 @@ def contact_force_reward(
         command_name: Command term that provides contact forces.
         var: Scale for exp(-contact_force / var).
         threshold: Threshold for contact allowrance.
-        in_contact_force_threshold: Threshold for contact force to be considered in contact.
 
     Returns:
         Reward tensor (num_envs,).
     """
     command = env.command_manager.get_term(command_name)
 
-    right_hand_object_contact_forces_norm = (
-        command.right_hand_object_contact_forces_w.square().sum(dim=-1).mean(dim=1)
-    ).sum(
-        dim=1
-    )  # (num_envs, num_hand_link_w_sensor)
-    right_hand_link_in_contact = (
-        right_hand_object_contact_forces_norm > in_contact_force_threshold
-    )  # (num_envs, num_hand_link_w_sensor)
-    num_right_hand_links_in_contact = right_hand_link_in_contact.sum(
-        dim=-1
-    )  # (num_envs,)
+    right_hand_object_contact_forces_norm = command.right_force_sq_per_link
+    right_hand_link_in_contact = command.right_link_in_contact
+    num_right_hand_links_in_contact = right_hand_link_in_contact.sum(dim=-1)
 
-    left_hand_object_contact_forces_norm = (
-        command.left_hand_object_contact_forces_w.square().sum(dim=-1).mean(dim=1)
-    ).sum(
-        dim=1
-    )  # (num_envs, num_hand_link_w_sensor)
-    left_hand_link_in_contact = (
-        left_hand_object_contact_forces_norm > in_contact_force_threshold
-    )  # (num_envs, num_hand_link_w_sensor)
-    num_left_hand_links_in_contact = left_hand_link_in_contact.sum(
-        dim=-1
-    )  # (num_envs,)
+    left_hand_object_contact_forces_norm = command.left_force_sq_per_link
+    left_hand_link_in_contact = command.left_link_in_contact
+    num_left_hand_links_in_contact = left_hand_link_in_contact.sum(dim=-1)
 
     contact_force_reward = (
         right_hand_link_in_contact
@@ -510,7 +457,6 @@ def contact_force_range_reward(
     var: float = 1.0,
     lower_force_squared: float = 4.0,
     upper_force_squared: float = 16.0,
-    in_contact_force_threshold: float = 1e-3,
 ) -> torch.Tensor:
     """Contact force reward.
 
@@ -523,36 +469,19 @@ def contact_force_range_reward(
         var: Scale for exp(-contact_force / var).
         lower_force_squared: Lower force squared to be rewarded.
         upper_force_squared: Upper force squared to be rewarded.
-        in_contact_force_threshold: Threshold for contact force to be considered in contact.
 
     Returns:
         Reward tensor (num_envs,).
     """
     command = env.command_manager.get_term(command_name)
 
-    right_hand_object_contact_forces_norm = (
-        command.right_hand_object_contact_forces_w.square().sum(dim=-1).mean(dim=1)
-    ).sum(
-        dim=1
-    )  # (num_envs, num_hand_link_w_sensor)
-    right_hand_link_in_contact = (
-        right_hand_object_contact_forces_norm > in_contact_force_threshold
-    )  # (num_envs, num_hand_link_w_sensor)
-    num_right_hand_links_in_contact = right_hand_link_in_contact.sum(
-        dim=-1
-    )  # (num_envs,)
+    right_hand_object_contact_forces_norm = command.right_force_sq_per_link
+    right_hand_link_in_contact = command.right_link_in_contact
+    num_right_hand_links_in_contact = right_hand_link_in_contact.sum(dim=-1)
 
-    left_hand_object_contact_forces_norm = (
-        command.left_hand_object_contact_forces_w.square().sum(dim=-1).mean(dim=1)
-    ).sum(
-        dim=1
-    )  # (num_envs, num_hand_link_w_sensor)
-    left_hand_link_in_contact = (
-        left_hand_object_contact_forces_norm > in_contact_force_threshold
-    )  # (num_envs, num_hand_link_w_sensor)
-    num_left_hand_links_in_contact = left_hand_link_in_contact.sum(
-        dim=-1
-    )  # (num_envs,)
+    left_hand_object_contact_forces_norm = command.left_force_sq_per_link
+    left_hand_link_in_contact = command.left_link_in_contact
+    num_left_hand_links_in_contact = left_hand_link_in_contact.sum(dim=-1)
 
     contact_force_reward = (
         right_hand_link_in_contact
@@ -728,10 +657,14 @@ def contact_wrench_reward(
 
     # ── reference and current wrench supports ─────────────────────────────────
     # Shapes: (N, num_bodies, B) — one support scalar per body per basis direction.
-    ref_L = cmd.retargeted_left_contact_wrench_supports[cmd.timestep_counter]
-    ref_R = cmd.retargeted_right_contact_wrench_supports[cmd.timestep_counter]
-    curr_L = cmd.left_hand_contact_wrench_supports
-    curr_R = cmd.right_hand_contact_wrench_supports
+    # All cached by refresh_tensors(); cmd.ref_left/right are the timestep-indexed
+    # references, cmd.mask_left/right are `ref > eps`, and cmd.ref_active_per_cell
+    # / per_body are their unions. cmd.in_contact / right_in_contact /
+    # left_in_contact use the 1e-3 threshold baked into refresh_tensors().
+    ref_l = cmd.ref_left
+    ref_r = cmd.ref_right
+    curr_l = cmd.left_hand_contact_wrench_supports
+    curr_r = cmd.right_hand_contact_wrench_supports
 
     eps = 1e-6
 
@@ -754,17 +687,17 @@ def contact_wrench_reward(
             ),
         )
 
-    mask_L = ref_L > eps  # (N, num_bodies, B)
-    mask_R = ref_R > eps  # (N, num_bodies, B)
-    w = mask_L.float() + mask_R.float()  # (N, num_bodies, B)
-    hs_L = _hand_cell_score(ref_L, curr_L)
-    hs_R = _hand_cell_score(ref_R, curr_R)
+    mask_l = cmd.mask_left  # (N, num_bodies, B)
+    mask_r = cmd.mask_right  # (N, num_bodies, B)
+    w = mask_l.float() + mask_r.float()  # (N, num_bodies, B)
+    hs_l = _hand_cell_score(ref_l, curr_l)
+    hs_r = _hand_cell_score(ref_r, curr_r)
     # Combined activity: either hand has non-zero reference for this body/direction
-    active_c = (ref_L > eps) | (ref_R > eps)  # (N, num_bodies, B)
+    active_c = cmd.ref_active_per_cell  # (N, num_bodies, B)
     s_dir = torch.where(
         w > 0,
-        (hs_L * mask_L.float() + hs_R * mask_R.float()) / w.clamp(min=1.0),
-        torch.zeros_like(ref_L),
+        (hs_l * mask_l.float() + hs_r * mask_r.float()) / w.clamp(min=1.0),
+        torch.zeros_like(ref_l),
     )  # (N, num_bodies, B)
     num_active = active_c.float().sum(dim=-1)  # (N, num_bodies)
     has_ref_dir = num_active > 0  # (N, num_bodies)
@@ -773,31 +706,15 @@ def contact_wrench_reward(
         (s_dir * active_c.float()).sum(dim=-1) / num_active.clamp(min=1.0),
         torch.zeros_like(num_active),
     )  # (N, num_bodies)
-    spurious_inactive = (~active_c) & ((curr_L > eps) | (curr_R > eps))
+    spurious_inactive = (~active_c) & ((curr_l > eps) | (curr_r > eps))
     mean_spurious = -spurious_inactive.float().mean(dim=-1)  # (N, num_bodies)
     mean_alignment = mean_from_ref + mean_spurious  # (N, num_bodies)
 
     # ── contact gating ────────────────────────────────────────────────────────
-    right_in_contact = (
-        (
-            cmd.right_hand_object_contact_forces_w.norm(dim=1).norm(dim=-1)
-            > in_contact_force_threshold
-        )
-        .any(dim=-1)
-        .any(dim=-1)
-    )  # (N,)
-    left_in_contact = (
-        (
-            cmd.left_hand_object_contact_forces_w.norm(dim=1).norm(dim=-1)
-            > in_contact_force_threshold
-        )
-        .any(dim=-1)
-        .any(dim=-1)
-    )  # (N,)
-    in_contact = right_in_contact | left_in_contact  # (N,)
+    in_contact = cmd.in_contact  # (N,)
 
     # Per-body: is the demo requesting contact on this body?
-    ref_active_per_body = active_c.any(dim=-1)  # (N, num_bodies)
+    ref_active_per_body = cmd.ref_active_per_body  # (N, num_bodies)
 
     # Average quality and penalty over bodies then return (N,)
     quality = (
@@ -845,15 +762,15 @@ def contact_wrench_cumulative_reward(
     """
     cmd = env.command_manager.get_term(command_name)
 
-    # Shapes: (N, num_bodies, B)
-    ref_L = cmd.retargeted_left_contact_wrench_supports[cmd.timestep_counter]
-    ref_R = cmd.retargeted_right_contact_wrench_supports[cmd.timestep_counter]
-    curr_L = cmd.left_hand_contact_wrench_supports
-    curr_R = cmd.right_hand_contact_wrench_supports
+    # Shapes: (N, num_bodies, B). ref_left/right and ref_active_per_body are
+    # cached by refresh_tensors(); curr_l/curr_r still come from the per-property
+    # path.
+    curr_l = cmd.left_hand_contact_wrench_supports
+    curr_r = cmd.right_hand_contact_wrench_supports
 
-    # Collapse only basis directions → (N, num_bodies), keeping per-body resolution
-    ref_active = ((ref_L > eps) | (ref_R > eps)).any(dim=-1)  # (N, num_bodies)
-    policy_active = (curr_L > eps).any(dim=-1) | (curr_R > eps).any(
+    # Per-body active masks (cached for reference; computed fresh for policy).
+    ref_active = cmd.ref_active_per_body  # (N, num_bodies)
+    policy_active = (curr_l > eps).any(dim=-1) | (curr_r > eps).any(
         dim=-1
     )  # (N, num_bodies)
 
@@ -937,31 +854,8 @@ def contact_wrench_continuous_reward(
 
     cmd = env.command_manager.get_term(command_name)
 
-    right_in_contact = (
-        (
-            cmd.right_hand_object_contact_forces_w.norm(dim=1).norm(dim=-1)
-            > in_contact_force_threshold
-        )
-        .any(dim=-1)
-        .any(dim=-1)
-    )  # (N,)
-    left_in_contact = (
-        (
-            cmd.left_hand_object_contact_forces_w.norm(dim=1).norm(dim=-1)
-            > in_contact_force_threshold
-        )
-        .any(dim=-1)
-        .any(dim=-1)
-    )  # (N,)
-    in_contact = right_in_contact | left_in_contact  # (N,)
-
-    ref_L = cmd.retargeted_left_contact_wrench_supports[
-        cmd.timestep_counter
-    ]  # (N, num_bodies, B)
-    ref_R = cmd.retargeted_right_contact_wrench_supports[
-        cmd.timestep_counter
-    ]  # (N, num_bodies, B)
-    ref_active = ((ref_L > 1e-6) | (ref_R > 1e-6)).any(dim=-1).any(dim=-1)  # (N,)
+    in_contact = cmd.in_contact  # (N,) — threshold 1e-3, cached
+    ref_active = cmd.ref_active_global  # (N,) — cached
 
     right_ref_pts = cmd.right_hand_object_contact_command_positions_e  # (N, P_r, 3)
     right_ref_valid = cmd.retargeted_right_object_contact_is_valid[
@@ -1025,83 +919,20 @@ def contact_wrench_support_reward(
         Reward tensor (num_envs,).
     """
     command = env.command_manager.get_term(command_name)
-
-    right_command_has_contact = (
-        command.right_hand_contact_wrench_supports_command > 1e-3
-    )  # (num_envs, num_bodies, num_wrench_space_basis_samples)
-    right_has_contact = (
-        command.right_hand_contact_wrench_supports > 1e-3
-    )  # (num_envs, num_bodies, num_wrench_space_basis_samples)
-    right_command_num_contact = right_command_has_contact.sum(dim=-1).clamp(
-        min=1e-6
-    )  # (num_envs, num_bodies)
-    right_command_num_contact_body = (
-        (command.right_hand_contact_wrench_supports_command.amax(dim=-1) > 1e-3)
-        .sum(dim=-1)
-        .clamp(min=1e-6)
-    )  # (num_envs,)
-
-    left_command_has_contact = (
-        command.left_hand_contact_wrench_supports_command > 1e-3
-    )  # (num_envs, num_bodies, num_wrench_space_basis_samples)
-    left_has_contact = (
-        command.left_hand_contact_wrench_supports > 1e-3
-    )  # (num_envs, num_bodies, num_wrench_space_basis_samples)
-    left_command_num_contact = left_command_has_contact.sum(dim=-1).clamp(
-        min=1e-6
-    )  # (num_envs, num_bodies)
-    left_command_num_contact_body = (
-        (command.left_hand_contact_wrench_supports_command.amax(dim=-1) > 1e-3)
-        .sum(dim=-1)
-        .clamp(min=1e-6)
-    )  # (num_envs,)
-
-    num_command_active_hands = (
-        (right_command_num_contact_body > 1e-3).float()
-        + (left_command_num_contact_body > 1e-3).float()
-    ).clamp(min=1e-6)
-
-    # Current supports needs to be better than command supports by at least tolerance
-    right_better_than_command = (
-        (1.0 - tolerance) * command.right_hand_contact_wrench_supports_command
-        - command.right_hand_contact_wrench_supports
-    ).clamp(min=0.0)
-    left_better_than_command = (
-        (1.0 - tolerance) * command.left_hand_contact_wrench_supports_command
-        - command.left_hand_contact_wrench_supports
-    ).clamp(min=0.0)
-
-    # Current supports should not be arbitrarily larger than command supports
-    right_not_arbitrarily_large = (
-        command.right_hand_contact_wrench_supports
-        - (1.0 + tolerance) * command.right_hand_contact_wrench_supports_command
-    ).clamp(min=0.0)
-    left_not_arbitrarily_large = (
-        command.left_hand_contact_wrench_supports
-        - (1.0 + tolerance) * command.left_hand_contact_wrench_supports_command
-    ).clamp(min=0.0)
-
-    # Rewards when command has contact (inclusion contact reward)
-    right_contact_loss = (
-        right_better_than_command.square() + right_not_arbitrarily_large.square()
+    return contact_wrench_support_reward_jit(
+        right_cmd_active=command.right_wrench_cmd_active,
+        right_cur_active=command.right_wrench_cur_active,
+        left_cmd_active=command.left_wrench_cmd_active,
+        left_cur_active=command.left_wrench_cur_active,
+        right_cmd_active_per_body=command.right_wrench_cmd_active_per_body,
+        left_cmd_active_per_body=command.left_wrench_cmd_active_per_body,
+        right_cmd_supports=command.right_hand_contact_wrench_supports_command,
+        right_cur_supports=command.right_hand_contact_wrench_supports,
+        left_cmd_supports=command.left_hand_contact_wrench_supports_command,
+        left_cur_supports=command.left_hand_contact_wrench_supports,
+        tolerance=float(tolerance),
+        var=float(var),
     )
-    right_contact_reward = (
-        (right_command_has_contact & right_has_contact)
-        * torch.exp(-right_contact_loss / var)
-    ).sum(dim=-1) / right_command_num_contact
-
-    left_contact_loss = (
-        left_better_than_command.square() + left_not_arbitrarily_large.square()
-    )
-    left_contact_reward = (
-        (left_command_has_contact & left_has_contact)
-        * torch.exp(-left_contact_loss / var)
-    ).sum(dim=-1) / left_command_num_contact
-
-    return (
-        right_contact_reward.sum(dim=-1) / right_command_num_contact_body
-        + left_contact_reward.sum(dim=-1) / left_command_num_contact_body
-    ) / num_command_active_hands
 
 
 def unintended_contact_penalty(
@@ -1116,55 +947,14 @@ def unintended_contact_penalty(
         penalty: Penalty for unintended contact.
     """
     command = env.command_manager.get_term(command_name)
-
-    right_command_has_contact = (
-        command.right_hand_contact_wrench_supports_command.amax(dim=-1) > 1e-3
-    )  # (num_envs, num_bodies)
-    right_has_contact = (
-        command.right_hand_contact_wrench_supports.amax(dim=-1) > 1e-3
-    )  # (num_envs, num_bodies)
-    right_command_num_contact = right_command_has_contact.sum(dim=-1)  # (num_envs,)
-
-    left_command_has_contact = (
-        command.left_hand_contact_wrench_supports_command.amax(dim=-1) > 1e-3
-    )  # (num_envs, num_bodies)
-    left_has_contact = (
-        command.left_hand_contact_wrench_supports.amax(dim=-1) > 1e-3
-    )  # (num_envs, num_bodies)
-    left_command_num_contact = left_command_has_contact.sum(dim=-1)  # (num_envs,)
-
-    # Unintended contact
-    right_unintended_contact = torch.logical_and(
-        ~right_command_has_contact, right_has_contact
-    )
-    left_unintended_contact = torch.logical_and(
-        ~left_command_has_contact, left_has_contact
-    )
-
-    # Continuous penalty when command has no contact but current has contact
-    right_unintended_wrench_support = (
-        ~right_command_has_contact
-    ).float() * command.right_hand_contact_wrench_supports.clamp(min=0.0).square().mean(
-        dim=-1
-    )
-    right_unintended_wrench_support = right_unintended_wrench_support.sum(dim=-1) / (
-        command.num_bodies - right_command_num_contact
-    ).clamp(min=1e-3)
-
-    left_unintended_wrench_support = (
-        ~left_command_has_contact
-    ).float() * command.left_hand_contact_wrench_supports.clamp(min=0.0).square().mean(
-        dim=-1
-    )
-    left_unintended_wrench_support = left_unintended_wrench_support.sum(dim=-1) / (
-        command.num_bodies - left_command_num_contact
-    ).clamp(min=1e-3)
-
-    return (
-        right_unintended_contact.float().mean(dim=-1)
-        + right_unintended_wrench_support
-        + left_unintended_contact.float().mean(dim=-1)
-        + left_unintended_wrench_support
+    return unintended_contact_penalty_jit(
+        right_cmd_active_per_body=command.right_wrench_cmd_active_per_body,
+        right_cur_active_per_body=command.right_wrench_cur_active_per_body,
+        left_cmd_active_per_body=command.left_wrench_cmd_active_per_body,
+        left_cur_active_per_body=command.left_wrench_cur_active_per_body,
+        right_cur_supports=command.right_hand_contact_wrench_supports,
+        left_cur_supports=command.left_hand_contact_wrench_supports,
+        num_bodies=int(command.num_bodies),
     )
 
 
@@ -1180,34 +970,11 @@ def missed_contact_penalty(
         penalty: Penalty for missed contact.
     """
     command = env.command_manager.get_term(command_name)
-
-    right_cmd = command.right_hand_contact_wrench_supports_command
-    right_cur = command.right_hand_contact_wrench_supports
-    left_cmd = command.left_hand_contact_wrench_supports_command
-    left_cur = command.left_hand_contact_wrench_supports
-
-    def _compute_penalty(cmd: torch.Tensor, cur: torch.Tensor) -> torch.Tensor:
-        cmd_active = cmd > 1e-3  # (N, num_bodies, num_wrench_space_basis_samples)
-        cur_active = cur > 1e-3  # (N, num_bodies, num_wrench_space_basis_samples)
-        missed = (
-            cmd_active & ~cur_active
-        )  # (N, num_bodies, num_wrench_space_basis_samples)
-        n_expected = cmd_active.sum(dim=-1)  # (N, num_bodies)
-        n_missed = missed.sum(dim=-1)  # (N, num_bodies)
-        # Fraction missed per body, 0 where no expected contact
-        missing_frac = n_missed / n_expected.clamp(min=1e-6)  # (N, num_bodies)
-        # Average over bodies that have expected contact
-        body_has_contact = n_expected > 0
-        n_active_bodies = body_has_contact.sum(dim=-1).clamp(min=1e-6)  # (N,)
-        return (missing_frac * body_has_contact).sum(dim=-1) / n_active_bodies
-
-    # Count hands with any expected contact for normalization
-    right_hand_active = (right_cmd > 1e-3).any(dim=-1).any(dim=-1)  # (N,)
-    left_hand_active = (left_cmd > 1e-3).any(dim=-1).any(dim=-1)  # (N,)
-    num_active_hands = (right_hand_active.float() + left_hand_active.float()).clamp(
-        min=1e-6
-    )  # (N,)
-
-    return (
-        _compute_penalty(right_cmd, right_cur) + _compute_penalty(left_cmd, left_cur)
-    ) / num_active_hands
+    return missed_contact_penalty_jit(
+        right_cmd_active=command.right_wrench_cmd_active,
+        right_cur_active=command.right_wrench_cur_active,
+        left_cmd_active=command.left_wrench_cmd_active,
+        left_cur_active=command.left_wrench_cur_active,
+        right_cmd_active_per_body=command.right_wrench_cmd_active_per_body,
+        left_cmd_active_per_body=command.left_wrench_cmd_active_per_body,
+    )
