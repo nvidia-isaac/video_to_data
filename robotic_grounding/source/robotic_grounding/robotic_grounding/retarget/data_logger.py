@@ -18,6 +18,8 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
+from robotic_grounding.retarget.params import G1_WHOLEBODY_TO_NVHUMAN_MAPPING
+
 # Type alias for field specification
 # Format: (field_name, pyarrow_type, python_type, is_time_series)
 FieldSpec = tuple[str, pa.DataType, type, bool]
@@ -367,6 +369,50 @@ DEX3_FIELDS: list[FieldSpec] = [
 ]
 
 #############################################################
+# Whole body robot fields (G1)
+#############################################################
+G1_NUM_FRAME_TASKS = len(G1_WHOLEBODY_TO_NVHUMAN_MAPPING)
+G1_FIELDS: list[FieldSpec] = [
+    ("robot_joint_names", pa.list_(pa.string()), list[str], False),
+    ("robot_frame_names", pa.list_(pa.string()), list[str], False),
+    ("robot_frame_task_names", pa.list_(pa.string()), list[str], False),
+    ("source_to_robot_scale", pa.float32(), float, False),
+    # Time series
+    (
+        "robot_root_position",
+        pa.list_(pa.list_(pa.float32(), 3)),
+        list[list[float]],
+        True,
+    ),
+    (
+        "robot_root_wxyz",
+        pa.list_(pa.list_(pa.float32(), 4)),
+        list[list[float]],
+        True,
+    ),
+    (
+        "robot_joint_positions",
+        pa.list_(pa.list_(pa.float32())),
+        list[list[float]],
+        True,
+    ),
+    (
+        "robot_frames",
+        pa.list_(pa.list_(pa.list_(pa.float32(), 7))),
+        list[list[list[float]]],
+        True,
+    ),
+    (
+        "robot_frame_task_errors",
+        pa.list_(pa.list_(pa.float32(), G1_NUM_FRAME_TASKS)),
+        list[list[float]],
+        True,
+    ),
+    ("robot_ik_error", pa.list_(pa.float32()), list[float], True),
+    ("robot_num_optimization_iterations", pa.list_(pa.int32()), list[int], True),
+]
+
+#############################################################
 # Object fields
 #############################################################
 OBJECT_FIELDS: list[FieldSpec] = [
@@ -604,4 +650,9 @@ ManoSharpaData = create_data_logger_class(
 NvhumanDex3Data = create_data_logger_class(
     "NvhumanDex3Data",
     BASE_FIELDS + NVHUMAN_FIELDS + DEX3_FIELDS + OBJECT_FIELDS,
+)
+
+NvhumanG1Data = create_data_logger_class(
+    "NvhumanG1Data",
+    BASE_FIELDS + NVHUMAN_FIELDS + G1_FIELDS + OBJECT_FIELDS,
 )

@@ -287,6 +287,50 @@ R_PALM_CORRECTION_RIGHT = [
 ]
 
 #############################################################
+# IK parameters for G1 whole body
+#############################################################
+
+G1_WHOLEBODY_TO_NVHUMAN_MAPPING = {
+    # Pelvis
+    "pelvis": ("Hips", 1.0, 0.5),
+    # Torso
+    "torso_link": ("Chest", 1.0, 0.5),
+    # Left arm / hand
+    "left_hand_palm_link": ("LeftHand", 2.0, 0.1),
+    "left_hand_thumb_2_link": ("LeftHandThumbEnd", 2.0, 0.0),
+    "left_hand_index_1_link": ("LeftHandIndexEnd", 2.0, 0.0),
+    "left_hand_middle_1_link": ("LeftHandRingEnd", 2.0, 0.0),
+    # Right arm / hand
+    "right_hand_palm_link": ("RightHand", 2.0, 0.1),
+    "right_hand_thumb_2_link": ("RightHandThumbEnd", 2.0, 0.0),
+    "right_hand_index_1_link": ("RightHandIndexEnd", 2.0, 0.0),
+    "right_hand_middle_1_link": ("RightHandRingEnd", 2.0, 0.0),
+    # Left leg / foot
+    "left_knee_link": ("LeftShin", 0.25, 0.0),
+    "left_ankle_roll_link": ("LeftFoot", 5.0, 1.0),
+    # Right leg / foot
+    "right_knee_link": ("RightShin", 0.25, 0.0),
+    "right_ankle_roll_link": ("RightFoot", 5.0, 1.0),
+}
+
+# Foot joints used for ground-plane estimation and foot-Z clamping during
+# whole-body retargeting. Source joints are from NVHUMAN_JOINTS_ORDER; robot
+# frames are the contact links used in G1_WHOLEBODY_TO_NVHUMAN_MAPPING.
+NVHUMAN_FOOT_JOINT_NAMES = [
+    "LeftFoot",
+    "RightFoot",
+    "LeftToeBase",
+    "RightToeBase",
+    "LeftToeEnd",
+    "RightToeEnd",
+]
+
+G1_FOOT_FRAME_NAMES = [
+    "left_ankle_roll_link",
+    "right_ankle_roll_link",
+]
+
+#############################################################
 # MANO hand link definitions
 #############################################################
 
