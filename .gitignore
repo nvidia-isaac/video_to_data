@@ -9,3 +9,6 @@ CLAUDE.md
 
 # Auto-generated no-collision URDFs (created at pipeline runtime from *_rigid.urdf)
 **/*_no_collision.urdf
+
+# Local direnv overrides
+.envrc.local
