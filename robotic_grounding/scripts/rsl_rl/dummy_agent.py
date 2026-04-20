@@ -58,6 +58,12 @@ parser.add_argument(
     default=False,
     help="Disable robot-to-fixed-object collisions.",
 )
+parser.add_argument(
+    "--use_primitive_urdfs",
+    action="store_true",
+    default=False,
+    help="Use primitive URDFs for the robot.",
+)
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 
@@ -68,6 +74,7 @@ args_cli.task = "Sharpa-V2P-v0-Play"
 args_cli.headless = True
 args_cli.disable_robot_to_object_collisions = False
 args_cli.disable_robot_to_fixed_object_collisions = True
+args_cli.use_primitive_urdfs = True
 
 # Multiple rigid objects
 # args_cli.motion_file = (
@@ -116,7 +123,9 @@ def main():
         env_cfg.motion_file = args_cli.motion_file
     if hasattr(env_cfg, "motion_file") and env_cfg.motion_file is not None:
         scene_config = SceneConfig.from_motion_file(env_cfg.motion_file)
-        apply_scene_config(env_cfg, scene_config)
+        apply_scene_config(
+            env_cfg, scene_config, use_primitive_urdfs=args_cli.use_primitive_urdfs
+        )
 
     # clamp viewer env_index to valid range (env_cfg may default to a higher index)
     if isinstance(env_cfg, ManagerBasedRLEnvCfg) and hasattr(env_cfg, "viewer"):

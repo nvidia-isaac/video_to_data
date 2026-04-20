@@ -97,6 +97,12 @@ parser.add_argument(
     default=None,
     help="Wandb run ID to resume from.",
 )
+parser.add_argument(
+    "--use_primitive_urdfs",
+    action="store_true",
+    default=False,
+    help="Use primitive URDFs for the robot.",
+)
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -212,11 +218,15 @@ def main(
         env_cfg.motion_file = args_cli.motion_file
     if hasattr(env_cfg, "motion_file") and env_cfg.motion_file is not None:
         scene_config = SceneConfig.from_motion_file(env_cfg.motion_file)
-        apply_scene_config(env_cfg, scene_config)
+        apply_scene_config(
+            env_cfg, scene_config, use_primitive_urdfs=args_cli.use_primitive_urdfs
+        )
     elif args_cli.scene_config is not None:
         env_cfg.scene_config_path = args_cli.scene_config
         scene_config = SceneConfig.from_yaml(args_cli.scene_config)
-        apply_scene_config(env_cfg, scene_config)
+        apply_scene_config(
+            env_cfg, scene_config, use_primitive_urdfs=args_cli.use_primitive_urdfs
+        )
 
     # set max iterations
     agent_cfg.max_iterations = (
