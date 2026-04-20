@@ -140,16 +140,16 @@ class JointDirectPositionActionCfg(ActionTermCfg):
     finger_joint_scale: float = 0.15
     """Scale factor for policy's action for finger joint delta."""
 
-    wrist_position_clip: float = 0.2
+    wrist_position_clip: float = 1.0
     """Clip factor for policy's action for wrist position."""
 
-    wrist_orientation_clip: float = 0.8
+    wrist_orientation_clip: float = 1.0
     """Clip factor for policy's action for wrist orientation."""
 
     finger_joint_clip: float = 100.0
     """Clip factor for policy's action for finger joints."""
 
-    ema_factor: float = 0.9
+    ema_factor: float = 0.0
     """The EMA decay factor for the actions."""
 
     preserve_order: bool = False
@@ -170,10 +170,10 @@ class JointDirectPositionActionCfg(ActionTermCfg):
     tracking_controller_angular_damping: float = 0.0
     """Damping gain for the PD controller in angular direction."""
 
-    max_force: float = 100.0
+    max_force: float = 60.0
     """Maximum force for the PD controller."""
 
-    max_torque: float = 100.0
+    max_torque: float = 60.0
     """Maximum torque for the PD controller."""
 
 

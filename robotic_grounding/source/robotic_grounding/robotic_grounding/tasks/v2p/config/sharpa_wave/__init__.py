@@ -37,7 +37,7 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": sharpa_v2p_direct_env_cfg.SharpaV2PDirectEnvCfg,
-        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:SharpaV2PPPORunnerCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:SharpaV2PDirectPPORunnerCfg",
     },
 )
 
@@ -47,7 +47,7 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": sharpa_v2p_direct_env_cfg.SharpaV2PDirectEnvCfgPlay,
-        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:SharpaV2PPPORunnerCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:SharpaV2PDirectPPORunnerCfg",
     },
 )
 
