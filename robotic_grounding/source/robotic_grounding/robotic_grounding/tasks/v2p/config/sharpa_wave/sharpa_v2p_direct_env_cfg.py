@@ -8,15 +8,14 @@
 
 from isaaclab.utils import configclass
 
-from robotic_grounding.assets.rigid_object import RIGID_OBJECT_NO_COLLISION_CFG
 from robotic_grounding.tasks.v2p import mdp
-from robotic_grounding.tasks.v2p.config.sharpa_wave.sharpa_v2p_env_cfg import (
-    SharpaV2PEnvCfg,
-)
+from robotic_grounding.tasks.v2p.v2p_hand_env_cfg import V2PHandEnvCfg
+
+_DEFAULT_MOTION_FILE = "arctic_processed/arctic_s01_box_grab_01/sharpa_wave"
 
 
 @configclass
-class SharpaV2PDirectEnvCfg(SharpaV2PEnvCfg):
+class SharpaV2PDirectEnvCfg(V2PHandEnvCfg):
     """Sharpa V2P environment with direct position control (no tracking controller).
 
     The policy directly outputs PD targets instead of residuals on top
@@ -24,41 +23,40 @@ class SharpaV2PDirectEnvCfg(SharpaV2PEnvCfg):
     finger targets are set directly.
     """
 
+    motion_file: str = _DEFAULT_MOTION_FILE
+
     def __post_init__(self) -> None:
         """Post initialization."""
         super().__post_init__()
-
-        # Use no-collision object for testing
-        self.scene.object = RIGID_OBJECT_NO_COLLISION_CFG.replace(
-            prim_path="{ENV_REGEX_NS}/Object"
-        )
 
         # Replace residual action terms with direct position action terms.
         # Attribute names are kept the same so observation/reward references still work.
         self.actions.right_joint_residual_action = mdp.JointDirectPositionActionCfg(
             asset_name="right_robot",
             joint_names=[".*"],
-            tracking_controller_linear_stiffness=50.0,
-            tracking_controller_linear_damping=10.0,
-            tracking_controller_angular_stiffness=12.0,
-            tracking_controller_angular_damping=0.5,
+            tracking_controller_linear_stiffness=1000.0,
+            tracking_controller_linear_damping=100.0,
+            tracking_controller_angular_stiffness=40.0,
+            tracking_controller_angular_damping=0.01,
             wrist_position_scale=0.05,
             wrist_orientation_scale=0.15,
             finger_joint_scale=0.15,
-            ema_factor=0.9,
+            finger_joint_clip=100.0,
+            ema_factor=0.0,
         )
 
         self.actions.left_joint_residual_action = mdp.JointDirectPositionActionCfg(
             asset_name="left_robot",
             joint_names=[".*"],
-            tracking_controller_linear_stiffness=50.0,
-            tracking_controller_linear_damping=10.0,
-            tracking_controller_angular_stiffness=12.0,
-            tracking_controller_angular_damping=0.5,
+            tracking_controller_linear_stiffness=1000.0,
+            tracking_controller_linear_damping=100.0,
+            tracking_controller_angular_stiffness=40.0,
+            tracking_controller_angular_damping=0.01,
             wrist_position_scale=0.05,
             wrist_orientation_scale=0.15,
             finger_joint_scale=0.15,
-            ema_factor=0.9,
+            finger_joint_clip=100.0,
+            ema_factor=0.0,
         )
 
 
