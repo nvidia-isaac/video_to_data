@@ -457,6 +457,82 @@ class CurriculumCfg:
     )
 
 
+@configclass
+class FixedTimestepCurriculumCfg:
+    """Curriculum for virtual object control with a fixed timestep decay."""
+
+    fixed_timestep_curriculum = CurrTerm(
+        func=mdp.FixedTimestepCurriculum,
+        params={
+            "command_name": "dual_hands_object_tracking_command",
+            "num_steps_per_env": 24,
+            "timestep_schedule": [
+                2000,
+                4000,
+                5500,
+                7000,
+                8500,
+                10000,
+                11500,
+                13000,
+                14500,
+                16000,
+            ],
+            "virtual_object_control_scale_factor": [
+                1.0,
+                1.0,
+                0.75,
+                0.5,
+                0.25,
+                0.1,
+                0.05,
+                0.025,
+                0.01,
+                0.0,
+            ],
+            "rewards_object_keypoints_tracking_exp": [
+                0.0,
+                0.0,
+                0.1,
+                0.1,
+                0.2,
+                0.25,
+                0.25,
+                0.5,
+                0.5,
+                0.5,
+            ],
+            "rewards_hand_keypoints_tracking_exp": [
+                0.25,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            ],
+            "rewards_hand_joint_pos_tracking_exp": [
+                0.25,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            ],
+            "rewards_contact_wrench_support_reward": 10.0,
+            "rewards_unintended_contact_penalty": -20.0,
+            "rewards_missed_contact_penalty": -5.0,
+        },
+    )
+
+
 #################################################
 # Environment configuration
 #################################################
@@ -481,7 +557,7 @@ class V2PHandEnvCfg(ManagerBasedRLEnvCfg):
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
-    curriculum: CurriculumCfg = CurriculumCfg()
+    curriculum: FixedTimestepCurriculumCfg = FixedTimestepCurriculumCfg()
 
     def __post_init__(self) -> None:
         """Post initialization."""
@@ -513,7 +589,7 @@ class V2PHandEnvCfgEnvOnly(ManagerBasedRLEnvCfg):
     """Configuration for the locomotion velocity-tracking environment."""
 
     # Scene settings
-    scene: V2PSceneCfg = V2PSceneCfg(num_envs=4096, env_spacing=2.0)
+    scene: V2PSceneCfg = V2PSceneCfg(num_envs=4096, env_spacing=1.5)
     # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
@@ -522,7 +598,7 @@ class V2PHandEnvCfgEnvOnly(ManagerBasedRLEnvCfg):
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
-    curriculum: CurriculumCfg = CurriculumCfg()
+    curriculum: FixedTimestepCurriculumCfg = FixedTimestepCurriculumCfg()
 
     def __post_init__(self) -> None:
         """Post initialization."""
