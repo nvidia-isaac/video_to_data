@@ -65,6 +65,12 @@ parser.add_argument(
     default=False,
     help="View mode: zero VOC, zero actions.",
 )
+parser.add_argument(
+    "--use_primitive_urdfs",
+    action="store_true",
+    default=False,
+    help="Use primitive URDFs for the robot.",
+)
 
 AppLauncher.add_app_launcher_args(parser)
 args_cli, hydra_args = parser.parse_known_args()
@@ -129,7 +135,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg, agent_cfg=None):
     # Apply scene config from motion_file (after Hydra overrides are merged)
     if hasattr(env_cfg, "motion_file"):
         scene_config = SceneConfig.from_motion_file(env_cfg.motion_file)
-        apply_scene_config(env_cfg, scene_config)
+        apply_scene_config(
+            env_cfg, scene_config, use_primitive_urdfs=args_cli.use_primitive_urdfs
+        )
 
     # Apply non-hydra CLI overrides
     if args_cli.num_envs is not None:

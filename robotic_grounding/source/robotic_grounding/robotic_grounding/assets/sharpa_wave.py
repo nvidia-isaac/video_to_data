@@ -14,8 +14,6 @@ from isaaclab.assets.articulation import ArticulationCfg
 
 from robotic_grounding.assets import ASSET_DIR
 
-use_primitive_urdfs = False
-
 #################################################
 # Control Parameters
 #################################################
@@ -254,11 +252,7 @@ for a in DUAL_SHARPA_WAVE_CFG.actuators.values():
 RIGHT_SHARPA_WAVE_CFG = ArticulationCfg(
     spawn=sim_utils.UrdfFileCfg(
         fix_base=False,
-        asset_path=(
-            right_sharpa_wave_primitive_urdf_path
-            if use_primitive_urdfs
-            else right_sharpa_wave_urdf_path
-        ),
+        asset_path=right_sharpa_wave_urdf_path,
         activate_contact_sensors=True,
         rigid_props=rigid_props,
         articulation_props=articulation_props,
@@ -275,14 +269,16 @@ RIGHT_SHARPA_WAVE_CFG = ArticulationCfg(
     },
 )
 
+RIGHT_SHARPA_WAVE_PRIMITIVE_CFG = RIGHT_SHARPA_WAVE_CFG.replace(
+    spawn=RIGHT_SHARPA_WAVE_CFG.spawn.replace(
+        asset_path=right_sharpa_wave_primitive_urdf_path,
+    ),
+)
+
 LEFT_SHARPA_WAVE_CFG = ArticulationCfg(
     spawn=sim_utils.UrdfFileCfg(
         fix_base=False,
-        asset_path=(
-            left_sharpa_wave_primitive_urdf_path
-            if use_primitive_urdfs
-            else left_sharpa_wave_urdf_path
-        ),
+        asset_path=left_sharpa_wave_urdf_path,
         activate_contact_sensors=True,
         rigid_props=rigid_props,
         articulation_props=articulation_props,
@@ -297,6 +293,12 @@ LEFT_SHARPA_WAVE_CFG = ArticulationCfg(
     actuators={
         "fingers": finger_actuators,
     },
+)
+
+LEFT_SHARPA_WAVE_PRIMITIVE_CFG = LEFT_SHARPA_WAVE_CFG.replace(
+    spawn=LEFT_SHARPA_WAVE_CFG.spawn.replace(
+        asset_path=left_sharpa_wave_primitive_urdf_path,
+    ),
 )
 
 #################################################

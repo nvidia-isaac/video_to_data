@@ -10,11 +10,18 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Tuple
 
-import isaaclab.utils.math as math_utils
 import torch
 from isaaclab.managers.action_manager import ActionTerm
+from isaaclab.utils.math import (
+    axis_angle_from_quat,
+    quat_apply,
+    quat_apply_inverse,
+    quat_from_euler_xyz,
+    quat_inv,
+    quat_mul,
+)
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -23,6 +30,104 @@ if TYPE_CHECKING:
     from . import actions_cfg
 
 logger = logging.getLogger(__name__)
+
+
+@torch.jit.script
+def _process_residual_actions(
+    actions: torch.Tensor,
+    prev_actions: torch.Tensor,
+    raw_actions: torch.Tensor,
+    processed_actions: torch.Tensor,
+    wrist_pose_command_e: torch.Tensor,
+    finger_joint_pos_command: torch.Tensor,
+    scale: torch.Tensor,
+    clip: torch.Tensor,
+    ema_factor: float,
+) -> None:
+    # Store raw policy outputs.
+    raw_actions[:] = actions
+
+    # EMA-filtered, scaled, clipped residual.
+    actions = ema_factor * prev_actions + (1.0 - ema_factor) * actions * scale
+    actions = torch.clamp(actions, min=-clip, max=clip)
+    prev_actions[:] = actions
+
+    # Wrist position target = command + residual.
+    processed_actions[:, :3] = wrist_pose_command_e[:, :3] + actions[:, :3]
+
+    # Wrist orientation target = command * quat(residual euler xyz).
+    wrist_orientation_residual = quat_from_euler_xyz(
+        actions[:, 3], actions[:, 4], actions[:, 5]
+    )
+    processed_actions[:, 3:7] = quat_mul(
+        wrist_pose_command_e[:, 3:7], wrist_orientation_residual
+    )
+
+    # Finger joint targets = command + residual.
+    processed_actions[:, 7:] = finger_joint_pos_command + actions[:, 6:]
+
+
+@torch.jit.script
+def _compute_wrist_wrench_and_finger_target(
+    wrist_position: torch.Tensor,
+    wrist_wxyz: torch.Tensor,
+    wrist_link_vel_w: torch.Tensor,
+    wrist_link_quat_w: torch.Tensor,
+    wrist_com_pos_b: torch.Tensor,
+    wrist_pose_target: torch.Tensor,
+    finger_joint_target: torch.Tensor,
+    gravity_comp_e: torch.Tensor,
+    joint_damping: torch.Tensor,
+    joint_vel: torch.Tensor,
+    joint_effort_limits: torch.Tensor,
+    joint_stiffness: torch.Tensor,
+    joint_pos: torch.Tensor,
+    linear_stiffness: float,
+    linear_damping: float,
+    angular_stiffness: float,
+    angular_damping: float,
+    max_force: float,
+    max_torque: float,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    # COM->link correction for linear velocity (mutates caller tensor, matching eager path).
+    wrist_link_vel_w[:, :3] += torch.linalg.cross(
+        wrist_link_vel_w[:, 3:],
+        quat_apply(wrist_link_quat_w, -wrist_com_pos_b),
+        dim=-1,
+    )
+    wrist_linvel_b = quat_apply_inverse(wrist_link_quat_w, wrist_link_vel_w[:, :3])
+    wrist_angvel_b = quat_apply_inverse(wrist_link_quat_w, wrist_link_vel_w[:, 3:])
+
+    # PD force (position in body frame).
+    position_error_e = wrist_pose_target[:, :3] - wrist_position
+    position_error_b = quat_apply_inverse(wrist_wxyz, position_error_e)
+    force = linear_stiffness * position_error_b - linear_damping * wrist_linvel_b
+
+    # PD torque (orientation in body frame).
+    orientation_error_b = axis_angle_from_quat(
+        quat_mul(quat_inv(wrist_wxyz), wrist_pose_target[:, 3:7])
+    )
+    torque = angular_stiffness * orientation_error_b - angular_damping * wrist_angvel_b
+
+    # Gravity compensation (world -> body).
+    gravity_force_b = quat_apply_inverse(wrist_wxyz, gravity_comp_e[..., :3])
+    gravity_torque_b = quat_apply_inverse(wrist_wxyz, gravity_comp_e[..., 3:6])
+    force = torch.clamp(force + gravity_force_b, min=-max_force, max=max_force)
+    torque = torch.clamp(torque + gravity_torque_b, min=-max_torque, max=max_torque)
+
+    # Finger joint position clamp from torque limits (inlined clip_actions_to_torque_limit).
+    kv_times_vel = joint_damping * joint_vel
+    max_joint_action = (
+        joint_effort_limits + kv_times_vel
+    ) / joint_stiffness + joint_pos
+    min_joint_action = (
+        -joint_effort_limits + kv_times_vel
+    ) / joint_stiffness + joint_pos
+    finger_target_clipped = torch.clamp(
+        finger_joint_target, min=min_joint_action, max=max_joint_action
+    )
+
+    return force, torque, finger_target_clipped
 
 
 class JointResidualWithTrackingAction(ActionTerm):
@@ -84,6 +189,11 @@ class JointResidualWithTrackingAction(ActionTerm):
             self._finger_joint_pos_command = (
                 lambda: self.command.left_hand_finger_joint_pos_command
             )
+
+        # Save the wrist com pose in the body frame
+        self.wrist_com_pose_b = self.robot.data._root_physx_view.get_coms()[:, 0].to(
+            self.device
+        )  # quat in xyzw format
 
         # Create tensors for tracking controller, policy raw and applied actions
         self._raw_actions = torch.zeros(
@@ -212,37 +322,16 @@ class JointResidualWithTrackingAction(ActionTerm):
 
     def process_actions(self, actions: torch.Tensor) -> None:
         """Process the actions."""
-        # 1. Store the raw actions from the policy
-        self._raw_actions[:] = actions
-        wrist_pose_command_e = self._wrist_pose_command_e()
-        wrist_position_command_e = wrist_pose_command_e[:, :3]
-        wrist_orientation_command_e = wrist_pose_command_e[:, 3:]
-
-        # 2. Scale, filter and clip the actions
-        actions = (
-            self.ema_factor * self.prev_actions
-            + (1 - self.ema_factor) * actions * self._scale
-        )
-        actions = torch.clamp(actions, min=-self._clip, max=self._clip)
-        self.prev_actions[:] = actions
-
-        # 3. Compute tracking target for wrist position
-        self._processed_actions[:, :3] = wrist_position_command_e + actions[:, :3]
-
-        # 4. Compute tracking target for wrist orientation
-        wrist_orientation_residual = math_utils.quat_from_euler_xyz(
-            actions[:, 3],
-            actions[:, 4],
-            actions[:, 5],
-        )
-        self._processed_actions[:, 3:7] = math_utils.quat_mul(
-            wrist_orientation_command_e,
-            wrist_orientation_residual,
-        )
-
-        # 5. Compute tracking target for finger joints
-        self._processed_actions[:, 7:] = (
-            self._finger_joint_pos_command() + actions[:, 6:]
+        _process_residual_actions(
+            actions=actions,
+            prev_actions=self.prev_actions,
+            raw_actions=self._raw_actions,
+            processed_actions=self._processed_actions,
+            wrist_pose_command_e=self._wrist_pose_command_e(),
+            finger_joint_pos_command=self._finger_joint_pos_command(),
+            scale=self._scale,
+            clip=self._clip,
+            ema_factor=self.ema_factor,
         )
 
     def reset(self, env_ids: Sequence[int] | None = None) -> None:
@@ -264,71 +353,38 @@ class JointResidualWithTrackingAction(ActionTerm):
 
     def apply_actions(self) -> None:
         """Apply the actions, recomputing the tracking actions to allow better performance."""
-        # 1. Extract current wrist position and orientation
-        wrist_position = self._wrist_position_e()
-        wrist_wxyz = self._wrist_wxyz_e()
-        wrist_linvel_b = self.robot.data.root_link_lin_vel_b
-        wrist_angvel_b = self.robot.data.root_link_ang_vel_b
-
-        # 2. PD for wrist force control
-        wrist_position_error_e = self.processed_actions[:, :3] - wrist_position
-        wrist_position_error_b = math_utils.quat_apply_inverse(
-            wrist_wxyz, wrist_position_error_e
-        )
-        force = (
-            self.cfg.tracking_controller_linear_stiffness * wrist_position_error_b
-            - self.cfg.tracking_controller_linear_damping * wrist_linvel_b
-        )
-
-        # 3. PD for wrist torque control
-        wrist_orientation_error_b = math_utils.quat_mul(
-            math_utils.quat_inv(wrist_wxyz),
-            self.processed_actions[:, 3:7],  # w_t_current.inv() * w_t_target
-        )
-        wrist_orientation_error_b = math_utils.axis_angle_from_quat(
-            wrist_orientation_error_b
-        )
-        torque = (
-            self.cfg.tracking_controller_angular_stiffness * wrist_orientation_error_b
-            - self.cfg.tracking_controller_angular_damping * wrist_angvel_b
+        force, torque, finger_target = _compute_wrist_wrench_and_finger_target(
+            wrist_position=self._wrist_position_e(),
+            wrist_wxyz=self._wrist_wxyz_e(),
+            wrist_link_vel_w=self.robot.data.root_com_vel_w,
+            wrist_link_quat_w=self.robot.data.root_link_quat_w,
+            wrist_com_pos_b=self.wrist_com_pose_b[..., :3],
+            wrist_pose_target=self._processed_actions[:, :7],
+            finger_joint_target=self._processed_actions[:, 7:],
+            gravity_comp_e=self.robot.root_physx_view.get_gravity_compensation_forces(),
+            joint_damping=self.robot.data.joint_damping,
+            joint_vel=self.robot.data.joint_vel,
+            joint_effort_limits=self.robot.data.joint_effort_limits,
+            joint_stiffness=self.robot.data.joint_stiffness,
+            joint_pos=self.robot.data.joint_pos,
+            linear_stiffness=self._tracking_controller_linear_stiffness,
+            linear_damping=self._tracking_controller_linear_damping,
+            angular_stiffness=self._tracking_controller_angular_stiffness,
+            angular_damping=self._tracking_controller_angular_damping,
+            max_force=float(self.cfg.max_force),
+            max_torque=float(self.cfg.max_torque),
         )
 
-        # 4. Gravity compensation
-        gravity_compensation_e = (
-            self.robot.root_physx_view.get_gravity_compensation_forces()
-        )
-        gravity_compensation_force_b = math_utils.quat_apply_inverse(
-            wrist_wxyz, gravity_compensation_e[..., :3]
-        )
-        self.wrist_forces[:] = torch.clamp(
-            force + gravity_compensation_force_b,
-            min=-self.cfg.max_force,
-            max=self.cfg.max_force,
-        )
+        self.wrist_forces[:] = force
+        self.wrist_torques[:] = torque
+        self.finger_joint_pos[:] = finger_target
 
-        gravity_compensation_torque_b = math_utils.quat_apply_inverse(
-            wrist_wxyz, gravity_compensation_e[..., 3:6]
-        )
-        self.wrist_torques[:] = torch.clamp(
-            torque + gravity_compensation_torque_b,
-            min=-self.cfg.max_torque,
-            max=self.cfg.max_torque,
-        )
-
-        # 5. Clip finger joint position to torque limits
-        self.finger_joint_pos[:] = self.clip_actions_to_torque_limit(
-            self.processed_actions[:, 7:]
-        )
-
-        # 6. Set wrist wrench control
         self.robot.set_external_force_and_torque(
             forces=self.wrist_forces.reshape(self.num_envs, 1, 3),
             torques=self.wrist_torques.reshape(self.num_envs, 1, 3),
             body_ids=self.wrist_body_id,
             is_global=False,
         )
-
-        # 7. Set finger joint position control
         self._asset.set_joint_position_target(
             self.finger_joint_pos, joint_ids=self.finger_joint_ids
         )

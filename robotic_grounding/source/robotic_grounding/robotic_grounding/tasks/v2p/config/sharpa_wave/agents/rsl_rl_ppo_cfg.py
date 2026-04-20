@@ -11,7 +11,7 @@ class SharpaV2PPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     """PPO runner configuration for the Sharpa V2P environment."""
 
     num_steps_per_env = 24
-    max_iterations = 5000
+    max_iterations = 20000
     save_interval = 200
     experiment_name = "sharpa_v2p"
     empirical_normalization = True

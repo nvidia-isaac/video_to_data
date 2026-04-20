@@ -32,6 +32,12 @@ from robotic_grounding.tasks.v2p.mdp.utils import (
     interpolate_robot_motion_data,
     sample_wrench_space_basis_scaled,
 )
+from robotic_grounding.tasks.v2p.mdp.utils_jit import (
+    refresh_jit,
+    resample_compute_tensors_jit,
+    wrench_preprocess_jit,
+    wrench_support_one_body_jit,
+)
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -109,6 +115,11 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         self._precompute_contact_wrench_support_values()
         self._set_contact_vis_impl(getattr(self.cfg, "debug_vis", False))
         self._init_metrics(cfg)
+
+        # Lazy per-step refresh cache. refresh_tensors() recomputes all cached
+        # tensors on first access when _tensors_dirty is True (set here, at end
+        # of _update_command, and at end of _resample_command).
+        self._tensors_dirty = True
 
     def __str__(self) -> str:
         """String representation of the command term."""
@@ -1218,12 +1229,13 @@ class DualHandsObjectTrackingCommand(CommandTerm):
     @property
     def right_hand_contact_wrench_supports_command(self) -> torch.Tensor:
         """The contact wrench supports for the right hand contact. Shape is (num_envs, num_bodies, num_wrench_space_basis_samples)."""
-        return self.retargeted_right_contact_wrench_supports[self.timestep_counter]
+        # Alias of the cached ref_right (same retargeted[timestep_counter] indexing).
+        return self.ref_right
 
     @property
     def left_hand_contact_wrench_supports_command(self) -> torch.Tensor:
         """The contact wrench supports for the left hand contact. Shape is (num_envs, num_bodies, num_wrench_space_basis_samples)."""
-        return self.retargeted_left_contact_wrench_supports[self.timestep_counter]
+        return self.ref_left
 
     ######################################################################
     # Observations
@@ -1463,119 +1475,273 @@ class DualHandsObjectTrackingCommand(CommandTerm):
     @property
     def right_hand_contact_wrench_supports(self) -> torch.Tensor:
         """The wrench representation for the right hand contact. Shape is (num_envs, num_bodies, num_wrench_space_basis_samples)."""
-        # TODO (xzhu): clean the right/left duplication code
-        active_contact = (
-            self.right_hand_object_contact_positions_w.norm(dim=-1) > 1e-3
-        )  # (num_envs, num_bodies, num_robot_contacts_right)
-        object_com_state_w = self.object_com_position_and_wxyz_w.unsqueeze(2).expand(
-            -1, -1, self.num_robot_contacts_right, -1
-        )
-        object_com_position_w = object_com_state_w[..., :3]
-        object_com_orientation_w = object_com_state_w[..., 3:7]
-
-        # Compute contact positions in the object frame
-        right_hand_contact_positions_com, _ = math_utils.subtract_frame_transforms(
-            object_com_position_w,
-            object_com_orientation_w,
-            self.right_hand_object_contact_positions_w,
-            q02=None,
-        )  # (num_envs, num_bodies, num_robot_contacts_right, 3)
-        right_hand_contact_positions_com *= active_contact.view(
-            self.num_envs, self.num_bodies, self.num_robot_contacts_right, 1
-        )
-
-        # Compute contact normals in the object frame, normals are force direction since contact sensors only report normal forces for 2.3.1
-        right_hand_contact_normals_w = self.right_hand_object_contact_forces_w[:, 0]
-        right_hand_contact_normals_w = (
-            right_hand_contact_normals_w
-            / right_hand_contact_normals_w.norm(dim=-1).unsqueeze(-1).clamp(min=1e-5)
-        )
-        right_hand_contact_normals_com, _ = math_utils.subtract_frame_transforms(
-            torch.zeros_like(object_com_position_w),
-            object_com_orientation_w,
-            right_hand_contact_normals_w,
-            q02=None,
-        )  # (num_envs, num_bodies, num_robot_contacts_right, 3)
-        right_hand_contact_normals_com *= active_contact.view(
-            self.num_envs, self.num_bodies, self.num_robot_contacts_right, 1
-        )
-
-        # Compute wrench space
-        for body_idx, body_radius in enumerate(self.object_mesh_radius):
-            wrench_space = compute_wrench_space(
-                contact_points=right_hand_contact_positions_com[:, body_idx],
-                contact_normals=right_hand_contact_normals_com[:, body_idx],
-                cos_t=self.friction_cone_edge_cosines,
-                sin_t=self.friction_cone_edge_sines,
-                rc=body_radius,
-                friction_coefficients=self.cfg.friction_coefficients,
-            )  # (horizon, _, 6)
-            self.right_contact_wrench_supports[:, body_idx] = (
-                compute_wrench_space_support_function(
-                    wrench_space=wrench_space,
-                    basis=self.wrench_space_bases[body_idx],
-                )
-            )
-
+        self.refresh_tensors()
         return self.right_contact_wrench_supports
 
     @property
     def left_hand_contact_wrench_supports(self) -> torch.Tensor:
         """The wrench representation for the left hand contact. Shape is (num_envs, num_bodies, num_wrench_space_basis_samples)."""
-        active_contact = (
-            self.left_hand_object_contact_positions_w.norm(dim=-1) > 1e-3
-        )  # (num_envs, num_bodies, num_robot_contacts_left)
-        object_com_state_w = self.object_com_position_and_wxyz_w.unsqueeze(2).expand(
-            -1, -1, self.num_robot_contacts_right, -1
-        )
-        object_com_position_w = object_com_state_w[..., :3]
-        object_com_orientation_w = object_com_state_w[..., 3:7]
+        self.refresh_tensors()
+        return self.left_contact_wrench_supports
 
-        # Compute contact positions in the object frame
-        left_hand_contact_positions_com, _ = math_utils.subtract_frame_transforms(
-            object_com_position_w,
-            object_com_orientation_w,
-            self.left_hand_object_contact_positions_w,
-            q02=None,
-        )  # (num_envs, num_bodies, num_robot_contacts_left, 3)
-        left_hand_contact_positions_com *= active_contact.view(
-            self.num_envs, self.num_bodies, self.num_robot_contacts_left, 1
+    ######################################################################
+    # Cached refresh accessors (populated by refresh_tensors).
+    ######################################################################
+
+    @property
+    def right_force_sq_per_link(self) -> torch.Tensor:
+        """Per-link squared force magnitude for the right hand.
+
+        Shape ``(num_envs, num_right_hand_links_w_sensor)``. Computed as
+        ``forces_w.square().sum(-1).mean(dim=history).sum(dim=bodies)``.
+        """
+        self.refresh_tensors()
+        return self._cached_right_force_sq_per_link
+
+    @property
+    def left_force_sq_per_link(self) -> torch.Tensor:
+        """Per-link squared force magnitude for the left hand. See :meth:`right_force_sq_per_link`."""
+        self.refresh_tensors()
+        return self._cached_left_force_sq_per_link
+
+    @property
+    def right_link_in_contact(self) -> torch.Tensor:
+        """Per-link in-contact boolean for the right hand (threshold 1e-3). Shape ``(num_envs, num_links)``."""
+        self.refresh_tensors()
+        return self._cached_right_link_in_contact
+
+    @property
+    def left_link_in_contact(self) -> torch.Tensor:
+        """Per-link in-contact boolean for the left hand (threshold 1e-3). Shape ``(num_envs, num_links)``."""
+        self.refresh_tensors()
+        return self._cached_left_link_in_contact
+
+    @property
+    def right_in_contact(self) -> torch.Tensor:
+        """Per-env right-hand in-contact boolean (threshold 1e-3). Shape ``(num_envs,)``."""
+        self.refresh_tensors()
+        return self._cached_right_in_contact
+
+    @property
+    def left_in_contact(self) -> torch.Tensor:
+        """Per-env left-hand in-contact boolean (threshold 1e-3). Shape ``(num_envs,)``."""
+        self.refresh_tensors()
+        return self._cached_left_in_contact
+
+    @property
+    def in_contact(self) -> torch.Tensor:
+        """Per-env either-hand in-contact boolean. Shape ``(num_envs,)``."""
+        self.refresh_tensors()
+        return self._cached_in_contact
+
+    @property
+    def ref_left(self) -> torch.Tensor:
+        """Retargeted left wrench supports at the current timestep. Shape ``(num_envs, num_bodies, num_wrench_basis)``."""
+        self.refresh_tensors()
+        return self._cached_ref_L
+
+    @property
+    def ref_right(self) -> torch.Tensor:
+        """Retargeted right wrench supports at the current timestep. Shape ``(num_envs, num_bodies, num_wrench_basis)``."""
+        self.refresh_tensors()
+        return self._cached_ref_R
+
+    @property
+    def mask_left(self) -> torch.Tensor:
+        """``ref_left > 1e-6``. Same shape as ``ref_left``."""
+        self.refresh_tensors()
+        return self._cached_mask_L
+
+    @property
+    def mask_right(self) -> torch.Tensor:
+        """``ref_right > 1e-6``. Same shape as ``ref_right``."""
+        self.refresh_tensors()
+        return self._cached_mask_R
+
+    @property
+    def ref_active_per_cell(self) -> torch.Tensor:
+        """Per-body per-basis reference-active mask: ``mask_left | mask_right``. Shape ``(num_envs, num_bodies, num_wrench_basis)``."""
+        self.refresh_tensors()
+        return self._cached_ref_active_per_cell
+
+    @property
+    def ref_active_per_body(self) -> torch.Tensor:
+        """Per-body reference-active mask (any basis). Shape ``(num_envs, num_bodies)``."""
+        self.refresh_tensors()
+        return self._cached_ref_active_per_body
+
+    @property
+    def ref_active_global(self) -> torch.Tensor:
+        """Global per-env reference-active mask. Shape ``(num_envs,)``."""
+        self.refresh_tensors()
+        return self._cached_ref_active_global
+
+    @property
+    def right_wrench_cmd_active(self) -> torch.Tensor:
+        """``ref_right > 1e-3`` ("meaningful" support). Shape ``(N, num_bodies, num_wrench_basis)``."""
+        self.refresh_tensors()
+        return self._cached_right_wrench_cmd_active
+
+    @property
+    def left_wrench_cmd_active(self) -> torch.Tensor:
+        """``ref_left > 1e-3`` ("meaningful" support). Shape ``(N, num_bodies, num_wrench_basis)``."""
+        self.refresh_tensors()
+        return self._cached_left_wrench_cmd_active
+
+    @property
+    def right_wrench_cur_active(self) -> torch.Tensor:
+        """``right_contact_wrench_supports > 1e-3``. Shape ``(N, num_bodies, num_wrench_basis)``."""
+        self.refresh_tensors()
+        return self._cached_right_wrench_cur_active
+
+    @property
+    def left_wrench_cur_active(self) -> torch.Tensor:
+        """``left_contact_wrench_supports > 1e-3``. Shape ``(N, num_bodies, num_wrench_basis)``."""
+        self.refresh_tensors()
+        return self._cached_left_wrench_cur_active
+
+    @property
+    def right_wrench_cmd_active_per_body(self) -> torch.Tensor:
+        """``right_wrench_cmd_active.any(-1)``. Shape ``(N, num_bodies)``."""
+        self.refresh_tensors()
+        return self._cached_right_wrench_cmd_active_per_body
+
+    @property
+    def left_wrench_cmd_active_per_body(self) -> torch.Tensor:
+        """``left_wrench_cmd_active.any(-1)``. Shape ``(N, num_bodies)``."""
+        self.refresh_tensors()
+        return self._cached_left_wrench_cmd_active_per_body
+
+    @property
+    def right_wrench_cur_active_per_body(self) -> torch.Tensor:
+        """``right_wrench_cur_active.any(-1)``. Shape ``(N, num_bodies)``."""
+        self.refresh_tensors()
+        return self._cached_right_wrench_cur_active_per_body
+
+    @property
+    def left_wrench_cur_active_per_body(self) -> torch.Tensor:
+        """``left_wrench_cur_active.any(-1)``. Shape ``(N, num_bodies)``."""
+        self.refresh_tensors()
+        return self._cached_left_wrench_cur_active_per_body
+
+    @property
+    def object_position_e_sq(self) -> torch.Tensor:
+        """Object position in env frame with body dim squeezed. Shape ``(num_envs, 3)``."""
+        self.refresh_tensors()
+        return self._cached_object_position_e_sq
+
+    @property
+    def object_wxyz_e_sq(self) -> torch.Tensor:
+        """Object orientation in env frame with body dim squeezed. Shape ``(num_envs, 4)``."""
+        self.refresh_tensors()
+        return self._cached_object_wxyz_e_sq
+
+    ######################################################################
+    # Refresh machinery.
+    ######################################################################
+
+    def refresh_tensors(self) -> None:
+        """Recompute the shared tensors consumed by rewards / observations.
+
+        Lazy: no-op unless ``self._tensors_dirty`` is True. Dirty is raised in
+        ``__init__``, at the end of ``_update_command`` (after ``timestep_counter``
+        increments), and at the end of ``_resample_command``. Reward and observation
+        phases each trigger one refresh; within a phase repeated reads are free.
+        """
+        if not self._tensors_dirty:
+            return
+        self._tensors_dirty = False
+
+        # Wrench supports: fill existing self.{right,left}_contact_wrench_supports
+        # in place (Python-side, contains a per-body loop so it is not JIT-compiled).
+        self._compute_contact_wrench_supports("right")
+        self._compute_contact_wrench_supports("left")
+
+        # Pure-tensor derivations fused by refresh_jit.
+        (
+            self._cached_right_force_sq_per_link,
+            self._cached_left_force_sq_per_link,
+            self._cached_right_link_in_contact,
+            self._cached_left_link_in_contact,
+            self._cached_right_in_contact,
+            self._cached_left_in_contact,
+            self._cached_in_contact,
+            self._cached_ref_L,
+            self._cached_ref_R,
+            self._cached_mask_L,
+            self._cached_mask_R,
+            self._cached_ref_active_per_cell,
+            self._cached_ref_active_per_body,
+            self._cached_ref_active_global,
+            self._cached_right_wrench_cmd_active,
+            self._cached_left_wrench_cmd_active,
+            self._cached_right_wrench_cur_active,
+            self._cached_left_wrench_cur_active,
+            self._cached_right_wrench_cmd_active_per_body,
+            self._cached_left_wrench_cmd_active_per_body,
+            self._cached_right_wrench_cur_active_per_body,
+            self._cached_left_wrench_cur_active_per_body,
+            self._cached_object_position_e_sq,
+            self._cached_object_wxyz_e_sq,
+        ) = refresh_jit(
+            right_forces_w=self.right_hand_object_contact_forces_w,
+            left_forces_w=self.left_hand_object_contact_forces_w,
+            retargeted_left_contact_wrench_supports=self.retargeted_left_contact_wrench_supports,
+            retargeted_right_contact_wrench_supports=self.retargeted_right_contact_wrench_supports,
+            timestep_counter=self.timestep_counter,
+            right_contact_wrench_supports=self.right_contact_wrench_supports,
+            left_contact_wrench_supports=self.left_contact_wrench_supports,
+            object_position_e=self.object_position_e,
+            object_orientation_e=self.object_orientation_e,
         )
 
-        # Compute contact normals in the object frame, normals are force direction since contact sensors only report normal forces for 2.3.1
-        left_hand_contact_normals_w = self.left_hand_object_contact_forces_w[:, 0]
-        left_hand_contact_normals_w = (
-            left_hand_contact_normals_w
-            / left_hand_contact_normals_w.norm(dim=-1).unsqueeze(-1).clamp(min=1e-5)
-        )
-        left_hand_contact_normals_com, _ = math_utils.subtract_frame_transforms(
-            torch.zeros_like(object_com_position_w),
-            object_com_orientation_w,
-            left_hand_contact_normals_w,
-            q02=None,
-        )  # (num_envs, num_bodies, num_robot_contacts_left, 3)
-        left_hand_contact_normals_com *= active_contact.view(
-            self.num_envs, self.num_bodies, self.num_robot_contacts_left, 1
+    def _compute_contact_wrench_supports(self, side: str) -> None:
+        """Fill ``self.{side}_contact_wrench_supports`` in place for one hand.
+
+        Thin Python wrapper over two JIT helpers: ``wrench_preprocess_jit`` fuses
+        the contact-position/normal transform into the object COM frame for all
+        bodies at once, then ``wrench_support_one_body_jit`` fuses the
+        friction-cone edges + wrench-space assembly + support-function reduction
+        per body.
+        """
+        if side == "right":
+            contact_positions_w = self.right_hand_object_contact_positions_w
+            contact_forces_w = self.right_hand_object_contact_forces_w
+            buffer = self.right_contact_wrench_supports
+        else:
+            contact_positions_w = self.left_hand_object_contact_positions_w
+            contact_forces_w = self.left_hand_object_contact_forces_w
+            buffer = self.left_contact_wrench_supports
+
+        # Note: Use num_robot_contacts_right for both hands when expanding the
+        # object COM state (see legacy left property). Preserving that behavior.
+        num_robot_contacts = self.num_robot_contacts_right
+
+        com_state = self.object_com_position_and_wxyz_w  # (N, bodies, 7)
+        object_com_position_w = com_state[..., :3].unsqueeze(2)  # (N, bodies, 1, 3)
+        object_com_orientation_w = com_state[..., 3:7].unsqueeze(2)  # (N, bodies, 1, 4)
+
+        contact_positions_com, contact_normals_com = wrench_preprocess_jit(
+            contact_positions_w=contact_positions_w,
+            contact_forces_first_hist_w=contact_forces_w[:, 0],
+            object_com_position_w=object_com_position_w,
+            object_com_orientation_w=object_com_orientation_w,
+            num_envs=self.num_envs,
+            num_bodies=self.num_bodies,
+            num_robot_contacts=num_robot_contacts,
         )
 
-        # Compute wrench space
+        friction_coefficients = float(self.cfg.friction_coefficients)
         for body_idx, body_radius in enumerate(self.object_mesh_radius):
-            wrench_space = compute_wrench_space(
-                contact_points=left_hand_contact_positions_com[:, body_idx],
-                contact_normals=left_hand_contact_normals_com[:, body_idx],
+            buffer[:, body_idx] = wrench_support_one_body_jit(
+                contact_points=contact_positions_com[:, body_idx],
+                contact_normals=contact_normals_com[:, body_idx],
                 cos_t=self.friction_cone_edge_cosines,
                 sin_t=self.friction_cone_edge_sines,
-                rc=body_radius,
-                friction_coefficients=self.cfg.friction_coefficients,
-            )  # (horizon, _, 6)
-            self.left_contact_wrench_supports[:, body_idx] = (
-                compute_wrench_space_support_function(
-                    wrench_space=wrench_space,
-                    basis=self.wrench_space_bases[body_idx],
-                )
+                basis=self.wrench_space_bases[body_idx],
+                rc=float(body_radius),
+                friction_coefficients=friction_coefficients,
             )
-
-        return self.left_contact_wrench_supports
 
     ######################################################################
     # Specific functions.
@@ -1584,53 +1750,56 @@ class DualHandsObjectTrackingCommand(CommandTerm):
     def _update_metrics(self) -> None:
         """Update the metrics."""
         # Right hand
-        right_hand_wrist_pose_command_e = self.right_hand_wrist_pose_command_e
-        self.metrics["right_hand_wrist_position_error"] = torch.norm(
-            self.right_hand_wrist_position_e - right_hand_wrist_pose_command_e[:, :3],
-            dim=-1,
-        )
-        self.metrics["right_hand_wrist_wxyz_error"] = math_utils.quat_error_magnitude(
-            self.right_hand_wrist_wxyz_e, right_hand_wrist_pose_command_e[:, 3:]
-        )
-        self.metrics["right_hand_finger_joints_error"] = torch.norm(
-            self.right_hand_finger_joint_pos - self.right_hand_finger_joint_pos_command,
-            dim=-1,
-        )
-        # Left hand
-        left_hand_wrist_pose_command_e = self.left_hand_wrist_pose_command_e
-        self.metrics["left_hand_wrist_position_error"] = torch.norm(
-            self.left_hand_wrist_position_e - left_hand_wrist_pose_command_e[:, :3],
-            dim=-1,
-        )
-        self.metrics["left_hand_wrist_wxyz_error"] = math_utils.quat_error_magnitude(
-            self.left_hand_wrist_wxyz_e, left_hand_wrist_pose_command_e[:, 3:]
-        )
-        self.metrics["left_hand_finger_joints_error"] = torch.norm(
-            self.left_hand_finger_joint_pos - self.left_hand_finger_joint_pos_command,
-            dim=-1,
-        )
-        # # Object
-        self.metrics["object_body_position_error"] = torch.norm(
-            self.object_position_e - self.object_body_position_command_e,
-            dim=-1,
-        ).mean(dim=-1)
-        self.metrics["object_body_wxyz_error"] = math_utils.quat_error_magnitude(
-            self.object_orientation_e,
-            self.object_body_wxyz_command_e,
-        ).mean(dim=-1)
+        # right_hand_wrist_pose_command_e = self.right_hand_wrist_pose_command_e
+        # self.metrics["right_hand_wrist_position_error"] = torch.norm(
+        #     self.right_hand_wrist_position_e - right_hand_wrist_pose_command_e[:, :3],
+        #     dim=-1,
+        # )
+        # self.metrics["right_hand_wrist_wxyz_error"] = math_utils.quat_error_magnitude(
+        #     self.right_hand_wrist_wxyz_e, right_hand_wrist_pose_command_e[:, 3:]
+        # )
+        # self.metrics["right_hand_finger_joints_error"] = torch.norm(
+        #     self.right_hand_finger_joint_pos - self.right_hand_finger_joint_pos_command,
+        #     dim=-1,
+        # )
+        # # Left hand
+        # left_hand_wrist_pose_command_e = self.left_hand_wrist_pose_command_e
+        # self.metrics["left_hand_wrist_position_error"] = torch.norm(
+        #     self.left_hand_wrist_position_e - left_hand_wrist_pose_command_e[:, :3],
+        #     dim=-1,
+        # )
+        # self.metrics["left_hand_wrist_wxyz_error"] = math_utils.quat_error_magnitude(
+        #     self.left_hand_wrist_wxyz_e, left_hand_wrist_pose_command_e[:, 3:]
+        # )
+        # self.metrics["left_hand_finger_joints_error"] = torch.norm(
+        #     self.left_hand_finger_joint_pos - self.left_hand_finger_joint_pos_command,
+        #     dim=-1,
+        # )
+        # # # Object
+        # self.metrics["object_body_position_error"] = torch.norm(
+        #     self.object_position_e - self.object_body_position_command_e,
+        #     dim=-1,
+        # ).mean(dim=-1)
+        # self.metrics["object_body_wxyz_error"] = math_utils.quat_error_magnitude(
+        #     self.object_orientation_e,
+        #     self.object_body_wxyz_command_e,
+        # ).mean(dim=-1)
 
-        self.metrics["virtual_object_controller_scale_factor"] = (
-            self.virtual_object_controller_scale_factor
-            * torch.ones(self.num_envs, device=self.device)
-        )
+        # self.metrics["virtual_object_controller_scale_factor"] = (
+        #     self.virtual_object_controller_scale_factor
+        #     * torch.ones(self.num_envs, device=self.device)
+        # )
+        pass
 
     def _resample_command(self, env_ids: Sequence[int]) -> None:
         """Resample the command."""
+        n = len(env_ids)
+
         # Reset to a random frame from the original retargeted motion data
         self.timestep_counter[env_ids] = torch.randint(
             low=0,
             high=self.retargeted_horizon - 1,
-            size=(len(env_ids),),
+            size=(n,),
             device=self.device,
             dtype=self.timestep_counter.dtype,
         )
@@ -1638,148 +1807,98 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         if self.cfg.always_reset_to_first_frame:
             self.timestep_counter[env_ids] = 0
 
-        # Update the tracking length
-        self.tracking_lengths[env_ids] = (
-            self.retargeted_horizon - self.timestep_counter[env_ids]
-        ).clamp(min=1)
+        # Cache the per-env timestep indices and env-origin offsets once.
+        tc = self.timestep_counter[env_ids]
+        env_origins_sel = self._env.scene.env_origins[env_ids]
 
-        # Reset virtual object control curriculum scale factor
+        # Update the tracking length, reset curriculum + reset-step counters.
+        self.tracking_lengths[env_ids] = (self.retargeted_horizon - tc).clamp(min=1)
         self.virtual_object_controller_scale_factor_per_env[env_ids] = 1.0
         self.steps_since_last_reset[env_ids] = 0
+
+        # ── JIT-compiled pure-tensor derivations (indexing, cat, rand, clamp) ──
+        (
+            object_pose,
+            object_velocity,
+            right_hand_wrist_position_e,
+            right_hand_wrist_wxyz,
+            left_hand_wrist_position_e,
+            left_hand_wrist_wxyz,
+            right_hand_wrist_pose,
+            left_hand_wrist_pose,
+            wrist_zero_velocity,
+            right_hand_finger_joint_pos,
+            left_hand_finger_joint_pos,
+            finger_zero_velocity,
+        ) = resample_compute_tensors_jit(
+            tc=tc,
+            env_origins_sel=env_origins_sel,
+            retargeted_object_body_position=self.retargeted_object_body_position,
+            retargeted_object_body_wxyz=self.retargeted_object_body_wxyz,
+            retargeted_right_wrist_position=self.retargeted_right_wrist_position,
+            retargeted_right_wrist_wxyz=self.retargeted_right_wrist_wxyz,
+            retargeted_left_wrist_position=self.retargeted_left_wrist_position,
+            retargeted_left_wrist_wxyz=self.retargeted_left_wrist_wxyz,
+            retargeted_right_finger_joints=self.retargeted_right_finger_joints,
+            retargeted_left_finger_joints=self.retargeted_left_finger_joints,
+            right_soft_joint_pos_limits_sel=self.right_robot.data.soft_joint_pos_limits[
+                env_ids, :
+            ],
+            left_soft_joint_pos_limits_sel=self.left_robot.data.soft_joint_pos_limits[
+                env_ids, :
+            ],
+            reset_finger_openness=float(self.cfg.reset_finger_openness),
+            n=n,
+        )
+
+        # Store reset wrist poses (env frame, no env_origins) for action terms.
+        self.reset_right_wrist_position_e[env_ids] = right_hand_wrist_position_e
+        self.reset_right_wrist_wxyz[env_ids] = right_hand_wrist_wxyz
+        self.reset_left_wrist_position_e[env_ids] = left_hand_wrist_position_e
+        self.reset_left_wrist_wxyz[env_ids] = left_hand_wrist_wxyz
 
         ##########################################################
         # Reset the object
         ##########################################################
 
-        object_position_e = self.retargeted_object_body_position[
-            self.timestep_counter[env_ids]
-        ]
-        object_wxyz = self.retargeted_object_body_wxyz[self.timestep_counter[env_ids]]
+        # Articulation joint state is kept in Python because it's conditional on
+        # the object type and handles both (horizon,) and (horizon, num_joints)
+        # source shapes with a dim-check the scripter can't cleanly express.
+        has_object_articulation = self.retargeted_object_articulation.numel() > 0
+        object_joint_pos: torch.Tensor | None = None
+        if has_object_articulation:
+            object_joint_pos = self.retargeted_object_articulation[tc]
+            if object_joint_pos.dim() == 1:
+                object_joint_pos = object_joint_pos.unsqueeze(-1)
 
-        object_position = object_position_e + self._env.scene.env_origins[
-            env_ids
-        ].unsqueeze(1)
-        object_pose = torch.cat([object_position, object_wxyz], dim=-1).float()
-        object_velocity = torch.zeros_like(object_pose[..., :6]).float()
-
-        # Set into the physics simulation
         for object_idx, object in enumerate(self.objects):
             object.write_root_pose_to_sim(object_pose[:, object_idx], env_ids=env_ids)
             object.write_root_velocity_to_sim(
                 object_velocity[:, object_idx], env_ids=env_ids
             )
-            # For articulated objects, also reset joint state to match the reference frame.
-            if (
-                isinstance(object, Articulation)
-                and self.retargeted_object_articulation.numel() > 0
-            ):
-                joint_pos = self.retargeted_object_articulation[
-                    self.timestep_counter[env_ids]
-                ]  # (len(env_ids),)
-                if joint_pos.dim() == 1:
-                    joint_pos = joint_pos.unsqueeze(-1)
+            if isinstance(object, Articulation) and object_joint_pos is not None:
                 object.write_joint_state_to_sim(
-                    joint_pos,
-                    torch.zeros_like(joint_pos),
+                    object_joint_pos,
+                    torch.zeros_like(object_joint_pos),
                     env_ids=env_ids,
                 )
 
         ##########################################################
-        # Reset the robot
+        # Reset the robots (wrists + finger joints)
         ##########################################################
-
-        # Get robot wrist position and orientation from the retargeted motion data
-        right_hand_wrist_position = self.retargeted_right_wrist_position[
-            self.timestep_counter[env_ids]
-        ]
-        right_hand_wrist_wxyz = self.retargeted_right_wrist_wxyz[
-            self.timestep_counter[env_ids]
-        ]
-        left_hand_wrist_position = self.retargeted_left_wrist_position[
-            self.timestep_counter[env_ids]
-        ]
-        left_hand_wrist_wxyz = self.retargeted_left_wrist_wxyz[
-            self.timestep_counter[env_ids]
-        ]
-
-        # Store reset wrist poses (env frame, no env_origins) for action terms
-        self.reset_right_wrist_position_e[env_ids] = right_hand_wrist_position
-        self.reset_right_wrist_wxyz[env_ids] = right_hand_wrist_wxyz
-        self.reset_left_wrist_position_e[env_ids] = left_hand_wrist_position
-        self.reset_left_wrist_wxyz[env_ids] = left_hand_wrist_wxyz
-
-        # Robot wrist position and orientation
-        right_hand_wrist_position = (
-            right_hand_wrist_position + self._env.scene.env_origins[env_ids]
-        )
-        right_hand_wrist_pose = torch.cat(
-            [right_hand_wrist_position, right_hand_wrist_wxyz], dim=-1
-        ).float()
-        right_hand_wrist_velocity = torch.zeros_like(
-            right_hand_wrist_pose[..., :6]
-        ).float()
-
-        left_hand_wrist_position = (
-            left_hand_wrist_position + self._env.scene.env_origins[env_ids]
-        )
-        left_hand_wrist_pose = torch.cat(
-            [left_hand_wrist_position, left_hand_wrist_wxyz], dim=-1
-        ).float()
-        left_hand_wrist_velocity = torch.zeros_like(
-            left_hand_wrist_pose[..., :6]
-        ).float()
 
         self.right_robot.write_root_pose_to_sim(right_hand_wrist_pose, env_ids=env_ids)
         self.right_robot.write_root_velocity_to_sim(
-            right_hand_wrist_velocity, env_ids=env_ids
+            wrist_zero_velocity, env_ids=env_ids
         )
         self.left_robot.write_root_pose_to_sim(left_hand_wrist_pose, env_ids=env_ids)
-        self.left_robot.write_root_velocity_to_sim(
-            left_hand_wrist_velocity, env_ids=env_ids
-        )
+        self.left_robot.write_root_velocity_to_sim(wrist_zero_velocity, env_ids=env_ids)
 
-        ##########################################################
-        # Reset the finger joints
-        ##########################################################
-
-        # Finger joints: interpolate between open (0) and reference
-        finger_factor = (
-            torch.rand(len(env_ids), 1, device=self.device)
-            * self.cfg.reset_finger_openness
-        )
-        right_hand_finger_joint_pos = (
-            finger_factor
-            * self.retargeted_right_finger_joints[self.timestep_counter[env_ids]]
-        )
-        left_hand_finger_joint_pos = (
-            finger_factor
-            * self.retargeted_left_finger_joints[self.timestep_counter[env_ids]]
-        )
-
-        # Right robot finger joint positions
-        right_hand_joint_velocity = torch.zeros_like(
-            right_hand_finger_joint_pos
-        ).float()
-        right_hand_joint_pos_limits = self.right_robot.data.soft_joint_pos_limits[
-            env_ids, :
-        ]
-        right_hand_finger_joint_pos = right_hand_finger_joint_pos.clamp_(
-            right_hand_joint_pos_limits[..., 0], right_hand_joint_pos_limits[..., 1]
-        )
         self.right_robot.write_joint_state_to_sim(
-            right_hand_finger_joint_pos, right_hand_joint_velocity, env_ids=env_ids
-        )
-
-        # Left robot finger joint positions
-        left_hand_joint_velocity = torch.zeros_like(left_hand_finger_joint_pos).float()
-        left_hand_joint_pos_limits = self.left_robot.data.soft_joint_pos_limits[
-            env_ids, :
-        ]
-        left_hand_finger_joint_pos = left_hand_finger_joint_pos.clamp_(
-            left_hand_joint_pos_limits[..., 0], left_hand_joint_pos_limits[..., 1]
+            right_hand_finger_joint_pos, finger_zero_velocity, env_ids=env_ids
         )
         self.left_robot.write_joint_state_to_sim(
-            left_hand_finger_joint_pos, left_hand_joint_velocity, env_ids=env_ids
+            left_hand_finger_joint_pos, finger_zero_velocity, env_ids=env_ids
         )
 
         ##########################################################
@@ -1789,6 +1908,9 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         # Force a kinematic/data refresh after reset to synchronize states.
         self._env.sim.forward()
         self._env.scene.update(dt=self._env.physics_dt)
+
+        # Reset invalidates all cached tensors.
+        self._tensors_dirty = True
 
     def _update_command(self) -> None:
         """Update the command."""
@@ -1820,6 +1942,10 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             self.steps_since_last_reset >= self.cfg.virtual_object_control_decay_steps
         )
         self.timestep_counter[not_in_reset_phase_env_ids] += 1
+
+        # Mark cached tensors stale; next call to refresh_tensors() (first obs of
+        # this step, or first reward/obs of step N+1) will repopulate them.
+        self._tensors_dirty = True
 
     def _get_retargeted_contact_counts(self) -> None:
         """Get the number of retargeted contacts for each hand from retargeted contact data."""
