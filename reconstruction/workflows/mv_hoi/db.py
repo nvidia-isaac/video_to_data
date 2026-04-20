@@ -1,8 +1,9 @@
 """SQLite database for tracking pipeline versions and workflow status.
 
 Tables:
-  pipeline_versions — semver version string with message
+  pipeline_versions — semver version string with message (shared)
   workflows         — per-sequence workflow submissions and their status
+  workflows_test    — same schema, used for test-mode submissions
 """
 
 import os
@@ -36,7 +37,7 @@ def init_db(db_path: str = DB_PATH) -> None:
             pipeline_version TEXT,
             workflow_name    TEXT UNIQUE NOT NULL,
             osmo_workflow_id TEXT,
-            status           TEXT NOT NULL DEFAULT 'IN_PROGRESS',
+            status           TEXT NOT NULL DEFAULT 'WAITING_WF',
             details          TEXT,
             created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -47,6 +48,26 @@ def init_db(db_path: str = DB_PATH) -> None:
             ON workflows(dataset, sequence_name);
         CREATE INDEX IF NOT EXISTS idx_workflows_status
             ON workflows(status);
+
+        CREATE TABLE IF NOT EXISTS workflows_test (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            sequence_name    TEXT NOT NULL,
+            dataset          TEXT NOT NULL,
+            pipeline_type    TEXT NOT NULL,
+            pipeline_version TEXT,
+            workflow_name    TEXT UNIQUE NOT NULL,
+            osmo_workflow_id TEXT,
+            status           TEXT NOT NULL DEFAULT 'WAITING_WF',
+            details          TEXT,
+            created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (pipeline_version) REFERENCES pipeline_versions(version)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_workflows_test_sequence
+            ON workflows_test(dataset, sequence_name);
+        CREATE INDEX IF NOT EXISTS idx_workflows_test_status
+            ON workflows_test(status);
     """)
     conn.commit()
     conn.close()
@@ -116,13 +137,14 @@ def insert_workflow(
     pipeline_version: str,
     workflow_name: str,
     osmo_workflow_id: str = "",
-    status: str = "IN_PROGRESS",
+    status: str = "WAITING_WF",
     details: str = "workflow_running",
     db_path: str = DB_PATH,
+    table: str = "workflows",
 ) -> None:
     conn = get_connection(db_path)
     conn.execute(
-        """INSERT INTO workflows
+        f"""INSERT INTO {table}
            (sequence_name, dataset, pipeline_type, pipeline_version,
             workflow_name, osmo_workflow_id, status, details)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -138,6 +160,7 @@ def update_workflow(
     status: str | None = None,
     details: str | None = None,
     db_path: str = DB_PATH,
+    table: str = "workflows",
 ) -> None:
     conn = get_connection(db_path)
     updates = ["updated_at = CURRENT_TIMESTAMP"]
@@ -150,17 +173,19 @@ def update_workflow(
         params.append(details)
     params.append(workflow_name)
     conn.execute(
-        f"UPDATE workflows SET {', '.join(updates)} WHERE workflow_name = ?",
+        f"UPDATE {table} SET {', '.join(updates)} WHERE workflow_name = ?",
         params,
     )
     conn.commit()
     conn.close()
 
 
-def get_workflow(workflow_name: str, db_path: str = DB_PATH) -> dict | None:
+def get_workflow(
+    workflow_name: str, db_path: str = DB_PATH, table: str = "workflows",
+) -> dict | None:
     conn = get_connection(db_path)
     row = conn.execute(
-        "SELECT * FROM workflows WHERE workflow_name = ?", (workflow_name,)
+        f"SELECT * FROM {table} WHERE workflow_name = ?", (workflow_name,)
     ).fetchone()
     conn.close()
     return dict(row) if row else None
@@ -171,10 +196,11 @@ def get_latest_workflow(
     dataset: str,
     pipeline_type: str,
     db_path: str = DB_PATH,
+    table: str = "workflows",
 ) -> dict | None:
     conn = get_connection(db_path)
     row = conn.execute(
-        """SELECT * FROM workflows
+        f"""SELECT * FROM {table}
            WHERE sequence_name = ? AND dataset = ? AND pipeline_type = ?
            ORDER BY created_at DESC LIMIT 1""",
         (sequence_name, dataset, pipeline_type),
@@ -186,18 +212,24 @@ def get_latest_workflow(
 def get_workflows_by_dataset(
     dataset: str,
     pipeline_type: str | None = None,
-    status: str | None = None,
+    status: str | list[str] | None = None,
     db_path: str = DB_PATH,
+    table: str = "workflows",
 ) -> list[dict]:
     conn = get_connection(db_path)
-    query = "SELECT * FROM workflows WHERE dataset = ?"
+    query = f"SELECT * FROM {table} WHERE dataset = ?"
     params: list = [dataset]
     if pipeline_type:
         query += " AND pipeline_type = ?"
         params.append(pipeline_type)
     if status:
-        query += " AND status = ?"
-        params.append(status)
+        if isinstance(status, list):
+            placeholders = ", ".join("?" for _ in status)
+            query += f" AND status IN ({placeholders})"
+            params.extend(status)
+        else:
+            query += " AND status = ?"
+            params.append(status)
     query += " ORDER BY created_at DESC"
     rows = conn.execute(query, params).fetchall()
     conn.close()
@@ -208,10 +240,11 @@ def get_summary(
     dataset: str,
     pipeline_type: str | None = None,
     db_path: str = DB_PATH,
+    table: str = "workflows",
 ) -> dict:
     conn = get_connection(db_path)
 
-    count_q = "SELECT status, COUNT(*) as count FROM workflows WHERE dataset = ?"
+    count_q = f"SELECT status, COUNT(*) as count FROM {table} WHERE dataset = ?"
     params: list = [dataset]
     if pipeline_type:
         count_q += " AND pipeline_type = ?"
@@ -219,8 +252,8 @@ def get_summary(
     count_q += " GROUP BY status"
     counts = {row["status"]: row["count"] for row in conn.execute(count_q, params)}
 
-    fail_q = """
-        SELECT details, COUNT(*) as count FROM workflows
+    fail_q = f"""
+        SELECT details, COUNT(*) as count FROM {table}
         WHERE dataset = ? AND status = 'FAIL'
     """
     fail_params: list = [dataset]

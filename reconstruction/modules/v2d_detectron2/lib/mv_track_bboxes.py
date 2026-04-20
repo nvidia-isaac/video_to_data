@@ -8,6 +8,7 @@ from v2d.mv.io.video import FrameSource
 from .build_detector import Detector
 from .track_bboxes import DetectorConfig, TrackerConfig, track_bboxes
 
+
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 

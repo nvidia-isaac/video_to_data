@@ -174,7 +174,7 @@ def tile_videos(
     tile_shape: tuple[int, int],
     output_image_size: tuple[int, int] | None = None,
     video_names: list[str] | None = None,
-    frame_count: bool = False,
+    show_frame_count: bool = False,
 ):
     if len(sources) > tile_shape[0] * tile_shape[1]:
         raise ValueError(f"Too many sources to tile: {len(sources)} > {tile_shape[0] * tile_shape[1]}")
@@ -184,7 +184,10 @@ def tile_videos(
         for s in sources
     ]
 
-    L = frame_sources[0].n_frames
+    frame_counts = [fs.n_frames for fs in frame_sources]
+    if len(set(frame_counts)) > 1:
+        raise ValueError(f"tile_videos sources have unequal frame counts: {frame_counts}")
+    L = frame_counts[0]
     if output_image_size is not None:
         W, H = output_image_size
     else:
@@ -208,7 +211,7 @@ def tile_videos(
             r = i // tile_shape[1]
             c = i % tile_shape[1]
             img[r * H: (r + 1) * H, c * W: (c + 1) * W] = img_tile
-        if frame_count:
+        if show_frame_count:
             frame_text = f"Frame {l}"
             (tw, th), _ = cv2.getTextSize(frame_text, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)
             cv2.putText(img, frame_text, (W_frame - tw - 10, th + 10),

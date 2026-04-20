@@ -11,6 +11,7 @@ def run_mv_track_bboxes(
     output_dir: str,
     image_dir: str | None = None,
     video_dir: str | None = None,
+    labeled_bbox_dir: str | None = None,
     config_path: str = str(_LIB_CONFIG),
     debug: int = -1,
     dev: bool = False,
@@ -23,6 +24,8 @@ def run_mv_track_bboxes(
         inputs["image_dir"] = image_dir
     if video_dir:
         inputs["video_dir"] = video_dir
+    if labeled_bbox_dir:
+        inputs["labeled_bbox_dir"] = labeled_bbox_dir
 
     outputs = {"output_dir": output_dir}
 
@@ -52,6 +55,11 @@ if __name__ == "__main__":
 
     parser.add_argument("--weights_dir", type=str, required=True, help="Directory containing model weights")
     parser.add_argument("--output_dir", type=str, required=True, help="Directory for outputs")
+    parser.add_argument(
+        "--labeled_bbox_dir", type=str, default=None,
+        help="Optional directory with per-camera labeled object bbox JSONs "
+             "(anchors primary person selection to the object bbox).",
+    )
     parser.add_argument("--config_path", type=str, default=str(_LIB_CONFIG), help="Path to mv_track_bboxes.yaml")
     parser.add_argument("--debug", type=int, default=-1, help="Debug level")
     parser.add_argument("--dev", action="store_true")
@@ -62,6 +70,7 @@ if __name__ == "__main__":
         output_dir=args.output_dir,
         image_dir=args.image_dir,
         video_dir=args.video_dir,
+        labeled_bbox_dir=args.labeled_bbox_dir,
         config_path=args.config_path,
         debug=args.debug,
         dev=args.dev,

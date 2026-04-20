@@ -7,7 +7,6 @@ import time
 
 import cv2
 import imageio.v3 as iio
-import numpy as np
 import torch
 from tqdm import tqdm
 

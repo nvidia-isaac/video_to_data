@@ -10,7 +10,6 @@ Manual mode — submit a single named sequence:
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import subprocess
 import sys
@@ -29,8 +28,17 @@ from db import (
     insert_workflow,
     update_workflow,
 )
+from query import osmo_cancel, refresh_waiting
 
 DB_PATH = os.path.join(SCRIPT_DIR, "processing.db")
+TABLE = "workflows"
+
+
+def _apply_test_mode(dataset_cfg: dict) -> None:
+    """In-place: append `_test` to output paths used by the workflow."""
+    dataset_cfg["calibration_output_path"] += "_test"
+    dataset_cfg["data_output_path"] += "_test"
+    dataset_cfg["mesh_base"] = dataset_cfg["mesh_base"].rstrip("/") + "_test"
 
 
 def load_config() -> dict:
@@ -144,68 +152,12 @@ def osmo_submit(
     return set_vars.get("workflow_name", stdout)
 
 
-def osmo_query(workflow_name: str) -> dict:
-    """Query OSMO workflow status via JSON output.
-
-    Returns {"status": str, "tasks": {name: status}}.
-    """
-    cmd = [
-        "osmo", "workflow", "query", workflow_name, "--format-type", "json",
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        return {"status": "UNKNOWN", "tasks": {}}
-
-    data = json.loads(result.stdout)
-    status = data.get("status", "UNKNOWN")
-    tasks: dict[str, str] = {}
-    for group in data.get("groups", []):
-        for task in group.get("tasks", []):
-            tasks[task["name"]] = task["status"]
-
-    return {"status": status, "tasks": tasks}
-
-
 # Core logic
 
 def _generate_workflow_name(pipeline_type: str, version: str) -> str:
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     ver = version.replace(".", "-")
     return f"v2d_{pipeline_type}_{ver}_{ts}"
-
-
-def _failure_detail(info: dict) -> str:
-    """Extract a human-readable failure detail from osmo_query result.
-
-    Prioritises root-cause FAILED tasks over FAILED_UPSTREAM/FAILED_CANCELED.
-    """
-    tasks = info.get("tasks", {})
-    root = [t for t, s in tasks.items() if s == "FAILED"]
-    if root:
-        return "task_failed: " + ", ".join(sorted(root))
-    derived = [t for t, s in tasks.items() if s.startswith("FAILED")]
-    if derived:
-        task = derived[0]
-        return f"task_{tasks[task].lower()}: {task}"
-    return info.get("status", "failed").lower()
-
-
-def refresh_in_progress(dataset: str, pipeline_type: str) -> None:
-    """Poll OSMO for status of all IN_PROGRESS workflows and update the DB."""
-    workflows = get_workflows_by_dataset(
-        dataset, pipeline_type=pipeline_type, status="IN_PROGRESS", db_path=DB_PATH,
-    )
-    for wf in workflows:
-        osmo_id = wf.get("osmo_workflow_id") or wf["workflow_name"]
-        info = osmo_query(osmo_id)
-        wf_status = info["status"]
-        if wf_status == "COMPLETED":
-            update_workflow(wf["workflow_name"], status="PASS",
-                           details="workflow_completed", db_path=DB_PATH)
-        elif wf_status.startswith("FAILED"):
-            detail = _failure_detail(info)
-            update_workflow(wf["workflow_name"], status="FAIL",
-                           details=detail, db_path=DB_PATH)
 
 
 def submit_sequence(
@@ -219,24 +171,30 @@ def submit_sequence(
 ) -> str | None:
     """Build --set vars, submit OSMO workflow, record in DB. Return workflow name."""
     latest = get_latest_workflow(
-        sequence_name, dataset_name, pipeline_type, db_path=DB_PATH,
+        sequence_name, dataset_name, pipeline_type, db_path=DB_PATH, table=TABLE,
     )
 
     if latest and not force:
-        if latest["status"] == "IN_PROGRESS":
-            osmo_id = latest.get("osmo_workflow_id") or latest["workflow_name"]
-            info = osmo_query(osmo_id)
-            if info["status"] in ("COMPLETED", "UNKNOWN"):
-                pass
-            elif info["status"].startswith("FAILED"):
-                detail = _failure_detail(info)
-                update_workflow(latest["workflow_name"], status="FAIL",
-                               details=detail, db_path=DB_PATH)
-                print(f"  {sequence_name}: previous workflow failed ({detail}), resubmitting")
-            else:
-                print(f"  {sequence_name}: already IN_PROGRESS, skipping")
+        if latest["status"] == "WAITING_WF":
+            if not _confirm(
+                f"Sequence {sequence_name} is running ({latest['workflow_name']}). "
+                "Cancel and resubmit?"
+            ):
                 return None
-        if latest["status"] == "PASS":
+            osmo_id = latest.get("osmo_workflow_id") or latest["workflow_name"]
+            if not osmo_cancel(osmo_id):
+                print(f"  {sequence_name}: cancel failed, aborting")
+                return None
+            update_workflow(latest["workflow_name"], status="FAIL",
+                           details="cancelled_for_resubmit", db_path=DB_PATH,
+                           table=TABLE)
+            print(f"  {sequence_name}: cancelled previous run, resubmitting")
+        elif latest["status"] == "WAITING_QC":
+            if not _confirm(
+                f"Sequence {sequence_name} is awaiting QC. Resubmit?"
+            ):
+                return None
+        elif latest["status"] == "PASS":
             if not _confirm(f"Sequence {sequence_name} already PASS. Resubmit?"):
                 return None
 
@@ -349,9 +307,10 @@ def submit_sequence(
             pipeline_version=version,
             workflow_name=workflow_name,
             osmo_workflow_id=osmo_workflow_id,
-            status="IN_PROGRESS",
+            status="WAITING_WF",
             details="workflow_running",
             db_path=DB_PATH,
+            table=TABLE,
         )
         print(f"  Workflow ID: {osmo_workflow_id}")
         return workflow_name
@@ -364,18 +323,59 @@ def submit_sequence(
         return None
 
 
+def _normalize_time_arg(s: str) -> str:
+    """Normalize a user time arg to the 19-char `YYYY-MM-DD_HH-MM-SS` form.
+
+    `YYYY-MM-DD` is expanded to midnight (`_00-00-00`). Combined with an
+    inclusive start and exclusive end, passing a bare date to `--end_time`
+    excludes the entire day.
+    """
+    if len(s) == 10:
+        return s + "_00-00-00"
+    if len(s) == 19:
+        return s
+    raise ValueError(
+        f"Time must be YYYY-MM-DD or YYYY-MM-DD_HH-MM-SS: {s!r}"
+    )
+
+
+def _filter_sequences_by_time(
+    sequences: list[str],
+    start_time: str | None,
+    end_time: str | None,
+) -> list[str]:
+    """Keep sequences whose `YYYY-MM-DD_HH-MM-SS` prefix is in [start, end).
+
+    `start_time` is inclusive; `end_time` is exclusive.
+    """
+    if not start_time and not end_time:
+        return sequences
+    lo = _normalize_time_arg(start_time) if start_time else None
+    hi = _normalize_time_arg(end_time) if end_time else None
+    kept: list[str] = []
+    for seq in sequences:
+        prefix = seq[:19]
+        if len(prefix) < 19 or prefix[4] != "-" or prefix[10] != "_":
+            continue
+        if lo and prefix < lo:
+            continue
+        if hi and prefix >= hi:
+            continue
+        kept.append(seq)
+    return kept
+
+
 def auto_submit(
     dataset_name: str, dataset_cfg: dict, pipeline_type: str,
-    *, dry_run: bool = False,
+    *, dry_run: bool = False, retry_failed: bool = False,
+    start_time: str | None = None, end_time: str | None = None,
 ) -> None:
     """Discover sequences from Swift and submit workflows up to concurrency limit."""
     max_concurrent = dataset_cfg.get("max_concurrent", 10)
 
-    print("Refreshing in-progress workflow statuses...")
-    refresh_in_progress(dataset_name, pipeline_type)
-
     in_progress = get_workflows_by_dataset(
-        dataset_name, pipeline_type=pipeline_type, status="IN_PROGRESS", db_path=DB_PATH,
+        dataset_name, pipeline_type=pipeline_type,
+        status="WAITING_WF", db_path=DB_PATH, table=TABLE,
     )
     available = max_concurrent - len(in_progress)
     print(f"In progress: {len(in_progress)}, available slots: {available}")
@@ -393,15 +393,24 @@ def auto_submit(
     sequences = list_sequences(s3, bucket, scan_pfx)
     print(f"Found {len(sequences)} sequences in {dataset_name}")
 
+    if start_time or end_time:
+        sequences = _filter_sequences_by_time(sequences, start_time, end_time)
+        bounds = f"[{start_time or '-inf'}, {end_time or '+inf'}]"
+        print(f"Filtered to {len(sequences)} sequences in time range {bounds}")
+
+    skip_statuses = {"PASS", "WAITING_WF", "WAITING_QC"}
+    if not retry_failed:
+        skip_statuses.add("FAIL")
+
     submitted = 0
     for seq in sequences:
         if submitted >= available:
             print(f"Reached max concurrent limit ({max_concurrent})")
             break
         latest = get_latest_workflow(
-            seq, dataset_name, pipeline_type, db_path=DB_PATH,
+            seq, dataset_name, pipeline_type, db_path=DB_PATH, table=TABLE,
         )
-        if latest and latest["status"] in ("PASS", "IN_PROGRESS"):
+        if latest and latest["status"] in skip_statuses:
             continue
         wf = submit_sequence(
             seq, dataset_name, dataset_cfg, pipeline_type, dry_run=dry_run,
@@ -426,9 +435,24 @@ def main() -> None:
     parser.add_argument("--sequence", help="Single sequence (manual mode)")
     parser.add_argument("--force", action="store_true",
                         help="Force resubmit even if already PASS")
+    parser.add_argument("--retry_failed", action="store_true",
+                        help="In auto mode, also retry sequences whose latest run failed")
+    parser.add_argument("--start_time",
+                        help="Auto mode: only include sequences with timestamp >= this "
+                             "(YYYY-MM-DD or YYYY-MM-DD_HH-MM-SS, inclusive)")
+    parser.add_argument("--end_time",
+                        help="Auto mode: only include sequences with timestamp < this "
+                             "(YYYY-MM-DD or YYYY-MM-DD_HH-MM-SS, exclusive; "
+                             "a bare date excludes that entire day)")
     parser.add_argument("--dry_run", action="store_true",
                         help="Build and print the osmo submit command without running it")
+    parser.add_argument("--test", action="store_true",
+                        help="Use workflows_test table and append _test to output paths")
     args = parser.parse_args()
+
+    global TABLE
+    if args.test:
+        TABLE = "workflows_test"
 
     config = load_config()
     if args.dataset not in config["datasets"]:
@@ -442,7 +466,14 @@ def main() -> None:
         print(f"Available: {list(dataset_cfg['pipelines'].keys())}")
         sys.exit(1)
 
+    if args.test:
+        _apply_test_mode(dataset_cfg)
+
     init_db(DB_PATH)
+
+    print("Refreshing waiting workflow statuses...")
+    refresh_waiting(args.dataset, pipeline_type=args.pipeline, db_path=DB_PATH,
+                    table=TABLE)
 
     if args.sequence:
         submit_sequence(
@@ -451,7 +482,9 @@ def main() -> None:
         )
     else:
         auto_submit(
-            args.dataset, dataset_cfg, args.pipeline, dry_run=args.dry_run,
+            args.dataset, dataset_cfg, args.pipeline,
+            dry_run=args.dry_run, retry_failed=args.retry_failed,
+            start_time=args.start_time, end_time=args.end_time,
         )
 
 
