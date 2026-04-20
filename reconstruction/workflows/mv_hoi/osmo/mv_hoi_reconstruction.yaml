@@ -84,8 +84,9 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
-    - task: rosbag_to_edex
+    - url: {{swift_output_base}}/rosbag_to_edex/
     - url: {{extrinsics_url}}
+    - task: rosbag_to_edex
     outputs:
     - url: {{swift_output_base}}/mv_preprocess/
     files:
@@ -105,8 +106,9 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
-    - task: mv_preprocess
+    - url: {{swift_output_base}}/mv_preprocess/
     - dataset: {name: v2d_mv_hoi_data}
+    - task: mv_preprocess
     outputs:
     - url: {{swift_output_base}}/foundation_stereo/
     files:
@@ -125,8 +127,9 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
-    - task: mv_preprocess
+    - url: {{swift_output_base}}/mv_preprocess/
     - dataset: {name: v2d_mv_hoi_data}
+    - task: mv_preprocess
     outputs:
     - url: {{swift_output_base}}/grounding_dino/
     files:
@@ -145,9 +148,11 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
+    - url: {{swift_output_base}}/grounding_dino/
+    - url: {{swift_output_base}}/mv_preprocess/
+    - dataset: {name: v2d_mv_hoi_data}
     - task: grounding_dino
     - task: mv_preprocess
-    - dataset: {name: v2d_mv_hoi_data}
     outputs:
     - url: {{swift_output_base}}/sam2_object_masks/
     files:
@@ -181,6 +186,8 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
+    - url: {{swift_output_base}}/sam2_object_masks/
+    - url: {{swift_output_base}}/mv_preprocess/
     - task: sam2_object_masks
     - task: mv_preprocess
     outputs:
@@ -202,12 +209,16 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
+    - url: {{swift_output_base}}/check_object_mask/
+    - url: {{swift_output_base}}/mv_preprocess/
+    - url: {{swift_output_base}}/foundation_stereo/
+    - url: {{swift_output_base}}/sam2_object_masks/
+    - url: {{mesh_url}}
+    - dataset: {name: v2d_mv_hoi_data}
     - task: check_object_mask
     - task: mv_preprocess
     - task: foundation_stereo
     - task: sam2_object_masks
-    - url: {{mesh_url}}
-    - dataset: {name: v2d_mv_hoi_data}
     outputs:
     - url: {{swift_output_base}}/foundation_pose/
     files:
@@ -236,8 +247,9 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
-    - task: mv_preprocess
+    - url: {{swift_output_base}}/mv_preprocess/
     - dataset: {name: v2d_mv_hoi_data}
+    - task: mv_preprocess
     outputs:
     - url: {{swift_output_base}}/detectron2/
     files:
@@ -255,9 +267,11 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
+    - url: {{swift_output_base}}/detectron2/
+    - url: {{swift_output_base}}/mv_preprocess/
+    - dataset: {name: v2d_mv_hoi_data}
     - task: detectron2
     - task: mv_preprocess
-    - dataset: {name: v2d_mv_hoi_data}
     outputs:
     - url: {{swift_output_base}}/sam2_human_masks/
     files:
@@ -276,10 +290,13 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
+    - url: {{swift_output_base}}/mv_preprocess/
+    - url: {{swift_output_base}}/detectron2/
+    - url: {{swift_output_base}}/sam2_human_masks/
+    - dataset: {name: v2d_mv_hoi_data}
     - task: mv_preprocess
     - task: detectron2
     - task: sam2_human_masks
-    - dataset: {name: v2d_mv_hoi_data}
     outputs:
     - url: {{swift_output_base}}/sam3d_body/
     files:
@@ -300,11 +317,15 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
+    - url: {{swift_output_base}}/mv_preprocess/
+    - url: {{swift_output_base}}/foundation_pose/
+    - url: {{swift_output_base}}/foundation_stereo/
+    - url: {{swift_output_base}}/sam2_object_masks/
+    - url: {{mesh_url}}
     - task: mv_preprocess
     - task: foundation_pose
     - task: foundation_stereo
     - task: sam2_object_masks
-    - url: {{mesh_url}}
     outputs:
     - url: {{swift_output_base}}/eval_chamfer_object/
     files:
@@ -316,6 +337,13 @@ workflow:
           echo "ERROR: No mesh file found in {{input:4}}"
           exit 1
         fi
+        for CAM in front_stereo_camera_left back_stereo_camera_left left_stereo_camera_left right_stereo_camera_left; do
+          echo "=== ${CAM} file counts ==="
+          echo "  mv_preprocess/images: $(ls {{input:0}}/images/${CAM} 2>/dev/null | wc -l)"
+          echo "  foundation_stereo/depth: $(ls {{input:2}}/${CAM}/depth 2>/dev/null | wc -l)"
+          echo "  foundation_stereo/intrinsics: $(ls {{input:2}}/${CAM}/intrinsics 2>/dev/null | wc -l)"
+          echo "  sam2_object_masks: $(ls {{input:3}}/${CAM}/0 2>/dev/null | wc -l)"
+        done
         python -m v2d.mv.postprocess.lib.mv_eval_chamfer_object \
           --camera_params_path {{input:0}}/edex \
           --object_mesh_path "$MESH" \
@@ -330,6 +358,10 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
+    - url: {{swift_output_base}}/mv_preprocess/
+    - url: {{swift_output_base}}/sam3d_body/
+    - url: {{swift_output_base}}/foundation_stereo/
+    - url: {{swift_output_base}}/sam2_human_masks/
     - task: mv_preprocess
     - task: sam3d_body
     - task: foundation_stereo
@@ -353,10 +385,13 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
+    - url: {{swift_output_base}}/mv_preprocess/
+    - url: {{swift_output_base}}/foundation_pose/
+    - url: {{swift_output_base}}/sam3d_body/
+    - url: {{mesh_url}}
     - task: mv_preprocess
     - task: foundation_pose
     - task: sam3d_body
-    - url: {{mesh_url}}
     outputs:
     - url: {{swift_output_base}}/render_hoi_overlay/
     files:
@@ -376,34 +411,6 @@ workflow:
           --image_dir {{input:0}}/images \
           --output_dir {{output}}
 
-  # # Wis3D interactive visualization
-  # - name: visualize_wis3d
-  #   image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
-  #   command: [/bin/bash]
-  #   args: [/tmp/entry.sh]
-  #   inputs:
-  #   - task: mv_preprocess
-  #   - task: foundation_pose
-  #   - task: sam3d_body
-  #   - url: {{mesh_url}}
-  #   outputs:
-  #   - url: {{swift_output_base}}/visualize_wis3d/
-  #   files:
-  #   - path: /tmp/entry.sh
-  #     contents: |-
-  #       set -ex
-  #       MESH=$(find {{input:3}} -type f \( -name "*.obj" -o -name "*.glb" -o -name "*.ply" -o -name "*.stl" \) | head -1)
-  #       if [ -z "$MESH" ]; then
-  #         echo "ERROR: No mesh file found in {{input:3}}"
-  #         exit 1
-  #       fi
-  #       python -m v2d.mv.postprocess.lib.mv_visualize_wis3d \
-  #         --camera_params_path {{input:0}}/edex \
-  #         --object_mesh_path "$MESH" \
-  #         --object_pose_dir {{input:1}} \
-  #         --human_pose_dir {{input:2}} \
-  #         --output_dir {{output}}
-
   # Final QC gate – aggregate chamfer + mask-containment checks
   - name: check_accuracy
     image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
@@ -411,6 +418,9 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
+    - url: {{swift_output_base}}/eval_chamfer_object/
+    - url: {{swift_output_base}}/eval_chamfer_human/
+    - url: {{swift_output_base}}/check_object_mask/
     - task: eval_chamfer_object
     - task: eval_chamfer_human
     - task: check_object_mask
@@ -436,9 +446,12 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
-    - task: check_accuracy
-    - task: render_hoi_overlay
+    - url: {{swift_output_base}}/mv_preprocess/
+    - url: {{swift_output_base}}/render_hoi_overlay/
+    - url: {{swift_output_base}}/check_accuracy/
     - task: mv_preprocess
+    - task: render_hoi_overlay
+    - task: check_accuracy
     outputs:
     - url: {{swift_output_base}}/upload_hitl/
     - url: {{hitl_s3_base}}/{{hitl_batch_name}}/
@@ -448,7 +461,7 @@ workflow:
         set -ex
         python -m v2d.mv.postprocess.lib.upload_hitl \
           --overlay_dir {{input:1}} \
-          --hoi_metadata_path {{input:2}}/hoi_metadata.yaml \
+          --hoi_metadata_path {{input:0}}/hoi_metadata.yaml \
           --output_dir {{output}} \
           --hitl_s3_base "{{hitl_s3_base}}" \
           --hitl_batch_name "{{hitl_batch_name}}" \

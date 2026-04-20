@@ -18,6 +18,10 @@ pose_path: "${output_dir}/poses.npy"
 
 scale: 0.5
 depth_direction_trust: 0.5
+visible_ratio_cutoff_high: 0.3
+visible_ratio_cutoff_low: 0.3
+precision_high: 1.0
+precision_low: 1.0
 est_refine_iter: 5
 track_refine_iter: 2
 

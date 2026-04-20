@@ -6,6 +6,8 @@ from enum import Enum, auto
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
+from v2d.mv.math.numpy_fn import linear_one_euro_filter
+
 
 class TrackState(Enum):
     TENTATIVE = auto()
@@ -102,17 +104,49 @@ class Track:
 
         self.history = new_history
 
-    def total_motion(self) -> float:
-        """Sum of frame-to-frame bbox center displacements (in pixels)."""
-        if self.length < 2:
-            return 0.0
+    def _smoothed_centers(self, f_cutoff: float = 5.0, f_sample: float = 30.0) -> np.ndarray:
+        """Bbox centers low-passed by a One Euro filter with beta=0 (plain low-pass).
+
+        f_cutoff defaults high (5 Hz at 30 fps) so only very-high-frequency noise —
+        e.g. bbox flicker from intermittent occlusion — is removed; real person
+        motion (sub-Hz) passes through.
+        """
         bboxes = self.get_bboxes()
         centers = np.column_stack([
             (bboxes[:, 0] + bboxes[:, 2]) / 2,
             (bboxes[:, 1] + bboxes[:, 3]) / 2,
         ])
+        if centers.shape[0] < 2:
+            return centers
+        # linear_one_euro_filter expects time on the last axis -> (2, T)
+        smoothed = linear_one_euro_filter(
+            centers.T, min_f_cutoff=f_cutoff, beta=0.0, f_sample=f_sample,
+        ).T
+        return smoothed
+
+    def total_motion(self) -> float:
+        """Sum of frame-to-frame bbox center displacements (in pixels), after smoothing.
+
+        Centers are low-passed first so occlusion-induced bbox flicker doesn't inflate
+        the score. A truly stationary (but jittery) track yields ~0.
+        """
+        if self.length < 2:
+            return 0.0
+        centers = self._smoothed_centers()
         deltas = np.diff(centers, axis=0)
         return float(np.sum(np.linalg.norm(deltas, axis=1)))
+
+    def trajectory_span(self) -> float:
+        """Diagonal of the axis-aligned bbox enclosing (smoothed) bbox centers.
+
+        Unlike total_motion, this is immune to back-and-forth flicker: a track that
+        jitters in one spot has near-zero span regardless of cumulative motion.
+        """
+        if self.length < 1:
+            return 0.0
+        centers = self._smoothed_centers()
+        return float(np.hypot(np.ptp(centers[:, 0]), np.ptp(centers[:, 1])))
+
 
 
 def bbox_iou_matrix(boxes_a: np.ndarray, boxes_b: np.ndarray) -> np.ndarray:
@@ -414,9 +448,10 @@ class IoUTracker:
                 "center"   — track whose avg bbox center is closest to image center.
                 "motion"   — track with the most total bbox-center displacement.
                 "combined" — weighted sum of normalized length, center proximity,
-                             and motion. Tune via *weights* dict.
-            weights: Weights for "combined" mode. Keys: "length", "center", "motion".
-                Defaults to {"length": 0.3, "center": 0.3, "motion": 0.4}.
+                             motion, and trajectory span. Tune via *weights* dict.
+            weights: Weights for "combined" mode.
+                Keys: "length", "center", "motion", "span".
+                Defaults to {"length": 0.2, "center": 0.2, "motion": 0.3, "span": 0.3}.
         """
         if not tracks:
             raise ValueError("No tracks to select from")
@@ -444,11 +479,12 @@ class IoUTracker:
             return min(tracks, key=center_dist)
 
         if method == "combined":
-            w_cfg = weights or {"length": 0.3, "center": 0.3, "motion": 0.4}
+            w_cfg = weights or {"length": 0.2, "center": 0.2, "motion": 0.3, "span": 0.3}
 
             lengths = np.array([t.length for t in tracks], dtype=float)
             dists = np.array([center_dist(t) for t in tracks], dtype=float)
             motions = np.array([t.total_motion() for t in tracks], dtype=float)
+            spans = np.array([t.trajectory_span() for t in tracks], dtype=float)
 
             def normalize(a: np.ndarray) -> np.ndarray:
                 r = a.max() - a.min()
@@ -458,6 +494,7 @@ class IoUTracker:
                 w_cfg.get("length", 0) * normalize(lengths)
                 + w_cfg.get("center", 0) * (1.0 - normalize(dists))
                 + w_cfg.get("motion", 0) * normalize(motions)
+                + w_cfg.get("span", 0) * normalize(spans)
             )
             return tracks[int(np.argmax(scores))]
 

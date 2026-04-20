@@ -6,12 +6,17 @@ Single sequence:
 Aggregate summary:
     python query.py --dataset sc_office_4exo_1 --pipeline mv_hoi_reconstruction --summary
 
+Latest row per sequence:
+    python query.py --dataset sc_office_4exo_1 --pipeline mv_hoi_reconstruction --latest
+
 List all:
     python query.py --dataset sc_office_4exo_1 --pipeline mv_hoi_reconstruction
 """
 
 import argparse
+import json
 import os
+import subprocess
 import sys
 
 import yaml
@@ -23,9 +28,11 @@ from db import (
     get_summary,
     get_workflows_by_dataset,
     init_db,
+    update_workflow,
 )
 
 DB_PATH = os.path.join(SCRIPT_DIR, "processing.db")
+TABLE = "workflows"
 
 
 def load_config() -> dict:
@@ -33,8 +40,81 @@ def load_config() -> dict:
         return yaml.safe_load(f)
 
 
+# OSMO helpers (read-side)
+
+def osmo_query(workflow_name: str) -> dict:
+    """Query OSMO workflow status via JSON output.
+
+    Returns {"status": str, "tasks": {name: status}}.
+    """
+    cmd = [
+        "osmo", "workflow", "query", workflow_name, "--format-type", "json",
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        return {"status": "UNKNOWN", "tasks": {}}
+
+    data = json.loads(result.stdout)
+    status = data.get("status", "UNKNOWN")
+    tasks: dict[str, str] = {}
+    for group in data.get("groups", []):
+        for task in group.get("tasks", []):
+            tasks[task["name"]] = task["status"]
+
+    return {"status": status, "tasks": tasks}
+
+
+def osmo_cancel(workflow_name: str) -> bool:
+    """Cancel a running OSMO workflow. Returns True on success."""
+    cmd = ["osmo", "workflow", "cancel", workflow_name]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"  osmo cancel failed: {result.stderr.strip()}")
+        return False
+    return True
+
+
+def _failure_detail(info: dict) -> str:
+    """Extract a human-readable failure detail from osmo_query result.
+
+    Only reports root-cause FAILED tasks; FAILED_UPSTREAM/FAILED_CANCELED
+    tasks are excluded since they are effects, not causes.
+    """
+    tasks = info.get("tasks", {})
+    root = [t for t, s in tasks.items() if s == "FAILED"]
+    if root:
+        return "task_failed: " + ", ".join(sorted(root))
+    return info.get("status", "failed").lower()
+
+
+def refresh_waiting(
+    dataset: str,
+    pipeline_type: str | None = None,
+    db_path: str = DB_PATH,
+    table: str = "workflows",
+) -> None:
+    """Poll OSMO for WAITING_WF rows and advance or fail them."""
+    workflows = get_workflows_by_dataset(
+        dataset, pipeline_type=pipeline_type, status="WAITING_WF",
+        db_path=db_path, table=table,
+    )
+    for wf in workflows:
+        osmo_id = wf.get("osmo_workflow_id") or wf["workflow_name"]
+        info = osmo_query(osmo_id)
+        wf_status = info["status"]
+        if wf_status == "COMPLETED":
+            update_workflow(wf["workflow_name"], status="WAITING_QC",
+                           details="workflow_completed", db_path=db_path,
+                           table=table)
+        elif wf_status.startswith("FAILED"):
+            detail = _failure_detail(info)
+            update_workflow(wf["workflow_name"], status="FAIL",
+                           details=detail, db_path=db_path, table=table)
+
+
 def show_sequence(dataset: str, sequence: str, pipeline_type: str) -> None:
-    wf = get_latest_workflow(sequence, dataset, pipeline_type, db_path=DB_PATH)
+    wf = get_latest_workflow(sequence, dataset, pipeline_type, db_path=DB_PATH,
+                             table=TABLE)
     if not wf:
         print(f"No workflows found for {sequence}")
         return
@@ -51,18 +131,44 @@ def show_sequence(dataset: str, sequence: str, pipeline_type: str) -> None:
     print(f"Updated:   {wf['updated_at']}")
 
 
-def show_summary(dataset: str, pipeline_type: str | None = None) -> None:
-    summary = get_summary(dataset, pipeline_type=pipeline_type, db_path=DB_PATH)
+def show_summary(
+    dataset: str,
+    pipeline_type: str | None = None,
+    latest_only: bool = False,
+) -> None:
+    if latest_only:
+        workflows = get_workflows_by_dataset(
+            dataset, pipeline_type=pipeline_type, db_path=DB_PATH, table=TABLE,
+        )
+        seen: set[tuple[str, str]] = set()
+        counts: dict[str, int] = {}
+        failure_reasons: dict[str, int] = {}
+        for wf in workflows:
+            key = (wf["sequence_name"], wf["pipeline_type"])
+            if key in seen:
+                continue
+            seen.add(key)
+            counts[wf["status"]] = counts.get(wf["status"], 0) + 1
+            if wf["status"] == "FAIL":
+                failure_reasons[wf["details"]] = failure_reasons.get(wf["details"], 0) + 1
+        summary = {
+            "counts": counts,
+            "failure_reasons": dict(sorted(failure_reasons.items(), key=lambda kv: -kv[1])),
+        }
+    else:
+        summary = get_summary(dataset, pipeline_type=pipeline_type, db_path=DB_PATH,
+                              table=TABLE)
 
     total = sum(summary["counts"].values())
     pipeline_label = pipeline_type or "all pipelines"
-    print(f"=== Summary for {dataset} ({pipeline_label}) ===")
+    scope = "latest per sequence" if latest_only else "all rows"
+    print(f"=== Summary for {dataset} ({pipeline_label}, {scope}) ===")
     print(f"Total workflows: {total}")
-    for status in ("IN_PROGRESS", "PASS", "FAIL"):
+    for status in ("WAITING_WF", "WAITING_QC", "PASS", "FAIL"):
         count = summary["counts"].get(status, 0)
         print(f"  {status}: {count}")
     for status, count in sorted(summary["counts"].items()):
-        if status not in ("IN_PROGRESS", "PASS", "FAIL"):
+        if status not in ("WAITING_WF", "WAITING_QC", "PASS", "FAIL"):
             print(f"  {status}: {count}")
 
     if summary["failure_reasons"]:
@@ -71,26 +177,49 @@ def show_summary(dataset: str, pipeline_type: str | None = None) -> None:
             print(f"  [{count}] {reason or '(no details)'}")
 
 
-def show_list(dataset: str, pipeline_type: str | None = None) -> None:
+def show_list(
+    dataset: str,
+    pipeline_type: str | None = None,
+    latest_only: bool = False,
+) -> None:
     workflows = get_workflows_by_dataset(
-        dataset, pipeline_type=pipeline_type, db_path=DB_PATH,
+        dataset, pipeline_type=pipeline_type, db_path=DB_PATH, table=TABLE,
     )
     if not workflows:
         print(f"No workflows found for {dataset}")
         return
 
-    header = f"{'Sequence':<30} {'Pipeline':<25} {'Status':<12} {'Ver':<6} {'Details'}"
-    print(header)
-    print("-" * len(header))
-    for wf in workflows:
-        ver = wf["pipeline_version"] or "?"
-        print(
-            f"{wf['sequence_name']:<30} "
-            f"{wf['pipeline_type']:<25} "
-            f"{wf['status']:<12} "
-            f"{ver:<6} "
-            f"{wf['details'] or ''}"
+    if latest_only:
+        seen: set[tuple[str, str]] = set()
+        deduped = []
+        for wf in workflows:
+            key = (wf["sequence_name"], wf["pipeline_type"])
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(wf)
+        workflows = deduped
+
+    rows = [
+        (
+            wf["sequence_name"],
+            wf["pipeline_type"],
+            wf["status"],
+            wf["pipeline_version"] or "?",
+            wf["details"] or "",
         )
+        for wf in workflows
+    ]
+    headers = ("Sequence", "Pipeline", "Status", "Ver", "Details")
+    widths = [
+        max(len(h), *(len(r[i]) for r in rows)) for i, h in enumerate(headers)
+    ]
+    fmt = "  ".join(f"{{:<{w}}}" for w in widths)
+    header_line = fmt.format(*headers)
+    print(header_line)
+    print("-" * len(header_line))
+    for r in rows:
+        print(fmt.format(*r))
 
 
 def main() -> None:
@@ -100,8 +229,12 @@ def main() -> None:
                         help="Pipeline type (e.g. mv_calibration, mv_hoi_reconstruction)")
     parser.add_argument("--sequence", help="Show details for a specific sequence")
     parser.add_argument("--summary", action="store_true", help="Show aggregate summary")
+    parser.add_argument("--latest", action="store_true",
+                        help="Show only the latest workflow per sequence")
     parser.add_argument("--all-pipelines", action="store_true",
                         help="Include all pipeline types in summary/list")
+    parser.add_argument("--test", action="store_true",
+                        help="Use workflows_test table")
     args = parser.parse_args()
 
     config = load_config()
@@ -109,16 +242,23 @@ def main() -> None:
         print(f"Unknown dataset: {args.dataset}")
         sys.exit(1)
 
+    global TABLE
+    if args.test:
+        TABLE = "workflows_test"
+
     init_db(DB_PATH)
 
     pipeline_type = None if args.all_pipelines else args.pipeline
 
+    refresh_waiting(args.dataset, pipeline_type=pipeline_type, db_path=DB_PATH,
+                    table=TABLE)
+
     if args.sequence:
         show_sequence(args.dataset, args.sequence, args.pipeline)
     elif args.summary:
-        show_summary(args.dataset, pipeline_type=pipeline_type)
+        show_summary(args.dataset, pipeline_type=pipeline_type, latest_only=args.latest)
     else:
-        show_list(args.dataset, pipeline_type=pipeline_type)
+        show_list(args.dataset, pipeline_type=pipeline_type, latest_only=args.latest)
 
 
 if __name__ == "__main__":

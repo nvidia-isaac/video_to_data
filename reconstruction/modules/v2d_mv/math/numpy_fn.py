@@ -256,40 +256,6 @@ def se3_split_mean(poses: np.array) -> np.array:
     return mean_pose
 
 
-def se3_split_mean_anisotropic(
-    poses: np.ndarray,
-    frame_rotations: np.ndarray,
-    W: np.ndarray,
-) -> np.ndarray:
-    """
-    Mean of SE(3) with per-axis weighted translation averaging.
-
-    Each pose's translation is weighted by a precision matrix W rotated
-    into world coordinates via the corresponding frame rotation.
-
-    Args:
-        poses: (D, 4, 4) world-frame poses
-        frame_rotations: (D, 3, 3) rotations defining each pose's local frame
-        W: (3, 3) diagonal precision matrix in the local frame
-    Returns:
-        mean_pose: (4, 4)
-    """
-    rot = poses[:, :3, :3]
-    trans = poses[:, :3, 3]  # (D, 3)
-    mean_rot = Rotation.mean(Rotation.from_matrix(rot)).as_matrix()
-
-    P_sum = np.zeros((3, 3))
-    Pt_sum = np.zeros(3)
-    for j in range(len(poses)):
-        R_j = frame_rotations[j]  # (3, 3)
-        P_j = R_j @ W @ R_j.T   # precision in world frame
-        P_sum += P_j
-        Pt_sum += P_j @ trans[j]
-    mean_trans = np.linalg.solve(P_sum, Pt_sum)
-
-    return se3_from_rot_trans(mean_rot, mean_trans)
-
-
 # Requires scipy>=1.16.0
 # def se3_karcher_mean(poses: np.array) -> np.array:
 #     """
@@ -404,31 +370,6 @@ def se3_inliers_incidence_angle(
     R_samples = R_samples[valid_indices]
     t_samples = t_samples[valid_indices]
     return R_samples, t_samples
-
-
-def se3_pose_select(
-    poses: np.array,
-    dist_weight: float = 10.0,
-    top_n: int = 2,
-) -> np.array:
-    """
-    Select the best pose from the given poses by the minimum pairwise distance.
-    Arguments:
-        poses: (D, 4, 4), D=compare dimension
-        dist_weight: float, weight of translation distance
-        top_n: int, number of best poses to average
-    Returns:
-        best_pose: (4, 4)
-    """
-    D = poses.shape[0]
-    repeated_poses = np.repeat(poses, D, axis=0)  # (D*D, 4, 4)
-    tiled_poses = np.tile(poses, (D, 1, 1))  # (D*D, 4, 4)
-    rot_dist, trans_dist = se3_split_distance(repeated_poses, tiled_poses)  # (D*D,), (D*D,)
-    rot_dist = rot_dist.reshape(D, D).mean(axis=-1)
-    trans_dist = trans_dist.reshape(D, D).mean(axis=-1)
-    dist = rot_dist + dist_weight * trans_dist
-    best_idx = np.argsort(dist)[:top_n]
-    return best_idx, se3_split_mean(poses[best_idx])
 
 
 #### Filtering ####

@@ -2,10 +2,10 @@ datasets:
   sc_office_4exo_1:
     swift_base: swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/multiview/sc_office_4exo_1
     calibration_path: calibration
-    calibration_output_path: calibration_output_test
+    calibration_output_path: calibration_output
     data_path: data
-    data_output_path: data_output_test
-    mesh_base: swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/mesh_test
+    data_output_path: data_output
+    mesh_base: swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/mesh
     pipelines:
       mv_calibration:
         workflow_yaml: osmo/mv_calibration.yaml

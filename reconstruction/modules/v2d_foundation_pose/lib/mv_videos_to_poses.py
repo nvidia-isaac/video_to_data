@@ -32,6 +32,10 @@ def mv_videos_to_poses(
     pose_path: Path,
     scale: float = 0.5,
     depth_direction_trust: float = 0.5,
+    visible_ratio_cutoff_high: float = 0.3,
+    visible_ratio_cutoff_low: float = 0.01,
+    precision_high: float = 1.0,
+    precision_low: float = 0.01,
     est_refine_iter: int = 5,
     track_refine_iter: int = 2,
     debug: int = 0,
@@ -50,6 +54,12 @@ def mv_videos_to_poses(
         pose_path: output path for filtered poses .npy file.
         scale: resolution scale factor (e.g. 0.5 for half resolution). Scales
             intrinsics and resizes images/depths/masks accordingly.
+        depth_direction_trust: weight for depth axis in anisotropic translation averaging.
+        visible_ratio_cutoff_high: visibility ratio at which a camera gets full precision.
+        visible_ratio_cutoff_low: visibility ratio below which a camera is excluded.
+            Set equal to cutoff_high for hard cutoff with uniform weighting.
+        precision_high: precision weight for cameras at or above cutoff_high.
+        precision_low: precision weight for cameras at cutoff_low.
         est_refine_iter: refinement iterations for registration.
         track_refine_iter: refinement iterations for tracking.
         debug: 0=off, 1=overlay videos after processing, 2=also per-frame images every 30 frames.
@@ -65,7 +75,14 @@ def mv_videos_to_poses(
     tm = mesh.to_trimesh()
     _, obb_extents = trimesh.bounds.oriented_bounds(tm)
     print(f"Mesh: {len(tm.vertices)} verts, OBB extents={obb_extents}, min={obb_extents.min():.4f}")
-    tracker = MultiViewTracker(mesh, weights_dir, num_cameras, depth_direction_trust=depth_direction_trust)
+    tracker = MultiViewTracker(
+        mesh, weights_dir, num_cameras,
+        depth_direction_trust=depth_direction_trust,
+        visible_ratio_cutoff_high=visible_ratio_cutoff_high,
+        visible_ratio_cutoff_low=visible_ratio_cutoff_low,
+        precision_high=precision_high,
+        precision_low=precision_low,
+    )
 
     mask_file_lists = []
     for d in mask_dirs:
@@ -82,6 +99,12 @@ def mv_videos_to_poses(
         depth_file_lists.append(files)
 
     num_frames = frame_sources[0].n_frames
+    for j, (fs, dl, ml) in enumerate(zip(frame_sources, depth_file_lists, mask_file_lists)):
+        if fs.n_frames != num_frames or len(dl) != num_frames or len(ml) != num_frames:
+            raise ValueError(
+                f"camera {cam_names[j]}: frame count mismatch "
+                f"(rgb={fs.n_frames}, depth={len(dl)}, mask={len(ml)}, expected={num_frames})"
+            )
     frame_iterators = [fs.iter_frames() for fs in frame_sources]
 
     all_poses = []
@@ -127,11 +150,11 @@ def mv_videos_to_poses(
                 ).astype(bool)
 
         if i == 0:
-            avg_pose, world_poses, select_idx = tracker.register(
+            avg_pose, world_poses, visible_ratios, select_idx = tracker.register(
                 rgbs, depths, masks, Ks, Ts, iteration=est_refine_iter,
             )
         else:
-            avg_pose, world_poses, select_idx = tracker.track(
+            avg_pose, world_poses, visible_ratios, select_idx = tracker.track(
                 rgbs, depths, masks, Ks, Ts, iteration=track_refine_iter,
             )
 
@@ -343,6 +366,10 @@ def mv_videos_to_poses_from_config(cfg):
         pose_path=Path(cfg.pose_path),
         scale=scale,
         depth_direction_trust=cfg.get("depth_direction_trust", 0.5),
+        visible_ratio_cutoff_high=cfg.get("visible_ratio_cutoff_high", 0.3),
+        visible_ratio_cutoff_low=cfg.get("visible_ratio_cutoff_low", 0.3),
+        precision_high=cfg.get("precision_high", 1.0),
+        precision_low=cfg.get("precision_low", 0.01),
         est_refine_iter=cfg.get("est_refine_iter", 5),
         track_refine_iter=cfg.get("track_refine_iter", 2),
         debug=cfg.get("debug", 0),

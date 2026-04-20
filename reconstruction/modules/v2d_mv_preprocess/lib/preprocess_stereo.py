@@ -153,18 +153,20 @@ def preprocess_stereo(
     right_files = right_source.image_paths
 
     if len(left_files) != len(right_files):
-        left_names = {p.name for p in left_files}
-        right_names = {p.name for p in right_files}
-        only_left = sorted(left_names - right_names)
-        only_right = sorted(right_names - left_names)
-        logger.error(
+        left_names = {p.name: p for p in left_files}
+        right_names = {p.name: p for p in right_files}
+        common = sorted(left_names.keys() & right_names.keys())
+        only_left = sorted(left_names.keys() - right_names.keys())
+        only_right = sorted(right_names.keys() - left_names.keys())
+        logger.warning(
             f"Frame count mismatch: left={len(left_files)}, right={len(right_files)}. "
             f"Only in left ({len(only_left)}): {only_left[:10]}. "
-            f"Only in right ({len(only_right)}): {only_right[:10]}."
+            f"Only in right ({len(only_right)}): {only_right[:10]}. "
+            f"Proceeding with {len(common)} matched frames."
         )
-        raise AssertionError(
-            f"Mismatch in number of left ({len(left_files)}) and right ({len(right_files)}) images"
-        )
+        left_files = [left_names[n] for n in common]
+        right_files = [right_names[n] for n in common]
+
     assert len(left_files) > 0, "No frames to process"
 
     logger.info(f"Processing {len(left_files)} frames with {num_workers} workers...")
