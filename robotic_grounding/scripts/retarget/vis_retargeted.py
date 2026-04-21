@@ -23,6 +23,7 @@ import numpy as np
 import torch
 import trimesh
 import viser
+from scipy.spatial.transform import Rotation
 
 try:
     from pxr import Usd, UsdGeom
@@ -31,7 +32,16 @@ try:
 except ImportError:
     _USD_AVAILABLE = False
 from robotic_grounding.retarget import HUMAN_MOTION_DATA_DIR
-from robotic_grounding.retarget.data_logger import ManoSharpaData, list_sequence_ids
+from robotic_grounding.retarget.data_logger import (
+    ManoSharpaData,
+    add_sequence_filter_args,
+    filter_sequence_ids,
+    list_sequence_ids,
+)
+from robotic_grounding.retarget.dataset_registry import (
+    get_all_dataset_names,
+    get_dataset_config,
+)
 from robotic_grounding.retarget.hand_kinematics import HandKinematics
 from robotic_grounding.retarget.params import MANO_FINGERTIP_INDICES, MANO_HAND_LINKS
 from robotic_grounding.retarget.read_mano import MANO
@@ -127,11 +137,14 @@ def load_support_surfaces_from_usd(
     return handles
 
 
+def _dataset_processed_dir(name: str) -> str:
+    """Resolve ``{name}/{name}_processed`` using the dataset registry."""
+    cfg = get_dataset_config(name)
+    return f"{cfg.name}/{cfg.name}{cfg.processed_suffix}"
+
+
 DATASET_DIRS: dict[str, str] = {
-    "arctic": "arctic/arctic_processed",
-    "taco": "taco/taco_processed",
-    "oakink2": "oakink2/oakink2_processed",
-    "hot3d": "hot3d/hot3d_processed",
+    name: _dataset_processed_dir(name) for name in get_all_dataset_names()
 }
 
 
@@ -161,18 +174,16 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--sequence_id",
-        type=str,
-        default=None,
-        help="Sequence to visualize. If not set, iterate through all sequences in input_dir.",
-    )
-    parser.add_argument(
         "-tid",
         "--trajectory_id",
         type=int,
         default=0,
         help="Row index when multiple rows match filters (default 0).",
     )
+    # Adds --sequence_id, --sequence_pattern, --max_sequences (shared with
+    # the loader + retarget CLIs so workflow/retarget.yaml can pass the same
+    # FILTER_ARGS through every stage).
+    add_sequence_filter_args(parser)
     parser.add_argument(
         "--show_mano",
         action="store_true",
@@ -210,6 +221,16 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help=f"Output directory for --save_html (default: {DEFAULT_HTML_DIR}).",
+    )
+    parser.add_argument(
+        "--save_mp4",
+        action="store_true",
+        default=False,
+        help=(
+            "Also render an offline MP4 via pyrender next to the .viser file. "
+            "Requires --save_html so the output directory exists. No browser or "
+            "Isaac Sim needed — uses the pinocchio/visual meshes plus MANO verts."
+        ),
     )
     return parser.parse_args()
 
@@ -292,6 +313,7 @@ def visualize_one_trajectory(
     visualize_fingertip_distances: bool = False,
     support_usd: Path | None = None,
     serializer: Any = None,
+    mp4_out_path: Path | None = None,
 ) -> dict[str, Any]:
     """Load one sequence and visualize playback (hands + objects from object_mesh_paths)."""
     for _, handle in viser_object_handles.items():
@@ -355,6 +377,37 @@ def visualize_one_trajectory(
                 color=(128, 128, 128),
                 position=np.array([0.0, 0.0, 0.0]),
             )
+
+    # Optional: offline MP4 renderer mirroring the viser scene.
+    video_renderer = None
+    if mp4_out_path is not None:
+        # Same directory as this script — Python puts scripts/retarget/ on
+        # sys.path automatically when vis_retargeted.py is invoked directly.
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from _offline_video import (  # type: ignore[import-not-found]  # noqa: PLC0415
+            OfflineVideoRenderer,
+        )
+
+        video_renderer = OfflineVideoRenderer(fps=int(round(float(logger_data.fps))))
+        video_renderer.add_robot("right", right_sharpa_kinematics)
+        video_renderer.add_robot("left", left_sharpa_kinematics)
+        for obj_idx, obj_name in enumerate(logger_data.object_body_names):
+            if obj_idx < len(object_mesh_paths) and object_mesh_paths[obj_idx]:
+                try:
+                    obj_mesh = trimesh.load(object_mesh_paths[obj_idx], force="mesh")
+                    if getattr(logger_data, "dataset", None) == "taco":
+                        obj_mesh.vertices *= 0.01
+                    video_renderer.add_object(obj_name, obj_mesh)
+                except Exception as e:  # noqa: BLE001
+                    print(f"  [mp4] skip object {obj_name}: {e}")
+        # Auto-fit the camera to the trajectory: use object positions + robot
+        # wrist positions across every frame so the subject stays in frame.
+        frame_points = [
+            np.asarray(logger_data.object_body_position).reshape(-1, 3),
+            np.asarray(logger_data.robot_right_wrist_position),
+            np.asarray(logger_data.robot_left_wrist_position),
+        ]
+        video_renderer.fit_camera(np.concatenate(frame_points, axis=0))
 
     for frame_id in range(H):
         # Right hand
@@ -475,11 +528,43 @@ def visualize_one_trajectory(
                     joints_wxyz=mano_results[side]["joints_wxyz"][frame_id],
                 )
 
+        # Offline MP4 capture — mirror the current viser scene state.
+        if video_renderer is not None:
+            video_renderer.update_robot("right", right_qpos)
+            video_renderer.update_robot("left", left_qpos)
+            for object_body_idx, object_body_name in enumerate(
+                logger_data.object_body_names
+            ):
+                pos = np.asarray(
+                    logger_data.object_body_position[frame_id][object_body_idx]
+                )
+                wxyz = np.asarray(
+                    logger_data.object_body_wxyz[frame_id][object_body_idx]
+                )
+                # Convert wxyz -> scipy xyzw, then to rotation matrix.
+                rot = Rotation.from_quat(wxyz[[1, 2, 3, 0]]).as_matrix()
+                T = np.eye(4)
+                T[:3, :3] = rot
+                T[:3, 3] = pos
+                video_renderer.update_object(object_body_name, T)
+            if mano is not None and mano_results is not None:
+                for side in ("right", "left"):
+                    video_renderer.update_mano(
+                        side,
+                        mano_results[side]["vertices"][frame_id].detach().cpu().numpy(),
+                        mano_results[side]["faces"].detach().cpu().numpy(),
+                    )
+            video_renderer.capture()
+
         dt = 1.0 / logger_data.fps
         if serializer is not None:
             serializer.insert_sleep(dt)
         else:
             time.sleep(dt)
+
+    if video_renderer is not None:
+        video_renderer.save(mp4_out_path)
+        video_renderer.close()
 
     return viser_object_handles
 
@@ -492,8 +577,6 @@ def _build_viser_client(html_dir: Path) -> None:
     imageio is only on sys.path when launched via isaaclab.sh.
     """
     client_dir = html_dir / "viser-client"
-    if client_dir.exists():
-        return
 
     viser_client_build = Path(viser.__file__).parent / "client" / "build"
     if not viser_client_build.is_dir():
@@ -503,8 +586,11 @@ def _build_viser_client(html_dir: Path) -> None:
         sys.exit(-1)
         return
 
+    # ``dirs_exist_ok`` makes this idempotent under parallel shards — the first
+    # shard populates the dir and the others no-op over the same files instead
+    # of racing on ``client_dir.exists()`` + ``copytree``.
     print(f"Copying viser client → {client_dir}")
-    shutil.copytree(viser_client_build, client_dir)
+    shutil.copytree(viser_client_build, client_dir, dirs_exist_ok=True)
     print(f"  Viser client ready at {client_dir}")
 
 
@@ -524,13 +610,28 @@ def main(args: argparse.Namespace) -> None:
     if not available:
         raise ValueError(f"No sequences found in {input_dir}")
 
-    if args.sequence_id is not None:
-        sequence_ids = [args.sequence_id]
-    else:
-        sequence_ids = available
-        print(
-            f"No sequence_id specified, will iterate through all {len(sequence_ids)} sequences."
+    sequence_ids = filter_sequence_ids(available, args)
+    if not sequence_ids:
+        # Small datasets sharded many ways routinely produce empty buckets
+        # (md5 over ~30 sequences into 8 shards often leaves one with zero).
+        # Treat that as a clean no-op so sibling shards can finish the stage.
+        num_shards = getattr(args, "num_shards", 1) or 1
+        shard_id = getattr(args, "shard_id", 0) or 0
+        if num_shards > 1:
+            print(
+                f"[vis_retargeted] Shard {shard_id}/{num_shards}: "
+                f"no sequences matched (available: {len(available)}); exiting cleanly."
+            )
+            return
+        raise ValueError(
+            f"No sequences match the provided filters (available: {len(available)})."
         )
+    if len(sequence_ids) == len(available):
+        print(
+            f"No filter specified, will iterate through all {len(sequence_ids)} sequences."
+        )
+    else:
+        print(f"Filter selected {len(sequence_ids)}/{len(available)} sequences.")
 
     # Resolve HTML output directory and build the viser client (once)
     html_dir: Path | None = None
@@ -563,6 +664,11 @@ def main(args: argparse.Namespace) -> None:
             f"[{seq_idx + 1}/{len(sequence_ids)}] Visualizing sequence: {sequence_id}"
         )
         serializer = viser_server.get_scene_serializer() if args.save_html else None
+        mp4_out_path = (
+            html_dir / "recordings" / f"{sequence_id}.mp4"
+            if args.save_mp4 and html_dir is not None
+            else None
+        )
         visualize_one_trajectory(
             viser_server,
             right_sharpa_kinematics,
@@ -576,6 +682,7 @@ def main(args: argparse.Namespace) -> None:
             visualize_fingertip_distances=args.visualize_fingertip_distances,
             support_usd=support_usd,
             serializer=serializer,
+            mp4_out_path=mp4_out_path,
         )
         if serializer is not None and html_dir is not None:
             out_path = html_dir / "recordings" / f"{sequence_id}.viser"

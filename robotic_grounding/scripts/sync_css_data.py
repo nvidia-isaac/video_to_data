@@ -54,7 +54,16 @@ REGION = os.environ.get("CSS_REGION", "us-east-1")
 BUCKET = "datasets"
 BASE_PREFIX = "v2d/human_motion_data"
 
-DATASETS = ("taco", "arctic", "oakink2", "hot3d")
+# Dataset registry — single source of truth. Add new datasets there, not here.
+sys.path.insert(
+    0,
+    str(Path(__file__).resolve().parent.parent / "source" / "robotic_grounding"),
+)
+from robotic_grounding.retarget.dataset_registry import (  # noqa: E402
+    get_all_dataset_names,
+)
+
+DATASETS = get_all_dataset_names()
 STAGES = ("loaded", "processed", "support_surfaces")
 
 LOCAL_ASSETS_DIR = (

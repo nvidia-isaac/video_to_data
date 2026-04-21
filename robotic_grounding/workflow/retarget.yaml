@@ -17,10 +17,12 @@
 # Retarget pipeline: raw data -> loaded Parquet -> retargeted Parquet -> support surfaces.
 #
 # Controls which stages run via the `stages` parameter:
-#   all         - run load + process + reconstruct (default)
+#   all         - run every stage below (default)
 #   load        - raw dataset -> Parquet (MANO + object only)
-#   process     - loaded Parquet -> retargeted Parquet (IK)
+#   process     - loaded Parquet -> retargeted Parquet (IK) + rigid URDFs
 #   reconstruct - loaded Parquet -> support surface USD
+#   visualize   - retargeted Parquet -> offline Viser + MANO-only MP4s (pyrender)
+#   video       - retargeted Parquet -> Isaac Lab MP4s with robot hands (dummy_agent)
 #
 # Usage:
 #   # Full pipeline
@@ -46,9 +48,9 @@ workflow:
   name: {{workflow_name}}
   resources:
     default:
-      cpu: 8
-      gpu: 1
-      memory: 64Gi
+      cpu: 80
+      gpu: 8
+      memory: 256Gi
       storage: 200Gi
 
   tasks:
@@ -61,21 +63,45 @@ workflow:
     environment:
       ACCEPT_EULA: Y
     inputs:
+    # Only pull the raw dataset; prior-run outputs at sibling prefixes
+    # ({{dataset}}_loaded/, {{dataset}}_processed/, ...) are re-generated
+    # each run and would otherwise be redundantly downloaded.  Fine-grained
+    # sequence filtering happens in the Python scripts via FILTER_ARGS
+    # below, not at the swift download layer.
     - url: {{input_url}}
-      regex: {{sequence_pattern}}
+      regex: dataset/.*
     outputs:
-    - url: {{output_url}}
-      regex: {{dataset}}_loaded/.*
-    - url: {{output_url}}
-      regex: {{dataset}}_processed/.*
-    - url: {{output_url}}
-      regex: reconstructed_stage/.*
+    # # Swift uploads keep list_css_sequences.py, sync_css_data.py, and
+    # # training's HUMAN_MOTION_DATA_DIR path resolution working unchanged.
+    # # Leave these off during experiments; re-enable for production runs.
+    # - url: {{output_url}}
+    #   regex: {{dataset}}_loaded/.*
+    # - url: {{output_url}}
+    #   regex: {{dataset}}_processed/.*
+    # - url: {{output_url}}
+    #   regex: {{dataset}}_urdfs/.*
+    # - url: {{output_url}}
+    #   regex: reconstructed_stage/.*
+    # - url: {{output_url}}
+    #   regex: {{dataset}}_html/.*
+    # - url: {{output_url}}
+    #   regex: {{dataset}}_videos/.*
+    # - url: {{output_url}}
+    #   regex: {{dataset}}_metrics.*
+    # Snapshot the whole {{output}} folder as a versioned OSMO dataset so
+    # every run is rollback-able by version.  Using an `_exp_200` suffix
+    # during small-sample experiments keeps the production
+    # `v2d_{{dataset}}_retarget` history clean — flip back when running the
+    # full dataset.
+    - dataset:
+        name: v2d_{{dataset}}_retarget_exp_200
     files:
     - path: /tmp/entry.sh
       contents: |-
         set -ex
         OUTPUT={{output}}
         STAGES={{stages}}
+        SHARDS={{shards}}
 
         # Symlink downloaded dataset into the expected path structure
         export HUMAN_MOTION_DATA_DIR=/tmp/human_motion_data
@@ -97,80 +123,183 @@ workflow:
         PROCESSED_DIR=${HUMAN_MOTION_DATA_DIR}/{{dataset}}/{{dataset}}_processed
         RECONSTRUCTED_DIR=${HUMAN_MOTION_DATA_DIR}/{{dataset}}/reconstructed_stage
 
-        # Stage 1: Load raw data -> Parquet
+        # Wait on all background shard PIDs; tag any failure by shard index
+        # (not PID) so the log is easy to grep for "[ERROR] shard N", and
+        # propagate a non-zero exit so `set -e` aborts the stage (bash doesn't
+        # trigger set -e on background-job failures, hence manual checking).
+        wait_shards() {
+          local ec=0
+          local shard=0
+          local sc
+          for pid in "$@"; do
+            sc=0
+            wait $pid || sc=$?
+            if [ $sc -ne 0 ]; then
+              echo "[ERROR] shard ${shard} (PID ${pid}) failed with exit ${sc}" >&2
+              ec=$sc
+            fi
+            shard=$((shard+1))
+          done
+          return $ec
+        }
+
+        # Stage 1: Load raw data -> Parquet (sharded)
         if [ "${STAGES}" = "all" ] || [ "${STAGES}" = "load" ]; then
-          echo "=== Stage 1: Loading {{dataset}} ==="
-          if [ "{{dataset}}" = "taco" ]; then
-            eval python scripts/retarget/taco_loader.py \
-              --output_dir ${LOADED_DIR} \
-              --device cuda:0 \
-              --save ${FILTER_ARGS}
-          elif [ "{{dataset}}" = "arctic" ]; then
-            eval python scripts/retarget/arctic_loader.py \
-              --output_dir ${LOADED_DIR} \
-              --device cuda:0 \
-              --save ${FILTER_ARGS}
-          elif [ "{{dataset}}" = "oakink2" ]; then
-            eval python scripts/retarget/oakink2_loader.py \
-              --output_dir ${LOADED_DIR} \
-              --device cuda:0 \
-              --save ${FILTER_ARGS}
-          elif [ "{{dataset}}" = "hot3d" ]; then
-            eval python scripts/retarget/hot3d_loader.py \
-              --output_dir ${LOADED_DIR} \
-              --device cuda:0 \
-              --save ${FILTER_ARGS}
-          else
-            echo "Error: Unknown dataset '{{dataset}}'. Use 'taco', 'arctic', 'oakink2', or 'hot3d'."
-            exit 1
-          fi
+          echo "=== Stage 1: Loading {{dataset}} (${SHARDS} shards) ==="
+          PIDS=()
+          for i in $(seq 0 $((SHARDS-1))); do
+            (
+              export CUDA_VISIBLE_DEVICES=$i
+              eval python scripts/retarget/run_loader.py \
+                --dataset {{dataset}} \
+                --output_dir ${LOADED_DIR} \
+                --device cuda:0 \
+                --save ${FILTER_ARGS} \
+                --shard_id $i --num_shards ${SHARDS}
+            ) &
+            PIDS+=($!)
+          done
+          wait_shards "${PIDS[@]}"
           echo "=== Copying loaded data to output ==="
           cp -r ${LOADED_DIR} ${OUTPUT}/{{dataset}}_loaded
         fi
 
-        # Stage 2: IK retargeting -> retargeted Parquet
+        # Stage 1.5: Generate rigid URDFs (one-shot — not per-sequence)
         if [ "${STAGES}" = "all" ] || [ "${STAGES}" = "process" ]; then
-          echo "=== Stage 2: Retargeting {{dataset}} ==="
-          if [ "{{dataset}}" = "taco" ]; then
-            eval python scripts/retarget/taco_to_sharpa.py \
-              --input_dir ${LOADED_DIR} \
-              --output_dir ${PROCESSED_DIR} \
-              --device cuda:0 \
-              --save ${FILTER_ARGS}
-          elif [ "{{dataset}}" = "arctic" ]; then
-            eval python scripts/retarget/arctic_to_sharpa.py \
-              --input_dir ${LOADED_DIR} \
-              --output_dir ${PROCESSED_DIR} \
-              --device cuda:0 \
-              --save ${FILTER_ARGS}
-          elif [ "{{dataset}}" = "oakink2" ]; then
-            eval python scripts/retarget/oakink2_to_sharpa.py \
-              --input_dir ${LOADED_DIR} \
-              --output_dir ${PROCESSED_DIR} \
-              --device cuda:0 \
-              --save ${FILTER_ARGS}
-          elif [ "{{dataset}}" = "hot3d" ]; then
-            eval python scripts/retarget/hot3d_to_sharpa.py \
-              --input_dir ${LOADED_DIR} \
-              --output_dir ${PROCESSED_DIR} \
-              --device cuda:0 \
-              --save ${FILTER_ARGS}
-          else
-            echo "Error: Unknown dataset '{{dataset}}'. Use 'taco', 'arctic', 'oakink2', or 'hot3d'."
-            exit 1
+          echo "=== Stage 1.5: Generating rigid URDFs for {{dataset}} ==="
+          python scripts/generate_rigid_urdfs.py --dataset {{dataset}} || true
+          URDF_SRC=source/robotic_grounding/robotic_grounding/assets/urdfs/{{dataset}}
+          if [ -d "${URDF_SRC}" ]; then
+            cp -r ${URDF_SRC} ${OUTPUT}/{{dataset}}_urdfs
           fi
+        fi
+
+        # Stage 2: IK retargeting -> retargeted Parquet (sharded)
+        if [ "${STAGES}" = "all" ] || [ "${STAGES}" = "process" ]; then
+          echo "=== Stage 2: Retargeting {{dataset}} (${SHARDS} shards) ==="
+          PIDS=()
+          for i in $(seq 0 $((SHARDS-1))); do
+            (
+              export CUDA_VISIBLE_DEVICES=$i
+              eval python scripts/retarget/run_retarget.py \
+                --dataset {{dataset}} \
+                --input_dir ${LOADED_DIR} \
+                --output_dir ${PROCESSED_DIR} \
+                --device cuda:0 \
+                --save ${FILTER_ARGS} \
+                --shard_id $i --num_shards ${SHARDS}
+            ) &
+            PIDS+=($!)
+          done
+          wait_shards "${PIDS[@]}"
           echo "=== Copying processed data to output ==="
           cp -r ${PROCESSED_DIR} ${OUTPUT}/{{dataset}}_processed
         fi
 
-        # Stage 3: Reconstruct support surfaces -> USD
+        # Stage 3: Reconstruct support surfaces -> USD (sharded)
         if [ "${STAGES}" = "all" ] || [ "${STAGES}" = "reconstruct" ]; then
-          echo "=== Stage 3: Reconstructing support surfaces for {{dataset}} ==="
-          eval python scripts/reconstruct_support_surfaces.py \
-            --input_dir ${LOADED_DIR} \
-            --dataset {{dataset}} ${FILTER_ARGS}
-          echo "=== Copying reconstructed data to output ==="
-          cp -r ${RECONSTRUCTED_DIR} ${OUTPUT}/reconstructed_stage
+          echo "=== Stage 3: Reconstructing support surfaces for {{dataset}} (${SHARDS} shards) ==="
+          PIDS=()
+          for i in $(seq 0 $((SHARDS-1))); do
+            (
+              export CUDA_VISIBLE_DEVICES=$i
+              eval python scripts/reconstruct_support_surfaces.py \
+                --input_dir ${LOADED_DIR} \
+                --dataset {{dataset}} \
+                ${FILTER_ARGS} \
+                --shard_id $i --num_shards ${SHARDS}
+            ) &
+            PIDS+=($!)
+          done
+          wait_shards "${PIDS[@]}"
+          # Datasets where every object is held/grounded (e.g. h2o) never
+          # produce a reconstructed_stage dir — skip the copy instead of
+          # failing the whole workflow under `set -e`.
+          if [ -d "${RECONSTRUCTED_DIR}" ]; then
+            echo "=== Copying reconstructed data to output ==="
+            cp -r ${RECONSTRUCTED_DIR} ${OUTPUT}/reconstructed_stage
+          else
+            echo "=== No reconstructed stage to copy (no support surfaces for {{dataset}}) ==="
+          fi
+        fi
+
+        # Stage 4: Viser + pyrender MP4s (sharded).
+        # Pyrender MP4s buffer every rendered frame in RAM (see
+        # ``_offline_video.py::save``), so datasets with very long sequences
+        # (oakink2 at 120 FPS ~ 4k frames/seq = ~11 GB per clip, × 8 shards
+        # running concurrently) OOM the pod.  Stage 5's dummy_agent already
+        # produces Isaac Sim MP4s with the robot hands, so the pyrender
+        # MP4 is redundant there — we keep the .viser recordings, which
+        # are compact and let anyone replay interactively in a browser.
+        if [ "${STAGES}" = "all" ] || [ "${STAGES}" = "visualize" ]; then
+          echo "=== Stage 4: Generating Viser + MP4 visualizations for {{dataset}} (${SHARDS} shards) ==="
+          MP4_ARG="--save_mp4"
+          if [ "{{dataset}}" = "oakink2" ]; then
+            MP4_ARG=""
+            echo "  (skipping pyrender MP4 for oakink2 — long sequences OOM the pod)"
+          fi
+          PIDS=()
+          for i in $(seq 0 $((SHARDS-1))); do
+            (
+              export CUDA_VISIBLE_DEVICES=$i
+              eval python scripts/retarget/vis_retargeted.py \
+                --input_dir ${PROCESSED_DIR} \
+                --save_html \
+                ${MP4_ARG} \
+                --html_dir ${OUTPUT}/{{dataset}}_html \
+                ${FILTER_ARGS} \
+                --shard_id $i --num_shards ${SHARDS}
+            ) &
+            PIDS+=($!)
+          done
+          wait_shards "${PIDS[@]}"
+        fi
+
+        # Stage 5: Isaac Lab MP4s via dummy_agent (robot + object).
+        # Intentionally run sequentially on one GPU — the earlier 8-shard
+        # fan-out triggered heavy Isaac Sim startup contention (shader cache,
+        # EGL drivers, VRAM), making the stage much slower than sequential.
+        if [ "${STAGES}" = "all" ] || [ "${STAGES}" = "video" ]; then
+          echo "=== Stage 5: Recording scene videos for {{dataset}} (sequential) ==="
+          VIDEO_DIR=${OUTPUT}/{{dataset}}_videos
+          mkdir -p ${VIDEO_DIR}
+          export CUDA_VISIBLE_DEVICES=0
+          for SEQ_DIR in ${PROCESSED_DIR}/sequence_id=*/robot_name=*; do
+            [ -d "${SEQ_DIR}" ] || continue
+            # URL-decode the partition-directory name so oakink2's
+            # `++`-encoded IDs (sequence_id=scene_01__A007%2B%2Bseq__…)
+            # don't end up in file paths as literal `%2B`.  `%2` in any
+            # path breaks gymnasium's RecordVideo wrapper, which does
+            # `msg % args` over its own log lines and treats `%2` as a
+            # format placeholder.
+            #
+            # We *don't* call out to `python -c` for this — in this image
+            # `python` is a wrapper around `isaaclab.sh -p` that prints
+            # `[INFO] Using python from: …` plus tset escape sequences on
+            # stdout before the real interpreter runs, so $(python -c …)
+            # captures that banner and poisons SEQ_ID.  Pure-bash
+            # parameter expansion + `printf '%b'` does the decode without
+            # a subprocess.
+            RAW_ID=$(basename $(dirname "${SEQ_DIR}") | sed 's|sequence_id=||')
+            # shellcheck disable=SC2059  # intentional: %b interprets \xHH
+            SEQ_ID=$(printf '%b' "${RAW_ID//%/\\x}")
+            # Idempotent: skip sequences already rendered (partial resume).
+            [ -f "${VIDEO_DIR}/${SEQ_ID}.mp4" ] && continue
+            TMP_VID=/tmp/scene_video_${SEQ_ID}
+            rm -rf ${TMP_VID}
+            # Wrap in `timeout --signal=KILL` — when Isaac Sim hits a CUDA
+            # assertion its Omniverse shutdown can deadlock, so `|| true`
+            # alone would leave the bash loop waiting forever.  5 min is
+            # plenty of headroom for ~1 min expected per-sequence work.
+            timeout --signal=KILL 300 python scripts/rsl_rl/dummy_agent.py \
+              --motion_file ${SEQ_DIR} \
+              --num_envs 1 --headless \
+              --record_video --output_dir ${TMP_VID} --video_length 300 || true
+            if [ -f "${TMP_VID}/rl-video-step-0.mp4" ]; then
+              mv ${TMP_VID}/rl-video-step-0.mp4 ${VIDEO_DIR}/${SEQ_ID}.mp4
+            fi
+            rm -rf ${TMP_VID}
+          done
         fi
 
         echo "=== Done ==="
@@ -185,3 +314,7 @@ default-values:
   sequence_pattern: ".*"
   sequence_id: ""
   max_sequences: ""
+  # Sharding: each stage fans out into SHARDS parallel processes, each pinned
+  # to CUDA_VISIBLE_DEVICES=<shard_id>.  Defaults to 8 to match the
+  # 8×L40 per-task resource request above.
+  shards: "8"

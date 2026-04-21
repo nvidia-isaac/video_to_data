@@ -21,7 +21,7 @@
 #   source scripts/setup_css_env.sh
 
 export CSS_ENDPOINT_URL="https://pdx.s8k.io"
-export CSS_ACCESS_KEY="v2p:AUTH_team-isaac"
+export CSS_ACCESS_KEY="REPLACE_ME"
 export CSS_SECRET_KEY="REPLACE_ME"
 export CSS_REGION="us-east-1"
 

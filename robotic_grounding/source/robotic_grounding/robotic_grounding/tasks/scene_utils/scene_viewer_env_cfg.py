@@ -1,4 +1,8 @@
-"""Minimal env config for verifying object spawning from a scene motion file."""
+"""Minimal env config for verifying object spawning from a scene motion file.
+
+Uses ManagerBasedRLEnvCfg (with empty rewards/terminations) so the env can
+be created via ``gym.make()`` and wrapped with ``RecordVideo`` for MP4 export.
+"""
 
 from __future__ import annotations
 
@@ -6,10 +10,12 @@ import isaaclab.sim as sim_utils
 import isaaclab.terrains as terrain_gen
 import torch
 from isaaclab.assets import AssetBaseCfg
-from isaaclab.envs import ManagerBasedEnvCfg
+from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
+from isaaclab.managers import RewardTermCfg as RewTerm
+from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.utils import configclass
 
@@ -23,6 +29,14 @@ from robotic_grounding.tasks.v2p import mdp
 
 def _dummy_obs(env: object) -> torch.Tensor:
     return torch.zeros(env.num_envs, 1, device=env.device)  # type: ignore[attr-defined]
+
+
+def _zero_reward(env: object) -> torch.Tensor:
+    return torch.zeros(env.num_envs, device=env.device)  # type: ignore[attr-defined]
+
+
+def _never_done(env: object) -> torch.Tensor:
+    return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)  # type: ignore[attr-defined]
 
 
 @configclass
@@ -83,8 +97,28 @@ class SceneViewerEventCfg:
 
 
 @configclass
-class SceneViewerEnvCfg(ManagerBasedEnvCfg):
-    """Spawns scene objects, optional support surface, and robot from a motion Parquet."""
+class SceneViewerRewardsCfg:
+    """No-op reward for passive scene viewing."""
+
+    dummy = RewTerm(func=_zero_reward, weight=0.0)
+
+
+@configclass
+class SceneViewerTerminationsCfg:
+    """Never terminate for passive scene viewing."""
+
+    dummy = DoneTerm(func=_never_done)
+
+
+@configclass
+class SceneViewerEnvCfg(ManagerBasedRLEnvCfg):
+    """Spawns object + support surface from a SceneConfig. No policy, no RL reward.
+
+    Extends ManagerBasedRLEnvCfg so the env can be created with ``gym.make()``
+    and wrapped with ``gym.wrappers.RecordVideo`` for MP4 export. Keeps an
+    event cfg so ``apply_scene_robot`` can register robot names for
+    collision-group configuration.
+    """
 
     scene: SceneViewerSceneCfg = SceneViewerSceneCfg(
         num_envs=1,
@@ -94,7 +128,10 @@ class SceneViewerEnvCfg(ManagerBasedEnvCfg):
     observations: SceneViewerObsCfg = SceneViewerObsCfg()
     actions: SceneViewerActionsCfg = SceneViewerActionsCfg()
     events: SceneViewerEventCfg = SceneViewerEventCfg()
+    rewards: SceneViewerRewardsCfg = SceneViewerRewardsCfg()
+    terminations: SceneViewerTerminationsCfg = SceneViewerTerminationsCfg()
 
+    episode_length_s: float = 1000.0  # effectively infinite for passive viewing
     motion_file: str | None = None
 
     def __post_init__(self) -> None:

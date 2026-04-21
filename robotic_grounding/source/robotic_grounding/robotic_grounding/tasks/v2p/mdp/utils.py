@@ -64,32 +64,42 @@ def interpolate_robot_motion_data(
         return interp1d(src_times, data_arr, kind="linear", axis=0)(tgt_times).tolist()
 
     def interp_contact_linear(
-        data: list[list[float]], part_ids: list[int]
-    ) -> list[float]:
-        """Linear interpolation for contact positions (n_timesteps, n_links, xyz_id).
+        data: list[list[list[float]]] | None,
+    ) -> list[list[list[float]]] | None:
+        """Linear interpolation for contact xyz tensors (T, n_links, 3).
 
-        For each link, x, y, z, and id are interpolated across time. Each component
-        is only interpolated when both bracketing source values are non-zero;
-        if either is zero, the result is set to zero.
+        For each link, each of x/y/z is only interpolated when both bracketing
+        source values are non-zero; if either is zero, the result is zero
+        (contacts come and go discontinuously, so interpolating through a
+        zero sentinel would produce spurious in-between positions).
+
+        Returns None if data is None or empty.
         """
-        H, N = len(data), len(data[0])
-        data_arr = np.concatenate(
-            [np.asarray(data), np.asarray(part_ids).reshape(H, N, 1)], axis=-1
-        )
-        # data_arr: (n_timesteps, n_links, 4) for x, y, z, id
+        if not data:
+            return None
+        data_arr = np.asarray(data)  # (T, n_links, 3)
         interp_result = interp1d(src_times, data_arr, kind="linear", axis=0)(tgt_times)
         tol = 1e-8
-        # Per-component non-zero: (n_timesteps, n_links, 4)
         nonzero_src = np.abs(data_arr) > tol
         idx_lo = np.searchsorted(src_times, tgt_times, side="right") - 1
         idx_lo = np.clip(idx_lo, 0, len(src_times) - 1)
         idx_hi = np.minimum(idx_lo + 1, len(src_times) - 1)
-        # For each target time and each (link, xyz_id), require both endpoints non-zero
-        mask_lo = nonzero_src[idx_lo]  # (n_tgt, n_links, 4)
-        mask_hi = nonzero_src[idx_hi]
-        mask_both = mask_lo & mask_hi
+        mask_both = nonzero_src[idx_lo] & nonzero_src[idx_hi]
         interp_result = np.where(mask_both, interp_result, 0.0)
         return interp_result.tolist()
+
+    def interp_part_ids(
+        part_ids: list[list[int]] | None,
+    ) -> list[list[int]] | None:
+        """Nearest-neighbor interpolation for integer contact part IDs (T, n_links).
+
+        Integer semantics — must not blend 0/1 into 0.5.
+        """
+        if not part_ids:
+            return None
+        arr = np.asarray(part_ids)  # (T, n_links)
+        interp_result = interp1d(src_times, arr, kind="nearest", axis=0)(tgt_times)
+        return interp_result.astype(np.int64).tolist()
 
     def interp_slerp(quat_data: list[list[float]]) -> list[list[float]]:
         """Slerp for a single time sequence of quaternions (T, 4)."""
@@ -157,40 +167,39 @@ def interpolate_robot_motion_data(
     motion_data.robot_right_frames = interp_frames(motion_data.robot_right_frames)
     motion_data.robot_left_frames = interp_frames(motion_data.robot_left_frames)
 
-    # 5. Contact links (T, num_links, 4) — interpolate only between non-zero
-    #    values; samples between 0 and non-zero are set to zero
+    # 5. Contact xyz tensors (T, num_links, 3) — interpolate only between non-zero
+    #    values; samples bracketed by a zero are set to zero
     motion_data.mano_right_link_contact_positions = interp_contact_linear(
-        getattr(motion_data, "mano_right_link_contact_positions", []),
-        getattr(motion_data, "mano_right_object_contact_part_ids", []),
+        getattr(motion_data, "mano_right_link_contact_positions", None),
     )
     motion_data.mano_right_link_contact_normals = interp_contact_linear(
-        getattr(motion_data, "mano_right_link_contact_normals", []),
-        getattr(motion_data, "mano_right_object_contact_part_ids", []),
+        getattr(motion_data, "mano_right_link_contact_normals", None),
     )
     motion_data.mano_right_object_contact_positions = interp_contact_linear(
-        getattr(motion_data, "mano_right_object_contact_positions", []),
-        getattr(motion_data, "mano_right_object_contact_part_ids", []),
+        getattr(motion_data, "mano_right_object_contact_positions", None),
     )
     motion_data.mano_right_object_contact_normals = interp_contact_linear(
-        getattr(motion_data, "mano_right_object_contact_normals", []),
-        getattr(motion_data, "mano_right_object_contact_part_ids", []),
+        getattr(motion_data, "mano_right_object_contact_normals", None),
     )
-
     motion_data.mano_left_link_contact_positions = interp_contact_linear(
-        getattr(motion_data, "mano_left_link_contact_positions", []),
-        getattr(motion_data, "mano_left_object_contact_part_ids", []),
+        getattr(motion_data, "mano_left_link_contact_positions", None),
     )
     motion_data.mano_left_link_contact_normals = interp_contact_linear(
-        getattr(motion_data, "mano_left_link_contact_normals", []),
-        getattr(motion_data, "mano_left_object_contact_part_ids", []),
+        getattr(motion_data, "mano_left_link_contact_normals", None),
     )
     motion_data.mano_left_object_contact_positions = interp_contact_linear(
-        getattr(motion_data, "mano_left_object_contact_positions", []),
-        getattr(motion_data, "mano_left_object_contact_part_ids", []),
+        getattr(motion_data, "mano_left_object_contact_positions", None),
     )
     motion_data.mano_left_object_contact_normals = interp_contact_linear(
-        getattr(motion_data, "mano_left_object_contact_normals", []),
-        getattr(motion_data, "mano_left_object_contact_part_ids", []),
+        getattr(motion_data, "mano_left_object_contact_normals", None),
+    )
+
+    # 6. Contact part IDs (T, num_links) — nearest-neighbor so integers stay sane
+    motion_data.mano_right_object_contact_part_ids = interp_part_ids(
+        getattr(motion_data, "mano_right_object_contact_part_ids", None),
+    )
+    motion_data.mano_left_object_contact_part_ids = interp_part_ids(
+        getattr(motion_data, "mano_left_object_contact_part_ids", None),
     )
 
     return motion_data
