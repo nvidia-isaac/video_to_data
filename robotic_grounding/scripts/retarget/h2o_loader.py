@@ -37,9 +37,10 @@ Object pose file format (obj_pose_rt):
   [class_id, 16 floats of 4x4 row-major transform matrix] in camera frame
 
 Coordinate frame:
-  Poses are in each camera's frame. H2O cameras use the standard OpenGL
-  convention (+Y up, -Z forward). We rotate to a Z-up world frame for
-  compatibility with the rest of the pipeline.
+  Poses are stored in each (moving) camera's frame. H2O ships a per-frame
+  ``cam_pose/{fid}.txt`` camera-to-world extrinsic; the loader composes it
+  with each frame's hand and object poses so the output is in the
+  gravity-aligned world frame defined by H2O's external rig calibration.
 
 Runs stage 1 of the two-stage pipeline:
   1. python scripts/retarget/h2o_loader.py --save   -> h2o_loaded/
@@ -101,10 +102,6 @@ H2O_OBJECTS: dict[int, str] = {
 # Layout: flag(1) + trans(3) + pose(48) + shape(10) = 62 per hand, 124 total.
 H2O_PER_HAND_FLOATS = 62
 
-# H2O stores poses in OpenGL camera frame (+Y up). Rotate to Z-up.
-# TODO: verify against headset forward vs. ground plane in real data.
-CAM_TO_WORLD_ZUP = np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]], dtype=np.float32)
-
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -161,6 +158,48 @@ def _parse_object_pose_file(path: Path) -> tuple[int, np.ndarray]:
     class_id = int(raw[0])
     T = raw[1:17].reshape(4, 4)
     return class_id, T
+
+
+def _parse_cam_pose_file(path: Path) -> np.ndarray:
+    """Parse one cam_pose text file into a (4, 4) camera-to-world matrix."""
+    raw = np.loadtxt(path, dtype=np.float32).ravel()
+    if raw.size != 16:
+        raise ValueError(f"{path}: expected 16 floats, got {raw.size}")
+    return raw.reshape(4, 4)
+
+
+def _load_cam_pose_series(cam_pose_dir: Path, frame_ids: list[str]) -> np.ndarray:
+    """Return (N, 4, 4) cam-to-world series, one matrix per frame.
+
+    H2O poses are stored in the egocentric-camera frame; the dataset's
+    per-frame ``cam_pose/{fid}.txt`` is the camera→world extrinsic, and
+    the world frame is gravity-aligned by construction (external rig
+    calibration). If the directory or an individual file is missing, a
+    warning is emitted and identity is used for those frames — keeping
+    the loader runnable against H2O variants that omit cam_pose.
+    """
+    series = np.tile(np.eye(4, dtype=np.float32), (len(frame_ids), 1, 1))
+    if not cam_pose_dir.is_dir():
+        warnings.warn(
+            f"cam_pose directory missing at {cam_pose_dir}; "
+            "falling back to identity (output will be in camera frame).",
+            stacklevel=2,
+        )
+        return series
+    missing = 0
+    for i, fid in enumerate(frame_ids):
+        pose_file = cam_pose_dir / f"{fid}.txt"
+        if not pose_file.exists():
+            missing += 1
+            continue
+        series[i] = _parse_cam_pose_file(pose_file)
+    if missing:
+        warnings.warn(
+            f"cam_pose missing for {missing}/{len(frame_ids)} frames under "
+            f"{cam_pose_dir}; using identity for those frames.",
+            stacklevel=2,
+        )
+    return series
 
 
 def _collect_frame_ids(cam_dir: Path) -> list[str]:
@@ -248,12 +287,16 @@ class H2ODatasetLoader(DatasetLoaderBase):
     """Load H2O sequences into ManoSharpaData (MANO + object only)."""
 
     def __init__(self) -> None:
-        """Initialize cached per-sequence object-id lookups."""
+        """Initialize cached per-sequence object-id and cam-pose lookups."""
         self._args: argparse.Namespace | None = None
         # Cache object class IDs discovered per sequence so load_object_data
         # and get_object_mesh_paths can reuse the list built during
         # list_sequences / load_mano_data.
         self._object_ids_cache: dict[str, list[int]] = {}
+        # Cache per-frame cam-to-world extrinsics so load_mano_data and
+        # load_object_data both transform into the same world frame without
+        # re-reading cam_pose/*.txt twice.
+        self._cam_pose_cache: dict[str, np.ndarray] = {}
 
     def list_sequences(self, args: Any) -> list[SequenceInfo]:
         """Discover H2O sequences (subject / action / take / camera)."""
@@ -373,17 +416,22 @@ class H2ODatasetLoader(DatasetLoaderBase):
         left_finger_pose = np.stack(left_p_list).astype(np.float32)
         left_trans = np.stack(left_t_list).astype(np.float32)
 
-        # Apply OpenGL-camera -> Z-up world rotation to global orientation and
-        # translation.  Uses the same pattern as hot3d_loader.py when
-        # center_idx=None (see the comment there for why we add J_shaped[0]).
-        R = CAM_TO_WORLD_ZUP
+        # H2O stores per-frame hand/object poses in the (moving) egocentric
+        # camera frame. Applying a fixed cam->world rotation leaves gravity
+        # tilting with the subject's head; instead, transform each frame by
+        # the per-frame cam_pose/*.txt extrinsic (camera-to-world). The
+        # resulting world frame is gravity-aligned by the H2O rig calibration.
+        cam_pose = _load_cam_pose_series(src.take_dir / "cam_pose", frame_ids)
+        self._cam_pose_cache[sequence_info.sequence_id] = cam_pose
         for i in range(H):
+            R_cw = cam_pose[i, :3, :3]
+            t_cw = cam_pose[i, :3, 3]
             R_r = Rotation.from_rotvec(right_global_orient[i]).as_matrix()
-            right_global_orient[i] = Rotation.from_matrix(R @ R_r).as_rotvec()
+            right_global_orient[i] = Rotation.from_matrix(R_cw @ R_r).as_rotvec()
             R_l = Rotation.from_rotvec(left_global_orient[i]).as_matrix()
-            left_global_orient[i] = Rotation.from_matrix(R @ R_l).as_rotvec()
-        right_trans = (R @ right_trans.T).T
-        left_trans = (R @ left_trans.T).T
+            left_global_orient[i] = Rotation.from_matrix(R_cw @ R_l).as_rotvec()
+            right_trans[i] = R_cw @ right_trans[i] + t_cw
+            left_trans[i] = R_cw @ left_trans[i] + t_cw
 
         # Update the source with discovered objects so downstream methods can
         # fill object_body_names / mesh paths consistently.
@@ -432,6 +480,13 @@ class H2ODatasetLoader(DatasetLoaderBase):
         # we fall back to the previous known pose (and zero if never seen).
         N = len(frame_ids)
 
+        # Use the per-frame cam-to-world extrinsic populated by load_mano_data;
+        # fall back to loading directly if the cache is cold (e.g. object-only
+        # invocation path).
+        cam_pose = self._cam_pose_cache.get(sequence_info.sequence_id)
+        if cam_pose is None:
+            cam_pose = _load_cam_pose_series(src.take_dir / "cam_pose", frame_ids)
+
         poses = {
             cid: np.tile(np.eye(4, dtype=np.float32), (N, 1, 1)) for cid in obj_ids
         }
@@ -445,10 +500,9 @@ class H2ODatasetLoader(DatasetLoaderBase):
                     poses[cid][f_idx] = last_T[cid]
                 continue
             class_id, T = _parse_object_pose_file(obj_file)
-            # Rotate camera-frame pose to Z-up world frame.
-            T_world = np.eye(4, dtype=np.float32)
-            T_world[:3, :3] = CAM_TO_WORLD_ZUP @ T[:3, :3]
-            T_world[:3, 3] = CAM_TO_WORLD_ZUP @ T[:3, 3]
+            # Transform cam-frame object pose to gravity-aligned world frame
+            # via this frame's cam-to-world extrinsic.
+            T_world = cam_pose[f_idx] @ T
             for cid in obj_ids:
                 if cid == class_id:
                     poses[cid][f_idx] = T_world
@@ -525,20 +579,39 @@ class H2ODatasetLoader(DatasetLoaderBase):
     def get_object_mesh_paths(self, sequence_info: SequenceInfo) -> list[str]:
         """Return OBJ mesh paths for all objects in the sequence.
 
-        H2O object meshes live in ``assets/meshes/h2o/{name}/`` (one subdir
-        per object). The .obj file name doesn't always match the folder
-        (e.g. ``spray/`` contains ``lotion_spray.obj``) so we glob for .obj.
+        Mirrors the search order of :meth:`load_object_meshes` so the paths
+        stored in the Parquet actually resolve at later stages
+        (reconstruct / vis / video).  Searches, per object name:
+
+        1. ``assets/meshes/h2o/{name}/*.obj`` (canonical committed copy)
+        2. ``{h2o_dir}/object/{name}/*.obj`` (raw dataset fallback)
+
+        H2O mesh filenames don't always match the folder (e.g. ``spray/``
+        contains ``lotion_spray.obj``) so we glob for ``*.obj``.  If nothing
+        is found, we still emit a path under the canonical dir so the
+        Parquet column is well-typed — downstream consumers will then skip
+        the object with a clear "no mesh loaded" warning instead of
+        segfaulting.
         """
         src: H2OSequenceSource = sequence_info.source
-        mesh_dir = MESHES_DIR / "h2o"
+        canonical_dir = MESHES_DIR / "h2o"
+        h2o_dir = Path(getattr(self._args, "h2o_dir", DEFAULT_H2O_DIR))
+        fallback_dir = h2o_dir / "object"
         paths: list[str] = []
         for name in src.object_names:
-            objs = (
-                sorted((mesh_dir / name).glob("*.obj"))
-                if (mesh_dir / name).is_dir()
-                else []
+            chosen: Path | None = None
+            for base in (canonical_dir, fallback_dir):
+                objs = (
+                    sorted((base / name).glob("*.obj"))
+                    if (base / name).is_dir()
+                    else []
+                )
+                if objs:
+                    chosen = objs[0]
+                    break
+            paths.append(
+                str(chosen) if chosen else str(canonical_dir / name / f"{name}.obj")
             )
-            paths.append(str(objs[0]) if objs else str(mesh_dir / name / f"{name}.obj"))
         return paths
 
     def get_object_urdf_paths(self, sequence_info: SequenceInfo) -> list[str]:

@@ -139,24 +139,34 @@ def _generate_urdf(
 def _discover_h2o_objects() -> dict[str, tuple[Path, Path]]:
     """Discover unique H2O objects from OBJ mesh files.
 
-    H2O meshes live in assets/meshes/h2o/{name}/{anything}.obj — the .obj
-    filename doesn't always match the folder (e.g. ``spray/lotion_spray.obj``).
-    URDFs go to assets/urdfs/h2o/{name}_rigid.urdf.
+    Searches in order (mirrors :func:`_discover_dexycb_objects`):
+
+    1. ``assets/meshes/h2o/{name}/*.obj`` (committed copy, if any).
+    2. ``{HUMAN_MOTION_DATA_DIR}/h2o/dataset/object/{name}/*.obj`` (raw
+       dataset staged at OSMO runtime via the CSS mount).
+
+    H2O mesh filenames don't always match the folder name (e.g.
+    ``spray/lotion_spray.obj``), so we glob for ``*.obj`` and keep the
+    first match.  URDFs go to ``assets/urdfs/h2o/{name}_rigid.urdf``.
     """
-    meshes_dir = ASSET_DIR / "meshes" / "h2o"
+    canonical_dir = ASSET_DIR / "meshes" / "h2o"
+    runtime_dir = HUMAN_MOTION_DATA_DIR / "h2o" / "dataset" / "object"
     urdf_out_dir = URDF_DIR / "h2o"
-    if not meshes_dir.is_dir():
-        print(f"No H2O mesh directory at {meshes_dir}")
+
+    sources = [d for d in (canonical_dir, runtime_dir) if d.is_dir()]
+    if not sources:
+        print(f"No H2O mesh directory at {canonical_dir} or {runtime_dir}")
         return {}
 
     objects: dict[str, tuple[Path, Path]] = {}
-    for sub in sorted(meshes_dir.iterdir()):
-        if not sub.is_dir():
-            continue
-        objs = sorted(sub.glob("*.obj"))
-        if not objs:
-            continue
-        objects[sub.name] = (objs[0], urdf_out_dir / f"{sub.name}_rigid.urdf")
+    for base in sources:
+        for sub in sorted(base.iterdir()):
+            if not sub.is_dir() or sub.name in objects:
+                continue
+            objs = sorted(sub.glob("*.obj"))
+            if not objs:
+                continue
+            objects[sub.name] = (objs[0], urdf_out_dir / f"{sub.name}_rigid.urdf")
     return objects
 
 

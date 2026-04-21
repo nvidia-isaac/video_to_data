@@ -212,8 +212,15 @@ workflow:
             PIDS+=($!)
           done
           wait_shards "${PIDS[@]}"
-          echo "=== Copying reconstructed data to output ==="
-          cp -r ${RECONSTRUCTED_DIR} ${OUTPUT}/reconstructed_stage
+          # Datasets where every object is held/grounded (e.g. h2o) never
+          # produce a reconstructed_stage dir — skip the copy instead of
+          # failing the whole workflow under `set -e`.
+          if [ -d "${RECONSTRUCTED_DIR}" ]; then
+            echo "=== Copying reconstructed data to output ==="
+            cp -r ${RECONSTRUCTED_DIR} ${OUTPUT}/reconstructed_stage
+          else
+            echo "=== No reconstructed stage to copy (no support surfaces for {{dataset}}) ==="
+          fi
         fi
 
         # Stage 4: Viser + pyrender MP4s (sharded).

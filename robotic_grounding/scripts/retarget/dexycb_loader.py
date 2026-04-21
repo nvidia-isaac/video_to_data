@@ -41,10 +41,17 @@ Single-hand sequences:
   idle arm just sits at the world origin).
 
 Coordinate frame:
-  Poses are in the chosen camera's frame. We rotate to a Z-up world via
-  the same ``CAM_TO_WORLD_ZUP`` used for H2O. This is an approximation —
-  switch cameras or refine the extrinsics if the visualisation shows the
-  scene tilted.
+  ``pose_y`` / ``pose_m`` live in the chosen camera's frame. DexYCB's
+  per-session ``calibration/extrinsics_{ext_id}/extrinsics.yml`` stores a
+  3x4 world-to-camera matrix per serial; "world" there is the master
+  camera's frame. The master is the overhead camera in DexYCB's rig, so
+  its +Y (image-down) is approximately gravity. We compose
+  ``R_master_to_zup @ inv(W2C_serial)`` per sequence: first undo the
+  serial's extrinsic to land in master frame, then rotate so +Y_master
+  (down) -> -Z_world and +Z_master (forward) -> +Y_world. This is not
+  exact if the master isn't perfectly vertical, but eliminates the
+  fixed-rotation approximation that caused "through the floor" artifacts
+  for sequences whose master camera differed from the first-fitted one.
 """
 
 from __future__ import annotations
@@ -127,10 +134,13 @@ DEXYCB_OBJECTS: dict[int, str] = {
     21: "061_foam_brick",
 }
 
-# Camera frame (+X right, +Y down, +Z forward per OpenCV) -> Z-up world.
-# We follow the same form as ``h2o_loader.CAM_TO_WORLD_ZUP``; revisit if
-# DexYCB sequences come out tilted.
-CAM_TO_WORLD_ZUP = np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]], dtype=np.float32)
+# Fixed rotation from the master camera's OpenCV frame (+X right, +Y down,
+# +Z forward) to a gravity-aligned Z-up world. The master is overhead in
+# DexYCB's rig, so +Y_master -> -Z_world (gravity) and +Z_master -> +Y_world.
+_MASTER_TO_ZUP = np.array(
+    [[1, 0, 0], [0, 0, 1], [0, -1, 0]],
+    dtype=np.float32,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +160,7 @@ class DexYCBSequenceSource:
     ycb_names: list[str]  # derived from DEXYCB_OBJECTS
     mano_side: str  # "right" | "left"
     mano_calib: str
+    extrinsics_id: str  # e.g. "20200702_151821"; indexes calibration/extrinsics_<id>/
 
 
 # ---------------------------------------------------------------------------
@@ -166,6 +177,36 @@ def _read_mano_betas(dexycb_dir: Path, mano_calib: str) -> np.ndarray:
     with open(path, "r") as f:
         calib = yaml.safe_load(f)
     return np.asarray(calib["betas"], dtype=np.float32)
+
+
+def _load_cam_to_world(
+    dexycb_dir: Path, extrinsics_id: str, camera_serial: str
+) -> np.ndarray:
+    """Return the camera-to-world 4x4 transform for one session.
+
+    DexYCB's ``calibration/extrinsics_<id>/extrinsics.yml`` stores, per
+    serial, a 3x4 ``[R | t]`` world-to-camera matrix where "world" is the
+    master camera's frame. We invert to get camera-to-master, then rotate
+    master (OpenCV: +Y down) to Z-up via ``_MASTER_TO_ZUP``.
+    """
+    path = dexycb_dir / "calibration" / f"extrinsics_{extrinsics_id}" / "extrinsics.yml"
+    with open(path, "r") as f:
+        calib = yaml.load(f, Loader=yaml.Loader)  # tagged python/tuple
+    extrinsics = calib["extrinsics"]
+    if camera_serial not in extrinsics:
+        raise KeyError(
+            f"Camera serial {camera_serial!r} not found in {path}. "
+            f"Available: {sorted(extrinsics)}"
+        )
+    flat = np.asarray(extrinsics[camera_serial], dtype=np.float64)
+    if flat.size != 12:
+        raise ValueError(f"{path}: expected 12 floats per serial, got {flat.size}")
+    world_to_cam = np.eye(4, dtype=np.float64)
+    world_to_cam[:3, :] = flat.reshape(3, 4)
+    cam_to_master = np.linalg.inv(world_to_cam)
+    master_to_zup = np.eye(4, dtype=np.float64)
+    master_to_zup[:3, :3] = _MASTER_TO_ZUP
+    return (master_to_zup @ cam_to_master).astype(np.float32)
 
 
 def _collect_frame_ids(camera_dir: Path) -> list[str]:
@@ -246,6 +287,9 @@ class DexYCBDatasetLoader(DatasetLoaderBase):
     def __init__(self) -> None:
         """Pre-build right/left ManoLayers so FK is ready before list_sequences."""
         self._args: argparse.Namespace | None = None
+        # Per-sequence camera-to-world extrinsic cache, shared between
+        # load_mano_data and load_object_data so the yml is read once.
+        self._cam_to_world_cache: dict[str, np.ndarray] = {}
         mano_assets_root = str(BODY_MODELS_DIR / "mano")
         self._right_layer = ManoLayer(
             use_pca=True,
@@ -314,6 +358,11 @@ class DexYCBDatasetLoader(DatasetLoaderBase):
                     continue
                 sequence_id = f"dexycb_{subject}_{session_dir.name}_{serial}"
 
+                mano_sides = meta.get("mano_sides", meta.get("mano_side", "right"))
+                if isinstance(mano_sides, list):
+                    mano_side = str(mano_sides[0]) if mano_sides else "right"
+                else:
+                    mano_side = str(mano_sides)
                 source = DexYCBSequenceSource(
                     session_dir=session_dir,
                     camera_dir=camera_dir,
@@ -323,12 +372,13 @@ class DexYCBDatasetLoader(DatasetLoaderBase):
                     ycb_ids=ycb_ids,
                     ycb_grasp_ind=int(meta.get("ycb_grasp_ind", 0)),
                     ycb_names=ycb_names,
-                    mano_side=str(meta.get("mano_side", "right")),
+                    mano_side=mano_side,
                     mano_calib=(
                         str(meta.get("mano_calib", [""])[0])
                         if isinstance(meta.get("mano_calib"), list)
                         else str(meta.get("mano_calib", ""))
                     ),
+                    extrinsics_id=str(meta.get("extrinsics", "")),
                 )
                 sequences.append(
                     SequenceInfo(
@@ -390,19 +440,59 @@ class DexYCBDatasetLoader(DatasetLoaderBase):
             )
         finger_pose = finger_pose.astype(np.float32)
 
-        # Camera frame -> Z-up world.
-        R = CAM_TO_WORLD_ZUP
+        # Camera frame -> gravity-aligned Z-up world via per-session
+        # extrinsic composed with master-cam->Z-up rotation. We also fold a
+        # per-sequence Z lift into c2w so the lowest point in the scene
+        # (object or active wrist) lands just above Isaac Sim's floor
+        # plane at z = 0; without it, sequences where the object rests at
+        # tabletop below the master-frame origin clip into the ground and
+        # drive continuous physics oscillation (aka hand shake on grasp).
+        c2w = _load_cam_to_world(dexycb_dir, src.extrinsics_id, src.camera_serial)
+        R = c2w[:3, :3]
+        t = c2w[:3, 3]
+        # Provisional active-hand trans in world frame.
+        trans_world = (R @ trans.T).T + t
+        # Peek at every frame's object origins (pose_y[k, :3, 3]) and
+        # transform them to world; combined with the hand trans this gives
+        # the scene's world-frame Z extent.
+        obj_z_world: list[float] = []
+        for fid in frame_ids:
+            arr = np.load(src.camera_dir / f"labels_{fid}.npz")
+            pose_y = arr["pose_y"]  # (num_obj, 3, 4)
+            for k in range(pose_y.shape[0]):
+                tcam = pose_y[k, :3, 3]
+                Rcam = pose_y[k, :3, :3]
+                if np.allclose(tcam, 0) and np.allclose(Rcam, 0):
+                    continue
+                obj_z_world.append(float((R @ tcam + t)[2]))
+        scene_min_z = min(
+            (*obj_z_world, float(trans_world[:, 2].min()))
+            if obj_z_world
+            else (float(trans_world[:, 2].min()),)
+        )
+        _GROUND_MARGIN = 0.02  # tabletop 2 cm above Isaac Sim's floor plane
+        z_lift = max(0.0, _GROUND_MARGIN - scene_min_z)
+        c2w[2, 3] += z_lift
+        t = c2w[:3, 3]
+        self._cam_to_world_cache[sequence_info.sequence_id] = c2w
         for i in range(H):
             Rm = Rotation.from_rotvec(global_orient[i]).as_matrix()
             global_orient[i] = Rotation.from_matrix(R @ Rm).as_rotvec()
-        trans = (R @ trans.T).T
+        trans = (R @ trans.T).T + t
 
         betas = _read_mano_betas(dexycb_dir, src.mano_calib)
 
-        # Fill the idle hand with zeros (pose at origin, flat default shape).
+        # Fill the idle hand with a zero pose parked below the ground plane.
+        # DexYCB is single-handed (``mano_side`` selects which); if the idle
+        # hand's MANO trans is zero, downstream IK lands its robot at the
+        # zero-pose J0 offset (~the world origin), which spawns a second
+        # PD-controlled Sharpa in full camera view whose tiny tracking-error
+        # oscillation looks like shaking. Parking at z = -0.5 m hides the
+        # idle robot under Isaac Sim's floor plane without dragging the
+        # auto-framed viewer off the active hand's work area.
         zero_g = np.zeros((H, 3), dtype=np.float32)
         zero_p = np.zeros((H, 45), dtype=np.float32)
-        zero_t = np.zeros((H, 3), dtype=np.float32)
+        zero_t = np.tile(np.array([0.0, 0.0, -0.5], dtype=np.float32), (H, 1))
         zero_b = np.zeros(10, dtype=np.float32)
 
         active = {
@@ -446,7 +536,10 @@ class DexYCBDatasetLoader(DatasetLoaderBase):
 
         poses = np.tile(np.eye(4, dtype=np.float32), (M, N, 1, 1))  # (M, N, 4, 4)
         last = [np.eye(4, dtype=np.float32) for _ in range(M)]
-        R = CAM_TO_WORLD_ZUP
+        c2w = self._cam_to_world_cache.get(sequence_info.sequence_id)
+        if c2w is None:
+            dexycb_dir = Path(getattr(self._args, "dexycb_dir", DEFAULT_DEXYCB_DIR))
+            c2w = _load_cam_to_world(dexycb_dir, src.extrinsics_id, src.camera_serial)
 
         for f_idx, fid in enumerate(frame_ids):
             arr = np.load(src.camera_dir / f"labels_{fid}.npz")
@@ -461,9 +554,11 @@ class DexYCBDatasetLoader(DatasetLoaderBase):
                     # Missing / un-labelled frame for this object: hold last.
                     poses[k, f_idx] = last[k]
                     continue
-                Twc = np.eye(4, dtype=np.float32)
-                Twc[:3, :3] = R @ Rcam
-                Twc[:3, 3] = R @ tcam
+                # Compose cam-frame object pose with camera-to-world extrinsic.
+                T_cam = np.eye(4, dtype=np.float32)
+                T_cam[:3, :3] = Rcam
+                T_cam[:3, 3] = tcam
+                Twc = (c2w @ T_cam).astype(np.float32)
                 poses[k, f_idx] = Twc
                 last[k] = Twc
 
