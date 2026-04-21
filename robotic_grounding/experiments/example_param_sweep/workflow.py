@@ -15,7 +15,10 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
-from experiments.utils import make_entry_script  # noqa: E402
+from experiments.utils import (  # noqa: E402
+    DEFAULT_OSMO_IMAGE_LATEST,
+    make_entry_script,
+)
 
 
 def _fmt(val: str | float) -> str:
@@ -107,5 +110,5 @@ workflow:
 
 default-values:
   workflow_name: robotic_grounding_{exp_id}
-  image: nvcr.io/nvstaging/isaac-amr/robotic-grounding:latest
+  image: {DEFAULT_OSMO_IMAGE_LATEST}
 """
