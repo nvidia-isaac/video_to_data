@@ -1,0 +1,165 @@
+HIERARCHY
+ROOT pelvis_skel
+{
+OFFSET 0.002175 80.354170 1.814076 -0.000000 0.000001 0.000002
+  CHANNELS 6 Xposition Yposition Zposition Xrotation Zrotation Yrotation
+ JOINT left_hip_pitch_skel
+ {
+   OFFSET 6.445200 -10.270000 0.000000 0.000000 0.000000 -1.859603
+   CHANNELS 3 Xrotation Zrotation Yrotation
+  JOINT left_hip_roll_skel
+  {
+    OFFSET 5.200000 -3.046500 -0.000000 0.382837 0.000000 0.000000
+    CHANNELS 3 Xrotation Zrotation Yrotation
+   JOINT left_hip_yaw_skel
+   {
+     OFFSET 0.000000 -12.411999 2.500100 0.000000 2.360181 0.000000
+     CHANNELS 3 Xrotation Zrotation Yrotation
+    JOINT left_knee_skel
+    {
+      OFFSET 0.214890 -17.734000 -7.827299 0.000000 0.000000 4.001702
+      CHANNELS 3 Xrotation Zrotation Yrotation
+     JOINT left_ankle_pitch_skel
+     {
+       OFFSET -0.009444 -30.001000 0.000000 0.000000 0.000000 -0.065141
+       CHANNELS 3 Xrotation Zrotation Yrotation
+      JOINT left_ankle_roll_skel
+      {
+        OFFSET 0.000000 -1.755798 -0.000000 0.000000 0.000000 0.000000
+        CHANNELS 3 Xrotation Zrotation Yrotation
+      }
+     }
+    }
+   }
+  }
+ }
+ JOINT right_hip_pitch_skel
+ {
+   OFFSET -6.445200 -10.269970 0.000000 0.000000 0.000000 -1.859566
+   CHANNELS 3 Xrotation Zrotation Yrotation
+  JOINT right_hip_roll_skel
+  {
+    OFFSET -5.200000 -3.046500 0.000000 -0.380573 0.000000 0.000000
+    CHANNELS 3 Xrotation Zrotation Yrotation
+   JOINT right_hip_yaw_skel
+   {
+     OFFSET 0.000000 -12.412000 2.500104 0.000000 -2.351143 0.000000
+     CHANNELS 3 Xrotation Zrotation Yrotation
+    JOINT right_knee_skel
+    {
+      OFFSET -0.214900 -17.734024 -7.827308 0.000000 0.000000 4.001492
+      CHANNELS 3 Xrotation Zrotation Yrotation
+     JOINT right_ankle_pitch_skel
+     {
+       OFFSET 0.009500 -30.001000 0.000000 0.000000 0.000000 -0.065153
+       CHANNELS 3 Xrotation Zrotation Yrotation
+      JOINT right_ankle_roll_skel
+      {
+        OFFSET 0.000000 -1.755800 0.000000 0.000000 0.000000 0.000000
+        CHANNELS 3 Xrotation Zrotation Yrotation
+      }
+     }
+    }
+   }
+  }
+ }
+ JOINT waist_yaw_skel
+ {
+   OFFSET 0.000000 -0.000000 0.000000 0.000000 0.000000 0.000000
+   CHANNELS 3 Xrotation Zrotation Yrotation
+  JOINT waist_roll_skel
+  {
+    OFFSET 0.000000 3.500000 -0.396350 0.000000 0.000000 0.000000
+    CHANNELS 3 Xrotation Zrotation Yrotation
+   JOINT waist_pitch_skel
+   {
+     OFFSET 0.000000 1.900000 0.000000 0.000000 0.000000 0.000004
+     CHANNELS 3 Xrotation Zrotation Yrotation
+    JOINT left_shoulder_pitch_skel
+    {
+      OFFSET 10.022000 23.778000 0.395630 0.000000 0.000000 16.803710
+      CHANNELS 3 Xrotation Zrotation Yrotation
+     JOINT left_shoulder_roll_skel
+     {
+       OFFSET 3.790611 -1.380432 -0.457984 86.604929 0.000000 0.000000
+       CHANNELS 3 Xrotation Zrotation Yrotation
+      JOINT left_shoulder_yaw_skel
+      {
+        OFFSET 0.624619 -10.319963 -0.000447 0.000000 24.241372 0.000000
+        CHANNELS 3 Xrotation Zrotation Yrotation
+       JOINT left_elbow_skel
+       {
+         OFFSET 0.000180 -8.051886 1.577858 0.000000 0.000000 66.858860
+         CHANNELS 3 Xrotation Zrotation Yrotation
+        JOINT left_wrist_roll_skel
+        {
+          OFFSET 0.186935 -1.000538 9.999981 0.000000 0.000000 0.000000
+          CHANNELS 3 Xrotation Zrotation Yrotation
+         JOINT left_wrist_pitch_skel
+         {
+           OFFSET -0.000729 -0.000209 3.800000 0.000000 0.000000 0.000000
+           CHANNELS 3 Xrotation Zrotation Yrotation
+          JOINT left_wrist_yaw_skel
+          {
+            OFFSET -0.000881 -0.000253 4.600000 0.000000 0.000000 0.000000
+            CHANNELS 3 Xrotation Zrotation Yrotation
+           JOINT left_hand_roll_skel
+           {
+             OFFSET 0.299205 -0.000210 4.150057 0.000000 0.000000 0.000000
+             CHANNELS 3 Xrotation Zrotation Yrotation
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+    JOINT right_shoulder_pitch_skel
+    {
+      OFFSET -10.021000 23.778000 0.395630 0.000000 0.000000 25.374573
+      CHANNELS 3 Xrotation Zrotation Yrotation
+     JOINT right_shoulder_roll_skel
+     {
+       OFFSET -3.897578 -1.601750 -0.000019 -86.185537 0.000000 0.000000
+       CHANNELS 3 Xrotation Zrotation Yrotation
+      JOINT right_shoulder_yaw_skel
+      {
+        OFFSET -0.624619 -10.319963 -0.000447 0.000000 -32.152090 0.000000
+        CHANNELS 3 Xrotation Zrotation Yrotation
+       JOINT right_elbow_skel
+       {
+         OFFSET -0.000180 -8.037287 1.592457 0.000000 0.000000 59.990909
+         CHANNELS 3 Xrotation Zrotation Yrotation
+        JOINT right_wrist_roll_skel
+        {
+          OFFSET -0.186935 -1.000538 9.999981 0.000000 0.000000 0.000000
+          CHANNELS 3 Xrotation Zrotation Yrotation
+         JOINT right_wrist_pitch_skel
+         {
+           OFFSET 0.000729 -0.000209 3.800000 0.000000 0.000000 0.000000
+           CHANNELS 3 Xrotation Zrotation Yrotation
+          JOINT right_wrist_yaw_skel
+          {
+            OFFSET 0.000881 -0.000253 4.600000 0.000000 0.000000 0.000000
+            CHANNELS 3 Xrotation Zrotation Yrotation
+           JOINT right_hand_roll_skel
+           {
+             OFFSET -0.299205 -0.000210 4.150057 0.000000 0.000000 0.000000
+             CHANNELS 3 Xrotation Zrotation Yrotation
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ }
+}
+MOTION
+Frames: 1
+Frame Time: 0.008333
+0.002175 80.354170 1.814076 0.000002 -0.000000 0.000001 -1.859603 0.000000 0.000000 0.000000 0.382837 0.000000 0.000000 0.000000 2.360181 4.001702 0.000000 0.000000 -0.065141 0.000000 0.000000 0.000000 0.000000 0.000000 -1.859566 0.000000 0.000000 0.000000 -0.380573 0.000000 0.000000 0.000000 -2.351143 4.001492 0.000000 0.000000 -0.065153 0.000000 0.000000 0.000000 0.000000 0.000000 0.000000 0.000000 0.000000 0.000000 0.000000 0.000000 0.000004 0.000000 0.000000 16.803710 0.000000 0.000000 0.000000 86.604929 0.000000 0.000000 0.000000 24.241372 66.858860 0.000000 0.000000 0.000000 0.000000 0.000000 0.000000 0.000000 0.000000 0.000000 0.000000 0.000000 0.000000 0.000000 0.000000 25.374573 0.000000 0.000000 0.000000 -86.185537 0.000000 0.000000 0.000000 -32.152090 59.990909 0.000000 0.000000 0.000000 0.000000 0.000000 0.000000 0.000000 0.000000 0.000000 0.000000 0.000000 0.000000 0.000000 0.000000

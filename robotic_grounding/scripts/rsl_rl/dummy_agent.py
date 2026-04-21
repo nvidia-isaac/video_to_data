@@ -92,26 +92,13 @@ if args_cli.record_video:
         raise ValueError("--output_dir is required when using --record_video")
 
 ###################################
-# Debug
+# Debug — uncomment to override CLI args
 ###################################
-args_cli.task = "Sharpa-V2P-v0-Play"
-args_cli.disable_robot_to_object_collisions = False
-args_cli.disable_robot_to_fixed_object_collisions = True
-args_cli.use_primitive_urdfs = True
-
-# Multiple rigid objects
-# args_cli.motion_file = (
-#     "taco/taco_processed/taco_empty__kettle__plate_20231031_060/sharpa_wave"
-# )
-
-# Single rigid object
-# args_cli.motion_file = (
-# "arctic/arctic_processed/arctic_s01_rigid_waffleiron_grab_01/sharpa_wave"
-# )
-
-# Default motion file (overridable via --motion_file)
-if args_cli.motion_file is None:
-    args_cli.motion_file = "arctic/arctic_processed/arctic_s01_mixer_use_01/sharpa_wave"
+# args_cli.task = "Sharpa-V2P-v0-Play"
+# args_cli.headless = True
+# args_cli.disable_robot_to_object_collisions = False
+# args_cli.disable_robot_to_fixed_object_collisions = True
+# args_cli.motion_file = "arctic/arctic_processed/arctic_s01_mixer_use_01/sharpa_wave"
 ###################################
 
 # launch omniverse app
@@ -204,15 +191,23 @@ def main():
             env_cfg.viewer.env_index, env_cfg.scene.num_envs - 1
         )
 
-    env_cfg.commands.dual_hands_object_tracking_command.initial_virtual_object_control_curriculum_scale = float(
-        args_cli.initial_virtual_object_control_curriculum_scale
-    )
-    env_cfg.events.setup_collision_groups.params[
-        "disable_robot_to_object_collisions"
-    ] = args_cli.disable_robot_to_object_collisions
-    env_cfg.events.setup_collision_groups.params[
-        "disable_robot_to_fixed_object_collisions"
-    ] = args_cli.disable_robot_to_fixed_object_collisions
+    # Disable terminations so trajectory plays through
+    env_cfg.terminations = None
+
+    # V2P dual-hands specific config (skip for whole-body envs)
+    if hasattr(env_cfg, "commands") and hasattr(
+        env_cfg.commands, "dual_hands_object_tracking_command"
+    ):
+        env_cfg.commands.dual_hands_object_tracking_command.initial_virtual_object_control_curriculum_scale = float(
+            args_cli.initial_virtual_object_control_curriculum_scale
+        )
+    if hasattr(env_cfg, "events") and hasattr(env_cfg.events, "setup_collision_groups"):
+        env_cfg.events.setup_collision_groups.params[
+            "disable_robot_to_object_collisions"
+        ] = args_cli.disable_robot_to_object_collisions
+        env_cfg.events.setup_collision_groups.params[
+            "disable_robot_to_fixed_object_collisions"
+        ] = args_cli.disable_robot_to_fixed_object_collisions
 
     # create environment (with RecordVideo wrapper if requested)
     if args_cli.record_video:

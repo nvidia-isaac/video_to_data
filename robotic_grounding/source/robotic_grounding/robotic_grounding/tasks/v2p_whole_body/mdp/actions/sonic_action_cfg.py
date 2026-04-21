@@ -1,3 +1,4 @@
+# ruff: noqa: PLC0415 — lazy imports in __post_init__ for circular dep avoidance
 from dataclasses import MISSING
 from enum import Enum
 
@@ -9,7 +10,8 @@ class SONICActionType(Enum):
     """Types of SONIC action terms."""
 
     HIERARCHICAL = "hierarchical"
-    RESIDUAL = "residual"
+    HIERARCHICAL_RESIDUAL = "hierarchical_residual"  # residuals BEFORE SONIC
+    JOINT_RESIDUAL = "joint_residual"  # residuals AFTER SONIC
     LATENT_RESIDUAL = "latent_residual"
     LATENT = "latent"
     LATENT_HAND_POLICY = "latent_hand_policy"
@@ -17,69 +19,64 @@ class SONICActionType(Enum):
 
 @configclass
 class SONICActionCfg(ActionTermCfg):
-    """Common configuration for all SONIC action terms.
-
-    Use action_type to select which SONIC action implementation to use.
-    """
+    """Common configuration for all SONIC action terms."""
 
     action_type: SONICActionType = SONICActionType.HIERARCHICAL
-    """Type of SONIC action term to use."""
 
     policy_dir: str = MISSING  # type: ignore[assignment]
     """Path to directory containing SONIC ONNX models."""
 
     asset_name: str = "robot"
-    """Name of the robot asset in the scene."""
-
     joint_names: list[str] = [".*"]
-    """List of joint names or regex patterns for all controllable joints."""
-
     sonic_joint_names: list[str] = MISSING  # type: ignore[assignment]
-    """List of joint names or regex patterns for joints controlled by SONIC."""
-
     command_name: str = "motion"
-    """Name of the tracking command term (used for hierarchical action)."""
-
     use_default_offset: bool = True
-    """Whether SONIC outputs offsets from default position."""
-
     scale: float | dict[str, float] = 1.0
-    """Scale to apply to SONIC outputs."""
 
-    # Hand policy configuration (used by LATENT_HAND_POLICY action type)
+    # Hand policy (for LATENT_HAND_POLICY)
     hand_policy_class: type | None = None
-    """Class of the pretrained hand policy to use for direct joint (non-SONIC) control."""
-
     hand_policy_cfg: object = None
-    """Configuration for the hand policy. Direct joints are determined by joint_names minus sonic_joint_names."""
+
+    # Joint residual params (for JOINT_RESIDUAL)
+    residual_scale: float = 0.1
+    """Scale applied to RL residuals before adding to SONIC output."""
+
+    residual_joint_names: list[str] | None = None
+    """If set, RL only outputs residuals for these joints (subset of sonic joints)."""
+
+    finger_residual: bool = False
+    """If True, RL also outputs residuals for non-SONIC (finger) joints."""
+
+    finger_residual_scale: float = -1.0
+    """Scale for finger residuals. -1.0 means use residual_scale."""
+
+    use_tanh: bool = True
+    """Whether to apply tanh squashing to residuals."""
 
     debug: bool = False
-    """Whether to debug the action term."""
 
     def __post_init__(self) -> None:
-        """Set the class_type based on action_type."""
-        # Import here to avoid circular dependencies
-        from .sonic_hierarchical_action import SONICHierachicalAction  # noqa: PLC0415
-        from .sonic_latent_action import SONICLatentAction  # noqa: PLC0415
-        from .sonic_latent_hand_policy_action import (  # noqa: PLC0415
-            SONICLatentHandPolicyAction,
+        """Dispatch class_type from action_type enum."""
+        from .sonic_hierarchical_action import SONICHierachicalAction
+        from .sonic_hierarchical_residual_action import (
+            SONICHierarchicalResidualAction,
         )
-        from .sonic_latent_residual_action import (  # noqa: PLC0415
-            SONICLatentResidualAction,
-        )
-        from .sonic_residual_action import SONICResidualAction  # noqa: PLC0415
+        from .sonic_joint_residual_action import SONICJointResidualAction
+        from .sonic_latent_action import SONICLatentAction
+        from .sonic_latent_hand_policy_action import SONICLatentHandPolicyAction
+        from .sonic_latent_residual_action import SONICLatentResidualAction
 
-        if self.action_type == SONICActionType.HIERARCHICAL:
-            self.class_type = SONICHierachicalAction
-        elif self.action_type == SONICActionType.RESIDUAL:
-            self.class_type = SONICResidualAction
-        elif self.action_type == SONICActionType.LATENT_RESIDUAL:
-            self.class_type = SONICLatentResidualAction
-        elif self.action_type == SONICActionType.LATENT:
-            self.class_type = SONICLatentAction
-        elif self.action_type == SONICActionType.LATENT_HAND_POLICY:
-            self.class_type = SONICLatentHandPolicyAction
-        else:
+        _dispatch = {
+            SONICActionType.HIERARCHICAL: SONICHierachicalAction,
+            SONICActionType.HIERARCHICAL_RESIDUAL: SONICHierarchicalResidualAction,
+            SONICActionType.JOINT_RESIDUAL: SONICJointResidualAction,
+            SONICActionType.LATENT_RESIDUAL: SONICLatentResidualAction,
+            SONICActionType.LATENT: SONICLatentAction,
+            SONICActionType.LATENT_HAND_POLICY: SONICLatentHandPolicyAction,
+        }
+
+        if self.action_type not in _dispatch:
             raise ValueError(f"Unknown SONIC action type: {self.action_type}")
+        self.class_type = _dispatch[self.action_type]
 
         super().__post_init__()

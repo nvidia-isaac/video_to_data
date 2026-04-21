@@ -1,16 +1,20 @@
-"""Utility functions for loading motion data in tracking commands."""
+"""Motion data loading for tracking commands.
+
+Loads all motion data from a single Hive-partitioned parquet file produced
+by the planner. The parquet contains body qpos, EE targets, hand keypoints,
+contacts, object trajectory, and scene metadata.
+"""
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
-import h5py
 import numpy as np
 import pyarrow.parquet as pq
 import torch
-import yaml
-from scipy.spatial.transform import Rotation as R
 
 if TYPE_CHECKING:
     from isaaclab.assets import Articulation
@@ -20,18 +24,64 @@ if TYPE_CHECKING:
 
 @dataclass
 class MotionData:
-    """Container for loaded motion data."""
+    """Container for all motion data loaded from planner parquet."""
 
-    # Robot motion data
-    qpos_data: torch.Tensor  # (T, 3 + 4 + num_joints) - [pos, quat, joints]
-    object_pos_w: torch.Tensor  # (T, 3)
-    object_quat_w: torch.Tensor  # (T, 4)
+    # Body motion (from planner)
+    qpos_data: torch.Tensor  # (T, 3 + 4 + num_joints)
+    object_pos_w: torch.Tensor  # (T, 3) — first object body
+    object_quat_w: torch.Tensor  # (T, 4) — first object body
 
-    # Optional EE motion data
+    # EE targets
     ee_pos_w: torch.Tensor | None = None  # (T, num_ee, 3)
     ee_quat_w: torch.Tensor | None = None  # (T, num_ee, 4)
     ee_link_ids: list[int] | None = None
     ee_link_names: list[str] | None = None
+
+    # Hand data (from V2P retargeting, embedded in planner parquet)
+    left_wrist_position: torch.Tensor | None = None  # (T, 3)
+    left_wrist_wxyz: torch.Tensor | None = None  # (T, 4)
+    right_wrist_position: torch.Tensor | None = None  # (T, 3)
+    right_wrist_wxyz: torch.Tensor | None = None  # (T, 4)
+    left_finger_joints: torch.Tensor | None = None  # (T, J_left)
+    right_finger_joints: torch.Tensor | None = None  # (T, J_right)
+    left_hand_frames: torch.Tensor | None = None  # (T, K, 7)
+    right_hand_frames: torch.Tensor | None = None  # (T, K, 7)
+    left_hand_frame_names: list[str] | None = None
+    right_hand_frame_names: list[str] | None = None
+
+    # Contact data (from V2P retargeting)
+    left_link_contact_positions: torch.Tensor | None = None  # (T, N, 4)
+    left_object_contact_positions: torch.Tensor | None = None  # (T, N, 4)
+    right_link_contact_positions: torch.Tensor | None = None  # (T, N, 4)
+    right_object_contact_positions: torch.Tensor | None = None  # (T, N, 4)
+
+    # Contact normals (for wrench computation)
+    left_link_contact_normals: torch.Tensor | None = None  # (T, N, 4)
+    left_object_contact_normals: torch.Tensor | None = None  # (T, N, 4)
+    right_link_contact_normals: torch.Tensor | None = None  # (T, N, 4)
+    right_object_contact_normals: torch.Tensor | None = None  # (T, N, 4)
+
+    # Contact part IDs (which object body each contact is on)
+    left_object_contact_part_ids: torch.Tensor | None = None  # (T, N)
+    right_object_contact_part_ids: torch.Tensor | None = None  # (T, N)
+
+    # Object body data (multi-body)
+    object_body_position: torch.Tensor | None = None  # (T, B, 3)
+    object_body_wxyz: torch.Tensor | None = None  # (T, B, 4)
+
+    # Binary contact labels (for force closure reward)
+    left_hand_contact_active: torch.Tensor | None = None  # (T,)
+    right_hand_contact_active: torch.Tensor | None = None  # (T,)
+
+    # Object mesh radius (for wrench computation)
+    object_mesh_radius: list[float] | None = None
+
+    # Finger joint names (for reordering to robot joint order)
+    left_finger_joint_names: list[str] | None = None
+    right_finger_joint_names: list[str] | None = None
+
+    # File-order joint names (for qpos reordering)
+    file_joint_names: list[str] | None = None
 
 
 def load_motion_data(
@@ -39,247 +89,176 @@ def load_motion_data(
     robot: Articulation,
     device: torch.device,
 ) -> MotionData:
-    """Load motion data from file.
+    """Load motion data from a planner parquet file.
 
-    Dispatches to the appropriate loader based on file extension.
+    Reads body qpos, EE targets, hand keypoints, contacts, and object
+    trajectory from a single Hive-partitioned parquet.
 
     Args:
-        cfg: The tracking command configuration.
-        robot: The robot articulation for joint info.
-        device: The torch device to load tensors to.
+        cfg: The tracking command configuration with motion_file path.
+        robot: The robot articulation (for joint/body lookups).
+        device: Torch device for tensors.
 
     Returns:
-        MotionData containing the loaded trajectories.
+        MotionData with all fields populated from the parquet.
     """
-    if cfg.motion_file.endswith(".h5"):
-        return _load_h5_motion(cfg, robot, device)
-    elif cfg.motion_file.endswith(".yaml"):
-        return _load_yaml_motion(cfg, robot, device)
-    elif cfg.motion_file.endswith(".parquet") and cfg.is_ee_motion:
-        return _load_ee_parquet_motion(cfg, robot, device)
+    motion_file = cfg.motion_file
+
+    # Resolve Hive-partitioned directory to actual parquet file
+    path = Path(motion_file)
+    if path.is_dir():
+        parquet_files = list(path.rglob("*.parquet"))
+        if not parquet_files:
+            raise FileNotFoundError(f"No parquet files found in {motion_file}")
+        motion_file = str(parquet_files[0])
+
+    data = pq.read_table(motion_file).to_pydict()
+
+    # --- Body qpos ---
+    qpos = np.array(data["qpos"][0], dtype=np.float32)  # (T, nq)
+    qpos_layout = json.loads(data["qpos_layout"][0])
+    joint_names = data.get("joint_names", [None])[0]
+
+    # Decompose qpos into root + joints using layout
+    root_pos_slice = slice(*qpos_layout["root_pos"])
+    root_quat_slice = slice(*qpos_layout["root_quat_wxyz"])
+    root_pos = qpos[:, root_pos_slice]  # (T, 3)
+    root_quat = qpos[:, root_quat_slice]  # (T, 4) wxyz
+
+    # Body joints: everything after root, before fingers
+    body_start = qpos_layout.get("body_joints", [7, qpos.shape[1]])[0]
+
+    # Build qpos_data in tracking format: [pos(3), quat(4), joints(N)]
+    # Include all joints from body_start onward
+    all_joints = qpos[:, body_start:]
+    qpos_data = np.concatenate([root_pos, root_quat, all_joints], axis=1)
+
+    # --- Object ---
+    obj_pos = np.array(data["object_body_position"][0], dtype=np.float32)  # (T, B, 3)
+    obj_quat = np.array(data["object_body_wxyz"][0], dtype=np.float32)  # (T, B, 4)
+    # Single-body: squeeze
+    if obj_pos.ndim == 3:
+        obj_pos_single = obj_pos[:, 0]  # (T, 3)
+        obj_quat_single = obj_quat[:, 0]  # (T, 4)
     else:
-        raise ValueError(f"Unsupported file type: {cfg.motion_file}")
+        obj_pos_single = obj_pos
+        obj_quat_single = obj_quat
 
-
-def _load_h5_motion(
-    cfg: TrackingCommandCfg,
-    robot: Articulation,
-    device: torch.device,
-) -> MotionData:
-    """Load motion data from an HDF5 file."""
-    with h5py.File(cfg.motion_file, "r") as f:
-        qpos_data = torch.from_numpy(f["qpos"][()]).to(device)
-        object_pos_w = torch.from_numpy(f[cfg.object_position_key][()]).to(device)
-        object_quat_w = torch.from_numpy(f[cfg.object_quaternion_key][()]).to(device)
-
-    return MotionData(
-        qpos_data=qpos_data,
-        object_pos_w=object_pos_w,
-        object_quat_w=object_quat_w,
-    )
-
-
-def _load_yaml_motion(
-    cfg: TrackingCommandCfg,
-    robot: Articulation,
-    device: torch.device,
-) -> MotionData:
-    """Load motion data from a YAML file."""
-    with open(cfg.motion_file, "r") as f:
-        data = yaml.safe_load(f)
-
-    qpos_data = torch.tensor(data["qpos"]).to(device)
-    object_pos_w = torch.tensor(data[cfg.object_position_key]).to(device)
-    object_quat_w = torch.tensor(data[cfg.object_quaternion_key]).to(device)
-
-    # Extract EE poses if specified
+    # --- EE targets (derived from per-side wrist data or legacy ee_pos_w) ---
     ee_pos_w = None
     ee_quat_w = None
     ee_link_ids = None
     ee_link_names = None
 
-    if cfg.ee_link_names:
-        ee_link_ids, ee_link_names = robot.find_bodies(cfg.ee_link_names)
-        ee_pos_w = torch.stack(
-            [torch.tensor(data[ee_name + "_position"]) for ee_name in ee_link_names],
-            dim=1,
-        ).to(
-            device
-        )  # (T, num_ee_links, 3)
-        ee_quat_w = torch.stack(
-            [torch.tensor(data[ee_name + "_wxyz"]) for ee_name in ee_link_names], dim=1
-        ).to(
-            device
-        )  # (T, num_ee_links, 4)
+    ee_names = data.get("ee_link_names", [None])[0]
+    if ee_names:
+        ee_link_ids, ee_link_names = robot.find_bodies(ee_names)
 
-    return MotionData(
-        qpos_data=qpos_data,
-        object_pos_w=object_pos_w,
-        object_quat_w=object_quat_w,
-        ee_pos_w=ee_pos_w,
-        ee_quat_w=ee_quat_w,
-        ee_link_ids=ee_link_ids,
-        ee_link_names=ee_link_names,
-    )
-
-
-def _load_ee_parquet_motion(
-    cfg: TrackingCommandCfg,
-    robot: Articulation,
-    device: torch.device,
-) -> MotionData:
-    """Load motion data from a parquet file.
-
-    Parquet files contain EE-based motion data:
-    - nvhuman_root_translation / nvhuman_root_wxyz: root pose trajectory
-    - robot_left_qpos / robot_right_qpos: 13 values per hand (6dof EE + 7 finger joints)
-    - object_translation / object_axis_angle: object pose trajectory
-    """
-    table = pq.read_table(cfg.motion_file)
-    data = table.to_pydict()
-
-    # Get the first trajectory for now
-    # Load root pose
-    root_trans = np.array(data["nvhuman_root_translation"][0])  # (T, 3)
-    root_wxyz = np.array(data["nvhuman_root_wxyz"][0])  # (T, 4)
-
-    # Load object pose
-    obj_trans = np.array(data["object_translation"][0])  # (T, 3)
-    obj_axis_angle = np.array(data["object_axis_angle"][0])  # (T, 3)
-
-    # Convert object axis-angle to quaternion (wxyz format)
-    obj_quat = np.zeros((obj_axis_angle.shape[0], 4))
-    for i, aa in enumerate(obj_axis_angle):
-        rot = R.from_rotvec(aa)
-        obj_quat[i] = rot.as_quat(scalar_first=True)
-
-    num_timesteps = root_trans.shape[0]
-
-    # Get robot's default joint positions to use for joints not in parquet
-    default_joint_pos = robot.data.default_joint_pos[0].cpu().numpy()  # (num_joints,)
-
-    # Initialize joint positions with default pose for all timesteps
-    joint_pos = np.tile(default_joint_pos, (num_timesteps, 1))  # (T, num_joints)
-
-    # Load hand qpos data from parquet
-    left_qpos = (
-        np.array(data.get("robot_left_qpos", [[]])[0])
-        if "robot_left_qpos" in data
-        else None
-    )
-    right_qpos = (
-        np.array(data.get("robot_right_qpos", [[]])[0])
-        if "robot_right_qpos" in data
-        else None
-    )
-
-    # Use file_joint_names from config to determine joint mapping
-    if cfg.file_joint_names is not None:
-        left_joint_names = cfg.file_joint_names
-        right_joint_names = [
-            name.replace("left_", "right_") for name in cfg.file_joint_names
-        ]
-
-        # Get all robot joint names for matching
-        all_robot_joint_names = robot.joint_names
-
-        # Map parquet data to robot joints (skip joints not found on robot)
-        if left_qpos is not None and len(left_qpos) > 0:
-            for parquet_idx, joint_name in enumerate(left_joint_names):
-                if parquet_idx >= left_qpos.shape[1]:
-                    break
-                if joint_name in all_robot_joint_names:
-                    robot_joint_idx = all_robot_joint_names.index(joint_name)
-                    joint_pos[:, robot_joint_idx] = left_qpos[:, parquet_idx]
-
-        if right_qpos is not None and len(right_qpos) > 0:
-            for parquet_idx, joint_name in enumerate(right_joint_names):
-                if parquet_idx >= right_qpos.shape[1]:
-                    break
-                if joint_name in all_robot_joint_names:
-                    robot_joint_idx = all_robot_joint_names.index(joint_name)
-                    joint_pos[:, robot_joint_idx] = right_qpos[:, parquet_idx]
-    elif left_qpos is not None and len(left_qpos) > 0:
-        num_parquet_joints = left_qpos.shape[1]
-        joint_pos[:, :num_parquet_joints] = left_qpos
-    elif right_qpos is not None and len(right_qpos) > 0:
-        num_parquet_joints = right_qpos.shape[1]
-        joint_pos[:, :num_parquet_joints] = right_qpos
-
-    # Construct qpos_data: [pos(3), quat(4), joints(N)]
-    qpos_data = np.concatenate([root_trans, root_wxyz, joint_pos], axis=1)
-
-    # Load EE poses for tracking from parquet data
-    ee_pos_w = None
-    ee_quat_w = None
-    ee_link_ids = None
-    ee_link_names = None
-
-    if cfg.ee_link_names:
-        ee_link_ids, ee_link_names = robot.find_bodies(cfg.ee_link_names)
-
-        ee_pos_list = []
-        ee_quat_list = []
-
-        for ee_name in ee_link_names:
-            # Map EE link name to parquet column
-            if "left" in ee_name.lower():
-                ee_qpos = (
-                    left_qpos
-                    if left_qpos is not None
-                    else np.zeros((num_timesteps, 13))
-                )
-            elif "right" in ee_name.lower():
-                ee_qpos = (
-                    right_qpos
-                    if right_qpos is not None
-                    else np.zeros((num_timesteps, 13))
-                )
-            else:
-                # Default to left hand
-                ee_qpos = (
-                    left_qpos
-                    if left_qpos is not None
-                    else np.zeros((num_timesteps, 13))
-                )
-
-            # Palm pose from floating base joints
-            ee_pos = ee_qpos[:, 0:3]  # (T, 3) - base_x, base_y, base_z
-            ee_euler = ee_qpos[:, 3:6]  # (T, 3) - base_roll, base_pitch, base_yaw
-
-            # Convert euler to quaternion (wxyz)
-            # Use intrinsic XYZ (body-frame rotations) to match URDF joint chain
-            ee_quat = np.zeros((num_timesteps, 4))
-            for i, euler in enumerate(ee_euler):
-                rot = R.from_euler("XYZ", euler)
-                ee_quat[i] = rot.as_quat(scalar_first=True)
-
-            ee_pos_list.append(ee_pos)
-            ee_quat_list.append(ee_quat)
-
+    if "ee_pos_w" in data:
         ee_pos_w = torch.tensor(
-            np.stack(ee_pos_list, axis=1), device=device
-        ).float()  # (T, num_ee, 3)
+            np.array(data["ee_pos_w"][0], dtype=np.float32), device=device
+        )
         ee_quat_w = torch.tensor(
-            np.stack(ee_quat_list, axis=1), device=device
-        ).float()  # (T, num_ee, 4)
+            np.array(data["ee_quat_w"][0], dtype=np.float32), device=device
+        )
+    elif "robot_left_wrist_position" in data and "robot_right_wrist_position" in data:
+        # Derive stacked EE from per-side wrist columns
+        lp = np.array(data["robot_left_wrist_position"][0], dtype=np.float32)
+        rp = np.array(data["robot_right_wrist_position"][0], dtype=np.float32)
+        lq = np.array(data["robot_left_wrist_wxyz"][0], dtype=np.float32)
+        rq = np.array(data["robot_right_wrist_wxyz"][0], dtype=np.float32)
+        ee_pos_w = torch.tensor(np.stack([lp, rp], axis=1), device=device)
+        ee_quat_w = torch.tensor(np.stack([lq, rq], axis=1), device=device)
 
-        # Apply robot anchor offset to EE positions (same offset as root pose)
-        if cfg.robot_anchor_pos_offset:
-            offset = torch.tensor(cfg.robot_anchor_pos_offset, device=device).float()
-            ee_pos_w = ee_pos_w + offset.unsqueeze(0).unsqueeze(0)  # (T, num_ee, 3)
+    # --- Hand data ---
+    def _load_optional(key: str, dtype: type = np.float32) -> torch.Tensor | None:
+        val = data.get(key)
+        if val is not None and val[0] is not None:
+            arr = np.array(val[0], dtype=dtype)
+            return torch.tensor(arr, device=device)
+        return None
 
-    # Convert to tensors
-    qpos_data = torch.tensor(qpos_data, device=device).float()
-    object_pos_w = torch.tensor(obj_trans, device=device).float()
-    object_quat_w = torch.tensor(obj_quat, device=device).float()
+    left_wrist_pos = _load_optional("robot_left_wrist_position")
+    left_wrist_wxyz = _load_optional("robot_left_wrist_wxyz")
+    right_wrist_pos = _load_optional("robot_right_wrist_position")
+    right_wrist_wxyz = _load_optional("robot_right_wrist_wxyz")
+    left_finger_joints = _load_optional("robot_left_finger_joints")
+    right_finger_joints = _load_optional("robot_right_finger_joints")
+    left_frames = _load_optional("robot_left_frames")
+    right_frames = _load_optional("robot_right_frames")
+
+    left_frame_names = data.get("left_robot_frame_names", [None])[0]
+    right_frame_names = data.get("right_robot_frame_names", [None])[0]
+
+    # --- Contact data ---
+    left_link_contacts = _load_optional("mano_left_link_contact_positions")
+    left_obj_contacts = _load_optional("mano_left_object_contact_positions")
+    right_link_contacts = _load_optional("mano_right_link_contact_positions")
+    right_obj_contacts = _load_optional("mano_right_object_contact_positions")
+
+    # Contact normals
+    left_link_normals = _load_optional("mano_left_link_contact_normals")
+    left_obj_normals = _load_optional("mano_left_object_contact_normals")
+    right_link_normals = _load_optional("mano_right_link_contact_normals")
+    right_obj_normals = _load_optional("mano_right_object_contact_normals")
+
+    # Contact part IDs
+    left_part_ids = _load_optional("mano_left_object_contact_part_ids", dtype=np.int64)
+    right_part_ids = _load_optional(
+        "mano_right_object_contact_part_ids", dtype=np.int64
+    )
+
+    # Binary contact labels
+    left_contact_active = _load_optional("left_hand_contact_active")
+    right_contact_active = _load_optional("right_hand_contact_active")
+
+    # Object mesh radius (for wrench computation)
+    object_mesh_radius = data.get("object_mesh_radius", [None])[0]
+
+    # --- Finger joint names ---
+    left_fj_names = data.get("left_robot_finger_joint_names", [None])[0]
+    right_fj_names = data.get("right_robot_finger_joint_names", [None])[0]
 
     return MotionData(
-        qpos_data=qpos_data,
-        object_pos_w=object_pos_w,
-        object_quat_w=object_quat_w,
+        qpos_data=torch.tensor(qpos_data, device=device).float(),
+        object_pos_w=torch.tensor(obj_pos_single, device=device).float(),
+        object_quat_w=torch.tensor(obj_quat_single, device=device).float(),
         ee_pos_w=ee_pos_w,
         ee_quat_w=ee_quat_w,
         ee_link_ids=ee_link_ids,
         ee_link_names=ee_link_names,
+        left_wrist_position=left_wrist_pos,
+        left_wrist_wxyz=left_wrist_wxyz,
+        right_wrist_position=right_wrist_pos,
+        right_wrist_wxyz=right_wrist_wxyz,
+        left_finger_joints=left_finger_joints,
+        right_finger_joints=right_finger_joints,
+        left_hand_frames=left_frames,
+        right_hand_frames=right_frames,
+        left_hand_frame_names=left_frame_names,
+        right_hand_frame_names=right_frame_names,
+        left_link_contact_positions=left_link_contacts,
+        left_object_contact_positions=left_obj_contacts,
+        right_link_contact_positions=right_link_contacts,
+        right_object_contact_positions=right_obj_contacts,
+        left_link_contact_normals=left_link_normals,
+        left_object_contact_normals=left_obj_normals,
+        right_link_contact_normals=right_link_normals,
+        right_object_contact_normals=right_obj_normals,
+        left_object_contact_part_ids=left_part_ids,
+        right_object_contact_part_ids=right_part_ids,
+        object_body_position=(
+            torch.tensor(obj_pos, device=device).float() if obj_pos.ndim == 3 else None
+        ),
+        object_body_wxyz=(
+            torch.tensor(obj_quat, device=device).float()
+            if obj_quat.ndim == 3
+            else None
+        ),
+        left_hand_contact_active=left_contact_active,
+        right_hand_contact_active=right_contact_active,
+        object_mesh_radius=object_mesh_radius,
+        left_finger_joint_names=left_fj_names,
+        right_finger_joint_names=right_fj_names,
+        file_joint_names=joint_names,
     )

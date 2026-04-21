@@ -2,6 +2,8 @@ import torch
 from isaaclab.envs import ManagerBasedEnv
 from isaaclab.utils.math import quat_error_magnitude
 
+from robotic_grounding.tasks.v2p.mdp.utils import chamfer_distance
+
 
 def motion_global_anchor_position_error_exp(
     env: ManagerBasedEnv, command_name: str, std: float
@@ -193,6 +195,28 @@ def motion_object_orientation_error_exp(
     return torch.exp(-error / std**2)
 
 
+def motion_finger_joint_pos_gaussian_exp(
+    env: ManagerBasedEnv, command_name: str, std: float
+) -> torch.Tensor:
+    """Finger joint tracking: exp(-||error||^2 / std^2). Returns sum L+R (max 2.0)."""
+    command = env.command_manager.get_term(command_name)
+    right_error = torch.sum(
+        torch.square(
+            command.right_hand_finger_joint_pos_command
+            - command.right_hand_finger_joint_pos
+        ),
+        dim=-1,
+    )
+    left_error = torch.sum(
+        torch.square(
+            command.left_hand_finger_joint_pos_command
+            - command.left_hand_finger_joint_pos
+        ),
+        dim=-1,
+    )
+    return torch.exp(-right_error / std**2) + torch.exp(-left_error / std**2)
+
+
 def motion_progress(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
     """Reward for tracking the progress of the motion.
 
@@ -203,3 +227,93 @@ def motion_progress(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
     steps_taken = (command.timestep - command.reset_timestep).float()
     steps_remaining = (command.num_timesteps - 1 - command.reset_timestep).float()
     return steps_taken / steps_remaining.clamp(min=1.0)
+
+
+def motion_hand_keypoints_gaussian_exp(
+    env: ManagerBasedEnv, command_name: str, std: float
+) -> torch.Tensor:
+    """Hand keypoints tracking: exp(-||error||^2 / std^2). Returns sum L+R (max 2.0)."""
+    command = env.command_manager.get_term(command_name)
+
+    left_kp_cmd = torch.cat(
+        [
+            command.left_hand_wrist_pose_command_e[:, :3].unsqueeze(1),
+            command.left_hand_fingertip_position_command_e[..., :3],
+        ],
+        dim=1,
+    )
+    right_kp_cmd = torch.cat(
+        [
+            command.right_hand_wrist_pose_command_e[:, :3].unsqueeze(1),
+            command.right_hand_fingertip_position_command_e[..., :3],
+        ],
+        dim=1,
+    )
+    left_kp = torch.cat(
+        [
+            command.left_hand_wrist_position_e.unsqueeze(1),
+            command.left_hand_fingertip_position_e[..., :3],
+        ],
+        dim=1,
+    )
+    right_kp = torch.cat(
+        [
+            command.right_hand_wrist_position_e.unsqueeze(1),
+            command.right_hand_fingertip_position_e[..., :3],
+        ],
+        dim=1,
+    )
+
+    left_err = torch.sum(torch.square(left_kp_cmd - left_kp), dim=-1).sum(dim=-1)
+    right_err = torch.sum(torch.square(right_kp_cmd - right_kp), dim=-1).sum(dim=-1)
+    return torch.exp(-left_err / std**2) + torch.exp(-right_err / std**2)
+
+
+def motion_contact_tracking_gaussian_exp(
+    env: ManagerBasedEnv, command_name: str, std: float, mask_zero_contact: bool = True
+) -> torch.Tensor:
+    """Chamfer contact tracking: exp(-dist^2 / std^2). Returns sum L+R."""
+    command = env.command_manager.get_term(command_name)
+    result = torch.zeros(env.num_envs, device=env.device)
+
+    for side in ("right", "left"):
+        pos_e = getattr(command, f"{side}_hand_object_contact_positions_e")
+        valid = (
+            getattr(command, f"{side}_hand_object_contact_positions_w").sum(dim=-1)
+            > 1e-5
+        )
+        cmd_e = getattr(command, f"{side}_hand_object_contact_command_positions_e")
+        cmd_valid = getattr(command, f"retargeted_{side}_object_contact_is_valid")[
+            command.timestep_counter
+        ]
+
+        dist = chamfer_distance(pos_e, cmd_e, valid, cmd_valid)
+        rew = torch.exp(-(dist**2) / std**2)
+        if mask_zero_contact:
+            both_zero = (valid.sum(dim=-1) == 0) & (cmd_valid.sum(dim=-1) == 0)
+            rew[both_zero] = 0.0
+        result += rew
+
+    return result
+
+
+def motion_contact_force_gaussian_exp(
+    env: ManagerBasedEnv, command_name: str, std: float
+) -> torch.Tensor:
+    """Contact force reward: exp(-force^2 / std^2). Mean over in-contact points."""
+    command = env.command_manager.get_term(command_name)
+
+    total_rew = torch.zeros(env.num_envs, device=env.device)
+    total_contacts = torch.zeros(env.num_envs, device=env.device)
+
+    for side in ("right", "left"):
+        forces = (
+            getattr(command, f"{side}_hand_object_contact_forces_w")
+            .norm(dim=1)
+            .norm(dim=-1)
+        )
+        in_contact = forces > 1e-3
+        total_rew += (in_contact * torch.exp(-(forces**2) / std**2)).sum(dim=-1)
+        total_contacts += in_contact.sum(dim=-1)
+
+    return torch.nan_to_num(total_rew / total_contacts, nan=0.0)

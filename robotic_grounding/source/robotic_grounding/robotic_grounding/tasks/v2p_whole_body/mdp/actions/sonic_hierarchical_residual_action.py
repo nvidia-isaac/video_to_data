@@ -5,9 +5,8 @@ from isaaclab.managers.action_manager import ActionTermCfg
 from .sonic_actions import SONICActionBase
 
 
-class SONICResidualAction(SONICActionBase):
-    """
-    Residual action for SONIC.
+class SONICHierarchicalResidualAction(SONICActionBase):
+    """Hierarchical residual action: residuals added BEFORE SONIC.
 
     Action structure: [joint_residuals]
     Residuals are added to commanded joint positions for all joints.

@@ -1,0 +1,38 @@
+{
+  "global_feat_dim": null,
+  "global_root_indices": {
+    "global_root_heading": [
+      3,
+      4
+    ],
+    "global_root_pos": [
+      0,
+      1,
+      2
+    ],
+    "global_root_pos_2d": [
+      0,
+      2
+    ],
+    "root": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ]
+  },
+  "local_feat_dim": null,
+  "max_tokens": 16,
+  "min_tokens": 6,
+  "model_fps": 30,
+  "nfpt": 4,
+  "num_pose_codes": 8,
+  "num_pose_codes_aug": 9,
+  "num_pose_heads": 8,
+  "num_root_codes": 1024,
+  "num_root_codes_aug": 1025,
+  "num_root_heads": 1,
+  "pose_mask_id": 8,
+  "root_mask_id": 1024
+}
