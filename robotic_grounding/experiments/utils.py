@@ -10,6 +10,21 @@ from typing import Any
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
+# Default W&B team entity for all OSMO-submitted runs. Overridable per experiment via
+# `wandb_entity:` in config.yaml (see generators in run_experiment.py, launch_stage2.py,
+# monitor_two_stage.py, and example_stage1_nocoll/workflow.py).
+DEFAULT_WANDB_ENTITY = "nvidia-isaac"
+
+# Container registry repo for the robotic-grounding Docker image. Individual experiments
+# pin a specific tag via `osmo.image` in their config.yaml; this constant is used when
+# deriving tags (e.g. `<repo>:<exp_id>` when --build-image is passed without --image)
+# and as the default ":latest" fallback for generated OSMO workflow YAMLs.
+DEFAULT_OSMO_IMAGE_REPO = "nvcr.io/nvstaging/isaac-amr/robotic-grounding"
+DEFAULT_OSMO_IMAGE_LATEST = f"{DEFAULT_OSMO_IMAGE_REPO}:latest"
+# Pipeline fallback tag used when neither stage pins an image explicitly. Historical
+# default — kept stable so existing two-stage experiments keep working.
+DEFAULT_OSMO_PIPELINE_IMAGE = f"{DEFAULT_OSMO_IMAGE_REPO}:v2d"
+
 
 def sequence_to_object(sequence_id: str) -> str:
     """e.g. arctic_s01_capsulemachine_grab_01 -> capsulemachine."""
@@ -101,8 +116,10 @@ def make_entry_script(
     max_iterations: int | None = None,
     use_timestamp: bool = True,
     video: bool = True,
+    task: str = "Sharpa-V2P-v0",
     logger: str = "wandb",
     log_project_name: str = "v2p_hands",
+    zero_actor: bool = False,
 ) -> str:
     """Generate /tmp/entry.sh content for OSMO."""
     # Pass run_name (suffix only) to train; train.py adds its own timestamp to avoid duplication.
@@ -119,8 +136,10 @@ def make_entry_script(
         num_envs=num_envs,
         max_iterations=max_iterations,
         video=video,
+        task=task,
         logger=logger,
         log_project_name=log_project_name,
+        zero_actor=zero_actor,
     )
     cmd_str = " \\\n  ".join(cmd)
     lines.append(cmd_str)

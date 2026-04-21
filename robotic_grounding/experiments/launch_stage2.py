@@ -30,6 +30,13 @@ import yaml
 _ROBOTIC_GROUNDING_DIR = Path(__file__).resolve().parent.parent
 _EXPERIMENTS_DIR = _ROBOTIC_GROUNDING_DIR / "experiments"
 
+if str(_ROBOTIC_GROUNDING_DIR) not in sys.path:
+    sys.path.insert(0, str(_ROBOTIC_GROUNDING_DIR))
+from experiments.utils import (  # noqa: E402
+    DEFAULT_OSMO_IMAGE_LATEST,
+    DEFAULT_WANDB_ENTITY,
+)
+
 
 def _load_registry() -> dict[str, str]:
     registry: dict[str, str] = {}
@@ -66,6 +73,7 @@ def fetch_crashed_checkpoints(outdir: Path, config: dict) -> dict[str, Path]:
     """Download latest checkpoints from crashed stage2 W&B runs. Returns {seq_key: local_path}."""
     api = wandb.Api()
     project = config.get("wandb_project", "v2p_hands")
+    wandb_entity = config.get("wandb_entity", DEFAULT_WANDB_ENTITY)
     # crashed_run_name_suffix allows looking for checkpoints in a *different* run
     # (e.g. the original 10k run) while still submitting under run_name_suffix.
     search_suffix = config.get("crashed_run_name_suffix") or config.get(
@@ -78,7 +86,7 @@ def fetch_crashed_checkpoints(outdir: Path, config: dict) -> dict[str, Path]:
         seq_key = _sequence_to_seq_key(seq_id)
         run_name = f"{search_suffix}_{seq_key}"
         runs = api.runs(
-            f"nvidia-isaac/{project}",
+            f"{wandb_entity}/{project}",
             filters={"display_name": {"$regex": run_name}},
         )
         runs = sorted(runs, key=lambda r: r.created_at, reverse=True)
@@ -119,6 +127,11 @@ def fetch_checkpoints(outdir: Path, config: dict) -> dict[str, Path]:
     # the one stage2 training runs are logged to (e.g. stage1 uploads to v2p_hands but
     # stage2 trains in v2p_hands).
     artifact_project = config.get("stage1_wandb_project", "v2p_hands")
+    # stage1_wandb_entity mirrors stage1_wandb_project for cases where stage1 artifacts
+    # live in a different W&B workspace than stage2 runs. Fall back to the stage2 entity.
+    artifact_entity = config.get(
+        "stage1_wandb_entity", config.get("wandb_entity", DEFAULT_WANDB_ENTITY)
+    )
     artifact_prefix = config.get("stage1_artifact_prefix", "checkpoint_stage1_nocoll_")
     sequences = config["sequences"]
     checkpoints: dict[str, Path] = {}
@@ -134,7 +147,7 @@ def fetch_checkpoints(outdir: Path, config: dict) -> dict[str, Path]:
         ]
         artifact = None
         for artifact_name in candidates:
-            full_name = f"{artifact_project}/{artifact_name}:latest"
+            full_name = f"{artifact_entity}/{artifact_project}/{artifact_name}:latest"
             print(f"  Fetching {full_name} ...", end=" ", flush=True)
             try:
                 artifact = api.artifact(full_name)
@@ -193,6 +206,7 @@ python scripts/rsl_rl/train.py \\
   {overrides_str}"""
 
     entry_indent = "\n".join("        " + line for line in entry.split("\n"))
+    wandb_entity = config.get("wandb_entity", DEFAULT_WANDB_ENTITY)
     return f"""  - name: train-{seq_key.replace("_", "-")}
     image: {{{{image}}}}
     command: [/bin/bash]
@@ -201,6 +215,7 @@ python scripts/rsl_rl/train.py \\
       ACCEPT_EULA: Y
       OMNI_SERVER: omniverse://isaac-dev.ov.nvidia.com
       WANDB_API_KEY: {wandb_api_key}
+      WANDB_ENTITY: {wandb_entity}
     inputs:
     - dataset:
         name: ckpt_{obj}
@@ -250,7 +265,7 @@ workflow:
 
 default-values:
   workflow_name: robotic_grounding_{exp_id}
-  image: nvcr.io/nvstaging/isaac-amr/robotic-grounding:latest
+  image: {DEFAULT_OSMO_IMAGE_LATEST}
 """
 
 

@@ -42,13 +42,18 @@ _RG_ROOT = Path(__file__).resolve().parent.parent
 _EXPERIMENTS_DIR = _RG_ROOT / "experiments"
 _WANDB_PROJECT = "v2p_hands"
 _DEFAULT_STATE_FILE = _RG_ROOT / "scripts" / "monitor_state.json"
-_DEFAULT_IMAGE = "nvcr.io/nvstaging/isaac-amr/robotic-grounding:v2d"
 _DEFAULT_POOL = "isaac-dev-l40s-04"
 
 if str(_RG_ROOT) not in sys.path:
     sys.path.insert(0, str(_RG_ROOT))
 
-from experiments.utils import overrides_to_cli  # noqa: E402
+from experiments.utils import (  # noqa: E402
+    DEFAULT_OSMO_PIPELINE_IMAGE as _DEFAULT_IMAGE,
+)
+from experiments.utils import (  # noqa: E402
+    DEFAULT_WANDB_ENTITY,
+    overrides_to_cli,
+)
 
 # ---------------------------------------------------------------------------
 # Utilities
@@ -155,7 +160,7 @@ artifact = wandb.Artifact(artifact_name, type="model")
 artifact.add_file(checkpoint, name="model_final.pt")
 api = wandb.Api()
 training_runs = api.runs(
-    f"nvidia-isaac/{{project}}",
+    f"{{os.environ['WANDB_ENTITY']}}/{{project}}",
     filters={{"display_name": {{"$regex": "{run_name}"}}}},
 )
 training_runs = sorted(training_runs, key=lambda r: r.created_at, reverse=True)
@@ -192,6 +197,7 @@ def _generate_stage1_resume_yaml(
     overrides_cli = " \\\n  ".join(overrides_to_cli(overrides))
     ckpt_filename = ckpt_path.name
     wandb_api_key = os.environ.get("WANDB_API_KEY", "")
+    wandb_entity = stage1_config.get("wandb_entity", DEFAULT_WANDB_ENTITY)
     upload_snippet = _checkpoint_upload_snippet(seq_key, run_name)
 
     entry = f"""set -ex
@@ -229,6 +235,7 @@ workflow:
       ACCEPT_EULA: Y
       OMNI_SERVER: omniverse://isaac-dev.ov.nvidia.com
       WANDB_API_KEY: {wandb_api_key}
+      WANDB_ENTITY: {wandb_entity}
     inputs:
     - dataset:
         name: ckpt_{seq_key}
@@ -257,6 +264,7 @@ def _generate_stage1_fresh_yaml(
     overrides = dict(stage1_config.get("train_overrides", {}))
     overrides_cli = " \\\n  ".join(overrides_to_cli(overrides))
     wandb_api_key = os.environ.get("WANDB_API_KEY", "")
+    wandb_entity = stage1_config.get("wandb_entity", DEFAULT_WANDB_ENTITY)
     upload_snippet = _checkpoint_upload_snippet(seq_key, run_name)
 
     entry = f"""set -ex
@@ -293,6 +301,7 @@ workflow:
       ACCEPT_EULA: Y
       OMNI_SERVER: omniverse://isaac-dev.ov.nvidia.com
       WANDB_API_KEY: {wandb_api_key}
+      WANDB_ENTITY: {wandb_entity}
     files:
     - path: /tmp/entry.sh
       contents: |-
@@ -304,7 +313,11 @@ default-values:
 """
 
 
-def _download_stage1_checkpoint(seq_key: str, outdir: Path) -> Path | None:
+def _download_stage1_checkpoint(
+    seq_key: str,
+    outdir: Path,
+    wandb_entity: str = DEFAULT_WANDB_ENTITY,
+) -> Path | None:
     """Download the stage1 checkpoint for seq_key from W&B artifacts.
 
     Returns the local path to the .pt file, or None if no artifact exists.
@@ -317,7 +330,7 @@ def _download_stage1_checkpoint(seq_key: str, outdir: Path) -> Path | None:
     candidates = [artifact_name, f"checkpoint_stage1_nocoll_{seq_key.split('_')[0]}"]
     api = wandb.Api()
     for name in candidates:
-        full_name = f"nvidia-isaac/{_WANDB_PROJECT}/{name}:latest"
+        full_name = f"{wandb_entity}/{_WANDB_PROJECT}/{name}:latest"
         print(f"  Fetching artifact {full_name} ...", end=" ", flush=True)
         try:
             artifact = api.artifact(full_name)
@@ -400,10 +413,13 @@ def relaunch_stage1_task(
     """
     seq_key = _sequence_to_seq_key(seq_id)
     steps = crashed_run.summary.get("_step", 0) or 0
+    wandb_entity = stage1_config.get("wandb_entity", DEFAULT_WANDB_ENTITY)
     _log(f"Relaunching stage1 {exp_id}/{seq_key} (crashed at step {steps})")
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        ckpt_path = _download_stage1_checkpoint(seq_key, Path(tmpdir))
+        ckpt_path = _download_stage1_checkpoint(
+            seq_key, Path(tmpdir), wandb_entity=wandb_entity
+        )
 
         if ckpt_path is not None:
             _log(f"  Found checkpoint {ckpt_path.name} — resuming from it")
@@ -583,6 +599,9 @@ def monitor_once(state: dict, dry_run: bool = False) -> dict:
         try:
             stage1_config = _load_config(stage1_exp_id)
             sequences = stage1_config["osmo_multi_task"]["sequence_ids"]
+            stage1_wandb_entity = stage1_config.get(
+                "wandb_entity", DEFAULT_WANDB_ENTITY
+            )
         except Exception as e:
             _log(f"  ERROR loading stage1 config for {exp_id}: {e}")
             continue
@@ -608,7 +627,7 @@ def monitor_once(state: dict, dry_run: bool = False) -> dict:
             try:
                 stage1_runs_all = list(
                     api.runs(
-                        f"nvidia-isaac/{_WANDB_PROJECT}",
+                        f"{stage1_wandb_entity}/{_WANDB_PROJECT}",
                         filters={
                             "display_name": {"$regex": f"{re.escape(exp_id)}_stage1_"}
                         },
@@ -724,13 +743,17 @@ def monitor_once(state: dict, dry_run: bool = False) -> dict:
             try:
                 stage2_config = _load_config(stage2_config_id)
                 stage2_suffix = stage2_config.get("run_name_suffix", f"{exp_id}_stage2")
+                stage2_wandb_entity = stage2_config.get(
+                    "wandb_entity", DEFAULT_WANDB_ENTITY
+                )
             except Exception:
                 stage2_suffix = f"{exp_id}_stage2"
+                stage2_wandb_entity = DEFAULT_WANDB_ENTITY
 
             try:
                 stage2_runs_all = list(
                     api.runs(
-                        f"nvidia-isaac/{_WANDB_PROJECT}",
+                        f"{stage2_wandb_entity}/{_WANDB_PROJECT}",
                         filters={
                             "display_name": {"$regex": f"{re.escape(stage2_suffix)}_"}
                         },
