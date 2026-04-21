@@ -6,25 +6,31 @@ robotic_grounding pipeline, from raw dataset files to a trained RL policy.
 ## Pipeline Overview
 
 ```
-Raw Data (pkl/jsonl/csv/npy/...)
+Raw Data on CSS (pkl/jsonl/csv/npy/...)
     |
     v  Stage 1: Load
 ManoSharpaData Parquet (MANO hands + object poses)
     |
-    |-- Stage 1.5: Generate URDFs         --> urdfs/{dataset}/*.urdf
+    |-- Stage 1.5: Generate URDFs         --> {dataset}_urdfs/*.urdf
     |
     v  Stage 2: Retarget (IK)
 ManoSharpaData Parquet (+ robot joint trajectories)
     |
-    |-- Stage 3:   Support surfaces        --> reconstructed_stage/*.usda
-    |-- Stage 3.5: Visualization (opt.)    --> {dataset}_html/recordings/{seq}.viser + .mp4
+    |-- Stage 3: Support surfaces         --> reconstructed_stage/*.usda
+    |-- Stage 4: Visualize (optional)     --> {dataset}_html/recordings/{seq}.viser (+ .mp4)
+    |-- Stage 5: Record video (optional)  --> {dataset}_videos/{seq}.mp4 (Isaac Sim)
     |
-    v  Stage 4: Sync from CSS (after OSMO)
-Local assets/human_motion_data/
+    v  (All stages' outputs published as one OSMO dataset version)
+v2d_{dataset}_retarget_exp_200:<version>
     |
-    v  Stage 5: RL Training (Isaac Sim)
+    v  Stage 6: osmo dataset download
+Local assets/human_motion_data/{dataset}/
+    |
+    v  Stage 7: RL Training (Isaac Sim)
 Trained policy checkpoint
 ```
+
+Stages 1–5 are the OSMO `retarget.yaml` workflow; any subset can run via `--set stages=<stage>`. All artifacts from one run are published as a single versioned OSMO dataset (see [data_storage.md](data_storage.md)).
 
 ## Stage 1: Load
 
@@ -74,9 +80,12 @@ converts raw object meshes (OBJ, GLB) into single-link rigid URDFs:
 3. Generate a URDF with visual + collision geometry and default inertia.
 
 The mesh scale comes from the dataset registry (`mesh_vertex_scale`). This
-stage is idempotent -- it skips objects that already have URDFs.
+stage is idempotent -- it skips objects that already have URDFs. Runs
+automatically inside the `process` stage on OSMO.
 
-**Output:** `assets/urdfs/{dataset}/{object_id}_rigid.urdf`
+**Output:** `assets/urdfs/{dataset}/{object_id}_rigid.urdf` locally; in the
+OSMO workflow these are copied to `{dataset}_urdfs/` in the published
+dataset version.
 
 **Command:**
 ```bash
@@ -132,13 +141,13 @@ python scripts/reconstruct_support_surfaces.py \
   --input_dir <loaded_dir> --dataset <name>
 ```
 
-## Stage 3.5: Visualization (optional, OSMO-side)
+## Stage 4: Visualize (optional)
 
 **Purpose:** Produce inspection artifacts alongside the retargeted data —
 both interactive (`.viser`) and offline video (`.mp4`). Drives quality
 reviews without downloading the full parquets locally.
 
-**Scripts:** `scripts/retarget/vis_retargeted.py`
+**Script:** `scripts/retarget/vis_retargeted.py`
 
 Running with `--save_html --save_mp4` writes, for every sequence:
 
@@ -148,32 +157,53 @@ Running with `--save_html --save_mp4` writes, for every sequence:
   the object trajectory. No browser or Isaac Sim required. Useful for
   quick QA at scale, embedding in reviews, or sanity-checking new datasets.
 
-The OSMO workflow produces both under `{dataset}_html/recordings/` (see
-`workflow/retarget.yaml` Stage 4). For local iteration see the
-`/add-dataset` skill.
+Pyrender MP4s are skipped for OakInk2 (120 FPS × long sequences OOMs the
+pod); Stage 5 already produces Isaac Sim MP4s for those.
 
-## Stage 4: Sync Results
+**Output:** `{dataset}_html/recordings/{seq}.viser` (+ `.mp4` where not
+skipped) in the OSMO dataset.
 
-**Purpose:** Pull processed data from cloud storage to the local machine.
+## Stage 5: Record Isaac Sim Video (optional)
 
-**Scripts:** `scripts/sync_css_data.py`, `scripts/list_css_sequences.py`
+**Purpose:** Record a playback MP4 of each retargeted sequence in Isaac Sim
+with the Sharpa robot physically grasping the object — the closest thing
+to a training-time render without actually training. Used for catching
+regressions that don't show up in the MANO-only pyrender output (e.g.
+collision-group misconfigurations, self-penetrations, physics blow-ups).
 
-When stages 1-3 run on OSMO (GPU cluster), the outputs are stored on CSS
-(S3-compatible cloud storage). This stage downloads them to the local
-`assets/human_motion_data/` directory for training.
+**Script:** `scripts/rsl_rl/dummy_agent.py` (driven by the workflow's
+`video` stage, not typically invoked directly)
 
-**Output:** Local copy of processed Parquets, URDFs, and support surfaces.
+For each processed sequence the workflow spawns a single-env Isaac Sim
+instance with `dummy_agent.py --record_video`, steps 300 frames of the
+motion, and saves the MP4. Runs sequentially on one GPU — parallel Isaac
+Sim startup contention (shader cache, EGL drivers, VRAM) made the sharded
+version strictly slower in practice.
 
-**Commands:**
+**Output:** `{dataset}_videos/{sequence_id}.mp4` in the OSMO dataset.
+
+## Stage 6: Sync Results Locally
+
+**Purpose:** Pull the published OSMO dataset to the local repo so training
+and local visualization scripts can read it.
+
+**Command:** `osmo dataset download` — full details, component-filter
+examples, and the legacy CSS-swift fallback are in
+[data_storage.md](data_storage.md#pulling-retarget-outputs-locally).
+
+Quick version:
+
 ```bash
-# Browse available data
-python scripts/list_css_sequences.py --dataset <name>
+# Pick a published version
+osmo dataset info v2d_<dataset>_retarget_exp_200 --order desc
 
-# Download processed data
-python scripts/sync_css_data.py --dataset <name> --component processed
+# Pull just the pieces training needs
+osmo dataset download v2d_<dataset>_retarget_exp_200:<version> \
+  source/robotic_grounding/robotic_grounding/assets/human_motion_data/<dataset>/ \
+  --regex '(<dataset>_processed|<dataset>_urdfs|reconstructed_stage)/.*'
 ```
 
-## Stage 5: RL Training
+## Stage 7: RL Training
 
 **Purpose:** Train a reinforcement learning policy to control the robot hand.
 
@@ -233,15 +263,19 @@ python scripts/rsl_rl/train.py \
 
 ## OSMO Workflow
 
-Stages 1 through 3 can be submitted as a single OSMO workflow that runs on
-the GPU cluster. See `workflow/retarget.yaml` for the workflow definition and
-the `/osmo-retarget` skill for usage instructions.
+Stages 1 through 5 are submitted as a single OSMO workflow (`workflow/retarget.yaml`) running on the GPU cluster. All artifacts from one run are snapshotted into a new version of the `v2d_{dataset}_retarget_exp_200` OSMO dataset. See [README.md](README.md) for submission options and [data_storage.md](data_storage.md) for the output layout; `/osmo-retarget` skill covers usage patterns.
 
 ```bash
 python scripts/run_osmo.py \
   --experiment-name retarget-<dataset> \
   --workflow-yaml workflow/retarget.yaml \
   --set dataset=<name>
+
+# Run a subset — e.g. skip the expensive video stage
+python scripts/run_osmo.py \
+  --experiment-name retarget-<dataset>-fast \
+  --workflow-yaml workflow/retarget.yaml \
+  --set dataset=<name> --set stages=process
 ```
 
 ## Dataset Inventory
@@ -251,15 +285,17 @@ Candidates considered for Robot Grounding Task Library. Source:
 
 ### In the pipeline
 
-| Dataset | Sequences | GT Fidelity | Hands | Status |
-|---------|-----------|-------------|-------|--------|
-| **TACO** | 2,317 | High (NOKOV MoCap) | Bimanual | Retargeted on CSS |
-| **Arctic** | 554 | Very High (Vicon MoCap) | Bimanual, articulated objects | Retargeted on CSS |
-| **OakInk2** | 627 | High (OptiTrack MoCap) | Bimanual | Retargeted on CSS |
-| **HOT3D** | 294 | Very High (OptiTrack MoCap) | Bimanual | Retargeted on CSS |
-| **H2O** | 137 | Medium-High (RGB-D opt.) | Bimanual | Retargeted on CSS (cam4 egocentric) |
-| **GRAB** | 1,335 | Very High (Vicon MoCap) | Bimanual + SMPL-X full body | Retargeted on CSS |
-| **DexYCB** | 1,000 | Medium-High (multi-view RGB-D) | Single (per-session) | Retargeted on CSS (cam `932122062010`) |
+Outputs live under `v2d_<name>_retarget_exp_200` OSMO datasets.
+
+| Dataset | Sequences | GT Fidelity | Hands | Notes |
+|---------|-----------|-------------|-------|-------|
+| **TACO** | 2,317 | High (NOKOV MoCap) | Bimanual | — |
+| **Arctic** | 554 | Very High (Vicon MoCap) | Bimanual, articulated objects | — |
+| **OakInk2** | 627 | High (OptiTrack MoCap) | Bimanual | Stage 4 MP4s skipped (long sequences OOM pyrender) |
+| **HOT3D** | 294 | Very High (OptiTrack MoCap) | Bimanual | — |
+| **H2O** | 137 | Medium-High (RGB-D opt.) | Bimanual | cam4 egocentric; known ~45° pitch (initial head tilt baked into PnP world frame) |
+| **GRAB** | 1,335 | Very High (Vicon MoCap) | Bimanual + SMPL-X full body | — |
+| **DexYCB** | 1,000 | Medium-High (multi-view RGB-D) | Single (per-session) | cam `932122062010`; master-frame gravity inferred per session |
 
 Current total: **~6,264 retargeted sequences** across 7 datasets and 150+ unique objects.
 
@@ -292,8 +328,8 @@ See the `/add-dataset` skill or run through these steps:
 2. Write a loader script at `scripts/retarget/<name>_loader.py`.
 3. Write a retarget script at `scripts/retarget/<name>_to_sharpa.py`.
 
-Everything else (workflow dispatch, CSS sync, URDF generation, training
-validation) is driven by the dataset registry automatically.
+Everything else (workflow dispatch, OSMO dataset publish, URDF generation,
+training validation) is driven by the dataset registry automatically.
 
 ## Validating Before Training
 
@@ -304,9 +340,9 @@ starts (saves the 45-second startup wait):
 python scripts/validate_training_assets.py --dataset <name>
 ```
 
-## Planned Refactor: Consolidate URDFs + Meshes on CSS
+## Planned Refactor: Consolidate URDFs + Meshes
 
-Today the pipeline is inconsistent about where per-dataset object assets live:
+Object assets still live in inconsistent places between datasets:
 
 | Dataset | Meshes location | URDFs location |
 |---------|-----------------|----------------|
@@ -314,21 +350,19 @@ Today the pipeline is inconsistent about where per-dataset object assets live:
 | arctic, taco, oakink2 | committed `assets/meshes/{name}/` | committed `assets/urdfs/{name}/` |
 | grab, dexycb | CSS only (mounted at run time) | regenerated per workflow run from CSS meshes |
 
-This bakes ~2.7 GB of meshes into every Docker image and drifts between
-committed and on-CSS artifacts.  Unify on a single pattern:
+This bakes ~2.7 GB of meshes into every Docker image. Progress so far:
 
-1. **Write URDFs to CSS in the workflow** — add a `{dataset}_urdfs` output
-   in `workflow/retarget.yaml` (or fold it into `{dataset}_processed`).
-   Update `scripts/generate_rigid_urdfs.py` to write under
-   `${OUTPUT}/{dataset}_urdfs/` instead of `assets/urdfs/`.
-2. **Sync on demand** — add `--component urdfs` to `scripts/sync_css_data.py`.
-   Training flow becomes `sync_css_data.py --dataset X --component urdfs`.
-3. **Prefer local → CSS fallback** at read time — update
-   `SceneConfig` path resolution to check `assets/urdfs/{name}/` first and
-   hit CSS if missing.
-4. **Phase out committed meshes** — once the CSS path is the source of
-   truth, stop committing `assets/meshes/{name}/` for hot3d/h2o/arctic/
-   taco/oakink2 and trim ~2.7 GB from the image.
-
-OSMO dataset versioning (already enabled via the `dataset:` output in
-`retarget.yaml`) will then cover URDF regeneration out of the box.
+- [x] **URDFs published with retarget outputs** — the `process` stage
+  generates URDFs into `assets/urdfs/{dataset}/` and the workflow copies
+  them to `{dataset}_urdfs/` inside the OSMO dataset version, so every
+  versioned run carries a regenerated URDF tree.
+- [ ] **Local sync for URDFs** — `scripts/sync_css_data.py` still only
+  knows about `loaded`/`processed`/`support_surfaces`; `osmo dataset
+  download --regex '{dataset}_urdfs/.*'` is the current workaround. Adding
+  `--component urdfs` to `sync_css_data.py` would close the gap for anyone
+  still pulling from CSS.
+- [ ] **Read-time fallback** — update `SceneConfig` path resolution to
+  check `assets/urdfs/{name}/` first, then the per-dataset download dir.
+- [ ] **Phase out committed meshes** — once the runtime URDF/mesh path is
+  the source of truth, stop committing `assets/meshes/{name}/` for
+  hot3d/h2o/arctic/taco/oakink2 and trim the image size.
