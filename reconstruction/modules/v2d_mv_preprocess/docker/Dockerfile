@@ -9,9 +9,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-COPY . /workspace
+COPY v2d_common /workspace/v2d_common
+RUN pip install --no-cache-dir -e /workspace/v2d_common
 
-RUN pip install --no-cache-dir \
-    -e /workspace/v2d_common \
-    -e /workspace/v2d_mv \
-    -e /workspace/v2d_mv_preprocess/lib
+COPY v2d_mv /workspace/v2d_mv
+RUN pip install --no-cache-dir -e "/workspace/v2d_mv[io]"
+
+COPY v2d_mv_preprocess/lib /workspace/v2d_mv_preprocess/lib
+RUN pip install --no-cache-dir -e /workspace/v2d_mv_preprocess/lib
