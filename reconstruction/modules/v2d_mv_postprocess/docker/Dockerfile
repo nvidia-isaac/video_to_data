@@ -10,12 +10,13 @@ RUN apt-get update && apt-get install -y \
     libegl1-mesa-dev \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install pyrender pyglet trimesh wis3d opencv-python imageio[pyav] av tqdm matplotlib
+COPY v2d_common /workspace/v2d_common
+RUN pip install --no-cache-dir -e /workspace/v2d_common
 
-COPY . /workspace
+COPY v2d_mv /workspace/v2d_mv
+RUN pip install --no-cache-dir -e "/workspace/v2d_mv[io,vis,math]"
 
-RUN pip install -e /workspace/v2d_common \
-                -e "/workspace/v2d_mv[io,vis,math]" \
-                -e /workspace/v2d_mv_postprocess/lib
+COPY v2d_mv_postprocess/lib /workspace/v2d_mv_postprocess/lib
+RUN pip install --no-cache-dir -e /workspace/v2d_mv_postprocess/lib
 
 ENV PYOPENGL_PLATFORM=egl
