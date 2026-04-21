@@ -266,10 +266,8 @@ def _synchronize_images(
             path.unlink(missing_ok=True)
             front_idx[topics[argmin]] += 1
 
-    # Final outputs are compacted to [0, frame_idx). Remove all tail files
-    # regardless of per-topic cursor state to avoid stale leftovers.
     for topic in topics:
-        for old_frame_idx in range(frame_idx, timestamps_df.shape[0]):
+        for old_frame_idx in range(front_idx[topic], timestamps_df.shape[0]):
             _image_path(images_base_path, topic, old_frame_idx).unlink(missing_ok=True)
 
     synced_df = pd.DataFrame(synced_timestamps)

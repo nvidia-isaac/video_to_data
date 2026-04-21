@@ -15,10 +15,10 @@ RUN apt-get update && apt-get install -y \
 RUN pip install pyceres
 
 COPY v2d_common /workspace/v2d_common
-RUN pip install --no-cache-dir -e /workspace/v2d_common
+RUN pip install -e /workspace/v2d_common
 
 COPY v2d_mv /workspace/v2d_mv
-RUN pip install --no-cache-dir -e "/workspace/v2d_mv[math]"
+RUN pip install -e "/workspace/v2d_mv[math]"
 
 COPY v2d_mv_calibration/lib /workspace/v2d_mv_calibration/lib
-RUN pip install --no-cache-dir -e /workspace/v2d_mv_calibration/lib
+RUN pip install -e /workspace/v2d_mv_calibration/lib

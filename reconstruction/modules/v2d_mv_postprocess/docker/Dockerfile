@@ -11,12 +11,12 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY v2d_common /workspace/v2d_common
-RUN pip install --no-cache-dir -e /workspace/v2d_common
+RUN pip install -e /workspace/v2d_common
 
 COPY v2d_mv /workspace/v2d_mv
-RUN pip install --no-cache-dir -e "/workspace/v2d_mv[io,vis,math]"
+RUN pip install -e "/workspace/v2d_mv[io,vis,math]"
 
 COPY v2d_mv_postprocess/lib /workspace/v2d_mv_postprocess/lib
-RUN pip install --no-cache-dir -e /workspace/v2d_mv_postprocess/lib
+RUN pip install -e /workspace/v2d_mv_postprocess/lib
 
 ENV PYOPENGL_PLATFORM=egl

@@ -311,6 +311,27 @@ workflow:
           --weights_dir {{input:3}}/v2d_mv_hoi_data/data/weights/sam3d_body \
           --output_dir {{output}}
 
+  # Export MHR parameters to SOMA format
+  - name: export_soma
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_sam3d_body:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - url: {{swift_output_base}}/sam3d_body/
+    - dataset: {name: v2d_mv_hoi_data}
+    - task: sam3d_body
+    outputs:
+    - url: {{swift_output_base}}/export_soma/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.sam3d_body.lib.export_soma \
+          --params_path {{input:0}}/mhr_params_mv.pt \
+          --mesh_path {{input:0}}/mhr_mesh_mv.pt \
+          --weights_dir {{input:1}}/v2d_mv_hoi_data/data/weights/sam3d_body \
+          --output_path {{output}}/soma_params.npz
+
   # Chamfer evaluation – object
   - name: eval_chamfer_object
     image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
