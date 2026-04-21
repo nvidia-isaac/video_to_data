@@ -18,6 +18,7 @@ from v2d.detectron2.docker.run_mv_track_bboxes import run_mv_track_bboxes
 from v2d.sam2.docker.run_mv_videos_to_masks import run_mv_videos_to_masks
 from v2d.foundation_pose.docker.run_mv_videos_to_poses import run_mv_videos_to_poses
 from v2d.sam3d_body.docker.run_mv_optimize_mhr_params import run_mv_optimize_mhr_params
+from v2d.sam3d_body.docker.run_export_soma import run_export_soma
 from v2d.mv.postprocess.docker.run_mv_eval_chamfer_human import run_mv_eval_chamfer_human
 from v2d.mv.postprocess.docker.run_mv_eval_chamfer_object import run_mv_eval_chamfer_object
 from v2d.mv.postprocess.docker.run_mv_render_hoi_overlay import run_mv_render_hoi_overlay
@@ -44,6 +45,7 @@ def main(
     detectron2_dir = os.path.join(output_dir, "detectron2")
     sam2_human_dir = os.path.join(output_dir, "sam2", "human")
     sam3d_body_dir = os.path.join(output_dir, "sam3d_body")
+    export_soma_dir = os.path.join(output_dir, "sam3d_body", "export_soma")
     chamfer_human_dir = os.path.join(output_dir, "postprocess", "chamfer_human")
     chamfer_object_dir = os.path.join(output_dir, "postprocess", "chamfer_object")
     hoi_overlay_dir = os.path.join(output_dir, "postprocess", "hoi_overlay")
@@ -132,6 +134,16 @@ def main(
         output_dir=sam3d_body_dir,
         image_dir=preprocess_images_dir,
         mask_dir=sam2_human_dir,
+        dev=dev,
+    )
+
+    # Export MHR parameters to SOMA format
+    run_export_soma(
+        params_path=os.path.join(sam3d_body_dir, "mhr_params_mv.pt"),
+        output_path=os.path.join(export_soma_dir, "soma_params.npz"),
+        mesh_path=os.path.join(sam3d_body_dir, "mhr_mesh_mv.pt"),
+        weights_dir=os.path.join(RECON_DIR, "data/weights/sam3d_body"),
+        debug=1,
         dev=dev,
     )
 

@@ -11,7 +11,7 @@ datasets:
         workflow_yaml: osmo/mv_calibration.yaml
       mv_hoi_reconstruction:
         workflow_yaml: osmo/mv_hoi_reconstruction.yaml
-    osmo_pool: isaac-dev-l40s-04
+    osmo_pool: isaac-dev-h100-01
     max_concurrent: 10
     qc_thresholds:
       max_chamfer_object: 30.0

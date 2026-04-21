@@ -144,9 +144,9 @@ def average_euler_angles(euler_angles: torch.Tensor) -> torch.Tensor:
 def extract_mhr_inputs(mhr_outputs: dict):
     """Extract the MHR parameters that are targets for optimization, i.e. input to the MHR head.
 
-    Note: in SAM3D-Body source code, global_trans is set to zero before calling the MHR head. The
-    reason for this is not entirely clear, but we follow the same convention here for consistency.
-    The global translation is handled separately by transforming the pred_cam_t of the MHR outputs.
+    Note: in SAM3D-Body source code, global_trans is set to zero before calling the MHR head. We 
+    follow the same convention here for consistency. The global translation is handled separately by 
+    transforming the pred_cam_t of the MHR outputs.
     """
     return {
         "global_trans": torch.zeros_like(mhr_outputs["pred_cam_t"]),
