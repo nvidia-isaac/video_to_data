@@ -7,6 +7,7 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 import argparse
+import hashlib
 import re
 import shutil
 from dataclasses import MISSING, field, fields, make_dataclass
@@ -604,8 +605,21 @@ def list_sequence_ids(root_path: str) -> list[str]:
     return sorted(ids.to_pylist())
 
 
+def shard_matches(key: str, shard_id: int, num_shards: int) -> bool:
+    """Return True iff ``key`` belongs to this shard.
+
+    Uses md5 for a stable, process-independent partition so the same key
+    always lands in the same shard regardless of ``PYTHONHASHSEED``.
+    Pass ``num_shards <= 1`` to disable sharding (matches everything).
+    """
+    if num_shards <= 1:
+        return True
+    h = int(hashlib.md5(key.encode()).hexdigest(), 16)
+    return h % num_shards == shard_id
+
+
 def add_sequence_filter_args(parser: argparse.ArgumentParser) -> None:
-    """Add --sequence_pattern, --sequence_id, and --max_sequences args."""
+    """Add --sequence_pattern, --sequence_id, --max_sequences, --shard_id, --num_shards."""
     group = parser.add_argument_group("sequence filtering")
     group.add_argument(
         "--sequence_id",
@@ -625,10 +639,22 @@ def add_sequence_filter_args(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="Limit to first N sequences after filtering.",
     )
+    group.add_argument(
+        "--shard_id",
+        type=int,
+        default=0,
+        help="Shard index (0-based) for parallel processing.",
+    )
+    group.add_argument(
+        "--num_shards",
+        type=int,
+        default=1,
+        help="Total number of shards.  1 = no sharding (default).",
+    )
 
 
 def filter_sequence_ids(sequence_ids: list[str], args: argparse.Namespace) -> list[str]:
-    """Apply --sequence_id, --sequence_pattern, and --max_sequences filters."""
+    """Apply all sequence filters, including shard partitioning (applied last)."""
     if getattr(args, "sequence_id", None):
         sequence_ids = [s for s in sequence_ids if s == args.sequence_id]
     if getattr(args, "sequence_pattern", None):
@@ -636,6 +662,13 @@ def filter_sequence_ids(sequence_ids: list[str], args: argparse.Namespace) -> li
         sequence_ids = [s for s in sequence_ids if pat.search(s)]
     if getattr(args, "max_sequences", None):
         sequence_ids = sequence_ids[: args.max_sequences]
+
+    num_shards = getattr(args, "num_shards", 1) or 1
+    shard_id = getattr(args, "shard_id", 0) or 0
+    if num_shards > 1:
+        sequence_ids = [
+            s for s in sequence_ids if shard_matches(s, shard_id, num_shards)
+        ]
     return sequence_ids
 
 
