@@ -226,6 +226,10 @@ core
 
 # Claude related files
 .claude/
+!.claude/commands/getneval.md
+!.claude/commands/eval-record.md
+!.claude/commands/grid-video.md
+!.claude/commands/launch-two-stage.md
 CLAUDE.md
 *.code-workspace
 
