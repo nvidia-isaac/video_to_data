@@ -57,6 +57,7 @@ def build_train_command(
     task: str = "Sharpa-V2P-v0",
     logger: str | None = None,
     log_project_name: str | None = None,
+    zero_actor: bool = False,
 ) -> list[str]:
     """Build train.py command as list of args."""
     cmd = [
@@ -64,6 +65,7 @@ def build_train_command(
         "scripts/rsl_rl/train.py",
         "--headless" if headless else "",
         "--video" if video else "",
+        "--zero-actor" if zero_actor else "",
         "--task",
         task,
         "--run_name",

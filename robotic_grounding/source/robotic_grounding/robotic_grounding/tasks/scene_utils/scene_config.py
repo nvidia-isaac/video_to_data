@@ -205,8 +205,13 @@ class SceneConfig:
             # Try registry first (for first body with known object name)
             if i == 0 and obj_name:
                 spec = get_object_spec(obj_name)
-                if spec and spec.rigid_urdf_path:
-                    obj = ObjectConfig(name=body_name, usd_path=spec.rigid_urdf_path)
+                if spec and (spec.rigid_urdf_path or spec.usd_path):
+                    asset_path = spec.rigid_urdf_path or spec.usd_path
+                    obj = ObjectConfig(
+                        name=body_name,
+                        usd_path=asset_path,
+                        scale=spec.scale,
+                    )
                     _load_body_pose(data, obj, i)
                     objects.append(obj)
                     continue

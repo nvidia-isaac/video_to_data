@@ -159,6 +159,10 @@ def run_local(
         num_envs=num_envs,
         max_iterations=max_iterations,
         video=video,
+        task=config.get("task", "Sharpa-V2P-v0"),
+        logger=config.get("logger"),
+        log_project_name=config.get("log_project_name"),
+        zero_actor=config.get("zero_actor", False),
     )
     cmd_str = " ".join(cmd)
     print(f"Running: {cmd_str}")

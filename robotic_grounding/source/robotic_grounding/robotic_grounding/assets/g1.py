@@ -1362,6 +1362,18 @@ G1_HAND_JOINT_NAMES = [
     "right_hand_index_1_joint",
 ]
 
+# G1 dex hand contact bodies (used for contact sensors)
+G1_DEX_CONTACT_BODIES = [
+    ".*_hand_palm_link",
+    ".*_hand_thumb_0_link",
+    ".*_hand_thumb_1_link",
+    ".*_hand_thumb_2_link",
+    ".*_hand_middle_0_link",
+    ".*_hand_middle_1_link",
+    ".*_hand_index_0_link",
+    ".*_hand_index_1_link",
+]
+
 # Dex 3 order
 DEX3_PARQUET_JOINT_ORDER = [
     "base_x_joint",
