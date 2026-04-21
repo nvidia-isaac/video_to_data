@@ -24,7 +24,7 @@ from typing import Any
 import isaaclab.sim as sim_utils
 from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
-from isaaclab.sensors import ContactSensorCfg
+from isaaclab.sensors import ContactSensorCfg, FrameTransformerCfg
 from isaaclab.sim.schemas.schemas_cfg import RigidBodyPropertiesCfg
 from pxr import Usd, UsdGeom
 
@@ -141,8 +141,9 @@ def apply_scene_objects(env_cfg: Any, scene_config: SceneConfig) -> None:
             cfg = _spawn_rigid(obj, prim_path)
 
         setattr(env_cfg.scene, attr_name, cfg)
-        # Collision groups are an RL-env concept; viewer-style envs skip this.
-        if hasattr(env_cfg.events, "setup_collision_groups"):
+        if hasattr(env_cfg, "events") and hasattr(
+            env_cfg.events, "setup_collision_groups"
+        ):
             env_cfg.events.setup_collision_groups.params["object_names"].append(
                 attr_name
             )
@@ -156,41 +157,57 @@ def apply_scene_objects(env_cfg: Any, scene_config: SceneConfig) -> None:
         stage = Usd.Stage.Open(fixed_obj.usd_path)
         for idx, prim in enumerate(stage.Traverse()):
             attr_name = f"{fixed_obj.name}_{idx}"
-            if not prim.IsA(UsdGeom.Cylinder):
-                continue
-            cyl = UsdGeom.Cylinder(prim)
-            radius = cyl.GetRadiusAttr().Get()
-            height = cyl.GetHeightAttr().Get()
             xf = UsdGeom.Xformable(prim)
             ops = xf.GetOrderedXformOps()
             translate = ops[0].Get() if ops else (0.0, 0.0, 0.0)
 
+            if prim.IsA(UsdGeom.Cylinder):
+                cyl = UsdGeom.Cylinder(prim)
+                spawn_cfg = sim_utils.CylinderCfg(
+                    radius=cyl.GetRadiusAttr().Get(),
+                    height=cyl.GetHeightAttr().Get(),
+                )
+            elif prim.IsA(UsdGeom.Cube):
+                cube = UsdGeom.Cube(prim)
+                size = cube.GetSizeAttr().Get()
+                # Cube scale encodes per-axis dimensions
+                scale_ops = [op for op in ops if "scale" in op.GetName().lower()]
+                if scale_ops:
+                    sx, sy, sz = scale_ops[0].Get()
+                else:
+                    sx = sy = sz = 1.0
+                spawn_cfg = sim_utils.CuboidCfg(
+                    size=(size * sx, size * sy, size * sz),
+                )
+            else:
+                continue
+
+            spawn_cfg.rigid_props = sim_utils.RigidBodyPropertiesCfg(
+                kinematic_enabled=True
+            )
+            spawn_cfg.mass_props = sim_utils.MassPropertiesCfg(mass=100.0)
+            spawn_cfg.collision_props = sim_utils.CollisionPropertiesCfg(
+                collision_enabled=True
+            )
+            spawn_cfg.physics_material = sim_utils.RigidBodyMaterialCfg(
+                static_friction=1.0
+            )
+            spawn_cfg.visual_material = sim_utils.PreviewSurfaceCfg(
+                diffuse_color=(0.14, 0.14, 0.14), metallic=0.7
+            )
+
             fixed_cfg = AssetBaseCfg(
                 prim_path=f"{{ENV_REGEX_NS}}/{attr_name}",
-                spawn=sim_utils.CylinderCfg(
-                    radius=radius,
-                    height=height,
-                    rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                        kinematic_enabled=True
-                    ),
-                    mass_props=sim_utils.MassPropertiesCfg(mass=100.0),
-                    collision_props=sim_utils.CollisionPropertiesCfg(
-                        collision_enabled=True
-                    ),
-                    physics_material=sim_utils.RigidBodyMaterialCfg(
-                        static_friction=1.0
-                    ),
-                    visual_material=sim_utils.PreviewSurfaceCfg(
-                        diffuse_color=(0.14, 0.14, 0.14), metallic=0.7
-                    ),
-                ),
+                spawn=spawn_cfg,
                 init_state=AssetBaseCfg.InitialStateCfg(
                     pos=translate,
                     rot=[1.0, 0.0, 0.0, 0.0],
                 ),
             )
             setattr(env_cfg.scene, attr_name, fixed_cfg)
-            if hasattr(env_cfg.events, "setup_collision_groups"):
+            if hasattr(env_cfg, "events") and hasattr(
+                env_cfg.events, "setup_collision_groups"
+            ):
                 env_cfg.events.setup_collision_groups.params[
                     "fixed_object_names"
                 ].append(attr_name)
@@ -200,11 +217,18 @@ def apply_scene_virtual_object_controls(
     env_cfg: Any, scene_config: SceneConfig
 ) -> None:
     """Spawn virtual object controls into env_cfg.scene."""
+    # Determine command name based on env type
+    if hasattr(env_cfg, "commands") and hasattr(env_cfg.commands, "motion"):
+        command_name = "motion"
+    else:
+        command_name = "dual_hands_object_tracking_command"
+
     for obj in scene_config.scene_objects:
         object_name = obj.name
         if isinstance(obj, ArticulatedObjectConfig):
             voc_cfg = VirtualArticulatedObjectControlCfg(
                 asset_name=object_name,
+                command_name=command_name,
                 root_body_name=obj.body_names[0],
                 tracking_controller_linear_stiffness=virtual_object_control_linear_stiffness,
                 tracking_controller_linear_damping=virtual_object_control_linear_damping,  # critical damping: 2 * sqrt(kp * m)
@@ -221,6 +245,7 @@ def apply_scene_virtual_object_controls(
         else:
             voc_cfg = VirtualRigidObjectControlCfg(
                 asset_name=object_name,
+                command_name=command_name,
                 tracking_controller_linear_stiffness=virtual_object_control_linear_stiffness,
                 tracking_controller_linear_damping=virtual_object_control_linear_damping,  # critical damping: 2 * sqrt(kp * m)
                 tracking_controller_angular_stiffness=virtual_object_control_angular_stiffness,
@@ -274,13 +299,23 @@ def apply_scene_robot(
             if not use_primitive_urdfs
             else robot_spec.left_primitive_cfg
         ).replace(prim_path="{ENV_REGEX_NS}/LeftRobot")
-        env_cfg.events.setup_collision_groups.params["robot_names"].append("RightRobot")
-        env_cfg.events.setup_collision_groups.params["robot_names"].append("LeftRobot")
+        if hasattr(env_cfg, "events") and hasattr(
+            env_cfg.events, "setup_collision_groups"
+        ):
+            env_cfg.events.setup_collision_groups.params["robot_names"].append(
+                "RightRobot"
+            )
+            env_cfg.events.setup_collision_groups.params["robot_names"].append(
+                "LeftRobot"
+            )
     elif robot_spec.robot_cfg is not None:
         env_cfg.scene.robot = _maybe_disable_gravity(robot_spec.robot_cfg).replace(
             prim_path="{ENV_REGEX_NS}/Robot"
         )
-        env_cfg.events.setup_collision_groups.params["robot_names"].append("Robot")
+        if hasattr(env_cfg, "events") and hasattr(
+            env_cfg.events, "setup_collision_groups"
+        ):
+            env_cfg.events.setup_collision_groups.params["robot_names"].append("Robot")
 
 
 def apply_scene_commands(env_cfg: Any, scene_config: SceneConfig) -> None:
@@ -367,26 +402,103 @@ def apply_scene_config(
 ) -> Any:
     """Apply scene config: objects + robot + commands + contacts.
 
-    Skips commands/contacts if the env_cfg doesn't have the required fields
-    (e.g. scene viewer with no RL components).
+    Supports both dual-hands (V2P) and whole-body envs. Skips commands/contacts
+    if the env_cfg doesn't have the required fields (e.g. scene viewer).
     """
     apply_scene_objects(env_cfg, scene_config)
     apply_scene_virtual_object_controls(env_cfg, scene_config)
 
-    if scene_config.robot_name:
-        apply_scene_robot(
-            env_cfg, scene_config, use_primitive_urdfs=use_primitive_urdfs
-        )
-
-    if hasattr(env_cfg, "commands") and hasattr(
+    is_dual_hands = hasattr(env_cfg, "commands") and hasattr(
         env_cfg.commands, "dual_hands_object_tracking_command"
-    ):
+    )
+    is_whole_body = hasattr(env_cfg, "commands") and hasattr(env_cfg.commands, "motion")
+
+    # V2P dual-hands: spawn robot + configure commands/contacts
+    if is_dual_hands:
+        if scene_config.robot_name:
+            apply_scene_robot(
+                env_cfg, scene_config, use_primitive_urdfs=use_primitive_urdfs
+            )
         apply_scene_commands(env_cfg, scene_config)
         apply_scene_contact_sensors(env_cfg, scene_config)
+        env_cfg.episode_length_s = (
+            scene_config.episode_length_s
+            / env_cfg.commands.dual_hands_object_tracking_command.motion_speed
+        )
 
-    env_cfg.episode_length_s = (
-        scene_config.episode_length_s
-        / env_cfg.commands.dual_hands_object_tracking_command.motion_speed
-    )
+    # Whole-body: robot + actions/obs configured by env cfg, just set motion file
+    elif is_whole_body:
+        env_cfg.commands.motion.motion_file = scene_config.motion_file
+        object_attr_names = [obj.name for obj in scene_config.scene_objects]
+        if object_attr_names:
+            env_cfg.commands.motion.object_name = object_attr_names[0]
+            env_cfg.commands.motion.object_body_names = object_attr_names
+        env_cfg.episode_length_s = min(
+            env_cfg.episode_length_s, scene_config.episode_length_s
+        )
+
+        # Contact sensors for whole-body
+        hand_contact_bodies = getattr(
+            env_cfg.commands.motion, "hand_contact_bodies", []
+        )
+        if hand_contact_bodies:
+            contact_sensor_names = []
+            for obj in scene_config.scene_objects:
+                obj_name = obj.name
+                body_names = (
+                    obj.body_names
+                    if isinstance(obj, ArticulatedObjectConfig)
+                    else ["object"]
+                )
+                for body_name in body_names:
+                    for side in ["right", "left"]:
+                        filter_prims = [
+                            f"{{ENV_REGEX_NS}}/Robot/{b.replace('.*', side)}"
+                            for b in hand_contact_bodies
+                        ]
+                        sensor_name = f"{obj_name}_{body_name}_to_{side}_contact_sensor"
+                        setattr(
+                            env_cfg.scene,
+                            sensor_name,
+                            ContactSensorCfg(
+                                prim_path=f"{{ENV_REGEX_NS}}/{obj_name}/{body_name}",
+                                track_pose=True,
+                                debug_vis=False,
+                                force_threshold=0.1,
+                                history_length=3,
+                                filter_prim_paths_expr=filter_prims,
+                                track_contact_points=True,
+                                track_air_time=True,
+                                max_contact_data_count_per_prim=128,
+                            ),
+                        )
+                        contact_sensor_names.append(sensor_name)
+            env_cfg.commands.motion.object_contact_sensor_names = contact_sensor_names
+
+        # FrameTransformers for hand-object observations
+        hand_targets = getattr(env_cfg.commands.motion, "hand_frame_target_bodies", [])
+        if hand_targets:
+            obj = scene_config.scene_objects[0]
+            obj_name = obj.name
+            body_name = (
+                obj.body_names[0]
+                if isinstance(obj, ArticulatedObjectConfig)
+                else "object"
+            )
+            obj_prim = f"{{ENV_REGEX_NS}}/{obj_name}/{body_name}"
+            for target_body in hand_targets:
+                side = "left" if "left" in target_body else "right"
+                setattr(
+                    env_cfg.scene,
+                    f"{side}_hand_object_transform",
+                    FrameTransformerCfg(
+                        prim_path=obj_prim,
+                        target_frames=[
+                            FrameTransformerCfg.FrameCfg(
+                                prim_path=f"{{ENV_REGEX_NS}}/Robot/{target_body}",
+                            )
+                        ],
+                    ),
+                )
 
     return env_cfg

@@ -9,6 +9,9 @@ stage1: example_stage1_nocoll
 stage2: example_stage2
 two_stage: example_two_stage
 
+# Whole-body experiments:
+recon_body_apple: recon_body_apple_pick
+
 # Private experiments: create experiments/registry.local.yaml (gitignored) with your entries:
 # exp41: exp41_my_experiment
 # exp42: exp42_another_experiment

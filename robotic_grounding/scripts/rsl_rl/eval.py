@@ -293,6 +293,15 @@ def main(
             actions = policy(obs)
             # env stepping
             obs, _, dones, _ = env.step(actions)
+            # log which termination fired
+            if dones.any():
+                term_mgr = env.unwrapped.termination_manager
+                term_dones = term_mgr._term_dones  # (E, num_terms)
+                for i, name in enumerate(term_mgr.active_terms):
+                    if term_dones[:, i].any():
+                        print(
+                            f"[TERM] {name}: {term_dones[:, i].sum().item():.0f} envs"
+                        )
             # reset recurrent states for episodes that have terminated
             policy_nn.reset(dones)
         if args_cli.video:

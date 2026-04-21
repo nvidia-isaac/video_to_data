@@ -99,16 +99,16 @@ class TestTrackingCommand(unittest.TestCase):
             f"First frame object quaternions should match. Max diff: {torch.abs(first_frame_object_quat - expected_first_frame_object_quat).max()}",
         )
 
-    def test_command_z_multi_future(self) -> None:
+    def test_command_anchor_z_multi_future(self) -> None:
         """Test that future z positions are correctly computed."""
         expected_shape = (self.env.num_envs, self.tracking_cmd.cfg.num_future_frames)
         self.assertEqual(
-            self.tracking_cmd.command_z_multi_future.shape,
+            self.tracking_cmd.command_anchor_z_multi_future.shape,
             expected_shape,
             f"Future z positions should have shape {expected_shape}",
         )
 
-        first_frame_z = self.tracking_cmd.command_z_multi_future[0, 0]
+        first_frame_z = self.tracking_cmd.command_anchor_z_multi_future[0, 0]
         expected_first_frame_z = self.expected_root_pos[0, 2]
         self.assertTrue(
             torch.allclose(first_frame_z, expected_first_frame_z, atol=1e-4),
@@ -117,7 +117,7 @@ class TestTrackingCommand(unittest.TestCase):
 
     def test_root_rot_dif_l_multi_future_shape(self) -> None:
         """Test that future root rotation differences are correctly computed."""
-        root_rot_dif = self.tracking_cmd.command_root_rot_dif_l_multi_future
+        root_rot_dif = self.tracking_cmd.command_anchor_rot_diff_l_multi_future
         expected_shape = (self.env.num_envs, self.tracking_cmd.cfg.num_future_frames, 6)
 
         self.assertEqual(
@@ -158,7 +158,7 @@ class TestTrackingCommand(unittest.TestCase):
 
     def test_ee_pos_multi_future_shape(self) -> None:
         """Test that future EE positions have correct shape."""
-        ee_pos_multi_future = self.tracking_cmd.command_ee_pos_multi_future
+        ee_pos_multi_future = self.tracking_cmd.command_ee_pos_w_multi_future
         num_ee_links = len(self.tracking_cmd.cfg.ee_link_names)
         expected_shape = (
             self.env.num_envs,

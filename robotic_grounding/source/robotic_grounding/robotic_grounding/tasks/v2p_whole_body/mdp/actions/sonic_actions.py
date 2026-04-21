@@ -21,8 +21,8 @@ class SonicPolicy:
     ) -> None:
         """Load encoder and decoder ONNX sessions from policy_dir."""
         self.policy_dir = policy_dir
-        encoder_path = Path(policy_dir) / "encoder_new.onnx"
-        decoder_path = Path(policy_dir) / "decoder_new.onnx"
+        encoder_path = Path(policy_dir) / "encoder_batched.onnx"
+        decoder_path = Path(policy_dir) / "decoder_batched.onnx"
 
         if torch.cuda.is_available():
             providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
@@ -301,3 +301,4 @@ class SONICActionBase(ActionTerm):
         self._asset.set_joint_position_target(
             self._processed_actions, joint_ids=self._joint_ids
         )
+        self._command.update_action_history(self._processed_actions)

@@ -131,7 +131,7 @@ def motion_anchor_ori_b(
     """
     command: TrackingCommand = env.command_manager.get_term(command_name)
     ori_diffs = (
-        command.command_root_rot_dif_l_multi_future
+        command.command_anchor_rot_diff_l_multi_future
     )  # (num_envs, num_future_frames, 6)
     ori_diffs = ori_diffs[:, :num_future_frames, :]
     return ori_diffs.reshape(env.num_envs, -1)  # Flatten
@@ -151,7 +151,7 @@ def command_z(
         Future z positions (num_envs, num_future_frames)
     """
     command: TrackingCommand = env.command_manager.get_term(command_name)
-    z_positions = command.command_z_multi_future  # (num_envs, num_future_frames)
+    z_positions = command.command_anchor_z_multi_future  # (num_envs, num_future_frames)
     return z_positions[:, :num_future_frames]
 
 

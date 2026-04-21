@@ -1,44 +1,39 @@
-import os
-
+import isaaclab.envs.mdp as il_mdp
 from isaaclab.envs.mdp import observations
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
+from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
-from isaaclab.sensors import FrameTransformerCfg
+from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.utils import configclass
+from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
-from robotic_grounding.assets import MOTION_ASSET_DIR
+from robotic_grounding.assets import POLICY_ASSET_DIR
 from robotic_grounding.assets.g1 import (
-    G1_ACTION_SCALE,
-    G1_CYLINDER_CFG,
-    G1_CYLINDER_DEX_CFG,
-    G1_CYLINDER_MODEL_12_CFG,
-    G1_CYLINDER_MODEL_12_DEX_CFG,
-    G1_CYLINDER_MODEL_12_DEX_DELAYED_CFG,
-    G1_CYLINDER_MODEL_12_DEX_WAIST_CFG,
     G1_CYLINDER_MODEL_12_HANDS_DEX_DELAYED_CFG,
-    G1_HAND_JOINT_NAMES,
+    G1_DEX_CONTACT_BODIES,
     G1_MODEL_12_ACTION_SCALE,
-    G1_MODEL_12_DEX_WAIST_ACTION_SCALE,
 )
-from robotic_grounding.assets.policies.grasp import (
-    G1GraspPolicy,
-    GraspPolicyCfg,
-)
-from robotic_grounding.tasks.v2p_whole_body.config.sonic.sonic_ee_env_cfg import (
-    SonicEEEnvCfg,
-)
-from robotic_grounding.tasks.v2p_whole_body.config.sonic.sonic_env_cfg import (
-    SonicEnvCfg,
-)
+from robotic_grounding.tasks.v2p_whole_body.base_env_cfg import V2PEnvCfg
 from robotic_grounding.tasks.v2p_whole_body.mdp import observations as obs
-from robotic_grounding.tasks.v2p_whole_body.mdp.actions import SONICActionCfg
-
-# Path to G1 motion dataset
-G1_MOTION_DATASET_DIR = os.path.join(MOTION_ASSET_DIR, "datasets", "g1")
-G1_MOTION_DATASET_JOINT_ORDER_FILE = os.path.join(
-    G1_MOTION_DATASET_DIR, "joint_order.txt"
+from robotic_grounding.tasks.v2p_whole_body.mdp.actions import (
+    SONICActionCfg,
+    SONICActionType,
 )
+from robotic_grounding.tasks.v2p_whole_body.mdp.rewards import (
+    contact_rewards,
+    tracking_rewards,
+)
+from robotic_grounding.tasks.v2p_whole_body.mdp.terminations import (
+    anchor_pos_error,
+    anchor_quat_error,
+    ee_position_error,
+    ee_quat_error,
+    object_pos_error,
+    object_quat_error,
+)
+
+POLICY_DIR = f"{POLICY_ASSET_DIR}/sonic"
 
 # G1 joints that SONIC controls
 G1_SONIC_JOINT_NAMES = [
@@ -74,299 +69,393 @@ G1_SONIC_JOINT_NAMES = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Observation groups
+# ---------------------------------------------------------------------------
+
+
 @configclass
-class G1ObservationsCfg:
-    """G1-specific observation configuration for SONIC."""
+class G1SONICEncoderCfg(ObsGroup):
+    """SONIC tokenizer observations (29 body joints only)."""
 
-    @configclass
-    class G1SONICEncoderCfg(ObsGroup):
-        """Observations for SONIC encoder group (tokenizer) - G1 specific.
+    encoder_index = ObsTerm(func=obs.encoder_mode, params={"command_name": "motion"})
+    command_joint_pos_multi_future = ObsTerm(
+        func=obs.command_joint_pos,
+        params={
+            "command_name": "motion",
+            "sonic_joints_only": True,
+            "action_name": "joint_pos",
+        },
+    )
+    command_joint_vel_multi_future = ObsTerm(
+        func=obs.command_joint_vel,
+        params={
+            "command_name": "motion",
+            "sonic_joints_only": True,
+            "action_name": "joint_pos",
+        },
+    )
+    padding_1 = ObsTerm(func=obs.encoder_padding, params={"dim": 17})
+    motion_anchor_ori_b = ObsTerm(
+        func=obs.motion_anchor_ori_b, params={"command_name": "motion"}
+    )
+    padding_2 = ObsTerm(func=obs.encoder_padding, params={"dim": 1762 - 17 - 644})
+    concatenate_terms = True
 
-        Note: Filters observations to 29 SONIC-controlled joints (excludes 14 hand joints).
-        """
 
-        encoder_index = ObsTerm(
-            func=obs.encoder_mode,
-            params={"command_name": "motion"},
-        )
+@configclass
+class G1SONICDecoderCfg(ObsGroup):
+    """SONIC decoder observations (29 body joints only, history_length=10)."""
 
-        command_joint_pos_multi_future = ObsTerm(
-            func=obs.command_joint_pos,
-            params={
-                "command_name": "motion",
-                "sonic_joints_only": True,
-                "action_name": "joint_pos",
-            },
-        )
+    base_ang_vel = ObsTerm(
+        func=observations.base_ang_vel, params={"asset_cfg": SceneEntityCfg("robot")}
+    )
+    joint_pos = ObsTerm(
+        func=obs.joint_pos_rel,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "sonic_joints_only": True,
+            "action_name": "joint_pos",
+        },
+    )
+    joint_vel = ObsTerm(
+        func=obs.joint_vel_rel,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "sonic_joints_only": True,
+            "action_name": "joint_pos",
+        },
+    )
+    actions = ObsTerm(
+        func=obs.last_action,
+        params={"action_name": "joint_pos", "sonic_joints_only": True},
+    )
+    gravity_dir = ObsTerm(
+        func=observations.projected_gravity,
+        params={"asset_cfg": SceneEntityCfg("robot")},
+    )
+    concatenate_terms = True
+    history_length = 10
 
-        command_joint_vel_multi_future = ObsTerm(
-            func=obs.command_joint_vel,
-            params={
-                "command_name": "motion",
-                "sonic_joints_only": True,
-                "action_name": "joint_pos",
-            },
-        )
 
-        padding_1 = ObsTerm(
-            func=obs.encoder_padding,
-            params={"dim": 17},
-        )
+@configclass
+class G1HandPolicyCfg(ObsGroup):
+    """Hand-object transform observations."""
 
-        motion_anchor_ori_b = ObsTerm(
-            func=obs.motion_anchor_ori_b,
-            params={"command_name": "motion"},
-        )
+    left_hand_object_transform = ObsTerm(
+        func=obs.hand_object_transform,
+        params={
+            "frame_transform_cfg": SceneEntityCfg("left_hand_object_transform"),
+            "threshold": 10.0,
+        },
+    )
+    right_hand_object_transform = ObsTerm(
+        func=obs.hand_object_transform,
+        params={
+            "frame_transform_cfg": SceneEntityCfg("right_hand_object_transform"),
+            "threshold": 10.0,
+        },
+    )
 
-        padding_2 = ObsTerm(
-            func=obs.encoder_padding,
-            params={"dim": 1772 - 17 - 644},
-        )
 
-        concatenate_terms = True
+@configclass
+class G1PolicyCfg(ObsGroup):
+    """Unified policy observations for whole-body tracking.
 
-    @configclass
-    class G1SONICDecoderCfg(ObsGroup):
-        """Observations for SONIC decoder group (policy) - G1 specific.
+    Egocentric (body frame) for hand/object state, 6D rotation throughout,
+    delta-based for future frames.
+    """
 
-        Note: Filters observations to 29 SONIC-controlled joints (excludes 14 hand joints).
-        """
+    wrist_position_b = ObsTerm(
+        func=obs.wrist_position_b,
+        params={"command_name": "motion"},
+        noise=Unoise(n_min=-0.01, n_max=0.01),
+    )
+    wrist_orientation_b = ObsTerm(
+        func=obs.wrist_orientation_b,
+        params={"command_name": "motion"},
+        noise=Unoise(n_min=-0.01, n_max=0.01),
+    )
+    wrist_velocity_b = ObsTerm(
+        func=obs.wrist_velocity_b,
+        params={"command_name": "motion"},
+        noise=Unoise(n_min=-0.01, n_max=0.01),
+    )
+    object_position_b = ObsTerm(
+        func=obs.object_position_b,
+        params={"command_name": "motion"},
+        noise=Unoise(n_min=-0.01, n_max=0.01),
+    )
+    object_orientation_b = ObsTerm(
+        func=obs.object_orientation_b,
+        params={"command_name": "motion"},
+        noise=Unoise(n_min=-0.01, n_max=0.01),
+    )
+    joint_pos_rel = ObsTerm(
+        func=obs.joint_pos_rel,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "sonic_joints_only": False,
+            "action_name": "joint_pos",
+        },
+        noise=Unoise(n_min=-0.01, n_max=0.01),
+    )
+    joint_vel_rel = ObsTerm(
+        func=obs.joint_vel_rel,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "sonic_joints_only": False,
+            "action_name": "joint_pos",
+        },
+        noise=Unoise(n_min=-0.01, n_max=0.01),
+    )
+    motion_anchor_pos_b = ObsTerm(
+        func=obs.motion_anchor_pos_b,
+        params={"command_name": "motion", "num_future_frames": 3},
+    )
+    motion_anchor_ori_b = ObsTerm(
+        func=obs.motion_anchor_ori_b,
+        params={"command_name": "motion", "num_future_frames": 3},
+    )
+    motion_joint_pos_delta = ObsTerm(
+        func=obs.motion_joint_pos_delta,
+        params={"command_name": "motion", "num_future_frames": 3},
+    )
+    motion_ee_pos_delta = ObsTerm(
+        func=obs.motion_ee_pos_delta,
+        params={"command_name": "motion", "num_future_frames": 3},
+    )
+    motion_ee_quat_delta = ObsTerm(
+        func=obs.motion_ee_quat_delta,
+        params={"command_name": "motion", "num_future_frames": 3},
+    )
+    left_hand_object_transform = ObsTerm(
+        func=obs.hand_object_transform_6d,
+        params={
+            "frame_transform_cfg": SceneEntityCfg("left_hand_object_transform"),
+            "threshold": 10.0,
+        },
+    )
+    right_hand_object_transform = ObsTerm(
+        func=obs.hand_object_transform_6d,
+        params={
+            "frame_transform_cfg": SceneEntityCfg("right_hand_object_transform"),
+            "threshold": 10.0,
+        },
+    )
+    object_pose_delta = ObsTerm(func=obs.object_pose_delta_6d)
+    trajectory_progress = ObsTerm(func=obs.command_trajectory_progress)
+    action_history = ObsTerm(func=obs.action_history, params={"command_name": "motion"})
+    concatenate_terms = True
 
-        base_ang_vel = ObsTerm(
-            func=observations.base_ang_vel,
-            params={"asset_cfg": SceneEntityCfg("robot")},
-        )
 
-        joint_pos = ObsTerm(
-            func=obs.joint_pos_rel,
-            params={
-                "asset_cfg": SceneEntityCfg("robot"),
-                "sonic_joints_only": True,
-                "action_name": "joint_pos",
-            },
-        )
+@configclass
+class G1SonicObservationsCfg:
+    """Complete observation config with all groups."""
 
-        joint_vel = ObsTerm(
-            func=obs.joint_vel_rel,
-            params={
-                "asset_cfg": SceneEntityCfg("robot"),
-                "sonic_joints_only": True,
-                "action_name": "joint_pos",
-            },
-        )
-
-        actions = ObsTerm(
-            func=obs.last_action,
-            params={"action_name": "joint_pos", "sonic_joints_only": True},
-        )
-
-        gravity_dir = ObsTerm(
-            func=observations.projected_gravity,
-            params={"asset_cfg": SceneEntityCfg("robot")},
-        )
-
-        concatenate_terms = True
-        history_length = 4
-
-    @configclass
-    class G1HandPolicyCfg(ObsGroup):
-        """Observations for G1 hand policy."""
-
-        left_hand_object_transform = ObsTerm(
-            func=obs.hand_object_transform,
-            params={
-                "frame_transform_cfg": SceneEntityCfg("left_hand_object_transform"),
-                "threshold": 10.0,
-            },
-        )
-        right_hand_object_transform = ObsTerm(
-            func=obs.hand_object_transform,
-            params={
-                "frame_transform_cfg": SceneEntityCfg("right_hand_object_transform"),
-                "threshold": 10.0,
-            },
-        )
-
+    policy: G1PolicyCfg = G1PolicyCfg()
     sonic_tokenizer: G1SONICEncoderCfg = G1SONICEncoderCfg()
     sonic_policy: G1SONICDecoderCfg = G1SONICDecoderCfg()
     hand_policy: G1HandPolicyCfg = G1HandPolicyCfg()
 
 
-@configclass
-class G1SonicEnvCfg(SonicEnvCfg):
-    """Configuration for the G1 Sonic environment.
-
-    Note: When using G1 with hands, SONIC controls 29 joints (legs, torso, arms).
-    The 14 hand joints are controlled directly from commands, bypassing SONIC.
-    """
-
-    # scene_config_path must be provided via --scene_config
-
-    def __post_init__(self) -> None:
-        """Post-initialization: set robot, actions, and observations for G1 Sonic."""
-        robot_mapping = {
-            "g1": {"robot_cfg": G1_CYLINDER_CFG, "action_scale": G1_ACTION_SCALE},
-            "g1_dex": {
-                "robot_cfg": G1_CYLINDER_DEX_CFG,
-                "action_scale": G1_ACTION_SCALE,
-            },
-            "g1_model_12": {
-                "robot_cfg": G1_CYLINDER_MODEL_12_CFG,
-                "action_scale": G1_MODEL_12_ACTION_SCALE,
-            },
-            "g1_model_12_dex": {
-                "robot_cfg": G1_CYLINDER_MODEL_12_DEX_CFG,
-                "action_scale": G1_MODEL_12_ACTION_SCALE,
-            },
-            "g1_model_12_dex_delayed": {
-                "robot_cfg": G1_CYLINDER_MODEL_12_DEX_DELAYED_CFG,
-                "action_scale": G1_MODEL_12_ACTION_SCALE,
-            },
-            "g1_model_12_hands_dex_delayed": {
-                "robot_cfg": G1_CYLINDER_MODEL_12_HANDS_DEX_DELAYED_CFG,
-                "action_scale": G1_MODEL_12_ACTION_SCALE,
-            },
-            "g1_model_12_dex_waist": {
-                "robot_cfg": G1_CYLINDER_MODEL_12_DEX_WAIST_CFG,
-                "action_scale": G1_MODEL_12_DEX_WAIST_ACTION_SCALE,
-            },
-        }
-
-        self.scene.robot = robot_mapping["g1_model_12_hands_dex_delayed"][
-            "robot_cfg"
-        ].replace(prim_path="{ENV_REGEX_NS}/Robot")
-        self.actions.joint_pos.scale = robot_mapping["g1_model_12_hands_dex_delayed"][
-            "action_scale"
-        ]
-
-        # G1-specific frame transformers for hand-object transforms
-        self.scene.left_hand_object_transform = FrameTransformerCfg(
-            prim_path="{ENV_REGEX_NS}/object",
-            target_frames=[
-                FrameTransformerCfg.FrameCfg(
-                    prim_path="{ENV_REGEX_NS}/Robot/left_hand_palm_link"
-                )
-            ],
-        )
-        self.scene.right_hand_object_transform = FrameTransformerCfg(
-            prim_path="{ENV_REGEX_NS}/object",
-            target_frames=[
-                FrameTransformerCfg.FrameCfg(
-                    prim_path="{ENV_REGEX_NS}/Robot/right_hand_palm_link"
-                )
-            ],
-        )
-
-        # if sonic action, set sonic joint names
-        if isinstance(self.actions.joint_pos, SONICActionCfg):
-            self.actions.joint_pos.sonic_joint_names = G1_SONIC_JOINT_NAMES
-
-        # Set G1-specific observation groups
-        g1_obs = G1ObservationsCfg()
-        self.observations.sonic_tokenizer = g1_obs.sonic_tokenizer
-        self.observations.sonic_policy = g1_obs.sonic_policy
-        self.observations.hand_policy = g1_obs.hand_policy
-
-        super().__post_init__()
+# ---------------------------------------------------------------------------
+# Actions
+# ---------------------------------------------------------------------------
 
 
 @configclass
-class G1SonicEEEnvCfg(SonicEEEnvCfg):
-    """Configuration for the G1 Sonic EE tracking environment.
+class G1SonicActionsCfg:
+    """JOINT_RESIDUAL: SONIC encodes reference, RL adds residuals after decode."""
 
-    Note: When using G1 with hands, SONIC controls 29 joints (legs, torso, arms).
-    The 14 hand joints are controlled directly from commands, bypassing SONIC.
-    """
+    joint_pos = SONICActionCfg(
+        action_type=SONICActionType.JOINT_RESIDUAL,
+        policy_dir=POLICY_DIR,
+        asset_name="robot",
+        joint_names=[".*"],
+        sonic_joint_names=G1_SONIC_JOINT_NAMES,
+        command_name="motion",
+        use_default_offset=True,
+        residual_scale=0.5,
+        use_tanh=False,
+        finger_residual=True,
+        finger_residual_scale=0.15,
+    )
 
-    # scene_config_path must be provided via --scene_config
+
+# ---------------------------------------------------------------------------
+# Rewards
+# ---------------------------------------------------------------------------
+
+
+@configclass
+class G1SonicRewardsCfg:
+    """Base reward config — termination penalty and regularization only."""
+
+    termination_penalty = RewTerm(func=il_mdp.is_terminated, weight=-300.0)
+    action_rate = RewTerm(func=il_mdp.action_rate_l2, weight=-1e-6)
+    action_l2 = RewTerm(func=il_mdp.action_l2, weight=-1e-6)
+    joint_pos_limit = RewTerm(
+        func=il_mdp.joint_pos_limits,
+        weight=-0.001,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=[".*"])},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Terminations
+# ---------------------------------------------------------------------------
+
+
+@configclass
+class G1SonicTerminationsCfg:
+    """Shared termination config."""
+
+    timeout = DoneTerm(func=il_mdp.time_out, time_out=True)
+    anchor_pos_error = DoneTerm(
+        func=anchor_pos_error,
+        params={"command_name": "motion", "threshold": 0.70},
+    )
+    anchor_quat_error = DoneTerm(
+        func=anchor_quat_error,
+        params={"command_name": "motion", "threshold": 1.50},
+    )
+    ee_pos_error = DoneTerm(
+        func=ee_position_error,
+        params={"command_name": "motion", "threshold": 0.15},
+    )
+    ee_quat_error = DoneTerm(
+        func=ee_quat_error,
+        params={"command_name": "motion", "threshold": 1.50},
+    )
+    object_pos_error = DoneTerm(
+        func=object_pos_error,
+        params={"command_name": "motion", "threshold": 0.10},
+    )
+    object_quat_error = DoneTerm(
+        func=object_quat_error,
+        params={"command_name": "motion", "threshold": 1.50},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Base G1 SONIC env
+# ---------------------------------------------------------------------------
+
+
+@configclass
+class G1SonicEnvCfg(V2PEnvCfg):
+    """Base G1 whole-body env with SONIC JOINT_RESIDUAL action and unified observations."""
+
+    actions: G1SonicActionsCfg = G1SonicActionsCfg()
+    observations: G1SonicObservationsCfg = G1SonicObservationsCfg()
+    rewards: G1SonicRewardsCfg = G1SonicRewardsCfg()
+    terminations: G1SonicTerminationsCfg = G1SonicTerminationsCfg()
 
     def __post_init__(self) -> None:
-        """Post-initialization: set robot, actions, and observations for G1 Sonic EE."""
-        robot_mapping = {
-            "g1": {"robot_cfg": G1_CYLINDER_CFG, "action_scale": G1_ACTION_SCALE},
-            "g1_dex": {
-                "robot_cfg": G1_CYLINDER_DEX_CFG,
-                "action_scale": G1_ACTION_SCALE,
-            },
-            "g1_model_12": {
-                "robot_cfg": G1_CYLINDER_MODEL_12_CFG,
-                "action_scale": G1_MODEL_12_ACTION_SCALE,
-            },
-            "g1_model_12_dex": {
-                "robot_cfg": G1_CYLINDER_MODEL_12_DEX_CFG,
-                "action_scale": G1_MODEL_12_ACTION_SCALE,
-            },
-            "g1_model_12_dex_delayed": {
-                "robot_cfg": G1_CYLINDER_MODEL_12_DEX_DELAYED_CFG,
-                "action_scale": G1_MODEL_12_ACTION_SCALE,
-            },
-            "g1_model_12_hands_dex_delayed": {
-                "robot_cfg": G1_CYLINDER_MODEL_12_HANDS_DEX_DELAYED_CFG,
-                "action_scale": G1_MODEL_12_ACTION_SCALE,
-            },
-            "g1_model_12_dex_waist": {
-                "robot_cfg": G1_CYLINDER_MODEL_12_DEX_WAIST_CFG,
-                "action_scale": G1_MODEL_12_DEX_WAIST_ACTION_SCALE,
-            },
-        }
-
-        self.scene.robot = robot_mapping["g1_model_12_hands_dex_delayed"][
-            "robot_cfg"
-        ].replace(prim_path="{ENV_REGEX_NS}/Robot")
-        self.actions.joint_pos.scale = robot_mapping["g1_model_12_hands_dex_delayed"][
-            "action_scale"
-        ]
-
-        # G1-specific frame transformers for hand-object transforms
-        self.scene.left_hand_object_transform = FrameTransformerCfg(
-            prim_path="{ENV_REGEX_NS}/object",
-            target_frames=[
-                FrameTransformerCfg.FrameCfg(
-                    prim_path="{ENV_REGEX_NS}/Robot/left_hand_palm_link"
-                )
-            ],
+        """Configure G1 robot, action scale, and hand sensor bodies."""
+        self.scene.robot = G1_CYLINDER_MODEL_12_HANDS_DEX_DELAYED_CFG.replace(
+            prim_path="{ENV_REGEX_NS}/Robot",
         )
-        self.scene.right_hand_object_transform = FrameTransformerCfg(
-            prim_path="{ENV_REGEX_NS}/object",
-            target_frames=[
-                FrameTransformerCfg.FrameCfg(
-                    prim_path="{ENV_REGEX_NS}/Robot/right_hand_palm_link"
-                )
-            ],
-        )
-
-        # if sonic action, set sonic joint names
-        if isinstance(self.actions.joint_pos, SONICActionCfg):
-            self.actions.joint_pos.sonic_joint_names = G1_SONIC_JOINT_NAMES
-            self.actions.joint_pos.hand_policy_class = G1GraspPolicy
-            self.actions.joint_pos.hand_policy_cfg = GraspPolicyCfg(
-                asset_name="robot",
-                joint_names=G1_HAND_JOINT_NAMES,
-            )
-
-        self.commands.motion.ee_link_names = [
+        self.actions.joint_pos.scale = G1_MODEL_12_ACTION_SCALE
+        self.commands.motion.hand_contact_bodies = list(G1_DEX_CONTACT_BODIES)
+        self.commands.motion.hand_frame_target_bodies = [
             "left_hand_palm_link",
             "right_hand_palm_link",
         ]
-
-        # Set G1-specific observation groups
-        g1_obs = G1ObservationsCfg()
-        self.observations.sonic_tokenizer = g1_obs.sonic_tokenizer
-        self.observations.sonic_policy = g1_obs.sonic_policy
-        self.observations.hand_policy = g1_obs.hand_policy
-
-        # # kernel similarity reward for natural motion
-        # self.rewards.natural_motion_similarity = RewTerm(
-        #     func=regularization_rewards.kernel_similarity_reward,
-        #     weight=0.5,
-        #     params={
-        #         "dataset_path": G1_MOTION_DATASET_DIR,
-        #         "joint_order_file": G1_MOTION_DATASET_JOINT_ORDER_FILE,
-        #         "bandwidth_list": [0.01, 0.1, 1.0],
-        #         "num_expert_samples": 5000,
-        #         "top_k": 500,
-        #         "temperature": 10.0,
-        #     },
-        # )
-
         super().__post_init__()
+
+
+# ---------------------------------------------------------------------------
+# ReconBody: body-accurate reference (MHR)
+# ---------------------------------------------------------------------------
+
+
+@configclass
+class G1SonicReconBodyRewardsCfg(G1SonicRewardsCfg):
+    """Rewards for body-accurate references. Emphasizes body/joint/object tracking."""
+
+    motion_anchor_position_error_exp = RewTerm(
+        func=tracking_rewards.motion_global_anchor_position_error_exp,
+        weight=1.0,
+        params={"command_name": "motion", "std": 0.3},
+    )
+    motion_anchor_orientation_error_exp = RewTerm(
+        func=tracking_rewards.motion_global_anchor_orientation_error_exp,
+        weight=1.0,
+        params={"command_name": "motion", "std": 0.4},
+    )
+    motion_joint_pos_error_exp = RewTerm(
+        func=tracking_rewards.motion_joint_pos_error_exp,
+        weight=5.0,
+        params={"command_name": "motion", "std": 1.0},
+    )
+    motion_object_position_error_exp = RewTerm(
+        func=tracking_rewards.motion_object_position_error_exp,
+        weight=1.0,
+        params={"command_name": "motion", "std": 0.2},
+    )
+    motion_progress = RewTerm(
+        func=tracking_rewards.motion_progress,
+        weight=1.0,
+        params={"command_name": "motion"},
+    )
+    motion_ee_position_error_exp = RewTerm(
+        func=tracking_rewards.motion_ee_position_error_exp,
+        weight=1.0,
+        params={"command_name": "motion", "std": 0.2},
+    )
+    motion_ee_orientation_error_exp = RewTerm(
+        func=tracking_rewards.motion_ee_orientation_error_exp,
+        weight=1.0,
+        params={"command_name": "motion", "std": 0.4},
+    )
+    force_closure = RewTerm(
+        func=contact_rewards.force_closure_reward,
+        weight=5.0,
+        params={"command_name": "motion", "min_support": 0.01},
+    )
+    action_rate = RewTerm(func=il_mdp.action_rate_l2, weight=-0.0001)
+
+
+@configclass
+class G1SonicReconBodyEnvCfg(G1SonicEnvCfg):
+    """Body-accurate reference env (MHR pipeline)."""
+
+    rewards: G1SonicReconBodyRewardsCfg = G1SonicReconBodyRewardsCfg()
+
+    def __post_init__(self) -> None:
+        """Set residual scales for body-accurate tracking."""
+        super().__post_init__()
+        self.actions.joint_pos.residual_scale = 0.15
+        self.actions.joint_pos.finger_residual_scale = 0.15
+
+
+# ---------------------------------------------------------------------------
+# ReconHand: hand-accurate reference (planner)
+# ---------------------------------------------------------------------------
+
+
+@configclass
+class G1SonicReconHandRewardsCfg(G1SonicRewardsCfg):
+    """Rewards for hand-accurate references (from exp201)."""
+
+    motion_hand_keypoints_gaussian_exp = RewTerm(
+        func=tracking_rewards.motion_hand_keypoints_gaussian_exp,
+        weight=1.0,
+        params={"command_name": "motion", "std": 0.1},
+    )
+    motion_finger_joint_pos_gaussian_exp = RewTerm(
+        func=tracking_rewards.motion_finger_joint_pos_gaussian_exp,
+        weight=1.0,
+        params={"command_name": "motion", "std": 1.0},
+    )
+    action_rate = RewTerm(func=il_mdp.action_rate_l2, weight=-0.001)
+    action_l2 = RewTerm(func=il_mdp.action_l2, weight=-0.0001)
+
+
+@configclass
+class G1SonicReconHandEnvCfg(G1SonicEnvCfg):
+    """Hand-accurate reference env (planner pipeline)."""
+
+    rewards: G1SonicReconHandRewardsCfg = G1SonicReconHandRewardsCfg()

@@ -19,14 +19,6 @@ class ObjectSpec:
 _ARCTIC_URDF_DIR = f"{ASSET_DIR}/urdfs/arctic"
 
 OBJECT_REGISTRY: dict[str, ObjectSpec] = {
-    "apple": ObjectSpec(
-        usd_path=f"{OBJECTS_ASSET_DIR}/apple/apple_simple.usda",
-        scale=(0.8, 0.8, 0.8),
-    ),
-    "object": ObjectSpec(
-        usd_path=f"{OBJECTS_ASSET_DIR}/apple/apple_simple.usda",
-        scale=(0.8, 0.8, 0.8),
-    ),
     "apple_green": ObjectSpec(
         usd_path=f"{OBJECTS_ASSET_DIR}/apple/apple_simple_green.usda",
         scale=(0.8, 0.8, 0.8),
