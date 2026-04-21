@@ -39,6 +39,10 @@ WORKFLOW_DIR = REPO_ROOT / "workflow"
 if str(RG_ROOT) not in sys.path:
     sys.path.insert(0, str(RG_ROOT))
 from experiments.utils import (  # noqa: E402
+    DEFAULT_OSMO_IMAGE_LATEST,
+    DEFAULT_OSMO_IMAGE_REPO,
+    DEFAULT_OSMO_PIPELINE_IMAGE,
+    DEFAULT_WANDB_ENTITY,
     build_train_command,
     make_entry_script,
     overrides_to_cli,
@@ -213,6 +217,11 @@ def generate_single_task_workflow(
     video = config.get("video", True)
     motion_file = config.get("motion_file")
     num_envs = config.get("num_envs")
+    max_iterations = config.get("max_iterations")
+    task = config.get("task", "Sharpa-V2P-v0")
+    zero_actor = config.get("zero_actor", False)
+    logger = config.get("logger", "wandb")
+    log_project_name = config.get("log_project_name", "v2p_hands")
     entry = make_entry_script(
         run_name,
         overrides,
@@ -220,7 +229,12 @@ def generate_single_task_workflow(
         seed=seed,
         motion_file=motion_file,
         num_envs=num_envs,
+        max_iterations=max_iterations,
         video=video,
+        task=task,
+        logger=logger,
+        log_project_name=log_project_name,
+        zero_actor=zero_actor,
         use_timestamp=True,
     )
     # Escape for YAML literal block
@@ -238,6 +252,9 @@ def generate_single_task_workflow(
         print(
             "[WARNING] WANDB_API_KEY not set in local environment — wandb will fail in the container"
         )
+    # Default to the shared NVIDIA team entity so OSMO runs don't land in a submitter's
+    # personal workspace. Individual experiments can override via config `wandb_entity`.
+    wandb_entity = config.get("wandb_entity", DEFAULT_WANDB_ENTITY)
     return f"""# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # Generated from experiments/ for {exp_id}
@@ -261,6 +278,7 @@ workflow:
       ACCEPT_EULA: Y
       OMNI_SERVER: omniverse://isaac-dev.ov.nvidia.com
       WANDB_API_KEY: {wandb_api_key}
+      WANDB_ENTITY: {wandb_entity}
 {inputs_block}    files:
     - path: /tmp/entry.sh
       contents: |-
@@ -268,7 +286,7 @@ workflow:
 
 default-values:
   workflow_name: robotic_grounding_{exp_id}
-  image: nvcr.io/nvstaging/isaac-amr/robotic-grounding:latest
+  image: {DEFAULT_OSMO_IMAGE_LATEST}
 """
 
 
@@ -302,6 +320,11 @@ def _print_workflow(exp_id: str, config: dict) -> None:
     video = config.get("video", True)
     motion_file = config.get("motion_file")
     num_envs = config.get("num_envs")
+    max_iterations = config.get("max_iterations")
+    task = config.get("task", "Sharpa-V2P-v0")
+    zero_actor = config.get("zero_actor", False)
+    logger = config.get("logger", "wandb")
+    log_project_name = config.get("log_project_name", "v2p_hands")
     if "run_name_overrides" in osmo_cfg:
         overrides = {**overrides, **osmo_cfg["run_name_overrides"]}
     entry = make_entry_script(
@@ -311,7 +334,12 @@ def _print_workflow(exp_id: str, config: dict) -> None:
         seed=seed,
         motion_file=motion_file,
         num_envs=num_envs,
+        max_iterations=max_iterations,
         video=video,
+        task=task,
+        logger=logger,
+        log_project_name=log_project_name,
+        zero_actor=zero_actor,
         use_timestamp=True,
     )
     print("# OSMO entry script (train command) for", exp_id)
@@ -346,6 +374,15 @@ def run_osmo(
     """Generate workflow YAML and submit to OSMO via run_osmo.py."""
     if not dry_run:
         _check_osmo_login()
+
+    # When the user asks to build but doesn't pin an explicit image tag, derive one from
+    # exp_id so the tag produced by run_osmo.py matches the tag baked into the workflow
+    # YAML below. Without this, --build-image silently builds and pushes a new tag while
+    # the submitted workflow still references :latest, which causes OSMO to run a stale
+    # image and e.g. miss newly-registered gym task IDs (see SonicG1-ReconBody-v0).
+    if build_image and image is None:
+        image = f"{DEFAULT_OSMO_IMAGE_REPO}:{exp_id}"
+        print(f"[INFO] --build-image without --image: pinning to {image}")
 
     if "osmo_multi_task" in config:
         exp_dir = EXPERIMENTS_DIR / load_registry()[exp_id]
@@ -672,11 +709,7 @@ def run_pipeline(exp_id: str, config: dict, args: argparse.Namespace) -> None:
     # Build and push the image once before any submissions so both stages use
     # the same freshly built image and we don't redundantly rebuild mid-pipeline.
     if build_image and not dry_run:
-        build_target = (
-            stage1_image
-            or stage2_image
-            or "nvcr.io/nvstaging/isaac-amr/robotic-grounding:v2d"
-        )
+        build_target = stage1_image or stage2_image or DEFAULT_OSMO_PIPELINE_IMAGE
         image_version = build_target.split(":")[-1]
         print(f"\n[pipeline] Building and pushing Docker image: {build_target} ...")
         result = subprocess.run(
@@ -832,15 +865,17 @@ def main() -> None:
         )
     elif args.osmo:
         # Use --build-image from CLI, or osmo.build_image from config (e.g. exp9 needs it for contact_force)
-        build_image = args.build_image or config.get("osmo", {}).get(
-            "build_image", False
-        )
+        osmo_cfg = config.get("osmo", {})
+        build_image = args.build_image or osmo_cfg.get("build_image", False)
+        # Image precedence: CLI --image > config osmo.image > (auto-derived from exp_id
+        # when --build-image and nothing else is set, see run_osmo) > workflow YAML default.
+        image = args.image or osmo_cfg.get("image")
         run_osmo(
             args.exp_id,
             config,
             pool=args.pool,
             build_image=build_image,
-            image=args.image,
+            image=image,
             priority=args.priority,
             dry_run=args.dry_run,
         )

@@ -6,13 +6,13 @@ id: recon_body_apple_pick
 description: "ReconBody apple pick-and-place with SONIC JOINT_RESIDUAL"
 run_name: recon_body_apple_pick
 task: SonicG1-ReconBody-v0
-motion_file: whole_body/mhr/sequence_id=apple_pick_optimized/robot_name=g1
+motion_file: whole_body/mhr/apple_pick_optimized/g1
 video: true
-num_envs: 1024
+num_envs: 4096
 max_iterations: 20000
 zero_actor: true
 logger: wandb
-log_project_name: v2p-whole-body
+log_project_name: v2d-whole-body-tpv
 
 train_overrides:
   env.commands.motion.reset_freeze_steps: 50
@@ -23,3 +23,7 @@ train_overrides:
 
 osmo:
   build_image: false
+  # Pin the pre-built image that contains the v2p_whole_body tasks so submits don't
+  # fall back to :latest (which predates this branch). Rebuild via --build-image when
+  # you change source code the image depends on.
+  image: nvcr.io/nvstaging/isaac-amr/robotic-grounding:recon_body_apple

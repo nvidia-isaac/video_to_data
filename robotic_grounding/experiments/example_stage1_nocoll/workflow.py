@@ -17,6 +17,8 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 from experiments.utils import (  # noqa: E402
+    DEFAULT_OSMO_IMAGE_LATEST,
+    DEFAULT_WANDB_ENTITY,
     overrides_to_cli,
     sequence_to_object,
 )
@@ -92,7 +94,7 @@ artifact.add_file(checkpoint, name="model_final.pt")
 # separate upload runs. Fall back to a new run if the training run isn't found.
 api = wandb.Api()
 training_runs = api.runs(
-    f"nvidia-isaac/{{project}}",
+    f"{{os.environ['WANDB_ENTITY']}}/{{project}}",
     filters={{"display_name": {{"$regex": "{run_name}"}}}},
 )
 training_runs = sorted(training_runs, key=lambda r: r.created_at, reverse=True)
@@ -124,6 +126,7 @@ def generate_workflow(exp_id: str, config: dict) -> str:
     wandb_api_key = os.environ.get("WANDB_API_KEY", "")
     if not wandb_api_key:
         print("[WARNING] WANDB_API_KEY not set — wandb will fail in the container")
+    wandb_entity = config.get("wandb_entity", DEFAULT_WANDB_ENTITY)
 
     tasks_yaml = []
     for seq_id in sequence_ids:
@@ -161,6 +164,7 @@ python scripts/rsl_rl/train.py \\
       ACCEPT_EULA: Y
       OMNI_SERVER: omniverse://isaac-dev.ov.nvidia.com
       WANDB_API_KEY: {wandb_api_key}
+      WANDB_ENTITY: {wandb_entity}
     files:
     - path: /tmp/entry.sh
       contents: |-
@@ -185,5 +189,5 @@ workflow:
 
 default-values:
   workflow_name: robotic_grounding_{exp_id}
-  image: nvcr.io/nvstaging/isaac-amr/robotic-grounding:latest
+  image: {DEFAULT_OSMO_IMAGE_LATEST}
 """
