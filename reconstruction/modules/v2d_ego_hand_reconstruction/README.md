@@ -70,6 +70,25 @@ python -m v2d_ego_hand_reconstruction.docker.run_reconstruction \
 
 Results are saved to `<output_dir>/logs/`.
 
+### Hand mesh generation
+
+After running reconstruction, export per-track MANO hand mesh trajectories from every run under `<output_dir>/logs/`:
+
+```python
+from v2d_ego_hand_reconstruction.docker.run_mesh_generation import run_mesh_generation
+
+run_mesh_generation(output_dir="data/outputs/ego_hand")
+```
+
+CLI:
+
+```bash
+python -m v2d_ego_hand_reconstruction.docker.run_mesh_generation \
+    --output_dir data/outputs/ego_hand
+```
+
+Results land at `<output_dir>/logs/.../smooth_fit/<seq>_hand_mesh_traj_<iter>.npz`.
+
 ## Upstream Diff
 
 To see local modifications vs upstream IsaacTeleop:
