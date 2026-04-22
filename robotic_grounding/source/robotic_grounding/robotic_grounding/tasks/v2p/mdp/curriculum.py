@@ -93,10 +93,14 @@ class VirtualObjectControlCurriculum(ManagerTermBase):
         # Cached deque statistics — updated each curriculum call and written to
         # the command term's metrics so convergence is visible in W&B even when
         # the deque is cleared after a decay.
-        self._deque_reward_means = torch.zeros(len(self._reward_names), device=self._env.device)
-        self._deque_reward_stds  = torch.zeros(len(self._reward_names), device=self._env.device)
+        self._deque_reward_means = torch.zeros(
+            len(self._reward_names), device=self._env.device
+        )
+        self._deque_reward_stds = torch.zeros(
+            len(self._reward_names), device=self._env.device
+        )
         self._deque_ep_len_ratio_mean = torch.zeros(1, device=self._env.device)
-        self._deque_ep_len_ratio_std  = torch.zeros(1, device=self._env.device)
+        self._deque_ep_len_ratio_std = torch.zeros(1, device=self._env.device)
 
         # Optional metric thresholds (e.g. contact_wrench_support_ratio, coverage_frac).
         # Sampled at episode end from command metrics; averaged over the deque window.
@@ -114,8 +118,12 @@ class VirtualObjectControlCurriculum(ManagerTermBase):
             )
         else:
             self._metric_deque = None
-        self._deque_metric_means = torch.zeros(len(self._metric_names), device=self._env.device)
-        self._deque_metric_stds  = torch.zeros(len(self._metric_names), device=self._env.device)
+        self._deque_metric_means = torch.zeros(
+            len(self._metric_names), device=self._env.device
+        )
+        self._deque_metric_stds = torch.zeros(
+            len(self._metric_names), device=self._env.device
+        )
 
         # Reward baseline retention: gates the NEXT decay on current deque mean
         # being >= (deque mean at last decay) * retention_ratio.
@@ -123,7 +131,9 @@ class VirtualObjectControlCurriculum(ManagerTermBase):
         # Skipped before the first decay (no baseline yet).
         _raw_retention = cfg.params.get("reward_baseline_retention", {})
         # 0.0 = disabled (same convention as metric_thresholds / reward_thresholds)
-        self._baseline_reward_names: list[str] = [k for k, v in _raw_retention.items() if float(v) > 0.0]
+        self._baseline_reward_names: list[str] = [
+            k for k, v in _raw_retention.items() if float(v) > 0.0
+        ]
         for rname in self._baseline_reward_names:
             assert rname in self._reward_names, (
                 f"reward_baseline_retention key '{rname}' not in reward_thresholds "
@@ -133,7 +143,8 @@ class VirtualObjectControlCurriculum(ManagerTermBase):
             self._reward_names.index(n) for n in self._baseline_reward_names
         ]
         self._baseline_retention_ratios = torch.tensor(
-            [float(v) for v in _raw_retention.values() if float(v) > 0.0], device=self._env.device
+            [float(v) for v in _raw_retention.values() if float(v) > 0.0],
+            device=self._env.device,
         )  # (num_baseline_rewards,)
         # None until the first decay fires; no retention check before first decay.
         self._reward_baselines: torch.Tensor | None = None
@@ -196,42 +207,60 @@ class VirtualObjectControlCurriculum(ManagerTermBase):
             all_rewards = self._episode_reward_deque.get_all()  # (size, num_rewards)
             self._deque_reward_means = all_rewards.mean(dim=0)
             self._deque_reward_stds = (
-                all_rewards.std(dim=0) if all_rewards.shape[0] > 1
+                all_rewards.std(dim=0)
+                if all_rewards.shape[0] > 1
                 else torch.zeros_like(self._deque_reward_means)
             )
         if len(self._episode_length_ratio_deque) > 0:
             all_ratios = self._episode_length_ratio_deque.get_all()  # (size, 1)
             self._deque_ep_len_ratio_mean = all_ratios.mean(dim=0)
             self._deque_ep_len_ratio_std = (
-                all_ratios.std(dim=0) if all_ratios.shape[0] > 1
+                all_ratios.std(dim=0)
+                if all_ratios.shape[0] > 1
                 else torch.zeros_like(self._deque_ep_len_ratio_mean)
             )
         for i, name in enumerate(self._reward_names):
-            self._command.metrics[f"curriculum_reward_mean_{name}"] = self._deque_reward_means[i].expand(n)
-            self._command.metrics[f"curriculum_reward_std_{name}"]  = self._deque_reward_stds[i].expand(n)
-        self._command.metrics["curriculum_ep_len_ratio_mean"] = self._deque_ep_len_ratio_mean.expand(n)
-        self._command.metrics["curriculum_ep_len_ratio_std"]  = self._deque_ep_len_ratio_std.expand(n)
+            self._command.metrics[f"curriculum_reward_mean_{name}"] = (
+                self._deque_reward_means[i].expand(n)
+            )
+            self._command.metrics[f"curriculum_reward_std_{name}"] = (
+                self._deque_reward_stds[i].expand(n)
+            )
+        self._command.metrics["curriculum_ep_len_ratio_mean"] = (
+            self._deque_ep_len_ratio_mean.expand(n)
+        )
+        self._command.metrics["curriculum_ep_len_ratio_std"] = (
+            self._deque_ep_len_ratio_std.expand(n)
+        )
         for i, name in enumerate(self._baseline_reward_names):
-            self._command.metrics[f"curriculum_reward_baseline_{name}"] = self._deque_reward_baselines[i].expand(n)
+            self._command.metrics[f"curriculum_reward_baseline_{name}"] = (
+                self._deque_reward_baselines[i].expand(n)
+            )
 
         # 1.4 Sample command metrics at episode end and update metric deque.
         # Metrics are global averages (same across all envs); we replicate num_reset_envs
         # times so the metric deque fills at the same rate as the reward deque.
         if self._metric_deque is not None:
             metric_vals = torch.stack(
-                [self._command.metrics[name][0:1] for name in self._metric_names], dim=-1
+                [self._command.metrics[name][0:1] for name in self._metric_names],
+                dim=-1,
             )  # (1, num_metrics)
             self._metric_deque.append_batch(metric_vals.expand(num_reset_envs, -1))
             if len(self._metric_deque) > 0:
                 all_metrics = self._metric_deque.get_all()  # (size, num_metrics)
                 self._deque_metric_means = all_metrics.mean(dim=0)
                 self._deque_metric_stds = (
-                    all_metrics.std(dim=0) if all_metrics.shape[0] > 1
+                    all_metrics.std(dim=0)
+                    if all_metrics.shape[0] > 1
                     else torch.zeros_like(self._deque_metric_means)
                 )
             for i, name in enumerate(self._metric_names):
-                self._command.metrics[f"curriculum_metric_mean_{name}"] = self._deque_metric_means[i].expand(n)
-                self._command.metrics[f"curriculum_metric_std_{name}"]  = self._deque_metric_stds[i].expand(n)
+                self._command.metrics[f"curriculum_metric_mean_{name}"] = (
+                    self._deque_metric_means[i].expand(n)
+                )
+                self._command.metrics[f"curriculum_metric_std_{name}"] = (
+                    self._deque_metric_stds[i].expand(n)
+                )
 
         # 2 Fixed schedule shortcut: set VOC based on common_step_counter thresholds,
         # bypassing all adaptive conditions (episode length, reward thresholds, etc.)
@@ -310,7 +339,10 @@ class VirtualObjectControlCurriculum(ManagerTermBase):
         # 8.3 Reward baseline retention — require current deque mean >= (baseline at last
         # decay) * retention_ratio. Trajectory-relative: prevents decay when contact quality
         # has regressed since the previous VOC level. Skipped before the first decay.
-        if self._reward_baselines is not None and len(self._baseline_reward_indices) > 0:
+        if (
+            self._reward_baselines is not None
+            and len(self._baseline_reward_indices) > 0
+        ):
             current_vals = episode_reward_means[self._baseline_reward_indices]
             required = self._reward_baselines * self._baseline_retention_ratios
             if not torch.all(current_vals >= required).item():
@@ -350,7 +382,9 @@ class VirtualObjectControlCurriculum(ManagerTermBase):
 
         # Store current deque means as the baseline for the next decay's retention check.
         if len(self._baseline_reward_indices) > 0:
-            self._reward_baselines = self._episode_reward_prev_means[self._baseline_reward_indices].clone()
+            self._reward_baselines = self._episode_reward_prev_means[
+                self._baseline_reward_indices
+            ].clone()
             self._deque_reward_baselines[:] = self._reward_baselines
 
         logger.info(

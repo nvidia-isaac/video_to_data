@@ -35,8 +35,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import wandb
 import yaml
+
+import wandb
 
 _RG_ROOT = Path(__file__).resolve().parent.parent
 _EXPERIMENTS_DIR = _RG_ROOT / "experiments"
@@ -626,7 +627,9 @@ def monitor_once(state: dict, dry_run: bool = False) -> dict:
                 stage1_config = _load_config(stage1_exp_id)
                 sequences = stage1_config["osmo_multi_task"]["sequence_ids"]
             except Exception as e:
-                _log(f"  ERROR loading stage1 config for {exp_id}: {e} — skipping stage1 monitoring")
+                _log(
+                    f"  ERROR loading stage1 config for {exp_id}: {e} — skipping stage1 monitoring"
+                )
                 continue
 
             try:

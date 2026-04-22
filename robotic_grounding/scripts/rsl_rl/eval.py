@@ -295,9 +295,13 @@ def main(
     eval_episodes = args_cli.eval_episodes
     if eval_episodes is not None:
         num_envs = env.unwrapped.num_envs
-        _cmd = env.unwrapped.command_manager.get_term("dual_hands_object_tracking_command")
+        _cmd = env.unwrapped.command_manager.get_term(
+            "dual_hands_object_tracking_command"
+        )
         _warmup = getattr(_cmd.cfg, "virtual_object_control_decay_steps", 20)
-        my_ep_len = torch.zeros(num_envs, dtype=torch.float32, device=env.unwrapped.device)
+        my_ep_len = torch.zeros(
+            num_envs, dtype=torch.float32, device=env.unwrapped.device
+        )
         # Snapshot tracking_lengths at episode start; updated on each reset so we always
         # record the length that belonged to the episode that just completed, not the next one.
         # (IsaacLab resets terminated envs inside env.step before returning dones=True, so
@@ -358,14 +362,22 @@ def main(
         lens = [e[0] for e in data]
         traj_len = _cmd.retargeted_horizon
         # Subtract warm-start steps from ep_len; cap at traj_len to keep ratio in [0, 1]
-        ratios = [min(max(e[0] - _warmup, 0), traj_len) / max(traj_len, 1) for e in data]
+        ratios = [
+            min(max(e[0] - _warmup, 0), traj_len) / max(traj_len, 1) for e in data
+        ]
         full = sum(1 for r in ratios if r >= 0.99)
         mean_len = sum(lens) / len(lens)
-        std_len = (sum((x - mean_len) ** 2 for x in lens) / max(len(lens) - 1, 1)) ** 0.5
+        std_len = (
+            sum((x - mean_len) ** 2 for x in lens) / max(len(lens) - 1, 1)
+        ) ** 0.5
         mean_ratio = sum(ratios) / len(ratios)
-        std_ratio = (sum((x - mean_ratio) ** 2 for x in ratios) / max(len(ratios) - 1, 1)) ** 0.5
+        std_ratio = (
+            sum((x - mean_ratio) ** 2 for x in ratios) / max(len(ratios) - 1, 1)
+        ) ** 0.5
         print("\n[eval] ===== Eval Summary =====")
-        print(f"  Episodes:         {len(data)}  (full trajectory: {traj_len} steps, warmup: {_warmup})")
+        print(
+            f"  Episodes:         {len(data)}  (full trajectory: {traj_len} steps, warmup: {_warmup})"
+        )
         print(f"  Episode length:   mean={mean_len:.1f}  std={std_len:.1f}  steps")
         print(f"  Completion ratio: mean={mean_ratio:.3f}  std={std_ratio:.3f}")
         print(f"  Full completions: {full}/{len(data)}  ({100*full/len(data):.0f}%)")

@@ -146,7 +146,7 @@ file path. Nothing else.
 
 **Key thresholds** (can be overridden at --init time):
 - `--stage1-threshold 1000`: relaunch stage1 if crashed before 1000 steps
-- `--stage2-threshold 10000`: relaunch stage2 if crashed before 10000 steps  
+- `--stage2-threshold 10000`: relaunch stage2 if crashed before 10000 steps
 - `--min-steps 50`: treat crashes before 50 steps as system errors (skip)
 - Max 3 reruns per stage1 seq_key, 3 reruns per stage2 experiment
 

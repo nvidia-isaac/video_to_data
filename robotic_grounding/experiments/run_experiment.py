@@ -223,7 +223,6 @@ def generate_single_task_workflow(
     logger = config.get("logger", "wandb")
     log_project_name = config.get("log_project_name", "v2p_hands")
 
-
     entry = make_entry_script(
         run_name,
         overrides,

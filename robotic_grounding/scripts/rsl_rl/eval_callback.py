@@ -21,6 +21,7 @@ class EvalCallback:
 
     def __init__(self, runner, env, eval_episodes: int, log_video: bool) -> None:
         import re as _re
+
         self._re = _re
         self.runner = runner
         self.env = env  # RslRlVecEnvWrapper
@@ -126,7 +127,9 @@ class EvalCallback:
                     for i in done_ids:
                         if env_first_done[i]:
                             # Fresh episode — record (ep_len, tracking_length at start).
-                            completed.append((my_ep_len[i].item(), my_ep_max_len[i].item()))
+                            completed.append(
+                                (my_ep_len[i].item(), my_ep_max_len[i].item())
+                            )
                         else:
                             # Tail of a mid-episode that pre-dated the warmup end;
                             # mark done so the NEXT episode is recorded.
@@ -171,9 +174,13 @@ class EvalCallback:
         # Background-thread commit=False is not guaranteed to flush before the run ends.
         if self.log_video and self._eval_video_folder:
             import glob as _glob
+
             new_videos = sorted(
-                [f for f in _glob.glob(os.path.join(self._eval_video_folder, "*.mp4"))
-                 if f not in self._logged_eval_videos],
+                [
+                    f
+                    for f in _glob.glob(os.path.join(self._eval_video_folder, "*.mp4"))
+                    if f not in self._logged_eval_videos
+                ],
                 key=os.path.getmtime,
             )
             if new_videos:
@@ -188,8 +195,10 @@ class EvalCallback:
                     wandb.log(log_video_data, step=iteration, commit=False)
                 else:
                     wandb.log(log_video_data, commit=False)
-                self._logged_eval_videos.update(new_videos)  # mark all seen as tracked, not just the logged one
-                self._logged_eval_videos.add(dst_path)       # also track renamed destination
+                self._logged_eval_videos.update(
+                    new_videos
+                )  # mark all seen as tracked, not just the logged one
+                self._logged_eval_videos.add(dst_path)  # also track renamed destination
 
         # --- Compute stats ---
         # ratio = fraction of the episode's own tracking_length that was
@@ -201,9 +210,7 @@ class EvalCallback:
             f"sample ep_lens={[round(e[0]) for e in data[:5]]}"
         )
         ratios = [
-            min(max(e[0] - self._warmup_steps, 0), e[1])
-            / max(e[1], 1)
-            for e in data
+            min(max(e[0] - self._warmup_steps, 0), e[1]) / max(e[1], 1) for e in data
         ]
         n_full = sum(1 for r in ratios if r >= 0.99)
         mean_r = sum(ratios) / len(ratios)
