@@ -68,14 +68,7 @@ class Mesh:
 
     @staticmethod
     def load(path: str) -> 'Mesh':
-        """Load a mesh from file. Multi-geometry scenes are merged into one mesh."""
-        loaded = trimesh.load(path, process=False)
-        if isinstance(loaded, trimesh.Scene):
-            geometries = list(loaded.geometry.values())
-            if len(geometries) == 1:
-                tm = geometries[0]
-            else:
-                tm = trimesh.util.concatenate(geometries)
-        else:
-            tm = loaded
+        """Load a mesh from file. Scene-graph transforms are applied;
+        multi-geometry scenes are flattened into one mesh."""
+        tm = trimesh.load(path, process=False, force='mesh')
         return Mesh.from_trimesh(tm)
