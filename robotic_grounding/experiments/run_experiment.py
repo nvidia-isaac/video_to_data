@@ -222,6 +222,8 @@ def generate_single_task_workflow(
     zero_actor = config.get("zero_actor", False)
     logger = config.get("logger", "wandb")
     log_project_name = config.get("log_project_name", "v2p_hands")
+
+
     entry = make_entry_script(
         run_name,
         overrides,
@@ -239,14 +241,17 @@ def generate_single_task_workflow(
     )
     # Escape for YAML literal block
     entry_indent = "\n".join("        " + line for line in entry.split("\n"))
-    inputs_block = ""
+    inputs_entries = []
     if checkpoint_localpath:
-        inputs_block = f"""
-    inputs:
-    - dataset:
-        name: resume_checkpoint
-        localpath: {checkpoint_localpath!r}
-"""
+        inputs_entries.append(
+            f"    - dataset:\n        name: resume_checkpoint\n        localpath: {checkpoint_localpath!r}"
+        )
+    if motion_data_url:
+        dataset_name = motion_data_url.rstrip("/").split("/")[-1]
+        inputs_entries.append(f"    - dataset:\n        name: {dataset_name}")
+    inputs_block = (
+        ("\n    inputs:\n" + "\n".join(inputs_entries) + "\n") if inputs_entries else ""
+    )
     wandb_api_key = os.environ.get("WANDB_API_KEY", "")
     if not wandb_api_key:
         print(
@@ -288,6 +293,109 @@ default-values:
   workflow_name: robotic_grounding_{exp_id}
   image: {DEFAULT_OSMO_IMAGE_LATEST}
 """
+
+
+def _seq_to_key(seq_id: str) -> str:
+    """Strip the 'arctic_' dataset prefix, keeping subject + action for uniqueness.
+
+    E.g. 'arctic_s01_capsulemachine_grab_01' -> 's01_capsulemachine_grab_01'.
+    Including the subject avoids collisions when the same object/action appears
+    under multiple subjects (e.g. s02_waffleiron_use_01 vs s07_waffleiron_use_01).
+    """
+    prefix = "arctic_"
+    return seq_id[len(prefix) :] if seq_id.startswith(prefix) else seq_id
+
+
+def generate_multi_sequence_workflow(
+    exp_id: str, config: dict, overrides: dict[str, str]
+) -> str:
+    """Generate a multi-task OSMO workflow for single-stage configs with multiple sequences.
+
+    Creates one task per sequence — the same pattern stage2 uses, but without checkpoint inputs.
+    """
+    sequences = config.get("sequences", [])
+    osmo_cfg = config.get("osmo", {})
+    motion_data_url = osmo_cfg.get("motion_data_url")
+    run_name_suffix = config.get("run_name_suffix", exp_id)
+    project = config.get("wandb_project", "v2p_hands")
+    eval_video_only = config.get("eval_video_only", False)
+    video = config.get("video", True)
+    seed = config.get("seed")
+    num_envs = config.get("num_envs")
+    wandb_api_key = os.environ.get("WANDB_API_KEY", "")
+    if not wandb_api_key:
+        print(
+            "[WARNING] WANDB_API_KEY not set in local environment — wandb will fail in the container"
+        )
+
+    tasks = []
+    for seq_id in sequences:
+        seq_key = _seq_to_key(seq_id)
+        run_name = f"{run_name_suffix}_{seq_key}"
+
+        if motion_data_url:
+            dataset_name = motion_data_url.rstrip("/").split("/")[-1]
+            dataset_seq_id = seq_id.replace("arctic_", "dataset_", 1)
+            motion_file = f"{{{{input:0}}}}/{dataset_name}/arctic_processed/sequence_id={dataset_seq_id}/robot_name=sharpa_wave"
+            inputs_block = (
+                "\n    inputs:\n" "    - dataset:\n" f"        name: {dataset_name}\n"
+            )
+        else:
+            motion_file = f"arctic/arctic_processed/{seq_id}/sharpa_wave"
+            inputs_block = ""
+
+        entry = make_entry_script(
+            run_name,
+            overrides,
+            seed=seed,
+            motion_file=motion_file,
+            num_envs=num_envs,
+            video=video,
+            eval_video_only=eval_video_only,
+            logger="wandb",
+            log_project_name=project,
+            use_timestamp=True,
+        )
+        entry_indent = "\n".join("        " + line for line in entry.split("\n"))
+        task_name = f"train-{seq_key.replace('_', '-')}"
+        tasks.append(
+            f"  - name: {task_name}\n"
+            f"    image: {{{{image}}}}\n"
+            f"    command: [/bin/bash]\n"
+            f"    args: [/tmp/entry.sh]\n"
+            f"    environment:\n"
+            f"      ACCEPT_EULA: Y\n"
+            f"      OMNI_SERVER: omniverse://isaac-dev.ov.nvidia.com\n"
+            f"      WANDB_API_KEY: {wandb_api_key}\n"
+            f"{inputs_block}"
+            f"    files:\n"
+            f"    - path: /tmp/entry.sh\n"
+            f"      contents: |-\n"
+            f"{entry_indent}"
+        )
+
+    tasks_str = "\n".join(tasks)
+    return (
+        f"# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.\n"
+        f"# SPDX-License-Identifier: Apache-2.0\n"
+        f"# Generated from experiments/ for {exp_id}\n"
+        f"\n"
+        f"workflow:\n"
+        f"  name: {{{{workflow_name}}}}\n"
+        f"  resources:\n"
+        f"    default:\n"
+        f"      cpu: 6\n"
+        f"      gpu: 1\n"
+        f"      memory: 120Gi\n"
+        f"      storage: 200Gi\n"
+        f"\n"
+        f"  tasks:\n"
+        f"{tasks_str}\n"
+        f"\n"
+        f"default-values:\n"
+        f"  workflow_name: robotic_grounding_{exp_id}\n"
+        f"  image: nvcr.io/nvstaging/isaac-amr/robotic-grounding:latest\n"
+    )
 
 
 def _load_workflow_generator(exp_dir: Path) -> Callable[[str, dict], str] | None:
@@ -392,6 +500,9 @@ def run_osmo(
                 f"Experiment {exp_id} has osmo_multi_task but no workflow.py found in {exp_dir}"
             )
         workflow_content = generator(exp_id, config)
+    elif "sequences" in config and len(config["sequences"]) > 1:
+        _, overrides = get_effective_overrides(config, osmo=True)
+        workflow_content = generate_multi_sequence_workflow(exp_id, config, overrides)
     else:
         run_name, overrides = get_effective_overrides(config, osmo=True)
         if "osmo" in config and "run_name_suffix" in config["osmo"]:
