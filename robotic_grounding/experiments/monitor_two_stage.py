@@ -35,9 +35,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 import wandb
+import yaml
 
 _RG_ROOT = Path(__file__).resolve().parent.parent
 _EXPERIMENTS_DIR = _RG_ROOT / "experiments"
