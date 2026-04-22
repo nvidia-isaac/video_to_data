@@ -2,33 +2,88 @@
 
 # Script to manage robotic-grounding Docker container
 # Usage:
-#   ./run.sh build [version]         - Build the Docker image (default: latest)
-#   ./run.sh push [version]          - Push the Docker image to NVIDIA registry (default: latest)
-#   ./run.sh pull [version]          - Pull the Docker image from NVIDIA registry (default: latest)
-#   ./run.sh start [version] [gpu]   - Run the container and enter the shell (default version: latest, gpu: 0)
-#   ./run.sh shell [version] [gpu]   - Enter the shell of a running container with specific version and GPU
+#   ./run.sh build [version]              - Build x86_64 image (default version: latest)
+#   ./run.sh build-aarch64 [version]      - Build aarch64 image (default version: latest)
+#   ./run.sh push [version]               - Push x86_64 image to NVIDIA registry
+#   ./run.sh push-aarch64 [version]       - Push aarch64 image to NVIDIA registry
+#   ./run.sh pull [version]               - Pull x86_64 image from NVIDIA registry
+#   ./run.sh pull-aarch64 [version]       - Pull aarch64 image from NVIDIA registry
+#   ./run.sh start [version] [gpu]        - Start x86_64 container (default version: latest, gpu: 0)
+#   ./run.sh start-aarch64 [version] [gpu] - Start aarch64 container
+#   ./run.sh shell [version] [gpu]        - Enter shell of a running container
+#   ./run.sh shell-aarch64 [version] [gpu] - Enter shell of a running aarch64 container
 #   ./run.sh exec [version] [gpu] -- <cmd>  - Run a command in a running container
-#   ./run.sh stop [version] [gpu]    - Stop the running container
+#   ./run.sh stop [version] [gpu]         - Stop the running container
+#   ./run.sh stop-aarch64 [version] [gpu] - Stop the running aarch64 container
 
 set -e
 
+# Detect arch suffix from the subcommand — affects IMAGE_NAME and CONTAINER_NAME.
+# e.g. start-aarch64 uses robotic-grounding:latest-aarch64 and a distinct container name.
+ARCH_SUFFIX=""
+CMD="$1"
+if [[ "$CMD" == *-aarch64 ]]; then
+    ARCH_SUFFIX="-aarch64"
+    CMD="${CMD%-aarch64}"
+fi
+
 VERSION=${2:-latest}
 GPU_DEVICE=${3:-0}
-IMAGE_NAME="robotic-grounding:${VERSION}"
-CONTAINER_NAME="robotic-grounding-${VERSION}-gpu${GPU_DEVICE}"
+IMAGE_NAME="robotic-grounding${ARCH_SUFFIX}:${VERSION}"
+CONTAINER_NAME="robotic-grounding${ARCH_SUFFIX}-${VERSION}-gpu${GPU_DEVICE}"
 NGC_LOCATION="nvcr.io/nvstaging/isaac-amr"
 
-case "$1" in
+case "$CMD" in
     build)
         echo "Building Docker image: ${IMAGE_NAME}"
         cd "$(dirname "$0")/.."
-        docker build -t ${IMAGE_NAME} -f workflow/Dockerfile .
-        echo "Build complete!"
+
+        if [ -n "$ARCH_SUFFIX" ]; then
+            SETUP_OK=true
+
+            if ! docker buildx version &>/dev/null; then
+                echo ""
+                echo "ERROR: docker buildx plugin is not installed."
+                echo "  Fix:  sudo apt-get install -y docker-buildx-plugin"
+                SETUP_OK=false
+            fi
+
+            if ${SETUP_OK} && ! docker buildx ls 2>/dev/null | grep -q "multiarch"; then
+                echo ""
+                echo "WARNING: 'multiarch' buildx builder not found."
+                echo "  Fix:  docker buildx create --name multiarch --use"
+                echo "        docker buildx inspect --bootstrap"
+                SETUP_OK=false
+            fi
+
+            if ${SETUP_OK} && ! docker buildx ls 2>/dev/null | grep -q "linux/arm64"; then
+                echo ""
+                echo "WARNING: arm64 platform not available in buildx."
+                echo "  Fix:  docker run --privileged --rm tonistiigi/binfmt --install arm64"
+                SETUP_OK=false
+            fi
+
+            if ! ${SETUP_OK}; then
+                echo ""
+                echo "One-time setup (run in order):"
+                echo "  1. sudo apt-get install -y docker-buildx-plugin"
+                echo "  2. docker run --privileged --rm tonistiigi/binfmt --install arm64"
+                echo "  3. docker buildx create --name multiarch --use"
+                echo "  4. docker buildx inspect --bootstrap"
+                exit 1
+            fi
+
+            docker buildx build --platform linux/arm64 --load \
+                -t ${IMAGE_NAME} -f workflow/Dockerfile.aarch64 .
+        else
+            docker build -t ${IMAGE_NAME} -f workflow/Dockerfile .
+        fi
+
+        echo "Build complete: ${IMAGE_NAME}"
         ;;
 
     push)
-        echo "Pushing Docker image to NVIDIA registry (version: ${VERSION})..."
-        echo "Tagging ${IMAGE_NAME} for registry..."
+        echo "Pushing ${IMAGE_NAME} to NVIDIA registry..."
         docker tag ${IMAGE_NAME} ${NGC_LOCATION}/${IMAGE_NAME}
         docker push ${NGC_LOCATION}/${IMAGE_NAME}
         echo "Push complete!"
@@ -37,23 +92,20 @@ case "$1" in
         ;;
 
     pull)
-        echo "Pulling Docker image from NVIDIA registry (version: ${VERSION})..."
+        echo "Pulling ${NGC_LOCATION}/${IMAGE_NAME}..."
         docker pull ${NGC_LOCATION}/${IMAGE_NAME}
-        echo "Tagging as ${IMAGE_NAME}..."
         docker tag ${NGC_LOCATION}/${IMAGE_NAME} ${IMAGE_NAME}
-        echo "Pull complete!"
+        echo "Pull complete: ${IMAGE_NAME}"
         ;;
 
     start)
-        echo "Starting container: ${CONTAINER_NAME}"
+        echo "Starting container: ${CONTAINER_NAME} (image: ${IMAGE_NAME})"
 
-        # Check if container is running
         if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
             echo "Container is already running. Entering shell..."
         else
             echo "Creating and starting new container..."
             cd "$(dirname "$0")/.."
-            # Allow X11 forwarding from Docker containers
             xhost +local:docker > /dev/null 2>&1 || true
 
             SSH_AGENT_MOUNT=""
@@ -75,12 +127,23 @@ case "$1" in
                 WANDB_API_KEY_ENV="-e WANDB_API_KEY=${WANDB_API_KEY_VALUE}"
             fi
 
+            # Optional: overlay an external human_motion_data directory (e.g. from another repo).
+            # Set HUMAN_MOTION_DATA_DIR on the host to an absolute path before calling run.sh:
+            #   HUMAN_MOTION_DATA_DIR=/path/to/human_motion_data ./workflow/run.sh start
+            DATA_MOUNT=""
+            CONTAINER_DATA_DIR="/workspace/video_to_data/robotic_grounding/source/robotic_grounding/robotic_grounding/assets/human_motion_data"
+            if [ -n "${HUMAN_MOTION_DATA_DIR}" ]; then
+                DATA_MOUNT="-v ${HUMAN_MOTION_DATA_DIR}:${CONTAINER_DATA_DIR}"
+                echo "Mounting external data: ${HUMAN_MOTION_DATA_DIR} → ${CONTAINER_DATA_DIR}"
+            fi
+
             docker run --rm -it \
                 --runtime=nvidia \
                 --gpus device=${GPU_DEVICE} \
                 --network host \
                 --name ${CONTAINER_NAME} \
                 -v $(pwd)/..:/workspace/video_to_data \
+                ${DATA_MOUNT} \
                 -v ~/.ssh:/root/.ssh:ro \
                 -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
                 -e DISPLAY=${DISPLAY} \
@@ -93,17 +156,15 @@ case "$1" in
                 ${IMAGE_NAME}
         fi
 
-        # Enter the shell
         docker exec -it ${CONTAINER_NAME} /bin/bash
         ;;
 
     shell)
         echo "Entering shell of container: ${CONTAINER_NAME}"
 
-        # Check if container is running
         if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
             echo "Error: Container ${CONTAINER_NAME} is not running."
-            echo "Use './run.sh start' to start the container first."
+            echo "Use './run.sh start${ARCH_SUFFIX}' to start the container first."
             exit 1
         fi
 
@@ -111,18 +172,16 @@ case "$1" in
         ;;
 
     exec)
-        # Shift past the subcommand, version, and gpu args to find "--"
         shift 3 2>/dev/null || true
-        # Skip the "--" separator if present
         [ "$1" = "--" ] && shift
         if [ $# -eq 0 ]; then
-            echo "Usage: $0 exec [version] [gpu] -- <command>"
+            echo "Usage: $0 exec${ARCH_SUFFIX} [version] [gpu] -- <command>"
             exit 1
         fi
 
         if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
             echo "Error: Container ${CONTAINER_NAME} is not running."
-            echo "Use './run.sh start' to start the container first."
+            echo "Use './run.sh start${ARCH_SUFFIX}' to start the container first."
             exit 1
         fi
 
@@ -132,7 +191,6 @@ case "$1" in
     stop)
         echo "Stopping container: ${CONTAINER_NAME}"
 
-        # Check if container is running
         if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
             echo "Container ${CONTAINER_NAME} is not running."
             exit 0
@@ -143,15 +201,21 @@ case "$1" in
         ;;
 
     *)
-        echo "Usage: $0 {build|pull|push|start|shell|exec|stop} [version] [gpu]"
+        echo "Usage: $0 {build|push|pull|start|shell|exec|stop}[-aarch64] [version] [gpu]"
         echo ""
-        echo "  build [version]         - Build the Docker image (default: latest)"
-        echo "  pull [version]          - Pull the Docker image from NVIDIA registry (default: latest)"
-        echo "  push [version]          - Push the Docker image to NVIDIA registry (default: latest)"
-        echo "  start [version] [gpu]   - Run the container and enter the shell (default version: latest, gpu: 0)"
-        echo "  shell                   - Enter the shell of a running container"
+        echo "  build [version]               - Build x86_64 image (default: latest)"
+        echo "  build-aarch64 [version]        - Build aarch64 image (default: latest-aarch64)"
+        echo "  push [version]                - Push x86_64 image to NGC"
+        echo "  push-aarch64 [version]         - Push aarch64 image to NGC"
+        echo "  pull [version]                - Pull x86_64 image from NGC"
+        echo "  pull-aarch64 [version]         - Pull aarch64 image from NGC"
+        echo "  start [version] [gpu]         - Start x86_64 container (default gpu: 0)"
+        echo "  start-aarch64 [version] [gpu]  - Start aarch64 container"
+        echo "  shell [version] [gpu]         - Enter shell of a running container"
+        echo "  shell-aarch64 [version] [gpu]  - Enter shell of a running aarch64 container"
         echo "  exec [version] [gpu] -- <cmd> - Run a command in a running container"
-        echo "  stop                    - Stop the running container"
+        echo "  stop [version] [gpu]          - Stop the running container"
+        echo "  stop-aarch64 [version] [gpu]   - Stop the running aarch64 container"
         exit 1
         ;;
 esac
