@@ -82,7 +82,7 @@ def _spawn_articulated(
                 stiffness={".*": 0.0},
                 damping={".*": 0.0},
                 armature={".*": 0.01},
-                friction={".*": 1.0},
+                friction={".*": 0.1}, #TODO: @zeol confirm joint friction is appropriate
             ),
         },
     )

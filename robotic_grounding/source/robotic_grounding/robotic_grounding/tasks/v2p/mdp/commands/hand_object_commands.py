@@ -42,6 +42,8 @@ from robotic_grounding.tasks.v2p.mdp.utils_jit import (
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
+ENABLE_ADDITIONAL_METRICS = False
+
 
 class DualHandsObjectTrackingCommand(CommandTerm):
     """Command term that generates pose commands for dual-hand object tracking.
@@ -113,7 +115,8 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         self._precompute_contact_positions_normals_in_object_frame()
         self._precompute_hand_keypoints_in_object_frame()
         self._precompute_contact_wrench_support_values()
-        self._precompute_bbox_corner_vecs()
+        if ENABLE_ADDITIONAL_METRICS:
+            self._precompute_bbox_corner_vecs()
         self._set_contact_vis_impl(getattr(self.cfg, "debug_vis", False))
         self._init_metrics(cfg)
 
@@ -962,36 +965,37 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             * torch.ones(self.num_envs, device=self.device)
         )
 
-        # Contact wrench level metrics (left/right separate)
-        for side in ["right", "left"]:
-            self.metrics[f"contact_wrench_command_support_mean_{side}"] = torch.zeros(
-                self.num_envs, device=self.device
-            )
-            self.metrics[f"contact_wrench_current_support_mean_{side}"] = torch.zeros(
-                self.num_envs, device=self.device
-            )
-            self.metrics[f"contact_wrench_support_ratio_{side}"] = torch.zeros(
-                self.num_envs, device=self.device
-            )
-            self.metrics[f"contact_bodies_coverage_frac_{side}"] = torch.zeros(
-                self.num_envs, device=self.device
-            )
+        if ENABLE_ADDITIONAL_METRICS:
+            # Contact wrench level metrics (left/right separate)
+            for side in ["right", "left"]:
+                self.metrics[f"contact_wrench_command_support_mean_{side}"] = torch.zeros(
+                    self.num_envs, device=self.device
+                )
+                self.metrics[f"contact_wrench_current_support_mean_{side}"] = torch.zeros(
+                    self.num_envs, device=self.device
+                )
+                self.metrics[f"contact_wrench_support_ratio_{side}"] = torch.zeros(
+                    self.num_envs, device=self.device
+                )
+                self.metrics[f"contact_bodies_coverage_frac_{side}"] = torch.zeros(
+                    self.num_envs, device=self.device
+                )
 
-        # Object bounding-box tracking and lift metrics
-        self.metrics["object_bbox_corner_error"] = torch.zeros(self.num_envs, device=self.device)
-        self.metrics["object_body_z_error"] = torch.zeros(self.num_envs, device=self.device)
+            # Object bounding-box tracking and lift metrics
+            self.metrics["object_bbox_corner_error"] = torch.zeros(self.num_envs, device=self.device)
+            self.metrics["object_body_z_error"] = torch.zeros(self.num_envs, device=self.device)
 
-        # Object contact indicator metrics
-        for suffix in ["right_contact_frac", "left_contact_frac", "any_contact_frac"]:
-            self.metrics[f"object_has_{suffix}"] = torch.zeros(self.num_envs, device=self.device)
+            # Object contact indicator metrics
+            for suffix in ["right_contact_frac", "left_contact_frac", "any_contact_frac"]:
+                self.metrics[f"object_has_{suffix}"] = torch.zeros(self.num_envs, device=self.device)
 
-        # Hand tracking quality fraction
-        self.metrics["hand_tracking_good_frac"] = torch.zeros(self.num_envs, device=self.device)
+            # Hand tracking quality fraction
+            self.metrics["hand_tracking_good_frac"] = torch.zeros(self.num_envs, device=self.device)
 
-        # VOC decay event marker — 1.0 on the step a curriculum decay fires, 0.0 otherwise.
-        # Use alongside object_bbox_corner_error in W&B to see if tracking degrades post-decay.
-        self.metrics["voc_decay_fired"] = torch.zeros(self.num_envs, device=self.device)
-        self._prev_voc_scale = float(cfg.initial_virtual_object_control_curriculum_scale)
+            # VOC decay event marker — 1.0 on the step a curriculum decay fires, 0.0 otherwise.
+            # Use alongside object_bbox_corner_error in W&B to see if tracking degrades post-decay.
+            self.metrics["voc_decay_fired"] = torch.zeros(self.num_envs, device=self.device)
+            self._prev_voc_scale = float(cfg.initial_virtual_object_control_curriculum_scale)
 
     ######################################################################
     # Commands
@@ -1893,6 +1897,9 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         #     * torch.ones(self.num_envs, device=self.device)
         # )
         pass
+
+        if not ENABLE_ADDITIONAL_METRICS:
+            return
 
         voc_scale_now = float(self.virtual_object_controller_scale_factor)
         decay_fired = 1.0 if voc_scale_now < self._prev_voc_scale else 0.0
