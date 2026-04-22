@@ -336,7 +336,10 @@ def _download_stage1_checkpoint(
     typically be no artifact available, so callers should fall back to a fresh start.
     """
     artifact_name = f"checkpoint_stage1_nocoll_{seq_key}"
-    candidates = [artifact_name, f"checkpoint_stage1_nocoll_{seq_key.split('_')[0]}"]
+    candidates = [
+        artifact_name,
+        f"checkpoint_stage1_nocoll_{seq_key.split('_', maxsplit=1)[0]}",
+    ]
     api = wandb.Api()
     for name in candidates:
         full_name = f"{wandb_entity}/{_WANDB_PROJECT}/{name}:latest"
@@ -398,7 +401,7 @@ def submit_stage1(
         _log(f"WARNING: Stage1 submission for {exp_id} exited {result.returncode}")
         return False
     if build_image:
-        registry = image.split("/")[0]
+        registry = image.split("/", maxsplit=1)[0]
         _log(f"Done: built image {image} and pushed to {registry}")
     return True
 
@@ -521,7 +524,7 @@ def launch_stage2(
         _log(f"  WARNING: Stage2 launch failed (exit {result.returncode})")
         return False
     if build_image:
-        registry = image.split("/")[0]
+        registry = image.split("/", maxsplit=1)[0]
         _log(f"Done: built image {image} and pushed to {registry}")
     return True
 
