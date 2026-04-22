@@ -4,7 +4,7 @@ Reads the multi-view MHR output (.pt files) and uses SOMA-X's PoseInversion
 to produce a SOMA-format .npz file.
 
 Two paths for obtaining MHR vertices:
-  Path A: Pre-computed vertices from --mesh_path (undo Y/Z flip + add translation)
+  Path A: Pre-computed vertices from --mesh_path (undo Y/Z flip; translation baked in)
   Path B: MHR JIT forward pass from --params_path (fallback when --mesh_path absent)
 
 Usage:
@@ -46,18 +46,17 @@ def load_vertices_from_mesh(
 ) -> tuple[torch.Tensor, np.ndarray]:
     """Path A: load pre-computed vertices from mhr_mesh_mv.pt.
 
-    Undoes the Y/Z flip applied by MHRLayer and adds the world translation
-    stored in pred_cam_t, recovering MHR-native positioned vertices.
+    pred_vertices already includes world translation (from global_trans in the
+    MHR forward pass). Undoes the Y/Z flip to recover MHR-native positioned vertices.
 
     Returns ((N, V, 3) vertices, (F, 3) faces).
     """
     logger.info("Loading pre-computed vertices from %s", mesh_path)
     mesh_data = torch.load(mesh_path, map_location="cpu", weights_only=True)
-    pred_vertices = mesh_data["pred_vertices"]  # (N, V, 3) Y/Z flipped, no translation
-    pred_cam_t = mesh_data["pred_cam_t"]  # (N, 3) Y/Z flipped
+    pred_vertices = mesh_data["pred_vertices"]  # (N, V, 3) Y/Z flipped, includes translation
     faces = mesh_data["faces"].cpu().numpy()  # (F, 3)
 
-    verts = pred_vertices + pred_cam_t[:, None, :]
+    verts = pred_vertices.clone()
     verts[..., [1, 2]] *= -1  # undo Y/Z flip -> MHR native
     return verts, faces
 
@@ -67,9 +66,8 @@ def load_vertices_from_forward(
 ) -> torch.Tensor:
     """Path B: run MHR JIT forward pass to obtain vertices.
 
-    Patches pred_cam_t into model_params[0:3] (global_trans * 10 slot, which is
-    zeros in the MV pipeline) and zeros out flexible bone-length parameters,
-    matching the SOMA-X mhr2soma convention.
+    mhr_model_params[0:3] already contains global_trans * 10 from the MV pipeline.
+    Zeros out flexible bone-length parameters not representable in SOMA.
     """
     mhr_path = weights_dir / MHR_JIT_RELPATH
     if not mhr_path.exists():
@@ -83,15 +81,7 @@ def load_vertices_from_forward(
 
     shape_params = params_data["shape_params"].float()  # (N, 45)
     model_params = params_data["mhr_model_params"].float().clone()  # (N, 204)
-    pred_cam_t = params_data["pred_cam_t"].float()  # (N, 3) Y/Z flipped
 
-    # Patch translation: convert pred_cam_t from Y/Z-flipped to MHR-native,
-    # then apply the *10 scaling that mhr_forward uses for global_trans.
-    native_cam_t = pred_cam_t.clone()
-    native_cam_t[..., [1, 2]] *= -1
-    model_params[:, 0:3] = native_cam_t * 10
-
-    # Zero out 6 flexible bone-length parameters (not representable in SOMA)
     model_params[:, 130:136] = 0.0
 
     face_expr = torch.zeros(1, 72, device=device)

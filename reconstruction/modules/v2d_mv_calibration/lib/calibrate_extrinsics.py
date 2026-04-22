@@ -1,5 +1,6 @@
 """Extrinsic calibration: chessboard detection -> PnP initialization -> Ceres BA."""
 
+import json
 import logging
 from pathlib import Path
 
@@ -10,7 +11,11 @@ from v2d.mv.rig import CameraParam, RigConfig
 from v2d.mv.io.video import FrameSource
 
 from v2d.mv.calibration.lib.chessboard import chessboard_extract_correspondences
-from v2d.mv.calibration.lib.solve import extrinsics_estimate_pnp, extrinsics_solve_ba
+from v2d.mv.calibration.lib.solve import (
+    extrinsics_estimate_pnp,
+    extrinsics_solve_ba,
+    reprojection_error_stats,
+)
 
 
 logging.basicConfig(level=logging.INFO)
@@ -40,6 +45,8 @@ def calibrate_extrinsics(
         calibration_order: Left camera IDs for pairwise PnP chain.
         camera_params_path: Source camera params file (for save merge).
         output_camera_params_path: Where to write calibrated camera params.
+            A sibling ``calibration_accuracy.json`` is written next to this path
+            with chessboard reprojection RMSE and per-camera breakdown.
         board_size: (width, height) inner corners of chessboard.
         square_size: Chessboard square size in meters.
         max_iterations: Maximum bundle adjustment iterations.
@@ -157,6 +164,45 @@ def calibrate_extrinsics(
             raise RuntimeError(
                 f"Bundle adjustment did not converge: {summary.FullReport()}"
             )
+
+    camera_names = [rig.get_camera(i).name for i in range(len(rig.cameras))]
+    accuracy_path = output_camera_params_path.parent / "calibration_accuracy.json"
+    accuracy_path.parent.mkdir(parents=True, exist_ok=True)
+    accuracy_report = {
+        "board_size": [int(board_size[0]), int(board_size[1])],
+        "square_size_m": float(square_size),
+        "num_calibration_frames": len(correspondences),
+        "after_pnp_initialization": reprojection_error_stats(
+            correspondences,
+            target_xyz,
+            est_camera_params,
+            est_target_poses,
+            camera_names,
+        ),
+        "after_bundle_adjustment": reprojection_error_stats(
+            correspondences,
+            target_xyz,
+            opt_camera_params,
+            opt_target_poses,
+            camera_names,
+        ),
+    }
+    accuracy_path.write_text(json.dumps(accuracy_report, indent=2), encoding="utf-8")
+    logger.info(
+        "Calibration accuracy (chessboard corner reprojection) written to %s",
+        accuracy_path,
+    )
+    ba_stats = accuracy_report["after_bundle_adjustment"]
+    ba_rmse = ba_stats.get("rmse_pixels")
+    if ba_rmse is not None:
+        logger.info(
+            "Bundle-adjustment chessboard RMSE: %.4f px "
+            "(median %.4f, max %.4f over %d corners)",
+            ba_rmse,
+            ba_stats["median_error_pixels"],
+            ba_stats["max_error_pixels"],
+            ba_stats["num_corners"],
+        )
 
     for cam_id, param in enumerate(opt_camera_params):
         rig.cameras[cam_id].param = param

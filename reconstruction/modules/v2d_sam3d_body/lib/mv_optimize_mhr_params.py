@@ -100,16 +100,18 @@ class MHRLayer(torch.nn.Module):
 
 
 def transform_mhr_params(mhr_params: dict, T_target_from_src: torch.Tensor):
-    """
-    Rotates the global rotation of an MHR params dict from the source camera frame to the target camera frame.
+    """Transform MHR params from source camera frame to target frame.
+
+    Handles the MHR-native (RH Y-up) ↔ OpenCV (RH Y-down) flip via F = diag(1,-1,-1).
+    Transforms both global_rot and global_trans.
     """
     R_w = T_target_from_src[:3, :3]
-    # global_rot is in MHR raw frame (RH Y-up),
-    # T_target_from_src is expected to be in OpenCV frame (RH Y-down)
+    t_w = T_target_from_src[:3, 3]
     F = torch.diag(torch.tensor([1.0, -1.0, -1.0], device=R_w.device))
     R_w_conj = F @ R_w @ F
     R_c = euler_angles_to_matrix(mhr_params["global_rot"], "ZYX")
     mhr_params["global_rot"] = matrix_to_euler_angles(R_w_conj @ R_c, "ZYX")
+    mhr_params["global_trans"] = (mhr_params["global_trans"] @ R_w_conj.T) + (F @ t_w)
     return mhr_params
 
 
@@ -144,12 +146,13 @@ def average_euler_angles(euler_angles: torch.Tensor) -> torch.Tensor:
 def extract_mhr_inputs(mhr_outputs: dict):
     """Extract the MHR parameters that are targets for optimization, i.e. input to the MHR head.
 
-    Note: in SAM3D-Body source code, global_trans is set to zero before calling the MHR head. We 
-    follow the same convention here for consistency. The global translation is handled separately by 
-    transforming the pred_cam_t of the MHR outputs.
+    global_trans is derived from pred_cam_t by undoing the Y/Z flip applied by mhr_head.
+    The MHR head expects global_trans in meters (MHR-native coords); it internally applies *10.
     """
+    global_trans = mhr_outputs["pred_cam_t"].clone()
+    global_trans[..., [1, 2]] *= -1  # undo Y/Z flip -> MHR-native
     return {
-        "global_trans": torch.zeros_like(mhr_outputs["pred_cam_t"]),
+        "global_trans": global_trans,
         "global_rot": mhr_outputs["global_rot"],
         "body_pose_params": mhr_outputs["body_pose_params"],
         "hand_pose_params": mhr_outputs["hand_pose_params"],
@@ -198,18 +201,21 @@ def average_mhr_inputs(mhr_inputs_all: list[dict]) -> dict:
 def export_mhr_outputs(
     mhr_layer: MHRLayer,
     mhr_inputs: dict,
-    pred_cam_t: torch.Tensor,
 ) -> tuple[dict, dict]:
     """Run full MHRLayer forward and package inputs + outputs for saving.
 
+    Derives pred_cam_t from global_trans (Y/Z flip) for backward compatibility.
+
     Args:
         mhr_layer: The MHR layer.
-        mhr_inputs: The MHR inputs.
-        pred_cam_t: The predicted camera translation.
+        mhr_inputs: The MHR inputs (including global_trans in MHR-native world coords).
     Returns:
         (mhr_params dict, mhr_mesh dict).
     """
     processed = mhr_layer(mhr_inputs)
+
+    pred_cam_t = mhr_inputs["global_trans"].clone()
+    pred_cam_t[..., [1, 2]] *= -1  # MHR-native -> Y/Z-flipped (camera convention)
 
     mhr_params = {
         "global_rot": mhr_inputs["global_rot"],
@@ -227,7 +233,6 @@ def export_mhr_outputs(
     mhr_mesh = {
         "faces": mhr_layer.faces,
         "pred_vertices": processed["pred_vertices"],
-        "pred_cam_t": pred_cam_t,
     }
 
     return mhr_params, mhr_mesh
@@ -241,11 +246,11 @@ def mhr_inputs_to_opt_params(mhr_inputs: dict) -> dict:
 
     Args:
         mhr_inputs: Dict from extract_mhr_inputs with (N, ...) tensors.
-        pred_cam_t: (N, 3) world-frame translation.
     Returns:
-        Dict of optimization parameters (see table in plan).
+        Dict of optimization parameters.
     """
     return {
+        "global_trans": mhr_inputs["global_trans"],                             # (N, 3)
         "global_rot_6d": matrix_to_rotation_6d(
             euler_angles_to_matrix(mhr_inputs["global_rot"], "ZYX")
         ),                                                                      # (N, 6)
@@ -267,9 +272,8 @@ def opt_params_to_mhr_inputs(opt_params: dict) -> dict:
         Dict compatible with mhr_head.mhr_forward(**result).
     """
     batch_size = opt_params["global_rot_6d"].shape[0]
-    device = opt_params["global_rot_6d"].device
     return {
-        "global_trans": torch.zeros(batch_size, 3, device=device),
+        "global_trans": opt_params["global_trans"],                              # (N, 3)
         "global_rot": matrix_to_euler_angles(
             rotation_6d_to_matrix(opt_params["global_rot_6d"]), "ZYX"
         ),                                                                       # (N, 3)
@@ -330,13 +334,11 @@ def reprojection_error(
     return error.sum() / total_weight
 
 
-def temporal_smoothness(opt_params: dict, pred_cam_t: torch.Tensor):
+def temporal_smoothness(opt_params: dict):
     """L2 penalty on frame-to-frame parameter changes (no mhr_forward needed)."""
     loss = 0.0
-    for key in ["global_rot_6d", "body_cont", "hand_pose_params"]:
-        # diff = opt_params[key][1:] - opt_params[key][:-1]
+    for key in ["global_trans", "global_rot_6d", "body_cont", "hand_pose_params"]:
         loss += l2_distance(opt_params[key][1:], opt_params[key][:-1]).mean()
-    loss += l2_distance(pred_cam_t[1:], pred_cam_t[:-1]).mean()
     return loss
 
 
@@ -345,7 +347,6 @@ def optimize_multiview(
     gt_keypoints_2d: torch.Tensor,
     gt_weights: torch.Tensor,
     mhr_inputs: dict,
-    pred_cam_t: torch.Tensor,
     cam_intrinsics: torch.Tensor,
     cam_extrinsics: torch.Tensor,
     reproj_weight: float = 1.0,
@@ -355,31 +356,31 @@ def optimize_multiview(
     chunk_size: int = 64,
 ):
     """Optimize the MHR inputs to match the ground truth keypoints.
+
+    global_trans is optimized as part of opt_params (no separate pred_cam_t).
+    MHR forward output already includes translation in vertices/keypoints.
+
     Args:
         mhr_layer: The MHR layer.
-        gt_keypoints_2d: (C, N, P, 2) ground truth 2D keypoints per camera,
-            where C = cameras, N = batch (frames), P = keypoints.
+        gt_keypoints_2d: (C, N, P, 2) ground truth 2D keypoints per camera.
         gt_weights: (C, N, P) float weights for ground truth keypoints per camera.
-        mhr_inputs: The MHR inputs.
-        pred_cam_t: (N, 3) tensor of predicted camera translation.
+        mhr_inputs: The MHR inputs (including global_trans).
         cam_intrinsics: (C, 3, 3) tensor of camera intrinsic matrices.
         cam_extrinsics: (C, 4, 4) tensor of camera extrinsic matrices.
         max_iterations: The maximum number of iterations.
         lr: The learning rate.
         chunk_size: Number of frames per forward pass to avoid OOM.
     Returns:
-        The optimized MHR inputs and camera translation.
+        The optimized MHR inputs.
     """
     cam_intrinsics = cam_intrinsics.to(mhr_inputs["global_rot"].device)
     cam_extrinsics = cam_extrinsics.to(mhr_inputs["global_rot"].device)
 
     opt_params = mhr_inputs_to_opt_params(mhr_inputs)
-    pred_cam_t = pred_cam_t.clone()
     for p in opt_params.values():
         p.requires_grad_(True)
-    pred_cam_t.requires_grad_(True)
 
-    optimizer = torch.optim.Adam(list(opt_params.values()) + [pred_cam_t], lr=lr)
+    optimizer = torch.optim.Adam(list(opt_params.values()), lr=lr)
 
     n_frames = opt_params["global_rot_6d"].shape[0]
     n_chunks = math.ceil(n_frames / chunk_size)
@@ -387,8 +388,6 @@ def optimize_multiview(
     for i in range(max_iterations):
         optimizer.zero_grad()
 
-        # Gradient accumulation: backward per chunk so each mhr_forward graph
-        # is freed before the next chunk runs, keeping peak memory bounded.
         total_reproj = 0.0
         for start in range(0, n_frames, chunk_size):
             end = min(start + chunk_size, n_frames)
@@ -398,23 +397,20 @@ def optimize_multiview(
                 for k, v in opt_params.items()
             }
             chunk_mhr = opt_params_to_mhr_inputs(chunk_opt)
-            chunk_cam_t = pred_cam_t[start:end]
 
             chunk_out = mhr_layer(chunk_mhr, keypoints_only=True)
-            chunk_kp3d = chunk_out["pred_keypoints_3d"] + chunk_cam_t.unsqueeze(1)
 
             chunk_reproj = reprojection_error(
                 gt_keypoints_2d[:, start:end],
                 gt_weights[:, start:end],
-                chunk_kp3d,
+                chunk_out["pred_keypoints_3d"],
                 cam_intrinsics,
                 cam_extrinsics,
             )
             (reproj_weight * chunk_reproj / n_chunks).backward()
             total_reproj += chunk_reproj.item()
 
-        # Temporal smoothness on params directly (no mhr_forward needed)
-        temp_loss = temporal_smoothness(opt_params, pred_cam_t)
+        temp_loss = temporal_smoothness(opt_params)
         (temporal_weight * temp_loss).backward()
 
         if i % 10 == 0:
@@ -425,32 +421,28 @@ def optimize_multiview(
 
     for p in opt_params.values():
         p.requires_grad_(False)
-    pred_cam_t.requires_grad_(False)
 
-    return opt_params_to_mhr_inputs(opt_params), pred_cam_t
+    return opt_params_to_mhr_inputs(opt_params)
 
 
 def render_mhr_mesh(
     source: FrameSource,
     output_path: Path,
     pred_vertices: torch.Tensor,
-    pred_cam_t: torch.Tensor,
     cam_intrinsics: torch.Tensor,
     cam_extrinsics: torch.Tensor,
     faces: torch.Tensor,
 ):
     """Render MHR outputs in the camera frame.
-    Assumes that the mhr_outputs are in the world frame.
+    Assumes that the mhr_outputs are in the world frame (translation included).
     Args:
         source: The frame source.
         output_path: The output path.
-        pred_vertices: (N, V, 3) predicted vertices in world frame.
-        pred_cam_t: (N, 3) predicted camera translation in world frame.
+        pred_vertices: (N, V, 3) predicted vertices in world frame (includes translation).
         cam_intrinsics: (3, 3) camera intrinsic matrix.
         cam_extrinsics: (4, 4) camera extrinsic matrix.
         faces: (F, 3) face indices.
     """
-    pred_vertices = pred_vertices + pred_cam_t.unsqueeze(1)
 
     K = cam_intrinsics.cpu().numpy() if isinstance(cam_intrinsics, torch.Tensor) else cam_intrinsics
     T = cam_extrinsics.cpu().numpy() if isinstance(cam_extrinsics, torch.Tensor) else cam_extrinsics
@@ -476,7 +468,6 @@ def render_mhr_mesh_gpu(
     source: FrameSource,
     output_path: Path,
     pred_vertices: torch.Tensor,
-    pred_cam_t: torch.Tensor,
     cam_intrinsics: torch.Tensor,
     cam_extrinsics: torch.Tensor,
     faces: torch.Tensor,
@@ -487,14 +478,12 @@ def render_mhr_mesh_gpu(
     Args:
         source: The frame source.
         output_path: The output path.
-        pred_vertices: (N, V, 3) predicted vertices in world frame.
-        pred_cam_t: (N, 3) predicted camera translation in world frame.
+        pred_vertices: (N, V, 3) predicted vertices in world frame (includes translation).
         cam_intrinsics: (3, 3) camera intrinsic matrix.
         cam_extrinsics: (4, 4) camera extrinsic matrix.
         faces: (F, 3) face indices.
         batch_size: Number of frames to render in one GPU call.
     """
-    pred_vertices = pred_vertices + pred_cam_t.unsqueeze(1)
 
     renderer = GPURenderer(image_size=source.image_size, device=DEVICE)
     K = torch.as_tensor(cam_intrinsics, dtype=torch.float32, device=DEVICE)
@@ -527,7 +516,6 @@ def render_keypoints(
     output_path: Path,
     gt_keypoints_2d: torch.Tensor,
     pred_keypoints_3d: torch.Tensor,
-    pred_cam_t: torch.Tensor,
     cam_intrinsics: torch.Tensor,
     cam_extrinsics: torch.Tensor,
     gt_weights: torch.Tensor | None = None,
@@ -538,8 +526,7 @@ def render_keypoints(
         source: The frame source.
         output_path: The output path.
         gt_keypoints_2d: (N, P, 2) ground-truth 2D keypoints.
-        pred_keypoints_3d: (N, P, 3) predicted 3D keypoints in world frame.
-        pred_cam_t: (N, 3) predicted camera translation in world frame.
+        pred_keypoints_3d: (N, P, 3) predicted 3D keypoints in world frame (includes translation).
         cam_intrinsics: (3, 3) camera intrinsic matrix.
         cam_extrinsics: (4, 4) camera extrinsic matrix.
         gt_weights: (N, P) float in [0, 1] visibility weights for GT keypoints.
@@ -547,7 +534,6 @@ def render_keypoints(
     """
     gt_keypoints_2d = gt_keypoints_2d.cpu().numpy()
 
-    pred_keypoints_3d = pred_keypoints_3d + pred_cam_t.unsqueeze(1)
     pred_keypoints_2d, _ = reproject(
         pred_keypoints_3d.reshape(-1, 3),
         cam_intrinsics.to(pred_keypoints_3d.device),
@@ -608,7 +594,6 @@ def mv_optimize_mhr_params(
 
     # --- Pass 1: Estimation & data collection ---
     mhr_inputs_all: list[dict] = []
-    pred_cam_t_all: list[torch.Tensor] = []
     gt_keypoints_2d_all: list[torch.Tensor] = []
     image_size_all: list[tuple[int, int]] = []
     cam_verts_list: list[torch.Tensor] = []
@@ -652,15 +637,10 @@ def mv_optimize_mhr_params(
         mhr_inputs = transform_mhr_params(mhr_inputs, T_world_from_cam)
         mhr_inputs_all.append(mhr_inputs)
 
-        pred_cam_t = mhr_outputs["pred_cam_t"]
-        pred_cam_t = (pred_cam_t @ T_world_from_cam[:3, :3].T) + T_world_from_cam[:3, 3]
-        pred_cam_t_all.append(pred_cam_t)
-
         gt_keypoints_2d_all.append(mhr_outputs["pred_keypoints_2d"])
 
-        cam_t = mhr_outputs["pred_cam_t"]
-        cam_verts_list.append(mhr_mesh_cam["pred_vertices"] + cam_t.unsqueeze(1))
-        cam_kp3d_list.append(mhr_outputs["pred_keypoints_3d"] + cam_t.unsqueeze(1))
+        cam_verts_list.append(mhr_mesh_cam["pred_vertices"])
+        cam_kp3d_list.append(mhr_outputs["pred_keypoints_3d"])
 
         image_size_all.append(frame_source.image_size)
         if n_frames == -1:
@@ -712,18 +692,15 @@ def mv_optimize_mhr_params(
     mhr_params_mv_path.parent.mkdir(parents=True, exist_ok=True)
 
     mhr_inputs_avg = average_mhr_inputs(mhr_inputs_all)
-    pred_cam_t_avg = torch.stack(pred_cam_t_all).mean(dim=0)
 
     if debug > 0:
         mhr_outputs_avg = mhr_layer(mhr_inputs_avg, keypoints_only=True)
-        # Visualize the GT and predicted averaged MHR keypoints
         for i in range(len(cam_intrinsics)):
             render_keypoints(
                 source=frame_sources[i],
                 output_path=mhr_params_mv_path.parent / f"mhr_keypoints_avg_{i}.mp4",
                 gt_keypoints_2d=gt_keypoints_2d_all[i],
                 pred_keypoints_3d=mhr_outputs_avg["pred_keypoints_3d"],
-                pred_cam_t=pred_cam_t_avg,
                 cam_intrinsics=cam_intrinsics_all[i],
                 cam_extrinsics=cam_extrinsics_all[i],
                 gt_weights=gt_weights_all[i],
@@ -734,12 +711,11 @@ def mv_optimize_mhr_params(
     gt_keypoints_2d_all = torch.stack(gt_keypoints_2d_all)
     gt_weights_all = torch.stack(gt_weights_all)  # (C, N, P)
 
-    mhr_inputs_opt, pred_cam_t_opt = optimize_multiview(
+    mhr_inputs_opt = optimize_multiview(
         mhr_layer=mhr_layer,
         gt_keypoints_2d=gt_keypoints_2d_all,
         gt_weights=gt_weights_all,
         mhr_inputs=mhr_inputs_avg,
-        pred_cam_t=pred_cam_t_avg,
         cam_intrinsics=cam_intrinsics_all,
         cam_extrinsics=cam_extrinsics_all,
     )
@@ -747,7 +723,6 @@ def mv_optimize_mhr_params(
     mhr_params_opt, mhr_mesh_opt = export_mhr_outputs(
         mhr_layer=mhr_layer,
         mhr_inputs=mhr_inputs_opt,
-        pred_cam_t=pred_cam_t_opt,
     )
     torch.save(mhr_params_opt, mhr_params_mv_path)
     if mhr_mesh_mv_path is not None:
@@ -760,7 +735,6 @@ def mv_optimize_mhr_params(
                 output_path=mhr_params_mv_path.parent / f"mhr_keypoints_opt_{i}.mp4",
                 gt_keypoints_2d=gt_keypoints_2d_all[i],
                 pred_keypoints_3d=mhr_params_opt["pred_keypoints_3d"],
-                pred_cam_t=pred_cam_t_opt,
                 cam_intrinsics=cam_intrinsics_all[i],
                 cam_extrinsics=cam_extrinsics_all[i],
                 gt_weights=gt_weights_all[i],
@@ -770,7 +744,6 @@ def mv_optimize_mhr_params(
                 source=frame_sources[i],
                 output_path=mhr_params_mv_path.parent / f"mhr_mesh_opt_{i}.mp4",
                 pred_vertices=mhr_mesh_opt["pred_vertices"],
-                pred_cam_t=pred_cam_t_opt,
                 cam_intrinsics=cam_intrinsics_all[i],
                 cam_extrinsics=cam_extrinsics_all[i],
                 faces=mhr_layer.faces,

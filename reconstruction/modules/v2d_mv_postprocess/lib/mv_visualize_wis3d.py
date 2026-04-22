@@ -70,10 +70,8 @@ def visualize_wis3d_from_config(cfg):
 
     mhr_mesh = torch.load(cfg.mhr_mesh_mv_path, weights_only=False, map_location="cpu")
 
-    pred_vertices = mhr_mesh["pred_vertices"].cpu().numpy()
+    human_vertices = mhr_mesh["pred_vertices"].cpu().numpy()
     human_faces = mhr_mesh["faces"].cpu().numpy()
-    pred_cam_t = mhr_mesh["pred_cam_t"].cpu().numpy()
-    human_vertices = pred_vertices + pred_cam_t[:, None, :]
 
     cam_extrinsics = {}
     for cam_id in cfg.cameras:

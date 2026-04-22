@@ -17,10 +17,8 @@ def mv_eval_chamfer_human_from_config(cfg):
     rig = RigConfig(cfg.rig_config, camera_params_path=cfg.camera_params_path)
 
     mhr_mesh = torch.load(cfg.mhr_mesh_mv_path, weights_only=False)
-    pred_vertices = mhr_mesh["pred_vertices"].cpu().numpy()
+    mesh_verts = mhr_mesh["pred_vertices"].cpu().numpy()
     faces = mhr_mesh["faces"].cpu().numpy()
-    pred_cam_t = mhr_mesh["pred_cam_t"].cpu().numpy()
-    mesh_verts = pred_vertices + pred_cam_t[:, None, :]
 
     cam_names: list[str] = []
     cam_intrinsics: list[np.ndarray] = []

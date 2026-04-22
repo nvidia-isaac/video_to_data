@@ -344,3 +344,132 @@ def extrinsics_solve_ba(
         return summary, camera_params_history, target_poses_history
 
     return summary, camera_params, target_poses
+
+
+def reprojection_error_stats(
+    correspondences: list[list[np.ndarray | None]],
+    target_xyz: np.ndarray,
+    camera_params: list[CameraParam],
+    target_poses: np.ndarray,
+    camera_names: list[str] | None = None,
+) -> dict[str, Any]:
+    """Chessboard corner reprojection errors using the same geometry as bundle adjustment.
+
+    Args:
+        correspondences: Per-frame per-camera detected corners (u, v), or None.
+        target_xyz: (P, 3) chessboard points in board frame (meters).
+        camera_params: Camera intrinsics / extrinsics (``T`` is camera-to-world).
+        target_poses: (N, 4, 4) board pose in world frame per correspondence frame.
+        camera_names: Optional labels for each camera index.
+
+    Returns:
+        JSON-serializable statistics dict with overall RMSE (pixels), per-camera
+        and per-frame breakdowns.
+    """
+    n_cams = len(camera_params)
+    if camera_names is None:
+        camera_names = [str(i) for i in range(n_cams)]
+    elif len(camera_names) != n_cams:
+        raise ValueError("camera_names length must match camera_params")
+
+    target_xyz_t = torch.from_numpy(np.asarray(target_xyz, dtype=np.float64)).double()
+
+    all_err_sq: list[float] = []
+    per_cam_err_sq: list[list[float]] = [[] for _ in range(n_cams)]
+    per_frame: list[dict[str, Any]] = []
+
+    for frame_idx, frame in enumerate(correspondences):
+        frame_err_sq: list[float] = []
+        for cam_idx, obs_uv in enumerate(frame):
+            if obs_uv is None or len(obs_uv) == 0:
+                continue
+            param = camera_params[cam_idx]
+            if param.T is None:
+                continue
+            assert len(obs_uv) == len(target_xyz)
+
+            T_cam = torch.from_numpy(param.T).double()
+            T_tgt = torch.from_numpy(target_poses[frame_idx]).double()
+            T_cam_tgt = se3_inv_torch(T_cam) @ T_tgt
+
+            K = torch.from_numpy(param.K).double()
+            if param.D_model == DistortionModel.POLYNOMIAL.value:
+                distort_fn = partial(
+                    distort_polynomial_torch,
+                    coeffs=torch.from_numpy(np.asarray(param.D)).double(),
+                )
+            else:
+                distort_fn = None
+
+            obs_t = torch.from_numpy(np.asarray(obs_uv, dtype=np.float64)).double()
+            pred_uv, _ = reproject_torch(target_xyz_t, K, T_cam_tgt, distort_fn)
+            diff = obs_t - pred_uv
+            err_sq = (diff * diff).sum(dim=-1).detach().cpu().numpy()
+            frame_err_sq.extend(err_sq.tolist())
+            per_cam_err_sq[cam_idx].extend(err_sq.tolist())
+
+        if frame_err_sq:
+            fe = np.asarray(frame_err_sq, dtype=np.float64)
+            per_frame.append({
+                "frame_index": frame_idx,
+                "rmse_pixels": float(np.sqrt(np.mean(fe))),
+                "mean_error_pixels": float(np.mean(np.sqrt(fe))),
+                "num_corners": int(len(fe)),
+            })
+            all_err_sq.extend(frame_err_sq)
+
+    if not all_err_sq:
+        return {
+            "rmse_pixels": None,
+            "mean_error_pixels": None,
+            "median_error_pixels": None,
+            "max_error_pixels": None,
+            "num_corners": 0,
+            "per_camera": [
+                {
+                    "cam_id": i,
+                    "name": camera_names[i],
+                    "rmse_pixels": None,
+                    "num_points": 0,
+                }
+                for i in range(n_cams)
+            ],
+            "per_frame": [],
+        }
+
+    err_sq_arr = np.asarray(all_err_sq, dtype=np.float64)
+    err_px = np.sqrt(err_sq_arr)
+
+    per_cam_out: list[dict[str, Any]] = []
+    for cam_idx, sq_list in enumerate(per_cam_err_sq):
+        if not sq_list:
+            per_cam_out.append({
+                "cam_id": cam_idx,
+                "name": camera_names[cam_idx],
+                "rmse_pixels": None,
+                "mean_error_pixels": None,
+                "max_error_pixels": None,
+                "num_points": 0,
+            })
+            continue
+        sq = np.asarray(sq_list, dtype=np.float64)
+        e = np.sqrt(sq)
+        per_cam_out.append({
+            "cam_id": cam_idx,
+            "name": camera_names[cam_idx],
+            "rmse_pixels": float(np.sqrt(np.mean(sq))),
+            "mean_error_pixels": float(np.mean(e)),
+            "max_error_pixels": float(np.max(e)),
+            "num_points": int(len(sq)),
+        })
+
+    return {
+        "rmse_pixels": float(np.sqrt(np.mean(err_sq_arr))),
+        "mean_error_pixels": float(np.mean(err_px)),
+        "median_error_pixels": float(np.median(err_px)),
+        "max_error_pixels": float(np.max(err_px)),
+        "std_error_pixels": float(np.std(err_px)),
+        "num_corners": int(len(err_sq_arr)),
+        "per_camera": per_cam_out,
+        "per_frame": per_frame,
+    }
