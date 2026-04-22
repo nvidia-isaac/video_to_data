@@ -89,7 +89,7 @@ Each module exposes a **docker** package (lightweight Python wrappers that build
 
 ```bash
 cd reconstruction
-./scripts/install_pacakages.sh
+./scripts/install_packages.sh
 ```
 
 Install only the modules you need:
@@ -136,7 +136,7 @@ Each module has its own image.
 
 ```bash
 cd reconstruction
-./build_containers.sh
+./scripts/build_containers.sh
 ```
 
 Or build individually (run from any directory after install):

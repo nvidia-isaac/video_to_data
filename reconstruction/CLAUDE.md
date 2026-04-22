@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Install host-side packages (lightweight orchestration wrappers):**
 ```bash
 # From reconstruction/
-./scripts/install_pacakages.sh
+./scripts/install_packages.sh
 # Or selectively:
 pip install -e modules/v2d_moge/docker
 ```

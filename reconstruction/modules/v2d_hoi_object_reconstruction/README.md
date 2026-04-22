@@ -19,7 +19,7 @@ _Coming soon._
 ### 1. Install host packages (from `reconstruction/`)
 
 ```bash
-./scripts/install_pacakages.sh
+./scripts/install_packages.sh
 ```
 
 ### 2. Build all required containers
