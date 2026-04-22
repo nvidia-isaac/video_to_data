@@ -105,6 +105,36 @@ def test_load_merges_multi_geometry_scene():
         os.unlink(path)
 
 
+def test_load_applies_scene_graph_transform():
+    scene = trimesh.Scene()
+    transform = np.eye(4)
+    transform[:3, 3] = [1.0, 2.0, 3.0]
+    scene.add_geometry(trimesh.creation.box(), geom_name='box', transform=transform)
+    with tempfile.NamedTemporaryFile(suffix='.glb', delete=False) as f:
+        path = f.name
+    try:
+        scene.export(path)
+        loaded = Mesh.load(path)
+        np.testing.assert_allclose(loaded.vertices.mean(axis=0), [1.0, 2.0, 3.0])
+    finally:
+        os.unlink(path)
+
+
+def test_load_force_mesh_applies_scene_graph_transform():
+    scene = trimesh.Scene()
+    transform = np.eye(4)
+    transform[:3, 3] = [1.0, 2.0, 3.0]
+    scene.add_geometry(trimesh.creation.box(), geom_name='box', transform=transform)
+    with tempfile.NamedTemporaryFile(suffix='.glb', delete=False) as f:
+        path = f.name
+    try:
+        scene.export(path)
+        loaded = Mesh.load(path, force_mesh=True)
+        np.testing.assert_allclose(loaded.vertices.mean(axis=0), [1.0, 2.0, 3.0])
+    finally:
+        os.unlink(path)
+
+
 # ---------------------------------------------------------------------------
 # BoundingBox3d
 # ---------------------------------------------------------------------------
