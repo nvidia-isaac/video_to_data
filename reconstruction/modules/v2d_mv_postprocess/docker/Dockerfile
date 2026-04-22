@@ -10,6 +10,8 @@ RUN apt-get update && apt-get install -y \
     libegl1-mesa-dev \
     && rm -rf /var/lib/apt/lists/*
 
+RUN pip install open3d
+
 COPY v2d_common /workspace/v2d_common
 RUN pip install -e /workspace/v2d_common
 

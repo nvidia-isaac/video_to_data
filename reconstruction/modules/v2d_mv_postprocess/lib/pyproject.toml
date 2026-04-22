@@ -12,8 +12,10 @@ dependencies = [
     "matplotlib",
     "numpy",
     "omegaconf",
+    "open3d",
     "pyyaml",
     "scipy",
+    "trimesh",
     "v2d-common",
     "v2d-mv[io,vis]",
 ]
