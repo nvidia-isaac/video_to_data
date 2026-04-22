@@ -25,7 +25,7 @@ workflow:
       cpu: 8
       gpu: 0
       memory: 16Gi
-      storage: 10Gi
+      storage: 50Gi
 
   tasks:
 
@@ -331,6 +331,55 @@ workflow:
           --mesh_path {{input:0}}/mhr_mesh_mv.pt \
           --weights_dir {{input:1}}/v2d_mv_hoi_data/data/weights/sam3d_body \
           --output_path {{output}}/soma_params.npz
+
+  # Ground plane estimation (depth + MHR foot keypoints)
+  - name: estimate_ground_plane
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    resource: cpu_large
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - url: {{swift_output_base}}/mv_preprocess/
+    - url: {{swift_output_base}}/foundation_stereo/
+    - url: {{swift_output_base}}/sam3d_body/
+    - task: mv_preprocess
+    - task: foundation_stereo
+    - task: sam3d_body
+    outputs:
+    - url: {{swift_output_base}}/estimate_ground_plane/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.mv.postprocess.lib.mv_estimate_ground_plane \
+          --camera_params_path {{input:0}}/edex \
+          --depth_dir {{input:1}} \
+          --human_pose_dir {{input:2}} \
+          --image_dir {{input:0}}/images \
+          --output_dir {{output}}
+
+  # Fused multiview point cloud export
+  - name: export_fused_pointcloud
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    resource: cpu_large
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - url: {{swift_output_base}}/mv_preprocess/
+    - url: {{swift_output_base}}/foundation_stereo/
+    - task: mv_preprocess
+    - task: foundation_stereo
+    outputs:
+    - url: {{swift_output_base}}/export_fused_pointcloud/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.mv.postprocess.lib.mv_export_fused_pointcloud \
+          --camera_params_path {{input:0}}/edex \
+          --depth_dir {{input:1}} \
+          --image_dir {{input:0}}/images \
+          --output_dir {{output}}
 
   # Chamfer evaluation – object
   - name: eval_chamfer_object

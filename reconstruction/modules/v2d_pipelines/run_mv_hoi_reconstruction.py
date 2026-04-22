@@ -19,6 +19,8 @@ from v2d.sam2.docker.run_mv_videos_to_masks import run_mv_videos_to_masks
 from v2d.foundation_pose.docker.run_mv_videos_to_poses import run_mv_videos_to_poses
 from v2d.sam3d_body.docker.run_mv_optimize_mhr_params import run_mv_optimize_mhr_params
 from v2d.sam3d_body.docker.run_export_soma import run_export_soma
+from v2d.mv.postprocess.docker.run_mv_estimate_ground_plane import run_mv_estimate_ground_plane
+from v2d.mv.postprocess.docker.run_mv_export_fused_pointcloud import run_mv_export_fused_pointcloud
 from v2d.mv.postprocess.docker.run_mv_eval_chamfer_human import run_mv_eval_chamfer_human
 from v2d.mv.postprocess.docker.run_mv_eval_chamfer_object import run_mv_eval_chamfer_object
 from v2d.mv.postprocess.docker.run_mv_render_hoi_overlay import run_mv_render_hoi_overlay
@@ -46,6 +48,8 @@ def main(
     sam2_human_dir = os.path.join(output_dir, "sam2", "human")
     sam3d_body_dir = os.path.join(output_dir, "sam3d_body")
     export_soma_dir = os.path.join(output_dir, "sam3d_body", "export_soma")
+    ground_plane_dir = os.path.join(output_dir, "postprocess", "ground_plane")
+    fused_pointcloud_dir = os.path.join(output_dir, "postprocess", "fused_pointcloud")
     chamfer_human_dir = os.path.join(output_dir, "postprocess", "chamfer_human")
     chamfer_object_dir = os.path.join(output_dir, "postprocess", "chamfer_object")
     hoi_overlay_dir = os.path.join(output_dir, "postprocess", "hoi_overlay")
@@ -147,6 +151,25 @@ def main(
         dev=dev,
     )
 
+    # Export fused multiview point clouds
+    run_mv_export_fused_pointcloud(
+        camera_params_path=os.path.join(preprocess_dir, "edex"),
+        depth_dir=foundation_stereo_dir,
+        image_dir=preprocess_images_dir,
+        output_dir=fused_pointcloud_dir,
+        dev=dev,
+    )
+
+    # Estimate ground plane from depth + MHR foot keypoints
+    run_mv_estimate_ground_plane(
+        camera_params_path=os.path.join(preprocess_dir, "edex"),
+        depth_dir=foundation_stereo_dir,
+        human_pose_dir=sam3d_body_dir,
+        output_dir=ground_plane_dir,
+        image_dir=preprocess_images_dir,
+        dev=dev,
+    )
+
     # Evaluate chamfer distance for human mesh
     run_mv_eval_chamfer_human(
         camera_params_path=os.path.join(preprocess_dir, "edex"),
@@ -186,6 +209,7 @@ def main(
         object_pose_dir=foundation_pose_dir,
         human_pose_dir=sam3d_body_dir,
         output_dir=wis3d_dir,
+        ground_plane_dir=ground_plane_dir,
         dev=dev,
     )
 
