@@ -137,26 +137,6 @@ ignore = [
     "PLR2004",  # magic numbers
 ]
 
-[tool.ruff.lint.isort]
-extra-standard-library = [
-    "numpy",
-    "h5py",
-    "open3d",
-    "torch",
-    "tensordict",
-    "matplotlib",
-    "gymnasium",
-    "gym",
-    "scipy",
-    "hid",
-    "yaml",
-    "prettytable",
-    "toml",
-    "trimesh",
-    "tqdm",
-    "psutil",
-]
-
 [tool.ruff.lint.mccabe]
 # Unlike Flake8, default to a complexity level of 10.
 max-complexity = 10
