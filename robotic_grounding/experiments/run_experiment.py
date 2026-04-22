@@ -221,6 +221,7 @@ def generate_single_task_workflow(
     max_iterations = config.get("max_iterations")
     task = config.get("task", "Sharpa-V2P-v0")
     zero_actor = config.get("zero_actor", False)
+    use_primitive_urdfs = config.get("use_primitive_urdfs", False)
     logger = config.get("logger", "wandb")
     log_project_name = config.get("log_project_name", "v2p_hands")
 
@@ -237,6 +238,7 @@ def generate_single_task_workflow(
         logger=logger,
         log_project_name=log_project_name,
         zero_actor=zero_actor,
+        use_primitive_urdfs=use_primitive_urdfs,
         use_timestamp=True,
     )
     # Escape for YAML literal block
@@ -322,6 +324,7 @@ def generate_multi_sequence_workflow(
     video = config.get("video", True)
     seed = config.get("seed")
     num_envs = config.get("num_envs")
+    use_primitive_urdfs = config.get("use_primitive_urdfs", False)
     wandb_api_key = os.environ.get("WANDB_API_KEY", "")
     if not wandb_api_key:
         print(
@@ -354,6 +357,7 @@ def generate_multi_sequence_workflow(
             eval_video_only=eval_video_only,
             logger="wandb",
             log_project_name=project,
+            use_primitive_urdfs=use_primitive_urdfs,
             use_timestamp=True,
         )
         entry_indent = "\n".join("        " + line for line in entry.split("\n"))
@@ -431,6 +435,7 @@ def _print_workflow(exp_id: str, config: dict) -> None:
     max_iterations = config.get("max_iterations")
     task = config.get("task", "Sharpa-V2P-v0")
     zero_actor = config.get("zero_actor", False)
+    use_primitive_urdfs = config.get("use_primitive_urdfs", False)
     logger = config.get("logger", "wandb")
     log_project_name = config.get("log_project_name", "v2p_hands")
     if "run_name_overrides" in osmo_cfg:
@@ -448,6 +453,7 @@ def _print_workflow(exp_id: str, config: dict) -> None:
         logger=logger,
         log_project_name=log_project_name,
         zero_actor=zero_actor,
+        use_primitive_urdfs=use_primitive_urdfs,
         use_timestamp=True,
     )
     print("# OSMO entry script (train command) for", exp_id)

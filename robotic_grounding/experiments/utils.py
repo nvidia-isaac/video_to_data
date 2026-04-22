@@ -74,6 +74,7 @@ def build_train_command(
     logger: str | None = None,
     log_project_name: str | None = None,
     zero_actor: bool = False,
+    use_primitive_urdfs: bool = False,
 ) -> list[str]:
     """Build train.py command as list of args."""
     cmd = [
@@ -82,6 +83,7 @@ def build_train_command(
         "--headless" if headless else "",
         "--video" if video else "",
         "--zero-actor" if zero_actor else "",
+        "--use_primitive_urdfs" if use_primitive_urdfs else "",
         "--task",
         task,
         "--run_name",
@@ -124,6 +126,7 @@ def make_entry_script(
     logger: str = "wandb",
     log_project_name: str = "v2p_hands",
     zero_actor: bool = False,
+    use_primitive_urdfs: bool = False,
 ) -> str:
     """Generate /tmp/entry.sh content for OSMO."""
     # Pass run_name (suffix only) to train; train.py adds its own timestamp to avoid duplication.
@@ -145,6 +148,7 @@ def make_entry_script(
         logger=logger,
         log_project_name=log_project_name,
         zero_actor=zero_actor,
+        use_primitive_urdfs=use_primitive_urdfs,
     )
     cmd_str = " \\\n  ".join(cmd)
     lines.append(cmd_str)
