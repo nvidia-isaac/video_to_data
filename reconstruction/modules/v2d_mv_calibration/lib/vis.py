@@ -9,7 +9,7 @@ import numpy as np
 from tqdm import tqdm
 
 from v2d.mv.rig import CameraParam
-from v2d.mv.math.numpy_fn import se3_inv
+from v2d.mv.math.numpy_fn import distort_polynomial, reproject, se3_inv
 
 
 logger = logging.getLogger(__name__)
@@ -115,31 +115,12 @@ def visualize_reprojected_points(
         est_target_poses: (N, 4, 4) estimated target poses.
         opt_target_poses: (N, 4, 4) optimized target poses.
     """
-    from v2d.mv.math.numpy_fn import se3_inv as np_se3_inv
-
-    def _reproject_np(xyz, K, T, distort_fn=None):
-        rot, trans = T[:3, :3], T[:3, 3]
-        xyz_cam = xyz @ rot.T + trans
-        xy = xyz_cam[:, :2] / xyz_cam[:, 2:3]
-        if distort_fn is not None:
-            xy = distort_fn(xy)
-        return xy @ K[:2, :2].T + K[:2, 2]
-
-    def _distort_polynomial_np(xy, coeffs):
-        x, y = xy[..., 0], xy[..., 1]
-        r2 = x**2 + y**2
-        k1, k2, p1, p2, k3, k4, k5, k6 = np.split(coeffs, 8, axis=-1)
-        kr = (1.0 + ((k3 * r2 + k2) * r2 + k1) * r2) / (1.0 + ((k6 * r2 + k5) * r2 + k4) * r2)
-        xd = x * kr + p1 * (2.0 * x * y) + p2 * (r2 + 2.0 * x**2)
-        yd = y * kr + p1 * (r2 + 2.0 * y**2) + p2 * (2.0 * x * y)
-        return np.stack([xd, yd], axis=-1)
-
     import imageio.v3 as iio
 
     K, D = est_camera_param.K, est_camera_param.D
-    distort_fn = partial(_distort_polynomial_np, coeffs=D) if len(D) > 0 else None
-    est_T_cam_world = np_se3_inv(est_camera_param.T)
-    opt_T_cam_world = np_se3_inv(opt_camera_param.T)
+    distort_fn = partial(distort_polynomial, coeffs=D) if len(D) > 0 else None
+    est_T_cam_world = se3_inv(est_camera_param.T)
+    opt_T_cam_world = se3_inv(opt_camera_param.T)
     shift_factor = 1 << shift
     r = radius * shift_factor
 
@@ -152,8 +133,12 @@ def visualize_reprojected_points(
         elif img.shape[2] == 3:
             img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
-        uv_est = _reproject_np(target_xyz, K, est_T_cam_world @ est_target_poses[t], distort_fn)
-        uv_opt = _reproject_np(target_xyz, K, opt_T_cam_world @ opt_target_poses[t], distort_fn)
+        uv_est = reproject(
+            target_xyz, K, est_T_cam_world @ est_target_poses[t], distort_fn,
+        )
+        uv_opt = reproject(
+            target_xyz, K, opt_T_cam_world @ opt_target_poses[t], distort_fn,
+        )
 
         cv2.putText(img, "Features", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
         cv2.putText(img, "Estimated", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 255), 2)

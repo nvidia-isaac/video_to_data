@@ -52,7 +52,23 @@ def export_mhr_outputs(
     mhr_outputs: dict,
     faces: torch.Tensor,
 ) -> tuple[dict, dict]:
-    """Separately export MHR params and mesh."""
+    """Separately export MHR params and mesh.
+
+    Patches all 3D outputs to include translation (pred_cam_t) and writes
+    global_trans into mhr_model_params[0:3] so the saved format is consistent
+    with mv_optimize_mhr_params output.
+    """
+    cam_t = mhr_outputs["pred_cam_t"]  # (N, 3) Y/Z-flipped camera coords
+
+    pred_vertices = mhr_outputs["pred_vertices"] + cam_t[:, None, :]
+    pred_keypoints_3d = mhr_outputs["pred_keypoints_3d"] + cam_t[:, None, :]
+    pred_joint_coords = mhr_outputs["pred_joint_coords"] + cam_t[:, None, :]
+
+    native_cam_t = cam_t.clone()
+    native_cam_t[..., [1, 2]] *= -1  # undo Y/Z flip -> MHR-native
+    mhr_model_params = mhr_outputs["mhr_model_params"].clone()
+    mhr_model_params[:, 0:3] = native_cam_t * 10
+
     mhr_params = {
         "global_rot": mhr_outputs["global_rot"],
         "body_pose_params": mhr_outputs["body_pose_params"],
@@ -62,16 +78,16 @@ def export_mhr_outputs(
         "expr_params": mhr_outputs["expr_params"],
         "pred_cam_t": mhr_outputs["pred_cam_t"],
         "focal_length": mhr_outputs["focal_length"],
-        "pred_keypoints_3d": mhr_outputs["pred_keypoints_3d"],
+        "pred_keypoints_3d": pred_keypoints_3d,
         "pred_keypoints_2d": mhr_outputs["pred_keypoints_2d"],
-        "pred_joint_coords": mhr_outputs["pred_joint_coords"],
+        "pred_joint_coords": pred_joint_coords,
         "pred_pose_raw": mhr_outputs["pred_pose_raw"],
         "pred_global_rots": mhr_outputs["pred_global_rots"],
-        "mhr_model_params": mhr_outputs["mhr_model_params"],
+        "mhr_model_params": mhr_model_params,
     }
     mhr_mesh = {
         "faces": faces,
-        "pred_vertices": mhr_outputs["pred_vertices"],
+        "pred_vertices": pred_vertices,
         "pred_cam_t": mhr_outputs["pred_cam_t"],
     }
     return mhr_params, mhr_mesh

@@ -15,12 +15,12 @@ workflow:
       cpu: 8
       gpu: 1
       memory: 64Gi
-      storage: 200Gi
+      storage: 100Gi
     cpu_large:
       cpu: 32
       gpu: 0
       memory: 64Gi
-      storage: 200Gi
+      storage: 100Gi
     cpu_small:
       cpu: 8
       gpu: 0

@@ -12,7 +12,7 @@ datasets:
       mv_hoi_reconstruction:
         workflow_yaml: osmo/mv_hoi_reconstruction.yaml
     osmo_pool: isaac-dev-h100-01
-    max_concurrent: 10
+    max_concurrent: 20
     qc_thresholds:
       max_chamfer_object: 30.0
       max_chamfer_human: 30.0
