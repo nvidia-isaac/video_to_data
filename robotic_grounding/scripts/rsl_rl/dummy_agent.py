@@ -191,9 +191,6 @@ def main():
             env_cfg.viewer.env_index, env_cfg.scene.num_envs - 1
         )
 
-    # Disable terminations so trajectory plays through
-    env_cfg.terminations = None
-
     # V2P dual-hands specific config (skip for whole-body envs)
     if hasattr(env_cfg, "commands") and hasattr(
         env_cfg.commands, "dual_hands_object_tracking_command"
