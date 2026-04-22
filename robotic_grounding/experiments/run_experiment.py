@@ -195,6 +195,7 @@ def generate_single_task_workflow(
     # - osmo.resume_from: false -> train from scratch
     # - osmo.resume_from: "<local path>" -> upload via dataset input (localpath) at submit time
     # - osmo.resume_from: "<s3/http url>" -> use as-is (must be accessible from container)
+    motion_data_url = osmo_cfg.get("motion_data_url")
     resume_from = osmo_cfg.get("resume_from")
     if resume_from is None:
         resume_from = config.get("resume_from")

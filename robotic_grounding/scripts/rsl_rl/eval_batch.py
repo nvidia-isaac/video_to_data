@@ -127,7 +127,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg, agent_cfg):
             num_envs, dtype=torch.float32, device=env.unwrapped.device
         )
         my_ep_tracking_len = _cmd.tracking_lengths.clone().float().squeeze(-1)
-        completed = []
+        completed: list[tuple[float, float]] = []
 
         while len(completed) < args_cli.eval_episodes:
             with torch.inference_mode():

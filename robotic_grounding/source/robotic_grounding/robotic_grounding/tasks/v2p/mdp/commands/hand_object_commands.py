@@ -876,8 +876,8 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         Returns:
             Tensor of shape (num_bodies, 3) with per-body half-extents [hx, hy, hz].
         """
-        import isaaclab.sim.utils as sim_utils
-        from pxr import Usd, UsdGeom
+        import isaaclab.sim.utils as sim_utils  # noqa: PLC0415
+        from pxr import Usd, UsdGeom  # noqa: PLC0415
 
         half_extents: list[list[float]] = []
         body_idx = 0
@@ -1970,7 +1970,9 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         has_demo_contact_right = right_cmd_has_contact.any(dim=-1)  # (num_envs,)
         has_demo_contact_left = left_cmd_has_contact.any(dim=-1)
 
-        def _contact_ratio(curr, cmd, cmd_has_contact):
+        def _contact_ratio(
+            curr: torch.Tensor, cmd: torch.Tensor, cmd_has_contact: torch.Tensor
+        ) -> torch.Tensor:
             """Per-basis alignment ratio.
 
             For each basis direction k where the command has positive support

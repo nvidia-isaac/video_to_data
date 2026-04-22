@@ -626,6 +626,9 @@ def monitor_once(state: dict, dry_run: bool = False) -> dict:
             try:
                 stage1_config = _load_config(stage1_exp_id)
                 sequences = stage1_config["osmo_multi_task"]["sequence_ids"]
+                stage1_wandb_entity = stage1_config.get(
+                    "wandb_entity", DEFAULT_WANDB_ENTITY
+                )
             except Exception as e:
                 _log(
                     f"  ERROR loading stage1 config for {exp_id}: {e} — skipping stage1 monitoring"

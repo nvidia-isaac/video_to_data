@@ -271,7 +271,7 @@ class VirtualObjectControlCurriculum(ManagerTermBase):
             current_scale = float(self._command.virtual_object_controller_scale_factor)
             # Walk through schedule: last threshold that has been passed wins
             target_scale = current_scale
-            for threshold, value in zip(steps, values):
+            for threshold, value in zip(steps, values, strict=False):
                 if current_step >= threshold:
                     target_scale = value
             if target_scale != current_scale:

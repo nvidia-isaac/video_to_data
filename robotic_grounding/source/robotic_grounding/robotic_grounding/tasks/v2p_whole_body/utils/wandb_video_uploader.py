@@ -111,7 +111,7 @@ class WandbVideoUploader:
                     new_path = os.path.join(self.video_folder, new_name)
                     if new_path != video_path:
                         os.rename(video_path, new_path)
-                        video_path = new_path
+                        video_path = new_path  # noqa: PLW2901
                         video_name = new_name
 
                 # Upload to wandb with the correct training iteration
