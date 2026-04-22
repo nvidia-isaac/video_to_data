@@ -69,7 +69,7 @@ parser.add_argument(
 parser.add_argument(
     "--eval_episodes_per_save",
     type=int,
-    default=100,
+    default=0,
     help="Number of completed episodes to collect for eval after each checkpoint save (0 to disable).",
 )
 parser.add_argument(
