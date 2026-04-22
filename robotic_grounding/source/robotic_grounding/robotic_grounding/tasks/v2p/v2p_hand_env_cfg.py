@@ -453,6 +453,19 @@ class CurriculumCfg:
             "wait_env_steps_since_last_decay": 1000,
             "exponential_decay_factor": 0.9,
             "linear_decay_step": 10.0,
+            "fixed_schedule_steps": None,
+            "fixed_schedule_values": None,
+            # 0.0 = disabled (filtered out at runtime); set > 0 to activate gate
+            "metric_thresholds": {
+                "contact_wrench_support_ratio_right": 0.0,
+                "contact_wrench_support_ratio_left": 0.0,
+                "contact_bodies_coverage_frac_right": 0.0,
+                "contact_bodies_coverage_frac_left": 0.0,
+            },
+            # 0.0 = disabled; set > 0 to require current deque mean >= baseline * ratio
+            "reward_baseline_retention": {
+                "contact_wrench_support_reward": 0.0,
+            },
         },
     )
 

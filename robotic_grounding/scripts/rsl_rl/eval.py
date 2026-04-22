@@ -57,6 +57,12 @@ parser.add_argument(
     help="Run in real-time, if possible.",
 )
 parser.add_argument(
+    "--eval_episodes",
+    type=int,
+    default=None,
+    help="If set, collect this many completed episodes, print aggregate stats, then exit.",
+)
+parser.add_argument(
     "--scene_config",
     type=str,
     default=None,
@@ -284,6 +290,27 @@ def main(
     # reset environment
     obs = env.get_observations()
     timestep = 0
+
+    # eval_episodes tracking
+    eval_episodes = args_cli.eval_episodes
+    if eval_episodes is not None:
+        num_envs = env.unwrapped.num_envs
+        _cmd = env.unwrapped.command_manager.get_term(
+            "dual_hands_object_tracking_command"
+        )
+        _warmup = getattr(_cmd.cfg, "virtual_object_control_decay_steps", 20)
+        my_ep_len = torch.zeros(
+            num_envs, dtype=torch.float32, device=env.unwrapped.device
+        )
+        # Snapshot tracking_lengths at episode start; updated on each reset so we always
+        # record the length that belonged to the episode that just completed, not the next one.
+        # (IsaacLab resets terminated envs inside env.step before returning dones=True, so
+        # reading tracking_lengths after step gives the NEW episode's length, not the old one.)
+        # Note: tracking_lengths is in trajectory frames (random start offset applied), while
+        # ep_len includes the warm-start steps. Ratio = min(ep_len - warmup, track_len) / track_len.
+        my_ep_tracking_len = _cmd.tracking_lengths.clone().float().squeeze(-1)
+        completed: list[tuple[float, float]] = []  # (episode_length, tracking_length)
+
     # simulate environment
     while simulation_app.is_running():
         start_time = time.time()
@@ -310,10 +337,50 @@ def main(
             if timestep == args_cli.video_length:
                 break
 
+        if eval_episodes is not None:
+            my_ep_len += 1
+            done_mask = dones.bool()
+            if done_mask.any():
+                done_ids = done_mask.nonzero(as_tuple=False).squeeze(-1)
+                for i in done_ids:
+                    ep_len = my_ep_len[i].item()
+                    track_len = my_ep_tracking_len[i].item()
+                    completed.append((ep_len, track_len))
+                    my_ep_len[i] = 0.0
+                    # Update tracking_length snapshot for the new episode that just started
+                    my_ep_tracking_len[i] = _cmd.tracking_lengths[i].float()
+            if len(completed) >= eval_episodes:
+                break
+
         # time delay for real-time evaluation
         sleep_time = dt - (time.time() - start_time)
         if args_cli.real_time and sleep_time > 0:
             time.sleep(sleep_time)
+
+    if eval_episodes is not None and completed:
+        data = completed[:eval_episodes]
+        lens = [e[0] for e in data]
+        traj_len = _cmd.retargeted_horizon
+        # Subtract warm-start steps from ep_len; cap at traj_len to keep ratio in [0, 1]
+        ratios = [
+            min(max(e[0] - _warmup, 0), traj_len) / max(traj_len, 1) for e in data
+        ]
+        full = sum(1 for r in ratios if r >= 0.99)
+        mean_len = sum(lens) / len(lens)
+        std_len = (
+            sum((x - mean_len) ** 2 for x in lens) / max(len(lens) - 1, 1)
+        ) ** 0.5
+        mean_ratio = sum(ratios) / len(ratios)
+        std_ratio = (
+            sum((x - mean_ratio) ** 2 for x in ratios) / max(len(ratios) - 1, 1)
+        ) ** 0.5
+        print("\n[eval] ===== Eval Summary =====")
+        print(
+            f"  Episodes:         {len(data)}  (full trajectory: {traj_len} steps, warmup: {_warmup})"
+        )
+        print(f"  Episode length:   mean={mean_len:.1f}  std={std_len:.1f}  steps")
+        print(f"  Completion ratio: mean={mean_ratio:.3f}  std={std_ratio:.3f}")
+        print(f"  Full completions: {full}/{len(data)}  ({100*full/len(data):.0f}%)")
 
     # close the simulator
     env.close()

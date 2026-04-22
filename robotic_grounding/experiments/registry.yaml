@@ -4,6 +4,7 @@
 # Example experiments (committed):
 example_single: example_single_run
 example_sequences: example_sequence_list
+example_osmo_sequences: example_osmo_sequences
 example_sweep: example_param_sweep
 stage1: example_stage1_nocoll
 stage2: example_stage2

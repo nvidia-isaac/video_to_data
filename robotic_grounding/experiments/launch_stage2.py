@@ -89,14 +89,21 @@ def fetch_crashed_checkpoints(outdir: Path, config: dict) -> dict[str, Path]:
             f"{wandb_entity}/{project}",
             filters={"display_name": {"$regex": run_name}},
         )
-        runs = sorted(runs, key=lambda r: r.created_at, reverse=True)
-        crashed = [r for r in runs if r.state == "crashed"]
-        if not crashed:
-            print(f"  No crashed run found for {run_name}, skipping...")
+        target_step = config.get("crashed_checkpoint_step")
+        if target_step is not None:
+            # Accept any run state when fetching a specific checkpoint step
+            candidates = list(runs)
+        else:
+            candidates = [r for r in runs if r.state == "crashed"]
+        if not candidates:
+            print(
+                f"  No {'run' if target_step is not None else 'crashed run'} found for {run_name}, skipping..."
+            )
             continue
-        run = crashed[0]
+        run = max(candidates, key=lambda r: r.summary.get("_step", 0) or 0)
+        run_label = "run" if target_step is not None else "crashed run"
         print(
-            f"  Found crashed run: {run.display_name} (step={run.summary.get('_step', 'N/A')})",
+            f"  Found {run_label}: {run.display_name} (step={run.summary.get('_step', 'N/A')})",
             end=" ",
             flush=True,
         )
@@ -110,7 +117,15 @@ def fetch_crashed_checkpoints(outdir: Path, config: dict) -> dict[str, Path]:
             m = re.search(r"model_(\d+)\.pt", f.name)
             return int(m.group(1)) if m else -1
 
-        target = max(files, key=_iteration)
+        if target_step is not None:
+            exact = [f for f in files if _iteration(f) == target_step]
+            target = (
+                exact[0]
+                if exact
+                else min(files, key=lambda f: abs(_iteration(f) - target_step))
+            )
+        else:
+            target = max(files, key=_iteration)
         seq_dir = outdir / seq_key
         seq_dir.mkdir(parents=True, exist_ok=True)
         run.file(target.name).download(root=str(seq_dir), replace=True)
@@ -193,16 +208,42 @@ def _make_task_yaml(
     ckpt_filename = ckpt_path.name
     overrides_str = _overrides_cli(overrides)
 
+    # Motion file: OSMO online dataset ({{input:1}}) or bundled assets in Docker image.
+    # checkpoint stays at {{input:0}}; motion_data appended as {{input:1}} when URL is set.
+    motion_data_url = config.get("osmo", {}).get("motion_data_url")
+    if motion_data_url:
+        dataset_name = motion_data_url.rstrip("/").split("/")[-1]
+        dataset_seq_id = seq_id.replace("arctic_", "dataset_", 1)
+        motion_file = (
+            "{{input:1}}/"
+            + dataset_name
+            + "/arctic_processed/sequence_id="
+            + dataset_seq_id
+            + "/robot_name=sharpa_wave"
+        )
+        extra_input = f"\n    - dataset:\n        name: {dataset_name}"
+    else:
+        motion_file = (
+            config.get("sequence_to_motion_file", {}).get(seq_id)
+            or f"arctic/arctic_processed/{seq_id}/sharpa_wave"
+        )
+        extra_input = ""
+
+    eval_video_only_flag = (
+        " --eval_video_only" if config.get("eval_video_only", False) else ""
+    )
     entry = f"""set -ex
 
 python scripts/rsl_rl/train.py \\
   --headless \\
   --task Sharpa-V2P-v0 \\
   --run_name {run_name} \\
-  --motion_file arctic_processed/{seq_id}/sharpa_wave \\
+  --motion_file {motion_file} \\
   --logger wandb \\
   --log_project_name {project} \\
   --resume --checkpoint "{{{{input:0}}}}/ckpt_{obj}/{ckpt_filename}" \\
+  --video{eval_video_only_flag} --video_length 400 --video_interval 4800 \\
+  --eval_episodes_per_save 100 \\
   {overrides_str}"""
 
     entry_indent = "\n".join("        " + line for line in entry.split("\n"))
@@ -219,7 +260,7 @@ python scripts/rsl_rl/train.py \\
     inputs:
     - dataset:
         name: ckpt_{obj}
-        localpath: '{ckpt_path}'
+        localpath: '{ckpt_path}'{extra_input}
     files:
     - path: /tmp/entry.sh
       contents: |-
@@ -289,6 +330,11 @@ def main() -> None:
     parser.add_argument("--priority", default="NORMAL")
     parser.add_argument("--build-image", action="store_true")
     parser.add_argument(
+        "--no-build-image",
+        action="store_true",
+        help="Skip image build even if config has build_image: true",
+    )
+    parser.add_argument(
         "--image", default=None, help="Use specific Docker image for OSMO"
     )
     parser.add_argument("--dry-run", action="store_true")
@@ -336,7 +382,10 @@ def main() -> None:
                 "--priority",
                 args.priority,
             ]
-            if args.build_image or config.get("osmo", {}).get("build_image"):
+            should_build = (
+                args.build_image or config.get("osmo", {}).get("build_image")
+            ) and not args.no_build_image
+            if should_build:
                 cmd.append("--build-image")
             image = args.image or config.get("osmo", {}).get("image")
             if image:

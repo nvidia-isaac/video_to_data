@@ -1,0 +1,57 @@
+# Example: Single-stage multi-sequence training from an OSMO dataset motion file
+#
+# Spawns one OSMO task per entry in `sequences`. Each task fetches motion data
+# from an OSMO online dataset rather than from files bundled in the Docker image.
+# run_experiment.py routes configs with `sequences` + `osmo.motion_data_url` to
+# generate_multi_sequence_workflow(), which builds one task per sequence.
+#
+# Usage:
+#   python robotic_grounding/scripts/run_experiment.py example_osmo_sequences --osmo
+#   python robotic_grounding/scripts/run_experiment.py example_osmo_sequences --dry-run
+id: example_osmo_sequences
+description: "Example: single-stage multi-sequence training with OSMO dataset motion files"
+run_name_suffix: example_osmo_sequences
+
+wandb_project: v2p_hands
+
+sequences:
+  - arctic_s01_capsulemachine_grab_01
+  - arctic_s01_espressomachine_grab_01
+  - arctic_s01_microwave_grab_01
+
+eval_video_only: true
+
+train_overrides:
+  # Regularization
+  env.rewards.action_rate_l2.weight: "-5e-3"
+  env.rewards.action_l1.weight: "-2e-3"
+  # PPO runner
+  agent.num_steps_per_env: "24"
+  agent.max_iterations: "20000"
+  agent.save_interval: "200"
+  agent.empirical_normalization: "True"
+  # Policy
+  agent.policy.init_noise_std: "0.1"
+  agent.policy.actor_hidden_dims: "[512,256,128]"
+  agent.policy.critic_hidden_dims: "[512,256,128]"
+  agent.policy.activation: "elu"
+  # Algorithm
+  agent.algorithm.value_loss_coef: "1.0"
+  agent.algorithm.use_clipped_value_loss: "True"
+  agent.algorithm.clip_param: "0.1"
+  agent.algorithm.entropy_coef: "0.001"
+  agent.algorithm.num_learning_epochs: "5"
+  agent.algorithm.num_mini_batches: "4"
+  agent.algorithm.learning_rate: "1.0e-3"
+  agent.algorithm.schedule: "adaptive"
+  agent.algorithm.gamma: "0.99"
+  agent.algorithm.lam: "0.95"
+  agent.algorithm.desired_kl: "0.005"
+  agent.algorithm.max_grad_norm: "1.0"
+
+osmo:
+  build_image: true
+  # URL of the OSMO online dataset containing retargeted ARCTIC motion files.
+  # Each sequence is fetched as:
+  #   {{input:0}}/<dataset_name>/arctic_processed/sequence_id=dataset_<seq>/robot_name=sharpa_wave
+  motion_data_url: https://us-west-2-aws.osmo.nvidia.com/datasets/isaac/v2d_arctic_retarget_exp_200

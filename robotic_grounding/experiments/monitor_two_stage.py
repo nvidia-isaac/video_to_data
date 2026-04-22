@@ -199,6 +199,10 @@ def _generate_stage1_resume_yaml(
     wandb_api_key = os.environ.get("WANDB_API_KEY", "")
     wandb_entity = stage1_config.get("wandb_entity", DEFAULT_WANDB_ENTITY)
     upload_snippet = _checkpoint_upload_snippet(seq_key, run_name)
+    motion_file = (
+        stage1_config.get("sequence_to_motion_file", {}).get(seq_id)
+        or f"arctic/arctic_processed/{seq_id}/sharpa_wave"
+    )
 
     entry = f"""set -ex
 
@@ -206,7 +210,7 @@ python scripts/rsl_rl/train.py \\
   --headless \\
   --task Sharpa-V2P-v0 \\
   --run_name {run_name} \\
-  --motion_file arctic/arctic_processed/{seq_id}/sharpa_wave \\
+  --motion_file {motion_file} \\
   --max_iterations {max_iterations} \\
   --logger wandb \\
   --log_project_name {_WANDB_PROJECT} \\
@@ -266,6 +270,10 @@ def _generate_stage1_fresh_yaml(
     wandb_api_key = os.environ.get("WANDB_API_KEY", "")
     wandb_entity = stage1_config.get("wandb_entity", DEFAULT_WANDB_ENTITY)
     upload_snippet = _checkpoint_upload_snippet(seq_key, run_name)
+    motion_file = (
+        stage1_config.get("sequence_to_motion_file", {}).get(seq_id)
+        or f"arctic/arctic_processed/{seq_id}/sharpa_wave"
+    )
 
     entry = f"""set -ex
 
@@ -273,7 +281,7 @@ python scripts/rsl_rl/train.py \\
   --headless \\
   --task Sharpa-V2P-v0 \\
   --run_name {run_name} \\
-  --motion_file arctic/arctic_processed/{seq_id}/sharpa_wave \\
+  --motion_file {motion_file} \\
   --max_iterations {max_iterations} \\
   --logger wandb \\
   --log_project_name {_WANDB_PROJECT} \\
@@ -327,7 +335,10 @@ def _download_stage1_checkpoint(
     typically be no artifact available, so callers should fall back to a fresh start.
     """
     artifact_name = f"checkpoint_stage1_nocoll_{seq_key}"
-    candidates = [artifact_name, f"checkpoint_stage1_nocoll_{seq_key.split('_')[0]}"]
+    candidates = [
+        artifact_name,
+        f"checkpoint_stage1_nocoll_{seq_key.split('_', maxsplit=1)[0]}",
+    ]
     api = wandb.Api()
     for name in candidates:
         full_name = f"{wandb_entity}/{_WANDB_PROJECT}/{name}:latest"
@@ -389,7 +400,7 @@ def submit_stage1(
         _log(f"WARNING: Stage1 submission for {exp_id} exited {result.returncode}")
         return False
     if build_image:
-        registry = image.split("/")[0]
+        registry = image.split("/", maxsplit=1)[0]
         _log(f"Done: built image {image} and pushed to {registry}")
     return True
 
@@ -489,7 +500,7 @@ def launch_stage2(
     _log(f"Launching stage2 for {exp_id} (config: {stage2_config_id})")
     cmd = [
         sys.executable,
-        str(_RG_ROOT / "scripts" / "launch_stage2.py"),
+        str(_RG_ROOT / "experiments" / "launch_stage2.py"),
         "--config-id",
         stage2_config_id,
         "--exp-id",
@@ -512,7 +523,7 @@ def launch_stage2(
         _log(f"  WARNING: Stage2 launch failed (exit {result.returncode})")
         return False
     if build_image:
-        registry = image.split("/")[0]
+        registry = image.split("/", maxsplit=1)[0]
         _log(f"Done: built image {image} and pushed to {registry}")
     return True
 
@@ -529,7 +540,7 @@ def resume_crashed_stage2(
     _log(f"Resuming crashed stage2 for {exp_id} (config: {stage2_config_id})")
     cmd = [
         sys.executable,
-        str(_RG_ROOT / "scripts" / "launch_stage2.py"),
+        str(_RG_ROOT / "experiments" / "launch_stage2.py"),
         "--config-id",
         stage2_config_id,
         "--exp-id",
@@ -595,17 +606,6 @@ def monitor_once(state: dict, dry_run: bool = False) -> dict:
         stage1_exp_id = pipeline_config.get("stage1_exp_id", f"{exp_id}_stage1")
         stage2_config_id = pipeline_config.get("stage2_config_id", f"{exp_id}_stage2")
 
-        # Load stage1 config + sequences
-        try:
-            stage1_config = _load_config(stage1_exp_id)
-            sequences = stage1_config["osmo_multi_task"]["sequence_ids"]
-            stage1_wandb_entity = stage1_config.get(
-                "wandb_entity", DEFAULT_WANDB_ENTITY
-            )
-        except Exception as e:
-            _log(f"  ERROR loading stage1 config for {exp_id}: {e}")
-            continue
-
         # ── Submit stage1 if not done yet ──
         if not exp_state.get("stage1_submitted"):
             ok = submit_stage1(
@@ -624,6 +624,19 @@ def monitor_once(state: dict, dry_run: bool = False) -> dict:
 
         # ── Stage 1 monitoring ──
         if not exp_state.get("stage2_launched"):
+            # Load stage1 config + sequences (only needed for stage1 monitoring)
+            try:
+                stage1_config = _load_config(stage1_exp_id)
+                sequences = stage1_config["osmo_multi_task"]["sequence_ids"]
+                stage1_wandb_entity = stage1_config.get(
+                    "wandb_entity", DEFAULT_WANDB_ENTITY
+                )
+            except Exception as e:
+                _log(
+                    f"  ERROR loading stage1 config for {exp_id}: {e} — skipping stage1 monitoring"
+                )
+                continue
+
             try:
                 stage1_runs_all = list(
                     api.runs(

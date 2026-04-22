@@ -15,6 +15,7 @@ class WandbVideoUploader:
         video_folder: str,
         check_interval: float = 30.0,
         num_steps_per_env: int = 24,
+        wandb_key: str = "train/video",
     ) -> None:
         """Initialize the video uploader.
 
@@ -22,10 +23,12 @@ class WandbVideoUploader:
             video_folder: Path to the folder containing videos.
             check_interval: How often to check for new videos (in seconds).
             num_steps_per_env: Number of env steps per training iteration (for step conversion).
+            wandb_key: W&B metric key to log videos under (e.g. "train/video" or "eval/video").
         """
         self.video_folder = video_folder
         self.check_interval = check_interval
         self.num_steps_per_env = num_steps_per_env
+        self.wandb_key = wandb_key
         self.uploaded_videos: set = set()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -68,8 +71,9 @@ class WandbVideoUploader:
 
             # Define custom metric for videos (allows out-of-order step logging)
             if not self._metric_defined:
-                wandb.define_metric("train/video_step")
-                wandb.define_metric("train/video", step_metric="train/video_step")
+                step_key = self.wandb_key.replace("/video", "/video_step")
+                wandb.define_metric(step_key)
+                wandb.define_metric(self.wandb_key, step_metric=step_key)
                 self._metric_defined = True
 
             # Find all mp4 files
@@ -101,11 +105,21 @@ class WandbVideoUploader:
                 else:
                     training_iter = None
 
+                # Rename to video_train_{training_iter}.mp4 convention
+                if training_iter is not None:
+                    new_name = f"video_train_{training_iter}.mp4"
+                    new_path = os.path.join(self.video_folder, new_name)
+                    if new_path != video_path:
+                        os.rename(video_path, new_path)
+                        video_path = new_path  # noqa: PLW2901
+                        video_name = new_name
+
                 # Upload to wandb with the correct training iteration
                 try:
-                    log_data = {"train/video": wandb.Video(video_path, format="mp4")}
+                    step_key = self.wandb_key.replace("/video", "/video_step")
+                    log_data = {self.wandb_key: wandb.Video(video_path, format="mp4")}
                     if training_iter is not None:
-                        log_data["train/video_step"] = training_iter
+                        log_data[step_key] = training_iter
                     wandb.log(log_data, commit=False)
                     self.uploaded_videos.add(video_path)
                     print(
