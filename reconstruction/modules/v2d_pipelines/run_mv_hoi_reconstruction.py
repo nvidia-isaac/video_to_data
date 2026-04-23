@@ -8,6 +8,7 @@ Usage:
 """
 
 import argparse
+import glob
 import os
 
 from v2d.rosbag.docker.run_rosbag_to_edex import run_rosbag_to_edex
@@ -28,6 +29,16 @@ from v2d.mv.postprocess.docker.run_mv_visualize_wis3d import run_mv_visualize_wi
 
 RECON_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 MV_CONFIGS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mv_configs")
+_MESH_EXTS = ("*.glb", "*.obj", "*.ply", "*.stl")
+
+
+def _find_pinned_mesh(mesh_dir: str) -> str:
+    """Find the first mesh file in a directory."""
+    for ext in _MESH_EXTS:
+        matches = glob.glob(os.path.join(mesh_dir, ext))
+        if matches:
+            return matches[0]
+    raise FileNotFoundError(f"No mesh file found in {mesh_dir}")
 
 
 def main(
@@ -40,6 +51,7 @@ def main(
     raw_dir = os.path.join(output_dir, "raw")
     preprocess_dir = os.path.join(output_dir, "preprocess")
     preprocess_images_dir = os.path.join(preprocess_dir, "images")
+    preprocess_mesh_dir = os.path.join(preprocess_dir, "mesh")
     foundation_stereo_dir = os.path.join(output_dir, "foundation_stereo")
     grounding_dino_dir = os.path.join(output_dir, "grounding_dino")
     sam2_object_dir = os.path.join(output_dir, "sam2", "object")
@@ -70,6 +82,7 @@ def main(
         camera_params_path=os.path.join(raw_dir, "edex"),
         extrinsics_camera_params_path=extrinsics_camera_params_path,
         hoi_metadata_path=os.path.join(rosbag_path, "hoi_metadata.yaml"),
+        mesh_path=obj_mesh_path,
         dev=dev,
     )
 
@@ -107,7 +120,7 @@ def main(
         image_dir=preprocess_images_dir,
         depth_dir=foundation_stereo_dir,
         mask_dir=sam2_object_dir,
-        mesh_path=obj_mesh_path,
+        mesh_path=_find_pinned_mesh(preprocess_mesh_dir),
         weights_dir=os.path.join(RECON_DIR, "data/weights/foundation_pose"),
         output_dir=foundation_pose_dir,
         dev=dev,
@@ -183,7 +196,7 @@ def main(
     # Evaluate chamfer distance for object mesh
     run_mv_eval_chamfer_object(
         camera_params_path=os.path.join(preprocess_dir, "edex"),
-        object_mesh_path=obj_mesh_path,
+        object_mesh_path=_find_pinned_mesh(preprocess_mesh_dir),
         object_pose_dir=foundation_pose_dir,
         output_dir=chamfer_object_dir,
         depth_dir=foundation_stereo_dir,
@@ -194,7 +207,7 @@ def main(
     # Render HOI overlay videos (object + human mesh on camera frames)
     run_mv_render_hoi_overlay(
         camera_params_path=os.path.join(preprocess_dir, "edex"),
-        object_mesh_path=obj_mesh_path,
+        object_mesh_path=_find_pinned_mesh(preprocess_mesh_dir),
         object_pose_dir=foundation_pose_dir,
         human_pose_dir=sam3d_body_dir,
         output_dir=hoi_overlay_dir,
@@ -205,7 +218,7 @@ def main(
     # Generate Wis3D interactive 3D visualization
     run_mv_visualize_wis3d(
         camera_params_path=os.path.join(preprocess_dir, "edex"),
-        object_mesh_path=obj_mesh_path,
+        object_mesh_path=_find_pinned_mesh(preprocess_mesh_dir),
         object_pose_dir=foundation_pose_dir,
         human_pose_dir=sam3d_body_dir,
         output_dir=wis3d_dir,

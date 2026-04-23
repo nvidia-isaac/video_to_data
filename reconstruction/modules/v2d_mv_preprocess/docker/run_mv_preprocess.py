@@ -13,6 +13,7 @@ def run_mv_preprocess(
     camera_params_path: str | None = None,
     extrinsics_camera_params_path: str | None = None,
     hoi_metadata_path: str | None = None,
+    mesh_path: str | None = None,
     dev: bool = False,
 ) -> None:
     inputs = {
@@ -25,6 +26,8 @@ def run_mv_preprocess(
         inputs["extrinsics_camera_params_path"] = extrinsics_camera_params_path
     if hoi_metadata_path is not None:
         inputs["hoi_metadata_path"] = hoi_metadata_path
+    if mesh_path is not None:
+        inputs["mesh_path"] = mesh_path
 
     outputs = {
         "output_dir": output_dir,
@@ -51,6 +54,7 @@ if __name__ == "__main__":
     parser.add_argument("--camera_params_path", type=str, default=None)
     parser.add_argument("--extrinsics_camera_params_path", type=str, default=None)
     parser.add_argument("--hoi_metadata_path", type=str, default=None)
+    parser.add_argument("--mesh_path", type=str, default=None)
     parser.add_argument("--dev", action="store_true")
     args = parser.parse_args()
 
@@ -61,5 +65,6 @@ if __name__ == "__main__":
         camera_params_path=args.camera_params_path,
         extrinsics_camera_params_path=args.extrinsics_camera_params_path,
         hoi_metadata_path=args.hoi_metadata_path,
+        mesh_path=args.mesh_path,
         dev=args.dev,
     )

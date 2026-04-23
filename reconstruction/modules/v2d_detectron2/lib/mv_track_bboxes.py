@@ -6,7 +6,12 @@ from v2d.mv.rig import RigConfig
 from v2d.mv.io.video import FrameSource
 
 from .build_detector import Detector
-from .track_bboxes import DetectorConfig, TrackerConfig, track_bboxes
+from .track_bboxes import (
+    ByteTrackerConfig,
+    DetectorConfig,
+    IoUTrackerConfig,
+    track_bboxes,
+)
 
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -25,12 +30,30 @@ def mv_track_bboxes_from_config(cfg):
         det_cat_id=cfg.detector.det_cat_id,
         bbox_thr=cfg.detector.bbox_thr,
         default_to_full_image=cfg.detector.default_to_full_image,
+        test_score_thresh=cfg.detector.get("test_score_thresh", 0.25),
     )
-    tracker_cfg = TrackerConfig(
-        iou_threshold=cfg.tracker.iou_threshold,
-        max_lost=cfg.tracker.max_lost,
-        min_hits=cfg.tracker.min_hits,
-    )
+    tracker_type = cfg.get("tracker_type", "iou")
+    if tracker_type == "byte":
+        bt = cfg.byte_tracker
+        tracker_cfg = ByteTrackerConfig(
+            track_thresh=bt.get("track_thresh", 0.6),
+            det_thresh=bt.get("det_thresh", 0.1),
+            match_thresh=bt.get("match_thresh", 0.8),
+            second_match_thresh=bt.get("second_match_thresh", 0.5),
+            max_lost=bt.get("max_lost", 30),
+            min_hits=bt.get("min_hits", 3),
+            merge_max_gap=bt.get("merge_max_gap", 60),
+            merge_iou_threshold=bt.get("merge_iou_threshold", 0.3),
+        )
+    else:
+        it = cfg.iou_tracker
+        tracker_cfg = IoUTrackerConfig(
+            iou_threshold=it.get("iou_threshold", 0.3),
+            max_lost=it.get("max_lost", 30),
+            min_hits=it.get("min_hits", 3),
+            merge_max_gap=it.get("merge_max_gap", 10),
+            merge_iou_threshold=it.get("merge_iou_threshold", 0.5),
+        )
 
     weights_path = f"{detector_cfg.weights_dir}/cascade_mask_rcnn_vitdet_{detector_cfg.model_size}"
     detector = Detector(
@@ -38,6 +61,7 @@ def mv_track_bboxes_from_config(cfg):
         device=DEVICE,
         model_size=detector_cfg.model_size,
         path=weights_path,
+        test_score_thresh=detector_cfg.test_score_thresh,
     )
 
     batch_size = cfg.get("batch_size", 1)

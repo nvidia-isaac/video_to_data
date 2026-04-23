@@ -39,6 +39,8 @@ def mv_preprocess(
     labeled_bbox_paths: dict[str, Path] | None = None,
     output_hoi_metadata_path: Path | None = None,
     output_prompt_path: Path | None = None,
+    mesh_path: Path | None = None,
+    output_mesh_dir: Path | None = None,
 ):
     """Preprocess all stereo pairs defined in a rig config.
 
@@ -62,6 +64,8 @@ def mv_preprocess(
         labeled_bbox_paths: Mapping from camera name to output labeled bbox JSON path.
         output_hoi_metadata_path: Where to write the copied hoi_metadata.
         output_prompt_path: Where to write the object prompt as plain text.
+        mesh_path: Optional path to object mesh file to pin in the output.
+        output_mesh_dir: Directory to copy the mesh into.
     """
     if output_video_paths is None:
         output_video_paths = {}
@@ -124,6 +128,14 @@ def mv_preprocess(
         output_path=output_camera_params_path,
     )
     logger.info(f"Updated camera params written to {output_camera_params_path}")
+
+    if mesh_path is not None and output_mesh_dir is not None:
+        mesh_path = Path(mesh_path)
+        output_mesh_dir = Path(output_mesh_dir)
+        output_mesh_dir.mkdir(parents=True, exist_ok=True)
+        dest = output_mesh_dir / mesh_path.name
+        shutil.copy2(mesh_path, dest)
+        logger.info(f"Pinned object mesh to {dest}")
 
     frame_meta = camera_params_path.parent / "frame_metadata.jsonl"
     if frame_meta.exists():
@@ -281,6 +293,8 @@ def mv_preprocess_from_config(cfg):
         labeled_bbox_paths=labeled_bbox_paths or None,
         output_hoi_metadata_path=Path(cfg.output_hoi_metadata_path) if hoi_metadata_path else None,
         output_prompt_path=Path(cfg.output_prompt_path) if hoi_metadata_path else None,
+        mesh_path=Path(cfg.mesh_path) if cfg.get("mesh_path") else None,
+        output_mesh_dir=Path(cfg.output_mesh_dir) if cfg.get("mesh_path") else None,
     )
 
 
@@ -296,6 +310,8 @@ if __name__ == "__main__":
     parser.add_argument("--camera_params_path", type=str, required=True)
     parser.add_argument("--extrinsics_camera_params_path", type=str, default=None)
     parser.add_argument("--hoi_metadata_path", type=str, default=None)
+    parser.add_argument("--mesh_path", type=str, default=None,
+                        help="Path to object mesh file to pin in the output")
     parser.add_argument("--config_path", type=str,
                         default=str(Path(__file__).parent / "mv_preprocess.yaml"))
     args = parser.parse_args()
@@ -310,6 +326,8 @@ if __name__ == "__main__":
         overrides["extrinsics_camera_params_path"] = args.extrinsics_camera_params_path
     if args.hoi_metadata_path is not None:
         overrides["hoi_metadata_path"] = args.hoi_metadata_path
+    if args.mesh_path is not None:
+        overrides["mesh_path"] = args.mesh_path
 
     cfg = OmegaConf.merge(cfg, overrides)
     mv_preprocess_from_config(cfg)

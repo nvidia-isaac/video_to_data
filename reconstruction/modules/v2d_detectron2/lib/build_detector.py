@@ -8,12 +8,23 @@ import torch
 
 
 class Detector:
-    def __init__(self, name="vitdet", device="cuda", model_size="b", **kwargs):
+    def __init__(
+        self,
+        name="vitdet",
+        device="cuda",
+        model_size="b",
+        test_score_thresh: float = 0.25,
+        **kwargs,
+    ):
         self.device = device
 
         if name == "vitdet":
             print(f"Loading ViTDet-{model_size.upper()} detector...")
-            self.detector = load_detectron2_vitdet(model_size=model_size, **kwargs)
+            self.detector = load_detectron2_vitdet(
+                model_size=model_size,
+                test_score_thresh=test_score_thresh,
+                **kwargs,
+            )
             self.detector_func = run_detectron2_vitdet
             self.batch_func = run_detectron2_vitdet_batch
 
@@ -48,7 +59,11 @@ VITDET_VARIANTS = {
 }
 
 
-def load_detectron2_vitdet(path="", model_size="b"):
+def load_detectron2_vitdet(
+    path: str = "",
+    model_size: str = "b",
+    test_score_thresh: float = 0.25,
+):
     """Load a ViTDet Cascade Mask R-CNN detector.
 
     Args:
@@ -56,6 +71,9 @@ def load_detectron2_vitdet(path="", model_size="b"):
               from the detectron2 model zoo.
         model_size: One of "b" (ViT-Base, fastest), "l" (ViT-Large),
                     "h" (ViT-Huge, most accurate).
+        test_score_thresh: Internal NMS score threshold. Detections below this
+            are discarded before they leave the model. Lower for ByteTrack
+            (e.g. 0.1) to retain partial-occlusion detections.
     """
     from detectron2.checkpoint import DetectionCheckpointer
     from detectron2.config import instantiate, LazyConfig
@@ -75,7 +93,7 @@ def load_detectron2_vitdet(path="", model_size="b"):
         else os.path.join(path, variant["checkpoint_file"])
     )
     for i in range(3):
-        detectron2_cfg.model.roi_heads.box_predictors[i].test_score_thresh = 0.25
+        detectron2_cfg.model.roi_heads.box_predictors[i].test_score_thresh = test_score_thresh
     detector = instantiate(detectron2_cfg.model)
     checkpointer = DetectionCheckpointer(detector)
     checkpointer.load(detectron2_cfg.train.init_checkpoint)
