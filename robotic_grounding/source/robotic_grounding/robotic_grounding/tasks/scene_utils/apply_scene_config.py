@@ -19,6 +19,7 @@ Public API:
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any
 
 import isaaclab.sim as sim_utils
@@ -320,6 +321,13 @@ def apply_scene_robot(
             env_cfg.events.setup_collision_groups.params["robot_names"].append("Robot")
 
 
+def _is_sequence_robot_partition_path(path: str) -> bool:
+    parts = Path(path).parts
+    return any(p.startswith("sequence_id=") for p in parts) and any(
+        p.startswith("robot_name=") for p in parts
+    )
+
+
 def apply_scene_commands(env_cfg: Any, scene_config: SceneConfig) -> None:
     """Configure the dual-hand tracking command from scene_config fields."""
     if scene_config.robot_name is None:
@@ -329,9 +337,16 @@ def apply_scene_commands(env_cfg: Any, scene_config: SceneConfig) -> None:
     if robot_spec is None:
         raise ValueError(f"Unknown robot: {scene_config.robot_name}")
 
-    motion_folder = scene_config.motion_folder or os.path.dirname(
-        scene_config.motion_file
-    )
+    motion_path = Path(scene_config.motion_file)
+    motion_filters: list[tuple[str, str, str]]
+    if _is_sequence_robot_partition_path(scene_config.motion_file):
+        motion_folder = str(motion_path if motion_path.is_dir() else motion_path.parent)
+        motion_filters = []
+    else:
+        motion_folder = scene_config.motion_folder or os.path.dirname(
+            scene_config.motion_file
+        )
+        motion_filters = scene_config.motion_filters or []
 
     # Scene attribute names for the command term to look up objects
     object_body_names = [obj.name for obj in scene_config.scene_objects]
@@ -343,7 +358,7 @@ def apply_scene_commands(env_cfg: Any, scene_config: SceneConfig) -> None:
     cmd.fingertip_body_name = robot_spec.fingertip_body_name
     cmd.object_body_names = object_body_names
     cmd.motion_folder = motion_folder
-    cmd.motion_filters = scene_config.motion_filters or []
+    cmd.motion_filters = motion_filters
 
 
 def apply_scene_contact_sensors(env_cfg: Any, scene_config: SceneConfig) -> None:
