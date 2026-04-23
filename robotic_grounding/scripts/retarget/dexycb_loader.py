@@ -134,13 +134,106 @@ DEXYCB_OBJECTS: dict[int, str] = {
     21: "061_foam_brick",
 }
 
-# Fixed rotation from the master camera's OpenCV frame (+X right, +Y down,
-# +Z forward) to a gravity-aligned Z-up world. The master is overhead in
-# DexYCB's rig, so +Y_master -> -Z_world (gravity) and +Z_master -> +Y_world.
-_MASTER_TO_ZUP = np.array(
+# Fallback fixed rotation from the master camera's OpenCV frame (+X right,
+# +Y down, +Z forward) to a gravity-aligned Z-up world.  Used only if the
+# data-driven gravity estimate below fails (e.g. a labels_*.npz with no
+# valid object poses).  Empirically off by ~49° for real DexYCB sessions,
+# which is what the data-driven path fixes — keep it as a last-resort
+# default so the loader doesn't crash mid-stream.
+_MASTER_TO_ZUP_FALLBACK = np.array(
     [[1, 0, 0], [0, 0, 1], [0, -1, 0]],
     dtype=np.float32,
 )
+
+# Per-extrinsics-id cache for the data-driven master→Z-up rotation.  All
+# sessions sharing the same ``extrinsics_<id>`` calibration file share the
+# same rig geometry and therefore the same gravity direction in master,
+# so we memoize on the id and re-use across sequences.
+_GRAVITY_ALIGN_CACHE: dict[str, np.ndarray] = {}
+
+
+def _rotation_align_to_zup(gravity_up_in_master: np.ndarray) -> np.ndarray:
+    """Return a 3×3 rotation R such that ``R @ gravity_up_in_master == +Z``.
+
+    Leaves the perpendicular-to-gravity directions well-defined (Rodrigues
+    rotation around the cross product), so repeated calls on the same
+    gravity vector give the same result.
+    """
+    target = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+    up = np.asarray(gravity_up_in_master, dtype=np.float64)
+    up = up / max(np.linalg.norm(up), 1e-12)
+    axis = np.cross(up, target)
+    axis_norm = np.linalg.norm(axis)
+    if axis_norm < 1e-9:
+        # Already aligned (or antipodal — flip via 180° around +X).
+        if np.dot(up, target) > 0:
+            return np.eye(3, dtype=np.float32)
+        return np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]], dtype=np.float32)
+    angle = np.arccos(np.clip(np.dot(up, target), -1.0, 1.0))
+    return Rotation.from_rotvec(axis / axis_norm * angle).as_matrix().astype(np.float32)
+
+
+def _estimate_gravity_up_in_master(
+    dexycb_dir: Path,
+    extrinsics_id: str,
+    camera_serial: str,
+    camera_dir: Path,
+    max_frames: int = 20,
+) -> np.ndarray:
+    """Derive gravity-up (in master frame) from object rest poses.
+
+    YCB's ``textured_simple.obj`` meshes all share the same canonical
+    frame (+Z = up, verified empirically — four different-shape objects in
+    one test sequence had local +Z within 2° of each other).  When an
+    object sits on a horizontal surface, its local +Z in world frame is
+    exactly gravity-up.  We read up to ``max_frames`` ``labels_*.npz``
+    files from ``camera_dir``, pull every non-zero ``pose_y[k, :3, 2]``
+    (object-local +Z in cam frame), transform to master via the
+    pre-computed ``cam_to_master``, and average.  Any motion during the
+    sequence averages out; the mean vector is robust across typical
+    DexYCB sessions.
+
+    Falls back to the ``_MASTER_TO_ZUP_FALLBACK`` convention (OpenCV Y-down
+    = gravity) if no valid pose is found — see the docstring comment.
+    """
+    ext_path = (
+        dexycb_dir / "calibration" / f"extrinsics_{extrinsics_id}" / "extrinsics.yml"
+    )
+    with open(ext_path, "r") as f:
+        calib = yaml.load(f, Loader=yaml.Loader)
+    flat = np.asarray(calib["extrinsics"][camera_serial], dtype=np.float64)
+    world_to_cam = np.eye(4, dtype=np.float64)
+    world_to_cam[:3, :] = flat.reshape(3, 4)
+    R_cam_to_master = np.linalg.inv(world_to_cam)[:3, :3]
+
+    ups_in_master: list[np.ndarray] = []
+    for fpath in sorted(camera_dir.glob("labels_*.npz"))[:max_frames]:
+        try:
+            arr = np.load(fpath)
+            pose_y = arr["pose_y"]  # (num_obj, 3, 4)
+        except Exception:  # noqa: BLE001
+            continue
+        for k in range(pose_y.shape[0]):
+            R_cam = pose_y[k, :3, :3]
+            t_cam = pose_y[k, :3, 3]
+            if np.allclose(R_cam, 0) and np.allclose(t_cam, 0):
+                continue  # un-labelled object in this frame
+            obj_up_cam = R_cam[:, 2].astype(np.float64)  # object local +Z
+            ups_in_master.append(R_cam_to_master @ obj_up_cam)
+
+    if not ups_in_master:
+        warnings.warn(
+            f"No valid pose_y rotations under {camera_dir} for extrinsics "
+            f"{extrinsics_id!r}; falling back to the fixed master->Zup "
+            "approximation (likely ~45° off gravity).",
+            stacklevel=2,
+        )
+        # The fallback matrix was built assuming master +Y is gravity;
+        # gravity-up in master is therefore master -Y.
+        return np.array([0.0, -1.0, 0.0], dtype=np.float64)
+
+    mean_up = np.mean(np.stack(ups_in_master, axis=0), axis=0)
+    return mean_up / np.linalg.norm(mean_up)
 
 
 # ---------------------------------------------------------------------------
@@ -180,14 +273,28 @@ def _read_mano_betas(dexycb_dir: Path, mano_calib: str) -> np.ndarray:
 
 
 def _load_cam_to_world(
-    dexycb_dir: Path, extrinsics_id: str, camera_serial: str
+    dexycb_dir: Path,
+    extrinsics_id: str,
+    camera_serial: str,
+    camera_dir: Path | None = None,
 ) -> np.ndarray:
     """Return the camera-to-world 4x4 transform for one session.
 
     DexYCB's ``calibration/extrinsics_<id>/extrinsics.yml`` stores, per
     serial, a 3x4 ``[R | t]`` world-to-camera matrix where "world" is the
-    master camera's frame. We invert to get camera-to-master, then rotate
-    master (OpenCV: +Y down) to Z-up via ``_MASTER_TO_ZUP``.
+    master camera's frame.  We invert to get camera-to-master, then apply
+    a per-``extrinsics_id`` rotation that takes master frame into Isaac
+    Sim's Z-up world.
+
+    The master→Z-up rotation is **data-driven** per calibration batch:
+    :func:`_estimate_gravity_up_in_master` infers gravity from object
+    rest poses (YCB canonical +Z = gravity-up), and
+    :func:`_rotation_align_to_zup` turns that direction into a 3×3
+    rotation matrix.  Result is cached in ``_GRAVITY_ALIGN_CACHE`` so the
+    estimate only runs once per batch.
+
+    ``camera_dir`` is required to compute the gravity estimate; it's
+    optional only for legacy callers that already have a warmed cache.
     """
     path = dexycb_dir / "calibration" / f"extrinsics_{extrinsics_id}" / "extrinsics.yml"
     with open(path, "r") as f:
@@ -204,8 +311,26 @@ def _load_cam_to_world(
     world_to_cam = np.eye(4, dtype=np.float64)
     world_to_cam[:3, :] = flat.reshape(3, 4)
     cam_to_master = np.linalg.inv(world_to_cam)
+
+    if extrinsics_id not in _GRAVITY_ALIGN_CACHE:
+        if camera_dir is None:
+            # No data available to estimate gravity — fall back to the
+            # fixed rotation.  Should only happen if a legacy caller
+            # invokes this without camera_dir on a cold cache.
+            warnings.warn(
+                f"_load_cam_to_world called for extrinsics {extrinsics_id!r} "
+                "without camera_dir; using fixed master->Zup fallback.",
+                stacklevel=2,
+            )
+            _GRAVITY_ALIGN_CACHE[extrinsics_id] = _MASTER_TO_ZUP_FALLBACK
+        else:
+            gravity_up = _estimate_gravity_up_in_master(
+                dexycb_dir, extrinsics_id, camera_serial, camera_dir
+            )
+            _GRAVITY_ALIGN_CACHE[extrinsics_id] = _rotation_align_to_zup(gravity_up)
+
     master_to_zup = np.eye(4, dtype=np.float64)
-    master_to_zup[:3, :3] = _MASTER_TO_ZUP
+    master_to_zup[:3, :3] = _GRAVITY_ALIGN_CACHE[extrinsics_id].astype(np.float64)
     return (master_to_zup @ cam_to_master).astype(np.float32)
 
 
@@ -439,6 +564,25 @@ class DexYCBDatasetLoader(DatasetLoaderBase):
                 pca_pose, self._left_components, self._left_hands_mean
             )
         finger_pose = finger_pose.astype(np.float32)
+        betas = _read_mano_betas(dexycb_dir, src.mano_calib)
+        active_layer = self._right_layer if active_side == "right" else self._left_layer
+        # manotorch (center_idx=None) uses wrist_world = J0 + transl, so when we
+        # rotate the world frame we must rotate that wrist anchor too.  If we
+        # only do R @ transl, the hand drifts away from the objects after the
+        # gravity-alignment rotation.
+        with torch.no_grad():
+            zero_pose = torch.zeros(1, 3 + 45, dtype=torch.float32)
+            active_joint0 = (
+                active_layer(
+                    pose_coeffs=zero_pose,
+                    betas=torch.from_numpy(betas).float().unsqueeze(0),
+                )
+                .joints[0, 0]
+                .detach()
+                .cpu()
+                .numpy()
+                .astype(np.float32)
+            )
 
         # Camera frame -> gravity-aligned Z-up world via per-session
         # extrinsic composed with master-cam->Z-up rotation. We also fold a
@@ -447,11 +591,14 @@ class DexYCBDatasetLoader(DatasetLoaderBase):
         # plane at z = 0; without it, sequences where the object rests at
         # tabletop below the master-frame origin clip into the ground and
         # drive continuous physics oscillation (aka hand shake on grasp).
-        c2w = _load_cam_to_world(dexycb_dir, src.extrinsics_id, src.camera_serial)
+        c2w = _load_cam_to_world(
+            dexycb_dir, src.extrinsics_id, src.camera_serial, src.camera_dir
+        )
         R = c2w[:3, :3]
         t = c2w[:3, 3]
-        # Provisional active-hand trans in world frame.
-        trans_world = (R @ trans.T).T + t
+        # Provisional active-hand trans in world frame.  The J0 correction is
+        # required for consistency with the rotated MANO global_orient.
+        trans_world = (R @ (trans + active_joint0).T).T + t - active_joint0
         # Peek at every frame's object origins (pose_y[k, :3, 3]) and
         # transform them to world; combined with the hand trans this gives
         # the scene's world-frame Z extent.
@@ -470,7 +617,15 @@ class DexYCBDatasetLoader(DatasetLoaderBase):
             if obj_z_world
             else (float(trans_world[:, 2].min()),)
         )
-        _GROUND_MARGIN = 0.02  # tabletop 2 cm above Isaac Sim's floor plane
+        # Match h2o_loader's generous margin so the scene floats comfortably
+        # above Isaac Sim's floor regardless of which mesh half-extent
+        # happens to straddle the reconstruct ground-filter (0.05 m).  YCB
+        # objects are smaller than H2O (tallest ~20 cm), but the same
+        # "centroid vs vertex bottom" mismatch still applies for thin/tall
+        # items (e.g. 019_pitcher_base, 011_banana) — 1 m is empirically
+        # safe across both datasets and dummy_agent's auto-framed camera
+        # hides the absolute offset anyway.
+        _GROUND_MARGIN = 1.0  # m above Isaac Sim's floor plane
         z_lift = max(0.0, _GROUND_MARGIN - scene_min_z)
         c2w[2, 3] += z_lift
         t = c2w[:3, 3]
@@ -478,9 +633,7 @@ class DexYCBDatasetLoader(DatasetLoaderBase):
         for i in range(H):
             Rm = Rotation.from_rotvec(global_orient[i]).as_matrix()
             global_orient[i] = Rotation.from_matrix(R @ Rm).as_rotvec()
-        trans = (R @ trans.T).T + t
-
-        betas = _read_mano_betas(dexycb_dir, src.mano_calib)
+        trans = (R @ (trans + active_joint0).T).T + t - active_joint0
 
         # Fill the idle hand with a zero pose parked below the ground plane.
         # DexYCB is single-handed (``mano_side`` selects which); if the idle
@@ -538,8 +691,16 @@ class DexYCBDatasetLoader(DatasetLoaderBase):
         last = [np.eye(4, dtype=np.float32) for _ in range(M)]
         c2w = self._cam_to_world_cache.get(sequence_info.sequence_id)
         if c2w is None:
+            # Cold-cache fallback.  Reloads extrinsic + re-estimates gravity
+            # via the per-batch cache inside ``_load_cam_to_world``, so the
+            # result includes the correct master->Z-up rotation — but NOT
+            # the ``z_lift`` applied in ``load_mano_data``, which depends on
+            # hand trans and is only computed when MANO data is loaded
+            # first.  Intended as a safety net, not the common path.
             dexycb_dir = Path(getattr(self._args, "dexycb_dir", DEFAULT_DEXYCB_DIR))
-            c2w = _load_cam_to_world(dexycb_dir, src.extrinsics_id, src.camera_serial)
+            c2w = _load_cam_to_world(
+                dexycb_dir, src.extrinsics_id, src.camera_serial, src.camera_dir
+            )
 
         for f_idx, fid in enumerate(frame_ids):
             arr = np.load(src.camera_dir / f"labels_{fid}.npz")
@@ -619,8 +780,18 @@ class DexYCBDatasetLoader(DatasetLoaderBase):
         return load_meshes_to_device(mesh_paths, device, vertex_scale=1.0)
 
     def get_mano_kwargs(self) -> dict[str, Any]:
-        """We pre-expand PCA -> axis-angle, so MANO FK runs with use_pca=False."""
-        return {"flat_hand_mean": False, "center_idx": None}
+        """MANO kwargs paired with the pose we store.
+
+        :func:`_expand_pca_to_aa` already bakes ``hands_mean`` into the
+        45-dim axis-angle finger pose we hand off.  MANO's internal layer
+        with ``flat_hand_mean=False`` would add ``hands_mean`` on top
+        *again*, double-counting the mean pose and pushing fingertips up
+        to ~9 cm off ground truth.  ``flat_hand_mean=True`` tells the
+        layer to take our finger pose as absolute — verified joint-for-
+        joint against DexYCB's ``joint_3d`` (0 mm error, vs 33 mm mean
+        with ``flat_hand_mean=False``).
+        """
+        return {"flat_hand_mean": True, "center_idx": None}
 
     def get_fps(self) -> float:
         """Return DexYCB capture rate (30 Hz)."""
