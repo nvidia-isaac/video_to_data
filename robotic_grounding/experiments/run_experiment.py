@@ -322,6 +322,9 @@ def generate_multi_sequence_workflow(
     project = config.get("wandb_project", "v2p_hands")
     eval_video_only = config.get("eval_video_only", False)
     video = config.get("video", True)
+    video_length = config.get("video_length")
+    video_interval = config.get("video_interval")
+    eval_episodes_per_save = config.get("eval_episodes_per_save", 0)
     seed = config.get("seed")
     num_envs = config.get("num_envs")
     use_primitive_urdfs = config.get("use_primitive_urdfs", False)
@@ -355,6 +358,9 @@ def generate_multi_sequence_workflow(
             num_envs=num_envs,
             video=video,
             eval_video_only=eval_video_only,
+            video_length=video_length,
+            video_interval=video_interval,
+            eval_episodes_per_save=eval_episodes_per_save,
             logger="wandb",
             log_project_name=project,
             use_primitive_urdfs=use_primitive_urdfs,

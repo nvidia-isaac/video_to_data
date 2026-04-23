@@ -70,6 +70,9 @@ def build_train_command(
     headless: bool = True,
     video: bool = True,
     eval_video_only: bool = False,
+    video_length: int | None = None,
+    video_interval: int | None = None,
+    eval_episodes_per_save: int = 0,
     task: str = "Sharpa-V2P-v0",
     logger: str | None = None,
     log_project_name: str | None = None,
@@ -92,6 +95,12 @@ def build_train_command(
     cmd = [c for c in cmd if c]  # drop empty
     if eval_video_only:
         cmd.append("--eval_video_only")
+    if video_length is not None:
+        cmd.extend(["--video_length", str(video_length)])
+    if video_interval is not None:
+        cmd.extend(["--video_interval", str(video_interval)])
+    if eval_episodes_per_save > 0:
+        cmd.extend(["--eval_episodes_per_save", str(eval_episodes_per_save)])
     if resume_from:
         cmd.extend(["--resume", "--checkpoint", resume_from])
     if seed is not None:
@@ -122,6 +131,9 @@ def make_entry_script(
     use_timestamp: bool = True,
     video: bool = True,
     eval_video_only: bool = False,
+    video_length: int | None = None,
+    video_interval: int | None = None,
+    eval_episodes_per_save: int = 0,
     task: str = "Sharpa-V2P-v0",
     logger: str = "wandb",
     log_project_name: str = "v2p_hands",
@@ -144,6 +156,9 @@ def make_entry_script(
         max_iterations=max_iterations,
         video=video,
         eval_video_only=eval_video_only,
+        video_length=video_length,
+        video_interval=video_interval,
+        eval_episodes_per_save=eval_episodes_per_save,
         task=task,
         logger=logger,
         log_project_name=log_project_name,
