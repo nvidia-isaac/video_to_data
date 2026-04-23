@@ -23,3 +23,6 @@ COPY . /workspace
 RUN pip install -e /workspace/v2d_mv \
     -e /workspace/v2d_common \
     -e /workspace/v2d_grounding_dino/lib
+
+# Bake model weights into image
+COPY weights/grounding_dino /data/models/grounding_dino

@@ -216,6 +216,23 @@ RUN git clone https://github.com/Parskatt/RoMa.git /RoMa && \
 WORKDIR /workspace/3d-object-reconstruction
 RUN pip3 install -e src/
 
+# Fix upstream bug: zfar dynamic computation to prevent mesh clipping during
+# texture baking (mirrors the same patch in v2d_bundlesdf/docker/Dockerfile).
+RUN python3 - <<'EOF'
+import pathlib
+f = pathlib.Path("/workspace/3d-object-reconstruction/src/nvidia/objectreconstruction/networks/nerf_runner.py")
+src = f.read_text()
+old = "    renderer = ModelRendererOffscreen([], cam_K=K, H=Height, W=Width, zfar=far*sc_factor)"
+new = (
+    "    cam_dists = np.linalg.norm(poses[:, :3, 3], axis=-1)\n"
+    "    computed_zfar = max(far * sc_factor, float(cam_dists.max()) * 2.0)\n"
+    "    renderer = ModelRendererOffscreen([], cam_K=K, H=Height, W=Width, zfar=computed_zfar)"
+)
+assert old in src, "zfar anchor not found in nerf_runner.py"
+f.write_text(src.replace(old, new, 1))
+print("nerf_runner.py patched successfully")
+EOF
+
 # Final cleanup
 RUN ldconfig && \
     apt-get autoremove -y && apt-get clean && \
@@ -233,3 +250,27 @@ RUN pip install -e /workspace/v2d_common
 COPY v2d_hoi_object_reconstruction/__init__.py /workspace/v2d_hoi_object_reconstruction/__init__.py
 COPY v2d_hoi_object_reconstruction/lib /workspace/v2d_hoi_object_reconstruction/lib
 ENV PYTHONPATH=/workspace:$PYTHONPATH
+
+# Install v2d_sam2 (SAM2 video segmentation wrapper).
+# Touch a top-level __init__.py so `import v2d_sam2` resolves to
+# /workspace/v2d_sam2/ and ${SAM2_PKG}/lib/video_to_masks.py is found.
+COPY v2d_sam2 /workspace/v2d_sam2
+RUN touch /workspace/v2d_sam2/__init__.py && \
+    pip install --no-deps -e /workspace/v2d_sam2/lib
+
+# Install v2d_bundlesdf lib so `python3 -m v2d_bundlesdf.lib.reconstruct` works.
+# The default config path /workspace/v2d_bundlesdf/lib/data/configs/... is satisfied
+# by copying the lib tree to that exact location.
+COPY v2d_bundlesdf/lib /workspace/v2d_bundlesdf/lib
+RUN pip install --no-deps -e /workspace/v2d_bundlesdf/lib
+
+# Bake model weights into image
+COPY weights/foundationstereo /data/models/foundationstereo
+COPY weights/sam2             /data/models/sam2
+COPY weights/roma             /data/models/bundlesdf/roma
+
+# Add SAM2 config under configs/sam2.1/ so Hydra config search finds it
+# when HYDRA_CONFIG_SEARCH_PATH is set to /data/models/sam2/
+RUN mkdir -p /data/models/sam2/configs/sam2.1 && \
+    ln -sf /data/models/sam2/sam2.1_hiera_l.yaml \
+           /data/models/sam2/configs/sam2.1/sam2.1_hiera_l.yaml

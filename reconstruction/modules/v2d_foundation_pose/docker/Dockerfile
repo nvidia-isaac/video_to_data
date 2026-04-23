@@ -87,3 +87,6 @@ RUN cd /workspace/v2d_foundation_pose/lib/FoundationPose/bundlesdf/mycuda && \
 
 RUN pip install -e "/workspace/v2d_mv[io,math]" \
     -e /workspace/v2d_common -e /workspace/v2d_mesh/lib -e /workspace/v2d_foundation_pose/lib
+
+# Bake model weights into image
+COPY weights/foundationpose /data/models/foundationpose

@@ -178,9 +178,8 @@ new = (
     "    # sit at distance >1.9 from the mesh center).\n"
     "    cam_dists = np.linalg.norm(poses[:, :3, 3], axis=-1)\n"
     "    computed_zfar = max(far * sc_factor, float(cam_dists.max()) * 2.0)\n"
-    "    logger.info(f\"Texture baking zfar: {computed_zfar:.3f} \"\n"
-    "                f\"(far={far}, sc_factor={sc_factor:.3f}, max_cam_dist={cam_dists.max():.3f})\")\n"
-    "\n"
+    "    print(f\"Texture baking zfar: {computed_zfar:.3f} \"\n"
+    "          f\"(far={far}, sc_factor={sc_factor:.3f}, max_cam_dist={cam_dists.max():.3f})\")\n"
     "    renderer = ModelRendererOffscreen([], cam_K=K, H=Height, W=Width, zfar=computed_zfar)"
 )
 assert old in src, "zfar anchor not found in nerf_runner.py"

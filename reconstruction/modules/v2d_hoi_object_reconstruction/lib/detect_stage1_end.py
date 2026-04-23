@@ -104,6 +104,53 @@ def sliding_window_slope(angles_deg, window):
     return slopes
 
 
+# ── Cumulative-angle plateau detection ────────────────────────────────────────
+
+def detect_cumangle_plateau(seq_indices, angles_deg, tail_exclude_frac=0.15,
+                             angle_threshold=20.0, min_span_frames=50):
+    """
+    Find the longest span in original-frame space (seq_idx) where the cumulative
+    azimuthal angle changes by less than angle_threshold degrees.
+
+    This corresponds directly to the flat region visible in the cumulative-angle
+    plot: when the camera stops or nearly stops, the angle freezes while seq_idx
+    keeps advancing.  The method works whether the camera makes a hard stop (SfM
+    gap) or a gradual slowdown (many low-velocity keyframes).
+
+    Algorithm: two-pointer scan over the sorted (seq_idx, cumulative_angle) pairs.
+      For each right pointer, advance left until |angle[right]-angle[left]| <=
+      angle_threshold.  Track the window with the longest seq_idx span.
+
+    Returns (kf_left, kf_right, span_seq_frames, 'cumangle_plateau')
+      kf_left / kf_right — keyframe array indices for the plateau window endpoints
+    or (None, None, 0, 'no_plateau').
+    """
+    N = len(seq_indices)
+    if N < 2:
+        return None, None, 0, 'no_plateau'
+
+    tail_start_idx = int(N * (1.0 - tail_exclude_frac))
+    best_span  = 0
+    best_left  = None
+    best_right = None
+    left       = 0
+
+    for right in range(N):
+        # Shrink from left until angle change is within threshold
+        while abs(angles_deg[right] - angles_deg[left]) > angle_threshold:
+            left += 1
+        # Window [left, right] satisfies the angle constraint
+        span = int(seq_indices[right]) - int(seq_indices[left])
+        if left < tail_start_idx and span > best_span:
+            best_span  = span
+            best_left  = left
+            best_right = right
+
+    if best_left is not None and best_span >= min_span_frames:
+        return best_left, best_right, best_span, 'cumangle_plateau'
+    return None, None, 0, 'no_plateau'
+
+
 # ── Plateau detection ──────────────────────────────────────────────────────────
 
 def detect_longest_plateau(slopes, median_slope, drop_frac, min_len,
@@ -285,12 +332,29 @@ def main():
     print(f"Qualify threshold:              global min must be < {median_slope * 0.65:.3f} °/keyframe  "
           f"(65% of median)")
 
-    # ── Detect longest sustained low-slope plateau (full sequence) ───────────
-    plateau_idx, plateau_len, method = detect_longest_plateau(
-        slopes_smooth, median_slope,
-        args.slope_drop_frac, args.min_plateau_len,
+    # ── Detect transition: cumulative-angle plateau first, slope-based fallback ─
+    # Primary: find the longest window in seq_idx space where cumulative angle
+    # changes by < angle_threshold degrees.  This directly reflects the flat
+    # region visible in the cumulative-angle plot and is robust to both hard
+    # camera stops (SfM gap → large seq_idx span with few keyframes) and gradual
+    # slowdowns (many low-velocity keyframes).
+    plateau_kf_l, plateau_kf_r, plateau_span_frames, method = detect_cumangle_plateau(
+        seq_indices, angles_deg,
         tail_exclude_frac=args.tail_exclude_frac,
     )
+    if plateau_kf_l is not None:
+        plateau_idx = plateau_kf_l
+        plateau_len = plateau_kf_r - plateau_kf_l + 1  # keyframes in window
+        print(f"Cumangle plateau detected: kf [{plateau_kf_l}..{plateau_kf_r}], "
+              f"seq [{seq_indices[plateau_kf_l]}..{seq_indices[plateau_kf_r]}], "
+              f"span={plateau_span_frames} frames, len={plateau_len} keyframes")
+    else:
+        print("  → no cumangle plateau found, falling back to slope-based detection")
+        plateau_idx, plateau_len, method = detect_longest_plateau(
+            slopes_smooth, median_slope,
+            args.slope_drop_frac, args.min_plateau_len,
+            tail_exclude_frac=args.tail_exclude_frac,
+        )
 
     if plateau_idx is not None:
         # Apply angle buffer: back off toward 0 by buffer_deg from the plateau start.

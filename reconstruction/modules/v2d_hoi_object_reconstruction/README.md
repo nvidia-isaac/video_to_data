@@ -10,7 +10,53 @@ Two reconstruction modes:
 
 ## Data Collection
 
-_Coming soon._
+### Hardware
+
+- **Stereo camera** — required; the pipeline uses left/right image pairs for stereo depth (FoundationStereo) and calibration. Example: Hawk Stereo Camera (Leopard Imaging), 149.6 mm baseline, ~1920×1113, 30 FPS.
+- **Compute** — NVIDIA Orin (backpack configuration) for on-device recording.
+- Output is stored in MCAP bag format and converted to `mapping_data` layout before running this pipeline.
+
+### Background Surface
+
+The camera pose estimation (CuSFM) relies on visual features in the background, not just on the object itself. A featureless background will cause SfM to fail.
+
+- **Recommended:** checkboard or textured table surface — high-contrast, feature-rich.
+- **Acceptable:** wood grain, patterned matte surface.
+- **Avoid:** plain white/black, glass, mirrors, or any reflective/uniform surface.
+
+### Scanning Protocol (BundleSDF)
+
+BundleSDF requires a two-stage scan: the pipeline auto-detects the transition between stages from the CuSFM camera trajectory.
+
+**Stage 1 — Object stationary, camera orbits:**
+1. Place the object at the center of the background surface.
+2. Walk slowly around the object in a full 360° circle, keeping the camera aimed at the object center.
+3. Maintain distance of ~50–100 cm and consistent height (roughly object mid-height).
+4. Speed: ~5–10 s per 90°, ~20–40 s total. Overlap between consecutive frames: ~50–70%.
+5. This captures all vertical faces.
+
+**Transition — Rotate object while continuing to move:**
+1. **Do not stop or pause recording.**
+2. While continuing to walk, reach in and rotate the object ~90° to expose the bottom face.
+3. Brief hand occlusion is expected and handled automatically (a few frames will be dropped).
+4. Keep the motion slow and smooth (~3–5 s for the rotation).
+
+**Stage 2 — Object in new position, camera continues orbiting:**
+1. Continue the circular scan after the rotation.
+2. Complete another 360° pass to capture the previously hidden bottom face.
+3. Stop recording. The full sequence covers all six faces.
+
+### Scanning Protocol (SAM3D)
+
+SAM3D does not require a two-stage scan. A single circular orbit is sufficient — the pipeline selects representative frames across azimuthal bins (default: every 60°) and reconstructs independently per frame.
+
+The two-stage structure is still useful here: Stage 1 frames (object stationary) are used for scale estimation, so capturing a clean Stage 1 pass before any rotation gives better results.
+
+### Object Requirements
+
+- **Rigid** — the object must not deform during scanning.
+- **Text-detectable** — Grounding DINO identifies the object from a text prompt (e.g. `"bowl"`); use a specific, unambiguous description.
+- **Segmentable** — SAM2 tracks the object mask from a reference frame; the object boundary should be clearly distinguishable from the background.
 
 ---
 
