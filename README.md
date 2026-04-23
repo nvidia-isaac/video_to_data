@@ -24,49 +24,6 @@ Monorepo for **Video to Data (V2D)** — an end-to-end pipeline that converts hu
 | [`reconstruction/`](reconstruction/) | Video → depth, masks, meshes, 6D poses, human body. 18 containerized modules + multi-view pipelines. | Docker (per-module images) |
 | [`robotic_grounding/`](robotic_grounding/) | RL training on NVIDIA Isaac Lab 2.3.1 with RSL-RL (PPO); motion retargeting utilities. | Docker (`nvcr.io/nvstaging/isaac-amr`) |
 
-## Environment & Credentials
-
-Retrieve your CSS/PDX keys from `~/.config/osmo/config.yaml` under `swift://pdx.s8k.io/AUTH_team-isaac`.
-
-**Option A — Edit the credentials file directly (simple)**
-
-Fill in your keys in `robotic_grounding/scripts/setup_css_env.sh`:
-
-```bash
-export CSS_ACCESS_KEY="<your-access-key-id>"
-export CSS_SECRET_KEY="<your-secret-key>"
-```
-
-Then source it manually when needed:
-```bash
-source robotic_grounding/scripts/setup_css_env.sh
-```
-
-**Option B — direnv (automatic, recommended)**
-
-[direnv](https://direnv.net/) auto-loads credentials whenever you `cd` into the repo.
-
-Install:
-```bash
-sudo apt-get install direnv        # Ubuntu/Debian
-# then add to ~/.bashrc:
-eval "$(direnv hook bash)"
-```
-
-Create a **gitignored** `.envrc.local` in the repo root:
-```bash
-# .envrc.local
-export CSS_ACCESS_KEY="<your-access-key-id>"
-export CSS_SECRET_KEY="<your-secret-key>"
-```
-
-Allow direnv to load it (one-time, per clone):
-```bash
-direnv allow
-```
-
-Credentials are then injected automatically on every `cd` into the repo.
-
 ## Prerequisites
 
 - Docker with GPU support ([install](https://docs.docker.com/engine/install/ubuntu/))
@@ -128,14 +85,9 @@ See [robotic_grounding/README.md](robotic_grounding/README.md) for retargeting, 
 
 ### Visualizer (retargeting gallery)
 
-Browse retargeted sequences as 3D animations in a browser:
+Browse retargeted sequences as 3D animations at **http://10.111.83.14:8080/**
 
-```bash
-python robotic_grounding/visualizer/sync_visualizer_data.py   # download datasets
-python robotic_grounding/visualizer/serve.py                   # http://<server-ip>:8080
-```
-
-See [robotic_grounding/visualizer/README.md](robotic_grounding/visualizer/README.md) for setup, data layout, and how to generate `.viser` files from processed Parquets.
+See [robotic_grounding/README.md#visualizer](robotic_grounding/README.md#visualizer) for setup instructions.
 
 ## Design Philosophy
 

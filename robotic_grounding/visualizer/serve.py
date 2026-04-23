@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Robotics Visualizer Gallery Server
+"""Robotics Visualizer Gallery Server.
 
 Serves all datasets under a data directory. Datasets are discovered automatically
 by scanning for the pattern: v2d_{name}_retarget*/*/recordings/*.viser
@@ -14,12 +13,13 @@ Usage:
 
 import argparse
 import json
-import re
 import mimetypes
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import re
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from socketserver import ThreadingMixIn
-from urllib.parse import urlparse, unquote
+from typing import Any
+from urllib.parse import unquote, urlparse
 
 CHUNK = 1024 * 1024  # 1 MB read chunks
 
@@ -36,8 +36,9 @@ _LIVE_MOUNTS: dict[str, Path] = {}
 
 # ── Dataset discovery ─────────────────────────────────────────────────────────
 
-def _vc_bundle_key(vc_dir: Path):
-    """(filename, size) of the main JS bundle — identifies identical viser-client builds."""
+
+def _vc_bundle_key(vc_dir: Path) -> tuple[str, int] | None:
+    """Return (filename, size) of the main JS bundle to identify identical viser-client builds."""
     bundles = sorted(vc_dir.glob("assets/index-*.js"))
     if not bundles:
         return None
@@ -45,7 +46,7 @@ def _vc_bundle_key(vc_dir: Path):
     return (b.name, b.stat().st_size)
 
 
-def discover_datasets():
+def discover_datasets() -> list[dict]:  # type: ignore[type-arg]
     """Scan for datasets under DATA_DIR and any --html-dir mounts."""
     datasets = []
     # bundle_key -> canonical vc path; identical builds share one browser-cache entry
@@ -53,7 +54,7 @@ def discover_datasets():
 
     # ── standard layout: DATA_DIR/v2d_*/*/recordings ──────────────────────────
     for recordings_dir in sorted(DATA_DIR.glob("v2d_*/*/recordings")):
-        top = recordings_dir.parts[-3]          # e.g. v2d_h2o_retarget_exp_200
+        top = recordings_dir.parts[-3]  # e.g. v2d_h2o_retarget_exp_200
         m = re.match(r"v2d_(.+?)_retarget", top)
         if not m:
             continue
@@ -80,18 +81,22 @@ def discover_datasets():
         for f in viser_files:
             stem = f.stem
             mp4 = recordings_dir / f"{stem}.mp4"
-            recordings.append({
-                "stem": stem,
-                "viser": f"{rec_rel}/{f.name}",
-                "mp4": f"{rec_rel}/{stem}.mp4" if mp4.exists() else None,
-            })
+            recordings.append(
+                {
+                    "stem": stem,
+                    "viser": f"{rec_rel}/{f.name}",
+                    "mp4": f"{rec_rel}/{stem}.mp4" if mp4.exists() else None,
+                }
+            )
 
-        datasets.append({
-            "name": name,
-            "viser_client": vc_rel,
-            "count": len(viser_files),
-            "recordings": recordings,
-        })
+        datasets.append(
+            {
+                "name": name,
+                "viser_client": vc_rel,
+                "count": len(viser_files),
+                "recordings": recordings,
+            }
+        )
 
     # ── --html-dir mounts: each dir has recordings/ directly inside ───────────
     for prefix, html_dir in sorted(_LIVE_MOUNTS.items()):
@@ -121,18 +126,22 @@ def discover_datasets():
         for f in viser_files:
             stem = f.stem
             mp4 = recordings_dir / f"{stem}.mp4"
-            recordings.append({
-                "stem": stem,
-                "viser": f"{rec_rel}/{f.name}",
-                "mp4": f"{rec_rel}/{stem}.mp4" if mp4.exists() else None,
-            })
+            recordings.append(
+                {
+                    "stem": stem,
+                    "viser": f"{rec_rel}/{f.name}",
+                    "mp4": f"{rec_rel}/{stem}.mp4" if mp4.exists() else None,
+                }
+            )
 
-        datasets.append({
-            "name": name,
-            "viser_client": vc_rel,
-            "count": len(viser_files),
-            "recordings": recordings,
-        })
+        datasets.append(
+            {
+                "name": name,
+                "viser_client": vc_rel,
+                "count": len(viser_files),
+                "recordings": recordings,
+            }
+        )
 
     return datasets
 
@@ -555,9 +564,12 @@ fetch('/api/datasets')
 
 # ── HTTP Handler ──────────────────────────────────────────────────────────────
 
-class Handler(BaseHTTPRequestHandler):
 
-    def do_GET(self):
+class Handler(BaseHTTPRequestHandler):
+    """HTTP request handler for the gallery server."""
+
+    def do_GET(self) -> None:
+        """Serve gallery HTML, dataset API, and static files."""
         raw_path = unquote(urlparse(self.path).path).lstrip("/")
 
         # Gallery root
@@ -574,7 +586,7 @@ class Handler(BaseHTTPRequestHandler):
         file_path = None
         for prefix, html_dir in _LIVE_MOUNTS.items():
             if raw_path == prefix or raw_path.startswith(prefix + "/"):
-                rel = raw_path[len(prefix):].lstrip("/")
+                rel = raw_path[len(prefix) :].lstrip("/")
                 file_path = html_dir / rel if rel else html_dir
                 break
         if file_path is None:
@@ -589,7 +601,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # ── helpers ──
 
-    def _send_text(self, body: str, ctype: str):
+    def _send_text(self, body: str, ctype: str) -> None:
         data = body.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", ctype)
@@ -597,7 +609,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def _send_json(self, obj):
+    def _send_json(self, obj: Any) -> None:
         data = json.dumps(obj, indent=2).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -606,7 +618,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def _send_file(self, file_path: Path):
+    def _send_file(self, file_path: Path) -> None:
         mime = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
         size = file_path.stat().st_size
 
@@ -624,9 +636,9 @@ class Handler(BaseHTTPRequestHandler):
         if range_hdr:
             m = re.match(r"bytes=(\d+)-(\d*)", range_hdr)
             if m:
-                start  = int(m.group(1))
-                end    = int(m.group(2)) if m.group(2) else size - 1
-                end    = min(end, size - 1)
+                start = int(m.group(1))
+                end = int(m.group(2)) if m.group(2) else size - 1
+                end = min(end, size - 1)
                 length = end - start + 1
                 self.send_response(206)
                 self.send_header("Content-Type", mime)
@@ -646,7 +658,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self._stream(file_path, 0, size)
 
-    def _stream(self, file_path: Path, offset: int, length: int):
+    def _stream(self, file_path: Path, offset: int, length: int) -> None:
         try:
             with open(file_path, "rb") as f:
                 f.seek(offset)
@@ -660,26 +672,39 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass  # client navigated away mid-transfer
 
-    def log_message(self, fmt, *args):
-        pass  # suppress per-request noise
+    def log_message(self, fmt: str, *args: object) -> None:
+        """Suppress per-request noise."""
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
-def main():
-    global DATA_DIR
+
+def main() -> None:
+    """Parse CLI arguments and start the threaded HTTP server."""
+    global DATA_DIR  # noqa: PLW0603
 
     parser = argparse.ArgumentParser(description="Robotics Visualizer Gallery Server")
-    parser.add_argument("--host", default="0.0.0.0",
-                        help="Bind address (default: 0.0.0.0 — all interfaces)")
-    parser.add_argument("--port", type=int, default=8080,
-                        help="Port (default: 8080)")
-    parser.add_argument("--data-dir", type=Path, default=DATASETS_DIR,
-                        help="Directory containing v2d_* dataset folders (default: visualizer/datasets/)")
-    parser.add_argument("--html-dir", type=Path, action="append", default=[],
-                        metavar="DIR",
-                        help="Extra html output dir (has recordings/ directly inside). "
-                             "Can be repeated. E.g. the --html_dir passed to vis_retargeted.py.")
+    parser.add_argument(
+        "--host",
+        default="0.0.0.0",
+        help="Bind address (default: 0.0.0.0 — all interfaces)",
+    )
+    parser.add_argument("--port", type=int, default=8080, help="Port (default: 8080)")
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=DATASETS_DIR,
+        help="Directory containing v2d_* dataset folders (default: visualizer/datasets/)",
+    )
+    parser.add_argument(
+        "--html-dir",
+        type=Path,
+        action="append",
+        default=[],
+        metavar="DIR",
+        help="Extra html output dir (has recordings/ directly inside). "
+        "Can be repeated. E.g. the --html_dir passed to vis_retargeted.py.",
+    )
     args = parser.parse_args()
 
     DATA_DIR = args.data_dir.expanduser().resolve()
@@ -693,7 +718,7 @@ def main():
         _LIVE_MOUNTS[f"_live/{p.name}"] = p
 
     datasets = discover_datasets()
-    total    = sum(d["count"] for d in datasets)
+    total = sum(d["count"] for d in datasets)
 
     print(f"\n  Robotics Visualizer  →  http://{args.host}:{args.port}")
     print(f"  data dir: {DATA_DIR}")

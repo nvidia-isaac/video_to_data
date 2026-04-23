@@ -34,7 +34,6 @@ from rich.progress import (
     TaskID,
     TextColumn,
     TimeRemainingColumn,
-    TransferSpeedColumn,
 )
 
 # ---------------------------------------------------------------------------
@@ -50,15 +49,15 @@ _RICH_COLORS = ("cyan", "green", "yellow", "magenta", "blue", "red")
 # Regex to parse a tqdm progress line emitted by osmo
 # Matches: "  17%|███  | 181M/1.06G [00:05<00:22, 42.5MB/s, ...]"
 _TQDM_RE = re.compile(
-    r"^\s*(\d+)%\|"               # percentage
+    r"^\s*(\d+)%\|"  # percentage
     r".*?\|\s*"
-    r"([\d.]+\s*\S+)"             # bytes done
+    r"([\d.]+\s*\S+)"  # bytes done
     r"/"
-    r"([\d.]+\s*\S+)"             # bytes total
+    r"([\d.]+\s*\S+)"  # bytes total
     r"\s*\["
-    r"[^,<]+"                     # elapsed
-    r"<?[^,]*"                    # eta
-    r",?\s*([\d.]+\s*\S+/s)?"    # speed (optional)
+    r"[^,<]+"  # elapsed
+    r"<?[^,]*"  # eta
+    r",?\s*([\d.]+\s*\S+/s)?"  # speed (optional)
 )
 
 # Shutdown flag + registry of active subprocesses for Ctrl+C cleanup
@@ -122,12 +121,11 @@ def _stream(
     progress: Progress,
     task_id: TaskID,
 ) -> None:
-    """Read proc stdout+stderr, update the rich task on tqdm lines,
-    and print other lines (errors, info) above the progress bars.
-    """
+    """Read proc stdout+stderr; update rich progress bars and print non-tqdm lines."""
     color = _rich_color(name)
     buf = b""
 
+    assert proc.stdout is not None
     while True:
         chunk = proc.stdout.read(256)
         if not chunk:
@@ -140,9 +138,9 @@ def _stream(
             if ni == -1 and ri == -1:
                 break
             if ni == -1 or (ri != -1 and ri < ni):
-                raw, buf = buf[:ri], buf[ri + 1:]
+                raw, buf = buf[:ri], buf[ri + 1 :]
             else:
-                raw, buf = buf[:ni], buf[ni + 1:]
+                raw, buf = buf[:ni], buf[ni + 1 :]
 
             line = raw.decode(errors="replace").strip()
             if not line:
@@ -162,7 +160,9 @@ def _stream(
 
     if buf.strip():
         line = buf.decode(errors="replace").strip()
-        progress.console.print(f"[{_rich_color(name)}]\\[{name}][/{_rich_color(name)}] {line}")
+        progress.console.print(
+            f"[{_rich_color(name)}]\\[{name}][/{_rich_color(name)}] {line}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -187,16 +187,18 @@ def sync(
     # v2d_{name}_retarget_exp_200/ inside it — which is exactly dest.
     # Delete dest first so osmo creates it fresh without nesting inside itself.
     cmd = [
-        "osmo", "dataset", "download",
+        "osmo",
+        "dataset",
+        "download",
         _osmo_dataset(name),
         str(LOCAL_DATASETS_DIR),
-        "--regex", regex,
+        "--regex",
+        regex,
     ]
 
     color = _rich_color(name)
     progress.console.print(
-        f"[{color}]\\[{name}][/{color}] "
-        f"{_osmo_dataset(name)} [dim]→[/dim] {dest}"
+        f"[{color}]\\[{name}][/{color}] " f"{_osmo_dataset(name)} [dim]→[/dim] {dest}"
     )
 
     if dry_run:
@@ -218,7 +220,7 @@ def sync(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        start_new_session=True,   # own process group → killpg kills all workers
+        start_new_session=True,  # own process group → killpg kills all workers
     )
     with _procs_lock:
         _active_procs.append(proc)
@@ -233,11 +235,16 @@ def sync(
                 pass
 
     if rc == 0:
-        progress.update(task_id, completed=100,
-                        description=f"[{color}]{name:<7}[/{color}] [green]done[/green]")
+        progress.update(
+            task_id,
+            completed=100,
+            description=f"[{color}]{name:<7}[/{color}] [green]done[/green]",
+        )
     elif not _shutdown.is_set():
-        progress.update(task_id,
-                        description=f"[{color}]{name:<7}[/{color}] [red]failed (code {rc})[/red]")
+        progress.update(
+            task_id,
+            description=f"[{color}]{name:<7}[/{color}] [red]failed (code {rc})[/red]",
+        )
     return rc
 
 
@@ -262,7 +269,8 @@ def _parse_args() -> argparse.Namespace:
         help="Extra regex to narrow files within {name}_html/ (e.g. 'arctic_s01').",
     )
     parser.add_argument(
-        "--jobs", "-j",
+        "--jobs",
+        "-j",
         type=str,
         default="1",
         metavar="N|MAX",
@@ -278,6 +286,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Parse CLI args and run sequential or parallel dataset downloads."""
     args = _parse_args()
     datasets = list(DATASETS) if "all" in args.dataset else args.dataset
 
