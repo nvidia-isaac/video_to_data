@@ -86,6 +86,7 @@ workflow:
     inputs:
     - url: {{swift_output_base}}/rosbag_to_edex/
     - url: {{extrinsics_url}}
+    - url: {{mesh_url}}
     - task: rosbag_to_edex
     outputs:
     - url: {{swift_output_base}}/mv_preprocess/
@@ -93,12 +94,20 @@ workflow:
     - path: /tmp/entry.sh
       contents: |-
         set -ex
+        MESH=$(find {{input:2}} -type f \( -name "*.obj" -o -name "*.glb" -o -name "*.ply" -o -name "*.stl" \) | head -1)
+        if [ -z "$MESH" ]; then
+          echo "ERROR: No mesh file found in {{input:2}}"
+          ls -laR {{input:2}}
+          exit 1
+        fi
+        echo "Using mesh: $MESH"
         python -m v2d.mv.preprocess.lib.mv_preprocess \
           --image_dir {{input:0}}/images \
           --output_dir {{output}} \
           --camera_params_path {{input:0}}/edex \
           --extrinsics_camera_params_path {{input:1}}/edex \
-          --hoi_metadata_path {{input:0}}/hoi_metadata.yaml
+          --hoi_metadata_path {{input:0}}/hoi_metadata.yaml \
+          --mesh_path "$MESH"
 
   # Stereo depth estimation
   - name: foundation_stereo
@@ -213,7 +222,6 @@ workflow:
     - url: {{swift_output_base}}/mv_preprocess/
     - url: {{swift_output_base}}/foundation_stereo/
     - url: {{swift_output_base}}/sam2_object_masks/
-    - url: {{mesh_url}}
     - dataset: {name: v2d_mv_hoi_data}
     - task: check_object_mask
     - task: mv_preprocess
@@ -225,10 +233,10 @@ workflow:
     - path: /tmp/entry.sh
       contents: |-
         set -ex
-        MESH=$(find {{input:4}} -type f \( -name "*.obj" -o -name "*.glb" -o -name "*.ply" -o -name "*.stl" \) | head -1)
+        MESH=$(find {{input:1}}/mesh -type f \( -name "*.obj" -o -name "*.glb" -o -name "*.ply" -o -name "*.stl" \) | head -1)
         if [ -z "$MESH" ]; then
-          echo "ERROR: No mesh file found in {{input:4}}"
-          ls -laR {{input:4}}
+          echo "ERROR: No mesh file found in {{input:1}}/mesh"
+          ls -laR {{input:1}}/mesh
           exit 1
         fi
         echo "Using mesh: $MESH"
@@ -238,7 +246,7 @@ workflow:
           --depth_dir {{input:2}} \
           --mask_dir {{input:3}} \
           --mesh_path "$MESH" \
-          --weights_dir {{input:5}}/v2d_mv_hoi_data/data/weights/foundation_pose \
+          --weights_dir {{input:4}}/v2d_mv_hoi_data/data/weights/foundation_pose \
           --output_dir {{output}}
 
   # Human bounding-box detection + tracking (Detectron2)
@@ -391,7 +399,6 @@ workflow:
     - url: {{swift_output_base}}/foundation_pose/
     - url: {{swift_output_base}}/foundation_stereo/
     - url: {{swift_output_base}}/sam2_object_masks/
-    - url: {{mesh_url}}
     - task: mv_preprocess
     - task: foundation_pose
     - task: foundation_stereo
@@ -402,9 +409,9 @@ workflow:
     - path: /tmp/entry.sh
       contents: |-
         set -ex
-        MESH=$(find {{input:4}} -type f \( -name "*.obj" -o -name "*.glb" -o -name "*.ply" -o -name "*.stl" \) | head -1)
+        MESH=$(find {{input:0}}/mesh -type f \( -name "*.obj" -o -name "*.glb" -o -name "*.ply" -o -name "*.stl" \) | head -1)
         if [ -z "$MESH" ]; then
-          echo "ERROR: No mesh file found in {{input:4}}"
+          echo "ERROR: No mesh file found in {{input:0}}/mesh"
           exit 1
         fi
         for CAM in front_stereo_camera_left back_stereo_camera_left left_stereo_camera_left right_stereo_camera_left; do
@@ -458,7 +465,6 @@ workflow:
     - url: {{swift_output_base}}/mv_preprocess/
     - url: {{swift_output_base}}/foundation_pose/
     - url: {{swift_output_base}}/sam3d_body/
-    - url: {{mesh_url}}
     - task: mv_preprocess
     - task: foundation_pose
     - task: sam3d_body
@@ -468,9 +474,9 @@ workflow:
     - path: /tmp/entry.sh
       contents: |-
         set -ex
-        MESH=$(find {{input:3}} -type f \( -name "*.obj" -o -name "*.glb" -o -name "*.ply" -o -name "*.stl" \) | head -1)
+        MESH=$(find {{input:0}}/mesh -type f \( -name "*.obj" -o -name "*.glb" -o -name "*.ply" -o -name "*.stl" \) | head -1)
         if [ -z "$MESH" ]; then
-          echo "ERROR: No mesh file found in {{input:3}}"
+          echo "ERROR: No mesh file found in {{input:0}}/mesh"
           exit 1
         fi
         python -m v2d.mv.postprocess.lib.mv_render_hoi_overlay \
