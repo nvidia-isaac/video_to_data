@@ -21,8 +21,8 @@
 #   source scripts/setup_css_env.sh
 
 export CSS_ENDPOINT_URL="https://pdx.s8k.io"
-export CSS_ACCESS_KEY="REPLACE_ME"
-export CSS_SECRET_KEY="REPLACE_ME"
+export CSS_ACCESS_KEY="${CSS_ACCESS_KEY:-REPLACE_ME}"
+export CSS_SECRET_KEY="${CSS_SECRET_KEY:-REPLACE_ME}"
 export CSS_REGION="us-east-1"
 
 if [ "${CSS_ACCESS_KEY}" = "REPLACE_ME" ] || [ "${CSS_SECRET_KEY}" = "REPLACE_ME" ]; then

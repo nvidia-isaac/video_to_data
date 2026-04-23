@@ -264,3 +264,6 @@ exps/
 
 # Temporary generated YAML files (e.g. OSMO workflow submissions)
 tmp_*.yaml
+
+# Visualizer datasets (large binary recordings, downloaded via sync_visualizer_data.py)
+visualizer/datasets/
