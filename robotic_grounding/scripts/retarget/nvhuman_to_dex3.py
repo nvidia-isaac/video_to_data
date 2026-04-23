@@ -18,6 +18,7 @@ Where data_folder contains:
 """
 
 import argparse
+import pickle
 import time
 from pathlib import Path
 
@@ -25,8 +26,8 @@ import numpy as np
 import torch
 import trimesh
 import viser
+from robotic_grounding.motion_schema import MotionData, save_motion_parquet
 from robotic_grounding.retarget import G1_URDF_DIR, HUMAN_MOTION_DATA_DIR, MESHES_DIR
-from robotic_grounding.retarget.data_logger import NvhumanDex3Data
 from robotic_grounding.retarget.hand_kinematics import Dex3HandKinematics
 from robotic_grounding.retarget.params import (
     NVHUMAN_JOINTS_ORDER,
@@ -173,7 +174,12 @@ def main() -> None:
         )
 
     # Setup data logger (optional)
-    logger_data = None
+    builder: dict[str, list] | None = None
+    betas: list[float] = []
+    right_finger_joint_names: list[str] = []
+    left_finger_joint_names: list[str] = []
+    right_frame_names: list[str] = []
+    left_frame_names: list[str] = []
     if args.save:
         # Load betas from motion params (use first frame if per-frame, or just the betas)
         params = torch.load(motion_params_path)
@@ -183,32 +189,46 @@ def main() -> None:
         else:
             betas = betas_tensor.flatten().tolist()
 
-        logger_data = NvhumanDex3Data(
-            sequence_id=sequence_id,
-            raw_motion_file=motion_params_path,
-            robot_name="dex3",
-            fps=left_kin.frequency,
-            nvhuman_betas=betas,
-            right_robot_finger_joint_names=[
-                str(right_kin.robot.model.names[i])
-                for i in range(1, right_kin.robot.model.njoints)
-            ],
-            right_robot_frame_names=[
-                str(right_kin.robot.model.frames[i].name)
-                for i in range(len(right_kin.robot.model.frames))
-            ],
-            right_robot_frame_task_names=list(right_kin.target_to_source.keys()),
-            left_robot_finger_joint_names=[
-                str(left_kin.robot.model.names[i])
-                for i in range(1, left_kin.robot.model.njoints)
-            ],
-            left_robot_frame_names=[
-                str(left_kin.robot.model.frames[i].name)
-                for i in range(len(left_kin.robot.model.frames))
-            ],
-            left_robot_frame_task_names=list(left_kin.target_to_source.keys()),
-            object_name=f"{sequence_id}_object",
-        )
+        right_finger_joint_names = [
+            str(right_kin.robot.model.names[i])
+            for i in range(1, right_kin.robot.model.njoints)
+        ]
+        left_finger_joint_names = [
+            str(left_kin.robot.model.names[i])
+            for i in range(1, left_kin.robot.model.njoints)
+        ]
+        right_frame_names = [
+            str(right_kin.robot.model.frames[i].name)
+            for i in range(len(right_kin.robot.model.frames))
+        ]
+        left_frame_names = [
+            str(left_kin.robot.model.frames[i].name)
+            for i in range(len(left_kin.robot.model.frames))
+        ]
+        builder = {
+            # EE poses: [left, right] per frame, each [x, y, z, qw, qx, qy, qz].
+            "ee_pose_w": [],
+            # Per-side hand series.
+            "left_frames": [],
+            "right_frames": [],
+            "left_finger_joints": [],
+            "right_finger_joints": [],
+            # Object
+            "object_articulation": [],
+            "object_root_axis_angle": [],
+            "object_root_position": [],
+            "object_body_position": [],
+            "object_body_wxyz": [],
+            # Diagnostics (combined both-hand IK error)
+            "frame_task_errors": [],
+            # Source raw
+            "nvhuman_joints": [],
+            "nvhuman_joints_wxyz": [],
+            "nvhuman_head_translation": [],
+            "nvhuman_head_wxyz": [],
+            "nvhuman_root_translation": [],
+            "nvhuman_root_wxyz": [],
+        }
 
     # Get joint indices
     left_hand_idx = NVHUMAN_JOINTS_ORDER.index("LeftHand")
@@ -286,35 +306,40 @@ def main() -> None:
         root_rotation_wxyz = root_rotation.as_quat(scalar_first=True)
 
         # Log timestep data
-        if logger_data is not None:
-            logger_data.log_timestep(
-                nvhuman_joints=positions.tolist(),
-                nvhuman_joints_wxyz=rotations.tolist(),
-                nvhuman_head_translation=head_position.tolist(),
-                nvhuman_head_wxyz=head_rotation_wxyz.tolist(),
-                nvhuman_root_translation=root_position.tolist(),
-                nvhuman_root_wxyz=root_rotation_wxyz.tolist(),
-                robot_right_wrist_position=right_q[:3].tolist(),
-                robot_right_wrist_euler_xyz=right_q[3:6].tolist(),
-                robot_right_finger_joints=right_q[6:].tolist(),
-                robot_right_frames=right_result["frame_pose"].tolist(),
-                robot_right_frame_task_errors=right_result["frame_task_errors"],
-                robot_right_ik_error=float(np.sum(right_result["frame_task_errors"])),
-                robot_right_num_optimization_iterations=right_result[
-                    "num_optimization_iterations"
-                ],
-                robot_left_wrist_position=left_q[:3].tolist(),
-                robot_left_wrist_euler_xyz=left_q[3:6].tolist(),
-                robot_left_finger_joints=left_q[6:].tolist(),
-                robot_left_frames=left_result["frame_pose"].tolist(),
-                robot_left_frame_task_errors=left_result["frame_task_errors"],
-                robot_left_ik_error=float(np.sum(left_result["frame_task_errors"])),
-                robot_left_num_optimization_iterations=left_result[
-                    "num_optimization_iterations"
-                ],
-                object_root_position=obj_position.tolist(),
-                object_root_axis_angle=obj_rotation.as_rotvec().tolist(),
+        if builder is not None:
+            # Convert XYZ Euler wrist rotation to wxyz for the unified layout.
+            left_wxyz = (
+                R.from_euler("XYZ", left_q[3:6]).as_quat(scalar_first=True).tolist()
             )
+            right_wxyz = (
+                R.from_euler("XYZ", right_q[3:6]).as_quat(scalar_first=True).tolist()
+            )
+            left_ee = list(left_q[:3]) + list(left_wxyz)
+            right_ee = list(right_q[:3]) + list(right_wxyz)
+            obj_wxyz = obj_rotation.as_quat(scalar_first=True).tolist()
+
+            builder["ee_pose_w"].append([left_ee, right_ee])
+            builder["left_frames"].append(left_result["frame_pose"].tolist())
+            builder["right_frames"].append(right_result["frame_pose"].tolist())
+            builder["left_finger_joints"].append(left_q[6:].tolist())
+            builder["right_finger_joints"].append(right_q[6:].tolist())
+            builder["object_articulation"].append(0.0)
+            builder["object_root_position"].append(obj_position.tolist())
+            builder["object_root_axis_angle"].append(obj_rotation.as_rotvec().tolist())
+            builder["object_body_position"].append([obj_position.tolist()])
+            builder["object_body_wxyz"].append([obj_wxyz])
+            builder["frame_task_errors"].append(
+                [
+                    float(np.sum(left_result["frame_task_errors"])),
+                    float(np.sum(right_result["frame_task_errors"])),
+                ]
+            )
+            builder["nvhuman_joints"].append(positions.tolist())
+            builder["nvhuman_joints_wxyz"].append(rotations.tolist())
+            builder["nvhuman_head_translation"].append(head_position.tolist())
+            builder["nvhuman_head_wxyz"].append(head_rotation_wxyz.tolist())
+            builder["nvhuman_root_translation"].append(root_position.tolist())
+            builder["nvhuman_root_wxyz"].append(root_rotation_wxyz.tolist())
 
         # Update visualization
         if server is not None:
@@ -342,11 +367,57 @@ def main() -> None:
             time.sleep(5)
 
     # Save data
-    if logger_data is not None:
-        logger_data.save_to_parquet(
-            str(SAVE_DIR),
-            partition_cols=["sequence_id", "robot_name"],
+    if builder is not None:
+        T = len(builder["ee_pose_w"])
+        source_payload = pickle.dumps(
+            {
+                "nvhuman_betas": betas,
+                "nvhuman_joints": builder.pop("nvhuman_joints"),
+                "nvhuman_joints_wxyz": builder.pop("nvhuman_joints_wxyz"),
+                "nvhuman_head_translation": builder.pop("nvhuman_head_translation"),
+                "nvhuman_head_wxyz": builder.pop("nvhuman_head_wxyz"),
+                "nvhuman_root_translation": builder.pop("nvhuman_root_translation"),
+                "nvhuman_root_wxyz": builder.pop("nvhuman_root_wxyz"),
+            }
         )
+        # Dex3 is a pair of floating hands; whole-body joint state is empty.
+        md = MotionData(
+            sequence_id=sequence_id,
+            robot_name="dex3",
+            source_dataset="nvhuman",
+            raw_motion_file=motion_params_path,
+            fps=float(left_kin.frequency),
+            coord_frame="robot_base_z_up",
+            robot_joint_names=[],
+            robot_root_position=[[0.0, 0.0, 0.0] for _ in range(T)],
+            robot_root_wxyz=[[1.0, 0.0, 0.0, 0.0] for _ in range(T)],
+            robot_joint_positions=[[] for _ in range(T)],
+            ee_link_names=["left_wrist_link", "right_wrist_link"],
+            ee_pose_w=builder["ee_pose_w"],
+            object_name=f"{sequence_id}_object",
+            safe_object_name=f"{sequence_id}_object",
+            object_body_names=["object"],
+            safe_object_body_names=["object"],
+            object_mesh_paths=[],
+            object_urdf_paths=[],
+            object_articulation=builder["object_articulation"],
+            object_root_axis_angle=builder["object_root_axis_angle"],
+            object_root_position=builder["object_root_position"],
+            object_body_position=builder["object_body_position"],
+            object_body_wxyz=builder["object_body_wxyz"],
+            hand_sides=["left", "right"],
+            hand_frame_names=[left_frame_names, right_frame_names],
+            hand_frames_w=[builder["left_frames"], builder["right_frames"]],
+            hand_finger_joint_names=[left_finger_joint_names, right_finger_joint_names],
+            hand_finger_joints=[
+                builder["left_finger_joints"],
+                builder["right_finger_joints"],
+            ],
+            frame_task_errors=builder["frame_task_errors"],
+            source_kind="nvhuman",
+            source_payload=source_payload,
+        )
+        save_motion_parquet(md, root_path=str(SAVE_DIR))
         print(f"Saved to {SAVE_DIR}")
 
 

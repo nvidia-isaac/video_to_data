@@ -29,11 +29,8 @@ from typing import Any
 
 import numpy as np
 import torch
-from robotic_grounding.retarget.data_logger import (
-    ManoSharpaData,
-    NvhumanG1Data,
-)
-from robotic_grounding.retarget.params import G1_WHOLEBODY_TO_NVHUMAN_MAPPING
+from robotic_grounding.motion_schema import MotionData, save_motion_parquet
+from robotic_grounding.retarget.data_logger import ManoSharpaData
 
 # replay_data lives under robotic_grounding.tasks which transitively imports
 # Isaac Lab / Omniverse.  Use the same importlib fallback as the existing
@@ -71,9 +68,6 @@ _replay_data_mod = _load_module_directly(
 
 DualHandTrajectory = _replay_data_mod.DualHandTrajectory
 SingleRobotTrajectory = _replay_data_mod.SingleRobotTrajectory
-_is_dex3_schema = _replay_data_mod._is_dex3_schema
-_is_g1_schema = _replay_data_mod._is_g1_schema
-_is_sharpa_schema = _replay_data_mod._is_sharpa_schema
 load_replay_trajectory = _replay_data_mod.load_replay_trajectory
 
 
@@ -96,117 +90,51 @@ def _build_joint_reorder(
 
 
 # ============================================================
-# Schema detection
+# motion_v1 whole-body trajectory round-trip
 # ============================================================
 
 
-def test_schema_detection_g1() -> None:
-    """G1 schema detected from required columns."""
-    cols = {
-        "robot_root_position",
-        "robot_root_wxyz",
-        "robot_joint_positions",
-        "fps",
-    }
-    assert _is_g1_schema(cols)
-    assert not _is_sharpa_schema(cols)
-    assert not _is_dex3_schema(cols)
-
-
-def test_schema_detection_sharpa() -> None:
-    """Sharpa schema detected from required columns."""
-    cols = {
-        "robot_right_wrist_position",
-        "robot_right_wrist_wxyz",
-        "robot_right_finger_joints",
-        "robot_left_wrist_position",
-        "robot_left_wrist_wxyz",
-        "robot_left_finger_joints",
-    }
-    assert _is_sharpa_schema(cols)
-    assert not _is_g1_schema(cols)
-    assert not _is_dex3_schema(cols)
-
-
-def test_schema_detection_dex3() -> None:
-    """Dex3 schema detected from required columns."""
-    cols = {
-        "robot_right_wrist_position",
-        "robot_right_wrist_euler_xyz",
-        "robot_right_finger_joints",
-        "robot_left_wrist_position",
-        "robot_left_wrist_euler_xyz",
-        "robot_left_finger_joints",
-    }
-    assert _is_dex3_schema(cols)
-    assert not _is_g1_schema(cols)
-    assert not _is_sharpa_schema(cols)
-
-
-# ============================================================
-# G1 trajectory round-trip
-# ============================================================
-
-
-def _write_g1_parquet(output_dir: Path) -> Path:
-    """Write a minimal NvhumanG1Data parquet and return the partition dir."""
+def _write_motion_v1_g1_parquet(output_dir: Path) -> Path:
+    """Write a minimal motion_v1 whole-body parquet and return the partition dir."""
     seq_id = "replay_test_seq"
     robot_name = "g1"
-    frame_task_errors = [0.0] * len(G1_WHOLEBODY_TO_NVHUMAN_MAPPING)
     joint_names = ["joint_a", "joint_b"]
-
-    data = NvhumanG1Data(
+    t = 5
+    md = MotionData(
         sequence_id=seq_id,
-        raw_motion_file="fake.pt",
         robot_name=robot_name,
+        source_dataset="nvhuman",
+        raw_motion_file="fake.pt",
         fps=30.0,
-        nvhuman_betas=[0.0] * 10,
+        coord_frame="robot_base_z_up",
         robot_joint_names=joint_names,
-        robot_frame_names=["pelvis"],
-        robot_frame_task_names=list(G1_WHOLEBODY_TO_NVHUMAN_MAPPING.keys()),
-        source_to_robot_scale=1.0,
+        robot_root_position=[[0.0, 0.0, 0.1 * i] for i in range(t)],
+        robot_root_wxyz=[[1.0, 0.0, 0.0, 0.0] for _ in range(t)],
+        robot_joint_positions=[[0.1 * i, -0.1 * i] for i in range(t)],
+        ee_link_names=["left_hand_palm_link", "right_hand_palm_link"],
+        ee_pose_w=[
+            [[0.0, 0.0, 0.8, 1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.8, 1.0, 0.0, 0.0, 0.0]]
+            for _ in range(t)
+        ],
         object_name="test_obj",
-        safe_object_name="test_obj",
-        object_body_names=[],
-        safe_object_body_names=[],
-        object_mesh_paths=[],
-        object_urdf_paths=[],
-        object_mesh_radius=[],
+        object_body_names=["test_obj"],
+        object_body_position=[[[0.2, 0.3, 0.4 + 0.01 * i]] for i in range(t)],
+        object_body_wxyz=[[[1.0, 0.0, 0.0, 0.0]] for _ in range(t)],
+        object_root_position=[[0.2, 0.3, 0.4 + 0.01 * i] for i in range(t)],
+        object_root_axis_angle=[[0.0, 0.0, 0.1 * i] for i in range(t)],
+        object_articulation=[0.0 for _ in range(t)],
     )
-
-    for i in range(5):
-        data.log_timestep(
-            nvhuman_joints=[[0.0, 0.0, 0.0] for _ in range(93)],
-            nvhuman_joints_wxyz=[[1.0, 0.0, 0.0, 0.0] for _ in range(93)],
-            nvhuman_head_translation=[0.0, 0.0, 1.0 + i * 0.01],
-            nvhuman_head_wxyz=[1.0, 0.0, 0.0, 0.0],
-            nvhuman_root_translation=[0.0, 0.0, 0.8 + i * 0.01],
-            nvhuman_root_wxyz=[1.0, 0.0, 0.0, 0.0],
-            robot_root_position=[0.0, 0.0, 0.1 * i],
-            robot_root_wxyz=[1.0, 0.0, 0.0, 0.0],
-            robot_joint_positions=[0.1 * i, -0.1 * i],
-            robot_frames=[[0.0, 0.0, 0.8, 1.0, 0.0, 0.0, 0.0]],
-            robot_frame_task_errors=frame_task_errors,
-            robot_ik_error=0.0,
-            robot_num_optimization_iterations=1,
-            object_articulation=0.0,
-            object_root_axis_angle=[0.0, 0.0, 0.1 * i],
-            object_root_position=[0.2, 0.3, 0.4 + 0.01 * i],
-            object_body_position=[[0.2, 0.3, 0.4 + 0.01 * i]],
-            object_body_wxyz=[[1.0, 0.0, 0.0, 0.0]],
-        )
-
-    data.save_to_parquet(str(output_dir), partition_cols=["sequence_id", "robot_name"])
+    save_motion_parquet(md, root_path=str(output_dir))
     return output_dir / f"sequence_id={seq_id}" / f"robot_name={robot_name}"
 
 
-def test_load_g1_trajectory(tmp_path: Path) -> None:
-    """Load G1 parquet via replay adapter and verify canonical structure."""
-    partition_dir = _write_g1_parquet(tmp_path / "g1_data")
+def test_load_motion_v1_trajectory(tmp_path: Path) -> None:
+    """Load a motion_v1 whole-body parquet via the replay adapter."""
+    partition_dir = _write_motion_v1_g1_parquet(tmp_path / "g1_data")
     traj = load_replay_trajectory(str(partition_dir))
 
     assert isinstance(traj, SingleRobotTrajectory)
-    assert traj.schema == "nvhuman_g1"
+    assert traj.schema == "motion_v1"
     assert traj.robot_layout == "single_robot"
     assert traj.num_frames == 5
     assert traj.fps == 30.0
@@ -337,10 +265,7 @@ def test_build_joint_reorder_permutation() -> None:
 # ============================================================
 
 _ALL_TESTS: list[Callable[..., Any]] = [
-    test_schema_detection_g1,
-    test_schema_detection_sharpa,
-    test_schema_detection_dex3,
-    test_load_g1_trajectory,
+    test_load_motion_v1_trajectory,
     test_load_sharpa_trajectory,
     test_build_joint_reorder_identity,
     test_build_joint_reorder_permutation,

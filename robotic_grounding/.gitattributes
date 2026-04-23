@@ -6,6 +6,8 @@ pixi.lock merge=binary linguist-language=YAML linguist-generated=true
 *.STL filter=lfs diff=lfs merge=lfs -text
 *.mtl filter=lfs diff=lfs merge=lfs -text
 *.dae filter=lfs diff=lfs merge=lfs -text
+# Texture images
+*.png filter=lfs diff=lfs merge=lfs -text
 # Universal Scene Description (USD)
 *.usd filter=lfs diff=lfs merge=lfs -text
 *.usda filter=lfs diff=lfs merge=lfs -text

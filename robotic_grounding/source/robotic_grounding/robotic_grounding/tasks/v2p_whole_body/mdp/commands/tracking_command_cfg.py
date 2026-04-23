@@ -12,8 +12,9 @@ from .tracking_command import TrackingCommand
 class TrackingCommandCfg(CommandTermCfg):
     """Configuration for the whole-body tracking command term.
 
-    Loads motion data from a planner parquet file containing body qpos,
-    EE targets, hand keypoints, contacts, and object trajectories.
+    Loads motion data from a `motion_v1` parquet containing robot root pose,
+    joint positions, EE targets, hand keypoints, contacts, and object
+    trajectories. See `robotic_grounding.motion_schema` for the schema.
     """
 
     class_type: type = TrackingCommand
@@ -28,9 +29,9 @@ class TrackingCommandCfg(CommandTermCfg):
     object_body_names: list[str] = []
     """Scene attribute names for object assets. Set by apply_scene_config()."""
 
-    # Motion data source (planner parquet)
+    # Motion data source
     motion_file: str = ""
-    """Path to the planner parquet file or Hive-partitioned directory."""
+    """Path to the `motion_v1` parquet file or Hive-partitioned directory."""
 
     # Offsets applied to loaded trajectories
     object_pos_offset: list[float] = [0.0, 0.0, 0.0]
