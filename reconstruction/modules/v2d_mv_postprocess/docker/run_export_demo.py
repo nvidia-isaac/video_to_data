@@ -1,3 +1,15 @@
+"""Docker wrapper for export_demo.
+
+Load exported training data and render HOI overlay as a sanity check:
+    python -m v2d.mv.postprocess.docker.run_export_demo \\
+        --seq_dir /local/path/to/exported/sequence \\
+        --output_dir /local/path/to/demo_output \\
+        --dev
+
+seq_dir is the flat directory produced by export_sequence (containing edex,
+images/, poses.npy, mhr_mesh_mv.pt, etc.). Requires GPU for pyrender/EGL.
+"""
+
 from v2d.docker.container import run_in_container
 from v2d.mv.postprocess.docker._config import IMAGE_NAME, MODULES_DIR
 

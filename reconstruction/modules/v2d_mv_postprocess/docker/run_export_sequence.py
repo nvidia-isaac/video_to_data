@@ -1,3 +1,20 @@
+"""Docker wrapper for export_sequence.
+
+Export from CSS (remote):
+    python -m v2d.mv.postprocess.docker.run_export_sequence \\
+        --swift_output_base swift://pdx.s8k.io/AUTH_.../data_output/<seq> \\
+        --output_dir /local/path/to/sequence \\
+        --dev
+
+Export from local directory:
+    python -m v2d.mv.postprocess.docker.run_export_sequence \\
+        --source_dir /path/to/osmo/task/outputs \\
+        --output_dir /local/path/to/sequence \\
+        --dev
+
+Requires CSS_ACCESS_KEY and CSS_SECRET_KEY env vars for remote mode.
+"""
+
 import os
 from pathlib import Path
 
