@@ -16,6 +16,49 @@
 
 - NVIDIA Driver Version 580.126.09, CUDA Version: 13.0 Recommended. In case of visualization errors, check NVIDIA driver version.
 
+## Environment & Credentials
+
+Retrieve your CSS/PDX keys from `~/.config/osmo/config.yaml` under `swift://pdx.s8k.io/AUTH_team-isaac`.
+
+**Option A — Edit the credentials file directly (simple)**
+
+Fill in your keys in `scripts/setup_css_env.sh`:
+
+```bash
+export CSS_ACCESS_KEY="<your-access-key-id>"
+export CSS_SECRET_KEY="<your-secret-key>"
+```
+
+Then source it manually when needed:
+```bash
+source scripts/setup_css_env.sh
+```
+
+**Option B — direnv (automatic, recommended)**
+
+[direnv](https://direnv.net/) auto-loads credentials whenever you `cd` into the repo.
+
+Install:
+```bash
+sudo apt-get install direnv        # Ubuntu/Debian
+# then add to ~/.bashrc:
+eval "$(direnv hook bash)"
+```
+
+Create a **gitignored** `.envrc.local` in the **repo root** (`video_to_data/.envrc.local`):
+```bash
+# .envrc.local
+export CSS_ACCESS_KEY="<your-access-key-id>"
+export CSS_SECRET_KEY="<your-secret-key>"
+```
+
+Allow direnv to load it (one-time, per clone):
+```bash
+direnv allow
+```
+
+Credentials are then injected automatically on every `cd` into the repo.
+
 ## Docker Usage
 
 Development should be **inside** the Container, and Git operations should be done **outside** the Container on the host machine.
@@ -123,3 +166,22 @@ python scripts/rsl_rl/play.py         # Play environment without a checkpoint (s
 ## RL Tasks
 - `Sharpa-V2P-v0-Play`
 - `Sharpa-V2P-v0`
+
+## Visualizer
+
+Browse retargeted sequences as 3D animations at **http://10.111.83.14:8080/**
+
+To run the server yourself or generate new recordings:
+
+```bash
+# Download datasets from OSMO
+python visualizer/sync_visualizer_data.py
+
+# Start the gallery server
+python visualizer/serve.py          # → http://0.0.0.0:8080
+
+# Serve vis_retargeted.py output directly (no copy needed)
+python visualizer/serve.py --html-dir /path/to/v2d_arctic_retarget_exp_200
+```
+
+See [visualizer/README.md](visualizer/README.md) for the full reference: parallel downloads, generating `.viser` files inside Docker, and running as a systemd service.

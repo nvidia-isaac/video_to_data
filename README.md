@@ -83,6 +83,12 @@ python scripts/rsl_rl/train.py --task Sharpa-V2P-v0
 
 See [robotic_grounding/README.md](robotic_grounding/README.md) for retargeting, debug environments, and task definitions.
 
+### Visualizer (retargeting gallery)
+
+Browse retargeted sequences as 3D animations at **http://10.111.83.14:8080/**
+
+See [robotic_grounding/README.md#visualizer](robotic_grounding/README.md#visualizer) for setup instructions.
+
 ## Design Philosophy
 
 - **Host orchestration, containerized inference.** The host runs thin Python wrappers that `docker run` each module; all ML dependencies live inside their respective images. No CUDA or PyTorch is ever installed on the host.
