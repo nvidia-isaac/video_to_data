@@ -25,7 +25,7 @@ def _chessboard_detect_worker(
     start_idx: int,
     end_idx: int,
     progress_queue: Any = None,
-) -> list[list[np.ndarray | None]]:
+) -> tuple[list[list[np.ndarray | None]], list[int]]:
     chessboard_flags = (
         cv2.CALIB_CB_ADAPTIVE_THRESH
         + cv2.CALIB_CB_NORMALIZE_IMAGE
@@ -33,6 +33,7 @@ def _chessboard_detect_worker(
     )
     criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 40, 0.001)
     correspondences = []
+    frame_indices = []
 
     for t in range(start_idx, end_idx):
         row_t = []
@@ -50,18 +51,19 @@ def _chessboard_detect_worker(
 
         if found >= 2:
             correspondences.append(row_t)
+            frame_indices.append(t)
 
         if progress_queue is not None:
             progress_queue.put(1)
 
-    return correspondences
+    return correspondences, frame_indices
 
 
 def chessboard_extract_correspondences(
     image_file_lists: list[list[Path]],
     board_size: tuple[int, int],
     num_workers: int = 8,
-) -> list[list[np.ndarray | None]]:
+) -> tuple[list[list[np.ndarray | None]], list[int]]:
     """Extract chessboard correspondences from multi-camera images.
 
     Args:
@@ -70,11 +72,21 @@ def chessboard_extract_correspondences(
         num_workers: Number of parallel workers.
 
     Returns:
-        List of frames, each a list of per-camera correspondences
-        (either (P, 2) array or None if not detected).
+        Tuple of (correspondences, frame_indices):
+        - correspondences: List of frames, each a list of per-camera
+          correspondences (either (P, 2) array or None if not detected).
+        - frame_indices: Original frame index for each correspondence entry.
+          Frames where fewer than 2 cameras detected the board are excluded.
     """
     N = len(image_file_lists)
-    L = min(len(f) for f in image_file_lists)
+    per_cam_counts = [len(f) for f in image_file_lists]
+    L = min(per_cam_counts)
+
+    if max(per_cam_counts) != L:
+        logger.warning(
+            "Camera image counts differ: %s. Clipping to %d frames.",
+            per_cam_counts, L,
+        )
 
     logger.info(
         f"Extracting chessboard correspondences"
@@ -117,5 +129,7 @@ def chessboard_extract_correspondences(
                     except Exception:
                         pass
 
-            correspondences = [future.result() for future in futures]
-            return [row for per_worker in correspondences for row in per_worker]
+            results = [future.result() for future in futures]
+            correspondences = [row for corrs, _ in results for row in corrs]
+            frame_indices = [idx for _, idxs in results for idx in idxs]
+            return correspondences, frame_indices

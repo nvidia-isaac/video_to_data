@@ -67,7 +67,7 @@ def calibrate_extrinsics(
     # Extract chessboard correspondences
     image_file_lists = [source.image_paths for source in frame_sources]
 
-    correspondences = chessboard_extract_correspondences(
+    correspondences, frame_indices = chessboard_extract_correspondences(
         image_file_lists=image_file_lists,
         board_size=board_size,
         num_workers=num_workers,
@@ -151,6 +151,7 @@ def calibrate_extrinsics(
                     opt_camera_param=opt_camera_params[cam_id],
                     est_target_poses=est_target_poses,
                     opt_target_poses=opt_target_poses,
+                    frame_indices=frame_indices,
                 )
     else:
         summary, opt_camera_params, opt_target_poses = extrinsics_solve_ba(

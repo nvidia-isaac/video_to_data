@@ -100,6 +100,7 @@ def visualize_reprojected_points(
     opt_camera_param: CameraParam,
     est_target_poses: np.ndarray,
     opt_target_poses: np.ndarray,
+    frame_indices: list[int] | None = None,
     radius: int = 1,
     shift: int = 4,
 ):
@@ -109,11 +110,15 @@ def visualize_reprojected_points(
         output_dir: Directory to write annotated images.
         image_files: List of image file paths.
         target_xyz: (P, 3) target 3D points.
-        per_cam_features: Per-frame detected features (or None).
+        per_cam_features: Per-correspondence detected features (or None).
         est_camera_param: Estimated (pre-BA) camera params.
         opt_camera_param: Optimized (post-BA) camera params.
         est_target_poses: (N, 4, 4) estimated target poses.
         opt_target_poses: (N, 4, 4) optimized target poses.
+        frame_indices: Original image-file indices for each correspondence
+            entry. When provided, only those frames are visualized and
+            per_cam_features/poses are indexed by correspondence order.
+            When None, falls back to sequential indexing (legacy behavior).
     """
     import imageio.v3 as iio
 
@@ -124,27 +129,38 @@ def visualize_reprojected_points(
     shift_factor = 1 << shift
     r = radius * shift_factor
 
+    n_corr = len(est_target_poses)
+    if frame_indices is None:
+        frame_indices = list(range(n_corr))
+
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    for t in tqdm(range(len(image_files)), desc="Drawing reprojections"):
-        img = iio.imread(image_files[t], plugin="pillow")
+    for corr_idx, img_idx in tqdm(
+        enumerate(frame_indices), total=len(frame_indices),
+        desc="Drawing reprojections",
+    ):
+        if img_idx >= len(image_files):
+            logger.warning("Frame index %d out of range (%d images), skipping", img_idx, len(image_files))
+            continue
+
+        img = iio.imread(image_files[img_idx], plugin="pillow")
         if img.ndim == 2:
             img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
         elif img.shape[2] == 3:
             img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
         uv_est = reproject(
-            target_xyz, K, est_T_cam_world @ est_target_poses[t], distort_fn,
+            target_xyz, K, est_T_cam_world @ est_target_poses[corr_idx], distort_fn,
         )
         uv_opt = reproject(
-            target_xyz, K, opt_T_cam_world @ opt_target_poses[t], distort_fn,
+            target_xyz, K, opt_T_cam_world @ opt_target_poses[corr_idx], distort_fn,
         )
 
         cv2.putText(img, "Features", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
         cv2.putText(img, "Estimated", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 255), 2)
         cv2.putText(img, "Optimized", (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
-        feat = per_cam_features[t] if t < len(per_cam_features) else None
+        feat = per_cam_features[corr_idx] if corr_idx < len(per_cam_features) else None
         if feat is not None:
             for pt in feat:
                 p = (pt * shift_factor + 0.5).astype(int)
@@ -156,6 +172,6 @@ def visualize_reprojected_points(
             p = (pt * shift_factor + 0.5).astype(int)
             cv2.circle(img, p.tolist(), r, (0, 255, 0), -1, shift=shift)
 
-        cv2.imwrite(str(output_dir / f"reproj_{t:06d}.png"), img)
+        cv2.imwrite(str(output_dir / f"reproj_{img_idx:06d}.png"), img)
 
     logger.info(f"Reprojection visualizations saved to {output_dir}")
