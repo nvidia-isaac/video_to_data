@@ -93,7 +93,9 @@ jobs:
             -e CI=true \
             -e PYTHONUNBUFFERED=1 \
             $DOCKER_IMAGE \
-            -c "\${ISAACLAB_PATH}/isaaclab.sh -p -m pytest /workspace/video_to_data/robotic_grounding/tests/test_train_e2e.py -v"
+            -c "\${ISAACLAB_PATH}/isaaclab.sh -p -m pytest \
+              /workspace/video_to_data/robotic_grounding/tests/test_train_e2e.py \
+              /workspace/video_to_data/robotic_grounding/tests/test_retarget_pipeline_e2e.py -v"
           echo "::endgroup::"
       - name: Cleanup
         if: always()
