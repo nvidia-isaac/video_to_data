@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from robotic_grounding.assets import ASSET_DIR, OBJECTS_ASSET_DIR
+from robotic_grounding.assets import OBJECTS_ASSET_DIR
 
 
 @dataclass
@@ -16,7 +16,7 @@ class ObjectSpec:
     articulated: bool = False
 
 
-_ARCTIC_URDF_DIR = f"{ASSET_DIR}/urdfs/arctic"
+_ARCTIC_URDF_DIR = "assets/urdfs/arctic"
 
 OBJECT_REGISTRY: dict[str, ObjectSpec] = {
     "apple_green": ObjectSpec(

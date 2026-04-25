@@ -32,6 +32,10 @@ try:
 except ImportError:
     _USD_AVAILABLE = False
 from robotic_grounding.retarget import HUMAN_MOTION_DATA_DIR
+from robotic_grounding.retarget.bundle_paths import (
+    infer_bundle_root,
+    resolve_bundle_path,
+)
 from robotic_grounding.retarget.data_logger import (
     ManoSharpaData,
     add_sequence_filter_args,
@@ -67,6 +71,7 @@ def load_object_meshes_from_paths(
     viser_server: viser.ViserServer,
     object_mesh_paths: list[str],
     object_body_names: list[str],
+    bundle_root: Path | None = None,
 ) -> dict[str, Any]:
     """Load object meshes from schema paths (one per body) and add them to the viser scene.
 
@@ -74,9 +79,10 @@ def load_object_meshes_from_paths(
     """
     handles: dict[str, Any] = {}
     for part, path in zip(object_body_names, object_mesh_paths, strict=True):
-        if not path or not Path(path).exists():
+        mesh_path = resolve_bundle_path(path, bundle_root=bundle_root)
+        if not mesh_path or not mesh_path.exists():
             continue
-        mesh = trimesh.load(path)
+        mesh = trimesh.load(mesh_path)
         if isinstance(mesh, trimesh.Scene):
             mesh = mesh.to_geometry()
         if path.endswith("_cm.obj"):
@@ -339,6 +345,7 @@ def visualize_one_trajectory(
         trajectory_id=trajectory_id,
     )
     H = len(logger_data.robot_right_wrist_position)
+    bundle_root = infer_bundle_root(input_dir)
 
     mano: MANO | None = None
     mano_results: dict[str, dict[str, torch.Tensor]] | None = None
@@ -367,6 +374,7 @@ def visualize_one_trajectory(
             viser_server,
             object_mesh_paths,
             logger_data.object_body_names,
+            bundle_root=bundle_root,
         )
         viser_object_handles.update(handles)
     for part in logger_data.object_body_names:
@@ -394,7 +402,12 @@ def visualize_one_trajectory(
         for obj_idx, obj_name in enumerate(logger_data.object_body_names):
             if obj_idx < len(object_mesh_paths) and object_mesh_paths[obj_idx]:
                 try:
-                    obj_mesh = trimesh.load(object_mesh_paths[obj_idx], force="mesh")
+                    mesh_path = resolve_bundle_path(
+                        object_mesh_paths[obj_idx], bundle_root=bundle_root
+                    )
+                    if mesh_path is None:
+                        continue
+                    obj_mesh = trimesh.load(mesh_path, force="mesh")
                     if getattr(logger_data, "dataset", None) == "taco":
                         obj_mesh.vertices *= 0.01
                     video_renderer.add_object(obj_name, obj_mesh)

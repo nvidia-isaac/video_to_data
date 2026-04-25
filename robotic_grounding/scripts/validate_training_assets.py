@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pyarrow.parquet as pq
@@ -34,13 +35,50 @@ import pyarrow.parquet as pq
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "source" / "robotic_grounding"))
 
-from robotic_grounding.assets import ASSET_DIR  # noqa: E402
+from robotic_grounding.retarget.bundle_paths import (  # noqa: E402
+    get_human_motion_data_dir,
+    infer_bundle_root,
+    is_bundle_relative,
+    resolve_bundle_path,
+)
 from robotic_grounding.retarget.dataset_registry import (  # noqa: E402
     get_all_dataset_names,
     get_dataset_config,
 )
 
-HUMAN_MOTION_DATA_DIR = Path(ASSET_DIR) / "human_motion_data"
+HUMAN_MOTION_DATA_DIR = get_human_motion_data_dir()
+
+
+def _validate_urdf_meshes(urdf_ref: str, bundle_root: Path | None) -> list[str]:
+    """Validate mesh filenames referenced by one URDF."""
+    errors: list[str] = []
+    urdf_path = resolve_bundle_path(urdf_ref, bundle_root=bundle_root)
+    if urdf_path is None or not urdf_path.exists():
+        return errors
+
+    try:
+        root = ET.parse(urdf_path).getroot()
+    except Exception as e:
+        return [f"Failed to parse URDF {urdf_ref}: {e}"]
+
+    bundle_root_resolved = bundle_root.resolve() if bundle_root else None
+    for mesh_elem in root.iter("mesh"):
+        filename = mesh_elem.attrib.get("filename")
+        if not filename:
+            continue
+
+        mesh_path = Path(filename)
+        if mesh_path.is_absolute():
+            errors.append(f"Absolute mesh path inside URDF {urdf_ref}: {filename}")
+            continue
+
+        resolved = (urdf_path.parent / mesh_path).resolve()
+        if bundle_root_resolved and not resolved.is_relative_to(bundle_root_resolved):
+            errors.append(f"URDF mesh path escapes bundle {urdf_ref}: {filename}")
+            continue
+        if not resolved.exists():
+            errors.append(f"Missing URDF mesh {filename} referenced by {urdf_ref}")
+    return errors
 
 
 def validate_motion_file(motion_file: str) -> list[str]:
@@ -69,6 +107,8 @@ def validate_motion_file(motion_file: str) -> list[str]:
         errors.append(f"Motion file not found: {path}")
         return errors
 
+    bundle_root = infer_bundle_root(path)
+
     # Find parquet files
     parquet_files = list(path.glob("*.parquet")) if path.is_dir() else [path]
     if not parquet_files:
@@ -87,11 +127,27 @@ def validate_motion_file(motion_file: str) -> list[str]:
     mesh_paths = data.get("object_mesh_paths", [[]])[0] or []
 
     for p in urdf_paths:
-        if p and not Path(p).exists():
+        if p and Path(p).is_absolute():
+            errors.append(f"Absolute URDF path is not bundle-portable: {p}")
+            continue
+        if p and not is_bundle_relative(p):
+            errors.append(f"URDF path must live under bundle assets/: {p}")
+            continue
+        resolved = resolve_bundle_path(p, bundle_root=bundle_root)
+        if p and (resolved is None or not resolved.exists()):
             errors.append(f"Missing URDF: {p}")
+        elif p:
+            errors.extend(_validate_urdf_meshes(p, bundle_root))
 
     for p in mesh_paths:
-        if p and not Path(p).exists():
+        if p and Path(p).is_absolute():
+            errors.append(f"Absolute mesh path is not bundle-portable: {p}")
+            continue
+        if p and not is_bundle_relative(p):
+            errors.append(f"Mesh path must live under bundle assets/: {p}")
+            continue
+        resolved = resolve_bundle_path(p, bundle_root=bundle_root)
+        if p and (resolved is None or not resolved.exists()):
             errors.append(f"Missing mesh: {p}")
 
     # Note: objects without explicit urdf_paths may be resolved at training

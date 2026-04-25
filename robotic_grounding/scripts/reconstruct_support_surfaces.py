@@ -24,6 +24,10 @@ import pyarrow.parquet as pq
 import trimesh
 from pxr import Gf, Usd, UsdGeom, UsdPhysics
 from robotic_grounding.retarget import HUMAN_MOTION_DATA_DIR
+from robotic_grounding.retarget.bundle_paths import (
+    infer_bundle_root,
+    resolve_bundle_path,
+)
 from robotic_grounding.retarget.data_logger import (
     ManoSharpaData,
     NvhumanDex3Data,
@@ -63,6 +67,7 @@ GROUND_Z_THRESHOLD = 0.05  # disks below this Z are on the ground plane
 def _load_object_meshes_from_paths(
     object_mesh_paths: list[str],
     object_body_names: list[str],
+    bundle_root: Path | None = None,
 ) -> dict[str, trimesh.Trimesh]:
     """Load object meshes from schema paths (one per body).
 
@@ -70,9 +75,10 @@ def _load_object_meshes_from_paths(
     """
     meshes: dict[str, trimesh.Trimesh] = {}
     for part, path in zip(object_body_names, object_mesh_paths, strict=True):
-        if not path or not Path(path).exists():
+        resolved = resolve_bundle_path(path, bundle_root=bundle_root)
+        if not resolved or not resolved.exists():
             continue
-        mesh = trimesh.load(path)
+        mesh = trimesh.load(resolved)
         if isinstance(mesh, trimesh.Scene):
             mesh = mesh.dump(concatenate=True)
         if path.endswith("_cm.obj"):
@@ -118,6 +124,7 @@ def load_object_mesh_and_poses(
     """
     if schema is None:
         schema = _detect_parquet_schema(input_dir)
+    bundle_root = infer_bundle_root(input_dir)
     data = _load_parquet_data(input_dir, sequence_id, schema)
     object_mesh_paths = getattr(data, "object_mesh_paths", None) or []
     object_body_names = getattr(data, "object_body_names", None) or []
@@ -125,6 +132,7 @@ def load_object_mesh_and_poses(
         object_meshes = _load_object_meshes_from_paths(
             object_mesh_paths,
             object_body_names,
+            bundle_root=bundle_root,
         )
     else:
         object_meshes = {}

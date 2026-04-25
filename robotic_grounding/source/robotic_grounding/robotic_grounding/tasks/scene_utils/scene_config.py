@@ -9,11 +9,14 @@ import numpy as np
 import pyarrow.parquet as pq
 from scipy.spatial.transform import Rotation as R
 
-from robotic_grounding.assets import ASSET_DIR
 from robotic_grounding.assets.object_registry import get_object_spec
+from robotic_grounding.retarget.bundle_paths import (
+    get_human_motion_data_dir,
+    infer_bundle_root,
+    resolve_bundle_path,
+)
 
-HUMAN_MOTION_DATA_DIR = os.path.join(ASSET_DIR, "human_motion_data")
-URDF_DIR = os.path.join(ASSET_DIR, "urdfs")
+HUMAN_MOTION_DATA_DIR = str(get_human_motion_data_dir())
 
 
 @dataclass
@@ -74,14 +77,15 @@ class SceneConfig:
     def from_motion_file(cls, motion_file: str) -> SceneConfig:
         """Build a SceneConfig from a parquet motion file path. Everything is auto-discovered."""
         motion_file = cls._resolve_motion_file(motion_file)
+        bundle_root = infer_bundle_root(motion_file)
         data = pq.read_table(motion_file).to_pydict()
         partition = cls._parse_partition_path(motion_file)
 
         # Fail fast: check required assets exist before Isaac Sim loads objects
-        cls._validate_assets(data, motion_file)
+        cls._validate_assets(data, motion_file, bundle_root)
 
-        object_type = cls._detect_object_type(data)
-        scene_objects = cls._build_scene_objects(data, object_type)
+        object_type = cls._detect_object_type(data, bundle_root)
+        scene_objects = cls._build_scene_objects(data, object_type, bundle_root)
         fixed_objects = cls._build_fixed_objects(motion_file)
         object_body_names = (
             data.get("safe_object_body_names", [[]])[0]
@@ -154,7 +158,7 @@ class SceneConfig:
         return result
 
     @staticmethod
-    def _detect_object_type(data: dict) -> str:
+    def _detect_object_type(data: dict, bundle_root: Path | None = None) -> str:
         """Detect whether the scene object is articulated or rigid.
 
         Uses ``object_articulation`` non-zero values as the signal, not body count.
@@ -171,13 +175,18 @@ class SceneConfig:
                 )
                 if obj_name:
                     spec = get_object_spec(obj_name)
-                    if spec and spec.urdf_path:
+                    urdf_path = (
+                        resolve_bundle_path(spec.urdf_path, bundle_root=bundle_root)
+                        if spec
+                        else None
+                    )
+                    if urdf_path and urdf_path.exists():
                         return "articulated"
         return "rigid"
 
     @classmethod
     def _build_scene_objects(
-        cls, data: dict, object_type: str
+        cls, data: dict, object_type: str, bundle_root: Path | None = None
     ) -> list[ObjectConfig | ArticulatedObjectConfig]:
         """Build all scene objects from parquet data.
 
@@ -185,7 +194,7 @@ class SceneConfig:
         For rigid objects (TACO/OakInk2), builds one ObjectConfig per body.
         """
         if object_type == "articulated":
-            return [cls._build_articulated_object(data)]
+            return [cls._build_articulated_object(data, bundle_root)]
 
         body_names = (
             data.get("safe_object_body_names", [[]])[0]
@@ -206,10 +215,17 @@ class SceneConfig:
             if i == 0 and obj_name:
                 spec = get_object_spec(obj_name)
                 if spec and (spec.rigid_urdf_path or spec.usd_path):
-                    asset_path = spec.rigid_urdf_path or spec.usd_path
+                    asset_path = resolve_bundle_path(
+                        spec.rigid_urdf_path or spec.usd_path,
+                        bundle_root=bundle_root,
+                    )
+                    assert asset_path and asset_path.exists(), (
+                        f"Could not resolve registered asset for object_name='{obj_name}' "
+                        f"from bundle_root='{bundle_root}'"
+                    )
                     obj = ObjectConfig(
                         name=body_name,
-                        usd_path=asset_path,
+                        usd_path=str(asset_path),
                         scale=spec.scale,
                     )
                     _load_body_pose(data, obj, i)
@@ -217,21 +233,25 @@ class SceneConfig:
                     continue
 
             # Resolve from parquet urdf_paths
-            urdf_path = urdf_paths[i] if i < len(urdf_paths) else None
+            urdf_path = resolve_bundle_path(
+                urdf_paths[i] if i < len(urdf_paths) else None,
+                bundle_root=bundle_root,
+            )
 
             # Fallback: derive URDF path from mesh path by convention
             # e.g. meshes/hot3d/12345.glb -> urdfs/hot3d/12345_rigid.urdf
-            if not urdf_path or not Path(urdf_path).exists():
+            if not urdf_path or not urdf_path.exists():
                 urdf_path = cls._urdf_from_mesh_path(
-                    mesh_paths[i] if i < len(mesh_paths) else None
+                    mesh_paths[i] if i < len(mesh_paths) else None,
+                    bundle_root=bundle_root,
                 )
 
-            assert urdf_path and Path(urdf_path).exists(), (
+            assert urdf_path and urdf_path.exists(), (
                 f"Could not resolve rigid object for object_name='{obj_name}', "
                 f"body='{body_name}'. Generate URDFs with scripts/generate_rigid_urdfs.py"
             )
 
-            obj = ObjectConfig(name=body_name, usd_path=urdf_path)
+            obj = ObjectConfig(name=body_name, usd_path=str(urdf_path))
             _load_body_pose(data, obj, i)
             objects.append(obj)
 
@@ -241,7 +261,9 @@ class SceneConfig:
         return objects
 
     @staticmethod
-    def _urdf_from_mesh_path(mesh_path: str | None) -> str | None:
+    def _urdf_from_mesh_path(
+        mesh_path: str | None, bundle_root: Path | None = None
+    ) -> Path | None:
         """Derive a rigid URDF path from an object mesh path by convention.
 
         Example: .../meshes/hot3d/12345.glb -> .../urdfs/hot3d/12345_rigid.urdf
@@ -249,14 +271,22 @@ class SceneConfig:
         if not mesh_path:
             return None
         mesh = Path(mesh_path)
-        # Convention: urdfs/<dataset>/<stem>_rigid.urdf
-        # Mesh is at meshes/<dataset>/<file>, URDF is at urdfs/<dataset>/<stem>_rigid.urdf
-        dataset = mesh.parent.name
-        urdf_path = Path(URDF_DIR) / dataset / f"{mesh.stem}_rigid.urdf"
-        return str(urdf_path) if urdf_path.exists() else None
+        parts = mesh.parts
+        if "meshes" in parts:
+            mesh_idx = parts.index("meshes")
+            if mesh_idx + 1 < len(parts):
+                dataset = parts[mesh_idx + 1]
+                urdf_ref = (
+                    Path("assets") / "urdfs" / dataset / f"{mesh.stem}_rigid.urdf"
+                )
+                urdf_path = resolve_bundle_path(urdf_ref, bundle_root=bundle_root)
+                return urdf_path if urdf_path and urdf_path.exists() else None
+        return None
 
     @staticmethod
-    def _validate_assets(data: dict, motion_file: str) -> None:
+    def _validate_assets(
+        data: dict, motion_file: str, bundle_root: Path | None = None
+    ) -> None:
         """Check that required asset files exist before building the scene.
 
         Raises FileNotFoundError with an actionable message if any URDF or
@@ -273,10 +303,12 @@ class SceneConfig:
         missing: list[str] = []
 
         for p in urdf_paths:
-            if p and not Path(p).exists():
+            resolved = resolve_bundle_path(p, bundle_root=bundle_root)
+            if p and (resolved is None or not resolved.exists()):
                 missing.append(f"URDF: {p}")
         for p in mesh_paths:
-            if p and not Path(p).exists():
+            resolved = resolve_bundle_path(p, bundle_root=bundle_root)
+            if p and (resolved is None or not resolved.exists()):
                 missing.append(f"Mesh: {p}")
 
         if missing:
@@ -287,7 +319,9 @@ class SceneConfig:
             )
 
     @staticmethod
-    def _build_articulated_object(data: dict) -> ArticulatedObjectConfig:
+    def _build_articulated_object(
+        data: dict, bundle_root: Path | None = None
+    ) -> ArticulatedObjectConfig:
         """Build an articulated object from parquet data and the object registry."""
         obj_name = (
             data.get("safe_object_name", [None])[0]
@@ -297,10 +331,15 @@ class SceneConfig:
             raise ValueError("Could not discover object_name from parquet")
 
         spec = get_object_spec(obj_name)
-        if not spec or not spec.urdf_path:
+        urdf_path = (
+            resolve_bundle_path(spec.urdf_path, bundle_root=bundle_root)
+            if spec
+            else None
+        )
+        if not urdf_path or not urdf_path.exists():
             raise ValueError(f"No urdf_path for '{obj_name}' — add to object registry")
 
-        obj = ArticulatedObjectConfig(name=obj_name, urdf_path=spec.urdf_path)
+        obj = ArticulatedObjectConfig(name=obj_name, urdf_path=str(urdf_path))
         _load_articulated_poses(data, obj)
         return obj
 

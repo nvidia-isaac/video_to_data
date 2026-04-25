@@ -26,6 +26,10 @@ import viser
 from scipy.spatial.transform import Rotation as R
 from tqdm import tqdm
 
+from robotic_grounding.retarget.bundle_paths import (
+    localize_mesh_path,
+    to_bundle_relative_path,
+)
 from robotic_grounding.retarget.contact_utils import (
     approximate_contact_with_id,
     compute_hand_link_contact_positions,
@@ -482,6 +486,8 @@ class DatasetLoaderBase(ABC):
                     )
 
             if args.save:
+                bundle_root = Path(args.output_dir).parent
+                dataset_name = bundle_root.name
                 object_mesh_radius = [
                     (
                         object_surface_points[body_name]
@@ -514,8 +520,18 @@ class DatasetLoaderBase(ABC):
                     safe_object_body_names=[
                         make_usd_safe(name) for name in sequence_info.object_body_names
                     ],
-                    object_mesh_paths=self.get_object_mesh_paths(sequence_info),
-                    object_urdf_paths=self.get_object_urdf_paths(sequence_info),
+                    object_mesh_paths=[
+                        localize_mesh_path(
+                            path,
+                            bundle_root=bundle_root,
+                            dataset=dataset_name,
+                        )
+                        for path in self.get_object_mesh_paths(sequence_info)
+                    ],
+                    object_urdf_paths=[
+                        to_bundle_relative_path(path, bundle_root=bundle_root)
+                        for path in self.get_object_urdf_paths(sequence_info)
+                    ],
                     object_mesh_radius=object_mesh_radius,
                     mano_link_names=list(MANO_HAND_LINKS.keys()),
                 )

@@ -1,109 +1,107 @@
-# Task Library Data Storage
+# Task Library OSMO Bundle Storage
 
-Input data and retarget outputs live in two different places:
+Consumable task-library data is published as one OSMO dataset bundle per source
+dataset. A bundle contains the derived motion data and every asset needed to
+train, validate, replay, or visualize it without checking out git-lfs assets
+from the `robotic_grounding` repository.
 
-| | Where | How it's accessed |
-|---|---|---|
-| **Raw inputs** (`dataset/`) | NVIDIA CSS (PDX) swift bucket | Auto-downloaded by the workflow; browsable from the host via `list_css_sequences.py` |
-| **Retarget outputs** (`*_loaded/`, `*_processed/`, `reconstructed_stage/`, `*_urdfs/`, `*_videos/`, `*_html/`) | **OSMO dataset** `v2d_{dataset}_retarget_exp_200` | One new version per workflow run; pull with `osmo dataset download` |
+Raw provider datasets are not part of the published OSMO bundle. They may still
+be used as private/bootstrap inputs when generating a new bundle.
 
-Object meshes are baked into the Docker image under `assets/meshes/` — they're committed to the repo via git-lfs and available at build time.
+## Bundle Layout
 
-## Why OSMO datasets for outputs
+Example:
 
-Outputs used to be uploaded back to CSS at sibling prefixes (`{dataset}_loaded/`, `{dataset}_processed/`, etc.). Switching to an OSMO dataset gives us:
-
-- **Versioning** — every workflow run bumps the dataset version, so regressions are rollback-able by version rather than overwriting production data.
-- **Atomic publishes** — the whole run snapshot uploads as one manifest; partial uploads don't leave the CSS prefix in a half-written state.
-- **Experiment isolation** — the `_exp_200` suffix (see `retarget.yaml:97`) keeps experimental small-sample runs out of the production `v2d_{dataset}_retarget` history. Flip the suffix back for full-dataset production runs.
-
-The Swift output uploads in `retarget.yaml` are intentionally commented out while the `_exp_200` experiment is active (`retarget.yaml:73–90`). Re-enable them for production runs if you also want the swift mirror.
-
-## Raw-input storage layout (CSS)
-
-```
-swift://pdx.s8k.io/AUTH_team-isaac/datasets/v2d/
-  human_motion_data/
-    {dataset}/
-      dataset/              # Raw data (downloaded into each workflow run)
+```text
+v2d_{dataset}_bundle:<version>
+  manifest.json              # Bundle schema, provenance, and asset checksums
+  assets/
+    meshes/{dataset}/        # Object meshes used by parquets and URDFs
+    urdfs/{dataset}/         # Generated or curated object URDFs
+  {dataset}_loaded/          # Parquet: MANO + object poses
+  {dataset}_processed/       # Parquet: IK-retargeted robot trajectories
+  reconstructed_stage/       # Support surface USDs, when present
+  {dataset}_html/            # Optional Viser recordings / pyrender MP4s
+  {dataset}_videos/          # Optional Isaac Sim MP4s via dummy_agent
+  {dataset}_quality.csv      # Optional sequence quality report
 ```
 
-Supported datasets include `taco`, `arctic`, `oakink2`, `hot3d`, `h2o`, `dexycb`, `grab`.
+Parquet `object_mesh_paths` and `object_urdf_paths` must be bundle-relative, for
+example:
 
-## Retarget-output storage layout (OSMO dataset)
-
-Each workflow run writes a single OSMO dataset version containing:
-
-```
-v2d_{dataset}_retarget_exp_200:<version>
-  {dataset}_loaded/          # Stage 1 output (Parquet: MANO + object poses)
-  {dataset}_urdfs/           # Stage 1.5 output (per-object rigid URDFs)
-  {dataset}_processed/       # Stage 2 output (Parquet: IK-retargeted robot trajectories)
-  reconstructed_stage/       # Stage 3 output (support surface USDs; may be absent for datasets where every object is held)
-  {dataset}_html/            # Stage 4 output (Viser recordings + pyrender MP4s)
-  {dataset}_videos/          # Stage 5 output (Isaac Sim MP4s via dummy_agent)
+```text
+assets/meshes/taco/023_cm.obj
+assets/urdfs/taco/023_rigid.urdf
 ```
 
-## Browsing available raw sequences on CSS
+## Materializing A Bundle
 
-`list_css_sequences.py` lists what's on the CSS input prefix — useful for picking a sequence to target with `sequence_id` or `sequence_pattern`:
+Download a pinned bundle version into the local layout expected by training:
 
 ```bash
-# Set CSS credentials
-source scripts/setup_css_env.sh
-
-# List all datasets
-python scripts/list_css_sequences.py
-
-# List a specific dataset
-python scripts/list_css_sequences.py --dataset taco
-
-# Filter by regex
-python scripts/list_css_sequences.py --dataset taco --pattern '.*screw.*'
+python scripts/materialize_osmo_bundle.py \
+  --dataset taco \
+  --version <version>
 ```
 
-## Browsing OSMO dataset versions (outputs)
+By default this downloads to:
 
-```bash
-# List all versions of a retarget output dataset (most recent first)
-osmo dataset info v2d_taco_retarget_exp_200 --order desc
-
-# Inspect the file tree of a specific version
-osmo dataset inspect v2d_taco_retarget_exp_200:<version>
+```text
+${HUMAN_MOTION_DATA_DIR:-source/robotic_grounding/robotic_grounding/assets/human_motion_data}/{dataset}/
 ```
 
-## Pulling retarget outputs locally
-
-After a workflow completes, pull its OSMO dataset version to the local repo so training / visualization scripts can find it under `source/robotic_grounding/robotic_grounding/assets/human_motion_data/{dataset}/`.
+You can also call OSMO directly:
 
 ```bash
-# Pick the version you want from:
-osmo dataset info v2d_taco_retarget_exp_200 --order desc
-
-# Download it (regex limits bandwidth to the components you need)
-osmo dataset download v2d_taco_retarget_exp_200:<version> \
+osmo dataset download v2d_taco_bundle:<version> \
   source/robotic_grounding/robotic_grounding/assets/human_motion_data/taco/
-
-# Just the processed Parquets (skip videos/html/etc. to save bandwidth)
-osmo dataset download v2d_taco_retarget_exp_200:<version> \
-  source/robotic_grounding/robotic_grounding/assets/human_motion_data/taco/ \
-  --regex 'taco_processed/.*'
-
-# Processed + URDFs + support surfaces (everything training needs)
-osmo dataset download v2d_taco_retarget_exp_200:<version> \
-  source/robotic_grounding/robotic_grounding/assets/human_motion_data/taco/ \
-  --regex '(taco_processed|taco_urdfs|reconstructed_stage)/.*'
 ```
 
-The downloaded layout matches what the training scripts expect — the `motion_file` arg to `scripts/rsl_rl/train.py` resolves as `{dataset}/{dataset}_processed/{sequence_id}/sharpa_wave` relative to `HUMAN_MOTION_DATA_DIR`.
+After materialization, training motion paths resolve as:
 
-### Legacy CSS outputs (pre-OSMO-dataset migration)
-
-`sync_css_data.py` still works for pulling older outputs from the CSS swift prefix if you're looking at a run that pre-dates the OSMO-dataset switch (or a production run where the swift uploads were re-enabled in `retarget.yaml`):
-
-```bash
-source scripts/setup_css_env.sh
-python scripts/sync_css_data.py --dataset taco --component processed
+```text
+taco/taco_processed/<sequence_id>/sharpa_wave
 ```
 
-For current experiment runs the CSS output prefix will be stale — prefer `osmo dataset download` above.
+which maps to:
+
+```text
+.../human_motion_data/taco/taco_processed/sequence_id=<sequence_id>/robot_name=sharpa_wave
+```
+
+## ARCTIC Assets
+
+ARCTIC is a curated/manual asset case. There is no script that regenerates its
+URDFs; `generate_rigid_urdfs.py` intentionally skips articulated datasets.
+The ARCTIC bundle must copy the curated asset set:
+
+```text
+assets/meshes/arctic/<object>/
+assets/urdfs/arctic/<object>.urdf
+assets/urdfs/arctic/<object>_art.urdf
+assets/urdfs/arctic/<object>_rigid.urdf
+```
+
+The manifest should mark these entries as curated/manual assets and include
+checksums. Runtime code resolves ARCTIC registry paths relative to the
+materialized bundle root.
+
+## Validation Gate
+
+Before publishing a bundle, validate that:
+
+- No newly generated parquet stores absolute `object_mesh_paths` or `object_urdf_paths`.
+- Every parquet asset reference resolves inside the materialized bundle.
+- Every URDF mesh reference resolves inside the bundle asset tree.
+- `manifest.json` lists the expected assets and checksums.
+
+## Legacy Outputs
+
+Older retarget outputs may contain repo-absolute asset paths. They are treated
+as obsolete and are not part of the portable bundle contract.
+
+## Raw Input Discovery
+
+`list_css_sequences.py` remains useful for private/bootstrap raw data discovery
+while generating new bundles, but CSS raw storage is not the source of truth for
+published consumable data.
