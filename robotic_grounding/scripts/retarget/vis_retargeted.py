@@ -81,12 +81,21 @@ def load_object_meshes_from_paths(
             mesh = mesh.to_geometry()
         if path.endswith("_cm.obj"):
             mesh.vertices *= 0.01
-        handles[part] = viser_server.scene.add_mesh_trimesh(
+        # Use a FrameHandle parent so per-frame position updates are sent as
+        # full add_frame messages — property-setter updates on mesh handles are
+        # recorded as delta messages that the viser player doesn't replay on
+        # subsequent loop iterations, causing the object to freeze after loop 1.
+        frame_handle = viser_server.scene.add_frame(
             name=f"/object/{part}",
-            mesh=mesh,
             position=np.array([0.0, 0.0, 0.0]),
             wxyz=np.array([1.0, 0.0, 0.0, 0.0]),
+            show_axes=False,
         )
+        viser_server.scene.add_mesh_trimesh(
+            name=f"/object/{part}/mesh",
+            mesh=mesh,
+        )
+        handles[part] = frame_handle
     return handles
 
 
@@ -329,7 +338,8 @@ def visualize_one_trajectory(
             )
         else:
             print(f"  Loading support surfaces from {usd_path}")
-            load_support_surfaces_from_usd(viser_server, usd_path)
+            support_handles = load_support_surfaces_from_usd(viser_server, usd_path)
+            viser_object_handles.update(support_handles)
 
     contact_points_handles: list[Any] = []
 
@@ -371,12 +381,18 @@ def visualize_one_trajectory(
         viser_object_handles.update(handles)
     for part in logger_data.object_body_names:
         if part not in viser_object_handles:
-            viser_object_handles[part] = viser_server.scene.add_icosphere(
+            frame_handle = viser_server.scene.add_frame(
                 name=f"/object/{part}",
+                position=np.array([0.0, 0.0, 0.0]),
+                wxyz=np.array([1.0, 0.0, 0.0, 0.0]),
+                show_axes=False,
+            )
+            viser_server.scene.add_icosphere(
+                name=f"/object/{part}/placeholder",
                 radius=0.02,
                 color=(128, 128, 128),
-                position=np.array([0.0, 0.0, 0.0]),
             )
+            viser_object_handles[part] = frame_handle
 
     # Optional: offline MP4 renderer mirroring the viser scene.
     video_renderer = None
@@ -427,20 +443,25 @@ def visualize_one_trajectory(
         left_qpos[7:] = np.array(logger_data.robot_left_finger_joints[frame_id])
         left_sharpa_kinematics.visualize(viser_server, left_qpos)
 
-        # Update object poses from Parquet
+        # Update object poses from Parquet.
+        # Use add_frame() (a full "add" message) rather than property-setter
+        # updates so the viser recorder replays positions correctly on every
+        # loop iteration — delta-update messages are not re-sent on loop.
         for object_body_idx, object_body_name in enumerate(
             logger_data.object_body_names
         ):
             if object_body_name not in viser_object_handles:
                 continue
-            handle = viser_object_handles[object_body_name]
-            handle.position = np.asarray(
-                logger_data.object_body_position[frame_id][object_body_idx]
-            )
-            if hasattr(handle, "wxyz"):
-                handle.wxyz = np.asarray(
+            viser_server.scene.add_frame(
+                name=f"/object/{object_body_name}",
+                position=np.asarray(
+                    logger_data.object_body_position[frame_id][object_body_idx]
+                ),
+                wxyz=np.asarray(
                     logger_data.object_body_wxyz[frame_id][object_body_idx]
-                )
+                ),
+                show_axes=False,
+            )
 
         # Fingertip distance spheres (if available)
         if visualize_fingertip_distances:

@@ -52,10 +52,11 @@ def discover_datasets() -> list[dict]:  # type: ignore[type-arg]
     # bundle_key -> canonical vc path; identical builds share one browser-cache entry
     canonical_vc: dict = {}
 
-    # ── standard layout: DATA_DIR/v2d_*/*/recordings ──────────────────────────
-    for recordings_dir in sorted(DATA_DIR.glob("v2d_*/*/recordings")):
-        top = recordings_dir.parts[-3]  # e.g. v2d_h2o_retarget_exp_200
-        m = re.match(r"v2d_(.+?)_retarget", top)
+    # ── standard layout: DATA_DIR/{dataset_dir}/*/recordings ─────────────────
+    # Handles both v2d_{name}_retarget* and retargeted_{name}_* naming schemes.
+    for recordings_dir in sorted(DATA_DIR.glob("*/*/recordings")):
+        top = recordings_dir.parts[-3]
+        m = re.match(r"v2d_(.+?)_retarget", top) or re.match(r"retargeted_(.+?)_", top)
         if not m:
             continue
         name = m.group(1)
@@ -81,10 +82,11 @@ def discover_datasets() -> list[dict]:  # type: ignore[type-arg]
         for f in viser_files:
             stem = f.stem
             mp4 = recordings_dir / f"{stem}.mp4"
+            v = int(f.stat().st_mtime)
             recordings.append(
                 {
                     "stem": stem,
-                    "viser": f"{rec_rel}/{f.name}",
+                    "viser": f"{rec_rel}/{f.name}?v={v}",
                     "mp4": f"{rec_rel}/{stem}.mp4" if mp4.exists() else None,
                 }
             )
@@ -126,10 +128,11 @@ def discover_datasets() -> list[dict]:  # type: ignore[type-arg]
         for f in viser_files:
             stem = f.stem
             mp4 = recordings_dir / f"{stem}.mp4"
+            v = int(f.stat().st_mtime)
             recordings.append(
                 {
                     "stem": stem,
-                    "viser": f"{rec_rel}/{f.name}",
+                    "viser": f"{rec_rel}/{f.name}?v={v}",
                     "mp4": f"{rec_rel}/{stem}.mp4" if mp4.exists() else None,
                 }
             )
