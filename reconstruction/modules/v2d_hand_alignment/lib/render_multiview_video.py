@@ -404,12 +404,12 @@ def render_multiview_video(
 
 def main():
     parser = argparse.ArgumentParser(description="Render 4-panel multiview video")
-    parser.add_argument('--mesh',       required=True, help='Object mesh OBJ')
-    parser.add_argument('--poses',      required=True, help='Folder of per-frame pose JSONs')
-    parser.add_argument('--hand_mesh',  required=True, help='Aligned hand mesh NPZ')
-    parser.add_argument('--intrinsics',  required=True, help='Camera intrinsics JSON')
-    parser.add_argument('--frames_folder', default=None, help='RGB frame images folder (for camera-view underlay)')
-    parser.add_argument('--output',      required=True, help='Output MP4 path')
+    parser.add_argument('--mesh_path',       required=True, help='Object mesh OBJ')
+    parser.add_argument('--poses_dir',       required=True, help='Folder of per-frame pose JSONs')
+    parser.add_argument('--hand_mesh_path',  required=True, help='Aligned hand mesh NPZ')
+    parser.add_argument('--intrinsics_path', required=True, help='Camera intrinsics JSON')
+    parser.add_argument('--frames_folder',   default=None,  help='RGB frame images folder (for camera-view underlay)')
+    parser.add_argument('--output_path',     required=True, help='Output MP4 path')
     parser.add_argument('--fps',         type=float, default=30.0)
     parser.add_argument('--panel_w',     type=int,   default=388, help='Width of each panel')
     parser.add_argument('--panel_h',     type=int,   default=516, help='Height of each panel')
@@ -418,11 +418,11 @@ def main():
     args = parser.parse_args()
 
     render_multiview_video(
-        mesh_path=args.mesh,
-        poses_dir=args.poses,
-        hand_mesh_path=args.hand_mesh,
-        intrinsics_path=args.intrinsics,
-        output_path=args.output,
+        mesh_path=args.mesh_path,
+        poses_dir=args.poses_dir,
+        hand_mesh_path=args.hand_mesh_path,
+        intrinsics_path=args.intrinsics_path,
+        output_path=args.output_path,
         fps=args.fps,
         panel_w=args.panel_w,
         panel_h=args.panel_h,

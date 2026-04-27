@@ -439,13 +439,13 @@ def align_hand_depth(
 
 def main():
     parser = argparse.ArgumentParser(description="Align hand mesh depth to MoGe depth")
-    parser.add_argument('--input',           required=True, help='Aligned hand mesh NPZ (camera-space verts)')
-    parser.add_argument('--depth',           required=True, help='Folder of MoGe depth PNGs (000000.png, ...)')
-    parser.add_argument('--intrinsics',      required=True, help='Target intrinsics JSON (depth image space)')
-    parser.add_argument('--mesh_intrinsics', default=None,
+    parser.add_argument('--input_path',           required=True, help='Aligned hand mesh NPZ (camera-space verts)')
+    parser.add_argument('--depth_path',           required=True, help='Folder of MoGe depth PNGs (000000.png, ...)')
+    parser.add_argument('--intrinsics_path',      required=True, help='Target intrinsics JSON (depth image space)')
+    parser.add_argument('--mesh_intrinsics_path', default=None,
                         help='Intrinsics the hand mesh was aligned with (for rasterization). '
-                             'Defaults to --intrinsics. Use when hand mesh was not reprojected to target.')
-    parser.add_argument('--output',          required=True, help='Output NPZ path')
+                             'Defaults to --intrinsics_path. Use when hand mesh was not reprojected to target.')
+    parser.add_argument('--output_path',          required=True, help='Output NPZ path')
     parser.add_argument('--per_frame',  action='store_true',
                         help='Apply per-frame scale instead of a single global scale')
     parser.add_argument('--per_hand',   action='store_true',
@@ -461,11 +461,11 @@ def main():
     args = parser.parse_args()
 
     align_hand_depth(
-        input_path=args.input,
-        depth_path=args.depth,
-        intrinsics_path=args.intrinsics,
-        output_path=args.output,
-        mesh_intrinsics_path=args.mesh_intrinsics,
+        input_path=args.input_path,
+        depth_path=args.depth_path,
+        intrinsics_path=args.intrinsics_path,
+        output_path=args.output_path,
+        mesh_intrinsics_path=args.mesh_intrinsics_path,
         per_frame=args.per_frame,
         per_hand=args.per_hand,
         align=args.align,
