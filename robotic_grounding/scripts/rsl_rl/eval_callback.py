@@ -6,10 +6,13 @@ import os
 class EvalCallback:
     """Runs inference episodes after each checkpoint save and logs completion stats to wandb.
 
-    Triggered by monkey-patching runner.save().  After a warm-up phase that
-    waits until every env has reset at least once (so we only measure clean
-    episodes), it collects `eval_episodes` completed episodes in inference mode
-    and logs:
+    Triggered by monkey-patching runner.save().  Temporarily forces
+    always_reset_to_first_frame=True so every collected episode starts from
+    the beginning of the trajectory (tc=0), making full_completion_pct a clean
+    measure of whether the policy can complete the full trajectory from scratch.
+
+    After a warm-up phase that waits until every env has reset at least once,
+    it collects `eval_episodes` completed episodes in inference mode and logs:
 
         eval/completion_ratio_mean   – mean fraction of trajectory completed
         eval/completion_ratio_std    – std of the above
@@ -76,6 +79,11 @@ class EvalCallback:
             policy_nn = self.runner.alg.actor_critic
 
         obs = self.env.get_observations()
+
+        # Force all resets to start from the first trajectory frame for the
+        # duration of eval; restored unconditionally in the finally block below.
+        _orig_reset_to_first = self._cmd.cfg.always_reset_to_first_frame
+        self._cmd.cfg.always_reset_to_first_frame = True
 
         # --- Warm-up: step until every env has completed at least one episode ---
         # This ensures the episodes we collect started from a genuine reset, not
@@ -162,6 +170,7 @@ class EvalCallback:
                     _drain_steps += 1
 
         finally:
+            self._cmd.cfg.always_reset_to_first_frame = _orig_reset_to_first
             # Always restore the train video folder and clear any unconsumed pending
             # trigger, regardless of whether an exception occurred above.
             if self.log_video:
@@ -201,8 +210,9 @@ class EvalCallback:
                 self._logged_eval_videos.add(dst_path)  # also track renamed destination
 
         # --- Compute stats ---
-        # ratio = fraction of the episode's own tracking_length that was
-        # completed after the per-episode VOC warmup (warmup_steps).
+        # ratio = fraction of the post-warmup trajectory that was completed.
+        # Both numerator and denominator exclude warmup_steps so a perfectly
+        # completing episode always gives ratio = 1.0.
         data = completed[: self.eval_episodes]
         print(
             f"[eval] iter={iteration}  traj_len={traj_len}  "
@@ -210,7 +220,9 @@ class EvalCallback:
             f"sample ep_lens={[round(e[0]) for e in data[:5]]}"
         )
         ratios = [
-            min(max(e[0] - self._warmup_steps, 0), e[1]) / max(e[1], 1) for e in data
+            min(max(e[0] - self._warmup_steps, 0), max(e[1] - self._warmup_steps, 1))
+            / max(e[1] - self._warmup_steps, 1)
+            for e in data
         ]
         n_full = sum(1 for r in ratios if r >= 0.99)
         mean_r = sum(ratios) / len(ratios)

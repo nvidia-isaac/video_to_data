@@ -148,9 +148,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg, agent_cfg):
                     my_ep_tracking_len[i] = _cmd.tracking_lengths[i].float()
 
         data = completed[: args_cli.eval_episodes]
-        ratios = [
-            min(max(e[0] - _warmup, 0), traj_len) / max(traj_len, 1) for e in data
-        ]
+        _usable = max(traj_len - _warmup, 1)
+        ratios = [min(max(e[0] - _warmup, 0), _usable) / _usable for e in data]
         n_full = sum(1 for r in ratios if r >= 0.99)
         mean_r = sum(ratios) / len(ratios)
         std_r = (

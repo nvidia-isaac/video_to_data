@@ -364,10 +364,10 @@ def main(
         data = completed[:eval_episodes]
         lens = [e[0] for e in data]
         traj_len = _cmd.retargeted_horizon
-        # Subtract warm-start steps from ep_len; cap at traj_len to keep ratio in [0, 1]
-        ratios = [
-            min(max(e[0] - _warmup, 0), traj_len) / max(traj_len, 1) for e in data
-        ]
+        # Ratio = post-warmup steps / post-warmup trajectory length so a perfectly
+        # completing episode always gives ratio = 1.0.
+        _usable = max(traj_len - _warmup, 1)
+        ratios = [min(max(e[0] - _warmup, 0), _usable) / _usable for e in data]
         full = sum(1 for r in ratios if r >= 0.99)
         mean_len = sum(lens) / len(lens)
         std_len = (
