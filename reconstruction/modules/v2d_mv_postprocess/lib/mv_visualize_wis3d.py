@@ -189,14 +189,13 @@ if __name__ == "__main__":
     parser.add_argument("--human_pose_dir", type=str, required=True)
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--ground_plane_dir", type=str, default=None)
-    parser.add_argument(
-        "--config_path",
-        type=str,
-        default=str(Path(__file__).parent / "mv_visualize_wis3d.yaml"),
-    )
+    parser.add_argument("--config_path", type=str, default=None,
+                        help="Optional override config (merged on top of defaults)")
     args = parser.parse_args()
 
-    cfg = OmegaConf.load(args.config_path)
+    cfg = OmegaConf.load(Path(__file__).parent / "mv_visualize_wis3d.yaml")
+    if args.config_path:
+        cfg = OmegaConf.merge(cfg, OmegaConf.load(args.config_path))
     overrides = {k: v for k, v in vars(args).items() if k != "config_path" and v is not None}
     cfg = OmegaConf.merge(cfg, overrides)
     visualize_wis3d_from_config(cfg)

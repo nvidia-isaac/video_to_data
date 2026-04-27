@@ -9,7 +9,7 @@ _LIB_CONFIG = Path(__file__).parent.parent / "lib" / "mv_export_fused_pointcloud
 def run_mv_export_fused_pointcloud(
     camera_params_path: str,
     depth_dir: str,
-    image_dir: str,
+    rgb_dir: str,
     output_dir: str,
     mask_dir: str | None = None,
     config_path: str = str(_LIB_CONFIG),
@@ -18,7 +18,7 @@ def run_mv_export_fused_pointcloud(
     inputs = {
         "camera_params_path": camera_params_path,
         "depth_dir": depth_dir,
-        "image_dir": image_dir,
+        "rgb_dir": rgb_dir,
         "config_path": config_path,
     }
     if mask_dir is not None:
@@ -43,7 +43,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Export fused multiview point clouds as PLY")
     parser.add_argument("--camera_params_path", type=str, required=True)
     parser.add_argument("--depth_dir", type=str, required=True)
-    parser.add_argument("--image_dir", type=str, required=True)
+    parser.add_argument("--rgb_dir", type=str, required=True)
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--mask_dir", type=str, default=None)
     parser.add_argument("--config_path", type=str, default=str(_LIB_CONFIG))
@@ -53,7 +53,7 @@ if __name__ == "__main__":
     run_mv_export_fused_pointcloud(
         camera_params_path=args.camera_params_path,
         depth_dir=args.depth_dir,
-        image_dir=args.image_dir,
+        rgb_dir=args.rgb_dir,
         output_dir=args.output_dir,
         mask_dir=args.mask_dir,
         config_path=args.config_path,

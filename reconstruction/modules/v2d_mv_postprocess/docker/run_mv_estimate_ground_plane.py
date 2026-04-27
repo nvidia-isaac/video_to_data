@@ -11,7 +11,7 @@ def run_mv_estimate_ground_plane(
     depth_dir: str,
     human_pose_dir: str,
     output_dir: str,
-    image_dir: str | None = None,
+    rgb_dir: str | None = None,
     mask_dir: str | None = None,
     config_path: str = str(_LIB_CONFIG),
     dev: bool = False,
@@ -22,8 +22,8 @@ def run_mv_estimate_ground_plane(
         "human_pose_dir": human_pose_dir,
         "config_path": config_path,
     }
-    if image_dir is not None:
-        inputs["image_dir"] = image_dir
+    if rgb_dir is not None:
+        inputs["rgb_dir"] = rgb_dir
     if mask_dir is not None:
         inputs["mask_dir"] = mask_dir
     outputs = {"output_dir": output_dir}
@@ -48,7 +48,7 @@ if __name__ == "__main__":
     parser.add_argument("--depth_dir", type=str, required=True)
     parser.add_argument("--human_pose_dir", type=str, required=True)
     parser.add_argument("--output_dir", type=str, required=True)
-    parser.add_argument("--image_dir", type=str, default=None)
+    parser.add_argument("--rgb_dir", type=str, default=None)
     parser.add_argument("--mask_dir", type=str, default=None)
     parser.add_argument("--config_path", type=str, default=str(_LIB_CONFIG))
     parser.add_argument("--dev", action="store_true")
@@ -59,7 +59,7 @@ if __name__ == "__main__":
         depth_dir=args.depth_dir,
         human_pose_dir=args.human_pose_dir,
         output_dir=args.output_dir,
-        image_dir=args.image_dir,
+        rgb_dir=args.rgb_dir,
         mask_dir=args.mask_dir,
         config_path=args.config_path,
         dev=args.dev,

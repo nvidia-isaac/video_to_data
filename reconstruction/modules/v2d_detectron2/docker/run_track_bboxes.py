@@ -3,10 +3,9 @@ from v2d.detectron2.docker._config import IMAGE_NAME, MODULES_DIR
 
 
 def run_track_bboxes(
+    rgb_path: str,
     weights_dir: str,
     output_path: str,
-    image_dir: str | None = None,
-    video_path: str | None = None,
     model_size: str = "b",
     bbox_thr: float = 0.5,
     iou_threshold: float = 0.3,
@@ -17,12 +16,9 @@ def run_track_bboxes(
     dev: bool = False,
 ) -> None:
     inputs = {
+        "rgb_path": rgb_path,
         "weights_dir": weights_dir,
     }
-    if image_dir is not None:
-        inputs["image_dir"] = image_dir
-    if video_path is not None:
-        inputs["video_path"] = video_path
 
     run_in_container(
         image=IMAGE_NAME,
@@ -51,11 +47,8 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Run bbox tracking (single camera)")
-
-    input_group = parser.add_mutually_exclusive_group(required=True)
-    input_group.add_argument("--image_dir", type=str)
-    input_group.add_argument("--video_path", type=str)
-
+    parser.add_argument("--rgb_path", type=str, required=True,
+                        help="Path to input frames (image dir, .h5, or video file)")
     parser.add_argument("--weights_dir", type=str, required=True)
     parser.add_argument("--output_path", type=str, required=True, help="Output .pt file path")
     parser.add_argument("--model_size", type=str, default="b", choices=["b", "l", "h"])
@@ -69,10 +62,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     run_track_bboxes(
+        rgb_path=args.rgb_path,
         weights_dir=args.weights_dir,
         output_path=args.output_path,
-        image_dir=args.image_dir,
-        video_path=args.video_path,
         model_size=args.model_size,
         bbox_thr=args.bbox_thr,
         iou_threshold=args.iou_threshold,

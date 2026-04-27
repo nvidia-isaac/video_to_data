@@ -20,8 +20,15 @@ class DepthImage:
 
     @staticmethod
     def from_pil_image(pil_image: PILImage.Image) -> 'DepthImage':
-        # Decode inverse-depth uint16 PNG back to depth in meters.
-        inverse_depth = np.array(pil_image).astype(np.float32)
+        return DepthImage.from_array(np.array(pil_image))
+
+    @staticmethod
+    def from_array(arr: np.ndarray) -> 'DepthImage':
+        """Decode a uint16 inverse-depth array to float32 depth in meters.
+
+        This is the single decoding path used by both PNG and HDF5 consumers.
+        """
+        inverse_depth = arr.astype(np.float32)
         depth_m = 1.0 / (inverse_depth / 65535.0) - 1.0
         return DepthImage(depth=depth_m)
 

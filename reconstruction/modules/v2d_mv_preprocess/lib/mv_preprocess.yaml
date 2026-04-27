@@ -1,6 +1,6 @@
 rig_name: stereo-4
 
-image_dir: ???
+rgb_dir: ???
 camera_params_path: ???
 extrinsics_camera_params_path: null
 hoi_metadata_path: null
@@ -15,6 +15,7 @@ output_hoi_metadata_path: "${output_dir}/hoi_metadata.yaml"
 output_prompt_path: "${output_dir}/prompt.txt"
 output_mesh_dir: "${output_dir}/mesh"
 
+input_suffix: ""
 start: 0
 stop: null
 step: 1

@@ -8,11 +8,10 @@ _LIB_CONFIG = Path(__file__).parent.parent / "lib" / "mv_optimize_mhr_params.yam
 
 def run_mv_optimize_mhr_params(
     camera_params_path: str,
+    rgb_dir: str,
     weights_dir: str,
     bbox_dir: str,
     output_dir: str,
-    image_dir: str | None = None,
-    video_dir: str | None = None,
     mask_dir: str | None = None,
     config_path: str = str(_LIB_CONFIG),
     debug: int = -1,
@@ -20,14 +19,11 @@ def run_mv_optimize_mhr_params(
 ) -> None:
     inputs = {
         "camera_params_path": camera_params_path,
+        "rgb_dir": rgb_dir,
         "weights_dir": weights_dir,
         "bbox_dir": bbox_dir,
         "config_path": config_path,
     }
-    if image_dir:
-        inputs["image_dir"] = image_dir
-    if video_dir:
-        inputs["video_dir"] = video_dir
     if mask_dir:
         inputs["mask_dir"] = mask_dir
 
@@ -56,11 +52,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Run multi-view MHR parameter optimization")
-
-    input_group = parser.add_mutually_exclusive_group(required=True)
-    input_group.add_argument("--image_dir", type=str, help="Directory containing images")
-    input_group.add_argument("--video_dir", type=str, help="Directory containing videos")
-
+    parser.add_argument("--rgb_dir", type=str, required=True, help="Directory containing input frames")
     parser.add_argument("--camera_params_path", type=str, required=True, help="Path to camera parameters")
     parser.add_argument("--weights_dir", type=str, required=True, help="Directory containing model weights")
     parser.add_argument("--bbox_dir", type=str, required=True, help="Directory containing bounding boxes")
@@ -73,11 +65,10 @@ if __name__ == "__main__":
 
     run_mv_optimize_mhr_params(
         camera_params_path=args.camera_params_path,
+        rgb_dir=args.rgb_dir,
         weights_dir=args.weights_dir,
         bbox_dir=args.bbox_dir,
         output_dir=args.output_dir,
-        image_dir=args.image_dir,
-        video_dir=args.video_dir,
         mask_dir=args.mask_dir,
         config_path=args.config_path,
         debug=args.debug,

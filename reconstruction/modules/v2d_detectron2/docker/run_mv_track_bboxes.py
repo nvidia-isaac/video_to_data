@@ -7,23 +7,19 @@ _LIB_CONFIG = Path(__file__).parent.parent / "lib" / "mv_track_bboxes.yaml"
 
 
 def run_mv_track_bboxes(
+    rgb_dir: str,
     weights_dir: str,
     output_dir: str,
-    image_dir: str | None = None,
-    video_dir: str | None = None,
     labeled_bbox_dir: str | None = None,
     config_path: str = str(_LIB_CONFIG),
     debug: int = -1,
     dev: bool = False,
 ) -> None:
     inputs = {
+        "rgb_dir": rgb_dir,
         "weights_dir": weights_dir,
         "config_path": config_path,
     }
-    if image_dir:
-        inputs["image_dir"] = image_dir
-    if video_dir:
-        inputs["video_dir"] = video_dir
     if labeled_bbox_dir:
         inputs["labeled_bbox_dir"] = labeled_bbox_dir
 
@@ -48,11 +44,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Run multi-view bbox tracking")
-
-    input_group = parser.add_mutually_exclusive_group(required=True)
-    input_group.add_argument("--image_dir", type=str, help="Directory containing images")
-    input_group.add_argument("--video_dir", type=str, help="Directory containing videos")
-
+    parser.add_argument("--rgb_dir", type=str, required=True, help="Directory containing input frames")
     parser.add_argument("--weights_dir", type=str, required=True, help="Directory containing model weights")
     parser.add_argument("--output_dir", type=str, required=True, help="Directory for outputs")
     parser.add_argument(
@@ -66,10 +58,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     run_mv_track_bboxes(
+        rgb_dir=args.rgb_dir,
         weights_dir=args.weights_dir,
         output_dir=args.output_dir,
-        image_dir=args.image_dir,
-        video_dir=args.video_dir,
         labeled_bbox_dir=args.labeled_bbox_dir,
         config_path=args.config_path,
         debug=args.debug,

@@ -286,23 +286,53 @@ def _is_left_camera_video(rel: str) -> bool:
 
 
 # Data mapping: (css_subpath, output_subpath, type, filter_fn, remap_fn)
-# type: "file" for single files, "dir" for directory prefixes
+# type: "file" for single files, "dir" for directory prefixes,
+#       "h5_or_dir" for data that may be packed as .h5 files or PNG dirs
 _DATA_MAP = [
     ("render_hoi_overlay/tiled_hoi_overlay.mp4", "tiled_hoi_overlay.mp4", "file", None, None),
     ("mv_preprocess/edex",               "edex",              "file", None, None),
     ("mv_preprocess/hoi_metadata.yaml",   "hoi_metadata.yaml", "file", None, None),
-    ("mv_preprocess/images",              "images",            "dir",  _is_left_camera_path, None),
+    ("mv_preprocess/images",              "images",            "h5_or_dir", _is_left_camera_path, None),
     ("mv_preprocess/videos",              "videos",            "dir",  _is_left_camera_video, None),
     ("mv_preprocess/mesh",                "object_template",   "dir",  None, None),
-    ("foundation_stereo",                 "depth",             "dir",  None, _remap_depth),
-    ("sam2_object_masks",                 "object_masks",      "dir",  _is_left_camera_path, _strip_mask_object_id),
-    ("sam2_human_masks",                  "human_masks",       "dir",  _is_left_camera_path, _strip_mask_object_id),
+    ("foundation_stereo",                 "depth",             "h5_or_dir", None, _remap_depth),
+    ("sam2_object_masks",                 "object_masks",      "h5_or_dir", _is_left_camera_path, _strip_mask_object_id),
+    ("sam2_human_masks",                  "human_masks",       "h5_or_dir", _is_left_camera_path, _strip_mask_object_id),
     ("foundation_pose/poses.npy",         "poses.npy",         "file", None, None),
     ("sam3d_body/mhr_params_mv.pt",       "mhr_params_mv.pt",  "file", None, None),
     ("sam3d_body/mhr_mesh_mv.pt",         "mhr_mesh_mv.pt",    "file", None, None),
     ("export_soma/soma_params.npz",       "soma_params.npz",   "file", None, None),
     ("estimate_ground_plane/ground_plane.json", "ground_plane.json", "file", None, None),
 ]
+
+
+def _h5_stem_matches_filter(stem: str, filter_fn) -> bool:
+    """Apply a directory-based filter_fn to an h5 stem.
+
+    Handles stems like 'front_stereo_camera_left' and also multi-object
+    stems like 'front_stereo_camera_left_0' by checking if the stem starts
+    with any accepted camera name.
+    """
+    if filter_fn is None:
+        return True
+    if filter_fn(stem):
+        return True
+    for cam in LEFT_CAMERAS:
+        if stem.startswith(cam) and filter_fn(cam):
+            return True
+    return False
+
+
+def _find_h5_files_local(src_dir: Path, filter_fn=None) -> list[tuple[Path, str]]:
+    """Find .h5 files in src_dir. Returns list of (abs_path, relative_name)."""
+    if not src_dir.exists():
+        return []
+    results = []
+    for f in sorted(src_dir.glob("*.h5")):
+        if not _h5_stem_matches_filter(f.stem, filter_fn):
+            continue
+        results.append((f, f.name))
+    return results
 
 
 def export_sequence(
@@ -369,6 +399,25 @@ def _export_local(
         if entry_type == "file":
             did = _copy_file(src_path, output / out_sub, dry_run)
             report(out_sub, int(did), int(not did))
+        elif entry_type == "h5_or_dir":
+            h5_files = _find_h5_files_local(src_path, filter_fn)
+            if h5_files:
+                dl_total, sk_total = 0, 0
+                for h5_src, h5_name in h5_files:
+                    did = _copy_file(h5_src, output / out_sub / h5_name, dry_run)
+                    if did:
+                        dl_total += 1
+                    else:
+                        sk_total += 1
+                report(out_sub, dl_total, sk_total)
+            else:
+                print(f"Copying {out_sub} (dir)...")
+                dl, sk = _copy_prefix(
+                    src_path, output / out_sub,
+                    remap_fn=remap_fn, filter_fn=filter_fn,
+                    dry_run=dry_run, label=out_sub,
+                )
+                report(out_sub, dl, sk)
         else:
             print(f"Copying {out_sub}...")
             dl, sk = _copy_prefix(
@@ -377,6 +426,12 @@ def _export_local(
                 dry_run=dry_run, label=out_sub,
             )
             report(out_sub, dl, sk)
+
+
+def _has_h5_remote(client, bucket: str, prefix: str) -> list[str]:
+    """Check if any .h5 files exist under a prefix. Returns list of keys."""
+    objects = _list_objects(client, bucket, prefix)
+    return [obj["Key"] for obj in objects if obj["Key"].endswith(".h5")]
 
 
 def _export_remote(
@@ -395,6 +450,31 @@ def _export_remote(
             key = f"{base_prefix}/{css_sub}"
             did = _download_file(client, bucket, key, output / out_sub, dry_run)
             report(out_sub, int(did), int(not did))
+        elif entry_type == "h5_or_dir":
+            css_prefix = f"{base_prefix}/{css_sub}"
+            h5_keys = _has_h5_remote(client, bucket, css_prefix)
+            if h5_keys:
+                dl_total, sk_total = 0, 0
+                for key in h5_keys:
+                    h5_name = key.split("/")[-1]
+                    if not _h5_stem_matches_filter(Path(h5_name).stem, filter_fn):
+                        continue
+                    did = _download_file(client, bucket, key, output / out_sub / h5_name, dry_run)
+                    if did:
+                        dl_total += 1
+                    else:
+                        sk_total += 1
+                report(out_sub, dl_total, sk_total)
+            else:
+                print(f"Downloading {out_sub} (dir)...")
+                dl, sk = _download_prefix(
+                    client, bucket, css_prefix,
+                    output / out_sub,
+                    filter_fn=filter_fn, remap_fn=remap_fn,
+                    dry_run=dry_run, label=out_sub,
+                    max_workers=max_workers,
+                )
+                report(out_sub, dl, sk)
         else:
             print(f"Downloading {out_sub}...")
             dl, sk = _download_prefix(

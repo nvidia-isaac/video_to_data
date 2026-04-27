@@ -13,7 +13,7 @@ import yaml
 
 from v2d.common.datatypes import BoundingBox
 from v2d.mv.rig import RigConfig
-from v2d.mv.io.video import FrameSource
+from v2d.common.video import FrameSource
 
 from v2d.mv.preprocess.lib.image_proc import ImagePipeline
 from v2d.mv.preprocess.lib.preprocess_stereo import preprocess_stereo
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 def mv_preprocess(
     rig: RigConfig,
-    frame_sources: dict[int, FrameSource],
+    rgb_paths: dict[int, Path],
     output_image_dirs: dict[int, Path],
     camera_params_path: Path,
     output_camera_params_path: Path,
@@ -33,6 +33,7 @@ def mv_preprocess(
     output_resolution: tuple[int, int] | None = None,
     correction_focal: dict[int, float] | None = None,
     num_workers: int | None = None,
+    frames_slice: slice | None = None,
     output_video_paths: dict[int, Path] | None = None,
     extrinsics_camera_params_path: Path | None = None,
     hoi_metadata_path: Path | None = None,
@@ -50,7 +51,7 @@ def mv_preprocess(
 
     Args:
         rig: RigConfig with stereo pair definitions and loaded camera params.
-        frame_sources: Mapping from cam_id to FrameSource.
+        rgb_paths: Mapping from cam_id to path for RGB frames.
         output_image_dirs: Mapping from cam_id to output image directory.
         camera_params_path: Source camera params file (for save merge).
         output_camera_params_path: Where to write updated camera params.
@@ -58,6 +59,7 @@ def mv_preprocess(
         output_resolution: (width, height) target after center cropping.
         correction_focal: Per-camera focal length correction factors.
         num_workers: Number of parallel workers.
+        frames_slice: Optional slice to limit frame range.
         output_video_paths: Optional mapping from cam_id to output video path.
         extrinsics_camera_params_path: Optional path to merge extrinsics from.
         hoi_metadata_path: Optional path to hoi_metadata.yaml for bbox remapping.
@@ -78,8 +80,8 @@ def mv_preprocess(
         logger.info(f"Processing stereo pair: {pair.name} (cam {left_id} / {right_id})")
 
         (left_pipeline, _right_pipeline), (left_param, right_param) = preprocess_stereo(
-            left_source=frame_sources[left_id],
-            right_source=frame_sources[right_id],
+            left_path=rgb_paths[left_id],
+            right_path=rgb_paths[right_id],
             left_output_image_dir=output_image_dirs[left_id],
             right_output_image_dir=output_image_dirs[right_id],
             left_param=rig.get_camera(left_id).param,
@@ -90,6 +92,7 @@ def mv_preprocess(
             left_cam_id=left_id,
             right_cam_id=right_id,
             num_workers=num_workers,
+            frames_slice=frames_slice,
             left_output_video_path=output_video_paths.get(left_id),
             right_output_video_path=output_video_paths.get(right_id),
         )
@@ -189,11 +192,15 @@ def remap_hoi_bboxes(
         bbox = BoundingBox(x0=float(x0), y0=float(y0), x1=float(x1), y1=float(y1))
         detection = [{"label": obj_id, "box": bbox.to_dict()}]
 
-        first_frame = next(
-            (p for p in sorted(output_image_dirs[cam_name].iterdir()) if p.suffix == ".png"),
-            None,
-        )
-        frame_stem = first_frame.stem if first_frame is not None else "000000"
+        out_path = output_image_dirs[cam_name]
+        try:
+            source = FrameSource.from_path(out_path)
+            frame_stem = source.stems[0] if source.n_frames > 0 else "000000"
+            first_img = source[0] if source.n_frames > 0 else None
+        except (ValueError, FileNotFoundError):
+            frame_stem = "000000"
+            first_img = None
+
         results = {frame_stem: detection}
 
         json_path = labeled_bbox_paths[cam_name]
@@ -202,9 +209,8 @@ def remap_hoi_bboxes(
             json.dump(results, f, indent=2)
         logger.info(f"Saved remapped bbox to {json_path}")
 
-        if first_frame is not None:
-            img = iio.imread(first_frame, plugin="pillow")
-            img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+        if first_img is not None:
+            img_bgr = cv2.cvtColor(first_img, cv2.COLOR_RGB2BGR)
             pt1 = (int(round(x0)), int(round(y0)))
             pt2 = (int(round(x1)), int(round(y1)))
             cv2.rectangle(img_bgr, pt1, pt2, (0, 255, 0), 2)
@@ -216,7 +222,7 @@ def remap_hoi_bboxes(
             cv2.imwrite(str(vis_path), img_bgr)
             logger.info(f"Saved bbox visualization to {vis_path}")
         else:
-            logger.warning(f"No frames found in {output_image_dirs[cam_name]}, skipping visualization")
+            logger.warning(f"No frames found in {out_path}, skipping visualization")
 
     meta_copy = copy.deepcopy(meta)
     if "object" in meta_copy and "bbox" in meta_copy["object"]:
@@ -241,17 +247,15 @@ def mv_preprocess_from_config(cfg):
 
     frames_slice = slice(cfg.get("start", 0), cfg.get("stop"), cfg.get("step", 1))
 
-    frame_sources: dict[int, FrameSource] = {}
+    rgb_paths: dict[int, Path] = {}
     output_image_dirs: dict[int, Path] = {}
     output_video_paths: dict[int, Path] = {}
     labeled_bbox_paths: dict[str, Path] = {}
 
     for pair in rig.get_stereo_pairs():
         for cam in (pair.left, pair.right):
-            frame_sources[cam.cam_id] = FrameSource(
-                image_dir=Path(cfg.image_dir) / cam.image_path,
-                frames_slice=frames_slice,
-            )
+            raw_path = str(Path(cfg.rgb_dir) / cam.image_path) + cfg.get("input_suffix", "")
+            rgb_paths[cam.cam_id] = Path(raw_path)
 
             output_image_dirs[cam.cam_id] = Path(
                 cfg.output_image_path_template.format(cam_name=cam.name)
@@ -279,7 +283,7 @@ def mv_preprocess_from_config(cfg):
 
     mv_preprocess(
         rig=rig,
-        frame_sources=frame_sources,
+        rgb_paths=rgb_paths,
         output_image_dirs=output_image_dirs,
         camera_params_path=camera_params_path,
         output_camera_params_path=Path(cfg.output_camera_params_path),
@@ -287,6 +291,7 @@ def mv_preprocess_from_config(cfg):
         output_resolution=tuple(cfg.output_resolution) if cfg.get("output_resolution") else None,
         correction_focal=correction_focal,
         num_workers=cfg.get("num_workers"),
+        frames_slice=frames_slice,
         output_video_paths=output_video_paths or None,
         extrinsics_camera_params_path=extrinsics_camera_params_path,
         hoi_metadata_path=Path(hoi_metadata_path) if hoi_metadata_path else None,
@@ -304,21 +309,23 @@ if __name__ == "__main__":
     from omegaconf import OmegaConf
 
     parser = argparse.ArgumentParser(description="Multi-view preprocessing")
-    parser.add_argument("--image_dir", type=str, required=True,
-                        help="Directory containing per-camera image subdirectories")
+    parser.add_argument("--rgb_dir", type=str, required=True,
+                        help="Directory containing per-camera input frames")
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--camera_params_path", type=str, required=True)
     parser.add_argument("--extrinsics_camera_params_path", type=str, default=None)
     parser.add_argument("--hoi_metadata_path", type=str, default=None)
     parser.add_argument("--mesh_path", type=str, default=None,
                         help="Path to object mesh file to pin in the output")
-    parser.add_argument("--config_path", type=str,
-                        default=str(Path(__file__).parent / "mv_preprocess.yaml"))
+    parser.add_argument("--config_path", type=str, default=None,
+                        help="Optional override config (merged on top of defaults)")
     args = parser.parse_args()
 
-    cfg = OmegaConf.load(args.config_path)
+    cfg = OmegaConf.load(Path(__file__).parent / "mv_preprocess.yaml")
+    if args.config_path:
+        cfg = OmegaConf.merge(cfg, OmegaConf.load(args.config_path))
     overrides: dict = {
-        "image_dir": args.image_dir,
+        "rgb_dir": args.rgb_dir,
         "output_dir": args.output_dir,
         "camera_params_path": args.camera_params_path,
     }

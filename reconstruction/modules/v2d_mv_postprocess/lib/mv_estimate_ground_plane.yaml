@@ -2,7 +2,7 @@ camera_params_path: ???
 depth_dir: ???
 human_pose_dir: ???
 output_dir: ???
-image_dir: null
+rgb_dir: null
 mask_dir: null
 
 rig_config: stereo-4
@@ -10,7 +10,7 @@ cameras: [0, 2, 4, 6]
 mask_obj_id: 0
 
 depth_path_template: "${depth_dir}/{cam_name}/depth"
-image_path_template: "${image_dir}/{cam_name}"
+rgb_path_template: "${rgb_dir}/{cam_name}"
 mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}"
 mhr_params_mv_path: "${human_pose_dir}/mhr_params_mv.pt"
 output_path: "${output_dir}/ground_plane.json"

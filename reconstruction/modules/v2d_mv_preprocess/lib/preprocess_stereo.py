@@ -5,16 +5,14 @@ Processes a single stereo image pair and returns updated camera parameters.
 
 import logging
 import os
-import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-import imageio.v3 as iio
 import numpy as np
 from tqdm import tqdm
 
+from v2d.common.video import FrameSource, FrameWriter
 from v2d.mv.rig import CameraParam, RigConfig
-from v2d.mv.io.video import FrameSource
 
 from v2d.mv.preprocess.lib.image_proc import (
     ImagePipeline,
@@ -27,38 +25,22 @@ from v2d.mv.preprocess.lib.image_proc import (
 logger = logging.getLogger(__name__)
 
 
-def _process_frame(
-    i: int,
-    left_files: list[Path],
-    right_files: list[Path],
-    left_output_image_dir: Path,
-    right_output_image_dir: Path,
+def _rectify_frame(
+    order: int,
+    left_idx: int,
+    right_idx: int,
+    left_source: FrameSource,
+    right_source: FrameSource,
     left_pipeline: ImagePipeline,
     right_pipeline: ImagePipeline,
-):
-    img1 = iio.imread(left_files[i], plugin="pillow")
-    img2 = iio.imread(right_files[i], plugin="pillow")
+) -> tuple[int, np.ndarray, np.ndarray]:
+    """Read a matched pair from both sources and run rectification pipelines.
 
-    img1 = left_pipeline(img1)
-    img2 = right_pipeline(img2)
-
-    iio.imwrite(left_output_image_dir / left_files[i].name, img1)
-    iio.imwrite(right_output_image_dir / right_files[i].name, img2)
-
-
-def _generate_video(image_dir: Path, output_path: Path, fps: int = 30, crf: int = 17):
-    """Generate an MP4 video from a directory of PNG images using ffmpeg."""
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run([
-        "ffmpeg", "-y",
-        "-framerate", str(fps),
-        "-pattern_type", "glob",
-        "-i", str(image_dir / "*.png"),
-        "-c:v", "libx264",
-        "-crf", str(crf),
-        "-pix_fmt", "yuv420p",
-        str(output_path),
-    ], check=True, capture_output=True)
+    Returns (order, left_rectified, right_rectified).  No I/O writes.
+    """
+    img1 = left_pipeline(left_source[left_idx])
+    img2 = right_pipeline(right_source[right_idx])
+    return order, img1, img2
 
 
 def _scale_focal(param: CameraParam, scale: float) -> CameraParam:
@@ -71,8 +53,8 @@ def _scale_focal(param: CameraParam, scale: float) -> CameraParam:
 
 
 def preprocess_stereo(
-    left_source: FrameSource,
-    right_source: FrameSource,
+    left_path: Path,
+    right_path: Path,
     left_output_image_dir: Path,
     right_output_image_dir: Path,
     left_param: CameraParam,
@@ -83,14 +65,15 @@ def preprocess_stereo(
     left_cam_id: int | None = None,
     right_cam_id: int | None = None,
     num_workers: int | None = None,
+    frames_slice: slice | None = None,
     left_output_video_path: Path | None = None,
     right_output_video_path: Path | None = None,
 ) -> tuple[tuple[ImagePipeline, ImagePipeline], tuple[CameraParam, CameraParam]]:
     """Preprocess a stereo pair: rectify, rescale, and crop.
 
     Args:
-        left_source: FrameSource for left camera images.
-        right_source: FrameSource for right camera images.
+        left_path: Path to left camera frames (image dir, .h5, or video file).
+        right_path: Path to right camera frames (image dir, .h5, or video file).
         left_output_image_dir: Output directory for processed left frames.
         right_output_image_dir: Output directory for processed right frames.
         left_param: Camera parameters for the left camera.
@@ -101,6 +84,7 @@ def preprocess_stereo(
         left_cam_id: Camera ID for the left camera (used for correction_focal lookup).
         right_cam_id: Camera ID for the right camera (used for correction_focal lookup).
         num_workers: Number of parallel workers (defaults to CPU count).
+        frames_slice: Optional slice to limit frame range.
         left_output_video_path: Optional path to write left camera preview video.
         right_output_video_path: Optional path to write right camera preview video.
 
@@ -111,6 +95,9 @@ def preprocess_stereo(
         num_workers = os.cpu_count()
     if correction_focal is None:
         correction_focal = {}
+
+    left_source = FrameSource.from_path(left_path, frames_slice=frames_slice)
+    right_source = FrameSource.from_path(right_path, frames_slice=frames_slice)
 
     logger.info(
         f"Processing stereo pair (cam {left_cam_id} / {right_cam_id})"
@@ -145,52 +132,63 @@ def preprocess_stereo(
         logger.warning(f"Applying focal correction {correction_focal[right_cam_id]} to camera {right_cam_id}")
         right_param = _scale_focal(right_param, correction_focal[right_cam_id])
 
-    # Process frames
-    os.makedirs(left_output_image_dir, exist_ok=True)
-    os.makedirs(right_output_image_dir, exist_ok=True)
-
-    left_files = left_source.image_paths
-    right_files = right_source.image_paths
-
-    if len(left_files) != len(right_files):
-        left_names = {p.name: p for p in left_files}
-        right_names = {p.name: p for p in right_files}
-        common = sorted(left_names.keys() & right_names.keys())
-        only_left = sorted(left_names.keys() - right_names.keys())
-        only_right = sorted(right_names.keys() - left_names.keys())
+    # Stem-matching: match left/right frames by stem name
+    if left_source.n_frames != right_source.n_frames:
         logger.warning(
-            f"Frame count mismatch: left={len(left_files)}, right={len(right_files)}. "
-            f"Only in left ({len(only_left)}): {only_left[:10]}. "
-            f"Only in right ({len(only_right)}): {only_right[:10]}. "
-            f"Proceeding with {len(common)} matched frames."
+            f"Frame count mismatch: left={left_source.n_frames}, right={right_source.n_frames}"
         )
-        left_files = [left_names[n] for n in common]
-        right_files = [right_names[n] for n in common]
+    right_stem_to_idx = {s: i for i, s in enumerate(right_source.stems)}
+    matched_pairs: list[tuple[int, int, str]] = []
+    for left_idx, stem in enumerate(left_source.stems):
+        if stem in right_stem_to_idx:
+            matched_pairs.append((left_idx, right_stem_to_idx[stem], stem))
+        else:
+            logger.warning(f"[skip] no matching right frame for stem: {stem}")
 
-    assert len(left_files) > 0, "No frames to process"
+    n_matched = len(matched_pairs)
+    assert n_matched > 0, "No matched frames to process"
+    logger.info(f"Processing {n_matched} matched frames with {num_workers} workers...")
 
-    logger.info(f"Processing {len(left_files)} frames with {num_workers} workers...")
-
+    # Parallel rectification, sequential writes
+    results: dict[int, tuple[np.ndarray, np.ndarray]] = {}
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
         futures = [
             executor.submit(
-                _process_frame, i,
-                left_files, right_files,
-                left_output_image_dir, right_output_image_dir,
+                _rectify_frame, order,
+                left_idx, right_idx,
+                left_source, right_source,
                 left_pipeline, right_pipeline,
             )
-            for i in range(len(left_files))
+            for order, (left_idx, right_idx, _stem) in enumerate(matched_pairs)
         ]
-        for fut in tqdm(as_completed(futures), total=len(futures)):
-            fut.result()
+        for fut in tqdm(as_completed(futures), total=len(futures), desc="Rectifying"):
+            idx, img1, img2 = fut.result()
+            results[idx] = (img1, img2)
 
-    logger.info(f"{len(left_files)} frames processed")
+    left_writer = FrameWriter.from_path(left_output_image_dir)
+    right_writer = FrameWriter.from_path(right_output_image_dir)
+    left_vid_writer = FrameWriter.from_path(left_output_video_path) if left_output_video_path else None
+    right_vid_writer = FrameWriter.from_path(right_output_video_path) if right_output_video_path else None
 
-    # Generate preview videos
-    if left_output_video_path is not None:
-        _generate_video(left_output_image_dir, left_output_video_path)
-    if right_output_video_path is not None:
-        _generate_video(right_output_image_dir, right_output_video_path)
+    try:
+        for i in tqdm(range(n_matched), desc="Writing frames"):
+            img1, img2 = results[i]
+            stem = matched_pairs[i][2]
+            left_writer.write_frame(img1, stem=stem)
+            right_writer.write_frame(img2, stem=stem)
+            if left_vid_writer is not None:
+                left_vid_writer.write_frame(img1)
+            if right_vid_writer is not None:
+                right_vid_writer.write_frame(img2)
+    finally:
+        left_writer.close()
+        right_writer.close()
+        if left_vid_writer is not None:
+            left_vid_writer.close()
+        if right_vid_writer is not None:
+            right_vid_writer.close()
+
+    logger.info(f"{n_matched} frames processed")
 
     return (left_pipeline, right_pipeline), (left_param, right_param)
 
@@ -223,12 +221,10 @@ if __name__ == "__main__":
 
     rig = RigConfig(args.rig_name, camera_params_path=args.camera_params_path)
     frames_slice = slice(args.start, args.stop, args.step)
-    left_source = FrameSource(image_dir=args.left_image_dir, frames_slice=frames_slice)
-    right_source = FrameSource(image_dir=args.right_image_dir, frames_slice=frames_slice)
 
     (left_pipeline, right_pipeline), (left_param, right_param) = preprocess_stereo(
-        left_source=left_source,
-        right_source=right_source,
+        left_path=args.left_image_dir,
+        right_path=args.right_image_dir,
         left_output_image_dir=args.left_output_image_dir,
         right_output_image_dir=args.right_output_image_dir,
         left_param=rig.get_camera(args.left_cam_id).param,
@@ -238,6 +234,7 @@ if __name__ == "__main__":
         left_cam_id=args.left_cam_id,
         right_cam_id=args.right_cam_id,
         num_workers=args.num_workers,
+        frames_slice=frames_slice,
         left_output_video_path=args.left_output_video_path,
         right_output_video_path=args.right_output_video_path,
     )

@@ -77,7 +77,7 @@ def main(
 
     # Preprocessing (rectification, rescaling, video encoding, HOI bbox remap)
     run_mv_preprocess(
-        image_dir=os.path.join(raw_dir, "images"),
+        rgb_dir=os.path.join(raw_dir, "images"),
         output_dir=preprocess_dir,
         camera_params_path=os.path.join(raw_dir, "edex"),
         extrinsics_camera_params_path=extrinsics_camera_params_path,
@@ -89,7 +89,7 @@ def main(
     # Stereo depth estimation
     run_mv_image_list_to_depth(
         camera_params_path=os.path.join(preprocess_dir, "edex"),
-        image_dir=preprocess_images_dir,
+        rgb_dir=preprocess_images_dir,
         output_dir=foundation_stereo_dir,
         model_dir=os.path.join(RECON_DIR, "data/weights/foundation_stereo"),
         dev=dev,
@@ -97,7 +97,7 @@ def main(
 
     # Detect object bounding boxes with Grounding DINO
     run_mv_image_list_to_object_bboxes(
-        image_dir=preprocess_images_dir,
+        rgb_dir=preprocess_images_dir,
         prompt_path=os.path.join(preprocess_dir, "prompt.txt"),
         output_dir=grounding_dino_dir,
         model_dir=os.path.join(RECON_DIR, "data/weights/grounding_dino"),
@@ -109,7 +109,7 @@ def main(
         weights_dir=os.path.join(RECON_DIR, "data/weights/sam2"),
         bbox_dir=grounding_dino_dir,
         output_dir=sam2_object_dir,
-        image_dir=preprocess_images_dir,
+        rgb_dir=preprocess_images_dir,
         config_path=os.path.join(MV_CONFIGS_DIR, "mv_videos_to_object_masks.yaml"),
         dev=dev,
     )
@@ -117,7 +117,7 @@ def main(
     # Track object pose with FoundationPose (requires depth + object masks)
     run_mv_videos_to_poses(
         camera_params_path=os.path.join(preprocess_dir, "edex"),
-        image_dir=preprocess_images_dir,
+        rgb_dir=preprocess_images_dir,
         depth_dir=foundation_stereo_dir,
         mask_dir=sam2_object_dir,
         mesh_path=_find_pinned_mesh(preprocess_mesh_dir),
@@ -130,7 +130,7 @@ def main(
     run_mv_track_bboxes(
         weights_dir=os.path.join(RECON_DIR, "data/weights/detectron2"),
         output_dir=detectron2_dir,
-        image_dir=preprocess_images_dir,
+        rgb_dir=preprocess_images_dir,
         dev=dev,
     )
 
@@ -139,7 +139,7 @@ def main(
         weights_dir=os.path.join(RECON_DIR, "data/weights/sam2"),
         bbox_dir=detectron2_dir,
         output_dir=sam2_human_dir,
-        image_dir=preprocess_images_dir,
+        rgb_dir=preprocess_images_dir,
         dev=dev,
     )
 
@@ -149,7 +149,7 @@ def main(
         weights_dir=os.path.join(RECON_DIR, "data/weights/sam3d_body"),
         bbox_dir=detectron2_dir,
         output_dir=sam3d_body_dir,
-        image_dir=preprocess_images_dir,
+        rgb_dir=preprocess_images_dir,
         mask_dir=sam2_human_dir,
         dev=dev,
     )
@@ -170,7 +170,7 @@ def main(
     run_mv_export_fused_pointcloud(
         camera_params_path=os.path.join(preprocess_dir, "edex"),
         depth_dir=foundation_stereo_dir,
-        image_dir=preprocess_images_dir,
+        rgb_dir=preprocess_images_dir,
         output_dir=fused_pointcloud_dir,
         dev=dev,
     )
@@ -181,7 +181,7 @@ def main(
         depth_dir=foundation_stereo_dir,
         human_pose_dir=sam3d_body_dir,
         output_dir=ground_plane_dir,
-        image_dir=preprocess_images_dir,
+        rgb_dir=preprocess_images_dir,
         dev=dev,
     )
 
@@ -213,7 +213,7 @@ def main(
         object_pose_dir=foundation_pose_dir,
         human_pose_dir=sam3d_body_dir,
         output_dir=hoi_overlay_dir,
-        image_dir=preprocess_images_dir,
+        rgb_dir=preprocess_images_dir,
         dev=dev,
     )
 

@@ -22,7 +22,7 @@ def export_fused_pointcloud(
     cam_intrinsics: list[np.ndarray],
     cam_extrinsics: list[np.ndarray],
     cam_resolutions: list[np.ndarray],
-    image_dirs: list[Path],
+    rgb_dirs: list[Path],
     output_dir: Path,
     frame_indices: list[int],
     mask_dirs: list[Path] | None = None,
@@ -38,17 +38,19 @@ def export_fused_pointcloud(
     ``{output_dir}/{frame_stem}.ply`` where ``frame_stem`` matches the source
     depth image filename (e.g. ``000000.ply``).
     """
+    from v2d.common.video import FrameSource
+
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    ref_depth_paths = sorted(depth_dirs[0].glob("*.png"))
+    ref_source = FrameSource.from_path(depth_dirs[0])
 
     for fi in frame_indices:
-        if fi >= len(ref_depth_paths):
-            logger.warning("Frame index %d out of range (max %d), skipping", fi, len(ref_depth_paths) - 1)
+        if fi >= ref_source.n_frames:
+            logger.warning("Frame index %d out of range (max %d), skipping", fi, ref_source.n_frames - 1)
             continue
 
-        frame_stem = ref_depth_paths[fi].stem
+        frame_stem = ref_source.stems[fi]
 
         logger.info("Fusing frame %d (%s) …", fi, frame_stem)
         points, colors = fuse_multiview_depth(
@@ -57,7 +59,7 @@ def export_fused_pointcloud(
             cam_intrinsics=cam_intrinsics,
             cam_extrinsics=cam_extrinsics,
             cam_resolutions=cam_resolutions,
-            image_dirs=image_dirs,
+            rgb_dirs=rgb_dirs,
             mask_dirs=mask_dirs,
             max_depth=max_depth,
             image_scale=image_scale,
@@ -78,7 +80,7 @@ def export_fused_pointcloud_from_config(cfg) -> None:
     cam_extrinsics: list[np.ndarray] = []
     cam_resolutions: list[np.ndarray] = []
     depth_dirs: list[Path] = []
-    image_dirs: list[Path] = []
+    rgb_dirs: list[Path] = []
     mask_dirs: list[Path] | None = None
     if cfg.get("mask_dir"):
         mask_dirs = []
@@ -89,7 +91,7 @@ def export_fused_pointcloud_from_config(cfg) -> None:
         cam_extrinsics.append(cam.param.T)
         cam_resolutions.append(cam.param.resolution)
         depth_dirs.append(Path(cfg.depth_path_template.format(cam_name=cam.name)))
-        image_dirs.append(Path(cfg.image_path_template.format(cam_name=cam.name)))
+        rgb_dirs.append(Path(cfg.rgb_path_template.format(cam_name=cam.name)))
         if mask_dirs is not None:
             mask_dirs.append(
                 Path(cfg.mask_path_template.format(
@@ -104,7 +106,7 @@ def export_fused_pointcloud_from_config(cfg) -> None:
         cam_intrinsics=cam_intrinsics,
         cam_extrinsics=cam_extrinsics,
         cam_resolutions=cam_resolutions,
-        image_dirs=image_dirs,
+        rgb_dirs=rgb_dirs,
         output_dir=Path(cfg.output_path),
         frame_indices=frame_indices,
         mask_dirs=mask_dirs,
@@ -124,20 +126,20 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Export fused multiview point clouds as PLY")
     parser.add_argument("--camera_params_path", type=str, required=True)
     parser.add_argument("--depth_dir", type=str, required=True)
-    parser.add_argument("--image_dir", type=str, required=True)
+    parser.add_argument("--rgb_dir", type=str, required=True)
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--mask_dir", type=str, default=None)
-    parser.add_argument(
-        "--config_path", type=str,
-        default=str(Path(__file__).parent / "mv_export_fused_pointcloud.yaml"),
-    )
+    parser.add_argument("--config_path", type=str, default=None,
+                        help="Optional override config (merged on top of defaults)")
     args = parser.parse_args()
 
-    cfg = OmegaConf.load(args.config_path)
+    cfg = OmegaConf.load(Path(__file__).parent / "mv_export_fused_pointcloud.yaml")
+    if args.config_path:
+        cfg = OmegaConf.merge(cfg, OmegaConf.load(args.config_path))
     overrides = {
         "camera_params_path": args.camera_params_path,
         "depth_dir": args.depth_dir,
-        "image_dir": args.image_dir,
+        "rgb_dir": args.rgb_dir,
         "output_dir": args.output_dir,
     }
     if args.mask_dir is not None:

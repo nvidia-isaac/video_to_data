@@ -7,7 +7,7 @@ _LIB_CONFIG = Path(__file__).parent.parent / "lib" / "mv_image_list_to_object_bb
 
 
 def run_mv_image_list_to_object_bboxes(
-    image_dir: str,
+    rgb_dir: str,
     prompt_path: str,
     output_dir: str,
     model_dir: str,
@@ -18,7 +18,7 @@ def run_mv_image_list_to_object_bboxes(
         image=IMAGE_NAME,
         module="v2d.grounding_dino.lib.mv_image_list_to_object_bboxes",
         inputs={
-            "image_dir": image_dir,
+            "rgb_dir": rgb_dir,
             "prompt_path": prompt_path,
             "model_dir": model_dir,
             "config_path": config_path,
@@ -37,7 +37,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Multi-view Grounding DINO object detection"
     )
-    parser.add_argument("--image_dir", type=str, required=True,
+    parser.add_argument("--rgb_dir", type=str, required=True,
                         help="Root directory containing per-camera image folders")
     parser.add_argument("--prompt_path", type=str, required=True,
                         help="Path to plain-text file containing the object prompt")
@@ -51,7 +51,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     run_mv_image_list_to_object_bboxes(
-        image_dir=args.image_dir,
+        rgb_dir=args.rgb_dir,
         prompt_path=args.prompt_path,
         output_dir=args.output_dir,
         model_dir=args.model_dir,

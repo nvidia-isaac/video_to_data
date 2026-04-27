@@ -63,8 +63,8 @@ def mv_image_list_to_depth_from_config(cfg):
             "fx": fx, "fy": fy, "cx": cx, "cy": cy, "baseline": baseline,
         }
 
-        left_dir = cfg.image_path_template.format(cam_name=pair.left.name)
-        right_dir = cfg.image_path_template.format(cam_name=pair.right.name)
+        left_dir = cfg.rgb_path_template.format(cam_name=pair.left.name)
+        right_dir = cfg.rgb_path_template.format(cam_name=pair.right.name)
 
         depth_folder = cfg.depth_path_template.format(cam_name=pair.left.name)
         intrinsics_folder = cfg.intrinsics_path_template.format(cam_name=pair.left.name)
@@ -95,25 +95,24 @@ if __name__ == "__main__":
     )
     parser.add_argument("--camera_params_path", type=str, required=True,
                         help="Path to EDEX file with camera calibration")
-    parser.add_argument("--image_dir", type=str, required=True,
-                        help="Root directory containing per-camera image folders")
+    parser.add_argument("--rgb_dir", type=str, required=True,
+                        help="Root directory containing per-camera input frames")
     parser.add_argument("--output_dir", type=str, required=True,
                         help="Output directory for depth and intrinsics")
     parser.add_argument("--model_dir", type=str, required=True,
                         help="Directory containing Foundation Stereo ONNX/engine")
     parser.add_argument("--scale", type=float, default=None,
                         help="Scale factor for output resolution (e.g. 0.5 for half)")
-    parser.add_argument(
-        "--config_path",
-        type=str,
-        default=str(Path(__file__).parent / "mv_image_list_to_depth.yaml"),
-    )
+    parser.add_argument("--config_path", type=str, default=None,
+                        help="Optional override config (merged on top of defaults)")
     args = parser.parse_args()
 
-    cfg = OmegaConf.load(args.config_path)
+    cfg = OmegaConf.load(Path(__file__).parent / "mv_image_list_to_depth.yaml")
+    if args.config_path:
+        cfg = OmegaConf.merge(cfg, OmegaConf.load(args.config_path))
     overrides: dict = {
         "camera_params_path": args.camera_params_path,
-        "image_dir": args.image_dir,
+        "rgb_dir": args.rgb_dir,
         "output_dir": args.output_dir,
         "model_dir": args.model_dir,
     }

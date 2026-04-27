@@ -33,6 +33,8 @@ import sys
 import numpy as np
 from PIL import Image
 
+from v2d.common.video import FrameSource
+
 
 def _mask_to_bbox(mask: np.ndarray) -> tuple[int, int, int, int] | None:
     """Return (x0, y0, x1, y1) tight bbox around foreground, or None if empty."""
@@ -92,16 +94,24 @@ def check_object_mask(
             continue
         bbox = detections[0]["box"]
 
+        # Try HDF5 first, then PNG directory
+        obj_mask_h5 = os.path.join(mask_dir, cam_name, "0.h5")
         obj_mask_dir = os.path.join(mask_dir, cam_name, "0")
-        if not os.path.isdir(obj_mask_dir):
-            print(f"  {cam_name}: no mask dir at {obj_mask_dir}, skipping")
-            continue
-        mask_files = sorted(glob.glob(os.path.join(obj_mask_dir, "*.png")))
-        if not mask_files:
-            print(f"  {cam_name}: no mask PNGs found, skipping")
+        if os.path.isfile(obj_mask_h5):
+            mask_source_path = obj_mask_h5
+        elif os.path.isdir(obj_mask_dir):
+            mask_source_path = obj_mask_dir
+        else:
+            print(f"  {cam_name}: no mask data at {obj_mask_dir}, skipping")
             continue
 
-        sam_mask = np.array(Image.open(mask_files[0]).convert("L")) > 127
+        try:
+            mask_source = FrameSource.from_path(mask_source_path)
+        except FileNotFoundError:
+            print(f"  {cam_name}: no mask frames found, skipping")
+            continue
+
+        sam_mask = mask_source[0] > 127
         mask_bbox = _mask_to_bbox(sam_mask)
         if mask_bbox is None:
             print(f"  {cam_name}: empty SAM2 mask, skipping")

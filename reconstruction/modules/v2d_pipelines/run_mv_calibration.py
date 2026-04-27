@@ -35,7 +35,7 @@ def main(
     # Step 2: Calibrate extrinsics
     run_calibrate_extrinsics(
         camera_params_path=os.path.join(raw_dir, "edex"),
-        image_dir=os.path.join(raw_dir, "images"),
+        rgb_dir=os.path.join(raw_dir, "images"),
         output_dir=os.path.join(output_dir, "extrinsics"),
         dev=dev,
     )

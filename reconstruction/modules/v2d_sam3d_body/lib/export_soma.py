@@ -188,7 +188,7 @@ def _render_debug(
     import cv2
     import trimesh
     from tqdm import tqdm
-    from v2d.mv.io.video import get_video_writer
+    from v2d.common.video import get_video_writer
     from v2d.mv.vis.renderer import Renderer
 
     video_path = output_path.parent / "mhr_soma_comparison.mp4"

@@ -1,11 +1,12 @@
 rig_name: stereo-4
 
 camera_params_path: ???
-image_dir: ???
+rgb_dir: ???
 output_dir: ???
 
 output_camera_params_path: "${output_dir}/edex"
 
+input_suffix: ""                  # e.g. ".h5" for HDF5 inputs
 calibration_order: [0, 4, 2, 6]   # Left camera IDs for pairwise PnP chain
 board_size: [6, 10]               # Inner corners (width, height)
 square_size: 0.1                  # Square size in meters

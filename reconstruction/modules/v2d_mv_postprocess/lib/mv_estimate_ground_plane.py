@@ -96,7 +96,7 @@ def estimate_ground_plane(
     output_path: Path,
     mhr_params_path: Path | None = None,
     mask_dirs: list[Path] | None = None,
-    image_dirs: list[Path] | None = None,
+    rgb_dirs: list[Path] | None = None,
     n_sample_frames: int = 10,
     height_band: float = 0.3,
     ransac_threshold: float = 0.02,
@@ -110,7 +110,9 @@ def estimate_ground_plane(
     Returns:
         Dict with ``plane`` [a,b,c,d], ``n_inliers``, ``foot_plane_dist_stats``.
     """
-    n_total = len(sorted(depth_dirs[0].glob("*.png")))
+    from v2d.common.video import FrameSource
+
+    n_total = FrameSource.from_path(depth_dirs[0]).n_frames
     if n_total == 0:
         raise ValueError(f"No depth frames found in {depth_dirs[0]}")
 
@@ -223,7 +225,7 @@ def estimate_ground_plane(
         cam_intrinsics=cam_intrinsics,
         cam_extrinsics=cam_extrinsics,
         cam_resolutions=cam_resolutions,
-        image_dirs=image_dirs,
+        rgb_dirs=rgb_dirs,
         max_depth=max_depth,
         image_scale=image_scale,
     )
@@ -238,7 +240,7 @@ def _export_debug_ply(
     cam_intrinsics: list[np.ndarray],
     cam_extrinsics: list[np.ndarray],
     cam_resolutions: list[np.ndarray],
-    image_dirs: list[Path] | None,
+    rgb_dirs: list[Path] | None,
     max_depth: float,
     image_scale: float,
 ) -> None:
@@ -249,7 +251,7 @@ def _export_debug_ply(
         cam_intrinsics=cam_intrinsics,
         cam_extrinsics=cam_extrinsics,
         cam_resolutions=cam_resolutions,
-        image_dirs=image_dirs,
+        rgb_dirs=rgb_dirs,
         max_depth=max_depth,
         image_scale=image_scale,
         voxel_size=0.01,
@@ -314,10 +316,10 @@ def estimate_ground_plane_from_config(cfg) -> dict:
     cam_extrinsics: list[np.ndarray] = []
     cam_resolutions: list[np.ndarray] = []
     depth_dirs: list[Path] = []
-    image_dirs: list[Path] | None = None
+    rgb_dirs: list[Path] | None = None
     mask_dirs: list[Path] | None = None
-    if cfg.get("image_dir"):
-        image_dirs = []
+    if cfg.get("rgb_dir"):
+        rgb_dirs = []
     if cfg.get("mask_dir"):
         mask_dirs = []
 
@@ -327,8 +329,8 @@ def estimate_ground_plane_from_config(cfg) -> dict:
         cam_extrinsics.append(cam.param.T)
         cam_resolutions.append(cam.param.resolution)
         depth_dirs.append(Path(cfg.depth_path_template.format(cam_name=cam.name)))
-        if image_dirs is not None:
-            image_dirs.append(Path(cfg.image_path_template.format(cam_name=cam.name)))
+        if rgb_dirs is not None:
+            rgb_dirs.append(Path(cfg.rgb_path_template.format(cam_name=cam.name)))
         if mask_dirs is not None:
             mask_dirs.append(
                 Path(cfg.mask_path_template.format(
@@ -347,7 +349,7 @@ def estimate_ground_plane_from_config(cfg) -> dict:
         output_path=Path(cfg.output_path),
         mhr_params_path=mhr_params_path,
         mask_dirs=mask_dirs,
-        image_dirs=image_dirs,
+        rgb_dirs=rgb_dirs,
         n_sample_frames=cfg.n_sample_frames,
         height_band=cfg.height_band,
         ransac_threshold=cfg.ransac_threshold,
@@ -368,23 +370,23 @@ if __name__ == "__main__":
     parser.add_argument("--depth_dir", type=str, required=True)
     parser.add_argument("--human_pose_dir", type=str, required=True)
     parser.add_argument("--output_dir", type=str, required=True)
-    parser.add_argument("--image_dir", type=str, default=None)
+    parser.add_argument("--rgb_dir", type=str, default=None)
     parser.add_argument("--mask_dir", type=str, default=None)
-    parser.add_argument(
-        "--config_path", type=str,
-        default=str(Path(__file__).parent / "mv_estimate_ground_plane.yaml"),
-    )
+    parser.add_argument("--config_path", type=str, default=None,
+                        help="Optional override config (merged on top of defaults)")
     args = parser.parse_args()
 
-    cfg = OmegaConf.load(args.config_path)
+    cfg = OmegaConf.load(Path(__file__).parent / "mv_estimate_ground_plane.yaml")
+    if args.config_path:
+        cfg = OmegaConf.merge(cfg, OmegaConf.load(args.config_path))
     overrides = {
         "camera_params_path": args.camera_params_path,
         "depth_dir": args.depth_dir,
         "human_pose_dir": args.human_pose_dir,
         "output_dir": args.output_dir,
     }
-    if args.image_dir is not None:
-        overrides["image_dir"] = args.image_dir
+    if args.rgb_dir is not None:
+        overrides["rgb_dir"] = args.rgb_dir
     if args.mask_dir is not None:
         overrides["mask_dir"] = args.mask_dir
     cfg = OmegaConf.merge(cfg, overrides)

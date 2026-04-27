@@ -14,4 +14,4 @@ COPY v2d_common /workspace/v2d_common
 COPY v2d_mv /workspace/v2d_mv
 COPY v2d_sam2 /workspace/v2d_sam2
 
-RUN pip install -e /workspace/v2d_common -e /workspace/v2d_mv -e /workspace/v2d_sam2/lib
+RUN pip install -e "/workspace/v2d_common[io]" -e /workspace/v2d_mv -e /workspace/v2d_sam2/lib

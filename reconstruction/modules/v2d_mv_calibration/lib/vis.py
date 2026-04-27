@@ -93,7 +93,7 @@ def visualize_camera_and_target_poses(
 
 def visualize_reprojected_points(
     output_dir: Path,
-    image_files: list[Path],
+    frame_source,
     target_xyz: np.ndarray,
     per_cam_features: list[np.ndarray | None],
     est_camera_param: CameraParam,
@@ -108,20 +108,18 @@ def visualize_reprojected_points(
 
     Args:
         output_dir: Directory to write annotated images.
-        image_files: List of image file paths.
+        frame_source: FrameSource for reading images.
         target_xyz: (P, 3) target 3D points.
         per_cam_features: Per-correspondence detected features (or None).
         est_camera_param: Estimated (pre-BA) camera params.
         opt_camera_param: Optimized (post-BA) camera params.
         est_target_poses: (N, 4, 4) estimated target poses.
         opt_target_poses: (N, 4, 4) optimized target poses.
-        frame_indices: Original image-file indices for each correspondence
+        frame_indices: Original frame indices for each correspondence
             entry. When provided, only those frames are visualized and
             per_cam_features/poses are indexed by correspondence order.
             When None, falls back to sequential indexing (legacy behavior).
     """
-    import imageio.v3 as iio
-
     K, D = est_camera_param.K, est_camera_param.D
     distort_fn = partial(distort_polynomial, coeffs=D) if len(D) > 0 else None
     est_T_cam_world = se3_inv(est_camera_param.T)
@@ -139,11 +137,11 @@ def visualize_reprojected_points(
         enumerate(frame_indices), total=len(frame_indices),
         desc="Drawing reprojections",
     ):
-        if img_idx >= len(image_files):
-            logger.warning("Frame index %d out of range (%d images), skipping", img_idx, len(image_files))
+        if img_idx >= frame_source.n_frames:
+            logger.warning("Frame index %d out of range (%d frames), skipping", img_idx, frame_source.n_frames)
             continue
 
-        img = iio.imread(image_files[img_idx], plugin="pillow")
+        img = frame_source[img_idx]
         if img.ndim == 2:
             img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
         elif img.shape[2] == 3:

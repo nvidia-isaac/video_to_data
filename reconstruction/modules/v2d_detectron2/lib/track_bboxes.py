@@ -10,7 +10,7 @@ import imageio.v3 as iio
 import torch
 from tqdm import tqdm
 
-from v2d.mv.io.video import FrameSource, get_video_writer
+from v2d.common.video import FrameSource, get_video_writer
 
 from .build_detector import Detector
 from .bytetracker import ByteTracker
@@ -54,7 +54,7 @@ TrackerConfig = IoUTrackerConfig | ByteTrackerConfig
 
 
 def track_bboxes(
-    frame_source: FrameSource,
+    rgb_path: Path,
     output_path: str | Path,
     detector_cfg: DetectorConfig | None = None,
     tracker_cfg: TrackerConfig | None = None,
@@ -81,6 +81,7 @@ def track_bboxes(
     output_path = Path(output_path).resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    frame_source = FrameSource.from_path(rgb_path)
     n_frames = frame_source.n_frames
     image_size = frame_source.image_size
 
@@ -201,11 +202,8 @@ def track_bboxes(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run person detection + tracking on a single camera")
-
-    input_group = parser.add_mutually_exclusive_group(required=True)
-    input_group.add_argument("--image_dir", type=str, help="Directory of PNG images")
-    input_group.add_argument("--video_path", type=str, help="Path to video file")
-
+    parser.add_argument("--rgb_path", type=str, required=True,
+                        help="Path to input frames (image dir, .h5, or video file)")
     parser.add_argument("--output_path", type=str, required=True, help="Output .pt file path")
 
     det = parser.add_argument_group("detector")
@@ -225,12 +223,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    source = FrameSource(
-        image_dir=args.image_dir,
-        video_path=args.video_path,
-    )
     track_bboxes(
-        frame_source=source,
+        rgb_path=args.rgb_path,
         output_path=args.output_path,
         detector_cfg=DetectorConfig(
             model_size=args.model_size,

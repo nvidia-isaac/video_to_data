@@ -5,15 +5,16 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
+    libxcb1 \
     ffmpeg \
     git \
     && rm -rf /var/lib/apt/lists/*
 
 COPY v2d_common /workspace/v2d_common
-RUN pip install -e /workspace/v2d_common
+RUN pip install -e "/workspace/v2d_common[io]"
 
 COPY v2d_mv /workspace/v2d_mv
-RUN pip install -e "/workspace/v2d_mv[io]"
+RUN pip install -e /workspace/v2d_mv
 
 COPY v2d_mv_preprocess/lib /workspace/v2d_mv_preprocess/lib
 RUN pip install -e /workspace/v2d_mv_preprocess/lib

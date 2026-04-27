@@ -13,29 +13,25 @@ _DEV_PRESERVE_VOLUMES = [
 
 def run_mv_videos_to_poses(
     camera_params_path: str,
+    rgb_dir: str,
     depth_dir: str,
     mask_dir: str,
     mesh_path: str,
     weights_dir: str,
     output_dir: str,
-    image_dir: str | None = None,
-    video_dir: str | None = None,
     config_path: str = str(_LIB_CONFIG),
     debug: int = -1,
     dev: bool = False,
 ) -> None:
     inputs = {
         "camera_params_path": camera_params_path,
+        "rgb_dir": rgb_dir,
         "depth_dir": depth_dir,
         "mask_dir": mask_dir,
         "mesh_path": mesh_path,
         "weights_dir": weights_dir,
         "config_path": config_path,
     }
-    if image_dir:
-        inputs["image_dir"] = image_dir
-    if video_dir:
-        inputs["video_dir"] = video_dir
 
     outputs = {"output_dir": output_dir}
 
@@ -62,11 +58,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Run multi-view FoundationPose tracking")
-
-    input_group = parser.add_mutually_exclusive_group(required=True)
-    input_group.add_argument("--image_dir", type=str, help="Directory containing images")
-    input_group.add_argument("--video_dir", type=str, help="Directory containing videos")
-
+    parser.add_argument("--rgb_dir", type=str, required=True, help="Directory containing input frames")
     parser.add_argument("--camera_params_path", type=str, required=True, help="Path to camera parameters")
     parser.add_argument("--depth_dir", type=str, required=True, help="Directory containing depth maps")
     parser.add_argument("--mask_dir", type=str, required=True, help="Directory containing object masks")
@@ -80,13 +72,12 @@ if __name__ == "__main__":
 
     run_mv_videos_to_poses(
         camera_params_path=args.camera_params_path,
+        rgb_dir=args.rgb_dir,
         depth_dir=args.depth_dir,
         mask_dir=args.mask_dir,
         mesh_path=args.mesh_path,
         weights_dir=args.weights_dir,
         output_dir=args.output_dir,
-        image_dir=args.image_dir,
-        video_dir=args.video_dir,
         config_path=args.config_path,
         debug=args.debug,
         dev=args.dev,

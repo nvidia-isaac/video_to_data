@@ -76,6 +76,8 @@ workflow:
         imu_frame: front_stereo_camera_imu
         output_width: 1920
         output_height: 1200
+        pack_h5: true
+        remove_pngs_after_pack: true
 
   # Preprocessing (rectify, rescale, encode video, remap HOI bbox)
   - name: mv_preprocess
@@ -84,10 +86,9 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
-    - url: {{swift_output_base}}/rosbag_to_edex/
+    - task: rosbag_to_edex
     - url: {{extrinsics_url}}
     - url: {{mesh_url}}
-    - task: rosbag_to_edex
     outputs:
     - url: {{swift_output_base}}/mv_preprocess/
     files:
@@ -102,12 +103,17 @@ workflow:
         fi
         echo "Using mesh: $MESH"
         python -m v2d.mv.preprocess.lib.mv_preprocess \
-          --image_dir {{input:0}}/images \
+          --rgb_dir {{input:0}}/images \
           --output_dir {{output}} \
           --camera_params_path {{input:0}}/edex \
           --extrinsics_camera_params_path {{input:1}}/edex \
           --hoi_metadata_path {{input:0}}/hoi_metadata.yaml \
-          --mesh_path "$MESH"
+          --mesh_path "$MESH" \
+          --config_path /tmp/preprocess_config.yaml
+    - path: /tmp/preprocess_config.yaml
+      contents: |-
+        input_suffix: ".h5"
+        output_image_path_template: "${output_dir}/images/{cam_name}.h5"
 
   # Stereo depth estimation
   - name: foundation_stereo
@@ -115,9 +121,8 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
-    - url: {{swift_output_base}}/mv_preprocess/
-    - dataset: {name: v2d_mv_hoi_data}
     - task: mv_preprocess
+    - dataset: {name: v2d_mv_hoi_data}
     outputs:
     - url: {{swift_output_base}}/foundation_stereo/
     files:
@@ -126,9 +131,14 @@ workflow:
         set -ex
         python -m v2d.foundation_stereo.lib.mv_image_list_to_depth \
           --camera_params_path {{input:0}}/edex \
-          --image_dir {{input:0}}/images \
+          --rgb_dir {{input:0}}/images \
           --output_dir {{output}} \
-          --model_dir {{input:1}}/v2d_mv_hoi_data/data/weights/foundation_stereo
+          --model_dir {{input:1}}/v2d_mv_hoi_data/data/weights/foundation_stereo \
+          --config_path /tmp/depth_config.yaml
+    - path: /tmp/depth_config.yaml
+      contents: |-
+        rgb_path_template: "${rgb_dir}/{cam_name}.h5"
+        depth_path_template: "${output_dir}/{cam_name}/depth.h5"
 
   # Object bounding-box detection (Grounding DINO)
   - name: grounding_dino
@@ -136,9 +146,8 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
-    - url: {{swift_output_base}}/mv_preprocess/
-    - dataset: {name: v2d_mv_hoi_data}
     - task: mv_preprocess
+    - dataset: {name: v2d_mv_hoi_data}
     outputs:
     - url: {{swift_output_base}}/grounding_dino/
     files:
@@ -146,10 +155,14 @@ workflow:
       contents: |-
         set -ex
         python -m v2d.grounding_dino.lib.mv_image_list_to_object_bboxes \
-          --image_dir {{input:0}}/images \
+          --rgb_dir {{input:0}}/images \
           --prompt_path {{input:0}}/prompt.txt \
           --output_dir {{output}} \
-          --model_dir {{input:1}}/v2d_mv_hoi_data/data/weights/grounding_dino
+          --model_dir {{input:1}}/v2d_mv_hoi_data/data/weights/grounding_dino \
+          --config_path /tmp/grounding_dino_config.yaml
+    - path: /tmp/grounding_dino_config.yaml
+      contents: |-
+        rgb_path_template: "${rgb_dir}/{cam_name}.h5"
 
   # Object masks (SAM2 with grounding-dino JSON bboxes)
   - name: sam2_object_masks
@@ -157,11 +170,9 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
-    - url: {{swift_output_base}}/grounding_dino/
-    - url: {{swift_output_base}}/mv_preprocess/
-    - dataset: {name: v2d_mv_hoi_data}
     - task: grounding_dino
     - task: mv_preprocess
+    - dataset: {name: v2d_mv_hoi_data}
     outputs:
     - url: {{swift_output_base}}/sam2_object_masks/
     files:
@@ -170,23 +181,14 @@ workflow:
         set -ex
         python -m v2d.sam2.lib.mv_videos_to_masks \
           --bbox_dir {{input:0}} \
-          --image_dir {{input:1}}/images \
+          --rgb_dir {{input:1}}/images \
           --output_dir {{output}} \
           --weights_dir {{input:2}}/v2d_mv_hoi_data/data/weights/sam2 \
           --config_path /tmp/sam2_object_config.yaml
     - path: /tmp/sam2_object_config.yaml
       contents: |-
-        bbox_dir: ???
-        image_dir: null
-        video_dir: null
-        output_dir: ???
-        weights_dir: ???
-        rig_config: stereo-4
-        cameras: [0, 2, 4, 6]
-        image_path_template: "${image_dir}/{cam_name}"
-        video_path_template: "${video_dir}/{cam_name}.mp4"
+        rgb_path_template: "${rgb_dir}/{cam_name}.h5"
         bbox_path_template: "${bbox_dir}/{cam_name}.json"
-        mask_path_template: "${output_dir}/{cam_name}"
 
   # Gate: object mask containment vs labeled bboxes
   - name: check_object_mask
@@ -195,8 +197,6 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
-    - url: {{swift_output_base}}/sam2_object_masks/
-    - url: {{swift_output_base}}/mv_preprocess/
     - task: sam2_object_masks
     - task: mv_preprocess
     outputs:
@@ -218,15 +218,11 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
-    - url: {{swift_output_base}}/check_object_mask/
-    - url: {{swift_output_base}}/mv_preprocess/
-    - url: {{swift_output_base}}/foundation_stereo/
-    - url: {{swift_output_base}}/sam2_object_masks/
-    - dataset: {name: v2d_mv_hoi_data}
     - task: check_object_mask
     - task: mv_preprocess
     - task: foundation_stereo
     - task: sam2_object_masks
+    - dataset: {name: v2d_mv_hoi_data}
     outputs:
     - url: {{swift_output_base}}/foundation_pose/
     files:
@@ -242,12 +238,17 @@ workflow:
         echo "Using mesh: $MESH"
         python -m v2d.foundation_pose.lib.mv_videos_to_poses \
           --camera_params_path {{input:1}}/edex \
-          --image_dir {{input:1}}/images \
+          --rgb_dir {{input:1}}/images \
           --depth_dir {{input:2}} \
           --mask_dir {{input:3}} \
           --mesh_path "$MESH" \
           --weights_dir {{input:4}}/v2d_mv_hoi_data/data/weights/foundation_pose \
-          --output_dir {{output}}
+          --output_dir {{output}} \
+          --config_path /tmp/foundation_pose_config.yaml
+    - path: /tmp/foundation_pose_config.yaml
+      contents: |-
+        rgb_path_template: "${rgb_dir}/{cam_name}.h5"
+        depth_path_template: "${depth_dir}/{cam_name}/depth.h5"
 
   # Human bounding-box detection + tracking (Detectron2)
   - name: detectron2
@@ -255,9 +256,8 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
-    - url: {{swift_output_base}}/mv_preprocess/
-    - dataset: {name: v2d_mv_hoi_data}
     - task: mv_preprocess
+    - dataset: {name: v2d_mv_hoi_data}
     outputs:
     - url: {{swift_output_base}}/detectron2/
     files:
@@ -265,9 +265,13 @@ workflow:
       contents: |-
         set -ex
         python -m v2d.detectron2.lib.mv_track_bboxes \
-          --image_dir {{input:0}}/images \
+          --rgb_dir {{input:0}}/images \
           --weights_dir {{input:1}}/v2d_mv_hoi_data/data/weights/detectron2 \
-          --output_dir {{output}}
+          --output_dir {{output}} \
+          --config_path /tmp/detectron2_config.yaml
+    - path: /tmp/detectron2_config.yaml
+      contents: |-
+        rgb_path_template: "${rgb_dir}/{cam_name}.h5"
 
   # Human masks (SAM2 with detectron2 PT bboxes)
   - name: sam2_human_masks
@@ -275,11 +279,9 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
-    - url: {{swift_output_base}}/detectron2/
-    - url: {{swift_output_base}}/mv_preprocess/
-    - dataset: {name: v2d_mv_hoi_data}
     - task: detectron2
     - task: mv_preprocess
+    - dataset: {name: v2d_mv_hoi_data}
     outputs:
     - url: {{swift_output_base}}/sam2_human_masks/
     files:
@@ -288,9 +290,13 @@ workflow:
         set -ex
         python -m v2d.sam2.lib.mv_videos_to_masks \
           --bbox_dir {{input:0}} \
-          --image_dir {{input:1}}/images \
+          --rgb_dir {{input:1}}/images \
           --output_dir {{output}} \
-          --weights_dir {{input:2}}/v2d_mv_hoi_data/data/weights/sam2
+          --weights_dir {{input:2}}/v2d_mv_hoi_data/data/weights/sam2 \
+          --config_path /tmp/sam2_human_config.yaml
+    - path: /tmp/sam2_human_config.yaml
+      contents: |-
+        rgb_path_template: "${rgb_dir}/{cam_name}.h5"
 
   # Human body reconstruction (SAM3D-Body)
   - name: sam3d_body
@@ -298,13 +304,10 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
-    - url: {{swift_output_base}}/mv_preprocess/
-    - url: {{swift_output_base}}/detectron2/
-    - url: {{swift_output_base}}/sam2_human_masks/
-    - dataset: {name: v2d_mv_hoi_data}
     - task: mv_preprocess
     - task: detectron2
     - task: sam2_human_masks
+    - dataset: {name: v2d_mv_hoi_data}
     outputs:
     - url: {{swift_output_base}}/sam3d_body/
     files:
@@ -313,11 +316,15 @@ workflow:
         set -ex
         python -m v2d.sam3d_body.lib.mv_optimize_mhr_params \
           --camera_params_path {{input:0}}/edex \
-          --image_dir {{input:0}}/images \
+          --rgb_dir {{input:0}}/images \
           --bbox_dir {{input:1}} \
           --mask_dir {{input:2}} \
           --weights_dir {{input:3}}/v2d_mv_hoi_data/data/weights/sam3d_body \
-          --output_dir {{output}}
+          --output_dir {{output}} \
+          --config_path /tmp/sam3d_body_config.yaml
+    - path: /tmp/sam3d_body_config.yaml
+      contents: |-
+        rgb_path_template: "${rgb_dir}/{cam_name}.h5"
 
   # Export MHR parameters to SOMA format
   - name: export_soma
@@ -325,9 +332,8 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
-    - url: {{swift_output_base}}/sam3d_body/
-    - dataset: {name: v2d_mv_hoi_data}
     - task: sam3d_body
+    - dataset: {name: v2d_mv_hoi_data}
     outputs:
     - url: {{swift_output_base}}/export_soma/
     files:
@@ -340,7 +346,8 @@ workflow:
           --weights_dir {{input:1}}/v2d_mv_hoi_data/data/weights/sam3d_body \
           --output_path {{output}}/soma_params.npz \
           --foot_weight 50.0 \
-          --autograd_iters 100
+          --autograd_iters 100 \
+          --debug 1
 
   # Ground plane estimation (depth + MHR foot keypoints)
   - name: estimate_ground_plane
@@ -349,9 +356,6 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
-    - url: {{swift_output_base}}/mv_preprocess/
-    - url: {{swift_output_base}}/foundation_stereo/
-    - url: {{swift_output_base}}/sam3d_body/
     - task: mv_preprocess
     - task: foundation_stereo
     - task: sam3d_body
@@ -365,8 +369,13 @@ workflow:
           --camera_params_path {{input:0}}/edex \
           --depth_dir {{input:1}} \
           --human_pose_dir {{input:2}} \
-          --image_dir {{input:0}}/images \
-          --output_dir {{output}}
+          --rgb_dir {{input:0}}/images \
+          --output_dir {{output}} \
+          --config_path /tmp/ground_plane_config.yaml
+    - path: /tmp/ground_plane_config.yaml
+      contents: |-
+        rgb_path_template: "${rgb_dir}/{cam_name}.h5"
+        depth_path_template: "${depth_dir}/{cam_name}/depth.h5"
 
   # Fused multiview point cloud export
   - name: export_fused_pointcloud
@@ -375,8 +384,6 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
-    - url: {{swift_output_base}}/mv_preprocess/
-    - url: {{swift_output_base}}/foundation_stereo/
     - task: mv_preprocess
     - task: foundation_stereo
     outputs:
@@ -388,8 +395,13 @@ workflow:
         python -m v2d.mv.postprocess.lib.mv_export_fused_pointcloud \
           --camera_params_path {{input:0}}/edex \
           --depth_dir {{input:1}} \
-          --image_dir {{input:0}}/images \
-          --output_dir {{output}}
+          --rgb_dir {{input:0}}/images \
+          --output_dir {{output}} \
+          --config_path /tmp/fused_pointcloud_config.yaml
+    - path: /tmp/fused_pointcloud_config.yaml
+      contents: |-
+        rgb_path_template: "${rgb_dir}/{cam_name}.h5"
+        depth_path_template: "${depth_dir}/{cam_name}/depth.h5"
 
   # Chamfer evaluation – object
   - name: eval_chamfer_object
@@ -397,10 +409,6 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
-    - url: {{swift_output_base}}/mv_preprocess/
-    - url: {{swift_output_base}}/foundation_pose/
-    - url: {{swift_output_base}}/foundation_stereo/
-    - url: {{swift_output_base}}/sam2_object_masks/
     - task: mv_preprocess
     - task: foundation_pose
     - task: foundation_stereo
@@ -416,20 +424,17 @@ workflow:
           echo "ERROR: No mesh file found in {{input:0}}/mesh"
           exit 1
         fi
-        for CAM in front_stereo_camera_left back_stereo_camera_left left_stereo_camera_left right_stereo_camera_left; do
-          echo "=== ${CAM} file counts ==="
-          echo "  mv_preprocess/images: $(ls {{input:0}}/images/${CAM} 2>/dev/null | wc -l)"
-          echo "  foundation_stereo/depth: $(ls {{input:2}}/${CAM}/depth 2>/dev/null | wc -l)"
-          echo "  foundation_stereo/intrinsics: $(ls {{input:2}}/${CAM}/intrinsics 2>/dev/null | wc -l)"
-          echo "  sam2_object_masks: $(ls {{input:3}}/${CAM}/0 2>/dev/null | wc -l)"
-        done
         python -m v2d.mv.postprocess.lib.mv_eval_chamfer_object \
           --camera_params_path {{input:0}}/edex \
           --object_mesh_path "$MESH" \
           --object_pose_dir {{input:1}} \
           --depth_dir {{input:2}} \
           --mask_dir {{input:3}} \
-          --output_dir {{output}}
+          --output_dir {{output}} \
+          --config_path /tmp/chamfer_object_config.yaml
+    - path: /tmp/chamfer_object_config.yaml
+      contents: |-
+        depth_path_template: "${depth_dir}/{cam_name}/depth.h5"
 
   # Chamfer evaluation – human
   - name: eval_chamfer_human
@@ -437,10 +442,6 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
-    - url: {{swift_output_base}}/mv_preprocess/
-    - url: {{swift_output_base}}/sam3d_body/
-    - url: {{swift_output_base}}/foundation_stereo/
-    - url: {{swift_output_base}}/sam2_human_masks/
     - task: mv_preprocess
     - task: sam3d_body
     - task: foundation_stereo
@@ -456,7 +457,11 @@ workflow:
           --human_pose_dir {{input:1}} \
           --depth_dir {{input:2}} \
           --mask_dir {{input:3}} \
-          --output_dir {{output}}
+          --output_dir {{output}} \
+          --config_path /tmp/chamfer_human_config.yaml
+    - path: /tmp/chamfer_human_config.yaml
+      contents: |-
+        depth_path_template: "${depth_dir}/{cam_name}/depth.h5"
 
   # Render HOI overlay videos
   - name: render_hoi_overlay
@@ -464,9 +469,6 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
-    - url: {{swift_output_base}}/mv_preprocess/
-    - url: {{swift_output_base}}/foundation_pose/
-    - url: {{swift_output_base}}/sam3d_body/
     - task: mv_preprocess
     - task: foundation_pose
     - task: sam3d_body
@@ -486,8 +488,12 @@ workflow:
           --object_mesh_path "$MESH" \
           --object_pose_dir {{input:1}} \
           --human_pose_dir {{input:2}} \
-          --image_dir {{input:0}}/images \
-          --output_dir {{output}}
+          --rgb_dir {{input:0}}/images \
+          --output_dir {{output}} \
+          --config_path /tmp/render_overlay_config.yaml
+    - path: /tmp/render_overlay_config.yaml
+      contents: |-
+        rgb_path_template: "${rgb_dir}/{cam_name}.h5"
 
   # Final QC gate – aggregate chamfer + mask-containment checks
   - name: check_accuracy
@@ -496,9 +502,6 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
-    - url: {{swift_output_base}}/eval_chamfer_object/
-    - url: {{swift_output_base}}/eval_chamfer_human/
-    - url: {{swift_output_base}}/check_object_mask/
     - task: eval_chamfer_object
     - task: eval_chamfer_human
     - task: check_object_mask
@@ -524,9 +527,6 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
-    - url: {{swift_output_base}}/mv_preprocess/
-    - url: {{swift_output_base}}/render_hoi_overlay/
-    - url: {{swift_output_base}}/check_accuracy/
     - task: mv_preprocess
     - task: render_hoi_overlay
     - task: check_accuracy

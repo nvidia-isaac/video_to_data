@@ -13,6 +13,15 @@ dependencies = [
     "scipy",
 ]
 
+[project.optional-dependencies]
+io = [
+    "opencv-python",
+    "imageio[pyav]",
+    "av",
+    "tqdm",
+    "h5py",
+]
+
 [tool.setuptools]
 packages = ["v2d.common"]
 

@@ -141,18 +141,24 @@ class LazyFrameLoader:
             self.img_mean = self.img_mean.to(compute_device)
             self.img_std = self.img_std.to(compute_device)
         
-        # Determine if video file or image directory
+        # Determine if video file, image directory, or HDF5 file
         is_bytes = isinstance(video_path, bytes)
         is_str = isinstance(video_path, str)
         is_mp4_path = is_str and os.path.splitext(video_path)[-1] in [".mp4", ".MP4"]
+        is_h5_path = is_str and os.path.splitext(video_path)[-1] in [".h5", ".hdf5"]
         
         if is_bytes or is_mp4_path:
             self._init_video_file()
+        elif is_h5_path:
+            self._init_h5_file()
         elif is_str and os.path.isdir(video_path):
             self._init_image_directory()
+        elif is_str and os.path.isfile(video_path + ".h5"):
+            self.video_path = video_path + ".h5"
+            self._init_h5_file()
         else:
             raise NotImplementedError(
-                "Only MP4 video and JPEG folder are supported at this moment"
+                "Only MP4 video, JPEG/PNG folder, and HDF5 file are supported"
             )
         
         # LRU cache: OrderedDict where keys are frame indices, values are tensors
@@ -176,6 +182,15 @@ class LazyFrameLoader:
         )
         self.loader_type = "video"
         
+    def _init_h5_file(self):
+        """Initialize for HDF5 file input."""
+        from v2d.common.video import FrameSource
+
+        self._frame_source = FrameSource.from_path(self.video_path)
+        self.num_frames = self._frame_source.n_frames
+        self.video_width, self.video_height = self._frame_source.image_size
+        self.loader_type = "h5"
+
     def _init_image_directory(self):
         """Initialize for image directory input."""
         jpg_folder = self.video_path
@@ -213,6 +228,16 @@ class LazyFrameLoader:
             raise RuntimeError(f"Unknown image dtype: {img_np.dtype} on {img_path}")
         img = torch.from_numpy(img_np).permute(2, 0, 1).float()
         return img
+
+    def _load_frame_from_h5(self, frame_idx):
+        """Load a single frame from HDF5 via FrameSource."""
+        import cv2
+        img_np = self._frame_source[frame_idx]  # (H, W, 3) uint8 RGB
+        if img_np.shape[:2] != (self.image_size, self.image_size):
+            img_np = cv2.resize(img_np, (self.image_size, self.image_size), interpolation=cv2.INTER_AREA)
+        img_np = img_np.astype(np.float32) / 255.0
+        img = torch.from_numpy(img_np).permute(2, 0, 1)
+        return img
     
     def _normalize_frame(self, img):
         """Normalize frame with mean and std."""
@@ -237,6 +262,8 @@ class LazyFrameLoader:
         # Cache miss - load frame
         if self.loader_type == "video":
             img = self._load_frame_from_video(frame_idx)
+        elif self.loader_type == "h5":
+            img = self._load_frame_from_h5(frame_idx)
         else:
             img = self._load_frame_from_images(frame_idx)
         

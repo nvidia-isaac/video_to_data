@@ -8,7 +8,7 @@ import numpy as np
 import pyceres
 
 from v2d.mv.rig import CameraParam, RigConfig
-from v2d.mv.io.video import FrameSource
+from v2d.common.video import FrameSource
 
 from v2d.mv.calibration.lib.chessboard import chessboard_extract_correspondences
 from v2d.mv.calibration.lib.solve import (
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 def calibrate_extrinsics(
     rig: RigConfig,
-    frame_sources: list[FrameSource],
+    rgb_paths: list[Path],
     calibration_order: list[int],
     camera_params_path: Path,
     output_camera_params_path: Path,
@@ -32,6 +32,7 @@ def calibrate_extrinsics(
     square_size: float = 0.1,
     max_iterations: int = 50,
     num_workers: int = 8,
+    frames_slice: slice | None = None,
     debug: int = 0,
 ) -> list[CameraParam]:
     """Run extrinsic calibration on a multi-camera dataset.
@@ -41,7 +42,7 @@ def calibrate_extrinsics(
 
     Args:
         rig: RigConfig with stereo pair definitions and loaded camera params.
-        frame_sources: List of FrameSource, one per camera (indexed by cam_id).
+        rgb_paths: List of paths to RGB frames, one per camera.
         calibration_order: Left camera IDs for pairwise PnP chain.
         camera_params_path: Source camera params file (for save merge).
         output_camera_params_path: Where to write calibrated camera params.
@@ -51,6 +52,7 @@ def calibrate_extrinsics(
         square_size: Chessboard square size in meters.
         max_iterations: Maximum bundle adjustment iterations.
         num_workers: Workers for chessboard detection.
+        frames_slice: Optional slice to limit frame range.
         debug: Debug level. >0: save rerun visualization; >1: save reprojected points.
 
     Returns:
@@ -61,14 +63,13 @@ def calibrate_extrinsics(
         f"\n\t- Calibration order: {calibration_order}"
         f"\n\t- Board size: {board_size}"
         f"\n\t- Square size: {square_size}m"
-        f"\n\t- Cameras: {len(frame_sources)}"
+        f"\n\t- Cameras: {len(rgb_paths)}"
     )
 
     # Extract chessboard correspondences
-    image_file_lists = [source.image_paths for source in frame_sources]
-
     correspondences, frame_indices = chessboard_extract_correspondences(
-        image_file_lists=image_file_lists,
+        source_paths=[Path(p) for p in rgb_paths],
+        frames_slice=frames_slice,
         board_size=board_size,
         num_workers=num_workers,
     )
@@ -138,13 +139,13 @@ def calibrate_extrinsics(
                 cam_entry = rig.get_camera(cam_id)
                 cam_name = cam_entry.name
 
-                image_files = frame_sources[cam_id].image_paths
+                fs = FrameSource.from_path(rgb_paths[cam_id], frames_slice=frames_slice)
                 per_cam_features = [
                     frame[cam_id] for frame in correspondences
                 ]
                 visualize_reprojected_points(
                     output_dir=vis_dir / cam_name,
-                    image_files=image_files,
+                    frame_source=fs,
                     target_xyz=target_xyz,
                     per_cam_features=per_cam_features,
                     est_camera_param=est_camera_params[cam_id],
@@ -223,16 +224,14 @@ def calibrate_extrinsics_from_config(cfg):
 
     frames_slice = slice(cfg.get("start", 0), cfg.get("stop"), cfg.get("step", 1))
 
-    frame_sources: list[FrameSource] = []
+    input_suffix = cfg.get("input_suffix", "")
+    rgb_paths: list[Path] = []
     for cam in rig.get_all_cameras():
-        frame_sources.append(FrameSource(
-            image_dir=Path(cfg.image_dir) / cam.image_path,
-            frames_slice=frames_slice,
-        ))
+        rgb_paths.append(Path(str(Path(cfg.rgb_dir) / cam.image_path) + input_suffix))
 
     calibrate_extrinsics(
         rig=rig,
-        frame_sources=frame_sources,
+        rgb_paths=rgb_paths,
         calibration_order=list(cfg.calibration_order),
         camera_params_path=camera_params_path,
         output_camera_params_path=Path(cfg.output_camera_params_path),
@@ -240,6 +239,7 @@ def calibrate_extrinsics_from_config(cfg):
         square_size=cfg.get("square_size", 0.1),
         max_iterations=cfg.get("max_iterations", 50),
         num_workers=cfg.get("num_workers", 8),
+        frames_slice=frames_slice,
         debug=cfg.get("debug", 0),
     )
 
@@ -252,21 +252,23 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Extrinsic camera calibration")
     parser.add_argument("--camera_params_path", type=str, required=True,
                         help="Path to camera params file (e.g. EDEX) with intrinsics")
-    parser.add_argument("--image_dir", type=str, required=True,
+    parser.add_argument("--rgb_dir", type=str, required=True,
                         help="Directory containing per-camera image subdirectories")
     parser.add_argument("--output_dir", type=str, required=True)
-    parser.add_argument("--config_path", type=str,
-                        default=str(Path(__file__).parent / "calibrate_extrinsics.yaml"))
+    parser.add_argument("--config_path", type=str, default=None,
+                        help="Optional override config (merged on top of defaults)")
     parser.add_argument("--start", type=int, default=None)
     parser.add_argument("--stop", type=int, default=None)
     parser.add_argument("--step", type=int, default=None)
     parser.add_argument("--num_workers", type=int, default=None)
     args = parser.parse_args()
 
-    cfg = OmegaConf.load(args.config_path)
+    cfg = OmegaConf.load(Path(__file__).parent / "calibrate_extrinsics.yaml")
+    if args.config_path:
+        cfg = OmegaConf.merge(cfg, OmegaConf.load(args.config_path))
     overrides: dict = {
         "camera_params_path": args.camera_params_path,
-        "image_dir": args.image_dir,
+        "rgb_dir": args.rgb_dir,
         "output_dir": args.output_dir,
     }
     if args.start is not None:

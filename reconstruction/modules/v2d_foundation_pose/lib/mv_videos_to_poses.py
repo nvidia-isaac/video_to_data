@@ -12,7 +12,7 @@ import trimesh
 
 from v2d.common.datatypes import DepthImage, Mask
 from v2d.mesh.lib.mesh import Mesh
-from v2d.mv.io.video import FrameSource, get_video_writer
+from v2d.common.video import FrameSource, get_video_writer
 from v2d.mv.math.numpy_fn import pose_two_euro_filter
 from v2d.mv.rig import RigConfig
 
@@ -24,7 +24,7 @@ def mv_videos_to_poses(
     cam_names: list[str],
     cam_intrinsics: list[np.ndarray],
     cam_extrinsics: list[np.ndarray],
-    frame_sources: list[FrameSource],
+    rgb_paths: list[Path],
     depth_dirs: list[Path],
     mask_dirs: list[Path],
     mesh_path: Path,
@@ -46,7 +46,7 @@ def mv_videos_to_poses(
         cam_names: per-camera names (used for debug output naming).
         cam_intrinsics: list of (3,3) K matrices, one per camera.
         cam_extrinsics: list of (4,4) cam-to-world transforms, one per camera.
-        frame_sources: per-camera RGB FrameSource (image dir or video).
+        rgb_paths: per-camera paths to RGB frames (image dir, .h5, or video file).
         depth_dirs: per-camera depth directories (inverse-depth PNGs via DepthImage).
         mask_dirs: per-camera object mask directories (first PNG used for registration).
         mesh_path: path to the object mesh file.
@@ -84,26 +84,16 @@ def mv_videos_to_poses(
         precision_low=precision_low,
     )
 
-    mask_file_lists = []
-    for d in mask_dirs:
-        files = sorted(Path(d).glob("*.png"))
-        if not files:
-            raise FileNotFoundError(f"No PNG masks found in {d}")
-        mask_file_lists.append(files)
-
-    depth_file_lists = []
-    for d in depth_dirs:
-        files = sorted(Path(d).glob("*.png"))
-        if not files:
-            raise FileNotFoundError(f"No depth PNG files in {d}")
-        depth_file_lists.append(files)
+    frame_sources = [FrameSource.from_path(p) for p in rgb_paths]
+    mask_sources = [FrameSource.from_path(d) for d in mask_dirs]
+    depth_sources = [FrameSource.from_path(d) for d in depth_dirs]
 
     num_frames = frame_sources[0].n_frames
-    for j, (fs, dl, ml) in enumerate(zip(frame_sources, depth_file_lists, mask_file_lists)):
-        if fs.n_frames != num_frames or len(dl) != num_frames or len(ml) != num_frames:
+    for j, (fs, ds, ms) in enumerate(zip(frame_sources, depth_sources, mask_sources)):
+        if fs.n_frames != num_frames or ds.n_frames != num_frames or ms.n_frames != num_frames:
             raise ValueError(
                 f"camera {cam_names[j]}: frame count mismatch "
-                f"(rgb={fs.n_frames}, depth={len(dl)}, mask={len(ml)}, expected={num_frames})"
+                f"(rgb={fs.n_frames}, depth={ds.n_frames}, mask={ms.n_frames}, expected={num_frames})"
             )
     frame_iterators = [fs.iter_frames() for fs in frame_sources]
 
@@ -132,8 +122,8 @@ def mv_videos_to_poses(
     print(f"Starting multi-view tracking for {num_frames} frames across {num_cameras} cameras")
     for i in tqdm(range(num_frames), desc="Tracking"):
         rgbs = [next(it) for it in frame_iterators]
-        depths = [DepthImage.load(str(depth_file_lists[j][i])).depth for j in range(num_cameras)]
-        masks = [Mask.load(str(mask_file_lists[j][i])).mask > 0.5 for j in range(num_cameras)]
+        depths = [DepthImage.from_array(depth_sources[j][i]).depth for j in range(num_cameras)]
+        masks = [mask_sources[j][i] > 128 for j in range(num_cameras)]
 
         for j in range(num_cameras):
             if target_size is not None:
@@ -330,7 +320,7 @@ def mv_videos_to_poses_from_config(cfg):
     cam_names: list[str] = []
     cam_intrinsics: list[np.ndarray] = []
     cam_extrinsics: list[np.ndarray] = []
-    frame_sources: list[FrameSource] = []
+    rgb_paths: list[Path] = []
     depth_dirs: list[Path] = []
     mask_dirs: list[Path] = []
 
@@ -340,17 +330,7 @@ def mv_videos_to_poses_from_config(cfg):
         cam_intrinsics.append(cam.param.K)
         cam_extrinsics.append(cam.param.T)
 
-        if cfg.image_dir is not None:
-            frame_sources.append(
-                FrameSource(image_dir=Path(cfg.image_path_template.format(cam_name=cam.name)))
-            )
-        elif cfg.video_dir is not None:
-            frame_sources.append(
-                FrameSource(video_path=Path(cfg.video_path_template.format(cam_name=cam.name)))
-            )
-        else:
-            raise ValueError("At least one of image_dir or video_dir is required")
-
+        rgb_paths.append(Path(cfg.rgb_path_template.format(cam_name=cam.name)))
         depth_dirs.append(Path(cfg.depth_path_template.format(cam_name=cam.name)))
         mask_dirs.append(Path(cfg.mask_path_template.format(cam_name=cam.name)))
 
@@ -358,7 +338,7 @@ def mv_videos_to_poses_from_config(cfg):
         cam_names=cam_names,
         cam_intrinsics=cam_intrinsics,
         cam_extrinsics=cam_extrinsics,
-        frame_sources=frame_sources,
+        rgb_paths=rgb_paths,
         depth_dirs=depth_dirs,
         mask_dirs=mask_dirs,
         mesh_path=Path(cfg.mesh_path),
@@ -379,8 +359,7 @@ def mv_videos_to_poses_from_config(cfg):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Multi-view 6-DoF object tracking with FoundationPose")
     parser.add_argument("--camera_params_path", type=str, required=True)
-    parser.add_argument("--image_dir", type=str, default=None)
-    parser.add_argument("--video_dir", type=str, default=None)
+    parser.add_argument("--rgb_dir", type=str, required=True)
     parser.add_argument("--depth_dir", type=str, required=True)
     parser.add_argument("--mask_dir", type=str, required=True)
     parser.add_argument("--mesh_path", type=str, required=True)
@@ -392,13 +371,13 @@ if __name__ == "__main__":
     parser.add_argument("--debug", type=int, default=None)
     args = parser.parse_args()
 
-    default_config = Path(__file__).parent / "mv_videos_to_poses.yaml"
-    config_path = args.config_path or str(default_config)
-    cfg = OmegaConf.load(config_path)
+    cfg = OmegaConf.load(Path(__file__).parent / "mv_videos_to_poses.yaml")
+    if args.config_path:
+        cfg = OmegaConf.merge(cfg, OmegaConf.load(args.config_path))
 
     overrides = {}
     for key in [
-        "camera_params_path", "image_dir", "video_dir", "depth_dir",
+        "camera_params_path", "rgb_dir", "depth_dir",
         "mask_dir", "mesh_path", "weights_dir", "output_dir", "scale", "debug",
     ]:
         val = getattr(args, key)

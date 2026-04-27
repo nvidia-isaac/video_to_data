@@ -6,9 +6,9 @@ from pathlib import Path
 import cv2
 import numpy as np
 import trimesh
-from PIL import Image as PILImage
 
-from v2d.common.datatypes import DepthImage, Mask
+from v2d.common.datatypes import DepthImage
+from v2d.common.video import FrameSource
 from v2d.mv.math.numpy_fn import depth_to_xyz
 
 
@@ -18,7 +18,7 @@ def fuse_multiview_depth(
     cam_intrinsics: list[np.ndarray],
     cam_extrinsics: list[np.ndarray],
     cam_resolutions: list[np.ndarray],
-    image_dirs: list[Path] | None = None,
+    rgb_dirs: list[Path] | None = None,
     mask_dirs: list[Path] | None = None,
     max_depth: float = 5.0,
     image_scale: float = 0.5,
@@ -38,7 +38,7 @@ def fuse_multiview_depth(
         cam_resolutions: Per-camera (2,) arrays [width, height] at full
             resolution (from RigConfig). Used together with *image_scale* to
             compute the target processing size.
-        image_dirs: Per-camera directories of RGB images (for coloring).
+        rgb_dirs: Per-camera directories of RGB images (for coloring).
         mask_dirs: Per-camera directories of mask PNGs; masked pixels are excluded.
         max_depth: Discard points beyond this distance (meters).
         image_scale: Scale factor applied to cam_resolutions to determine the
@@ -54,37 +54,19 @@ def fuse_multiview_depth(
     n_cams = len(depth_dirs)
     all_points: list[np.ndarray] = []
     all_colors: list[np.ndarray] = []
-    has_color = image_dirs is not None
+    has_color = rgb_dirs is not None
 
-    per_cam_depth_paths: list[list[Path]] = []
-    per_cam_image_paths: list[list[Path] | None] = []
-    per_cam_mask_paths: list[list[Path] | None] = []
-
-    for cam_idx in range(n_cams):
-        depth_paths = sorted(depth_dirs[cam_idx].glob("*.png"))
-        per_cam_depth_paths.append(depth_paths)
-
-        if has_color:
-            img_paths = sorted(image_dirs[cam_idx].glob("*.png"))
-            if not img_paths:
-                img_paths = sorted(image_dirs[cam_idx].glob("*.jpg"))
-            per_cam_image_paths.append(img_paths)
-        else:
-            per_cam_image_paths.append(None)
-
-        if mask_dirs is not None:
-            m_paths = sorted(mask_dirs[cam_idx].glob("*.png"))
-            per_cam_mask_paths.append(m_paths)
-        else:
-            per_cam_mask_paths.append(None)
+    depth_sources = [FrameSource.from_path(d) for d in depth_dirs]
+    image_sources = [FrameSource.from_path(d) for d in rgb_dirs] if has_color else [None] * n_cams
+    mask_sources = [FrameSource.from_path(d) for d in mask_dirs] if mask_dirs is not None else [None] * n_cams
 
     for fi in frame_indices:
         for cam_idx in range(n_cams):
-            depth_paths = per_cam_depth_paths[cam_idx]
-            if fi >= len(depth_paths):
+            ds = depth_sources[cam_idx]
+            if fi >= ds.n_frames:
                 continue
 
-            depth = DepthImage.from_pil_image(PILImage.open(depth_paths[fi])).depth
+            depth = DepthImage.from_array(ds[fi]).depth
 
             K = cam_intrinsics[cam_idx].copy()
             T = cam_extrinsics[cam_idx]
@@ -100,18 +82,18 @@ def fuse_multiview_depth(
                 depth = cv2.resize(depth, (target_W, target_H), interpolation=cv2.INTER_LINEAR)
 
             image = None
-            if has_color and per_cam_image_paths[cam_idx] is not None:
-                img_paths = per_cam_image_paths[cam_idx]
-                if fi < len(img_paths):
-                    image = np.array(PILImage.open(img_paths[fi]).convert("RGB"))
+            if has_color and image_sources[cam_idx] is not None:
+                isrc = image_sources[cam_idx]
+                if fi < isrc.n_frames:
+                    image = isrc[fi]
                     if image.shape[:2] != (target_H, target_W):
                         image = cv2.resize(image, (target_W, target_H), interpolation=cv2.INTER_LINEAR)
 
             mask_bool = None
-            if per_cam_mask_paths[cam_idx] is not None:
-                m_paths = per_cam_mask_paths[cam_idx]
-                if fi < len(m_paths):
-                    mask_raw = Mask.from_pil_image(PILImage.open(m_paths[fi])).mask
+            if mask_sources[cam_idx] is not None:
+                msrc = mask_sources[cam_idx]
+                if fi < msrc.n_frames:
+                    mask_raw = msrc[fi].astype(np.float32) / 255.0
                     if mask_raw.shape[:2] != (target_H, target_W):
                         mask_raw = cv2.resize(
                             mask_raw, (target_W, target_H),

@@ -5,7 +5,6 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from PIL import Image as PILImage
 from tqdm import tqdm
 
 import matplotlib
@@ -14,8 +13,8 @@ import matplotlib.cm as cm
 
 import trimesh
 
-from v2d.common.datatypes import DepthImage, Mask
-from v2d.mv.io.video import FrameSource, get_video_writer, tile_videos
+from v2d.common.datatypes import DepthImage
+from v2d.common.video import FrameSource, get_video_writer, tile_videos
 from v2d.mv.math.numpy_fn import depth_to_xyz, visible_vertices, xyz_to_uv
 from v2d.mv.vis.renderer import Renderer
 
@@ -139,16 +138,16 @@ def mv_eval_chamfer(
 
     n_frames = mesh_verts.shape[0]
 
-    per_camera_paths: list[tuple[list[Path], list[Path]]] = []
+    per_camera_sources: list[tuple[FrameSource, FrameSource]] = []
     for cam_idx, cam_name in enumerate(cam_names):
-        depth_paths = sorted(depth_dirs[cam_idx].glob("*.png"))
-        mask_paths = sorted(mask_dirs[cam_idx].glob("*.png"))
-        if len(depth_paths) != n_frames or len(mask_paths) != n_frames:
+        depth_source = FrameSource.from_path(depth_dirs[cam_idx])
+        mask_source = FrameSource.from_path(mask_dirs[cam_idx])
+        if depth_source.n_frames != n_frames or mask_source.n_frames != n_frames:
             raise ValueError(
                 f"camera {cam_name}: frame count mismatch "
-                f"(depth={len(depth_paths)}, mask={len(mask_paths)}, expected={n_frames})"
+                f"(depth={depth_source.n_frames}, mask={mask_source.n_frames}, expected={n_frames})"
             )
-        per_camera_paths.append((depth_paths, mask_paths))
+        per_camera_sources.append((depth_source, mask_source))
 
     per_camera: dict[str, dict] = {}
     all_frame_dists: list[float] = []
@@ -156,9 +155,9 @@ def mv_eval_chamfer(
     for cam_idx, cam_name in enumerate(cam_names):
         K = cam_intrinsics[cam_idx]
         T = cam_extrinsics[cam_idx]
-        depth_paths, mask_paths = per_camera_paths[cam_idx]
+        depth_source, mask_source = per_camera_sources[cam_idx]
 
-        first_depth = DepthImage.from_pil_image(PILImage.open(depth_paths[0])).depth
+        first_depth = DepthImage.from_array(depth_source[0]).depth
         H_orig, W_orig = first_depth.shape[:2]
 
         if eval_image_size is not None:
@@ -188,8 +187,8 @@ def mv_eval_chamfer(
 
         with Renderer(image_size=(W_eval, H_eval)) as renderer:
             for i in tqdm(range(n_frames), desc=f"Chamfer {cam_name}"):
-                depth = DepthImage.from_pil_image(PILImage.open(depth_paths[i])).depth
-                mask_raw = Mask.from_pil_image(PILImage.open(mask_paths[i])).mask
+                depth = DepthImage.from_array(depth_source[i]).depth
+                mask_raw = mask_source[i].astype(np.float32) / 255.0
 
                 if eval_image_size is not None:
                     depth = cv2.resize(depth, (W_eval, H_eval), interpolation=cv2.INTER_LINEAR)
@@ -292,7 +291,7 @@ def mv_eval_chamfer(
             print(f"Tiling {len(vis_paths)} chamfer videos into {tiled_path}...")
             try:
                 tile_videos(
-                    sources=[FrameSource(video_path=p) for p in vis_paths],
+                    sources=[FrameSource.from_path(p) for p in vis_paths],
                     output_path=tiled_path,
                     tile_shape=tile_shape,
                     output_image_size=tile_image_size,

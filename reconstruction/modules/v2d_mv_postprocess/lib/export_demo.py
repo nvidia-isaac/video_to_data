@@ -27,7 +27,7 @@ from tqdm import tqdm
 
 from v2d.common.datatypes import DepthImage
 from v2d.mv.rig import RigConfig
-from v2d.mv.io.video import FrameSource, get_video_writer, tile_videos
+from v2d.common.video import FrameSource, get_video_writer, tile_videos
 from v2d.mv.vis.renderer import Renderer
 
 LEFT_CAMERAS = [
@@ -138,30 +138,34 @@ def export_demo(seq_dir: Path, output_dir: Path) -> None:
             print(f"  {cam_name}: no images dir, skipping")
             continue
 
-        source = FrameSource(image_dir=image_dir)
+        source = FrameSource.from_path(image_dir)
         n_rgb = source.n_frames
         print(f"\n  {cam_name}:")
         print(f"    RGB frames: {n_rgb}  resolution: {source.image_size}")
 
         # Depth sample
-        depth_dir = seq_dir / "depth" / cam_name
-        if depth_dir.exists():
-            depth_files = sorted(depth_dir.glob("*.png"))
-            n_depth = len(depth_files)
-            if depth_files:
-                sample_depth = DepthImage.load(str(depth_files[0]))
+        depth_path = seq_dir / "depth" / cam_name
+        depth_h5 = seq_dir / "depth" / f"{cam_name}.h5"
+        depth_src_path = depth_h5 if depth_h5.exists() else depth_path
+        if depth_src_path.exists():
+            depth_source = FrameSource.from_path(depth_src_path)
+            n_depth = depth_source.n_frames
+            if n_depth > 0:
+                sample_depth = DepthImage.from_array(depth_source[0])
                 print(f"    Depth frames: {n_depth}  sample shape={sample_depth.depth.shape} "
                       f"min={sample_depth.depth.min():.3f} max={sample_depth.depth.max():.3f}")
             else:
                 print(f"    Depth frames: 0")
         else:
-            print(f"    Depth: directory not found")
+            print(f"    Depth: not found")
 
         # Masks
         obj_mask_dir = seq_dir / "object_masks" / cam_name
+        obj_mask_h5 = seq_dir / "object_masks" / f"{cam_name}.h5"
         human_mask_dir = seq_dir / "human_masks" / cam_name
-        n_obj_masks = len(list(obj_mask_dir.glob("*.png"))) if obj_mask_dir.exists() else 0
-        n_human_masks = len(list(human_mask_dir.glob("*.png"))) if human_mask_dir.exists() else 0
+        human_mask_h5 = seq_dir / "human_masks" / f"{cam_name}.h5"
+        n_obj_masks = FrameSource.from_path(obj_mask_h5 if obj_mask_h5.exists() else obj_mask_dir).n_frames if (obj_mask_h5.exists() or obj_mask_dir.exists()) else 0
+        n_human_masks = FrameSource.from_path(human_mask_h5 if human_mask_h5.exists() else human_mask_dir).n_frames if (human_mask_h5.exists() or human_mask_dir.exists()) else 0
         print(f"    Object masks: {n_obj_masks}")
         print(f"    Human masks:  {n_human_masks}")
 
@@ -218,7 +222,7 @@ def export_demo(seq_dir: Path, output_dir: Path) -> None:
         tiled_path = output_dir / "tiled_demo.mp4"
         print(f"\nTiling {len(overlay_paths)} overlays -> {tiled_path}")
         tile_videos(
-            sources=[FrameSource(video_path=p) for p in overlay_paths],
+            sources=[FrameSource.from_path(p) for p in overlay_paths],
             output_path=tiled_path,
             tile_shape=(2, 2),
             video_names=cam_names,

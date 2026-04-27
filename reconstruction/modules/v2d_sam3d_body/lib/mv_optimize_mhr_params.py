@@ -20,7 +20,7 @@ from tqdm import tqdm
 from v2d.common.datatypes import Mask
 from v2d.mv.math.numpy_fn import xyz_to_uv
 from v2d.mv.rig import RigConfig
-from v2d.mv.io.video import FrameSource, get_video_writer
+from v2d.common.video import FrameSource, get_video_writer
 from v2d.mv.math.torch_fn import (
     geman_mcclure_distance,
     l2_distance,
@@ -566,7 +566,7 @@ def mv_optimize_mhr_params(
     cam_intrinsics: list[np.ndarray],
     cam_extrinsics: list[np.ndarray],
     weights_dir: Path,
-    frame_sources: list[FrameSource],
+    rgb_paths: list[Path],
     bbox_paths: list[Path],
     mhr_params_paths: list[Path],
     mhr_mesh_paths: list[Path],
@@ -577,6 +577,8 @@ def mv_optimize_mhr_params(
     keypoint_occluded_weight: float = 0.3,
     debug: int = 0,
 ):
+    frame_sources = [FrameSource.from_path(p) for p in rgb_paths]
+
     body_model_path = weights_dir / "sam-3d-body-dinov3/model.ckpt"
     mhr_path = weights_dir / "sam-3d-body-dinov3/assets/mhr_model.pt"
     model, model_cfg = load_sam_3d_body(
@@ -610,7 +612,7 @@ def mv_optimize_mhr_params(
         else:
             print(f"Running SAM3D body estimation for camera {cam_idx}")
             mhr_outputs = estimate_mhr_params(
-                frame_source=frame_source,
+                rgb_path=frame_source.path,
                 bbox_path=bbox_path,
                 cam_intrinsics=K.cpu().numpy(),
                 output_params_path=params_path,
@@ -668,16 +670,15 @@ def mv_optimize_mhr_params(
         gt_weights = w_inv + (1.0 - w_inv) * raycast_vis
 
         if mask_dirs is not None:
-            mask_dir = mask_dirs[i]
-            mask_paths = sorted(mask_dir.glob("*.png"))
+            mask_source = FrameSource.from_path(mask_dirs[i])
             K_np = cam_intrinsics_all[i].cpu().numpy()
             kps_np = cam_kp3d_list[i].cpu().numpy()  # (N, P, 3) camera frame
 
             N, P = kps_np.shape[:2]
             mask_vis = np.ones((N, P), dtype=np.float32)
-            n_masks = min(N, len(mask_paths))
+            n_masks = min(N, mask_source.n_frames)
             for n in range(n_masks):
-                mask_arr = Mask.load(str(mask_paths[n])).mask
+                mask_arr = mask_source[n].astype(np.float32) / 255.0
                 H_m, W_m = mask_arr.shape[:2]
                 uv_int, in_bounds = xyz_to_uv(kps_np[n], K_np, image_size=(W_m, H_m))
                 valid = np.where(in_bounds)[0]
@@ -760,7 +761,7 @@ def mv_optimize_mhr_params_from_config(cfg):
 
     cam_intrinsics: list[np.ndarray] = []
     cam_extrinsics: list[np.ndarray] = []
-    frame_sources: list[FrameSource] = []
+    rgb_paths: list[Path] = []
     bbox_paths: list[Path] = []
     mhr_params_paths: list[Path] = []
     mhr_mesh_paths: list[Path] = []
@@ -774,16 +775,9 @@ def mv_optimize_mhr_params_from_config(cfg):
         cam_intrinsics.append(cam.param.K)
         cam_extrinsics.append(cam.param.T)
 
-        if cfg.image_dir is not None:
-            frame_sources.append(
-                FrameSource(image_dir=Path(cfg.image_path_template.format(cam_name=cam.name)))
-            )
-        elif cfg.video_dir is not None:
-            frame_sources.append(
-                FrameSource(video_path=Path(cfg.video_path_template.format(cam_name=cam.name)))
-            )
-        else:
-            raise ValueError("at least one of image_dir or video_dir is required")
+        rgb_paths.append(
+            Path(cfg.rgb_path_template.format(cam_name=cam.name))
+        )
         bbox_paths.append(
             Path(cfg.bbox_path_template.format(cam_name=cam.name))
         )
@@ -806,7 +800,7 @@ def mv_optimize_mhr_params_from_config(cfg):
         cam_intrinsics=cam_intrinsics,
         cam_extrinsics=cam_extrinsics,
         weights_dir=weights_dir,
-        frame_sources=frame_sources,
+        rgb_paths=rgb_paths,
         bbox_paths=bbox_paths,
         mhr_params_paths=mhr_params_paths,
         mhr_mesh_paths=mhr_mesh_paths,
@@ -824,35 +818,27 @@ if __name__ == "__main__":
     from omegaconf import OmegaConf
 
     parser = argparse.ArgumentParser(description="Multi-view MHR parameter optimization")
-
-    input_group = parser.add_mutually_exclusive_group(required=True)
-    input_group.add_argument("--image_dir", type=str, default=None, help="Directory containing images")
-    input_group.add_argument("--video_dir", type=str, default=None, help="Directory containing videos")
-
+    parser.add_argument("--rgb_dir", type=str, required=True, help="Directory containing input frames")
     parser.add_argument("--camera_params_path", type=str, required=True, help="Path to camera parameters")
     parser.add_argument("--weights_dir", type=str, required=True, help="Directory containing model weights")
     parser.add_argument("--bbox_dir", type=str, required=True, help="Directory containing bounding boxes")
     parser.add_argument("--mask_dir", type=str, default=None, help="Directory containing SAM2 masks (optional)")
     parser.add_argument("--output_dir", type=str, required=True, help="Directory for outputs")
-    parser.add_argument(
-        "--config_path",
-        type=str,
-        default=str(Path(__file__).parent / "mv_optimize_mhr_params.yaml"),
-    )
+    parser.add_argument("--config_path", type=str, default=None,
+                        help="Optional override config (merged on top of defaults)")
     parser.add_argument("--debug", type=int, default=None, help="Debug level override")
     args = parser.parse_args()
 
-    cfg = OmegaConf.load(args.config_path)
+    cfg = OmegaConf.load(Path(__file__).parent / "mv_optimize_mhr_params.yaml")
+    if args.config_path:
+        cfg = OmegaConf.merge(cfg, OmegaConf.load(args.config_path))
     overrides = {
+        "rgb_dir": args.rgb_dir,
         "output_dir": args.output_dir,
         "camera_params_path": args.camera_params_path,
         "weights_dir": args.weights_dir,
         "bbox_dir": args.bbox_dir,
     }
-    if args.image_dir is not None:
-        overrides["image_dir"] = args.image_dir
-    elif args.video_dir is not None:
-        overrides["video_dir"] = args.video_dir
     if args.mask_dir is not None:
         overrides["mask_dir"] = args.mask_dir
     if args.debug is not None:

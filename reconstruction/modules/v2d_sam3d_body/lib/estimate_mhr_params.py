@@ -13,7 +13,7 @@ import torch
 from tqdm import tqdm
 
 from v2d.common.datatypes import CameraIntrinsics
-from v2d.mv.io.video import FrameSource, get_video_writer
+from v2d.common.video import FrameSource, get_video_writer
 
 from sam_3d_body import load_sam_3d_body, SAM3DBodyEstimator
 import trimesh
@@ -95,7 +95,7 @@ def export_mhr_outputs(
 
 def estimate_mhr_params(
     cam_intrinsics: np.ndarray,
-    frame_source: FrameSource,
+    rgb_path: Path,
     bbox_path: Path,
     output_params_path: Path,
     output_mesh_path: Path | None = None,
@@ -105,12 +105,12 @@ def estimate_mhr_params(
 ) -> dict:
     """Run SAM3D-Body inference on a single camera's frames.
 
-    Provide exactly one of *image_dir* (folder of PNGs) or *video_path*.
     Returns the coalesced mhr_params dict and saves it to *output_params_path*.
     """
     output_params_path = Path(output_params_path).resolve()
     output_params_path.parent.mkdir(parents=True, exist_ok=True)
 
+    frame_source = FrameSource.from_path(rgb_path)
     n_frames = frame_source.n_frames
     image_size = frame_source.image_size
 
@@ -219,11 +219,8 @@ def estimate_mhr_params(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run SAM3D-Body estimation on a single camera")
-
-    input_group = parser.add_mutually_exclusive_group(required=True)
-    input_group.add_argument("--image_dir", type=Path, help="Directory of PNG images")
-    input_group.add_argument("--video_path", type=Path, help="Path to video file")
-
+    parser.add_argument("--rgb_path", type=Path, required=True,
+                        help="Path to input frames (image dir, .h5, or video file)")
     parser.add_argument("--cam_intrinsics_path", type=Path, required=True,
                         help="Path to camera intrinsics JSON (CameraIntrinsics format)")
     parser.add_argument("--weights_dir", type=Path, required=True, help="Directory containing model weights")
@@ -238,7 +235,7 @@ if __name__ == "__main__":
 
     estimate_mhr_params(
         cam_intrinsics=cam_intrinsics,
-        frame_source=FrameSource(image_dir=args.image_dir, video_path=args.video_path),
+        rgb_path=args.rgb_path,
         bbox_path=args.bbox_path,
         output_params_path=args.output_params_path,
         output_mesh_path=args.output_mesh_path,

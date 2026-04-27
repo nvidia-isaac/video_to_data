@@ -4,10 +4,14 @@ Can be called directly from command line or imported as a function.
 """
 from v2d.sam2.lib.sam2_utils import build_sam2_video_predictor_low_mem
 from v2d.sam2.lib.datatypes import Sam2Prompts
-import os
 import argparse
 import json
-from PIL import Image
+import os
+
+import numpy as np
+from pathlib import Path
+
+from v2d.common.video import FrameWriter
 
 _predictor = None
 
@@ -46,24 +50,21 @@ def video_to_masks(video_path: str, prompts_path: str, masks_dir: str, weights_d
             box=box,
         )
 
-    os.makedirs(masks_dir, exist_ok=True)
-    obj_dirs = {}
-
+    obj_frames: dict[int, dict[int, np.ndarray]] = {}
     for reverse in [True, False]:
         for frame_idx, object_ids, masks in predictor.propagate_in_video(inference_state, reverse=reverse):
             for i, obj_id in enumerate(object_ids):
-                mask_data = (masks[i, 0] > 0.0).cpu().numpy().astype(bool)
+                mask_data = (masks[i, 0] > 0.0).cpu().numpy().astype(np.uint8) * 255
+                obj_frames.setdefault(obj_id, {})[frame_idx] = mask_data
 
-                if obj_id not in obj_dirs:
-                    obj_mask_dir = os.path.join(masks_dir, str(obj_id))
-                    os.makedirs(obj_mask_dir, exist_ok=True)
-                    obj_dirs[obj_id] = obj_mask_dir
-                else:
-                    obj_mask_dir = obj_dirs[obj_id]
+    masks_path = Path(masks_dir)
 
-                mask_img = Image.fromarray((mask_data * 255).astype('uint8'), mode='L')
-                mask_path = os.path.join(obj_mask_dir, f"{frame_idx:06d}.png")
-                mask_img.save(mask_path, format='PNG')
+    for obj_id, frames_dict in obj_frames.items():
+        out = masks_path / str(obj_id)
+        writer = FrameWriter.from_path(out)
+        for fidx in sorted(frames_dict.keys()):
+            writer.write_frame(frames_dict[fidx], stem=f"{fidx:06d}")
+        writer.close()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process video to masks using SAM2")

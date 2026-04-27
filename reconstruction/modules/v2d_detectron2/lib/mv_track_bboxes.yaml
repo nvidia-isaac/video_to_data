@@ -1,13 +1,10 @@
-image_dir: null
-video_dir: null
-
+rgb_dir: ???
 output_dir: ???
 
 rig_config: stereo-4
 cameras: [0, 2, 4, 6]
 
-image_path_template: "${image_dir}/{cam_name}"
-video_path_template: "${video_dir}/{cam_name}.mp4"
+rgb_path_template: "${rgb_dir}/{cam_name}"
 output_path_template: "${output_dir}/{cam_name}_bbox_track.pt"
 
 batch_size: 2

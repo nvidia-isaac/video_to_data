@@ -1,5 +1,5 @@
 camera_params_path: ???
-image_dir: ???
+rgb_dir: ???
 output_dir: ???
 model_dir: ???
 
@@ -7,6 +7,6 @@ rig_config: stereo-4
 
 scale: 0.5
 
-image_path_template: "${image_dir}/{cam_name}"
+rgb_path_template: "${rgb_dir}/{cam_name}"
 depth_path_template: "${output_dir}/{cam_name}/depth"
 intrinsics_path_template: "${output_dir}/{cam_name}/intrinsics"

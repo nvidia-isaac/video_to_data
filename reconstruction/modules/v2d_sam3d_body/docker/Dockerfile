@@ -27,10 +27,10 @@ RUN pip install py-soma-x
 
 # Install v2d packages (cached unless pyproject.toml or v2d/ source changes)
 COPY v2d_common /workspace/v2d_common
-RUN pip install -e /workspace/v2d_common
+RUN pip install -e "/workspace/v2d_common[io]"
 
 COPY v2d_mv /workspace/v2d_mv
-RUN pip install -e "/workspace/v2d_mv[io,math,vis]"
+RUN pip install -e "/workspace/v2d_mv[math,vis]"
 
 COPY v2d_sam3d_body /workspace/v2d_sam3d_body
 RUN pip install -e /workspace/v2d_sam3d_body/lib
