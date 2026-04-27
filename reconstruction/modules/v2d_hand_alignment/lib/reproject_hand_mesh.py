@@ -239,12 +239,12 @@ def reproject_hand_mesh(
 
 def main():
     parser = argparse.ArgumentParser(description="Reproject hand mesh to per-frame camera space + new intrinsics")
-    parser.add_argument('--input',             required=True,  help='Input NPZ hand mesh (world frame)')
-    parser.add_argument('--world_results',     default=None,   help='DynHaMR world_results.npz with cam_R/cam_t (n_hands,n_frames,...)')
-    parser.add_argument('--pose',              default=None,   help='Legacy pose NPZ with w2c matrices (data: N,4,4)')
-    parser.add_argument('--hand_intrinsics',   default=None,   help='Intrinsics used by hand estimator (JSON); if omitted, skips lateral reprojection')
-    parser.add_argument('--target_intrinsics', required=True,  help='Target intrinsics to align to (JSON)')
-    parser.add_argument('--output',            required=True,  help='Output NPZ path')
+    parser.add_argument('--input_path',             required=True,  help='Input NPZ hand mesh (world frame)')
+    parser.add_argument('--world_results_path',     default=None,   help='DynHaMR world_results.npz with cam_R/cam_t (n_hands,n_frames,...)')
+    parser.add_argument('--pose_path',              default=None,   help='Legacy pose NPZ with w2c matrices (data: N,4,4)')
+    parser.add_argument('--hand_intrinsics_path',   default=None,   help='Intrinsics used by hand estimator (JSON); if omitted, skips lateral reprojection')
+    parser.add_argument('--target_intrinsics_path', required=True,  help='Target intrinsics to align to (JSON)')
+    parser.add_argument('--output_path',            required=True,  help='Output NPZ path')
     parser.add_argument('--apply_world_scale', action='store_true',
                         help='Apply world_scale from world_results.npz (DynHaMR monocular scale factor) before w2c transform')
     parser.add_argument('--smooth_poses_sigma', type=float, default=0.0,
@@ -257,12 +257,12 @@ def main():
     args = parser.parse_args()
 
     reproject_hand_mesh(
-        input_path=args.input,
-        target_intrinsics_path=args.target_intrinsics,
-        output_path=args.output,
-        world_results_path=args.world_results,
-        pose_path=args.pose,
-        hand_intrinsics_path=args.hand_intrinsics,
+        input_path=args.input_path,
+        target_intrinsics_path=args.target_intrinsics_path,
+        output_path=args.output_path,
+        world_results_path=args.world_results_path,
+        pose_path=args.pose_path,
+        hand_intrinsics_path=args.hand_intrinsics_path,
         apply_world_scale=args.apply_world_scale,
         smooth_poses_sigma=args.smooth_poses_sigma,
         hand_width=args.hand_width,

@@ -86,14 +86,14 @@ def smooth_hand_mesh(
 
 def main():
     parser = argparse.ArgumentParser(description="Temporally smooth hand mesh center position")
-    parser.add_argument('--input',  required=True, help='Input NPZ hand mesh')
-    parser.add_argument('--output', required=True, help='Output NPZ path')
+    parser.add_argument('--input_path',  required=True, help='Input NPZ hand mesh')
+    parser.add_argument('--output_path', required=True, help='Output NPZ path')
     parser.add_argument('--sigma',  type=float, default=5.0,
                         help='Gaussian sigma in frames (default: 5.0)')
     args = parser.parse_args()
 
     print(f"Smoothing hand centroid with sigma={args.sigma} frames...")
-    smooth_hand_mesh(args.input, args.output, sigma=args.sigma)
+    smooth_hand_mesh(args.input_path, args.output_path, sigma=args.sigma)
 
 
 if __name__ == '__main__':
