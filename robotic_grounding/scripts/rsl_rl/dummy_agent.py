@@ -82,6 +82,18 @@ parser.add_argument(
     default=300,
     help="Number of simulation steps to record (default: 300).",
 )
+parser.add_argument(
+    "--success_marker",
+    type=str,
+    default=None,
+    help=(
+        "Optional path to a sentinel file. Written ONLY after the recording "
+        "loop completes cleanly. CUDA assert, exception, or timeout-kill all "
+        "prevent the write from happening, so a present sentinel proves the "
+        "sequence played end-to-end. Used by workflow/retarget.yaml Stage 6 "
+        "to split processed parquets into renderable vs. invalid buckets."
+    ),
+)
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 
@@ -235,13 +247,38 @@ def main():
                 env.step(actions)
             if (step + 1) % 100 == 0:
                 print(f"[INFO] Step: {step + 1}/{args_cli.video_length}")
-        print(f"[INFO] Video saved to {args_cli.output_dir}")
+        print(f"[INFO] Recording loop done; closing env to flush MP4")
     else:
         while simulation_app.is_running():
             with torch.inference_mode():
                 env.step(actions)
 
     env.close()
+
+    # Sentinel goes here — AFTER env.close() has returned AND the MP4 is on
+    # disk. gymnasium.wrappers.RecordVideo's step-loop uses a strict
+    # `len(recorded_frames) > video_length` check, so running exactly
+    # `video_length` steps never trips stop_recording() inside the loop;
+    # the moviepy flush runs inside close() instead. Writing the sentinel
+    # earlier lets it survive an Omniverse-shutdown deadlock, a silent
+    # moviepy/ffmpeg failure (disable_logger=True), or an outer
+    # `timeout --signal=KILL` that lands between touch and flush — all
+    # observed at least once (sequence_id=dataset_s01_box_use_02 in
+    # isaac/retargeted_arctic_exp_50).
+    if args_cli.record_video and args_cli.success_marker:
+        from pathlib import Path as _Path
+
+        expected_mp4 = _Path(args_cli.output_dir) / "rl-video-step-0.mp4"
+        if expected_mp4.is_file() and expected_mp4.stat().st_size > 0:
+            marker = _Path(args_cli.success_marker)
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.touch()
+            print(f"[INFO] Wrote success marker {marker}")
+        else:
+            print(
+                f"[WARN] No MP4 at {expected_mp4}; withholding success marker "
+                f"{args_cli.success_marker}"
+            )
 
 
 if __name__ == "__main__":
