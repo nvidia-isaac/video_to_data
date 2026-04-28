@@ -2176,6 +2176,26 @@ class DualHandsObjectTrackingCommand(CommandTerm):
 
         if self.cfg.always_reset_to_first_frame:
             self.timestep_counter[env_ids] = 0
+        elif (
+            self.cfg.reset_to_first_frame_prob > 0.0
+            and float(self.virtual_object_controller_scale_factor) < 0.1
+        ):
+            # Close the train/eval gap: once the VOC curriculum has nearly decayed
+            # (scale < 0.1), randomly reset some envs to tc=0 with the configured
+            # probability.  Eval always starts from tc=0; without this the policy
+            # never sees trajectory-start episodes during training and can reward-hack
+            # by learning to hold-in-place from mid-trajectory positions.
+            first_frame_mask = (
+                torch.rand(n, device=self.device) < self.cfg.reset_to_first_frame_prob
+            )
+            first_frame_local_ids = first_frame_mask.nonzero(as_tuple=False).squeeze(-1)
+            if first_frame_local_ids.numel() > 0:
+                env_ids_t = (
+                    env_ids
+                    if isinstance(env_ids, torch.Tensor)
+                    else torch.tensor(env_ids, device=self.device)
+                )
+                self.timestep_counter[env_ids_t[first_frame_local_ids]] = 0
 
         # Cache the per-env timestep indices and env-origin offsets once.
         tc = self.timestep_counter[env_ids]

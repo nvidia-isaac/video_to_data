@@ -141,6 +141,17 @@ class DualHandsObjectTrackingCommandCfg(CommandTermCfg):
     always_reset_to_first_frame: bool = False
     """Whether to always reset to the first frame of the motion data."""
 
+    reset_to_first_frame_prob: float = 0.0
+    """Probability of resetting to the first trajectory frame (tc=0) instead of a random frame.
+
+    Only applied when ``always_reset_to_first_frame`` is False AND the global VOC scale is
+    below 0.1 (i.e. the curriculum has nearly or fully decayed).  This closes the train/eval
+    distribution gap: eval always starts from tc=0, but without this flag training never
+    sees tc=0 starts once the curriculum is active, allowing the policy to reward-hack by
+    learning to hold-in-place from mid-trajectory positions while failing from the start.
+    Recommended value: 0.1–0.2.  Has no effect during the VOC-assisted curriculum phase.
+    """
+
     initial_virtual_object_control_curriculum_scale: float = 1.0
     """Initial virtual object control curriculum scale."""
 
