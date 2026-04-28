@@ -80,21 +80,26 @@ class EvalCallback:
 
         obs = self.env.get_observations()
 
+        # ── Save training state that eval steps would contaminate ──────────── #
+        # All three are restored unconditionally in the finally block so that
+        # training resumes with exactly the state it had before the checkpoint.
+        import copy as _copy
+
+        _saved_episode_sums = {
+            k: v.clone()
+            for k, v in self._isaac_env.reward_manager._episode_sums.items()
+        }
+        _saved_metrics = {k: v.clone() for k, v in self._cmd.metrics.items()}
+        _saved_cws_buf = (
+            _copy.copy(self._cmd._cws_reward_step_buf)
+            if hasattr(self._cmd, "_cws_reward_step_buf")
+            else None
+        )
+
         # Force all resets to start from the first trajectory frame for the
         # duration of eval; restored unconditionally in the finally block below.
         _orig_reset_to_first = self._cmd.cfg.always_reset_to_first_frame
         self._cmd.cfg.always_reset_to_first_frame = True
-
-        # --- Warm-up: step until every env has completed at least one episode ---
-        # This ensures the episodes we collect started from a genuine reset, not
-        # mid-episode when the callback fired.
-        env_reset_once = torch.zeros(num_envs, dtype=torch.bool, device=device)
-        while not env_reset_once.all():
-            with torch.inference_mode():
-                actions = policy(obs)
-                obs, _, dones, _ = self.env.step(actions)
-                policy_nn.reset(dones)
-            env_reset_once |= dones.bool()
 
         # --- Collect eval_episodes clean episodes + drain recording ---
         # Allocate state tensors before the try so they're accessible after the
@@ -107,21 +112,34 @@ class EvalCallback:
         completed: list[tuple[float, float]] = []
 
         try:
+            # --- Warm-up: step until every env has completed at least one episode ---
+            # This ensures the episodes we collect started from a genuine reset, not
+            # mid-episode when the callback fired.
+            env_reset_once = torch.zeros(num_envs, dtype=torch.bool, device=device)
+            while not env_reset_once.all():
+                with torch.inference_mode():
+                    actions = policy(obs)
+                    obs, _, dones, _ = self.env.step(actions)
+                    policy_nn.reset(dones)
+                env_reset_once |= dones.bool()
             # --- Trigger video recording for the upcoming eval rollout ---
             # Redirect RecordVideo to videos/eval so the clip is logged separately
             # from training videos (uploaded as eval/video rather than train/video).
             # Done inside try so the finally always restores video_folder, even if
             # the eval loop or drain throws (e.g. CUDA OOM, moviepy write error).
-            if self.log_video:
-                if self._record_video_env is not None:
-                    self._record_video_env.video_folder = self._eval_video_folder
-                self._isaac_env.eval_video_trigger_pending = True
+            if self.log_video and self._record_video_env is not None:
+                self._record_video_env.video_folder = self._eval_video_folder
 
             # After warmup each env's episode is at some arbitrary midpoint.  We
             # discard each env's first post-warmup episode (the "tail"), then count
             # only full episodes that started fresh.  tracking_length is captured at
             # the START of each fresh episode so the per-episode denominator is
             # correct regardless of random start offsets.
+            #
+            # Video recording is triggered when the first tail ends — at that moment
+            # the env resets to tc=0 (always_reset_to_first_frame=True), so the
+            # recording captures a genuine from-frame-0 fresh episode.
+            _video_triggered = False
             while len(completed) < self.eval_episodes:
                 with torch.inference_mode():
                     actions = policy(obs)
@@ -142,6 +160,11 @@ class EvalCallback:
                             # Tail of a mid-episode that pre-dated the warmup end;
                             # mark done so the NEXT episode is recorded.
                             env_first_done[i] = True
+                            # The env just reset to tc=0; trigger recording now so
+                            # the video captures a fresh from-frame-0 episode.
+                            if self.log_video and not _video_triggered:
+                                self._isaac_env.eval_video_trigger_pending = True
+                                _video_triggered = True
                         my_ep_len[i] = 0.0
                         # Capture tracking_length for the new episode that just started.
                         my_ep_max_len[i] = self._cmd.tracking_lengths[i].float()
@@ -171,10 +194,46 @@ class EvalCallback:
 
         finally:
             self._cmd.cfg.always_reset_to_first_frame = _orig_reset_to_first
-            # Flush and zero all episode reward sums so that inference-mode steps
-            # accumulated during eval don't bleed into the first training batch's
-            # episode-reward logs (which would cause a spurious peak every save_interval).
-            self._isaac_env.reward_manager.log(env_ids=slice(None))
+
+            # ── Restore training state saved before eval ───────────────────── #
+            # Restoring (not flushing) avoids both spikes AND dips:
+            # • _episode_sums: eval steps accumulated inference-mode rewards;
+            #   restore pre-eval sums so the next training episode completion logs
+            #   the correct partial-episode reward, not zero or eval-quality values.
+            #   (The previous fix called reward_manager.log() which does not exist —
+            #   AttributeError silently aborted the entire finally block every time.)
+            for k, v in _saved_episode_sums.items():
+                if k in self._isaac_env.reward_manager._episode_sums:
+                    self._isaac_env.reward_manager._episode_sums[k].copy_(v)
+            # • self._cmd.metrics: _update_metrics() runs inside command_manager.compute()
+            #   which is called AFTER _reset_idx in each env.step(). The first training
+            #   episode reset therefore logs metrics from the *last eval step* (inference-
+            #   mode, better performance) → spike in every Metrics/* key.
+            for k, v in _saved_metrics.items():
+                if k in self._cmd.metrics:
+                    self._cmd.metrics[k].copy_(v)
+            # • _cws_reward_step_buf: deque(maxlen=200) filled entirely with eval values
+            #   → contact_wrench_support_reward_cv wrong for 200 training steps.
+            if _saved_cws_buf is not None and hasattr(
+                self._cmd, "_cws_reward_step_buf"
+            ):
+                self._cmd._cws_reward_step_buf.clear()
+                self._cmd._cws_reward_step_buf.extend(_saved_cws_buf)
+
+            # Restore policy to train mode.  get_inference_policy() calls
+            # alg.eval_mode(); RSL-RL only calls train_mode() once at the start of
+            # learn(), so without this the network stays in eval mode for all
+            # subsequent training iterations after the first checkpoint.
+            try:
+                self.runner.alg.train_mode()
+            except AttributeError:
+                pass
+
+            # Clear stale extras["log"]: the last eval-step reset left episode
+            # metrics from inference mode in this dict; it persists until the next
+            # training reset overwrites it, so the RSL-RL logger would process it.
+            self._isaac_env.extras["log"] = dict()
+
             # Always restore the train video folder and clear any unconsumed pending
             # trigger, regardless of whether an exception occurred above.
             if self.log_video:

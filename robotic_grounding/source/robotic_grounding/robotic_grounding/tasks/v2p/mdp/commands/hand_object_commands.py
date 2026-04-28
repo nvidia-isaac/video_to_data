@@ -2300,11 +2300,20 @@ class DualHandsObjectTrackingCommand(CommandTerm):
                 .clamp(min=0.0)
                 .view(self.num_envs, 1)
             )
-        elif self.cfg.virtual_object_control_decay_mode in ("step", "fixed_schedule"):
+        elif self.cfg.virtual_object_control_decay_mode in (
+            "step",
+            "fixed_schedule",
+            "custom_schedule",
+        ):
             self.virtual_object_controller_scale_factor_per_env[
                 self.steps_since_last_reset
                 >= self.cfg.virtual_object_control_decay_steps
             ] = self.virtual_object_controller_scale_factor
+        else:
+            raise ValueError(
+                f"Unknown virtual_object_control_decay_mode: {self.cfg.virtual_object_control_decay_mode!r}. "
+                "Expected one of: 'linear', 'step', 'fixed_schedule', 'custom_schedule'."
+            )
 
         # If still in the reset phase, don't step the timestep counter
         # Note: This will make each episode length vary, which might cause the episode rewards to be variant.
