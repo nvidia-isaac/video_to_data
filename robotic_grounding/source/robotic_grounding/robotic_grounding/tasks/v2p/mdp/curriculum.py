@@ -11,7 +11,7 @@ from __future__ import annotations
 import ast as _ast
 import bisect
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 import torch
 from isaaclab.envs import ManagerBasedRLEnv
@@ -206,6 +206,13 @@ class VirtualObjectControlCurriculum(ManagerTermBase):
             len(self._baseline_reward_names), device=self._env.device
         )
 
+        # Deferred eval-before-decay: when env.pre_decay_eval_enabled is True,
+        # decay application is deferred until the eval callback clears
+        # env.pre_decay_eval_pending.  _deferred_decay_fn is a zero-arg callable
+        # that applies the pending decay once the eval pass finishes.
+        self._decay_deferred: bool = False
+        self._deferred_decay_fn: Callable[[], None] | None = None
+
     def __call__(
         self,
         env: ManagerBasedRLEnv,
@@ -320,6 +327,18 @@ class VirtualObjectControlCurriculum(ManagerTermBase):
                     self._deque_metric_stds[i].expand(n)
                 )
 
+        # 1.5 Deferred eval-before-decay guard.
+        # While a decay is pending an eval pass, collect episode data (section 1)
+        # normally but skip all gate evaluation.  Once the eval callback clears
+        # env.pre_decay_eval_pending, apply the stored decay and return.
+        if self._decay_deferred:
+            if not getattr(self._env, "pre_decay_eval_pending", False):
+                if self._deferred_decay_fn is not None:
+                    self._deferred_decay_fn()
+                    self._deferred_decay_fn = None
+                self._decay_deferred = False
+            return self._command.virtual_object_controller_scale_factor
+
         # 2 Fixed schedule shortcut: set VOC based on common_step_counter thresholds,
         # bypassing all adaptive conditions (episode length, reward thresholds, etc.)
         if decay_mode == "fixed_schedule":
@@ -333,17 +352,38 @@ class VirtualObjectControlCurriculum(ManagerTermBase):
                 if current_step >= step_threshold:
                     target_scale = value
             if target_scale != current_scale:
-                env.video_trigger_pending = True
-                self._command.virtual_object_controller_scale_factor = target_scale
-                self._last_decay_common_step_counter = current_step
-                self._episode_reward_deque.clear()
-                self._episode_length_ratio_deque.clear()
-                logger.info(
-                    "[FixedSchedule] VOC scale %.3f → %.3f at common_step=%d",
-                    current_scale,
-                    target_scale,
-                    current_step,
-                )
+                if getattr(self._env, "pre_decay_eval_enabled", False):
+                    _cs, _ts, _cur_s = current_step, target_scale, current_scale
+
+                    def _apply_fixed(
+                        *, _cs: int = _cs, _ts: float = _ts, _cur_s: float = _cur_s
+                    ) -> None:
+                        self._command.virtual_object_controller_scale_factor = _ts
+                        self._last_decay_common_step_counter = _cs
+                        self._episode_reward_deque.clear()
+                        self._episode_length_ratio_deque.clear()
+                        logger.info(
+                            "[FixedSchedule] VOC scale %.3f → %.3f at common_step=%d",
+                            _cur_s,
+                            _ts,
+                            _cs,
+                        )
+
+                    self._env.pre_decay_eval_pending = True
+                    self._deferred_decay_fn = _apply_fixed
+                    self._decay_deferred = True
+                else:
+                    env.video_trigger_pending = True
+                    self._command.virtual_object_controller_scale_factor = target_scale
+                    self._last_decay_common_step_counter = current_step
+                    self._episode_reward_deque.clear()
+                    self._episode_length_ratio_deque.clear()
+                    logger.info(
+                        "[FixedSchedule] VOC scale %.3f → %.3f at common_step=%d",
+                        current_scale,
+                        target_scale,
+                        current_step,
+                    )
             return self._command.virtual_object_controller_scale_factor
 
         # 2.5 Custom schedule: exit early if all VOC levels already applied
@@ -386,6 +426,48 @@ class VirtualObjectControlCurriculum(ManagerTermBase):
             >= max_eligible_wait_env_steps
         )
         if force_decay:
+            if getattr(self._env, "pre_decay_eval_enabled", False):
+                _idx = self._schedule_index + 1
+                _old = float(self._command.virtual_object_controller_scale_factor)
+                _new = self._custom_voc_schedule[_idx]
+                _ef = current_common_step - self._eligible_since_common_step
+                _ccs = current_common_step
+                _slen = len(self._custom_voc_schedule)
+
+                def _apply_force(
+                    *,
+                    _idx: int = _idx,
+                    _old: float = _old,
+                    _new: float = _new,
+                    _ef: int = _ef,
+                    _ccs: int = _ccs,
+                    _slen: int = _slen,
+                ) -> None:
+                    self._schedule_index = _idx
+                    self._command.virtual_object_controller_scale_factor = _new
+                    for rname, weights in self._custom_reward_schedules.items():
+                        self._reward_manager.get_term_cfg(rname).weight = weights[_idx]
+                    self._last_decay_common_step_counter = _ccs
+                    self._eligible_since_common_step = None
+                    self._episode_reward_deque.clear()
+                    self._episode_length_ratio_deque.clear()
+                    if self._metric_deque is not None:
+                        self._metric_deque.clear()
+                    logger.info(
+                        "[CustomSchedule] FORCED VOC %.3f → %.3f at common_step=%d (eligible for %d steps, stage %d/%d)",
+                        _old,
+                        _new,
+                        _ccs,
+                        _ef,
+                        _idx + 1,
+                        _slen,
+                    )
+
+                self._env.pre_decay_eval_pending = True
+                self._deferred_decay_fn = _apply_force
+                self._decay_deferred = True
+                return self._command.virtual_object_controller_scale_factor
+
             env.video_trigger_pending = True
             self._schedule_index += 1
             old_voc = float(self._command.virtual_object_controller_scale_factor)
@@ -481,8 +563,75 @@ class VirtualObjectControlCurriculum(ManagerTermBase):
                 if current_val > threshold:
                     return self._command.virtual_object_controller_scale_factor
 
-        # 9 Signal that a decay is about to happen so the video recorder can capture
-        # the current policy before the scale factor changes.
+        # 9 Signal that a decay is about to happen.  With pre_decay_eval_enabled,
+        # defer the actual decay until the eval callback has run at the pre-decay
+        # VOC level and cleared env.pre_decay_eval_pending.
+        if getattr(self._env, "pre_decay_eval_enabled", False):
+            _cmode = decay_mode
+            _exp_f = exponential_decay_factor
+            _lin_s = linear_decay_step
+            _zero_t = zero_scale_factor_threshold
+            _erm = episode_reward_means.clone()
+            _ccs = int(self._env.common_step_counter)
+            _slen = len(self._custom_voc_schedule)
+
+            def _apply_adaptive(
+                *,
+                _cmode: str = _cmode,
+                _exp_f: float = _exp_f,
+                _lin_s: float = _lin_s,
+                _zero_t: float = _zero_t,
+                _erm: torch.Tensor = _erm,
+                _ccs: int = _ccs,
+                _slen: int = _slen,
+            ) -> None:
+                old_voc = float(self._command.virtual_object_controller_scale_factor)
+                if _cmode == "exponential":
+                    self._command.virtual_object_controller_scale_factor *= _exp_f
+                elif _cmode == "linear":
+                    self._command.virtual_object_controller_scale_factor -= _lin_s
+                elif _cmode == "custom_schedule":
+                    self._schedule_index += 1
+                    new_voc = self._custom_voc_schedule[self._schedule_index]
+                    self._command.virtual_object_controller_scale_factor = new_voc
+                    for rname, weights in self._custom_reward_schedules.items():
+                        self._reward_manager.get_term_cfg(rname).weight = weights[
+                            self._schedule_index
+                        ]
+                    logger.info(
+                        "[CustomSchedule] VOC %.3f → %.3f at common_step=%d (stage %d/%d)",
+                        old_voc,
+                        new_voc,
+                        _ccs,
+                        self._schedule_index + 1,
+                        _slen,
+                    )
+                else:
+                    raise ValueError(f"Invalid decay mode: {_cmode}")
+                if _cmode != "custom_schedule" and (
+                    self._command.virtual_object_controller_scale_factor <= _zero_t
+                ):
+                    self._command.virtual_object_controller_scale_factor *= 0.0
+                self._last_decay_common_step_counter = _ccs
+                self._eligible_since_common_step = None
+                self._episode_reward_deque.clear()
+                self._episode_length_ratio_deque.clear()
+                if self._metric_deque is not None:
+                    self._metric_deque.clear()
+                if len(self._baseline_reward_indices) > 0:
+                    self._reward_baselines = _erm[self._baseline_reward_indices].clone()
+                    self._deque_reward_baselines[:] = self._reward_baselines
+                logger.info(
+                    "[AdaptiveCurriculum] VOC scale decayed to %.3f at common_step=%d",
+                    float(self._command.virtual_object_controller_scale_factor),
+                    _ccs,
+                )
+
+            self._env.pre_decay_eval_pending = True
+            self._deferred_decay_fn = _apply_adaptive
+            self._decay_deferred = True
+            return self._command.virtual_object_controller_scale_factor
+
         env.video_trigger_pending = True
 
         # 10 Apply decay, set buffer, and clear the deque

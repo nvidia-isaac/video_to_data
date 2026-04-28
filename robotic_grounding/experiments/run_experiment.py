@@ -191,6 +191,7 @@ def generate_single_task_workflow(
 ) -> str:
     """Generate OSMO workflow YAML for a single training task."""
     osmo_cfg = config.get("osmo", {})
+    storage_gi = osmo_cfg.get("storage_gi", 200)
     # OSMO runs in a fresh container; local checkpoint paths don't exist.
     # - osmo.resume_from: false -> train from scratch
     # - osmo.resume_from: "<local path>" -> upload via dataset input (localpath) at submit time
@@ -298,7 +299,7 @@ workflow:
       cpu: 6
       gpu: 1
       memory: 120Gi
-      storage: 200Gi
+      storage: {storage_gi}Gi
 
   tasks:
   - name: train
@@ -341,6 +342,7 @@ def generate_multi_sequence_workflow(
     """
     sequences = config.get("sequences", [])
     osmo_cfg = config.get("osmo", {})
+    storage_gi = osmo_cfg.get("storage_gi", 200)
     motion_data_url = osmo_cfg.get("motion_data_url")
     run_name_suffix = config.get("run_name_suffix", exp_id)
     project = config.get("wandb_project", "v2p_hands")
@@ -437,7 +439,7 @@ def generate_multi_sequence_workflow(
         f"      cpu: 6\n"
         f"      gpu: 1\n"
         f"      memory: 120Gi\n"
-        f"      storage: 200Gi\n"
+        f"      storage: {storage_gi}Gi\n"
         f"\n"
         f"  tasks:\n"
         f"{tasks_str}\n"

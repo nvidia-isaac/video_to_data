@@ -59,6 +59,109 @@ class EvalCallback:
                     break
                 w = getattr(w, "env", None)
 
+    def _collect_episodes(
+        self,
+        policy,
+        policy_nn,
+        obs,
+        from_start: bool,
+        log_video: bool,
+    ):
+        """Run one eval pass; returns (completed_list, final_obs).
+
+        Pass A (from_start=True): always_reset_to_first_frame=True, logs eval video.
+        Pass B (from_start=False): training reset behaviour (random tc), no video.
+        The caller's finally block is responsible for restoring the original value.
+        """
+        import torch
+
+        device = self.env.unwrapped.device
+        num_envs = self.env.unwrapped.num_envs
+
+        self._cmd.cfg.always_reset_to_first_frame = from_start
+
+        my_ep_len = torch.zeros(num_envs, dtype=torch.float32, device=device)
+        my_ep_max_len = torch.zeros(num_envs, dtype=torch.float32, device=device)
+        env_first_done = torch.zeros(num_envs, dtype=torch.bool, device=device)
+        completed: list[tuple[float, float]] = []
+
+        # Warmup: step until every env has completed at least one episode so all
+        # collected episodes start from a genuine post-reset state.
+        env_reset_once = torch.zeros(num_envs, dtype=torch.bool, device=device)
+        while not env_reset_once.all():
+            with torch.inference_mode():
+                actions = policy(obs)
+                obs, _, dones, _ = self.env.step(actions)
+                policy_nn.reset(dones)
+            env_reset_once |= dones.bool()
+
+        if log_video and self._record_video_env is not None:
+            self._record_video_env.video_folder = self._eval_video_folder
+
+        _video_triggered = False
+        while len(completed) < self.eval_episodes:
+            with torch.inference_mode():
+                actions = policy(obs)
+                obs, _, dones, _ = self.env.step(actions)
+                policy_nn.reset(dones)
+
+            my_ep_len += 1
+            done_mask = dones.bool()
+            if done_mask.any():
+                done_ids = done_mask.nonzero(as_tuple=False).squeeze(-1)
+                for i in done_ids:
+                    if env_first_done[i]:
+                        completed.append((my_ep_len[i].item(), my_ep_max_len[i].item()))
+                    else:
+                        # Tail episode pre-dating warmup end; discard, record next.
+                        env_first_done[i] = True
+                        if log_video and not _video_triggered:
+                            self._isaac_env.eval_video_trigger_pending = True
+                            _video_triggered = True
+                    my_ep_len[i] = 0.0
+                    my_ep_max_len[i] = self._cmd.tracking_lengths[i].float()
+
+        # Drain: keep stepping until the in-progress recording finishes.
+        if log_video and self._record_video_env is not None:
+            _drain_limit = (
+                self._record_video_env.video_length
+                if self._record_video_env.video_length != float("inf")
+                else 600
+            ) * 3
+            _drain_steps = 0
+            while self._record_video_env.recording:
+                if _drain_steps >= _drain_limit:
+                    print(
+                        f"[eval] WARNING: drain loop hit {_drain_limit}-step limit "
+                        "while waiting for eval recording to finish; aborting drain."
+                    )
+                    break
+                with torch.inference_mode():
+                    actions = policy(obs)
+                    obs, _, dones, _ = self.env.step(actions)
+                    policy_nn.reset(dones)
+                _drain_steps += 1
+
+        return completed, obs
+
+    def _compute_stats(
+        self, completed: list[tuple[float, float]]
+    ) -> tuple[float, float, float, int]:
+        """Return (mean_ratio, std_ratio, full_pct, n_full) from a completed-episodes list."""
+        data = completed[: self.eval_episodes]
+        ratios = [
+            min(max(e[0] - self._warmup_steps, 0), max(e[1] - self._warmup_steps, 1))
+            / max(e[1] - self._warmup_steps, 1)
+            for e in data
+        ]
+        n_full = sum(1 for r in ratios if r >= 0.99)
+        mean_r = sum(ratios) / len(ratios)
+        std_r = (
+            sum((x - mean_r) ** 2 for x in ratios) / max(len(ratios) - 1, 1)
+        ) ** 0.5
+        full_pct = 100.0 * n_full / len(data)
+        return mean_r, std_r, full_pct, n_full
+
     def __call__(self, path: str, *args, **kwargs) -> None:
         import torch
         import wandb
@@ -233,6 +336,9 @@ class EvalCallback:
             # metrics from inference mode in this dict; it persists until the next
             # training reset overwrites it, so the RSL-RL logger would process it.
             self._isaac_env.extras["log"] = dict()
+
+            # Signal curriculum that eval has finished so deferred decay can fire.
+            self._isaac_env.pre_decay_eval_pending = False
 
             # Always restore the train video folder and clear any unconsumed pending
             # trigger, regardless of whether an exception occurred above.
