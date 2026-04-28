@@ -19,6 +19,7 @@ def run_mv_videos_to_poses(
     mesh_path: str,
     weights_dir: str,
     output_dir: str,
+    symmetry_path: str | None = None,
     config_path: str = str(_LIB_CONFIG),
     debug: int = -1,
     dev: bool = False,
@@ -29,6 +30,7 @@ def run_mv_videos_to_poses(
         "depth_dir": depth_dir,
         "mask_dir": mask_dir,
         "mesh_path": mesh_path,
+        "symmetry_path": symmetry_path,
         "weights_dir": weights_dir,
         "config_path": config_path,
     }
@@ -63,6 +65,8 @@ if __name__ == "__main__":
     parser.add_argument("--depth_dir", type=str, required=True, help="Directory containing depth maps")
     parser.add_argument("--mask_dir", type=str, required=True, help="Directory containing object masks")
     parser.add_argument("--mesh_path", type=str, required=True, help="Path to object mesh file")
+    parser.add_argument("--symmetry_path", type=str, default=None,
+                        help="Optional BOP-style symmetry JSON; defaults to <mesh_dir>/output_symmetry.json if present")
     parser.add_argument("--weights_dir", type=str, required=True, help="Directory containing FoundationPose weights")
     parser.add_argument("--output_dir", type=str, required=True, help="Directory for output poses")
     parser.add_argument("--config_path", type=str, default=str(_LIB_CONFIG), help="Path to config YAML")
@@ -76,6 +80,7 @@ if __name__ == "__main__":
         depth_dir=args.depth_dir,
         mask_dir=args.mask_dir,
         mesh_path=args.mesh_path,
+        symmetry_path=args.symmetry_path,
         weights_dir=args.weights_dir,
         output_dir=args.output_dir,
         config_path=args.config_path,

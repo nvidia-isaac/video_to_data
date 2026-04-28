@@ -8,7 +8,6 @@ Usage:
 """
 
 import argparse
-import glob
 import os
 
 from v2d.rosbag.docker.run_rosbag_to_edex import run_rosbag_to_edex
@@ -29,16 +28,14 @@ from v2d.mv.postprocess.docker.run_mv_visualize_wis3d import run_mv_visualize_wi
 
 RECON_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 MV_CONFIGS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mv_configs")
-_MESH_EXTS = ("*.glb", "*.obj", "*.ply", "*.stl")
 
 
 def _find_pinned_mesh(mesh_dir: str) -> str:
-    """Find the first mesh file in a directory."""
-    for ext in _MESH_EXTS:
-        matches = glob.glob(os.path.join(mesh_dir, ext))
-        if matches:
-            return matches[0]
-    raise FileNotFoundError(f"No mesh file found in {mesh_dir}")
+    """Locate the symmetry-aligned object mesh in a preprocess object_mesh dir."""
+    path = os.path.join(mesh_dir, "output_aligned.glb")
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"output_aligned.glb not found in {mesh_dir}")
+    return path
 
 
 def main(
@@ -51,7 +48,7 @@ def main(
     raw_dir = os.path.join(output_dir, "raw")
     preprocess_dir = os.path.join(output_dir, "preprocess")
     preprocess_images_dir = os.path.join(preprocess_dir, "images")
-    preprocess_mesh_dir = os.path.join(preprocess_dir, "mesh")
+    preprocess_mesh_dir = os.path.join(preprocess_dir, "object_mesh")
     foundation_stereo_dir = os.path.join(output_dir, "foundation_stereo")
     grounding_dino_dir = os.path.join(output_dir, "grounding_dino")
     sam2_object_dir = os.path.join(output_dir, "sam2", "object")
@@ -115,12 +112,14 @@ def main(
     )
 
     # Track object pose with FoundationPose (requires depth + object masks)
+    sym_json = os.path.join(preprocess_mesh_dir, "output_symmetry.json")
     run_mv_videos_to_poses(
         camera_params_path=os.path.join(preprocess_dir, "edex"),
         rgb_dir=preprocess_images_dir,
         depth_dir=foundation_stereo_dir,
         mask_dir=sam2_object_dir,
         mesh_path=_find_pinned_mesh(preprocess_mesh_dir),
+        symmetry_path=sym_json if os.path.exists(sym_json) else None,
         weights_dir=os.path.join(RECON_DIR, "data/weights/foundation_pose"),
         output_dir=foundation_pose_dir,
         dev=dev,

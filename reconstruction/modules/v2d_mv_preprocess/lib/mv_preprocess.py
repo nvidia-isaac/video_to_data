@@ -66,8 +66,12 @@ def mv_preprocess(
         labeled_bbox_paths: Mapping from camera name to output labeled bbox JSON path.
         output_hoi_metadata_path: Where to write the copied hoi_metadata.
         output_prompt_path: Where to write the object prompt as plain text.
-        mesh_path: Optional path to object mesh file to pin in the output.
-        output_mesh_dir: Directory to copy the mesh into.
+        mesh_path: Optional path to object mesh file. Used to locate the
+            source mesh directory; the entire directory is copied into
+            ``output_mesh_dir`` so that sibling files (alternate mesh
+            variants like ``output_aligned.glb``, the symmetry annotation
+            ``output_symmetry.json``, etc.) travel with the mesh.
+        output_mesh_dir: Directory to copy the mesh template into.
     """
     if output_video_paths is None:
         output_video_paths = {}
@@ -135,10 +139,13 @@ def mv_preprocess(
     if mesh_path is not None and output_mesh_dir is not None:
         mesh_path = Path(mesh_path)
         output_mesh_dir = Path(output_mesh_dir)
-        output_mesh_dir.mkdir(parents=True, exist_ok=True)
-        dest = output_mesh_dir / mesh_path.name
-        shutil.copy2(mesh_path, dest)
-        logger.info(f"Pinned object mesh to {dest}")
+        shutil.copytree(
+            mesh_path.parent,
+            output_mesh_dir,
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns("output.glb"),
+        )
+        logger.info(f"Pinned object template from {mesh_path.parent} to {output_mesh_dir}")
 
     frame_meta = camera_params_path.parent / "frame_metadata.jsonl"
     if frame_meta.exists():

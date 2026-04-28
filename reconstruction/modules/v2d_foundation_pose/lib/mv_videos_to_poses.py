@@ -18,6 +18,7 @@ from v2d.mv.rig import RigConfig
 
 from .fp_utils import draw_posed_3d_box, draw_xyz_axis
 from .multiview_tracker import MultiViewTracker
+from .symmetry import load_symmetry_group
 
 
 def mv_videos_to_poses(
@@ -30,6 +31,7 @@ def mv_videos_to_poses(
     mesh_path: Path,
     weights_dir: str,
     pose_path: Path,
+    symmetry_path: Path | None = None,
     scale: float = 0.5,
     depth_direction_trust: float = 0.5,
     visible_ratio_cutoff_high: float = 0.3,
@@ -52,6 +54,12 @@ def mv_videos_to_poses(
         mesh_path: path to the object mesh file.
         weights_dir: path to FoundationPose weights.
         pose_path: output path for filtered poses .npy file.
+        symmetry_path: optional path to a BOP-style symmetry annotation JSON
+            (typically `<mesh_dir>/output_symmetry.json`). When provided and
+            the file exists, per-view registrations at frame 0 are
+            canonicalized into a common equivalence-class representative
+            before averaging. If None or missing, behavior matches the
+            no-symmetry case.
         scale: resolution scale factor (e.g. 0.5 for half resolution). Scales
             intrinsics and resizes images/depths/masks accordingly.
         depth_direction_trust: weight for depth axis in anisotropic translation averaging.
@@ -75,6 +83,14 @@ def mv_videos_to_poses(
     tm = mesh.to_trimesh()
     _, obb_extents = trimesh.bounds.oriented_bounds(tm)
     print(f"Mesh: {len(tm.vertices)} verts, OBB extents={obb_extents}, min={obb_extents.min():.4f}")
+
+    symmetry_group = None
+    if symmetry_path is not None and Path(symmetry_path).exists():
+        symmetry_group = load_symmetry_group(symmetry_path)
+        print(f"Loaded symmetry group: {len(symmetry_group)} elements from {symmetry_path}")
+    else:
+        print(f"No symmetry annotation; canonicalization disabled (symmetry_path={symmetry_path})")
+
     tracker = MultiViewTracker(
         mesh, weights_dir, num_cameras,
         depth_direction_trust=depth_direction_trust,
@@ -82,6 +98,7 @@ def mv_videos_to_poses(
         visible_ratio_cutoff_low=visible_ratio_cutoff_low,
         precision_high=precision_high,
         precision_low=precision_low,
+        symmetry_group=symmetry_group,
     )
 
     frame_sources = [FrameSource.from_path(p) for p in rgb_paths]
@@ -334,6 +351,15 @@ def mv_videos_to_poses_from_config(cfg):
         depth_dirs.append(Path(cfg.depth_path_template.format(cam_name=cam.name)))
         mask_dirs.append(Path(cfg.mask_path_template.format(cam_name=cam.name)))
 
+    mesh_path = Path(cfg.mesh_path)
+    symmetry_path = cfg.get("symmetry_path", None)
+    if symmetry_path is None:
+        auto = mesh_path.parent / "output_symmetry.json"
+        if auto.exists():
+            symmetry_path = auto
+    else:
+        symmetry_path = Path(symmetry_path)
+
     mv_videos_to_poses(
         cam_names=cam_names,
         cam_intrinsics=cam_intrinsics,
@@ -341,9 +367,10 @@ def mv_videos_to_poses_from_config(cfg):
         rgb_paths=rgb_paths,
         depth_dirs=depth_dirs,
         mask_dirs=mask_dirs,
-        mesh_path=Path(cfg.mesh_path),
+        mesh_path=mesh_path,
         weights_dir=cfg.weights_dir,
         pose_path=Path(cfg.pose_path),
+        symmetry_path=symmetry_path,
         scale=scale,
         depth_direction_trust=cfg.get("depth_direction_trust", 0.5),
         visible_ratio_cutoff_high=cfg.get("visible_ratio_cutoff_high", 0.3),
@@ -363,6 +390,8 @@ if __name__ == "__main__":
     parser.add_argument("--depth_dir", type=str, required=True)
     parser.add_argument("--mask_dir", type=str, required=True)
     parser.add_argument("--mesh_path", type=str, required=True)
+    parser.add_argument("--symmetry_path", type=str, default=None,
+                        help="Optional BOP-style symmetry JSON (defaults to <mesh_dir>/output_symmetry.json)")
     parser.add_argument("--weights_dir", type=str, required=True)
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--scale", type=float, default=None,
@@ -378,7 +407,7 @@ if __name__ == "__main__":
     overrides = {}
     for key in [
         "camera_params_path", "rgb_dir", "depth_dir",
-        "mask_dir", "mesh_path", "weights_dir", "output_dir", "scale", "debug",
+        "mask_dir", "mesh_path", "symmetry_path", "weights_dir", "output_dir", "scale", "debug",
     ]:
         val = getattr(args, key)
         if val is not None:

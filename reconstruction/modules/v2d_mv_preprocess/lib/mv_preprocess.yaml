@@ -13,7 +13,7 @@ output_video_path_template: "${output_dir}/videos/{cam_name}.mp4"
 labeled_bbox_path_template: "${output_dir}/labeled_bboxes/{cam_name}.json"
 output_hoi_metadata_path: "${output_dir}/hoi_metadata.yaml"
 output_prompt_path: "${output_dir}/prompt.txt"
-output_mesh_dir: "${output_dir}/mesh"
+output_mesh_dir: "${output_dir}/object_mesh"
 
 input_suffix: ""
 start: 0

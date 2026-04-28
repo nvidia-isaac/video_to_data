@@ -230,19 +230,25 @@ workflow:
     - path: /tmp/entry.sh
       contents: |-
         set -ex
-        MESH=$(find {{input:1}}/mesh -type f \( -name "*.obj" -o -name "*.glb" -o -name "*.ply" -o -name "*.stl" \) | head -1)
-        if [ -z "$MESH" ]; then
-          echo "ERROR: No mesh file found in {{input:1}}/mesh"
-          ls -laR {{input:1}}/mesh
+        MESH={{input:1}}/object_mesh/output_aligned.glb
+        SYM={{input:1}}/object_mesh/output_symmetry.json
+        if [ ! -f "$MESH" ]; then
+          echo "ERROR: $MESH not found"
+          ls -laR {{input:1}}/object_mesh
           exit 1
         fi
-        echo "Using mesh: $MESH"
+        SYM_ARG=""
+        if [ -f "$SYM" ]; then
+          SYM_ARG="--symmetry_path $SYM"
+          echo "Using symmetry: $SYM"
+        fi
         python -m v2d.foundation_pose.lib.mv_videos_to_poses \
           --camera_params_path {{input:1}}/edex \
           --rgb_dir {{input:1}}/images \
           --depth_dir {{input:2}} \
           --mask_dir {{input:3}} \
           --mesh_path "$MESH" \
+          $SYM_ARG \
           --weights_dir {{input:4}}/v2d_mv_hoi_data/data/weights/foundation_pose \
           --output_dir {{output}} \
           --config_path /tmp/foundation_pose_config.yaml
@@ -425,9 +431,9 @@ workflow:
     - path: /tmp/entry.sh
       contents: |-
         set -ex
-        MESH=$(find {{input:0}}/mesh -type f \( -name "*.obj" -o -name "*.glb" -o -name "*.ply" -o -name "*.stl" \) | head -1)
-        if [ -z "$MESH" ]; then
-          echo "ERROR: No mesh file found in {{input:0}}/mesh"
+        MESH={{input:0}}/object_mesh/output_aligned.glb
+        if [ ! -f "$MESH" ]; then
+          echo "ERROR: $MESH not found"
           exit 1
         fi
         python -m v2d.mv.postprocess.lib.mv_eval_chamfer_object \
@@ -486,9 +492,9 @@ workflow:
     - path: /tmp/entry.sh
       contents: |-
         set -ex
-        MESH=$(find {{input:0}}/mesh -type f \( -name "*.obj" -o -name "*.glb" -o -name "*.ply" -o -name "*.stl" \) | head -1)
-        if [ -z "$MESH" ]; then
-          echo "ERROR: No mesh file found in {{input:0}}/mesh"
+        MESH={{input:0}}/object_mesh/output_aligned.glb
+        if [ ! -f "$MESH" ]; then
+          echo "ERROR: $MESH not found"
           exit 1
         fi
         python -m v2d.mv.postprocess.lib.mv_render_hoi_overlay \

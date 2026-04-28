@@ -21,6 +21,7 @@ Usage (local):
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import os
 import shutil
 import sys
@@ -285,9 +286,16 @@ def _is_left_camera_video(rel: str) -> bool:
     return Path(rel).stem in LEFT_CAMERAS
 
 
-# Data mapping: (css_subpath, output_subpath, type, filter_fn, remap_fn)
+# Data mapping: (css_subpath, output_subpath, type, filter_fn, remap_fn, h5_layout)
 # type: "file" for single files, "dir" for directory prefixes,
 #       "h5_or_dir" for data that may be packed as .h5 files or PNG dirs
+# h5_layout (h5_or_dir entries): None for top-level "*.h5" with original filename;
+#       otherwise (glob, name_template). The glob is relative to css_subpath and
+#       uses '*' to match a single path segment. The name_template formats the
+#       output filename via {cam} (parent dir name of the matched h5) and {stem}
+#       (h5 file stem). E.g. ("*/depth.h5", "{cam}.h5") finds <src>/<cam>/depth.h5
+#       and writes it as <out>/<cam>.h5.
+DEFAULT_H5_LAYOUT = ("*.h5", "{stem}.h5")
 _DATA_MAP = [
     ("render_hoi_overlay/tiled_hoi_overlay.mp4", "tiled_hoi_overlay.mp4", "file", None, None, None),
     ("mv_preprocess/edex",               "edex",              "file", None, None, None),
@@ -323,15 +331,37 @@ def _h5_stem_matches_filter(stem: str, filter_fn) -> bool:
     return False
 
 
-def _find_h5_files_local(src_dir: Path, filter_fn=None) -> list[tuple[Path, str]]:
-    """Find .h5 files in src_dir. Returns list of (abs_path, relative_name)."""
+def _h5_cam(rel: Path) -> str:
+    """Camera identifier for an h5 file. Top-level uses stem; nested uses parent dir name."""
+    return rel.parent.name if rel.parent.parts else rel.stem
+
+
+def _matches_path_glob(rel: str, glob_pat: str) -> bool:
+    """Match a forward-slash relative path against a glob; '*' matches one segment (no '/')."""
+    r = rel.split("/")
+    p = glob_pat.split("/")
+    if len(r) != len(p):
+        return False
+    return all(fnmatch.fnmatchcase(rp, pp) for rp, pp in zip(r, p))
+
+
+def _find_h5_files_local(
+    src_dir: Path,
+    filter_fn=None,
+    h5_layout: tuple[str, str] | None = None,
+) -> list[tuple[Path, str]]:
+    """Find .h5 files in src_dir per h5_layout. Returns list of (abs_path, output_name)."""
+    glob_pat, name_template = h5_layout or DEFAULT_H5_LAYOUT
     if not src_dir.exists():
         return []
-    results = []
-    for f in sorted(src_dir.glob("*.h5")):
-        if not _h5_stem_matches_filter(f.stem, filter_fn):
+    results: list[tuple[Path, str]] = []
+    for f in sorted(src_dir.glob(glob_pat)):
+        rel = f.relative_to(src_dir)
+        cam = _h5_cam(rel)
+        if not _h5_stem_matches_filter(cam, filter_fn):
             continue
-        results.append((f, f.name))
+        out_name = name_template.format(cam=cam, stem=f.stem)
+        results.append((f, out_name))
     return results
 
 
@@ -394,13 +424,13 @@ def _export_local(
     report,
 ) -> None:
     """Copy from a local directory (e.g. OSMO-mounted inputs)."""
-    for css_sub, out_sub, entry_type, filter_fn, remap_fn in _DATA_MAP:
+    for css_sub, out_sub, entry_type, filter_fn, remap_fn, h5_layout in _DATA_MAP:
         src_path = source / css_sub
         if entry_type == "file":
             did = _copy_file(src_path, output / out_sub, dry_run)
             report(out_sub, int(did), int(not did))
         elif entry_type == "h5_or_dir":
-            h5_files = _find_h5_files_local(src_path, filter_fn)
+            h5_files = _find_h5_files_local(src_path, filter_fn, h5_layout)
             if h5_files:
                 dl_total, sk_total = 0, 0
                 for h5_src, h5_name in h5_files:
@@ -428,10 +458,32 @@ def _export_local(
             report(out_sub, dl, sk)
 
 
-def _has_h5_remote(client, bucket: str, prefix: str) -> list[str]:
-    """Check if any .h5 files exist under a prefix. Returns list of keys."""
+def _has_h5_remote(
+    client,
+    bucket: str,
+    prefix: str,
+    filter_fn=None,
+    h5_layout: tuple[str, str] | None = None,
+) -> list[tuple[str, str]]:
+    """Find .h5 keys under prefix matching h5_layout. Returns (key, output_name) pairs."""
+    glob_pat, name_template = h5_layout or DEFAULT_H5_LAYOUT
     objects = _list_objects(client, bucket, prefix)
-    return [obj["Key"] for obj in objects if obj["Key"].endswith(".h5")]
+    base = prefix.rstrip("/") + "/"
+    results: list[tuple[str, str]] = []
+    for obj in objects:
+        key = obj["Key"]
+        if not key.startswith(base):
+            continue
+        rel_str = key[len(base):]
+        if not _matches_path_glob(rel_str, glob_pat):
+            continue
+        rel = Path(rel_str)
+        cam = _h5_cam(rel)
+        if not _h5_stem_matches_filter(cam, filter_fn):
+            continue
+        out_name = name_template.format(cam=cam, stem=rel.stem)
+        results.append((key, out_name))
+    return results
 
 
 def _export_remote(
@@ -445,20 +497,17 @@ def _export_remote(
     client = _get_s3_client()
     bucket, base_prefix = _parse_swift_url(swift_output_base)
 
-    for css_sub, out_sub, entry_type, filter_fn, remap_fn in _DATA_MAP:
+    for css_sub, out_sub, entry_type, filter_fn, remap_fn, h5_layout in _DATA_MAP:
         if entry_type == "file":
             key = f"{base_prefix}/{css_sub}"
             did = _download_file(client, bucket, key, output / out_sub, dry_run)
             report(out_sub, int(did), int(not did))
         elif entry_type == "h5_or_dir":
             css_prefix = f"{base_prefix}/{css_sub}"
-            h5_keys = _has_h5_remote(client, bucket, css_prefix)
+            h5_keys = _has_h5_remote(client, bucket, css_prefix, filter_fn, h5_layout)
             if h5_keys:
                 dl_total, sk_total = 0, 0
-                for key in h5_keys:
-                    h5_name = key.split("/")[-1]
-                    if not _h5_stem_matches_filter(Path(h5_name).stem, filter_fn):
-                        continue
+                for key, h5_name in h5_keys:
                     did = _download_file(client, bucket, key, output / out_sub / h5_name, dry_run)
                     if did:
                         dl_total += 1

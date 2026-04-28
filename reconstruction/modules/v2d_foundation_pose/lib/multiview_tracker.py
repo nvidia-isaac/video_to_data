@@ -17,6 +17,8 @@ import trimesh
 from v2d.mesh.lib.mesh import Mesh
 from v2d.mv.math.numpy_fn import xyz_to_uv, se3_from_rot_trans
 
+from .symmetry import canonicalize_pose
+
 
 @contextmanager
 def _suppress_fp_logging():
@@ -52,6 +54,7 @@ class MultiViewTracker:
         visible_ratio_cutoff_low: float = 0.3,
         precision_high: float = 1.0,
         precision_low: float = 0.01,
+        symmetry_group: list[np.ndarray] | None = None,
     ):
         if weights_dir:
             os.environ.setdefault("FOUNDATIONPOSE_WEIGHTS_DIR", weights_dir)
@@ -89,6 +92,11 @@ class MultiViewTracker:
         self.visible_ratio_cutoff_low = visible_ratio_cutoff_low
         self.precision_high = precision_high
         self.precision_low = precision_low
+        self.symmetry_group = symmetry_group
+        if symmetry_group is None:
+            print("[MultiViewTracker] symmetry canonicalization disabled (no symmetry annotation)")
+        else:
+            print(f"[MultiViewTracker] symmetry canonicalization enabled (group size {len(symmetry_group)})")
 
     @property
     def num_cameras(self) -> int:
@@ -120,6 +128,10 @@ class MultiViewTracker:
                 )
                 world_poses.append(Ts[j] @ cam_pose)
                 torch.cuda.empty_cache()
+
+        if self.symmetry_group is not None:
+            ref = world_poses[0]
+            world_poses = [canonicalize_pose(p, self.symmetry_group, ref) for p in world_poses]
 
         avg_pose, visible_ratios, select_idx = self._avg_poses(world_poses, masks, Ks, Ts)
         assert np.sum(select_idx) > 0, "Object not visible from any camera in first frame"

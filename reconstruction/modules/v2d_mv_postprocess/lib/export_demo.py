@@ -12,7 +12,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import glob
 import json
 from pathlib import Path
 
@@ -56,20 +55,15 @@ def export_demo(seq_dir: Path, output_dir: Path) -> None:
     print(f"\nCalibration loaded from {edex_path}")
 
     # --- Load object mesh ---
-    mesh_files = glob.glob(str(seq_dir / "object_template" / "*"))
-    mesh_files = [f for f in mesh_files if not f.endswith(".npy")]
-    if not mesh_files:
-        raise FileNotFoundError(f"No mesh files found in {seq_dir / 'object_template'}")
-    object_mesh_path = mesh_files[0]
-    object_mesh = trimesh.load(object_mesh_path, process=False, force="mesh")
+    object_mesh_path = seq_dir / "object_mesh" / "output_aligned.glb"
+    if not object_mesh_path.exists():
+        raise FileNotFoundError(f"{object_mesh_path} not found")
+    object_mesh = trimesh.load(str(object_mesh_path), process=False, force="mesh")
     print(f"Object mesh: {object_mesh_path} ({len(object_mesh.vertices)} verts, {len(object_mesh.faces)} faces)")
 
-    # --- Check for symmetry transforms ---
-    sym_files = glob.glob(str(seq_dir / "object_template" / "symmetry_tfs*"))
-    if sym_files:
-        print(f"Symmetry transforms: {sym_files[0]}")
-    else:
-        print("Symmetry transforms: not yet available")
+    # --- Check for symmetry annotation ---
+    sym_path = seq_dir / "object_mesh" / "output_symmetry.json"
+    print(f"Symmetry annotation: {sym_path}" if sym_path.exists() else "Symmetry annotation: not found")
 
     # --- Load object poses ---
     poses_path = seq_dir / "poses.npy"
@@ -133,12 +127,14 @@ def export_demo(seq_dir: Path, output_dir: Path) -> None:
             print(f"  {cam_name}: not found in rig, skipping")
             continue
 
+        image_h5 = seq_dir / "images" / f"{cam_name}.h5"
         image_dir = seq_dir / "images" / cam_name
-        if not image_dir.exists():
-            print(f"  {cam_name}: no images dir, skipping")
+        image_src_path = image_h5 if image_h5.exists() else image_dir
+        if not image_src_path.exists():
+            print(f"  {cam_name}: no images, skipping")
             continue
 
-        source = FrameSource.from_path(image_dir)
+        source = FrameSource.from_path(image_src_path)
         n_rgb = source.n_frames
         print(f"\n  {cam_name}:")
         print(f"    RGB frames: {n_rgb}  resolution: {source.image_size}")
