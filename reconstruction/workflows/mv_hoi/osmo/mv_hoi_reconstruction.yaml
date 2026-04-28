@@ -189,6 +189,7 @@ workflow:
       contents: |-
         rgb_path_template: "${rgb_dir}/{cam_name}.h5"
         bbox_path_template: "${bbox_dir}/{cam_name}.json"
+        mask_extension: ".h5"
 
   # Gate: object mask containment vs labeled bboxes
   - name: check_object_mask
@@ -249,6 +250,7 @@ workflow:
       contents: |-
         rgb_path_template: "${rgb_dir}/{cam_name}.h5"
         depth_path_template: "${depth_dir}/{cam_name}/depth.h5"
+        mask_path_template: "${mask_dir}/{cam_name}/0.h5"
 
   # Human bounding-box detection + tracking (Detectron2)
   - name: detectron2
@@ -297,6 +299,7 @@ workflow:
     - path: /tmp/sam2_human_config.yaml
       contents: |-
         rgb_path_template: "${rgb_dir}/{cam_name}.h5"
+        mask_extension: ".h5"
 
   # Human body reconstruction (SAM3D-Body)
   - name: sam3d_body
@@ -325,6 +328,7 @@ workflow:
     - path: /tmp/sam3d_body_config.yaml
       contents: |-
         rgb_path_template: "${rgb_dir}/{cam_name}.h5"
+        mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}.h5"
 
   # Export MHR parameters to SOMA format
   - name: export_soma
@@ -376,6 +380,7 @@ workflow:
       contents: |-
         rgb_path_template: "${rgb_dir}/{cam_name}.h5"
         depth_path_template: "${depth_dir}/{cam_name}/depth.h5"
+        mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}.h5"
 
   # Fused multiview point cloud export
   - name: export_fused_pointcloud
@@ -402,6 +407,7 @@ workflow:
       contents: |-
         rgb_path_template: "${rgb_dir}/{cam_name}.h5"
         depth_path_template: "${depth_dir}/{cam_name}/depth.h5"
+        mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}.h5"
 
   # Chamfer evaluation – object
   - name: eval_chamfer_object
@@ -435,6 +441,7 @@ workflow:
     - path: /tmp/chamfer_object_config.yaml
       contents: |-
         depth_path_template: "${depth_dir}/{cam_name}/depth.h5"
+        mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}.h5"
 
   # Chamfer evaluation – human
   - name: eval_chamfer_human
@@ -462,6 +469,7 @@ workflow:
     - path: /tmp/chamfer_human_config.yaml
       contents: |-
         depth_path_template: "${depth_dir}/{cam_name}/depth.h5"
+        mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}.h5"
 
   # Render HOI overlay videos
   - name: render_hoi_overlay

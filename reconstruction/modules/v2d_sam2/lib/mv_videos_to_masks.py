@@ -120,7 +120,10 @@ def mv_videos_to_masks_from_config(cfg):
             prompts_path = f.name
 
         try:
-            video_to_masks(source_path, prompts_path, masks_dir, cfg.weights_dir)
+            video_to_masks(
+                source_path, prompts_path, masks_dir, cfg.weights_dir,
+                mask_extension=cfg.get("mask_extension", ""),
+            )
         finally:
             os.unlink(prompts_path)
 

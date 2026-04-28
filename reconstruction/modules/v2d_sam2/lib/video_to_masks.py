@@ -29,8 +29,19 @@ def _get_predictor(weights_dir: str):
         )
     return _predictor
 
-def video_to_masks(video_path: str, prompts_path: str, masks_dir: str, weights_dir: str):
-    """Process a video with SAM2 prompts and save masks to files."""
+def video_to_masks(
+    video_path: str,
+    prompts_path: str,
+    masks_dir: str,
+    weights_dir: str,
+    mask_extension: str = "",
+):
+    """Process a video with SAM2 prompts and save masks to files.
+
+    Per object id, the writer location is `<masks_dir>/<obj_id><mask_extension>`.
+    Default `mask_extension=""` writes a PNG directory; `".h5"` writes a single
+    HDF5 file (auto-detected by `FrameWriter.from_path` via the suffix).
+    """
     with open(prompts_path, "r") as f:
         prompts = Sam2Prompts.from_dict(json.load(f))
 
@@ -60,7 +71,7 @@ def video_to_masks(video_path: str, prompts_path: str, masks_dir: str, weights_d
     masks_path = Path(masks_dir)
 
     for obj_id, frames_dict in obj_frames.items():
-        out = masks_path / str(obj_id)
+        out = masks_path / f"{obj_id}{mask_extension}"
         writer = FrameWriter.from_path(out)
         for fidx in sorted(frames_dict.keys()):
             writer.write_frame(frames_dict[fidx], stem=f"{fidx:06d}")
