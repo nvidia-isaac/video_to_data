@@ -96,6 +96,9 @@ class EvalCallback:
                 actions = policy(obs)
                 obs, _, dones, _ = self.env.step(actions)
                 policy_nn.reset(dones)
+            dones = (
+                dones.clone()
+            )  # detach inference tensor before use outside inference_mode
             env_reset_once |= dones.bool()
 
         if log_video and self._record_video_env is not None:
@@ -107,6 +110,9 @@ class EvalCallback:
                 actions = policy(obs)
                 obs, _, dones, _ = self.env.step(actions)
                 policy_nn.reset(dones)
+            dones = (
+                dones.clone()
+            )  # detach inference tensor before use outside inference_mode
 
             my_ep_len += 1
             done_mask = dones.bool()
@@ -217,12 +223,15 @@ class EvalCallback:
             self._cmd.cfg.always_reset_to_first_frame = _orig_reset_to_first
 
             # ── Restore training state saved before eval ───────────────────── #
+            # Use assignment rather than copy_() because env.step() inside
+            # inference_mode may have replaced dict entries with inference tensors;
+            # inplace copy_ on those outside inference_mode raises an error.
             for k, v in _saved_episode_sums.items():
                 if k in self._isaac_env.reward_manager._episode_sums:
-                    self._isaac_env.reward_manager._episode_sums[k].copy_(v)
+                    self._isaac_env.reward_manager._episode_sums[k] = v.clone()
             for k, v in _saved_metrics.items():
                 if k in self._cmd.metrics:
-                    self._cmd.metrics[k].copy_(v)
+                    self._cmd.metrics[k] = v.clone()
             if _saved_cws_buf is not None and hasattr(
                 self._cmd, "_cws_reward_step_buf"
             ):
