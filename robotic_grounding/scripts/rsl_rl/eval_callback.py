@@ -171,6 +171,10 @@ class EvalCallback:
 
         finally:
             self._cmd.cfg.always_reset_to_first_frame = _orig_reset_to_first
+            # Flush and zero all episode reward sums so that inference-mode steps
+            # accumulated during eval don't bleed into the first training batch's
+            # episode-reward logs (which would cause a spurious peak every save_interval).
+            self._isaac_env.reward_manager.log(env_ids=slice(None))
             # Always restore the train video folder and clear any unconsumed pending
             # trigger, regardless of whether an exception occurred above.
             if self.log_video:
