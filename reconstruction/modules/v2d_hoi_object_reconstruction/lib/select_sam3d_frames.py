@@ -115,21 +115,12 @@ def _mask_area(mask_path: Path) -> int:
 # Public API
 # ─────────────────────────────────────────────────────────────────────────────
 
-def select_frames_by_angle_bins(
+def _select_frames_with_n_bins(
     job_dir: Path,
-    bin_deg: float = 60.0,
+    n_bins: int,
 ) -> list[str]:
-    """Select one frame per azimuthal bin using the CuSFM camera trajectory.
-
-    Covers both Stage-1 and Stage-2 of the scan.  Within each bin the frame
-    with the largest mask area (best object visibility) is chosen.
-
-    The transition region around stage1_end_frame (from
-    stage1_detect_debug/result.json) is excluded to avoid the manual-flip
-    frames where masks are unreliable.
-
-    Returns a list of zero-padded frame ID strings e.g. ['000842', '001203'].
-    Returns [] if SfM data is unavailable (caller should fall back).
+    """Shared core: split cumulative-azimuth span into n_bins equal-width bins,
+    pick the largest-mask frame in each bin. Returns [] if SfM data missing.
     """
     sfm_kf = job_dir / "sfm" / "keyframes" / "frames_meta.json"
     frames_meta = job_dir / "frames_meta.json"
@@ -162,7 +153,7 @@ def select_frames_by_angle_bins(
 
     angle_min = angles_deg.min()
     angle_max = angles_deg.max()
-    n_bins = max(1, int(np.ceil((angle_max - angle_min) / bin_deg)))
+    n_bins = max(1, int(n_bins))
     bin_edges = np.linspace(angle_min, angle_max, n_bins + 1)
 
     selected: list[str] = []
@@ -186,6 +177,47 @@ def select_frames_by_angle_bins(
             selected.append(f"{best_idx:06d}")
 
     return selected
+
+
+def select_frames_by_angle_bins(
+    job_dir: Path,
+    bin_deg: float = 60.0,
+) -> list[str]:
+    """Select one frame per azimuthal bin of fixed width `bin_deg`.
+
+    n_bins is computed from the cumulative-azimuth span / bin_deg.
+    Kept for backwards compatibility (run_reconstruction.py local pipeline).
+    Prefer select_frames_by_count for explicit control over frame count.
+    """
+    # Need the span up front to compute n_bins; cheap re-run of the SfM load
+    # in the shared core is acceptable since this is a one-off step.
+    sfm_data = _load_sfm_keyframes(
+        job_dir / "sfm" / "keyframes" / "frames_meta.json",
+        job_dir / "frames_meta.json",
+    )
+    if sfm_data is None:
+        return []
+    _, positions = sfm_data
+    angles_deg = _cumulative_azimuth(positions)
+    span = float(angles_deg.max() - angles_deg.min())
+    n_bins = max(1, int(np.ceil(span / float(bin_deg))))
+    return _select_frames_with_n_bins(job_dir, n_bins=n_bins)
+
+
+def select_frames_by_count(
+    job_dir: Path,
+    n_frames: int = 7,
+) -> list[str]:
+    """Select exactly `n_frames` representative frames (modulo empty bins).
+
+    The cumulative-azimuth span is split into n_frames equal-width bins and
+    the largest-mask frame in each bin is picked. With a 350° turntable scan
+    and n_frames=7, bins are ~50° wide.
+
+    Bins that contain no frames are skipped, so the returned list may have
+    fewer than n_frames entries when the scan trajectory is uneven or short.
+    """
+    return _select_frames_with_n_bins(job_dir, n_bins=int(n_frames))
 
 
 def select_frames_fallback(job_dir: Path, n: int = 6) -> list[str]:
