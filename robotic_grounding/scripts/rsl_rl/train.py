@@ -196,6 +196,7 @@ import isaaclab_tasks  # noqa: F401
 import robotic_grounding.tasks  # noqa: F401
 from robotic_grounding.tasks.scene_utils import SceneConfig, apply_scene_config
 from robotic_grounding.tasks.v2p_whole_body.utils import WandbVideoUploader
+from viewer_utils import autoframe_viewer
 
 from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import hydra_task_config
@@ -234,12 +235,14 @@ def main(
         apply_scene_config(
             env_cfg, scene_config, use_primitive_urdfs=args_cli.use_primitive_urdfs
         )
+        autoframe_viewer(env_cfg, scene_config.motion_file)
     elif args_cli.scene_config is not None:
         env_cfg.scene_config_path = args_cli.scene_config
         scene_config = SceneConfig.from_yaml(args_cli.scene_config)
         apply_scene_config(
             env_cfg, scene_config, use_primitive_urdfs=args_cli.use_primitive_urdfs
         )
+        autoframe_viewer(env_cfg, scene_config.motion_file)
 
     # set max iterations
     agent_cfg.max_iterations = (

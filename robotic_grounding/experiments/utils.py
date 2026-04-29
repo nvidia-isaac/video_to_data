@@ -139,6 +139,7 @@ def make_entry_script(
     log_project_name: str = "v2p_hands",
     zero_actor: bool = False,
     use_primitive_urdfs: bool = False,
+    urdfs_src_path: str | None = None,
 ) -> str:
     """Generate /tmp/entry.sh content for OSMO."""
     # Pass run_name (suffix only) to train; train.py adds its own timestamp to avoid duplication.
@@ -146,6 +147,14 @@ def make_entry_script(
         "set -ex",
         "",
     ]
+    if urdfs_src_path:
+        lines += [
+            # Generate all TACO rigid URDFs + visual STL meshes from *_cm.obj files in
+            # the image. Produces workspace assets/urdfs/taco/ + assets/meshes/taco/ with
+            # correct relative mesh paths — no OSMO cp needed.
+            "python scripts/generate_rigid_urdfs.py --dataset taco",
+            "",
+        ]
     cmd = build_train_command(
         run_name,
         overrides,

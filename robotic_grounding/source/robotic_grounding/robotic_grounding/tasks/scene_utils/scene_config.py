@@ -81,7 +81,7 @@ class SceneConfig:
         cls._validate_assets(data, motion_file)
 
         object_type = cls._detect_object_type(data)
-        scene_objects = cls._build_scene_objects(data, object_type)
+        scene_objects = cls._build_scene_objects(data, object_type, motion_file)
         fixed_objects = cls._build_fixed_objects(motion_file)
         object_body_names = (
             data.get("safe_object_body_names", [[]])[0]
@@ -175,7 +175,7 @@ class SceneConfig:
 
     @classmethod
     def _build_scene_objects(
-        cls, data: dict, object_type: str
+        cls, data: dict, object_type: str, motion_file: str = ""
     ) -> list[ObjectConfig | ArticulatedObjectConfig]:
         """Build all scene objects from parquet data.
 
@@ -195,6 +195,9 @@ class SceneConfig:
         obj_name = (
             data.get("safe_object_name", [None])[0]
             or data.get("object_name", [None])[0]
+        )
+        dataset_root = (
+            cls._dataset_root_from_motion_file(motion_file) if motion_file else None
         )
         objects: list[ObjectConfig | ArticulatedObjectConfig] = []
 
@@ -223,6 +226,18 @@ class SceneConfig:
                 urdf_path = cls._urdf_from_mesh_path(
                     mesh_paths[i] if i < len(mesh_paths) else None
                 )
+
+            # Fallback: search for URDF by filename in the motion file's dataset
+            if (
+                (not urdf_path or not Path(urdf_path).exists())
+                and dataset_root
+                and urdf_path
+            ):
+                dataset_urdf = cls._find_asset_in_dataset(
+                    Path(urdf_path).name, dataset_root
+                )
+                if dataset_urdf:
+                    urdf_path = dataset_urdf
 
             assert urdf_path and Path(urdf_path).exists(), (
                 f"Could not resolve rigid object for object_name='{obj_name}', "
@@ -254,6 +269,45 @@ class SceneConfig:
         return str(urdf_path) if urdf_path.exists() else None
 
     @staticmethod
+    def _dataset_root_from_motion_file(motion_file: str) -> Path | None:
+        """Derive dataset root from a partitioned motion file path.
+
+        Walks up the path past partition dirs (key=value format) and the
+        sequences subfolder to reach the dataset root.
+
+        Example:
+          .../v2d_taco_retarget_exp_200/taco_processed/sequence_id=.../robot_name=...
+          → .../v2d_taco_retarget_exp_200/
+        """
+        path = Path(motion_file)
+        prev_no_eq = False
+        for _ in range(10):
+            if path == path.parent:
+                return None
+            has_eq = "=" in path.name
+            if not has_eq and prev_no_eq:
+                return path
+            prev_no_eq = not has_eq
+            path = path.parent
+        return None
+
+    @staticmethod
+    def _find_asset_in_dataset(filename: str, dataset_root: Path) -> str | None:
+        """Search for an asset file in immediate subdirectories of the dataset root."""
+        if not dataset_root or not dataset_root.is_dir():
+            return None
+        direct = dataset_root / filename
+        if direct.exists():
+            return str(direct)
+        for subdir in dataset_root.iterdir():
+            if not subdir.is_dir():
+                continue
+            candidate = subdir / filename
+            if candidate.exists():
+                return str(candidate)
+        return None
+
+    @staticmethod
     def _validate_assets(data: dict, motion_file: str) -> None:
         """Check that required asset files exist before building the scene.
 
@@ -265,14 +319,26 @@ class SceneConfig:
         Note: this only validates paths stored in the parquet. Objects
         resolved via the object registry or the mesh-derived URDF fallback
         are validated later in ``_build_scene_objects``.
+
+        For URDFs, falls back to searching in the motion file's dataset root
+        (e.g. OSMO-mounted dataset taco_urdfs/ subfolder) when the workspace
+        path is absent.
         """
         urdf_paths = data.get("object_urdf_paths", [[]])[0] or []
         mesh_paths = data.get("object_mesh_paths", [[]])[0] or []
         missing: list[str] = []
 
+        dataset_root = SceneConfig._dataset_root_from_motion_file(motion_file)
+
         for p in urdf_paths:
             if p and not Path(p).exists():
-                missing.append(f"URDF: {p}")
+                resolved = (
+                    SceneConfig._find_asset_in_dataset(Path(p).name, dataset_root)
+                    if dataset_root
+                    else None
+                )
+                if not resolved:
+                    missing.append(f"URDF: {p}")
         for p in mesh_paths:
             if p and not Path(p).exists():
                 missing.append(f"Mesh: {p}")

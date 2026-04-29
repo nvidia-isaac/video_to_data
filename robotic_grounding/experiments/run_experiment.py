@@ -229,6 +229,7 @@ def generate_single_task_workflow(
     # Derive motion_file from OSMO dataset path when motion_data_url is set, matching
     # the behaviour of generate_multi_sequence_workflow so single-sequence relaunch
     # batches use the same path format as the original multi-sequence workflow.
+    urdfs_src_path = None
     if (
         motion_file is None
         and motion_data_url
@@ -237,8 +238,15 @@ def generate_single_task_workflow(
     ):
         seq_id = config["sequences"][0]
         dataset_name = motion_data_url.rstrip("/").split("/")[-1]
-        dataset_seq_id = seq_id.replace("arctic_", "dataset_", 1)
-        motion_file = f"{{{{input:0}}}}/{dataset_name}/arctic_processed/sequence_id={dataset_seq_id}/robot_name=sharpa_wave"
+        sequences_subfolder = osmo_cfg.get("sequences_subfolder", "arctic_processed")
+        if sequences_subfolder == "arctic_processed":
+            dataset_seq_id = seq_id.replace("arctic_", "dataset_", 1)
+        else:
+            dataset_seq_id = seq_id
+        motion_file = f"{{{{input:0}}}}/{dataset_name}/{sequences_subfolder}/sequence_id={dataset_seq_id}/robot_name=sharpa_wave"
+        urdfs_subfolder = osmo_cfg.get("urdfs_subfolder")
+        if urdfs_subfolder:
+            urdfs_src_path = f"{{{{input:0}}}}/{dataset_name}/{urdfs_subfolder}"
 
     entry = make_entry_script(
         run_name,
@@ -255,6 +263,7 @@ def generate_single_task_workflow(
         zero_actor=zero_actor,
         use_primitive_urdfs=use_primitive_urdfs,
         use_timestamp=True,
+        urdfs_src_path=urdfs_src_path,
     )
     # Escape for YAML literal block
     entry_indent = "\n".join("        " + line for line in entry.split("\n"))
@@ -357,14 +366,27 @@ def generate_multi_sequence_workflow(
 
         if motion_data_url:
             dataset_name = motion_data_url.rstrip("/").split("/")[-1]
-            dataset_seq_id = seq_id.replace("arctic_", "dataset_", 1)
-            motion_file = f"{{{{input:0}}}}/{dataset_name}/arctic_processed/sequence_id={dataset_seq_id}/robot_name=sharpa_wave"
+            sequences_subfolder = osmo_cfg.get(
+                "sequences_subfolder", "arctic_processed"
+            )
+            if sequences_subfolder == "arctic_processed":
+                dataset_seq_id = seq_id.replace("arctic_", "dataset_", 1)
+            else:
+                dataset_seq_id = seq_id
+            motion_file = f"{{{{input:0}}}}/{dataset_name}/{sequences_subfolder}/sequence_id={dataset_seq_id}/robot_name=sharpa_wave"
             inputs_block = (
                 "\n    inputs:\n" "    - dataset:\n" f"        name: {dataset_name}\n"
+            )
+            urdfs_subfolder = osmo_cfg.get("urdfs_subfolder")
+            urdfs_src_path = (
+                f"{{{{input:0}}}}/{dataset_name}/{urdfs_subfolder}"
+                if urdfs_subfolder
+                else None
             )
         else:
             motion_file = f"arctic/arctic_processed/{seq_id}/sharpa_wave"
             inputs_block = ""
+            urdfs_src_path = None
 
         entry = make_entry_script(
             run_name,
@@ -382,6 +404,7 @@ def generate_multi_sequence_workflow(
             log_project_name=project,
             use_primitive_urdfs=use_primitive_urdfs,
             use_timestamp=True,
+            urdfs_src_path=urdfs_src_path,
         )
         entry_indent = "\n".join("        " + line for line in entry.split("\n"))
         task_name = f"train-{seq_key.replace('_', '-')}"
