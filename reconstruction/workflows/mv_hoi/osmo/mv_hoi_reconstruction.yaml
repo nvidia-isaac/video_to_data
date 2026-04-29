@@ -250,7 +250,7 @@ workflow:
       contents: |-
         rgb_path_template: "${rgb_dir}/{cam_name}.h5"
         depth_path_template: "${depth_dir}/{cam_name}/depth.h5"
-        mask_path_template: "${mask_dir}/{cam_name}/0.h5"
+        mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}.h5"
 
   # Human bounding-box detection + tracking (Detectron2)
   - name: detectron2
