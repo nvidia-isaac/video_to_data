@@ -6,6 +6,7 @@ def run_recover_mano_params(
     aligned_path: str,
     world_results_path: str,
     hand_mesh_traj_path: str,
+    mano_model_dir: str,
     output_path: str,
     dev: bool = False,
 ) -> None:
@@ -16,6 +17,7 @@ def run_recover_mano_params(
             "aligned_path":        aligned_path,
             "world_results_path":  world_results_path,
             "hand_mesh_traj_path": hand_mesh_traj_path,
+            "mano_model_dir":      mano_model_dir,
         },
         outputs={"output_path": output_path},
         extra_args={},
@@ -31,6 +33,7 @@ if __name__ == "__main__":
     parser.add_argument("--aligned_path",        required=True)
     parser.add_argument("--world_results_path",  required=True)
     parser.add_argument("--hand_mesh_traj_path", required=True)
+    parser.add_argument("--mano_model_dir",      required=True)
     parser.add_argument("--output_path",         required=True)
     parser.add_argument("--dev", action="store_true")
     args = parser.parse_args()
@@ -38,6 +41,7 @@ if __name__ == "__main__":
         args.aligned_path,
         args.world_results_path,
         args.hand_mesh_traj_path,
+        args.mano_model_dir,
         args.output_path,
         dev=args.dev,
     )

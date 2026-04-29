@@ -307,6 +307,36 @@ def _discover_hot3d_objects() -> dict[str, tuple[Path, Path]]:
     return objects
 
 
+def _discover_v2d_reconstruction_objects() -> dict[str, tuple[Path, Path]]:
+    """Discover V2D reconstruction objects from per-video mesh_scaled.obj files.
+
+    Searches in order:
+    1. assets/meshes/v2d_reconstruction/{video_num}/mesh_scaled.obj (committed copy).
+    2. {HUMAN_MOTION_DATA_DIR}/v2d_reconstruction/dataset/{video_num}/mesh_scaled.obj (runtime).
+
+    URDFs go to assets/urdfs/v2d_reconstruction/{video_num}_rigid.urdf.
+    """
+    canonical_dir = ASSET_DIR / "meshes" / "v2d_reconstruction"
+    runtime_dir   = HUMAN_MOTION_DATA_DIR / "v2d_reconstruction" / "dataset"
+    urdf_out_dir  = URDF_DIR / "v2d_reconstruction"
+
+    objects: dict[str, tuple[Path, Path]] = {}
+    for base in (canonical_dir, runtime_dir):
+        if not base.is_dir():
+            continue
+        for video_dir in sorted(base.iterdir()):
+            if not video_dir.is_dir() or video_dir.name in objects:
+                continue
+            mesh_path = video_dir / "mesh_scaled.obj"
+            if not mesh_path.exists():
+                continue
+            objects[video_dir.name] = (mesh_path, urdf_out_dir / f"{video_dir.name}_rigid.urdf")
+
+    if not objects:
+        print(f"No v2d_reconstruction meshes found in {canonical_dir} or {runtime_dir}")
+    return objects
+
+
 def _discover_objects(dataset: str) -> dict[str, tuple[Path, Path]]:
     """Discover unique (object_id -> mesh_path) from committed/raw mesh files.
 
@@ -321,6 +351,7 @@ def _discover_objects(dataset: str) -> dict[str, tuple[Path, Path]]:
         "h2o": _discover_h2o_objects,
         "grab": _discover_grab_objects,
         "dexycb": _discover_dexycb_objects,
+        "v2d_reconstruction": _discover_v2d_reconstruction_objects,
     }
     if dataset not in discovery:
         raise ValueError(
