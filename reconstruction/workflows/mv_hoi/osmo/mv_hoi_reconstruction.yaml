@@ -338,7 +338,9 @@ workflow:
           --params_path {{input:0}}/mhr_params_mv.pt \
           --mesh_path {{input:0}}/mhr_mesh_mv.pt \
           --weights_dir {{input:1}}/v2d_mv_hoi_data/data/weights/sam3d_body \
-          --output_path {{output}}/soma_params.npz
+          --output_path {{output}}/soma_params.npz \
+          --foot_weight 50.0 \
+          --autograd_iters 100
 
   # Ground plane estimation (depth + MHR foot keypoints)
   - name: estimate_ground_plane

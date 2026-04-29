@@ -160,6 +160,8 @@ def main(
         output_path=os.path.join(export_soma_dir, "soma_params.npz"),
         mesh_path=os.path.join(sam3d_body_dir, "mhr_mesh_mv.pt"),
         weights_dir=os.path.join(RECON_DIR, "data/weights/sam3d_body"),
+        autograd_iters=100,
+        foot_weight=50.0,
         debug=1,
         dev=dev,
     )
