@@ -240,6 +240,139 @@ def _render_debug(
     logger.info("Saved: %s (green=MHR, purple=SOMA)", video_path)
 
 
+def _render_chamfer_heatmap(
+    output_path: Path,
+    verts_mhr: torch.Tensor,
+    mhr_faces: np.ndarray | None,
+    verts_soma: torch.Tensor,
+    soma_faces: np.ndarray,
+    fps: int = 30,
+    image_size: tuple[int, int] = (1024, 1024),
+    max_dist_cm: float = 6.0,
+    device: str = "cuda",
+) -> None:
+    """Render a side-by-side bidirectional chamfer-distance heatmap video.
+
+    Left panel: MHR mesh colored by per-vertex distance to the nearest SOMA
+    vertex (MHR -> SOMA). Right panel: SOMA mesh colored by per-vertex
+    distance to the nearest MHR vertex (SOMA -> MHR). Colormap is JET
+    (blue=0, red=max_dist_cm); both panels share the same scale so colors
+    are directly comparable. A colorbar legend is overlaid on each frame.
+    """
+    import cv2
+    import trimesh
+    from tqdm import tqdm
+    from v2d.mv.io.video import get_video_writer
+    from v2d.mv.vis.renderer import Renderer
+
+    video_path = output_path.parent / "mhr_soma_chamfer_heatmap.mp4"
+
+    if mhr_faces is None:
+        logger.warning("MHR faces unavailable, skipping chamfer heatmap")
+        return
+
+    N = verts_mhr.shape[0]
+    verts_mhr_np = verts_mhr.numpy() / 100.0
+    verts_soma_np = verts_soma.numpy() / 100.0
+    centroids = verts_mhr_np.mean(axis=1, keepdims=True)
+    verts_mhr_np = verts_mhr_np - centroids
+    verts_soma_np = verts_soma_np - centroids
+
+    # Per-frame bidirectional nearest-vertex distance (cm).
+    device_t = torch.device(device if torch.cuda.is_available() else "cpu")
+    mhr_dists_all = np.empty((N, verts_mhr.shape[1]), dtype=np.float32)
+    soma_dists_all = np.empty((N, verts_soma.shape[1]), dtype=np.float32)
+    with torch.no_grad():
+        for i in range(N):
+            mhr_t = verts_mhr[i].to(device_t)
+            soma_t = verts_soma[i].to(device_t)
+            d = torch.cdist(mhr_t, soma_t)
+            mhr_dists_all[i] = d.min(dim=1).values.cpu().numpy()
+            soma_dists_all[i] = d.min(dim=0).values.cpu().numpy()
+
+    logger.info(
+        "Chamfer heatmap scale: 0 to %.2f cm (JET, blue=0 red=max); "
+        "MHR->SOMA observed max=%.2f cm, SOMA->MHR observed max=%.2f cm",
+        max_dist_cm, float(mhr_dists_all.max()), float(soma_dists_all.max()),
+    )
+
+    K, T = _compute_look_at_camera(verts_mhr_np[0], image_size)
+    bg = np.full((*image_size[::-1], 3), 255, dtype=np.uint8)
+
+    def colorize(d_cm: np.ndarray) -> np.ndarray:
+        norm = np.clip(d_cm / max_dist_cm, 0.0, 1.0) * 255.0
+        bgr = cv2.applyColorMap(norm.astype(np.uint8).reshape(-1, 1), cv2.COLORMAP_JET)
+        rgb = bgr.reshape(-1, 3)[:, ::-1]
+        return np.concatenate(
+            [rgb, np.full((rgb.shape[0], 1), 255, dtype=np.uint8)], axis=1,
+        )
+
+    # Pre-build the colorbar legend (constant across frames).
+    cbar_w, cbar_h = 240, 20
+    gradient = np.repeat(
+        np.linspace(0, 255, cbar_w, dtype=np.uint8).reshape(1, -1), cbar_h, axis=0,
+    )
+    cbar_bgr = cv2.applyColorMap(gradient, cv2.COLORMAP_JET)
+    cbar_rgb = cbar_bgr[:, :, ::-1].copy()
+
+    def draw_colorbar(frame: np.ndarray, x0: int, y0: int) -> None:
+        """Paste cbar_rgb at (x0, y0) and add tick labels below it."""
+        frame[y0:y0 + cbar_h, x0:x0 + cbar_w] = cbar_rgb
+        cv2.rectangle(frame, (x0, y0), (x0 + cbar_w - 1, y0 + cbar_h - 1), (0, 0, 0), 1)
+        for tick, label in (
+            (0.0, "0"),
+            (0.5, f"{max_dist_cm * 0.5:.1f}"),
+            (1.0, f"{max_dist_cm:.1f} cm"),
+        ):
+            tx = x0 + int(tick * (cbar_w - 1))
+            (tw, _), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+            cv2.putText(
+                frame, label, (tx - tw // 2, y0 + cbar_h + 16),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1,
+            )
+
+    logger.info("Rendering chamfer heatmap video -> %s", video_path)
+    writer = get_video_writer(video_path, fps=fps, crf=23)
+    with Renderer(image_size=image_size) as renderer:
+        for i in tqdm(range(N), desc="Rendering chamfer heatmap"):
+            mesh_mhr = trimesh.Trimesh(
+                vertices=verts_mhr_np[i], faces=mhr_faces, process=False,
+            )
+            mesh_mhr.visual.vertex_colors = colorize(mhr_dists_all[i])
+            frame_mhr = renderer.render_overlay([mesh_mhr], K, T, image=bg)
+            frame_mhr = (frame_mhr * 255.0).astype(np.uint8)
+
+            mesh_soma = trimesh.Trimesh(
+                vertices=verts_soma_np[i], faces=soma_faces, process=False,
+            )
+            mesh_soma.visual.vertex_colors = colorize(soma_dists_all[i])
+            frame_soma = renderer.render_overlay([mesh_soma], K, T, image=bg)
+            frame_soma = (frame_soma * 255.0).astype(np.uint8)
+
+            cv2.putText(
+                frame_mhr, "Chamfer Distance on MHR",
+                (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2,
+            )
+            cv2.putText(
+                frame_mhr, f"(distance to SOMA, max {mhr_dists_all[i].max():.2f} cm)",
+                (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 1,
+            )
+            cv2.putText(
+                frame_soma, "Chamfer Distance on SOMA",
+                (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2,
+            )
+            cv2.putText(
+                frame_soma, f"(distance to MHR, max {soma_dists_all[i].max():.2f} cm)",
+                (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 1,
+            )
+
+            tiled = np.concatenate([frame_mhr, frame_soma], axis=1)
+            draw_colorbar(tiled, x0=20, y0=tiled.shape[0] - cbar_h - 30)
+            writer.write_frame(tiled)
+    writer.close()
+    logger.info("Saved: %s", video_path)
+
+
 def export_soma(
     params_path: Path,
     output_path: Path,
@@ -250,6 +383,8 @@ def export_soma(
     finger_iters: int = 0,
     autograd_iters: int = 0,
     autograd_lr: float = 5e-3,
+    leaf_weight: float = 1.0,
+    foot_weight: float | None = None,
     batch_size: int = 64,
     output_unit: str = "meters",
     device: str = "cuda",
@@ -302,6 +437,15 @@ def export_soma(
     all_root_transl = []
     all_errors = []
 
+    if foot_weight is not None:
+        leaf_weight_arg: dict | float = {
+            "head": leaf_weight,
+            "hands": leaf_weight,
+            "feet": foot_weight,
+        }
+    else:
+        leaf_weight_arg = leaf_weight
+
     torch.cuda.synchronize()
     t0 = time.perf_counter()
 
@@ -315,6 +459,7 @@ def export_soma(
             full_iters=full_iters,
             autograd_iters=autograd_iters,
             autograd_lr=autograd_lr,
+            leaf_weight=leaf_weight_arg,
             batch_size=None,
         )
         all_rotations.append(result["rotations"].cpu())
@@ -333,18 +478,6 @@ def export_soma(
     logger.info("Mean vertex error: %.4f %s", err.mean().item(), unit_label)
     logger.info("Median vertex error: %.4f %s", err.median().item(), unit_label)
     logger.info("Max vertex error: %.4f %s", err.max().item(), unit_label)
-
-    # --- Debug: render MHR vs SOMA comparison video ---
-    if debug > 0:
-        soma_verts = _reconstruct_soma_vertices(
-            soma, rotations, root_transl,
-            shape_params, scale_params,
-            batch_size=batch_size, device=device,
-        )
-        soma_faces = soma.faces.cpu().numpy()
-        _render_debug(
-            output_path, verts, mhr_faces, soma_verts, soma_faces,
-        )
 
     # --- Convert to T-pose-relative rotvec and save ---
     soma_device = soma._t_pose_orient.device
@@ -377,6 +510,23 @@ def export_soma(
         keep_root=False,
     )
 
+    # --- Debug: render MHR vs SOMA comparison video ---
+    if debug > 0:
+        soma_verts = _reconstruct_soma_vertices(
+            soma, rotations, root_transl,
+            shape_params, scale_params,
+            batch_size=batch_size, device=device,
+        )
+        soma_faces = soma.faces.cpu().numpy()
+        _render_debug(
+            output_path, verts, mhr_faces, soma_verts, soma_faces,
+        )
+        _render_chamfer_heatmap(
+            output_path, verts, mhr_faces, soma_verts, soma_faces,
+            device=device,
+        )
+
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -404,6 +554,11 @@ def main() -> None:
     parser.add_argument("--finger_iters", type=int, default=0)
     parser.add_argument("--autograd_iters", type=int, default=0)
     parser.add_argument("--autograd_lr", type=float, default=5e-3)
+    parser.add_argument("--leaf_weight", type=float, default=1.0,
+                        help="Uniform extremity vertex weight passed to PoseInversion.fit")
+    parser.add_argument("--foot_weight", type=float, default=None,
+                        help="Override foot vertex weight (default: same as --leaf_weight). "
+                             "Pair with --autograd_iters > 0 for it to take effect.")
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument(
         "--output_unit", type=str, default="meters",
@@ -428,6 +583,8 @@ def main() -> None:
         finger_iters=args.finger_iters,
         autograd_iters=args.autograd_iters,
         autograd_lr=args.autograd_lr,
+        leaf_weight=args.leaf_weight,
+        foot_weight=args.foot_weight,
         batch_size=args.batch_size,
         output_unit=args.output_unit,
         device=args.device,

@@ -9,6 +9,9 @@ def run_export_soma(
     output_path: str,
     mesh_path: str | None = None,
     weights_dir: str | None = None,
+    autograd_iters: int | None = None,
+    leaf_weight: float | None = None,
+    foot_weight: float | None = None,
     debug: int = -1,
     dev: bool = False,
 ) -> None:
@@ -20,7 +23,12 @@ def run_export_soma(
 
     outputs = {"output_path": output_path}
 
-    extra_args = {"debug": debug if debug >= 0 else None}
+    extra_args = {
+        "autograd_iters": autograd_iters,
+        "leaf_weight": leaf_weight,
+        "foot_weight": foot_weight,
+        "debug": debug if debug >= 0 else None,
+    }
 
     env = {"PYTHONUNBUFFERED": "1"}
     if weights_dir:
@@ -54,6 +62,12 @@ if __name__ == "__main__":
                         help="Path to mhr_mesh_mv.pt (optional)")
     parser.add_argument("--weights_dir", type=str, default=None,
                         help="sam3d_body weights directory (fallback for MHR JIT)")
+    parser.add_argument("--autograd_iters", type=int, default=None,
+                        help="Autograd FK refinement steps after analytical IK (default 0 = analytical only)")
+    parser.add_argument("--leaf_weight", type=float, default=None,
+                        help="Uniform extremity vertex weight passed to PoseInversion.fit")
+    parser.add_argument("--foot_weight", type=float, default=None,
+                        help="Override foot vertex weight; pair with --autograd_iters > 0")
     parser.add_argument("--debug", type=int, default=0)
     parser.add_argument("--dev", action="store_true")
     args = parser.parse_args()
@@ -63,6 +77,9 @@ if __name__ == "__main__":
         output_path=args.output_path,
         mesh_path=args.mesh_path,
         weights_dir=args.weights_dir,
+        autograd_iters=args.autograd_iters,
+        leaf_weight=args.leaf_weight,
+        foot_weight=args.foot_weight,
         debug=args.debug,
         dev=args.dev,
     )
