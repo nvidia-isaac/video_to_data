@@ -158,8 +158,11 @@ class SceneConfig:
         """Detect whether the scene object is articulated or rigid.
 
         Checks the object registry first — if the object has a urdf_path it is
-        always articulated, regardless of whether articulation values are zero
+        articulated, regardless of whether articulation values are zero
         (e.g. grab sequences where the lid never moves).
+        Exception: if body_names == ["object"], this is the rigid URDF link
+        convention used by Arctic "rigid_*" sequences, so treat as rigid even
+        when the registry has an art URDF.
         Multiple rigid bodies (TACO tool+target, OakInk2 multi-object) have no
         urdf_path in the registry and fall through to "rigid".
         """
@@ -170,7 +173,13 @@ class SceneConfig:
         if obj_name:
             spec = get_object_spec(obj_name)
             if spec and spec.urdf_path:
-                return "articulated"
+                body_names = (
+                    data.get("safe_object_body_names", [[]])[0]
+                    or data.get("object_body_names", [[]])[0]
+                    or []
+                )
+                if body_names != ["object"]:
+                    return "articulated"
         return "rigid"
 
     @classmethod
