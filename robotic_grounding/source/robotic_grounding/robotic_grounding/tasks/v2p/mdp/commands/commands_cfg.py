@@ -85,7 +85,7 @@ class DualHandsObjectTrackingCommandCfg(CommandTermCfg):
     resampling_time_range: tuple[float, float] = (1e6, 1e6)
     """No resampling based on time."""
 
-    debug_vis: bool = True
+    debug_vis: bool = False
     """Whether to visualize the debug markers."""
 
     right_robot_name: str = "right_robot"

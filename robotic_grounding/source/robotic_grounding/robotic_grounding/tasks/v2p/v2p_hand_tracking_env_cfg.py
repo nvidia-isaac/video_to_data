@@ -67,7 +67,7 @@ class CommandsCfg:
     """Command specifications for the MDP."""
 
     dual_hands_tracking_command = mdp.DualHandsTrackingCommandCfg(
-        debug_vis=True,
+        debug_vis=False,
         motion_speed=0.2,
         reset_finger_openness=0.7,
     )
