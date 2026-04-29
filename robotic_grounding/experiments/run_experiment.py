@@ -217,6 +217,10 @@ def generate_single_task_workflow(
         overrides = {**overrides, **osmo_cfg["run_name_overrides"]}
     seed = config.get("seed")
     video = config.get("video", True)
+    eval_video_only = config.get("eval_video_only", False)
+    video_length = config.get("video_length")
+    video_interval = config.get("video_interval")
+    eval_episodes_per_save = config.get("eval_episodes_per_save", 0)
     motion_file = config.get("motion_file")
     num_envs = config.get("num_envs")
     max_iterations = config.get("max_iterations")
@@ -258,6 +262,10 @@ def generate_single_task_workflow(
         num_envs=num_envs,
         max_iterations=max_iterations,
         video=video,
+        eval_video_only=eval_video_only,
+        video_length=video_length,
+        video_interval=video_interval,
+        eval_episodes_per_save=eval_episodes_per_save,
         task=task,
         logger=logger,
         log_project_name=log_project_name,
@@ -478,6 +486,10 @@ def _print_workflow(exp_id: str, config: dict) -> None:
         resume_from = None
     seed = config.get("seed")
     video = config.get("video", True)
+    eval_video_only = config.get("eval_video_only", False)
+    video_length = config.get("video_length")
+    video_interval = config.get("video_interval")
+    eval_episodes_per_save = config.get("eval_episodes_per_save", 0)
     motion_file = config.get("motion_file")
     num_envs = config.get("num_envs")
     max_iterations = config.get("max_iterations")
@@ -497,6 +509,10 @@ def _print_workflow(exp_id: str, config: dict) -> None:
         num_envs=num_envs,
         max_iterations=max_iterations,
         video=video,
+        eval_video_only=eval_video_only,
+        video_length=video_length,
+        video_interval=video_interval,
+        eval_episodes_per_save=eval_episodes_per_save,
         task=task,
         logger=logger,
         log_project_name=log_project_name,
