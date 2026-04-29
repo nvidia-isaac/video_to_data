@@ -32,7 +32,7 @@ All reference data loads from a single Hive-partitioned parquet:
 whole_body/{dataset}/sequence_id={seq}/robot_name={robot}/data.parquet
 ```
 
-The parquet contains body qpos, EE targets, hand keypoints, finger joints, contacts, object trajectory, and binary contact labels. `SceneConfig.from_motion_file()` auto-discovers objects, support surfaces, and episode length.
+The parquet uses the unified `motion_v1` schema (see `robotic_grounding.motion_schema`): robot root pose, joint positions, EE targets, hand keypoints, finger joints, contacts, object trajectory, and binary contact labels. `SceneConfig.from_motion_file()` auto-discovers objects, support surfaces, and episode length.
 
 ## Key Components
 

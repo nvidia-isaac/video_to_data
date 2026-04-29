@@ -12,6 +12,7 @@ two_stage: example_two_stage
 
 # Whole-body experiments:
 recon_body_apple: recon_body_apple_pick
+recon_body_shalin_bottle_1: recon_body_shalin_bottle_1
 
 # Private experiments: create experiments/registry.local.yaml (gitignored) with your entries:
 # exp41: exp41_my_experiment

@@ -3,6 +3,16 @@
 This document describes how hand-object motion capture data flows through the
 robotic_grounding pipeline, from raw dataset files to a trained RL policy.
 
+Two parquet formats are in use today:
+
+- **`motion_v1`** (`robotic_grounding.motion_schema`) — the unified whole-body /
+  bimanual format used by `nvhuman_to_g1`, `nvhuman_to_dex3`, and the
+  `g1_planner` output. See
+  [../source/robotic_grounding/robotic_grounding/motion_schema/README.md](../source/robotic_grounding/robotic_grounding/motion_schema/README.md).
+- **`ManoSharpaData`** — the legacy dual-hand V2P retarget pipeline described
+  below. Still used end-to-end by arctic/taco/oakink2/hot3d/h2o/grab/dexycb
+  loaders and the dual-hand v2p tracking command. Not on `motion_v1` yet.
+
 ## Pipeline Overview
 
 ```

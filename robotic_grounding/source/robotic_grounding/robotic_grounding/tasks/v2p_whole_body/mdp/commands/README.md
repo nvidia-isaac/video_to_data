@@ -1,26 +1,28 @@
 # Whole-Body Tracking Command
 
-The `TrackingCommand` loads all reference data from a single planner parquet and provides command targets and current state observations consumed by rewards, observations, terminations, and actions.
+The `TrackingCommand` loads all reference data from a single `motion_v1` parquet (via `robotic_grounding.motion_schema`) and provides command targets and current state observations consumed by rewards, observations, terminations, and actions.
 
 ## Data Flow
 
 ```
-Planner Parquet (Hive-partitioned)
+motion_v1 Parquet (Hive-partitioned: sequence_id=.../robot_name=.../*.parquet)
 |
-+-- qpos (T, nq)                    --> root_pos_w, root_quat_w, joint_pos, joint_vel
-+-- robot_{side}_wrist_position/wxyz --> EE tracking + wrist body ID resolution
-+-- object_body_position/wxyz        --> object tracking targets
++-- robot_root_position (T, 3)              --> root_pos_w
++-- robot_root_wxyz (T, 4)                  --> root_quat_w
++-- robot_joint_positions (T, J)            --> joint_pos, joint_vel (via FD)
++-- robot_joint_names (J,)                  --> joint reordering against live robot
++-- ee_link_names, ee_pose_w (T, E, 7)      --> EE tracking + wrist body ID resolution
++-- object_body_position/wxyz (T, B, ...)   --> object tracking targets
 |
-+-- robot_{side}_frames              --> _precompute_hand_keypoints_in_object_frame()
-+-- robot_{side}_finger_joints       |   wrist + fingertip positions in object frame
-|                                    |
-+-- mano_{side}_*_contacts           --> _precompute_contact_positions_in_object_frame()
-+-- mano_{side}_*_normals            |   contacts + normals in object COM frame
-+-- mano_{side}_*_part_ids           |
-|                                    |
-+-- {side}_hand_contact_active       --> binary contact labels (for force closure reward)
-+-- object_mesh_radius               --> _precompute_contact_wrench_support_values()
-+-- ee_link_names                    --> wrist body ID resolution, FrameTransformer targets
++-- hand_frames_w[side] (T, K, 7)           --> _precompute_hand_keypoints_in_object_frame()
++-- hand_finger_joints[side] (T, Jf)        |   wrist + fingertip positions in object frame
+|                                           |
++-- hand_link_contact_positions[side]       --> _precompute_contact_positions_in_object_frame()
++-- hand_object_contact_normals[side]       |   contacts + normals in object COM frame
++-- hand_object_contact_part_ids[side]      |
+|                                           |
++-- hand_contact_active[side]               --> binary contact labels (for force closure reward)
++-- object_mesh_radius                      --> _precompute_contact_wrench_support_values()
 ```
 
 At runtime each step:
@@ -33,7 +35,7 @@ At runtime each step:
 | Method | Purpose |
 |--------|---------|
 | `_init_scene_references` | Resolve robot, object, wrist/fingertip/finger IDs, contact sensors |
-| `_load_and_process_motion` | Load parquet, decompose qpos, derive EE, resolve wrist body IDs |
+| `_load_and_process_motion` | Load motion_v1 parquet, populate root/joints/EE tensors, resolve wrist body IDs |
 | `_init_buffers` | Per-env counters, VOC scale, action history, spread offset |
 | `_init_hand_data` | Fingertip/finger joint IDs, retargeted hand data, contact labels |
 | `_init_contact_data` | Contact positions, normals, part IDs, validity masks |

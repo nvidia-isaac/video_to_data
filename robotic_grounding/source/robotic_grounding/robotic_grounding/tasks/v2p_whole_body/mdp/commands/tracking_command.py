@@ -123,19 +123,18 @@ class TrackingCommand(CommandTerm):
     def _load_and_process_motion(self, cfg: TrackingCommandCfg) -> None:
         """Load motion data from parquet and set up body tracking tensors."""
         motion_data = load_motion_data(cfg, self.robot, self.device)
-        qpos_data = motion_data.qpos_data
 
-        # Body motion
-        self.root_pos_w = qpos_data[:, :3].float() + torch.tensor(
+        # Body motion (already split on-disk and in-memory).
+        self.root_pos_w = motion_data.robot_root_position.float() + torch.tensor(
             cfg.robot_anchor_pos_offset, device=self.device
         )
-        self.root_quat_w = qpos_data[:, 3:7].float()
-        self._joint_pos_file = qpos_data[:, 7:].float()
+        self.root_quat_w = motion_data.robot_root_wxyz.float()
+        self._joint_pos_file = motion_data.robot_joint_positions.float()
         self._object_pos_w = motion_data.object_pos_w.float() + torch.tensor(
             cfg.object_pos_offset, device=self.device
         )
         self._object_quat_w = motion_data.object_quat_w.float()
-        self.num_timesteps = len(qpos_data)
+        self.num_timesteps = self.root_pos_w.shape[0]
 
         # EE data
         if motion_data.ee_pos_w is not None:
