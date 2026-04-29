@@ -11,7 +11,9 @@ import pyarrow.parquet as pq
 from scipy.spatial.transform import Rotation as R
 
 from robotic_grounding.motion_schema import (
+    DUAL_HAND,
     SCHEMA_VERSION,
+    SINGLE_ROBOT,
     MotionData,
     load_motion_data_parquet,
 )
@@ -113,29 +115,24 @@ def _to_np(value: Any) -> np.ndarray | None:
 def _motion_v1_to_replay(md: MotionData) -> ReplayTrajectory:
     """Map a `motion_v1` MotionData into the appropriate replay trajectory shape.
 
-    Whole-body: populated `robot_joint_names` → `SingleRobotTrajectory`.
-    Dual-hand : empty `robot_joint_names` but two `hand_sides` → `DualHandTrajectory`.
+    Branches on the file's explicit `motion_kind`:
+    - `single_robot` → `SingleRobotTrajectory` driven by whole-body joint state.
+    - `dual_hand`    → `DualHandTrajectory` driven by `ee_pose_w`.
     """
-    root_pos = _to_np(md.robot_root_position)
-    root_wxyz = _to_np(md.robot_root_wxyz)
-    joint_pos = _to_np(md.robot_joint_positions)
     object_traj = _build_object_traj_from_arrays(
         object_root_position=_to_np(md.object_root_position),
         object_root_axis_angle=_to_np(md.object_root_axis_angle),
     )
 
-    has_joints = (
-        bool(md.robot_joint_names) and joint_pos is not None and joint_pos.size > 0
-    )
-    if has_joints:
-        # Narrow for mypy. `has_joints` already guarantees `joint_pos`; in a
-        # well-formed motion_v1 file `root_pos`/`root_wxyz` are required
-        # alongside joint data, so asserting them here surfaces malformed
-        # parquets as a clear AssertionError rather than a cryptic
-        # AttributeError on `.astype`.
-        assert root_pos is not None
-        assert root_wxyz is not None
-        assert joint_pos is not None
+    if md.motion_kind == SINGLE_ROBOT:
+        root_pos = _to_np(md.robot_root_position)
+        root_wxyz = _to_np(md.robot_root_wxyz)
+        joint_pos = _to_np(md.robot_joint_positions)
+        if root_pos is None or root_wxyz is None or joint_pos is None:
+            raise ValueError(
+                "motion_v1 single_robot file is missing required whole-body "
+                "joint tensors. Re-run the producing retarget/planner script."
+            )
         return SingleRobotTrajectory(
             schema="motion_v1",
             robot_layout="single_robot",
@@ -148,12 +145,15 @@ def _motion_v1_to_replay(md: MotionData) -> ReplayTrajectory:
             object_traj=object_traj,
         )
 
-    # Dual-hand: use ee_pose_w to derive wrist positions/orientations.
+    if md.motion_kind != DUAL_HAND:
+        raise ValueError(
+            f"Cannot build replay trajectory: unsupported motion_kind={md.motion_kind!r}."
+        )
+
     ee_pose = _to_np(md.ee_pose_w)
     if ee_pose is None or ee_pose.ndim != 3 or ee_pose.shape[1] < 2:
         raise ValueError(
-            "motion_v1 file has no whole-body joint state and fewer than 2 EEs; "
-            "cannot build a replay trajectory."
+            "motion_v1 dual_hand file has fewer than 2 end-effector poses; cannot build a replay trajectory."
         )
     left_idx, right_idx = 0, 1
     names = md.ee_link_names or []

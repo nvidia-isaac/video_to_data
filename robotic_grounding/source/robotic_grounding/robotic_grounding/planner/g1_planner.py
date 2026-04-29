@@ -440,6 +440,7 @@ def save_planner_parquet(
     md = MotionData(
         sequence_id=sequence_id,
         robot_name=robot_name,
+        motion_kind="single_robot",
         source_dataset="planner",
         raw_motion_file="",
         fps=float(FPS),
@@ -665,9 +666,7 @@ def main():
             mesh_paths = getattr(motion, "object_mesh_paths", None)
             obj_name = getattr(motion, "object_name", None)
             if mesh_paths:
-                for mp in (
-                    mesh_paths if isinstance(mesh_paths, list) else [mesh_paths]
-                ):
+                for mp in mesh_paths if isinstance(mesh_paths, list) else [mesh_paths]:
                     if os.path.exists(mp):
                         object_mesh_path = mp
                         break

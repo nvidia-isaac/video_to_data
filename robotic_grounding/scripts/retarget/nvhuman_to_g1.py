@@ -616,6 +616,7 @@ def main() -> None:
         md = MotionData(
             sequence_id=sequence_id,
             robot_name="g1",
+            motion_kind="single_robot",
             source_dataset="nvhuman",
             raw_motion_file=motion_params_path,
             fps=float(kin.frequency),

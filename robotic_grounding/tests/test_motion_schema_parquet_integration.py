@@ -113,6 +113,7 @@ def test_motion_v1_parquet_roundtrip_scene_config_and_loader(tmp_path: Path) -> 
     md = MotionData(
         sequence_id=sequence_id,
         robot_name=robot_name,
+        motion_kind="single_robot",
         source_dataset="nvhuman",
         raw_motion_file=str(tmp_path / "nova_params_opt.pt"),
         fps=30.0,

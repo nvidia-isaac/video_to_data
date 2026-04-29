@@ -82,8 +82,7 @@ def _build_joint_reorder(
     for pq_name in parquet_names:
         if pq_name not in sim_name_to_idx:
             raise ValueError(
-                f"Parquet joint '{pq_name}' not found in spawned robot joints: "
-                f"{sim_names}"
+                f"Parquet joint '{pq_name}' not found in spawned robot joints: {sim_names}"
             )
         indices.append(sim_name_to_idx[pq_name])
     return torch.tensor(indices, dtype=torch.long)
@@ -103,6 +102,7 @@ def _write_motion_v1_g1_parquet(output_dir: Path) -> Path:
     md = MotionData(
         sequence_id=seq_id,
         robot_name=robot_name,
+        motion_kind="single_robot",
         source_dataset="nvhuman",
         raw_motion_file="fake.pt",
         fps=30.0,
@@ -128,6 +128,50 @@ def _write_motion_v1_g1_parquet(output_dir: Path) -> Path:
     return output_dir / f"sequence_id={seq_id}" / f"robot_name={robot_name}"
 
 
+def _write_motion_v1_dex3_parquet(output_dir: Path) -> Path:
+    """Write a minimal motion_v1 dual-hand parquet and return the partition dir."""
+    seq_id = "replay_test_dex3"
+    robot_name = "dex3"
+    t = 4
+    md = MotionData(
+        sequence_id=seq_id,
+        robot_name=robot_name,
+        motion_kind="dual_hand",
+        source_dataset="nvhuman",
+        raw_motion_file="fake.pt",
+        fps=30.0,
+        coord_frame="robot_base_z_up",
+        ee_link_names=["left_wrist_link", "right_wrist_link"],
+        ee_pose_w=[
+            [
+                [0.1 * i, 0.0, 0.5, 1.0, 0.0, 0.0, 0.0],
+                [-0.1 * i, 0.0, 0.5, 1.0, 0.0, 0.0, 0.0],
+            ]
+            for i in range(t)
+        ],
+        object_name="test_obj",
+        object_body_names=["test_obj"],
+        object_body_position=[[[0.2, 0.3, 0.4 + 0.01 * i]] for i in range(t)],
+        object_body_wxyz=[[[1.0, 0.0, 0.0, 0.0]] for _ in range(t)],
+        object_root_position=[[0.2, 0.3, 0.4 + 0.01 * i] for i in range(t)],
+        object_root_axis_angle=[[0.0, 0.0, 0.1 * i] for i in range(t)],
+        object_articulation=[0.0 for _ in range(t)],
+        hand_sides=["left", "right"],
+        hand_frame_names=[["left_palm"], ["right_palm"]],
+        hand_frames_w=[
+            [[[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]] for _ in range(t)],
+            [[[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]] for _ in range(t)],
+        ],
+        hand_finger_joint_names=[["left_j0"], ["right_j0"]],
+        hand_finger_joints=[
+            [[0.1 * i] for i in range(t)],
+            [[-0.1 * i] for i in range(t)],
+        ],
+    )
+    save_motion_parquet(md, root_path=str(output_dir))
+    return output_dir / f"sequence_id={seq_id}" / f"robot_name={robot_name}"
+
+
 def test_load_motion_v1_trajectory(tmp_path: Path) -> None:
     """Load a motion_v1 whole-body parquet via the replay adapter."""
     partition_dir = _write_motion_v1_g1_parquet(tmp_path / "g1_data")
@@ -147,6 +191,27 @@ def test_load_motion_v1_trajectory(tmp_path: Path) -> None:
     assert traj.object_traj.root_wxyz.shape == (5, 4)
     np.testing.assert_allclose(traj.robot_root_position[0, 2], 0.0, atol=1e-6)
     np.testing.assert_allclose(traj.robot_root_position[4, 2], 0.4, atol=1e-6)
+
+
+def test_load_motion_v1_dual_hand_trajectory(tmp_path: Path) -> None:
+    """Load a motion_v1 dual-hand (Dex3) parquet via the replay adapter."""
+    partition_dir = _write_motion_v1_dex3_parquet(tmp_path / "dex3_data")
+    traj = load_replay_trajectory(str(partition_dir))
+
+    assert isinstance(traj, DualHandTrajectory)
+    assert traj.schema == "motion_v1"
+    assert traj.robot_layout == "dual_hand"
+    assert traj.num_frames == 4
+    assert traj.fps == 30.0
+    assert traj.wrist_orientation_format == "wxyz"
+    assert traj.left_wrist_position.shape == (4, 3)
+    assert traj.right_wrist_position.shape == (4, 3)
+    assert traj.left_wrist_orientation.shape == (4, 4)
+    assert traj.right_wrist_orientation.shape == (4, 4)
+    assert traj.left_finger_joints.shape == (4, 1)
+    assert traj.right_finger_joints.shape == (4, 1)
+    assert traj.object_traj is not None
+    assert traj.object_traj.root_position.shape == (4, 3)
 
 
 # ============================================================
@@ -266,6 +331,7 @@ def test_build_joint_reorder_permutation() -> None:
 
 _ALL_TESTS: list[Callable[..., Any]] = [
     test_load_motion_v1_trajectory,
+    test_load_motion_v1_dual_hand_trajectory,
     test_load_sharpa_trajectory,
     test_build_joint_reorder_identity,
     test_build_joint_reorder_permutation,

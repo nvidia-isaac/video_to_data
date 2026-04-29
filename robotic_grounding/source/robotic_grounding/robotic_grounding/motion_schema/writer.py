@@ -16,8 +16,9 @@ Hive partition (`sequence_id=<seq>/robot_name=<robot>/`).
 from __future__ import annotations
 
 import shutil
+from collections.abc import Sized
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pyarrow as pa
@@ -25,10 +26,13 @@ import pyarrow.parquet as pq
 
 from .schema import (
     ALL_FIELDS,
-    REQUIRED_TRAINING_FIELDS,
+    DUAL_HAND,
+    DUAL_HAND_PER_SIDE_FIELDS,
     SCHEMA_VERSION,
     MotionData,
     build_schema,
+    required_fields_for,
+    resolve_motion_kind,
 )
 
 # Optional dependency: torch is only needed when producers pass tensors to the
@@ -78,8 +82,7 @@ def _validate_wxyz(tag: str, wxyz: Any) -> None:
         )
     if w_max > 1.01:
         raise ValueError(
-            f"[{tag}] quaternion w component exceeds 1.01 "
-            f"(max={w_max:.3f}); not unit quaternions."
+            f"[{tag}] quaternion w component exceeds 1.01 (max={w_max:.3f}); not unit quaternions."
         )
 
 
@@ -119,6 +122,7 @@ def _row_dict(md: MotionData) -> dict[str, Any]:
         "schema_version": [md.schema_version],
         "sequence_id": [md.sequence_id],
         "robot_name": [md.robot_name],
+        "motion_kind": [md.motion_kind],
         "source_dataset": [md.source_dataset],
         "raw_motion_file": [md.raw_motion_file],
         "fps": [float(md.fps) if md.fps is not None else 0.0],
@@ -169,17 +173,24 @@ def _row_dict(md: MotionData) -> dict[str, Any]:
     }
 
     # Pyarrow rejects column counts mismatching the schema; keep them aligned.
-    assert set(row.keys()) == {name for name, _ in ALL_FIELDS}, (
-        f"writer row dict out of sync with schema; diff="
-        f"{set(row.keys()) ^ {name for name, _ in ALL_FIELDS}}"
-    )
+    assert set(row.keys()) == {
+        name for name, _ in ALL_FIELDS
+    }, f"writer row dict out of sync with schema; diff={set(row.keys()) ^ {name for name, _ in ALL_FIELDS}}"
     return row
 
 
 def _validate_required(md: MotionData) -> None:
-    """Fail fast if required training fields are empty or missing."""
+    """Fail fast if required training fields are empty or missing.
+
+    Validation is branched on `md.motion_kind`: whole-body files require
+    `robot_*` joint state, while dual-hand files require per-side hand frames
+    and finger joints. The discriminator must be set explicitly; producers
+    that omit `motion_kind` raise here.
+    """
+    motion_kind = resolve_motion_kind(md)
+    required = required_fields_for(motion_kind)
     missing: list[str] = []
-    for name in REQUIRED_TRAINING_FIELDS:
+    for name in required:
         val = getattr(md, name, None)
         if name == "fps":
             if val is None or float(val) <= 0.0:
@@ -190,9 +201,27 @@ def _validate_required(md: MotionData) -> None:
             missing.append(name)
     if missing:
         raise ValueError(
-            f"Cannot write motion parquet: required fields are empty: {missing}. "
-            f"Producer must populate at least: {list(REQUIRED_TRAINING_FIELDS)}."
+            f"Cannot write motion parquet (motion_kind={motion_kind!r}): "
+            f"required fields are empty: {missing}. Producer must populate at "
+            f"least: {list(required)}."
         )
+
+    if motion_kind == DUAL_HAND:
+        n_sides = len(md.hand_sides or [])
+        misaligned: list[tuple[str, int]] = []
+        for name in DUAL_HAND_PER_SIDE_FIELDS:
+            val = getattr(md, name, None)
+            actual = len(cast(Sized, val)) if hasattr(val, "__len__") else 0
+            if actual != n_sides:
+                misaligned.append((name, actual))
+        if misaligned:
+            details = ", ".join(
+                f"{name} has {actual} entries" for name, actual in misaligned
+            )
+            raise ValueError(
+                f"Cannot write motion parquet (motion_kind=dual_hand): per-side "
+                f"fields must align with hand_sides (len={n_sides}); {details}."
+            )
 
 
 # ---------------------------------------------------------------------------

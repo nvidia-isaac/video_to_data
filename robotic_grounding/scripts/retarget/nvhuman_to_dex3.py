@@ -368,7 +368,6 @@ def main() -> None:
 
     # Save data
     if builder is not None:
-        T = len(builder["ee_pose_w"])
         source_payload = pickle.dumps(
             {
                 "nvhuman_betas": betas,
@@ -380,18 +379,14 @@ def main() -> None:
                 "nvhuman_root_wxyz": builder.pop("nvhuman_root_wxyz"),
             }
         )
-        # Dex3 is a pair of floating hands; whole-body joint state is empty.
         md = MotionData(
             sequence_id=sequence_id,
             robot_name="dex3",
+            motion_kind="dual_hand",
             source_dataset="nvhuman",
             raw_motion_file=motion_params_path,
             fps=float(left_kin.frequency),
             coord_frame="robot_base_z_up",
-            robot_joint_names=[],
-            robot_root_position=[[0.0, 0.0, 0.0] for _ in range(T)],
-            robot_root_wxyz=[[1.0, 0.0, 0.0, 0.0] for _ in range(T)],
-            robot_joint_positions=[[] for _ in range(T)],
             ee_link_names=["left_wrist_link", "right_wrist_link"],
             ee_pose_w=builder["ee_pose_w"],
             object_name=f"{sequence_id}_object",

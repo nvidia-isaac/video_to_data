@@ -31,11 +31,14 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .schema import (
-    REQUIRED_TRAINING_FIELDS,
+    DUAL_HAND,
+    DUAL_HAND_PER_SIDE_FIELDS,
     SCHEMA_VERSION,
     MissingRequiredField,
     MotionData,
     SchemaVersionMismatch,
+    required_fields_for,
+    resolve_motion_kind,
 )
 
 # Optional dependency: the reader only needs torch when producing tensor
@@ -113,8 +116,7 @@ def _as_tensor(
         return None
     if not _TORCH_AVAILABLE:
         raise RuntimeError(
-            "torch is required to materialize motion_v1 tensors but is not "
-            "installed in this environment."
+            "torch is required to materialize motion_v1 tensors but is not installed in this environment."
         )
 
     if isinstance(value, torch.Tensor):
@@ -170,8 +172,23 @@ def _validate_version(data: dict[str, Any], path: Path) -> None:
 
 
 def _validate_required(data: dict[str, Any], path: Path) -> None:
+    """Branch required-field validation on the file's `motion_kind`.
+
+    The reader refuses any file that lacks an explicit `motion_kind`.
+    Producers must regenerate files that predate the discriminator instead
+    of relying on inference from neighboring columns.
+    """
+    raw_kind = (data.get("motion_kind") or [None])[0]
+    if not raw_kind:
+        raise MissingRequiredField(missing=["motion_kind"], path=str(path))
+    try:
+        motion_kind = resolve_motion_kind({"motion_kind": [raw_kind]})
+    except ValueError as exc:
+        raise MissingRequiredField(missing=["motion_kind"], path=str(path)) from exc
+
+    required = required_fields_for(motion_kind)
     missing: list[str] = []
-    for name in REQUIRED_TRAINING_FIELDS:
+    for name in required:
         if name not in data:
             missing.append(name)
             continue
@@ -179,7 +196,6 @@ def _validate_required(data: dict[str, Any], path: Path) -> None:
         if not val or val[0] is None:
             missing.append(name)
             continue
-        # `fps` is a scalar float.
         if name == "fps":
             try:
                 if float(val[0]) <= 0.0:
@@ -191,6 +207,23 @@ def _validate_required(data: dict[str, Any], path: Path) -> None:
             missing.append(name)
     if missing:
         raise MissingRequiredField(missing=missing, path=str(path))
+
+    if motion_kind == DUAL_HAND:
+        n_sides = len(data.get("hand_sides", [[]])[0] or [])
+        misaligned: list[tuple[str, int]] = []
+        for name in DUAL_HAND_PER_SIDE_FIELDS:
+            per_side = data.get(name, [[]])[0] or []
+            if len(per_side) != n_sides:
+                misaligned.append((name, len(per_side)))
+        if misaligned:
+            details = ", ".join(
+                f"{name} has {actual} entries" for name, actual in misaligned
+            )
+            raise MissingRequiredField(
+                missing=[name for name, _ in misaligned], path=str(path)
+            ) from ValueError(
+                f"motion_kind=dual_hand per-side fields must align with hand_sides (len={n_sides}); {details}."
+            )
 
 
 def load_motion_data_parquet(
@@ -231,17 +264,24 @@ def load_motion_data_parquet(
     md.schema_version = data["schema_version"][0]
     md.sequence_id = data.get("sequence_id", [""])[0] or ""
     md.robot_name = data.get("robot_name", [""])[0] or ""
+    md.motion_kind = data.get("motion_kind", [""])[0] or ""
     md.source_dataset = data.get("source_dataset", [""])[0] or ""
     md.raw_motion_file = data.get("raw_motion_file", [""])[0] or ""
     md.fps = float(data.get("fps", [0.0])[0] or 0.0)
     md.coord_frame = data.get("coord_frame", [""])[0] or ""
 
     # ---- Robot state ------------------------------------------------------
-    md.robot_joint_names = list(data["robot_joint_names"][0] or [])
-    md.robot_root_position = _as_tensor(data["robot_root_position"][0], device=device)
-    md.robot_root_wxyz = _as_tensor(data["robot_root_wxyz"][0], device=device)
+    # Robot fields are only required for `single_robot`; for `dual_hand` they
+    # may be absent or empty, and the loaded tensors are correspondingly None.
+    md.robot_joint_names = list(data.get("robot_joint_names", [[]])[0] or [])
+    md.robot_root_position = _as_tensor(
+        data.get("robot_root_position", [None])[0], device=device
+    )
+    md.robot_root_wxyz = _as_tensor(
+        data.get("robot_root_wxyz", [None])[0], device=device
+    )
     md.robot_joint_positions = _as_tensor(
-        data["robot_joint_positions"][0], device=device
+        data.get("robot_joint_positions", [None])[0], device=device
     )
 
     # `file_joint_names` is the legacy attribute used by tracking_command.py

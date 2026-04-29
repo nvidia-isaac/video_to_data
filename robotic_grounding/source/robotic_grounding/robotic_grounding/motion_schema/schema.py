@@ -56,6 +56,7 @@ METADATA_FIELDS: list[tuple[str, pa.DataType]] = [
     ("schema_version", pa.string()),
     ("sequence_id", pa.string()),
     ("robot_name", pa.string()),
+    ("motion_kind", pa.string()),
     ("source_dataset", pa.string()),
     ("raw_motion_file", pa.string()),
     ("fps", pa.float32()),
@@ -138,23 +139,113 @@ ALL_FIELDS: list[tuple[str, pa.DataType]] = (
 )
 
 
-# Names of fields required for a training-eligible file. Reader uses this to
-# fail fast if a file promises `motion_v1` but is missing core data.
-REQUIRED_TRAINING_FIELDS: tuple[str, ...] = (
+# Recognized values for the `motion_kind` discriminator. The schema branches
+# its required-field check on this value: `single_robot` files carry
+# whole-body joint state, while `dual_hand` files carry only floating-wrist
+# end-effector state plus per-side hand frames.
+SINGLE_ROBOT: str = "single_robot"
+DUAL_HAND: str = "dual_hand"
+KNOWN_MOTION_KINDS: frozenset[str] = frozenset({SINGLE_ROBOT, DUAL_HAND})
+
+
+# Fields required for any training-eligible file regardless of motion kind.
+# `motion_kind` is included so loaders fail fast on legacy files that predate
+# the discriminator instead of silently inferring a kind.
+COMMON_REQUIRED_FIELDS: tuple[str, ...] = (
     "schema_version",
     "sequence_id",
     "robot_name",
+    "motion_kind",
     "fps",
-    "robot_joint_names",
-    "robot_root_position",
-    "robot_root_wxyz",
-    "robot_joint_positions",
     "ee_link_names",
     "ee_pose_w",
     "object_body_names",
     "object_body_position",
     "object_body_wxyz",
 )
+
+
+# Required for `motion_kind == "single_robot"`: whole-body joint trajectories.
+SINGLE_ROBOT_REQUIRED_FIELDS: tuple[str, ...] = (
+    "robot_joint_names",
+    "robot_root_position",
+    "robot_root_wxyz",
+    "robot_joint_positions",
+)
+
+
+# Required for `motion_kind == "dual_hand"`: floating-wrist trajectories
+# carry per-side hand frames and finger joints aligned by `hand_sides`.
+DUAL_HAND_REQUIRED_FIELDS: tuple[str, ...] = (
+    "hand_sides",
+    "hand_frame_names",
+    "hand_frames_w",
+    "hand_finger_joint_names",
+    "hand_finger_joints",
+)
+
+
+# Per-side fields that must have an outer length equal to `len(hand_sides)`.
+# This catches producers that set `hand_sides` but forgot to populate one
+# side's payload, which would otherwise silently produce ragged data.
+DUAL_HAND_PER_SIDE_FIELDS: tuple[str, ...] = (
+    "hand_frame_names",
+    "hand_frames_w",
+    "hand_finger_joint_names",
+    "hand_finger_joints",
+)
+
+
+# Backwards-compatible alias. New code should consult the per-kind tuples
+# above. This union is the conservative super-set used only by callers that
+# do not yet know the file's `motion_kind`.
+REQUIRED_TRAINING_FIELDS: tuple[str, ...] = tuple(
+    dict.fromkeys(
+        COMMON_REQUIRED_FIELDS
+        + SINGLE_ROBOT_REQUIRED_FIELDS
+        + DUAL_HAND_REQUIRED_FIELDS
+    )
+)
+
+
+def resolve_motion_kind(source: Any) -> str:
+    """Return the explicit `motion_kind` from a `MotionData` or pyarrow row dict.
+
+    Raises:
+        ValueError: If `motion_kind` is missing, empty, or not one of the
+            values in `KNOWN_MOTION_KINDS`. Inference from `robot_joint_names`
+            or `hand_sides` is intentionally not performed; producers must
+            tag every file explicitly.
+    """
+    if isinstance(source, dict):
+        raw = source.get("motion_kind")
+        if isinstance(raw, list):
+            raw = raw[0] if raw else None
+    else:
+        raw = getattr(source, "motion_kind", None)
+    if raw is None or raw == "":
+        raise ValueError(
+            "Motion file is missing `motion_kind`. Producers must set "
+            f"motion_kind to one of {sorted(KNOWN_MOTION_KINDS)}; legacy "
+            "files predating this field are not supported and must be "
+            "regenerated."
+        )
+    if raw not in KNOWN_MOTION_KINDS:
+        raise ValueError(
+            f"Unknown motion_kind={raw!r}. Expected one of {sorted(KNOWN_MOTION_KINDS)}."
+        )
+    return raw
+
+
+def required_fields_for(motion_kind: str) -> tuple[str, ...]:
+    """Return the required field tuple for a given resolved `motion_kind`."""
+    if motion_kind == SINGLE_ROBOT:
+        return COMMON_REQUIRED_FIELDS + SINGLE_ROBOT_REQUIRED_FIELDS
+    if motion_kind == DUAL_HAND:
+        return COMMON_REQUIRED_FIELDS + DUAL_HAND_REQUIRED_FIELDS
+    raise ValueError(
+        f"Unknown motion_kind={motion_kind!r}. Expected one of {sorted(KNOWN_MOTION_KINDS)}."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +282,9 @@ class MotionData:
     schema_version: str = SCHEMA_VERSION
     sequence_id: str = ""
     robot_name: str = ""
+    # Discriminator between layout shapes. Required to be non-empty before
+    # writing or after loading; see `KNOWN_MOTION_KINDS` for accepted values.
+    motion_kind: str = ""
     source_dataset: str = ""
     raw_motion_file: str = ""
     fps: float = 0.0
@@ -301,13 +395,12 @@ class SchemaVersionMismatch(RuntimeError):  # noqa: N818
     """
 
     def __init__(self, got: str, expected: str, path: str) -> None:
-        """Build a readable error with migration hint."""
+        """Build a readable error pointing producers at the right action."""
         super().__init__(
             f"Motion parquet at {path} has schema_version={got!r} but this "
-            f"codebase expects {expected!r}. Run "
-            f"`python scripts/motion_schema/migrate_to_v1.py {path}` to migrate, "
-            f"or re-run the producing retarget/planner script on the latest "
-            f"source tree."
+            f"codebase expects {expected!r}. Re-run the producing retarget "
+            f"or planner script on the latest source tree to regenerate this "
+            f"file; no migrator is shipped."
         )
         self.got = got
         self.expected = expected

@@ -12,7 +12,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from robotic_grounding.motion_schema import MotionData, load_motion_data_parquet
+from robotic_grounding.motion_schema import (
+    SINGLE_ROBOT,
+    MotionData,
+    load_motion_data_parquet,
+)
 
 if TYPE_CHECKING:
     import torch
@@ -38,8 +42,22 @@ def load_motion_data(
 
     Returns:
         A populated `MotionData` with `ee_link_ids` resolved against the robot.
+
+    Raises:
+        ValueError: If the loaded file is not a `single_robot` motion. The
+            whole-body `TrackingCommand` indexes whole-body joint state and
+            cannot consume `dual_hand` files; those should be loaded through
+            the dual-hand command term or `replay_data.load_replay_trajectory`.
     """
     md = load_motion_data_parquet(cfg.motion_file, device=str(device))
+
+    if md.motion_kind != SINGLE_ROBOT:
+        raise ValueError(
+            f"TrackingCommand requires motion_kind={SINGLE_ROBOT!r} but the "
+            f"file at {cfg.motion_file!r} has motion_kind={md.motion_kind!r}. "
+            f"Dual-hand motions belong to `dual_hands_object_tracking_command` "
+            f"or `replay_data.load_replay_trajectory`."
+        )
 
     if md.ee_link_names:
         ee_link_ids, _ = robot.find_bodies(list(md.ee_link_names))

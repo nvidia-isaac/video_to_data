@@ -59,12 +59,13 @@ The schema is grouped here for readability; in code it's one flat pyarrow schema
 | `schema_version` | string | `"motion_v1"`; checked by the reader |
 | `sequence_id` | string | partition key |
 | `robot_name` | string | partition key (`g1`, `dex3`, …) |
+| `motion_kind` | string | `"single_robot"` or `"dual_hand"`; required-field check branches on this |
 | `source_dataset` | string | `nvhuman`, `arctic`, `hot3d`, … |
 | `raw_motion_file` | string | provenance |
 | `fps` | float32 | trajectory frame rate |
 | `coord_frame` | string | producer-declared convention tag, e.g. `"robot_base_z_up"` |
 
-### Robot state (required for training-eligible files)
+### Robot state (required for `motion_kind="single_robot"`)
 
 | Field | Shape | Notes |
 |---|---|---|
@@ -73,7 +74,14 @@ The schema is grouped here for readability; in code it's one flat pyarrow schema
 | `robot_root_wxyz` | (T, 4) | wxyz |
 | `robot_joint_positions` | (T, J) | aligned with `robot_joint_names` |
 
-These four fields are the minimum training needs. They replace the planner's `qpos` + `qpos_layout` slice machinery. The training loader internally concatenates them to `[root_pos(3), root_quat_wxyz(4), joints(J)]` — the shape `TrackingCommand` already consumes.
+These four fields are the minimum the whole-body training command needs.
+They replace the planner's `qpos` + `qpos_layout` slice machinery. The
+training loader internally concatenates them to `[root_pos(3),
+root_quat_wxyz(4), joints(J)]` — the shape `TrackingCommand` already consumes.
+
+For `motion_kind="dual_hand"` these fields are not required. Producers that
+only emit floating-wrist trajectories (e.g. `nvhuman_to_dex3.py`) leave them
+empty; the corresponding tensors load as `None`.
 
 ### End-effector frames (required for tracking tasks)
 

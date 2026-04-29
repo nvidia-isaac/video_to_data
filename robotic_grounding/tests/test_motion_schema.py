@@ -8,13 +8,16 @@
 
 """Unit tests for the `motion_v1` unified motion schema.
 
-Covers (from the plan's test plan):
+Covers:
     U1. Schema round-trip with every optional group populated.
-    U2. Minimal file (only required groups) is loadable.
+    U2. Minimal single-robot file (only required groups) is loadable.
     U3. `schema_version` mismatch raises `SchemaVersionMismatch`.
     U4. `hand_sides`-indexed alignment for single/bimanual.
     U5. Quaternion convention guard (wxyz vs xyzw).
     U6. `ee_pose_w` shape invariant for E in {1, 2, 3}.
+    K1-K5. `motion_kind` validation: dual-hand round-trip, missing/empty/
+           unknown kind, single-robot/dual-hand required-field enforcement,
+           per-side alignment.
 
 Run with pytest or as a script (the latter is nice inside the isaac-sim
 container where pytest may not be available):
@@ -25,16 +28,11 @@ container where pytest may not be available):
 
 from __future__ import annotations
 
-import importlib.util
-import json
-import pickle
-import sys
 import tempfile
 import traceback
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 from robotic_grounding.motion_schema import (
@@ -47,24 +45,6 @@ from robotic_grounding.motion_schema import (
     save_motion_parquet,
 )
 from robotic_grounding.motion_schema.writer import _row_dict
-
-
-def _load_migrator_module() -> Any:
-    """Load scripts/motion_schema/migrate_to_v1.py without requiring it on PYTHONPATH."""
-    path = (
-        Path(__file__).resolve().parent.parent
-        / "scripts"
-        / "motion_schema"
-        / "migrate_to_v1.py"
-    )
-    spec = importlib.util.spec_from_file_location("migrate_to_v1", path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"cannot load migrator at {path}")
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
 
 # ---------------------------------------------------------------------------
 # Test fixtures
@@ -86,10 +66,11 @@ def _minimal_motion_data(
     e: int = 2,
     num_bodies: int = 1,
 ) -> MotionData:
-    """Construct a MotionData with only the REQUIRED training fields populated."""
+    """Construct a single-robot MotionData with only the REQUIRED fields populated."""
     return MotionData(
         sequence_id="seq_unit_test",
         robot_name="test_robot",
+        motion_kind="single_robot",
         source_dataset="synthetic",
         raw_motion_file="memory://unit_test",
         fps=30.0,
@@ -106,6 +87,48 @@ def _minimal_motion_data(
         ],
         object_body_wxyz=[
             [[1.0, 0.0, 0.0, 0.0] for _ in range(num_bodies)] for _ in range(t)
+        ],
+    )
+
+
+def _minimal_dual_hand_motion_data(
+    t: int = 4,
+    k: int = 3,
+    jf: int = 4,
+    num_bodies: int = 1,
+) -> MotionData:
+    """Construct a dual-hand MotionData mirroring the Dex3 producer shape.
+
+    Whole-body joint state is intentionally left empty; required validation
+    must succeed for `motion_kind="dual_hand"` regardless of `robot_*` fields.
+    """
+    sides = ["left", "right"]
+    return MotionData(
+        sequence_id="seq_dual_hand",
+        robot_name="dex3",
+        motion_kind="dual_hand",
+        source_dataset="synthetic",
+        raw_motion_file="memory://unit_test",
+        fps=30.0,
+        coord_frame="robot_base_z_up",
+        ee_link_names=["left_wrist_link", "right_wrist_link"],
+        ee_pose_w=_pose7_series(t, 2),
+        object_body_names=[f"body_{i}" for i in range(num_bodies)],
+        object_body_position=[
+            [[0.3, 0.0, 0.4] for _ in range(num_bodies)] for _ in range(t)
+        ],
+        object_body_wxyz=[
+            [[1.0, 0.0, 0.0, 0.0] for _ in range(num_bodies)] for _ in range(t)
+        ],
+        hand_sides=sides,
+        hand_frame_names=[[f"{side}_frame_{i}" for i in range(k)] for side in sides],
+        hand_frames_w=[_pose7_series(t, k), _pose7_series(t, k)],
+        hand_finger_joint_names=[
+            [f"{side}_fj_{i}" for i in range(jf)] for side in sides
+        ],
+        hand_finger_joints=[
+            [[0.0 for _ in range(jf)] for _ in range(t)],
+            [[0.0 for _ in range(jf)] for _ in range(t)],
         ],
     )
 
@@ -442,7 +465,7 @@ def test_u6_variable_num_ee(tmp_path: Path) -> None:
 def test_missing_required_field_raises_on_write(tmp_path: Path) -> None:
     """Writer fails fast with a pointer to the missing required field."""
     md = _minimal_motion_data()
-    md.ee_pose_w = None  # required, removed
+    md.ee_pose_w = None  # common-required, removed
     try:
         save_motion_parquet(md, root_path=str(tmp_path))
     except ValueError as exc:
@@ -482,131 +505,85 @@ def test_missing_required_field_raises_on_read(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Migrator tests (M1-M4)
+# K1-K5. motion_kind validation
 # ---------------------------------------------------------------------------
 
 
-def _build_fake_planner_parquet(tmp_path: Path, t: int = 4) -> Path:
-    """Build a tiny planner-schema parquet at tmp_path."""
-    j = 3  # body joints
-    nq = 7 + j  # root pose + body joints
-    qpos = np.zeros((t, nq), dtype=np.float32)
-    qpos[:, 2] = 0.8  # root z
-    qpos[:, 3] = 1.0  # root quat w
-    qpos[:, 7] = np.linspace(0.0, 1.0, t, dtype=np.float32)
-
-    qpos_layout = json.dumps(
-        {
-            "root_pos": [0, 3],
-            "root_quat_wxyz": [3, 7],
-            "body_joints": [7, nq],
-        }
+def test_dual_hand_round_trip(tmp_path: Path) -> None:
+    """Dex3-style dual-hand file round-trips without whole-body joints."""
+    md = _minimal_dual_hand_motion_data()
+    save_motion_parquet(md, root_path=str(tmp_path))
+    partition_dir = (
+        tmp_path / f"sequence_id={md.sequence_id}" / f"robot_name={md.robot_name}"
     )
-    joint_names = [
-        "root_x",
-        "root_y",
-        "root_z",
-        "root_qw",
-        "root_qx",
-        "root_qy",
-        "root_qz",
-        "j0",
-        "j1",
-        "j2",
-    ]
-    ee_pos = np.zeros((t, 2, 3), dtype=np.float32)
-    ee_quat = np.tile(np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32), (t, 2, 1))
-    row = {
-        "sequence_id": ["planner_fixture"],
-        "robot_name": ["g1"],
-        "raw_motion_file": ["memory://planner_fixture"],
-        "fps": [30.0],
-        "qpos": [qpos.tolist()],
-        "qpos_layout": [qpos_layout],
-        "joint_names": [joint_names],
-        "ee_link_names": [["left_wrist_yaw_link", "right_wrist_yaw_link"]],
-        "ee_pos_w": [ee_pos.tolist()],
-        "ee_quat_w": [ee_quat.tolist()],
-        "object_name": ["apple"],
-        "safe_object_name": ["apple"],
-        "object_body_names": [["apple"]],
-        "safe_object_body_names": [["apple"]],
-        "object_mesh_paths": [["mesh://0"]],
-        "object_urdf_paths": [["urdf://0"]],
-        "object_mesh_radius": [[0.05]],
-        "object_articulation": [[0.0 for _ in range(t)]],
-        "object_root_axis_angle": [[[0.0, 0.0, 0.0] for _ in range(t)]],
-        "object_root_position": [[[0.3, 0.0, 0.4] for _ in range(t)]],
-        "object_body_position": [[[[0.3, 0.0, 0.4]] for _ in range(t)]],
-        "object_body_wxyz": [[[[1.0, 0.0, 0.0, 0.0]] for _ in range(t)]],
-    }
-    table = pa.Table.from_pydict(row)
-    partition = tmp_path / "sequence_id=planner_fixture" / "robot_name=g1"
-    partition.mkdir(parents=True, exist_ok=True)
-    file_path = partition / "data.parquet"
-    pq.write_table(table, str(file_path))
-    return file_path
+    loaded = load_motion_data_parquet(str(partition_dir))
+
+    assert loaded.motion_kind == "dual_hand"
+    assert loaded.robot_joint_names == []
+    assert loaded.hand_sides == ["left", "right"]
+    assert loaded.left_hand_frames is not None
+    assert loaded.right_hand_frames is not None
+    assert loaded.left_finger_joints is not None
+    assert loaded.right_finger_joints is not None
+    # Whole-body fields stay None for dual-hand parquets.
+    assert loaded.robot_root_position is None
+    assert loaded.robot_joint_positions is None
 
 
-def _build_fake_nvhuman_g1_parquet(tmp_path: Path, t: int = 4) -> Path:
-    """Build a tiny NvhumanG1Data-shaped parquet at tmp_path."""
-    j = 4  # robot joints (not split the way planner splits)
-    frame_names = [
-        "pelvis",
-        "left_hand_palm_link",
-        "right_hand_palm_link",
-    ]
-    robot_frames = np.zeros((t, len(frame_names), 7), dtype=np.float32)
-    robot_frames[..., 3] = 1.0  # identity wxyz
-    row = {
-        "sequence_id": ["nvhuman_g1_fixture"],
-        "robot_name": ["g1"],
-        "raw_motion_file": ["memory://nvhuman_g1_fixture"],
-        "fps": [30.0],
-        "nvhuman_betas": [[0.0] * 10],
-        "robot_joint_names": [[f"j{i}" for i in range(j)]],
-        "robot_frame_names": [frame_names],
-        "robot_frame_task_names": [frame_names],
-        "source_to_robot_scale": [1.0],
-        "robot_root_position": [[[0.0, 0.0, 0.8] for _ in range(t)]],
-        "robot_root_wxyz": [[[1.0, 0.0, 0.0, 0.0] for _ in range(t)]],
-        "robot_joint_positions": [[[0.0] * j for _ in range(t)]],
-        "robot_frames": [robot_frames.tolist()],
-        "robot_frame_task_errors": [[[0.0] * len(frame_names) for _ in range(t)]],
-        "robot_ik_error": [[0.0] * t],
-        "robot_num_optimization_iterations": [[1] * t],
-        "object_name": ["bottle"],
-        "safe_object_name": ["bottle"],
-        "object_body_names": [["bottle"]],
-        "safe_object_body_names": [["bottle"]],
-        "object_mesh_paths": [[]],
-        "object_urdf_paths": [[]],
-        "object_mesh_radius": [[0.05]],
-        "object_articulation": [[0.0 for _ in range(t)]],
-        "object_root_axis_angle": [[[0.0, 0.0, 0.0] for _ in range(t)]],
-        "object_root_position": [[[0.4, 0.0, 0.5] for _ in range(t)]],
-        "object_body_position": [[[[0.4, 0.0, 0.5]] for _ in range(t)]],
-        "object_body_wxyz": [[[[1.0, 0.0, 0.0, 0.0]] for _ in range(t)]],
-        "nvhuman_joints": [[[[0.0, 0.0, 0.0] for _ in range(93)] for _ in range(t)]],
-        "nvhuman_joints_wxyz": [
-            [[[1.0, 0.0, 0.0, 0.0] for _ in range(93)] for _ in range(t)]
-        ],
-        "nvhuman_head_translation": [[[0.0, 0.0, 1.7] for _ in range(t)]],
-        "nvhuman_head_wxyz": [[[1.0, 0.0, 0.0, 0.0] for _ in range(t)]],
-        "nvhuman_root_translation": [[[0.0, 0.0, 0.9] for _ in range(t)]],
-        "nvhuman_root_wxyz": [[[1.0, 0.0, 0.0, 0.0] for _ in range(t)]],
-    }
-    table = pa.Table.from_pydict(row)
-    partition = tmp_path / "sequence_id=nvhuman_g1_fixture" / "robot_name=g1"
-    partition.mkdir(parents=True, exist_ok=True)
-    file_path = partition / "data.parquet"
-    pq.write_table(table, str(file_path))
-    return file_path
+def test_single_robot_missing_joints_raises(tmp_path: Path) -> None:
+    """`motion_kind=single_robot` with empty robot_joint_names raises."""
+    md = _minimal_motion_data()
+    md.robot_joint_names = []
+    md.robot_joint_positions = []
+    try:
+        save_motion_parquet(md, root_path=str(tmp_path))
+    except ValueError as exc:
+        assert "robot_joint_names" in str(exc)
+        return
+    raise AssertionError("expected ValueError for single_robot without joints")
 
 
-def test_m1_migrator_idempotent(tmp_path: Path) -> None:
-    """Running the migrator on a motion_v1 file prints SKIP and does not rewrite."""
-    migrator = _load_migrator_module()
+def test_dual_hand_missing_hand_sides_raises(tmp_path: Path) -> None:
+    """`motion_kind=dual_hand` without `hand_sides` raises on write."""
+    md = _minimal_dual_hand_motion_data()
+    md.hand_sides = []
+    try:
+        save_motion_parquet(md, root_path=str(tmp_path))
+    except ValueError as exc:
+        assert "hand_sides" in str(exc)
+        return
+    raise AssertionError("expected ValueError for dual_hand without hand_sides")
+
+
+def test_dual_hand_misaligned_per_side_raises(tmp_path: Path) -> None:
+    """Per-side outer length must equal len(hand_sides)."""
+    md = _minimal_dual_hand_motion_data()
+    md.hand_finger_joints = [md.hand_finger_joints[0]]
+    try:
+        save_motion_parquet(md, root_path=str(tmp_path))
+    except ValueError as exc:
+        assert "hand_finger_joints" in str(exc)
+        assert "align" in str(exc)
+        return
+    raise AssertionError(
+        "expected ValueError for dual_hand with misaligned per-side data"
+    )
+
+
+def test_missing_motion_kind_raises_on_write(tmp_path: Path) -> None:
+    """Writer rejects a MotionData with empty motion_kind."""
+    md = _minimal_motion_data()
+    md.motion_kind = ""
+    try:
+        save_motion_parquet(md, root_path=str(tmp_path))
+    except ValueError as exc:
+        assert "motion_kind" in str(exc)
+        return
+    raise AssertionError("expected ValueError for missing motion_kind on write")
+
+
+def test_missing_motion_kind_raises_on_read(tmp_path: Path) -> None:
+    """Reader rejects a parquet whose motion_kind column is empty."""
     md = _minimal_motion_data()
     save_motion_parquet(md, root_path=str(tmp_path))
     partition_dir = (
@@ -615,168 +592,32 @@ def test_m1_migrator_idempotent(tmp_path: Path) -> None:
     parquet_files = list(partition_dir.glob("*.parquet"))
     assert len(parquet_files) == 1
     file_path = parquet_files[0]
-    original_mtime = file_path.stat().st_mtime
+    table = pq.ParquetFile(str(file_path)).read()
+    pydict = table.to_pydict()
+    pydict["sequence_id"] = [md.sequence_id]
+    pydict["robot_name"] = [md.robot_name]
+    pydict["motion_kind"] = [""]
+    new_table = pa.Table.from_pydict(pydict, schema=build_schema())
+    pq.write_table(new_table, str(file_path))
 
-    # Call _migrate_one directly (CLI is tested via the same function).
-    msg = migrator._migrate_one(
-        file_path,
-        schema="auto",
-        output_root=tmp_path,
-        dry_run=False,
-    )
-    assert msg.startswith("SKIP"), f"expected SKIP, got: {msg}"
-    assert (
-        file_path.stat().st_mtime == original_mtime
-    ), "migrator rewrote an up-to-date file"
-
-
-def test_m2_planner_adapter_bit_equivalent(tmp_path: Path) -> None:
-    """Planner-adapter output must decode to the same qpos slices after migration."""
-    migrator = _load_migrator_module()
-    planner_parquet = _build_fake_planner_parquet(tmp_path / "input")
-
-    # Read the source data for later comparison.
-    source = pq.ParquetFile(str(planner_parquet)).read().to_pydict()
-    qpos = np.asarray(source["qpos"][0], dtype=np.float32)
-    layout = json.loads(source["qpos_layout"][0])
-
-    out_root = tmp_path / "output"
-    out_root.mkdir(parents=True, exist_ok=True)
-    migrator._migrate_one(
-        planner_parquet, schema="planner", output_root=out_root, dry_run=False
-    )
-
-    loaded = load_motion_data_parquet(
-        str(out_root / "sequence_id=planner_fixture" / "robot_name=g1")
-    )
-    assert loaded.schema_version == SCHEMA_VERSION
-
-    # Field-level equivalence.
-    rp = np.asarray(
-        loaded.robot_root_position.cpu().numpy()
-        if hasattr(loaded.robot_root_position, "cpu")
-        else loaded.robot_root_position
-    )
-    np.testing.assert_allclose(
-        rp, qpos[:, layout["root_pos"][0] : layout["root_pos"][1]]
-    )
-
-    rw = np.asarray(
-        loaded.robot_root_wxyz.cpu().numpy()
-        if hasattr(loaded.robot_root_wxyz, "cpu")
-        else loaded.robot_root_wxyz
-    )
-    np.testing.assert_allclose(
-        rw, qpos[:, layout["root_quat_wxyz"][0] : layout["root_quat_wxyz"][1]]
-    )
-
-    rj = np.asarray(
-        loaded.robot_joint_positions.cpu().numpy()
-        if hasattr(loaded.robot_joint_positions, "cpu")
-        else loaded.robot_joint_positions
-    )
-    np.testing.assert_allclose(
-        rj, qpos[:, layout["body_joints"][0] : layout["body_joints"][1]]
-    )
-
-    # EE pose round-trip.
-    ee_pos = np.asarray(
-        loaded.ee_pos_w.cpu().numpy()
-        if hasattr(loaded.ee_pos_w, "cpu")
-        else loaded.ee_pos_w
-    )
-    np.testing.assert_allclose(
-        ee_pos, np.asarray(source["ee_pos_w"][0], dtype=np.float32)
-    )
-    ee_quat = np.asarray(
-        loaded.ee_quat_w.cpu().numpy()
-        if hasattr(loaded.ee_quat_w, "cpu")
-        else loaded.ee_quat_w
-    )
-    np.testing.assert_allclose(
-        ee_quat, np.asarray(source["ee_quat_w"][0], dtype=np.float32)
-    )
+    try:
+        load_motion_data_parquet(str(partition_dir))
+    except MissingRequiredField as exc:
+        assert "motion_kind" in exc.missing
+        return
+    raise AssertionError("expected MissingRequiredField for empty motion_kind")
 
 
-def test_m3_nvhuman_g1_adapter_bit_equivalent(tmp_path: Path) -> None:
-    """NvhumanG1 adapter populates robot_root_*, joint_positions, EE and object."""
-    migrator = _load_migrator_module()
-    src = _build_fake_nvhuman_g1_parquet(tmp_path / "input")
-    source = pq.ParquetFile(str(src)).read().to_pydict()
-
-    out_root = tmp_path / "output"
-    out_root.mkdir(parents=True, exist_ok=True)
-    migrator._migrate_one(src, schema="nvhuman_g1", output_root=out_root, dry_run=False)
-
-    loaded = load_motion_data_parquet(
-        str(out_root / "sequence_id=nvhuman_g1_fixture" / "robot_name=g1")
-    )
-    assert loaded.schema_version == SCHEMA_VERSION
-    assert loaded.robot_joint_names == source["robot_joint_names"][0]
-
-    rp = np.asarray(
-        loaded.robot_root_position.cpu().numpy()
-        if hasattr(loaded.robot_root_position, "cpu")
-        else loaded.robot_root_position
-    )
-    np.testing.assert_allclose(rp, np.asarray(source["robot_root_position"][0]))
-
-    rj = np.asarray(
-        loaded.robot_joint_positions.cpu().numpy()
-        if hasattr(loaded.robot_joint_positions, "cpu")
-        else loaded.robot_joint_positions
-    )
-    np.testing.assert_allclose(rj, np.asarray(source["robot_joint_positions"][0]))
-
-    # EE mapped to palm frames (first frame is pelvis, skipped).
-    assert loaded.ee_link_names == ["left_hand_palm_link", "right_hand_palm_link"]
-    assert loaded.ee_pose_w is not None
-    # Original frames were identity wxyz at origin for all frames.
-    expected = np.asarray(source["robot_frames"][0])  # (T, K, 7)
-    l_idx = source["robot_frame_names"][0].index("left_hand_palm_link")
-    r_idx = source["robot_frame_names"][0].index("right_hand_palm_link")
-    ee_actual = np.asarray(
-        loaded.ee_pose_w.cpu().numpy()
-        if hasattr(loaded.ee_pose_w, "cpu")
-        else loaded.ee_pose_w
-    )
-    np.testing.assert_allclose(ee_actual[:, 0, :], expected[:, l_idx, :])
-    np.testing.assert_allclose(ee_actual[:, 1, :], expected[:, r_idx, :])
-
-
-def test_m4_source_payload_roundtrip(tmp_path: Path) -> None:
-    """NVHuman source joints survive migration via source_payload."""
-    migrator = _load_migrator_module()
-    src = _build_fake_nvhuman_g1_parquet(tmp_path / "input")
-    out_root = tmp_path / "output"
-    out_root.mkdir(parents=True, exist_ok=True)
-    migrator._migrate_one(src, schema="nvhuman_g1", output_root=out_root, dry_run=False)
-
-    loaded = load_motion_data_parquet(
-        str(out_root / "sequence_id=nvhuman_g1_fixture" / "robot_name=g1")
-    )
-    assert loaded.source_kind == "nvhuman"
-    assert loaded.source_payload, "source_payload should be non-empty"
-    payload = pickle.loads(loaded.source_payload)
-    assert "nvhuman_joints" in payload
-    assert "nvhuman_head_translation" in payload
-    np.testing.assert_allclose(
-        np.asarray(payload["nvhuman_head_translation"][0]),
-        np.asarray([0.0, 0.0, 1.7]),
-    )
-
-
-def test_dry_run_does_not_write(tmp_path: Path) -> None:
-    """--dry-run must not produce output files."""
-    migrator = _load_migrator_module()
-    src = _build_fake_planner_parquet(tmp_path / "input")
-    out_root = tmp_path / "output"
-    out_root.mkdir(parents=True, exist_ok=True)
-    msg = migrator._migrate_one(
-        src, schema="planner", output_root=out_root, dry_run=True
-    )
-    assert msg.startswith("DRY-RUN")
-    assert not any(out_root.rglob("*.parquet")), "dry-run wrote files"
+def test_unknown_motion_kind_raises_on_write(tmp_path: Path) -> None:
+    """Writer rejects an unrecognised motion_kind value."""
+    md = _minimal_motion_data()
+    md.motion_kind = "quadruped"
+    try:
+        save_motion_parquet(md, root_path=str(tmp_path))
+    except ValueError as exc:
+        assert "quadruped" in str(exc) or "Unknown motion_kind" in str(exc)
+        return
+    raise AssertionError("expected ValueError for unknown motion_kind")
 
 
 # ---------------------------------------------------------------------------
@@ -795,11 +636,25 @@ TESTS: list[tuple[str, Any]] = [
     ("U6 variable num ee", test_u6_variable_num_ee),
     ("missing required raises on write", test_missing_required_field_raises_on_write),
     ("missing required raises on read", test_missing_required_field_raises_on_read),
-    ("M1 migrator idempotent", test_m1_migrator_idempotent),
-    ("M2 planner adapter equivalence", test_m2_planner_adapter_bit_equivalent),
-    ("M3 nvhuman_g1 adapter equivalence", test_m3_nvhuman_g1_adapter_bit_equivalent),
-    ("M4 source payload round-trip", test_m4_source_payload_roundtrip),
-    ("dry-run does not write", test_dry_run_does_not_write),
+    ("K1 dual-hand round-trip", test_dual_hand_round_trip),
+    ("K2 single_robot missing joints raises", test_single_robot_missing_joints_raises),
+    (
+        "K3 dual_hand missing hand_sides raises",
+        test_dual_hand_missing_hand_sides_raises,
+    ),
+    (
+        "K4 dual_hand misaligned per-side raises",
+        test_dual_hand_misaligned_per_side_raises,
+    ),
+    (
+        "K5 missing motion_kind raises on write",
+        test_missing_motion_kind_raises_on_write,
+    ),
+    ("K5 missing motion_kind raises on read", test_missing_motion_kind_raises_on_read),
+    (
+        "K5 unknown motion_kind raises on write",
+        test_unknown_motion_kind_raises_on_write,
+    ),
 ]
 
 
