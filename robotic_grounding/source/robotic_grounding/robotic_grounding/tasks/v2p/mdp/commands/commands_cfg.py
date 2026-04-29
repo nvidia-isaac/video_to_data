@@ -168,6 +168,13 @@ class DualHandsObjectTrackingCommandCfg(CommandTermCfg):
     friction_coefficients: float = 0.1
     """Friction coefficient for the wrench space support function."""
 
+    enable_additional_metrics: bool = False
+    """Whether to log additional diagnostic metrics (contact wrench CV, coverage, etc.).
+
+    Enables contact_wrench_support_reward_cv and related W&B metrics.
+    Off by default to avoid compute overhead in production runs.
+    """
+
     ###################################################
     # Visualizer markers
     ###################################################

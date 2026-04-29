@@ -157,22 +157,20 @@ class SceneConfig:
     def _detect_object_type(data: dict) -> str:
         """Detect whether the scene object is articulated or rigid.
 
-        Uses ``object_articulation`` non-zero values as the signal, not body count.
-        Multiple rigid bodies (TACO tool+target, OakInk2 multi-object) should still
-        be treated as rigid.
+        Checks the object registry first — if the object has a urdf_path it is
+        always articulated, regardless of whether articulation values are zero
+        (e.g. grab sequences where the lid never moves).
+        Multiple rigid bodies (TACO tool+target, OakInk2 multi-object) have no
+        urdf_path in the registry and fall through to "rigid".
         """
-        art = data.get("object_articulation")
-        if art and art[0]:
-            arr = np.array(art[0], dtype=np.float32)
-            if np.any(np.abs(arr) > 1e-6):
-                obj_name = (
-                    data.get("safe_object_name", [None])[0]
-                    or data.get("object_name", [None])[0]
-                )
-                if obj_name:
-                    spec = get_object_spec(obj_name)
-                    if spec and spec.urdf_path:
-                        return "articulated"
+        obj_name = (
+            data.get("safe_object_name", [None])[0]
+            or data.get("object_name", [None])[0]
+        )
+        if obj_name:
+            spec = get_object_spec(obj_name)
+            if spec and spec.urdf_path:
+                return "articulated"
         return "rigid"
 
     @classmethod
