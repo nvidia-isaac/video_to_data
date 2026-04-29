@@ -1923,11 +1923,10 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         #     self.object_body_wxyz_command_e,
         # ).mean(dim=-1)
 
-        # self.metrics["virtual_object_controller_scale_factor"] = (
-        #     self.virtual_object_controller_scale_factor
-        #     * torch.ones(self.num_envs, device=self.device)
-        # )
-        pass
+        self.metrics["virtual_object_controller_scale_factor"] = (
+            self.virtual_object_controller_scale_factor
+            * torch.ones(self.num_envs, device=self.device)
+        )
 
         if not self.cfg.enable_additional_metrics:
             return
