@@ -114,9 +114,9 @@ def get_hoi_metadata(client, bucket: str, seq_prefix: str) -> dict | None:
 def resolve_mesh_url(
     client, bucket: str, mesh_prefix: str, object_id: str, mesh_base: str,
 ) -> str | None:
-    """Prefer einstar/, fall back to bsdf/. Return swift:// URL or None."""
+    """Prefer einstar/, fall back to bundlesdf/. Return swift:// URL or None."""
     base = f"{mesh_prefix}/{object_id}".lstrip("/")
-    for method in ("einstar", "bsdf"):
+    for method in ("einstar", "bundlesdf"):
         method_pfx = f"{base}/{method}/"
         resp = client.list_objects_v2(Bucket=bucket, Prefix=method_pfx, MaxKeys=20)
         for obj in resp.get("Contents", []):
