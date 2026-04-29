@@ -3,9 +3,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /app
 
 # Install system dependencies
-# libegl1 + libgles2: required by open3d's Filament/EGL OffscreenRenderer
-#   used in v2d.sam3d.lib.render_textured_video. Without these, headless
-#   GPU rendering fails with "Could not find library libEGL.so.1" + segfault.
+# libegl1 + libgles2: required by pyrender's PyOpenGL EGL backend used in
+#   v2d.sam3d.lib.render_textured_video. PyOpenGL dlopens libEGL.so.1, which
+#   is then dispatched via libglvnd to NVIDIA's libEGL_nvidia.so.0 at runtime
+#   (the latter comes from the host driver via nvidia-container-toolkit).
 RUN apt-get update && apt-get install -y \
     python3-pip \
     python3-dev \
@@ -45,6 +46,16 @@ RUN git clone https://github.com/NVlabs/nvdiffrast /tmp/nvdiffrast && \
 # and never touch this package.
 RUN pip install packaging && \
     MAX_JOBS=4 pip install flash-attn==2.7.4.post1 --no-build-isolation
+
+# pyrender + its X11 client-lib import deps (libxrender1 etc.). pyrender's
+# __init__ unconditionally imports pyglet.window, which dlopens libX11/Xrender
+# even when we render via EGL — no X server needed, just the client libs.
+# Placed after the expensive flash-attn build so adding/changing this group
+# doesn't invalidate that cache layer.
+RUN apt-get update && apt-get install -y \
+    libxrender1 libxext6 libsm6 libx11-6 \
+    && rm -rf /var/lib/apt/lists/*
+RUN pip install pyrender
 
 COPY . /workspace
 
