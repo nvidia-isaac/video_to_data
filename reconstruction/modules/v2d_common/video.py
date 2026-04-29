@@ -276,9 +276,11 @@ class _ImageDirSource(FrameSource):
     def __init__(self, image_dir: Path | str, frames_slice: slice | None = None):
         image_dir = Path(image_dir)
         self._path = image_dir
-        paths = sorted(image_dir.glob("*.png"))
-        if not paths:
-            paths = sorted(image_dir.glob("*.jpg"))
+        paths: list[Path] = []
+        for ext in ("png", "jpg", "jpeg"):
+            paths = sorted(image_dir.glob(f"*.{ext}"))
+            if paths:
+                break
         if not paths:
             raise FileNotFoundError(f"No images found in {image_dir}")
         if frames_slice is not None:
