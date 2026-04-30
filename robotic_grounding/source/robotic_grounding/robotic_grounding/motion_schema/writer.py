@@ -237,6 +237,7 @@ def save_motion_parquet(
     root_path: str | Path,
     partition_cols: list[str] | None = None,
     validate: bool = True,
+    file_name: str | None = None,
 ) -> Path:
     """Write a `MotionData` row to a Hive-partitioned parquet dataset.
 
@@ -245,6 +246,11 @@ def save_motion_parquet(
         root_path: Dataset root (e.g. `.../whole_body/mhr`).
         partition_cols: Hive partition keys. Defaults to `sequence_id`, `robot_name`.
         validate: If True, run required-fields and wxyz sanity checks before writing.
+        file_name: Optional stable basename for the single parquet file (e.g.
+            `"data.parquet"`). When ``None`` (default), pyarrow's auto-generated
+            UUID-prefixed name is kept. Since ``pq.write_to_dataset`` doesn't
+            expose a basename, we rename after the fact; safe because the writer
+            clears the partition dir above so exactly one file is produced.
 
     Returns:
         The partition directory that was written.
@@ -272,4 +278,14 @@ def save_motion_parquet(
         partition_cols=partition_cols,
         compression="zstd",
     )
+
+    if file_name is not None:
+        written = list(partition_dir.glob("*.parquet"))
+        if len(written) != 1:
+            raise RuntimeError(
+                f"Expected exactly one parquet under {partition_dir} after "
+                f"write_to_dataset, found {len(written)}: {written}"
+            )
+        written[0].rename(partition_dir / file_name)
+
     return partition_dir

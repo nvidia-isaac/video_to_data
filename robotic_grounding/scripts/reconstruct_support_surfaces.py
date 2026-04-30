@@ -54,6 +54,9 @@ except ModuleNotFoundError:
 DEFAULT_INPUT_DIR_G1 = HUMAN_MOTION_DATA_DIR / "nvhuman_g1_processed"
 
 DISK_HEIGHT = 0.01  # thin disk thickness in meters
+DISK_RADIUS_SCALE = (
+    1.0  # multiplicative bloat on the computed radius; > 1.0 enlarges disks
+)
 GROUND_Z_THRESHOLD = 0.05  # disks below this Z are on the ground plane
 
 
@@ -266,16 +269,20 @@ def compute_support_disk(
 ) -> tuple[float, float, float, float]:
     """Compute a flat support disk enclosing the X-Y footprint of world-space vertices.
 
+    The raw radius is ``max(x_span, y_span) / 2`` of the world-frame AABB; it is
+    then multiplied by the module-level ``DISK_RADIUS_SCALE`` to give a knob for
+    bloating disks without touching the call site (values > 1.0 enlarge).
+
     Returns:
         ``(cx, cy, z, radius)`` -- center of the X-Y bounding box, minimum vertex Z,
-        and half the larger of the X/Y spans.
+        and half the larger of the X/Y spans, scaled by ``DISK_RADIUS_SCALE``.
     """
     xs = vertices_world[:, 0]
     ys = vertices_world[:, 1]
     zs = vertices_world[:, 2]
     cx = (xs.min() + xs.max()) / 2.0
     cy = (ys.min() + ys.max()) / 2.0
-    radius = max(xs.max() - xs.min(), ys.max() - ys.min()) / 2.0
+    radius = max(xs.max() - xs.min(), ys.max() - ys.min()) / 2.0 * DISK_RADIUS_SCALE
     z = float(zs.min())
     return cx, cy, z, radius
 

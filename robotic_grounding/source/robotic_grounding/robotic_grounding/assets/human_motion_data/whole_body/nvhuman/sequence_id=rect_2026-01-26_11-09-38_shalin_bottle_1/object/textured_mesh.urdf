@@ -2,7 +2,13 @@
 <robot name="retarget_object">
   <link name="object">
     <inertial>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <!-- COM offset toward the bottle's base (local +Y in this mesh's frame
+           is the wide/base end, -Y is the neck) so the COM sits low enough
+           for the bottle to rest stably on the support disk instead of
+           toppling. Note: 0.2 m is well outside the mesh AABB (extent_y ~=
+           0.276 m, max y ~= 0.147 m) so this is purely a stability hack for
+           the dynamics solver, not a physically-accurate COM. -->
+      <origin xyz="0 0.2 0" rpy="0 0 0"/>
       <mass value="1.0"/>
       <inertia ixx="0.01" ixy="0.0" ixz="0.0" iyy="0.01" iyz="0.0" izz="0.01"/>
     </inertial>

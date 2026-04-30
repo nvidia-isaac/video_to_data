@@ -14,6 +14,10 @@ Object collision geometry is disabled to avoid interpenetration artifacts from
 the retargeted IK solution.  Playback loops by default; use ``--no-loop`` to
 stop at the last frame.
 
+If the motion_v1 parquet carries per-side wrist positions + binary
+``{left,right}_hand_contact_active`` masks, a colored sphere (red=left,
+green=right) is drawn at the corresponding wrist while the mask is on.
+
 Usage:
     python scripts/replay_motion.py \
         --motion_file source/robotic_grounding/robotic_grounding/assets/human_motion_data/nvhuman_g1_processed/sequence_id=<seq>/robot_name=g1
@@ -48,9 +52,13 @@ app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
 # --- Isaac / torch imports after AppLauncher ---------------------------------
+import isaaclab.sim as sim_utils  # noqa: E402
 import torch  # noqa: E402
 from isaaclab.envs import ManagerBasedEnv  # noqa: E402
+from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg  # noqa: E402
+from isaaclab.markers.config import FRAME_MARKER_CFG  # noqa: E402
 from isaaclab.utils import configclass  # noqa: E402
+from robotic_grounding.motion_schema import load_motion_data_parquet  # noqa: E402
 from robotic_grounding.tasks.scene_utils.replay_data import (  # noqa: E402
     DualHandTrajectory,
     SingleRobotTrajectory,
@@ -60,6 +68,15 @@ from robotic_grounding.tasks.scene_utils.scene_viewer_env_cfg import (  # noqa: 
     SceneViewerEnvCfg,
 )
 from scipy.spatial.transform import Rotation as R  # noqa: E402
+
+# Foot-contact proxy: in kinematic replay there's no physics contact force,
+# so "in contact" is a simple height check on the ankle-roll link. When the
+# G1 foot is flat, left/right_ankle_roll_link sits ≈ 0.037 m above the
+# ground (the LL_FOOT/LR_FOOT frames are defined at ``0.04 0 -0.037`` below
+# their parent ankle-roll). 0.06 m gives a small tolerance for retarget noise
+# without falsely triggering during swing.
+FOOT_CONTACT_Z_THRESHOLD = 0.06
+
 
 # =============================================================================
 # Env configuration — kinematic replay variant
@@ -383,6 +400,119 @@ def _write_object_frame(
 
 
 # =============================================================================
+# Contact-mask visualization
+# =============================================================================
+
+
+# Replay-time anchor for contact markers. `replay_data.load_replay_trajectory`
+# deliberately drops per-side wrist + contact_active tensors, so we re-read
+# them directly from the motion_v1 parquet via `load_motion_data_parquet`. This
+# keeps the primary replay loader lean and single-purpose while allowing the
+# script to overlay optional diagnostics.
+class ContactOverlay:
+    """Per-side wrist positions + binary contact mask, ready for per-frame draw.
+
+    Attributes are set for every side that has both a wrist trajectory and a
+    contact mask on disk. If either is missing for a side, `has_left`/`has_right`
+    stays False and the marker for that side will never be shown.
+    """
+
+    def __init__(self, motion_file: str, device: torch.device) -> None:
+        """Load contact overlay data, or no-op if the parquet lacks the fields."""
+        self.has_left: bool = False
+        self.has_right: bool = False
+        self.left_wrist_pos: torch.Tensor | None = None
+        self.right_wrist_pos: torch.Tensor | None = None
+        self.left_active: torch.Tensor | None = None
+        self.right_active: torch.Tensor | None = None
+
+        try:
+            md = load_motion_data_parquet(motion_file, device=str(device))
+        except Exception as exc:
+            print(f"[WARN] Contact overlay disabled (motion_v1 load failed): {exc}")
+            return
+
+        for side in ("left", "right"):
+            wrist = getattr(md, f"{side}_wrist_position", None)
+            active = getattr(md, f"{side}_hand_contact_active", None)
+            if wrist is None or active is None:
+                continue
+            # Align masks to the shorter of the two in case of drift.
+            n = min(wrist.shape[0], active.shape[0])
+            setattr(self, f"{side}_wrist_pos", wrist[:n].to(device).float())
+            setattr(self, f"{side}_active", active[:n].to(device).float())
+            setattr(self, f"has_{side}", True)
+
+        if not (self.has_left or self.has_right):
+            print(
+                "[INFO] No per-side wrist + contact_active in motion file; "
+                "skipping contact overlay."
+            )
+
+
+def _sphere_marker_cfg(
+    prim_path: str,
+    rgb: tuple[float, float, float],
+    radius: float = 0.03,
+) -> VisualizationMarkersCfg:
+    """Colored sphere marker at a fixed radius (default ≈ 3 cm)."""
+    return VisualizationMarkersCfg(
+        prim_path=prim_path,
+        markers={
+            "sphere": sim_utils.SphereCfg(
+                radius=radius,
+                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=rgb),
+            ),
+        },
+    )
+
+
+def _draw_contact_marker(
+    marker: VisualizationMarkers | None,
+    is_active: bool,
+    wrist_pos_t: torch.Tensor,
+    env_origins: torch.Tensor,
+) -> None:
+    """Place `marker` at the wrist, toggling visibility from `is_active`.
+
+    We keep the sphere anchored at the wrist regardless of state so that the
+    first `is_active=True` frame doesn't momentarily flash at (0, 0, 0) before
+    USD picks up the new transform. Visibility alone drives on/off.
+    """
+    if marker is None:
+        return
+    translations = (
+        wrist_pos_t.unsqueeze(0).expand(env_origins.shape[0], -1) + env_origins
+    )
+    marker.visualize(translations=translations)
+    marker.set_visibility(bool(is_active))
+
+
+def _find_body_idx(body_names: list[str], candidates: tuple[str, ...]) -> int | None:
+    """Return the first body index matching one of ``candidates``, else None.
+
+    Lets callers probe for a palm link that may be named differently across
+    URDF variants (``*_hand_palm_link`` on the dex-hand G1, ``*_wrist_yaw_link``
+    on the no-hand variants).
+    """
+    for name in candidates:
+        if name in body_names:
+            return body_names.index(name)
+    return None
+
+
+def _frame_marker_cfg(prim_path: str, scale: float) -> VisualizationMarkersCfg:
+    """RGB xyz-axis frame marker (same asset used by the tracking command).
+
+    Scale is uniform — FRAME_MARKER_CFG's ``markers["frame"].scale`` is a
+    ``(sx, sy, sz)`` tuple. We replicate to keep axes equal-length.
+    """
+    cfg = FRAME_MARKER_CFG.replace(prim_path=prim_path)
+    cfg.markers["frame"].scale = (scale, scale, scale)
+    return cfg
+
+
+# =============================================================================
 # Main
 # =============================================================================
 
@@ -430,6 +560,116 @@ def main() -> None:
     num_envs = env.num_envs
     env_origins = env.scene.env_origins  # (num_envs, 3)
 
+    # Contact overlay (motion_v1 parquets only). Anchors at each wrist; shows
+    # while the per-frame contact-active mask is on.
+    contact_overlay = ContactOverlay(args_cli.motion_file, device)
+    if traj.height_offset != 0.0:
+        # Apply the same Z lift the replay loader used so markers sit on the
+        # actual kinematic wrists (legacy whole-body data only).
+        if contact_overlay.has_left and contact_overlay.left_wrist_pos is not None:
+            contact_overlay.left_wrist_pos = contact_overlay.left_wrist_pos.clone()
+            contact_overlay.left_wrist_pos[:, 2] += traj.height_offset
+        if contact_overlay.has_right and contact_overlay.right_wrist_pos is not None:
+            contact_overlay.right_wrist_pos = contact_overlay.right_wrist_pos.clone()
+            contact_overlay.right_wrist_pos[:, 2] += traj.height_offset
+    left_contact_marker: VisualizationMarkers | None = None
+    right_contact_marker: VisualizationMarkers | None = None
+    if contact_overlay.has_left:
+        left_contact_marker = VisualizationMarkers(
+            _sphere_marker_cfg(
+                "/Visuals/Replay/left_hand_contact", rgb=(0.95, 0.25, 0.25)
+            )
+        )
+        left_contact_marker.set_visibility(False)
+    if contact_overlay.has_right:
+        right_contact_marker = VisualizationMarkers(
+            _sphere_marker_cfg(
+                "/Visuals/Replay/right_hand_contact", rgb=(0.25, 0.85, 0.35)
+            )
+        )
+        right_contact_marker.set_visibility(False)
+
+    # Anchor frame markers (xyz axes, same asset the tracking command uses).
+    # Palm markers read from ``robot.data.{body_pos_w, body_quat_w}`` so they
+    # need an index resolved against the spawned articulation; if no palm-like
+    # body is found for a side, that side's marker is skipped. For dual-hand
+    # layouts we fall back to the wrist-root pose (which *is* the palm for the
+    # floating hand robots).
+    root_marker: VisualizationMarkers | None = None
+    left_palm_marker: VisualizationMarkers | None = None
+    right_palm_marker: VisualizationMarkers | None = None
+    object_marker: VisualizationMarkers | None = None
+    left_palm_idx: int | None = None
+    right_palm_idx: int | None = None
+
+    if traj.robot_layout == "single_robot":
+        assert robot is not None
+        root_marker = VisualizationMarkers(
+            _frame_marker_cfg("/Visuals/Replay/robot_root", scale=0.20)
+        )
+        body_names = list(robot.body_names)
+        left_palm_idx = _find_body_idx(
+            body_names,
+            ("left_hand_palm_link", "left_wrist_yaw_link", "left_wrist_roll_link"),
+        )
+        right_palm_idx = _find_body_idx(
+            body_names,
+            ("right_hand_palm_link", "right_wrist_yaw_link", "right_wrist_roll_link"),
+        )
+        if left_palm_idx is None:
+            print("[WARN] No palm-like body found for left arm; marker disabled.")
+        if right_palm_idx is None:
+            print("[WARN] No palm-like body found for right arm; marker disabled.")
+
+    if (traj.robot_layout == "single_robot" and left_palm_idx is not None) or (
+        traj.robot_layout == "dual_hand"
+    ):
+        left_palm_marker = VisualizationMarkers(
+            _frame_marker_cfg("/Visuals/Replay/left_palm", scale=0.10)
+        )
+    if (traj.robot_layout == "single_robot" and right_palm_idx is not None) or (
+        traj.robot_layout == "dual_hand"
+    ):
+        right_palm_marker = VisualizationMarkers(
+            _frame_marker_cfg("/Visuals/Replay/right_palm", scale=0.10)
+        )
+
+    if obj is not None and traj.object_root_pos.shape[0] > 0:
+        object_marker = VisualizationMarkers(
+            _frame_marker_cfg("/Visuals/Replay/object_root", scale=0.15)
+        )
+
+    # Foot-contact markers: small green spheres anchored to the ankle-roll
+    # links; visibility toggles with the Z-threshold proxy defined above.
+    # Single-robot only — dual-hand layouts have no legs.
+    left_foot_marker: VisualizationMarkers | None = None
+    right_foot_marker: VisualizationMarkers | None = None
+    left_ankle_idx: int | None = None
+    right_ankle_idx: int | None = None
+    if traj.robot_layout == "single_robot":
+        assert robot is not None
+        body_names = list(robot.body_names)
+        left_ankle_idx = _find_body_idx(body_names, ("left_ankle_roll_link",))
+        right_ankle_idx = _find_body_idx(body_names, ("right_ankle_roll_link",))
+        if left_ankle_idx is not None:
+            left_foot_marker = VisualizationMarkers(
+                _sphere_marker_cfg(
+                    "/Visuals/Replay/left_foot_contact",
+                    rgb=(0.2, 1.0, 0.3),
+                    radius=0.02,
+                )
+            )
+            left_foot_marker.set_visibility(False)
+        if right_ankle_idx is not None:
+            right_foot_marker = VisualizationMarkers(
+                _sphere_marker_cfg(
+                    "/Visuals/Replay/right_foot_contact",
+                    rgb=(0.2, 1.0, 0.3),
+                    radius=0.02,
+                )
+            )
+            right_foot_marker.set_visibility(False)
+
     actions = torch.zeros(num_envs, 0, device=device)
     frame_f = 0.0
     frame_step = cfg.sim.dt * traj.fps * args_cli.speed
@@ -439,6 +679,9 @@ def main() -> None:
         f"[INFO] Replaying {traj.num_frames} frames at {traj.fps:.0f} fps "
         f"(speed={args_cli.speed}x, loop={loop})"
     )
+    if contact_overlay.has_left or contact_overlay.has_right:
+        sides = [s for s in ("left", "right") if getattr(contact_overlay, f"has_{s}")]
+        print(f"[INFO] Contact overlay enabled for: {', '.join(sides)}")
     print("[INFO] Close the window to exit.")
 
     while simulation_app.is_running():
@@ -486,7 +729,96 @@ def main() -> None:
             device=device,
         )
 
+        if contact_overlay.has_left:
+            assert contact_overlay.left_wrist_pos is not None
+            assert contact_overlay.left_active is not None
+            tl = min(t, contact_overlay.left_wrist_pos.shape[0] - 1)
+            _draw_contact_marker(
+                left_contact_marker,
+                bool(contact_overlay.left_active[tl].item() > 0.5),
+                contact_overlay.left_wrist_pos[tl],
+                env_origins,
+            )
+        if contact_overlay.has_right:
+            assert contact_overlay.right_wrist_pos is not None
+            assert contact_overlay.right_active is not None
+            tr = min(t, contact_overlay.right_wrist_pos.shape[0] - 1)
+            _draw_contact_marker(
+                right_contact_marker,
+                bool(contact_overlay.right_active[tr].item() > 0.5),
+                contact_overlay.right_wrist_pos[tr],
+                env_origins,
+            )
+
         env.step(actions)
+
+        # Anchor frame markers: placed *after* env.step so body_pos_w /
+        # body_quat_w reflect the joint state we just wrote (palms need FK,
+        # which is refreshed during env.step). Root / object markers use
+        # trajectory values directly; either timing works for those but we
+        # keep them grouped for clarity.
+        if root_marker is not None and traj.robot_layout == "single_robot":
+            pos = traj.robot_root_pos[t].unsqueeze(0).expand(num_envs, -1) + env_origins
+            quat = traj.robot_root_wxyz[t].unsqueeze(0).expand(num_envs, -1)
+            root_marker.visualize(translations=pos, orientations=quat)
+
+        if traj.robot_layout == "single_robot":
+            assert robot is not None
+            if left_palm_marker is not None and left_palm_idx is not None:
+                left_palm_marker.visualize(
+                    translations=robot.data.body_pos_w[:, left_palm_idx, :],
+                    orientations=robot.data.body_quat_w[:, left_palm_idx, :],
+                )
+            if right_palm_marker is not None and right_palm_idx is not None:
+                right_palm_marker.visualize(
+                    translations=robot.data.body_pos_w[:, right_palm_idx, :],
+                    orientations=robot.data.body_quat_w[:, right_palm_idx, :],
+                )
+        else:
+            if left_palm_marker is not None:
+                left_palm_marker.visualize(
+                    translations=(
+                        traj.left_wrist_pos[t].unsqueeze(0).expand(num_envs, -1)
+                        + env_origins
+                    ),
+                    orientations=traj.left_wrist_wxyz[t]
+                    .unsqueeze(0)
+                    .expand(num_envs, -1),
+                )
+            if right_palm_marker is not None:
+                right_palm_marker.visualize(
+                    translations=(
+                        traj.right_wrist_pos[t].unsqueeze(0).expand(num_envs, -1)
+                        + env_origins
+                    ),
+                    orientations=traj.right_wrist_wxyz[t]
+                    .unsqueeze(0)
+                    .expand(num_envs, -1),
+                )
+
+        if object_marker is not None and t < traj.object_root_pos.shape[0]:
+            pos = (
+                traj.object_root_pos[t].unsqueeze(0).expand(num_envs, -1) + env_origins
+            )
+            quat = traj.object_root_wxyz[t].unsqueeze(0).expand(num_envs, -1)
+            object_marker.visualize(translations=pos, orientations=quat)
+
+        # Foot-contact markers: anchor at each ankle-roll link; visibility
+        # toggles on when the ankle-roll Z (above env origin) is below the
+        # contact threshold. All envs share the same kinematic trajectory, so
+        # env-0's Z is sufficient to drive the single USD visibility flag.
+        if left_foot_marker is not None and left_ankle_idx is not None:
+            assert robot is not None
+            ankle_pos = robot.data.body_pos_w[:, left_ankle_idx, :]
+            left_foot_marker.visualize(translations=ankle_pos)
+            z_rel = (ankle_pos[0, 2] - env_origins[0, 2]).item()
+            left_foot_marker.set_visibility(z_rel < FOOT_CONTACT_Z_THRESHOLD)
+        if right_foot_marker is not None and right_ankle_idx is not None:
+            assert robot is not None
+            ankle_pos = robot.data.body_pos_w[:, right_ankle_idx, :]
+            right_foot_marker.visualize(translations=ankle_pos)
+            z_rel = (ankle_pos[0, 2] - env_origins[0, 2]).item()
+            right_foot_marker.set_visibility(z_rel < FOOT_CONTACT_Z_THRESHOLD)
 
         frame_f += frame_step
         if t > 0 and t % 100 == 0:
