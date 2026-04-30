@@ -384,6 +384,7 @@ def optimize_multiview(
 
     n_frames = opt_params["global_rot_6d"].shape[0]
     n_chunks = math.ceil(n_frames / chunk_size)
+    nan_grad_count = 0
 
     for i in range(max_iterations):
         optimizer.zero_grad()
@@ -413,11 +414,22 @@ def optimize_multiview(
         temp_loss = temporal_smoothness(opt_params)
         (temporal_weight * temp_loss).backward()
 
+        grad_norms = {}
+        for k, p in opt_params.items():
+            if p.grad is not None:
+                grad_norms[k] = p.grad.norm().item()
+                if not torch.isfinite(p.grad).all():
+                    nan_grad_count += 1
+                p.grad = torch.nan_to_num(p.grad, nan=0.0, posinf=0.0, neginf=0.0)
+
         if i % 10 == 0:
             avg_reproj = total_reproj / n_chunks
-            print(f"Iteration {i}: reproj: {avg_reproj:.4f}, temporal: {temp_loss.item():.4f}")
+            grad_str = " ".join(f"{k}={v:.2e}" for k, v in grad_norms.items())
+            print(f"Iteration {i}: reproj: {avg_reproj:.4f}, temporal: {temp_loss.item():.4f} | grad_norms: {grad_str}")
 
         optimizer.step()
+
+    print(f"Sanitized non-finite grads on {nan_grad_count} param-iterations")
 
     for p in opt_params.values():
         p.requires_grad_(False)

@@ -154,8 +154,10 @@ def pack_directory_to_h5(
         f.attrs["height"] = h
 
     if remove_pngs:
+        import shutil
         for p in png_files:
             p.unlink()
+        shutil.rmtree(image_dir)
 
     logger.info("Packed %d frames from %s -> %s", len(png_files), image_dir, h5_path)
 

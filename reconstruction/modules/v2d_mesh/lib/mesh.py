@@ -46,7 +46,11 @@ class Mesh:
         if isinstance(visual, trimesh.visual.TextureVisuals):
             try:
                 if visual.uv is not None and visual.material is not None:
-                    img = visual.material.image
+                    mat = visual.material
+                    img = (
+                        getattr(mat, 'baseColorTexture', None)
+                        or getattr(mat, 'image', None)
+                    )
                     if img is not None:
                         uv = np.array(visual.uv, dtype=np.float64)
                         texture = np.array(img.convert('RGBA'), dtype=np.uint8)

@@ -5,10 +5,12 @@ glctx) and fuses per-camera poses each frame via visibility-based selection
 and anisotropic pose averaging.
 """
 
+import json
 import logging
 import os
 import sys
 from contextlib import contextmanager
+from pathlib import Path
 import numpy as np
 from scipy.spatial.transform import Rotation
 import torch
@@ -17,7 +19,66 @@ import trimesh
 from v2d.mesh.lib.mesh import Mesh
 from v2d.mv.math.numpy_fn import xyz_to_uv, se3_from_rot_trans
 
-from .symmetry import canonicalize_pose
+
+def _canonicalize_poses_with_indices(
+    poses: list[np.ndarray],
+    group: list[np.ndarray],
+    reference: np.ndarray,
+) -> tuple[list[np.ndarray], list[tuple[int, float]]]:
+    """Canonicalize each pose against `reference`; also return (chosen_index, geodesic_dist_rad)."""
+    ref_R = np.asarray(reference, dtype=float)[:3, :3]
+    canonicals: list[np.ndarray] = []
+    indices: list[tuple[int, float]] = []
+    for pose in poses:
+        pose = np.asarray(pose, dtype=float)
+        best_idx = -1
+        best_dist = float("inf")
+        best_pose = None
+        for k, R_s in enumerate(group):
+            cand = pose @ R_s
+            cos_t = (np.trace(ref_R.T @ cand[:3, :3]) - 1.0) / 2.0
+            d = float(np.arccos(np.clip(cos_t, -1.0, 1.0)))
+            if d < best_dist:
+                best_dist = d
+                best_idx = k
+                best_pose = cand
+        canonicals.append(best_pose)
+        indices.append((best_idx, best_dist))
+    return canonicals, indices
+
+
+def _dump_register_debug(
+    path: str,
+    symmetry_group_size: int,
+    fp_scores: list[float],
+    visible_ratios: np.ndarray,
+    select_idx: np.ndarray,
+    ref_idx: int,
+    raw_world_poses: list[np.ndarray],
+    canonical_world_poses: list[np.ndarray],
+    snap_indices_per_iter: list[list[tuple[int, float]]],
+    avg_pose: np.ndarray,
+) -> None:
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "symmetry_group_size": int(symmetry_group_size),
+        "fp_scores": [float(s) for s in fp_scores],
+        "visible_ratios": [float(v) for v in visible_ratios],
+        "select_idx": [bool(v) for v in select_idx],
+        "ref_idx": int(ref_idx),
+        "n_iter": len(snap_indices_per_iter),
+        "raw_world_poses": [np.asarray(p).tolist() for p in raw_world_poses],
+        "canonical_world_poses": [np.asarray(p).tolist() for p in canonical_world_poses],
+        "snap_indices_per_iter": [
+            [[int(idx), float(dist)] for idx, dist in iter_indices]
+            for iter_indices in snap_indices_per_iter
+        ],
+        "avg_pose": np.asarray(avg_pose).tolist(),
+    }
+    with open(p, "w") as f:
+        json.dump(record, f, indent=2)
+    print(f"[MultiViewTracker] register debug dumped to {p}")
 
 
 @contextmanager
@@ -110,31 +171,79 @@ class MultiViewTracker:
         Ks: list[np.ndarray],
         Ts: list[np.ndarray],
         iteration: int = 5,
+        debug_dump_path: str | None = None,
     ) -> tuple[np.ndarray, list[np.ndarray], np.ndarray, np.ndarray]:
         """Register frame 0 across all cameras.
 
         Returns:
             avg_pose: (4,4) best world-frame pose
-            world_poses: list of (4,4) per-camera world poses
+            world_poses: list of (4,4) per-camera canonicalized world poses
             visible_ratios: (D,) per-camera visibility ratios
             select_idx: boolean mask of cameras where object is visible
         """
-        world_poses = []
+        raw_world_poses = []
+        fp_scores = []
         with _suppress_fp_logging():
             for j, est in enumerate(self._estimators):
                 cam_pose = est.register(
                     K=Ks[j], rgb=rgbs[j], depth=depths[j],
                     ob_mask=masks[j], iteration=iteration,
                 )
-                world_poses.append(Ts[j] @ cam_pose)
+                raw_world_poses.append(Ts[j] @ cam_pose)
+                # FoundationPose.register() returns early without setting
+                # self.scores when the mask has <4 valid depth pixels.
+                scores = getattr(est, "scores", None)
+                fp_scores.append(float(scores[0].item()) if scores is not None else float("nan"))
                 torch.cuda.empty_cache()
 
-        if self.symmetry_group is not None:
-            ref = world_poses[0]
-            world_poses = [canonicalize_pose(p, self.symmetry_group, ref) for p in world_poses]
-
-        avg_pose, visible_ratios, select_idx = self._avg_poses(world_poses, masks, Ks, Ts)
+        visible_ratios = self._compute_visibility(raw_world_poses, masks, Ks, Ts)
+        select_idx = visible_ratios > self.visible_ratio_cutoff_low
         assert np.sum(select_idx) > 0, "Object not visible from any camera in first frame"
+
+        snap_indices_per_iter: list[list[tuple[int, float]]] = []
+        ref_idx = -1
+        if self.symmetry_group is not None and len(self.symmetry_group) > 1:
+            scores_for_ref = visible_ratios.copy()
+            scores_for_ref[~select_idx] = -np.inf
+            ref_idx = int(np.argmax(scores_for_ref))
+            ref = raw_world_poses[ref_idx]
+
+            n_iter_max = 3
+            world_poses = list(raw_world_poses)
+            for _ in range(n_iter_max):
+                world_poses, snap_indices = _canonicalize_poses_with_indices(
+                    raw_world_poses, self.symmetry_group, ref,
+                )
+                snap_indices_per_iter.append(snap_indices)
+                new_ref = self._weighted_se3_mean_from_poses(
+                    world_poses, Ts, visible_ratios, select_idx,
+                )
+                cos_t = (np.trace(ref[:3, :3].T @ new_ref[:3, :3]) - 1.0) / 2.0
+                angle_diff = float(np.arccos(np.clip(cos_t, -1.0, 1.0)))
+                ref = new_ref
+                if angle_diff < 1e-4:
+                    break
+            avg_pose = ref
+        else:
+            world_poses = list(raw_world_poses)
+            avg_pose = self._weighted_se3_mean_from_poses(
+                world_poses, Ts, visible_ratios, select_idx,
+            )
+
+        if debug_dump_path is not None:
+            _dump_register_debug(
+                path=debug_dump_path,
+                symmetry_group_size=len(self.symmetry_group) if self.symmetry_group is not None else 1,
+                fp_scores=fp_scores,
+                visible_ratios=visible_ratios,
+                select_idx=select_idx,
+                ref_idx=ref_idx,
+                raw_world_poses=raw_world_poses,
+                canonical_world_poses=world_poses,
+                snap_indices_per_iter=snap_indices_per_iter,
+                avg_pose=avg_pose,
+            )
+
         self._sync_to_avg(avg_pose, Ts)
         return avg_pose, world_poses, visible_ratios, select_idx
 
@@ -213,7 +322,7 @@ class MultiViewTracker:
 
         return se3_from_rot_trans(mean_rot, mean_trans)
 
-    def _avg_poses(
+    def _compute_visibility(
         self,
         world_poses: list[np.ndarray],
         masks: list[np.ndarray],
@@ -234,20 +343,40 @@ class MultiViewTracker:
                 continue
             in_mask = masks[j][uv[in_bounds, 1], uv[in_bounds, 0]].sum()
             visible_ratios[j] = in_mask / in_bounds.sum()
+        return visible_ratios
 
-        select_idx = visible_ratios > self.visible_ratio_cutoff_low
-        if not select_idx.any():
-            print(f"Object not visible from any camera, using last pose")
-            return self.pose_last, visible_ratios, select_idx
+    def _weighted_se3_mean_from_poses(
+        self,
+        world_poses: list[np.ndarray],
+        Ts: list[np.ndarray],
+        visible_ratios: np.ndarray,
+        select_idx: np.ndarray,
+    ) -> np.ndarray:
         selected = np.where(select_idx)[0]
         cam_rotations = np.array([Ts[j][:3, :3] for j in selected])
         W_trans = np.diag([1.0, 1.0, self.depth_direction_trust])
         w_pose = self._visible_ratio_to_precision(visible_ratios[selected])
-        avg_pose = self._se3_split_mean_weighted(
+        return self._se3_split_mean_weighted(
             np.array(world_poses)[select_idx],
             cam_rotations,
             W_trans,
             w_pose,
+        )
+
+    def _avg_poses(
+        self,
+        world_poses: list[np.ndarray],
+        masks: list[np.ndarray],
+        Ks: list[np.ndarray],
+        Ts: list[np.ndarray],
+    ) -> np.ndarray:
+        visible_ratios = self._compute_visibility(world_poses, masks, Ks, Ts)
+        select_idx = visible_ratios > self.visible_ratio_cutoff_low
+        if not select_idx.any():
+            print(f"Object not visible from any camera, using last pose")
+            return self.pose_last, visible_ratios, select_idx
+        avg_pose = self._weighted_se3_mean_from_poses(
+            world_poses, Ts, visible_ratios, select_idx,
         )
         return avg_pose, visible_ratios, select_idx
 

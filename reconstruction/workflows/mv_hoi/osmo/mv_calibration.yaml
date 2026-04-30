@@ -79,7 +79,11 @@ workflow:
         python -m v2d.mv.calibration.lib.calibrate_extrinsics \
           --camera_params_path {{input:0}}/edex \
           --rgb_dir {{input:0}}/images \
-          --output_dir {{output}}
+          --output_dir {{output}} \
+          --config_path /tmp/calibration_config.yaml
+    - path: /tmp/calibration_config.yaml
+      contents: |-
+        input_suffix: ".h5"
 
 default-values:
   workflow_name: v2d_mv_calibration

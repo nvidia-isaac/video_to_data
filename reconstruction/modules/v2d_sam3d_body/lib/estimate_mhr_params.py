@@ -146,11 +146,20 @@ def estimate_mhr_params(
         if debug > 1:
             writer = get_video_writer(output_params_path.parent / "mhr_overlay.mp4", fps=30, crf=23)
 
+    print(f"CUDA available={torch.cuda.is_available()} device={DEVICE} "
+          f"name={torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'cpu'}")
+
     all_outputs: list[dict] = []
-    for i, image in tqdm(enumerate(frame_source.iter_frames()), total=n_frames,
-                         desc="Running SAM3D-Body estimation"):
+    frame_iter = frame_source.iter_frames()
+    t_decode_start = time.time()
+    for i in tqdm(range(n_frames), desc="Running SAM3D-Body estimation"):
+        image = next(frame_iter)
+        t_decode = time.time() - t_decode_start
+
         bbox = bbox_track[i] if bbox_track is not None else None
 
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
         start_time = time.time()
         outputs = estimator.process_one_image(
             img=image,
@@ -158,11 +167,16 @@ def estimate_mhr_params(
             cam_int=torch.from_numpy(cam_intrinsics).unsqueeze(0),
             inference_type="body",
         )
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
         inference_time = time.time() - start_time
 
         assert len(outputs) == 1, f"Expected 1 output, got {len(outputs)}"
         frame_output = outputs[0]
         all_outputs.append(frame_output)
+
+        if i % 30 == 0:
+            tqdm.write(f"Frame {i}: decode={1000*t_decode:.1f}ms infer={1000*inference_time:.1f}ms")
 
         if debug > 0:
             should_render = debug > 1 or i % 30 == 0
@@ -191,9 +205,10 @@ def estimate_mhr_params(
                 if debug > 1:
                     writer.write_frame(rendered_image)
                 if i % 30 == 0:
-                    tqdm.write(f"Frame {i} inference time: {inference_time:.3f}s")
                     iio.imwrite(output_params_path.parent / "mhr_overlay" / f"{i:06d}.png",
                                 rendered_image)
+
+        t_decode_start = time.time()
 
     mhr_outputs = coalesce_mhr_outputs_dict(all_mhr_outputs_dicts=all_outputs)
     mhr_params, mhr_mesh = export_mhr_outputs(

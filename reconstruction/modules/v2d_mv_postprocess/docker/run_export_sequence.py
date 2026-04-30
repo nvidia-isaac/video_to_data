@@ -28,6 +28,7 @@ def run_export_sequence(
     source_dir: str | None = None,
     dry_run: bool = False,
     max_workers: int | None = None,
+    final_only: bool = False,
     dev: bool = False,
 ) -> None:
     inputs = {}
@@ -48,6 +49,8 @@ def run_export_sequence(
         extra_args["dry_run"] = True
     if max_workers is not None:
         extra_args["max_workers"] = max_workers
+    if final_only:
+        extra_args["final_only"] = True
 
     run_in_container(
         image=IMAGE_NAME,
@@ -78,6 +81,9 @@ if __name__ == "__main__":
     parser.add_argument("--dry_run", action="store_true")
     parser.add_argument("--max_workers", type=int, default=None,
                         help="Parallel download threads (default: CPU count)")
+    parser.add_argument("--final_only", action="store_true",
+                        help="Export only final outputs (trajectories, ground plane, object mesh, "
+                             "edex, tiled overlay); skip depth/masks/images/videos.")
     parser.add_argument("--dev", action="store_true")
     args = parser.parse_args()
 
@@ -87,5 +93,6 @@ if __name__ == "__main__":
         source_dir=args.source_dir,
         dry_run=args.dry_run,
         max_workers=args.max_workers,
+        final_only=args.final_only,
         dev=args.dev,
     )

@@ -5,7 +5,9 @@ Processes a single stereo image pair and returns updated camera parameters.
 
 import logging
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import queue
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -149,44 +151,72 @@ def preprocess_stereo(
     assert n_matched > 0, "No matched frames to process"
     logger.info(f"Processing {n_matched} matched frames with {num_workers} workers...")
 
-    # Parallel rectification, sequential writes
-    results: dict[int, tuple[np.ndarray, np.ndarray]] = {}
-    with ThreadPoolExecutor(max_workers=num_workers) as executor:
-        futures = [
-            executor.submit(
-                _rectify_frame, order,
-                left_idx, right_idx,
-                left_source, right_source,
-                left_pipeline, right_pipeline,
-            )
-            for order, (left_idx, right_idx, _stem) in enumerate(matched_pairs)
-        ]
-        for fut in tqdm(as_completed(futures), total=len(futures), desc="Rectifying"):
-            idx, img1, img2 = fut.result()
-            results[idx] = (img1, img2)
+    # Streaming pipeline: rectify in thread pool, write in-order via bounded queue.
+    # Caps peak memory to ~(maxsize * 2 frames * frame_size) instead of all frames.
+    frame_queue: queue.Queue = queue.Queue(maxsize=num_workers * 2)
+    writer_error: list[BaseException] = []
 
     left_writer = FrameWriter.from_path(left_output_image_dir)
     right_writer = FrameWriter.from_path(right_output_image_dir)
     left_vid_writer = FrameWriter.from_path(left_output_video_path) if left_output_video_path else None
     right_vid_writer = FrameWriter.from_path(right_output_video_path) if right_output_video_path else None
 
+    pbar = tqdm(total=n_matched, desc="Rectify + write")
+
+    def _writer_loop():
+        """Drain the queue in order and write to all FrameWriters."""
+        next_idx = 0
+        pending: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+        try:
+            while True:
+                item = frame_queue.get()
+                if item is None:
+                    break
+                idx, img1, img2 = item
+                pending[idx] = (img1, img2)
+                while next_idx in pending:
+                    im1, im2 = pending.pop(next_idx)
+                    stem = matched_pairs[next_idx][2]
+                    left_writer.write_frame(im1, stem=stem)
+                    right_writer.write_frame(im2, stem=stem)
+                    if left_vid_writer is not None:
+                        left_vid_writer.write_frame(im1)
+                    if right_vid_writer is not None:
+                        right_vid_writer.write_frame(im2)
+                    next_idx += 1
+                    pbar.update(1)
+        except BaseException as exc:
+            writer_error.append(exc)
+
+    writer_thread = threading.Thread(target=_writer_loop, daemon=True)
+    writer_thread.start()
+
     try:
-        for i in tqdm(range(n_matched), desc="Writing frames"):
-            img1, img2 = results[i]
-            stem = matched_pairs[i][2]
-            left_writer.write_frame(img1, stem=stem)
-            right_writer.write_frame(img2, stem=stem)
-            if left_vid_writer is not None:
-                left_vid_writer.write_frame(img1)
-            if right_vid_writer is not None:
-                right_vid_writer.write_frame(img2)
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            futures = [
+                executor.submit(
+                    _rectify_frame, order,
+                    left_idx, right_idx,
+                    left_source, right_source,
+                    left_pipeline, right_pipeline,
+                )
+                for order, (left_idx, right_idx, _stem) in enumerate(matched_pairs)
+            ]
+            for fut in futures:
+                frame_queue.put(fut.result())
+        frame_queue.put(None)
+        writer_thread.join()
     finally:
+        pbar.close()
         left_writer.close()
         right_writer.close()
         if left_vid_writer is not None:
             left_vid_writer.close()
         if right_vid_writer is not None:
             right_vid_writer.close()
+
+    if writer_error:
+        raise writer_error[0]
 
     logger.info(f"{n_matched} frames processed")
 

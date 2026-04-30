@@ -2,6 +2,7 @@ import tempfile
 import os
 import numpy as np
 import trimesh
+from PIL import Image as PILImage
 
 from v2d.common.datatypes import BoundingBox3d, Image
 from v2d.mesh.lib.mesh import Mesh
@@ -58,6 +59,20 @@ def test_no_vertex_colors_by_default():
     assert mesh.vertex_colors is None
     tm_back = mesh.to_trimesh()
     assert tm_back is not None
+
+
+def test_from_trimesh_captures_pbr_base_color_texture():
+    tm = trimesh.creation.box()
+    uv = np.zeros((len(tm.vertices), 2), dtype=np.float64)
+    image = PILImage.new('RGBA', (2, 2), (255, 0, 0, 255))
+    material = trimesh.visual.material.PBRMaterial(baseColorTexture=image)
+    tm.visual = trimesh.visual.TextureVisuals(uv=uv, material=material)
+
+    mesh = Mesh.from_trimesh(tm)
+
+    assert mesh.uv is not None
+    assert mesh.texture is not None
+    assert mesh.texture.shape == (2, 2, 4)
 
 
 # ---------------------------------------------------------------------------

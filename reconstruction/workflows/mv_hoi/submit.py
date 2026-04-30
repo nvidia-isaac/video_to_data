@@ -174,29 +174,19 @@ def submit_sequence(
         sequence_name, dataset_name, pipeline_type, db_path=DB_PATH, table=TABLE,
     )
 
-    if latest and not force:
-        if latest["status"] == "WAITING_WF":
-            if not _confirm(
-                f"Sequence {sequence_name} is running ({latest['workflow_name']}). "
-                "Cancel and resubmit?"
-            ):
-                return None
-            osmo_id = latest.get("osmo_workflow_id") or latest["workflow_name"]
-            if not osmo_cancel(osmo_id):
-                print(f"  {sequence_name}: cancel failed, aborting")
-                return None
-            update_workflow(latest["workflow_name"], status="FAIL",
-                           details="cancelled_for_resubmit", db_path=DB_PATH,
-                           table=TABLE)
-            print(f"  {sequence_name}: cancelled previous run, resubmitting")
-        elif latest["status"] == "WAITING_QC":
-            if not _confirm(
-                f"Sequence {sequence_name} is awaiting QC. Resubmit?"
-            ):
-                return None
-        elif latest["status"] == "PASS":
-            if not _confirm(f"Sequence {sequence_name} already PASS. Resubmit?"):
-                return None
+    if latest and latest["status"] in ("WAITING_WF", "WAITING_QC", "PASS") and not force:
+        print(f"  {sequence_name}: skipping (status={latest['status']}). Use --force to resubmit.")
+        return None
+
+    if latest and latest["status"] == "WAITING_WF" and force:
+        osmo_id = latest.get("osmo_workflow_id") or latest["workflow_name"]
+        if not osmo_cancel(osmo_id):
+            print(f"  {sequence_name}: cancel failed, aborting")
+            return None
+        update_workflow(latest["workflow_name"], status="FAIL",
+                       details="cancelled_for_resubmit", db_path=DB_PATH,
+                       table=TABLE)
+        print(f"  {sequence_name}: cancelled previous run, resubmitting")
 
     swift_base = dataset_cfg["swift_base"]
     s3, bucket, base_pfx = get_s3_client(swift_base)
@@ -367,7 +357,7 @@ def _filter_sequences_by_time(
 
 def auto_submit(
     dataset_name: str, dataset_cfg: dict, pipeline_type: str,
-    *, dry_run: bool = False, retry_failed: bool = False,
+    *, force: bool = False, dry_run: bool = False, retry_failed: bool = False,
     start_time: str | None = None, end_time: str | None = None,
 ) -> None:
     """Discover sequences from Swift and submit workflows up to concurrency limit."""
@@ -402,6 +392,7 @@ def auto_submit(
     if not retry_failed:
         skip_statuses.add("FAIL")
 
+    skipped = 0
     submitted = 0
     for seq in sequences:
         if submitted >= available:
@@ -410,19 +401,21 @@ def auto_submit(
         latest = get_latest_workflow(
             seq, dataset_name, pipeline_type, db_path=DB_PATH, table=TABLE,
         )
-        if latest and latest["status"] in skip_statuses:
+        if latest and latest["status"] in skip_statuses and not force:
+            skipped += 1
             continue
         wf = submit_sequence(
-            seq, dataset_name, dataset_cfg, pipeline_type, dry_run=dry_run,
+            seq, dataset_name, dataset_cfg, pipeline_type,
+            force=force, dry_run=dry_run,
         )
         if wf:
             submitted += 1
 
+    if skipped:
+        print(f"Skipped {skipped} sequence(s) with status in {sorted(skip_statuses)}. "
+              "Use --force to resubmit.")
+
     print(f"\nSubmitted {submitted} new workflow(s)")
-
-
-def _confirm(prompt: str) -> bool:
-    return input(f"{prompt} [y/N] ").strip().lower() == "y"
 
 
 # CLI
@@ -434,7 +427,7 @@ def main() -> None:
                         help="Pipeline type (e.g. mv_calibration, mv_hoi_reconstruction)")
     parser.add_argument("--sequence", help="Single sequence (manual mode)")
     parser.add_argument("--force", action="store_true",
-                        help="Force resubmit even if already PASS")
+                        help="Force resubmit even if WAITING_WF, WAITING_QC, or PASS")
     parser.add_argument("--retry_failed", action="store_true",
                         help="In auto mode, also retry sequences whose latest run failed")
     parser.add_argument("--start_time",
@@ -483,7 +476,8 @@ def main() -> None:
     else:
         auto_submit(
             args.dataset, dataset_cfg, args.pipeline,
-            dry_run=args.dry_run, retry_failed=args.retry_failed,
+            force=args.force, dry_run=args.dry_run,
+            retry_failed=args.retry_failed,
             start_time=args.start_time, end_time=args.end_time,
         )
 

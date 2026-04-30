@@ -313,6 +313,18 @@ _DATA_MAP = [
     ("estimate_ground_plane/ground_plane.json", "ground_plane.json", "file", None, None, None),
 ]
 
+# Subset for --final_only: human/object trajectories, ground plane, object mesh
+# (incl. symmetry), edex, and the tiled overlay video for QA.
+_FINAL_OUTPUT_SUBPATHS = {
+    "tiled_hoi_overlay.mp4",
+    "edex",
+    "object_mesh",
+    "poses.npy",
+    "mhr_params_mv.pt",
+    "soma_params.npz",
+    "ground_plane.json",
+}
+
 
 def _h5_stem_matches_filter(stem: str, filter_fn) -> bool:
     """Apply a directory-based filter_fn to an h5 stem.
@@ -371,6 +383,7 @@ def export_sequence(
     source_dir: str | None = None,
     dry_run: bool = False,
     max_workers: int = DEFAULT_DOWNLOAD_WORKERS,
+    final_only: bool = False,
 ) -> None:
     """Export a sequence to a flat local directory structure.
 
@@ -382,6 +395,9 @@ def export_sequence(
         source_dir: Local directory path for local copy.
         dry_run: If True, list files without downloading/copying.
         max_workers: Parallel download threads (remote mode only).
+        final_only: If True, export only final outputs (trajectories, ground
+            plane, object mesh, edex, tiled overlay) — skips intermediate
+            depth/mask/image/video data.
     """
     if (swift_output_base is None) == (source_dir is None):
         raise ValueError("Exactly one of swift_output_base or source_dir must be provided")
@@ -389,6 +405,11 @@ def export_sequence(
     output = Path(output_dir)
     is_local = source_dir is not None
     source_label = source_dir if is_local else swift_output_base
+
+    data_map = (
+        [e for e in _DATA_MAP if e[1] in _FINAL_OUTPUT_SUBPATHS]
+        if final_only else _DATA_MAP
+    )
 
     total_copied = 0
     total_skipped = 0
@@ -402,16 +423,16 @@ def export_sequence(
         print(f"  {label}: {status}")
 
     mode = "local" if is_local else "remote"
-    print(f"Exporting from {source_label} (mode={mode})")
+    print(f"Exporting from {source_label} (mode={mode}, final_only={final_only})")
     print(f"  -> {output_dir}")
     if not is_local:
         print(f"  workers: {max_workers}")
     print()
 
     if is_local:
-        _export_local(Path(source_dir), output, dry_run, _report)
+        _export_local(Path(source_dir), output, dry_run, _report, data_map)
     else:
-        _export_remote(swift_output_base, output, dry_run, max_workers, _report)
+        _export_remote(swift_output_base, output, dry_run, max_workers, _report, data_map)
 
     verb = "copied" if is_local else "downloaded"
     print(f"\nTotal: {verb}={total_copied} skipped={total_skipped}")
@@ -422,9 +443,10 @@ def _export_local(
     output: Path,
     dry_run: bool,
     report,
+    data_map: list,
 ) -> None:
     """Copy from a local directory (e.g. OSMO-mounted inputs)."""
-    for css_sub, out_sub, entry_type, filter_fn, remap_fn, h5_layout in _DATA_MAP:
+    for css_sub, out_sub, entry_type, filter_fn, remap_fn, h5_layout in data_map:
         src_path = source / css_sub
         if entry_type == "file":
             did = _copy_file(src_path, output / out_sub, dry_run)
@@ -492,12 +514,13 @@ def _export_remote(
     dry_run: bool,
     max_workers: int,
     report,
+    data_map: list,
 ) -> None:
     """Download from CSS via boto3."""
     client = _get_s3_client()
     bucket, base_prefix = _parse_swift_url(swift_output_base)
 
-    for css_sub, out_sub, entry_type, filter_fn, remap_fn, h5_layout in _DATA_MAP:
+    for css_sub, out_sub, entry_type, filter_fn, remap_fn, h5_layout in data_map:
         if entry_type == "file":
             key = f"{base_prefix}/{css_sub}"
             did = _download_file(client, bucket, key, output / out_sub, dry_run)
@@ -558,6 +581,9 @@ if __name__ == "__main__":
     parser.add_argument("--dry_run", action="store_true", help="List files without downloading/copying")
     parser.add_argument("--max_workers", type=int, default=DEFAULT_DOWNLOAD_WORKERS,
                         help=f"Parallel download threads for remote mode (default: {DEFAULT_DOWNLOAD_WORKERS})")
+    parser.add_argument("--final_only", action="store_true",
+                        help="Export only final outputs (trajectories, ground plane, object mesh, "
+                             "edex, tiled overlay); skip depth/masks/images/videos.")
     args = parser.parse_args()
 
     export_sequence(
@@ -566,4 +592,5 @@ if __name__ == "__main__":
         source_dir=args.source_dir,
         dry_run=args.dry_run,
         max_workers=args.max_workers,
+        final_only=args.final_only,
     )

@@ -159,6 +159,9 @@ def mv_videos_to_poses(
         if i == 0:
             avg_pose, world_poses, visible_ratios, select_idx = tracker.register(
                 rgbs, depths, masks, Ks, Ts, iteration=est_refine_iter,
+                debug_dump_path=(
+                    str(pose_path.parent / "register_debug.json") if debug >= 1 else None
+                ),
             )
         else:
             avg_pose, world_poses, visible_ratios, select_idx = tracker.track(
@@ -190,6 +193,7 @@ def mv_videos_to_poses(
     print(f"Applying Two Euro filter to {output_poses.shape[0]} poses")
     filtered_poses = pose_two_euro_filter(output_poses)
     np.save(pose_path, filtered_poses)
+    print(f"Saved poses to {pose_path}")
 
     if debug >= 1:
         parent = pose_path.parent
@@ -207,8 +211,6 @@ def mv_videos_to_poses(
     #         filtered_poses, cam_names, frame_sources, Ks_orig, Ts, tracker,
     #         pose_path, num_frames,
     #     )
-
-    print(f"Saved poses to {pose_path}")
 
 
 def _render_debug_videos(
