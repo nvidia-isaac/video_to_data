@@ -137,15 +137,50 @@ case "$CMD" in
                 echo "Mounting external data: ${HUMAN_MOTION_DATA_DIR} → ${CONTAINER_DATA_DIR}"
             fi
 
+            # Build per-container passwd/group so the host UID has a name
+            # inside the container (avoids the "I have no name!" bash prompt
+            # and keeps tools that call getpwuid() happy: git, ssh, etc.).
+            # No secrets are written: passwords use the "x" placeholder and
+            # /etc/shadow is NOT mounted into the container.
+            HOST_UID="$(id -u)"
+            HOST_GID="$(id -g)"
+            HOST_USERNAME="$(id -un)"
+            HOST_GROUPNAME="$(id -gn)"
+            if ! [[ "${HOST_USERNAME}" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
+                HOST_USERNAME="user"
+            fi
+            if ! [[ "${HOST_GROUPNAME}" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
+                HOST_GROUPNAME="usergroup"
+            fi
+            CACHE_ROOT="${HOME:-/tmp}/.cache/robotic-grounding"
+            CONTAINER_PASSWD_DIR="${CACHE_ROOT}/${CONTAINER_NAME}"
+            mkdir -p "${CONTAINER_PASSWD_DIR}"
+            chmod 0700 "${CACHE_ROOT}" "${CONTAINER_PASSWD_DIR}" 2>/dev/null || true
+            umask 0022
+            cat > "${CONTAINER_PASSWD_DIR}/passwd" <<EOF
+root:x:0:0:root:/root:/bin/bash
+${HOST_USERNAME}:x:${HOST_UID}:${HOST_GID}:${HOST_USERNAME}:/tmp:/bin/bash
+EOF
+            cat > "${CONTAINER_PASSWD_DIR}/group" <<EOF
+root:x:0:
+${HOST_GROUPNAME}:x:${HOST_GID}:
+EOF
+            chmod 0644 "${CONTAINER_PASSWD_DIR}/passwd" "${CONTAINER_PASSWD_DIR}/group"
+
             docker run --rm -it \
                 --runtime=nvidia \
                 --gpus device=${GPU_DEVICE} \
                 --network host \
                 --name ${CONTAINER_NAME} \
-                -v $(pwd)/..:/workspace/video_to_data \
+                --user "${HOST_UID}:${HOST_GID}" \
+                -v "$(pwd)/..:/workspace/video_to_data" \
                 ${DATA_MOUNT} \
-                -v ~/.ssh:/root/.ssh:ro \
+                -v "${HOME}/.ssh:/tmp/.ssh:ro" \
                 -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
+                -v "${CONTAINER_PASSWD_DIR}/passwd:/etc/passwd:ro" \
+                -v "${CONTAINER_PASSWD_DIR}/group:/etc/group:ro" \
+                -e HOME=/tmp \
+                -e "USER=${HOST_USERNAME}" \
                 -e DISPLAY=${DISPLAY} \
                 ${SSH_AGENT_MOUNT} \
                 ${SSH_AGENT_ENV} \
