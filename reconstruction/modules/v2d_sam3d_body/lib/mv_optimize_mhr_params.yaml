@@ -22,4 +22,6 @@ mhr_mesh_mv_path: "${output_dir}/mhr_mesh_mv.pt"
 keypoint_invisible_weight: 0.3
 keypoint_occluded_weight: 0.3
 
+sam3d_body_batch_size: 4
+
 debug: 1

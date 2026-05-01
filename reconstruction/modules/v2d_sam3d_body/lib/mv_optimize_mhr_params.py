@@ -587,6 +587,7 @@ def mv_optimize_mhr_params(
     mask_dirs: list[Path] | None = None,
     keypoint_invisible_weight: float = 0.3,
     keypoint_occluded_weight: float = 0.3,
+    sam3d_body_batch_size: int = 1,
     debug: int = 0,
 ):
     frame_sources = [FrameSource.from_path(p) for p in rgb_paths]
@@ -630,6 +631,7 @@ def mv_optimize_mhr_params(
                 output_params_path=params_path,
                 output_mesh_path=mesh_path,
                 estimator=estimator,
+                batch_size=sam3d_body_batch_size,
                 debug=debug,
             )
 
@@ -821,6 +823,7 @@ def mv_optimize_mhr_params_from_config(cfg):
         mask_dirs=mask_dirs,
         keypoint_invisible_weight=cfg.keypoint_invisible_weight,
         keypoint_occluded_weight=cfg.keypoint_occluded_weight,
+        sam3d_body_batch_size=cfg.sam3d_body_batch_size,
         debug=cfg.debug,
     )
 

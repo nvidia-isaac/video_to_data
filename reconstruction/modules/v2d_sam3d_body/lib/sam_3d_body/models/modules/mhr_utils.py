@@ -13,6 +13,33 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+# ---------------------------------------------------------------------------
+# Module-level cached constants for compact_<cont|model_params>_<body|hand>.
+# These are pure constants (no input dependence); building them per-call was a
+# significant CPU hotspot in inference loops.
+# ---------------------------------------------------------------------------
+
+_HAND_DOFS_IN_ORDER = torch.tensor([3, 1, 1, 3, 1, 1, 3, 1, 1, 3, 1, 1, 2, 3, 1, 1])
+
+_HAND_MASK_CONT_THREEDOFS = torch.cat(
+    [torch.ones(2 * k).bool() * (k in [3]) for k in _HAND_DOFS_IN_ORDER]
+)
+_HAND_MASK_CONT_ONEDOFS = torch.cat(
+    [torch.ones(2 * k).bool() * (k in [1, 2]) for k in _HAND_DOFS_IN_ORDER]
+)
+_HAND_MASK_MODEL_THREEDOFS = torch.cat(
+    [torch.ones(k).bool() * (k in [3]) for k in _HAND_DOFS_IN_ORDER]
+)
+_HAND_MASK_MODEL_ONEDOFS = torch.cat(
+    [torch.ones(k).bool() * (k in [1, 2]) for k in _HAND_DOFS_IN_ORDER]
+)
+
+_BODY_3DOF_ROT_IDXS = torch.LongTensor([(0, 2, 4), (6, 8, 10), (12, 13, 14), (15, 16, 17), (18, 19, 20), (21, 22, 23), (24, 25, 26), (27, 28, 29), (34, 35, 36), (37, 38, 39), (44, 45, 46), (53, 54, 55), (64, 65, 66), (85, 69, 73), (86, 70, 79), (87, 71, 82), (88, 72, 76), (91, 92, 93), (112, 96, 100), (113, 97, 106), (114, 98, 109), (115, 99, 103), (130, 131, 132)])
+_BODY_3DOF_ROT_IDXS_FLAT = _BODY_3DOF_ROT_IDXS.flatten()
+_BODY_1DOF_ROT_IDXS = torch.LongTensor([1, 3, 5, 7, 9, 11, 30, 31, 32, 33, 40, 41, 42, 43, 47, 48, 49, 50, 51, 52, 56, 57, 58, 59, 60, 61, 62, 63, 67, 68, 74, 75, 77, 78, 80, 81, 83, 84, 89, 90, 94, 95, 101, 102, 104, 105, 107, 108, 110, 111, 116, 117, 118, 119, 120, 121, 122, 123])
+_BODY_1DOF_TRANS_IDXS = torch.LongTensor([124, 125, 126, 127, 128, 129])
+
+
 def rotation_angle_difference(A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
     """
     Compute the angle difference (magnitude) between two batches of SO(3) rotation matrices.
@@ -165,24 +192,10 @@ def resize_image(image_array, scale_factor, interpolation=cv2.INTER_LINEAR):
 def compact_cont_to_model_params_hand(hand_cont):
     # These are ordered by joint, not model params ^^
     assert hand_cont.shape[-1] == 54
-    hand_dofs_in_order = torch.tensor([3, 1, 1, 3, 1, 1, 3, 1, 1, 3, 1, 1, 2, 3, 1, 1])
-    assert sum(hand_dofs_in_order) == 27
-    # Mask of 3DoFs into hand_cont
-    mask_cont_threedofs = torch.cat(
-        [torch.ones(2 * k).bool() * (k in [3]) for k in hand_dofs_in_order]
-    )
-    # Mask of 1DoFs (including 2DoF) into hand_cont
-    mask_cont_onedofs = torch.cat(
-        [torch.ones(2 * k).bool() * (k in [1, 2]) for k in hand_dofs_in_order]
-    )
-    # Mask of 3DoFs into hand_model_params
-    mask_model_params_threedofs = torch.cat(
-        [torch.ones(k).bool() * (k in [3]) for k in hand_dofs_in_order]
-    )
-    # Mask of 1DoFs (including 2DoF) into hand_model_params
-    mask_model_params_onedofs = torch.cat(
-        [torch.ones(k).bool() * (k in [1, 2]) for k in hand_dofs_in_order]
-    )
+    mask_cont_threedofs = _HAND_MASK_CONT_THREEDOFS
+    mask_cont_onedofs = _HAND_MASK_CONT_ONEDOFS
+    mask_model_params_threedofs = _HAND_MASK_MODEL_THREEDOFS
+    mask_model_params_onedofs = _HAND_MASK_MODEL_ONEDOFS
 
     # Convert hand_cont to eulers
     ## First for 3DoFs
@@ -207,24 +220,10 @@ def compact_cont_to_model_params_hand(hand_cont):
 def compact_model_params_to_cont_hand(hand_model_params):
     # These are ordered by joint, not model params ^^
     assert hand_model_params.shape[-1] == 27
-    hand_dofs_in_order = torch.tensor([3, 1, 1, 3, 1, 1, 3, 1, 1, 3, 1, 1, 2, 3, 1, 1])
-    assert sum(hand_dofs_in_order) == 27
-    # Mask of 3DoFs into hand_cont
-    mask_cont_threedofs = torch.cat(
-        [torch.ones(2 * k).bool() * (k in [3]) for k in hand_dofs_in_order]
-    )
-    # Mask of 1DoFs (including 2DoF) into hand_cont
-    mask_cont_onedofs = torch.cat(
-        [torch.ones(2 * k).bool() * (k in [1, 2]) for k in hand_dofs_in_order]
-    )
-    # Mask of 3DoFs into hand_model_params
-    mask_model_params_threedofs = torch.cat(
-        [torch.ones(k).bool() * (k in [3]) for k in hand_dofs_in_order]
-    )
-    # Mask of 1DoFs (including 2DoF) into hand_model_params
-    mask_model_params_onedofs = torch.cat(
-        [torch.ones(k).bool() * (k in [1, 2]) for k in hand_dofs_in_order]
-    )
+    mask_cont_threedofs = _HAND_MASK_CONT_THREEDOFS
+    mask_cont_onedofs = _HAND_MASK_CONT_ONEDOFS
+    mask_model_params_threedofs = _HAND_MASK_MODEL_THREEDOFS
+    mask_model_params_onedofs = _HAND_MASK_MODEL_ONEDOFS
 
     # Convert eulers to hand_cont hand_cont
     ## First for 3DoFs
@@ -280,11 +279,9 @@ def batch4Dfrom2D(poses):
 
 
 def compact_cont_to_rotmat_body(body_pose_cont, inflate_trans=False):
-    # fmt: off
-    all_param_3dof_rot_idxs = torch.LongTensor([(0, 2, 4), (6, 8, 10), (12, 13, 14), (15, 16, 17), (18, 19, 20), (21, 22, 23), (24, 25, 26), (27, 28, 29), (34, 35, 36), (37, 38, 39), (44, 45, 46), (53, 54, 55), (64, 65, 66), (85, 69, 73), (86, 70, 79), (87, 71, 82), (88, 72, 76), (91, 92, 93), (112, 96, 100), (113, 97, 106), (114, 98, 109), (115, 99, 103), (130, 131, 132)])
-    all_param_1dof_rot_idxs = torch.LongTensor([1, 3, 5, 7, 9, 11, 30, 31, 32, 33, 40, 41, 42, 43, 47, 48, 49, 50, 51, 52, 56, 57, 58, 59, 60, 61, 62, 63, 67, 68, 74, 75, 77, 78, 80, 81, 83, 84, 89, 90, 94, 95, 101, 102, 104, 105, 107, 108, 110, 111, 116, 117, 118, 119, 120, 121, 122, 123])
-    all_param_1dof_trans_idxs = torch.LongTensor([124, 125, 126, 127, 128, 129])
-    # fmt: on
+    all_param_3dof_rot_idxs = _BODY_3DOF_ROT_IDXS
+    all_param_1dof_rot_idxs = _BODY_1DOF_ROT_IDXS
+    all_param_1dof_trans_idxs = _BODY_1DOF_TRANS_IDXS
     num_3dof_angles = len(all_param_3dof_rot_idxs) * 3
     num_1dof_angles = len(all_param_1dof_rot_idxs)
     num_1dof_trans = len(all_param_1dof_trans_idxs)
@@ -319,12 +316,10 @@ def compact_cont_to_rotmat_body(body_pose_cont, inflate_trans=False):
 
 
 def compact_cont_to_model_params_body(body_pose_cont):
-    # fmt: off
-    all_param_3dof_rot_idxs = torch.LongTensor([(0, 2, 4), (6, 8, 10), (12, 13, 14), (15, 16, 17), (18, 19, 20), (21, 22, 23), (24, 25, 26), (27, 28, 29), (34, 35, 36), (37, 38, 39), (44, 45, 46), (53, 54, 55), (64, 65, 66), (85, 69, 73), (86, 70, 79), (87, 71, 82), (88, 72, 76), (91, 92, 93), (112, 96, 100), (113, 97, 106), (114, 98, 109), (115, 99, 103), (130, 131, 132)])
-    all_param_1dof_rot_idxs = torch.LongTensor([1, 3, 5, 7, 9, 11, 30, 31, 32, 33, 40, 41, 42, 43, 47, 48, 49, 50, 51, 52, 56, 57, 58, 59, 60, 61, 62, 63, 67, 68, 74, 75, 77, 78, 80, 81, 83, 84, 89, 90, 94, 95, 101, 102, 104, 105, 107, 108, 110, 111, 116, 117, 118, 119, 120, 121, 122, 123])
-    all_param_1dof_trans_idxs = torch.LongTensor([124, 125, 126, 127, 128, 129])
-    # fmt: on
-    num_3dof_angles = len(all_param_3dof_rot_idxs) * 3
+    all_param_3dof_rot_idxs_flat = _BODY_3DOF_ROT_IDXS_FLAT
+    all_param_1dof_rot_idxs = _BODY_1DOF_ROT_IDXS
+    all_param_1dof_trans_idxs = _BODY_1DOF_TRANS_IDXS
+    num_3dof_angles = _BODY_3DOF_ROT_IDXS.shape[0] * 3
     num_1dof_angles = len(all_param_1dof_rot_idxs)
     num_1dof_trans = len(all_param_1dof_trans_idxs)
     assert body_pose_cont.shape[-1] == (
@@ -347,26 +342,24 @@ def compact_cont_to_model_params_body(body_pose_cont):
     body_params_trans = body_cont_trans
     # Put them together
     body_pose_params = torch.zeros(*body_pose_cont.shape[:-1], 133).to(body_pose_cont)
-    body_pose_params[..., all_param_3dof_rot_idxs.flatten()] = body_params_3dofs
+    body_pose_params[..., all_param_3dof_rot_idxs_flat] = body_params_3dofs
     body_pose_params[..., all_param_1dof_rot_idxs] = body_params_1dofs
     body_pose_params[..., all_param_1dof_trans_idxs] = body_params_trans
     return body_pose_params
 
 
 def compact_model_params_to_cont_body(body_pose_params):
-    # fmt: off
-    all_param_3dof_rot_idxs = torch.LongTensor([(0, 2, 4), (6, 8, 10), (12, 13, 14), (15, 16, 17), (18, 19, 20), (21, 22, 23), (24, 25, 26), (27, 28, 29), (34, 35, 36), (37, 38, 39), (44, 45, 46), (53, 54, 55), (64, 65, 66), (85, 69, 73), (86, 70, 79), (87, 71, 82), (88, 72, 76), (91, 92, 93), (112, 96, 100), (113, 97, 106), (114, 98, 109), (115, 99, 103), (130, 131, 132)])
-    all_param_1dof_rot_idxs = torch.LongTensor([1, 3, 5, 7, 9, 11, 30, 31, 32, 33, 40, 41, 42, 43, 47, 48, 49, 50, 51, 52, 56, 57, 58, 59, 60, 61, 62, 63, 67, 68, 74, 75, 77, 78, 80, 81, 83, 84, 89, 90, 94, 95, 101, 102, 104, 105, 107, 108, 110, 111, 116, 117, 118, 119, 120, 121, 122, 123])
-    all_param_1dof_trans_idxs = torch.LongTensor([124, 125, 126, 127, 128, 129])
-    # fmt: on
-    num_3dof_angles = len(all_param_3dof_rot_idxs) * 3
+    all_param_3dof_rot_idxs_flat = _BODY_3DOF_ROT_IDXS_FLAT
+    all_param_1dof_rot_idxs = _BODY_1DOF_ROT_IDXS
+    all_param_1dof_trans_idxs = _BODY_1DOF_TRANS_IDXS
+    num_3dof_angles = _BODY_3DOF_ROT_IDXS.shape[0] * 3
     num_1dof_angles = len(all_param_1dof_rot_idxs)
     num_1dof_trans = len(all_param_1dof_trans_idxs)
     assert body_pose_params.shape[-1] == (
         num_3dof_angles + num_1dof_angles + num_1dof_trans
     )
     # Take out params
-    body_params_3dofs = body_pose_params[..., all_param_3dof_rot_idxs.flatten()]
+    body_params_3dofs = body_pose_params[..., all_param_3dof_rot_idxs_flat]
     body_params_1dofs = body_pose_params[..., all_param_1dof_rot_idxs]
     body_params_trans = body_pose_params[..., all_param_1dof_trans_idxs]
     # params to cont

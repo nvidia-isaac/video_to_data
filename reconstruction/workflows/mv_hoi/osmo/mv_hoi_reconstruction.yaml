@@ -29,283 +29,331 @@ workflow:
 
   tasks:
 
-  # # Extract images + intrinsics from rosbag
-  # - name: rosbag_to_edex
-  #   image: nvcr.io/nvstaging/isaac-amr/mv_hoi_rosbag:{{image_tag}}
-  #   resource: cpu_large
-  #   command: [/bin/bash]
-  #   args: [/tmp/entry.sh]
-  #   inputs:
-  #   - url: {{rosbag_url}}
-  #   outputs:
-  #   - url: {{swift_output_base}}/rosbag_to_edex/
-  #   files:
-  #   - path: /tmp/entry.sh
-  #     contents: |-
-  #       set -ex
-  #       python -m v2d.rosbag.lib.rosbag_to_edex \
-  #         --config_path /tmp/rosbag_config.yaml \
-  #         --rosbag_path {{input:0}} \
-  #         --output_path {{output}} \
-  #         --no_extrinsics
-  #       # Forward hoi_metadata for downstream tasks
-  #       if [ -f "{{input:0}}/hoi_metadata.yaml" ]; then
-  #         cp "{{input:0}}/hoi_metadata.yaml" "{{output}}/hoi_metadata.yaml"
-  #       fi
-  #   - path: /tmp/rosbag_config.yaml
-  #     contents: |-
-  #       camera_info_topics:
-  #         - /front_stereo_camera/left/camera_info
-  #         - /front_stereo_camera/right/camera_info
-  #         - /back_stereo_camera/left/camera_info
-  #         - /back_stereo_camera/right/camera_info
-  #         - /left_stereo_camera/left/camera_info
-  #         - /left_stereo_camera/right/camera_info
-  #         - /right_stereo_camera/left/camera_info
-  #         - /right_stereo_camera/right/camera_info
-  #       image_topics:
-  #         - /front_stereo_camera/left/image_compressed
-  #         - /front_stereo_camera/right/image_compressed
-  #         - /back_stereo_camera/left/image_compressed
-  #         - /back_stereo_camera/right/image_compressed
-  #         - /left_stereo_camera/left/image_compressed
-  #         - /left_stereo_camera/right/image_compressed
-  #         - /right_stereo_camera/left/image_compressed
-  #         - /right_stereo_camera/right/image_compressed
-  #       rig_frame: base_link
-  #       imu_frame: front_stereo_camera_imu
-  #       output_width: 1920
-  #       output_height: 1200
-  #       pack_h5: true
-  #       remove_pngs_after_pack: true
+  # Extract images + intrinsics from rosbag
+  - name: rosbag_to_edex
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_rosbag:{{image_tag}}
+    resource: cpu_large
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - url: {{rosbag_url}}
+    outputs:
+    - url: {{swift_output_base}}/rosbag_to_edex/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.rosbag.lib.rosbag_to_edex \
+          --config_path /tmp/rosbag_config.yaml \
+          --rosbag_path {{input:0}} \
+          --output_path {{output}} \
+          --no_extrinsics
+        # Forward hoi_metadata for downstream tasks
+        if [ -f "{{input:0}}/hoi_metadata.yaml" ]; then
+          cp "{{input:0}}/hoi_metadata.yaml" "{{output}}/hoi_metadata.yaml"
+        fi
+    - path: /tmp/rosbag_config.yaml
+      contents: |-
+        camera_info_topics:
+          - /front_stereo_camera/left/camera_info
+          - /front_stereo_camera/right/camera_info
+          - /back_stereo_camera/left/camera_info
+          - /back_stereo_camera/right/camera_info
+          - /left_stereo_camera/left/camera_info
+          - /left_stereo_camera/right/camera_info
+          - /right_stereo_camera/left/camera_info
+          - /right_stereo_camera/right/camera_info
+        image_topics:
+          - /front_stereo_camera/left/image_compressed
+          - /front_stereo_camera/right/image_compressed
+          - /back_stereo_camera/left/image_compressed
+          - /back_stereo_camera/right/image_compressed
+          - /left_stereo_camera/left/image_compressed
+          - /left_stereo_camera/right/image_compressed
+          - /right_stereo_camera/left/image_compressed
+          - /right_stereo_camera/right/image_compressed
+        rig_frame: base_link
+        imu_frame: front_stereo_camera_imu
+        output_width: 1920
+        output_height: 1200
+        pack_h5: true
+        remove_pngs_after_pack: true
 
-  # # Preprocessing (rectify, rescale, encode video, remap HOI bbox)
-  # - name: mv_preprocess
-  #   image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_preprocess:{{image_tag}}
-  #   resource: cpu_large
-  #   command: [/bin/bash]
-  #   args: [/tmp/entry.sh]
-  #   inputs:
-  #   - task: rosbag_to_edex
-  #   - url: {{extrinsics_url}}
-  #   - url: {{mesh_url}}
-  #   outputs:
-  #   - url: {{swift_output_base}}/mv_preprocess/
-  #   files:
-  #   - path: /tmp/entry.sh
-  #     contents: |-
-  #       set -ex
-  #       MESH=$(find {{input:2}} -type f \( -name "*.obj" -o -name "*.glb" -o -name "*.ply" -o -name "*.stl" \) | head -1)
-  #       if [ -z "$MESH" ]; then
-  #         echo "ERROR: No mesh file found in {{input:2}}"
-  #         ls -laR {{input:2}}
-  #         exit 1
-  #       fi
-  #       echo "Using mesh: $MESH"
-  #       python -m v2d.mv.preprocess.lib.mv_preprocess \
-  #         --rgb_dir {{input:0}}/images \
-  #         --output_dir {{output}} \
-  #         --camera_params_path {{input:0}}/edex \
-  #         --extrinsics_camera_params_path {{input:1}}/edex \
-  #         --hoi_metadata_path {{input:0}}/hoi_metadata.yaml \
-  #         --mesh_path "$MESH" \
-  #         --config_path /tmp/preprocess_config.yaml
-  #   - path: /tmp/preprocess_config.yaml
-  #     contents: |-
-  #       input_suffix: ".h5"
-  #       output_image_path_template: "${output_dir}/images/{cam_name}.h5"
+  # Preprocessing (rectify, rescale, encode video, remap HOI bbox)
+  - name: mv_preprocess
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_preprocess:{{image_tag}}
+    resource: cpu_large
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: rosbag_to_edex
+    - url: {{extrinsics_url}}
+    - url: {{mesh_url}}
+    outputs:
+    - url: {{swift_output_base}}/mv_preprocess/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        MESH=$(find {{input:2}} -type f \( -name "*.obj" -o -name "*.glb" -o -name "*.ply" -o -name "*.stl" \) | head -1)
+        if [ -z "$MESH" ]; then
+          echo "ERROR: No mesh file found in {{input:2}}"
+          ls -laR {{input:2}}
+          exit 1
+        fi
+        echo "Using mesh: $MESH"
+        python -m v2d.mv.preprocess.lib.mv_preprocess \
+          --rgb_dir {{input:0}}/images \
+          --output_dir {{output}} \
+          --camera_params_path {{input:0}}/edex \
+          --extrinsics_camera_params_path {{input:1}}/edex \
+          --hoi_metadata_path {{input:0}}/hoi_metadata.yaml \
+          --mesh_path "$MESH" \
+          --config_path /tmp/preprocess_config.yaml
+    - path: /tmp/preprocess_config.yaml
+      contents: |-
+        input_suffix: ".h5"
+        output_image_path_template: "${output_dir}/images/{cam_name}.h5"
 
-  # # Stereo depth estimation
-  # - name: foundation_stereo
-  #   image: nvcr.io/nvstaging/isaac-amr/mv_hoi_foundation_stereo:{{image_tag}}
-  #   command: [/bin/bash]
-  #   args: [/tmp/entry.sh]
-  #   inputs:
-  #   - task: mv_preprocess
-  #   - dataset: {name: v2d_mv_hoi_data}
-  #   outputs:
-  #   - url: {{swift_output_base}}/foundation_stereo/
-  #   files:
-  #   - path: /tmp/entry.sh
-  #     contents: |-
-  #       set -ex
-  #       python -m v2d.foundation_stereo.lib.mv_image_list_to_depth \
-  #         --camera_params_path {{input:0}}/edex \
-  #         --rgb_dir {{input:0}}/images \
-  #         --output_dir {{output}} \
-  #         --model_dir {{input:1}}/v2d_mv_hoi_data/data/weights/foundation_stereo \
-  #         --config_path /tmp/depth_config.yaml
-  #   - path: /tmp/depth_config.yaml
-  #     contents: |-
-  #       rgb_path_template: "${rgb_dir}/{cam_name}.h5"
-  #       depth_path_template: "${output_dir}/{cam_name}/depth.h5"
+  # Stereo depth estimation
+  - name: foundation_stereo
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_foundation_stereo:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: mv_preprocess
+    - dataset: {name: v2d_mv_hoi_data}
+    outputs:
+    - url: {{swift_output_base}}/foundation_stereo/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        # Find the GPU's NUMA node and pin to its CPUs
+        PCI_ID=$(nvidia-smi --query-gpu=pci.bus_id -i 0 --format=csv,noheader \
+                 | tr '[:upper:]' '[:lower:]' | sed 's/^0000//')
+        NUMA_NODE=$(cat /sys/bus/pci/devices/${PCI_ID}/numa_node 2>/dev/null || echo 0)
+        [ "$NUMA_NODE" = "-1" ] && NUMA_NODE=0
+        CPU_LIST=$(cat /sys/devices/system/node/node${NUMA_NODE}/cpulist)
+        echo "GPU NUMA node: $NUMA_NODE, pinning to CPUs: $CPU_LIST"
 
-  # # Object bounding-box detection (Grounding DINO)
-  # - name: grounding_dino
-  #   image: nvcr.io/nvstaging/isaac-amr/mv_hoi_grounding_dino:{{image_tag}}
-  #   command: [/bin/bash]
-  #   args: [/tmp/entry.sh]
-  #   inputs:
-  #   - task: mv_preprocess
-  #   - dataset: {name: v2d_mv_hoi_data}
-  #   outputs:
-  #   - url: {{swift_output_base}}/grounding_dino/
-  #   files:
-  #   - path: /tmp/entry.sh
-  #     contents: |-
-  #       set -ex
-  #       python -m v2d.grounding_dino.lib.mv_image_list_to_object_bboxes \
-  #         --rgb_dir {{input:0}}/images \
-  #         --prompt_path {{input:0}}/prompt.txt \
-  #         --output_dir {{output}} \
-  #         --model_dir {{input:1}}/v2d_mv_hoi_data/data/weights/grounding_dino \
-  #         --config_path /tmp/grounding_dino_config.yaml
-  #   - path: /tmp/grounding_dino_config.yaml
-  #     contents: |-
-  #       rgb_path_template: "${rgb_dir}/{cam_name}.h5"
+        taskset -c "$CPU_LIST" python -m v2d.foundation_stereo.lib.mv_image_list_to_depth \
+          --camera_params_path {{input:0}}/edex \
+          --rgb_dir {{input:0}}/images \
+          --output_dir {{output}} \
+          --model_dir {{input:1}}/v2d_mv_hoi_data/data/weights/foundation_stereo \
+          --config_path /tmp/depth_config.yaml
+    - path: /tmp/depth_config.yaml
+      contents: |-
+        rgb_path_template: "${rgb_dir}/{cam_name}.h5"
+        depth_path_template: "${output_dir}/{cam_name}/depth.h5"
 
-  # # Object masks (SAM2 with grounding-dino JSON bboxes)
-  # - name: sam2_object_masks
-  #   image: nvcr.io/nvstaging/isaac-amr/mv_hoi_sam2:{{image_tag}}
-  #   command: [/bin/bash]
-  #   args: [/tmp/entry.sh]
-  #   inputs:
-  #   - task: grounding_dino
-  #   - task: mv_preprocess
-  #   - dataset: {name: v2d_mv_hoi_data}
-  #   outputs:
-  #   - url: {{swift_output_base}}/sam2_object_masks/
-  #   files:
-  #   - path: /tmp/entry.sh
-  #     contents: |-
-  #       set -ex
-  #       python -m v2d.sam2.lib.mv_videos_to_masks \
-  #         --bbox_dir {{input:0}} \
-  #         --rgb_dir {{input:1}}/images \
-  #         --output_dir {{output}} \
-  #         --weights_dir {{input:2}}/v2d_mv_hoi_data/data/weights/sam2 \
-  #         --config_path /tmp/sam2_object_config.yaml
-  #   - path: /tmp/sam2_object_config.yaml
-  #     contents: |-
-  #       rgb_path_template: "${rgb_dir}/{cam_name}.h5"
-  #       bbox_path_template: "${bbox_dir}/{cam_name}.json"
-  #       mask_extension: ".h5"
+  # Object bounding-box detection (Grounding DINO)
+  - name: grounding_dino
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_grounding_dino:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: mv_preprocess
+    - dataset: {name: v2d_mv_hoi_data}
+    outputs:
+    - url: {{swift_output_base}}/grounding_dino/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        # Find the GPU's NUMA node and pin to its CPUs
+        PCI_ID=$(nvidia-smi --query-gpu=pci.bus_id -i 0 --format=csv,noheader \
+                 | tr '[:upper:]' '[:lower:]' | sed 's/^0000//')
+        NUMA_NODE=$(cat /sys/bus/pci/devices/${PCI_ID}/numa_node 2>/dev/null || echo 0)
+        [ "$NUMA_NODE" = "-1" ] && NUMA_NODE=0
+        CPU_LIST=$(cat /sys/devices/system/node/node${NUMA_NODE}/cpulist)
+        echo "GPU NUMA node: $NUMA_NODE, pinning to CPUs: $CPU_LIST"
 
-  # # Gate: object mask containment vs labeled bboxes
-  # - name: check_object_mask
-  #   image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
-  #   resource: cpu_small
-  #   command: [/bin/bash]
-  #   args: [/tmp/entry.sh]
-  #   inputs:
-  #   - task: sam2_object_masks
-  #   - task: mv_preprocess
-  #   outputs:
-  #   - url: {{swift_output_base}}/check_object_mask/
-  #   files:
-  #   - path: /tmp/entry.sh
-  #     contents: |-
-  #       set -ex
-  #       python -m v2d.mv.postprocess.lib.check_object_mask \
-  #         --mask_dir {{input:0}} \
-  #         --labeled_bbox_dir {{input:1}}/labeled_bboxes \
-  #         --output_dir {{output}} \
-  #         --min_containment {{min_mask_containment}} \
-  #         --bbox_padding {{mask_bbox_padding}}
+        taskset -c "$CPU_LIST" python -m v2d.grounding_dino.lib.mv_image_list_to_object_bboxes \
+          --rgb_dir {{input:0}}/images \
+          --prompt_path {{input:0}}/prompt.txt \
+          --output_dir {{output}} \
+          --model_dir {{input:1}}/v2d_mv_hoi_data/data/weights/grounding_dino \
+          --config_path /tmp/grounding_dino_config.yaml
+    - path: /tmp/grounding_dino_config.yaml
+      contents: |-
+        rgb_path_template: "${rgb_dir}/{cam_name}.h5"
 
-  # # Object pose tracking (FoundationPose)
-  # - name: foundation_pose
-  #   image: nvcr.io/nvstaging/isaac-amr/mv_hoi_foundation_pose:{{image_tag}}
-  #   command: [/bin/bash]
-  #   args: [/tmp/entry.sh]
-  #   inputs:
-  #   - task: check_object_mask
-  #   - task: mv_preprocess
-  #   - task: foundation_stereo
-  #   - task: sam2_object_masks
-  #   - dataset: {name: v2d_mv_hoi_data}
-  #   outputs:
-  #   - url: {{swift_output_base}}/foundation_pose/
-  #   files:
-  #   - path: /tmp/entry.sh
-  #     contents: |-
-  #       set -ex
-  #       MESH={{input:1}}/object_mesh/output_aligned.glb
-  #       SYM={{input:1}}/object_mesh/output_symmetry.json
-  #       if [ ! -f "$MESH" ]; then
-  #         echo "ERROR: $MESH not found"
-  #         ls -laR {{input:1}}/object_mesh
-  #         exit 1
-  #       fi
-  #       SYM_ARG=""
-  #       if [ -f "$SYM" ]; then
-  #         SYM_ARG="--symmetry_path $SYM"
-  #         echo "Using symmetry: $SYM"
-  #       fi
-  #       python -m v2d.foundation_pose.lib.mv_videos_to_poses \
-  #         --camera_params_path {{input:1}}/edex \
-  #         --rgb_dir {{input:1}}/images \
-  #         --depth_dir {{input:2}} \
-  #         --mask_dir {{input:3}} \
-  #         --mesh_path "$MESH" \
-  #         $SYM_ARG \
-  #         --weights_dir {{input:4}}/v2d_mv_hoi_data/data/weights/foundation_pose \
-  #         --output_dir {{output}} \
-  #         --config_path /tmp/foundation_pose_config.yaml
-  #   - path: /tmp/foundation_pose_config.yaml
-  #     contents: |-
-  #       rgb_path_template: "${rgb_dir}/{cam_name}.h5"
-  #       depth_path_template: "${depth_dir}/{cam_name}/depth.h5"
-  #       mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}.h5"
+  # Object masks (SAM2 with grounding-dino JSON bboxes)
+  - name: sam2_object_masks
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_sam2:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: grounding_dino
+    - task: mv_preprocess
+    - dataset: {name: v2d_mv_hoi_data}
+    outputs:
+    - url: {{swift_output_base}}/sam2_object_masks/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        # Find the GPU's NUMA node and pin to its CPUs
+        PCI_ID=$(nvidia-smi --query-gpu=pci.bus_id -i 0 --format=csv,noheader \
+                 | tr '[:upper:]' '[:lower:]' | sed 's/^0000//')
+        NUMA_NODE=$(cat /sys/bus/pci/devices/${PCI_ID}/numa_node 2>/dev/null || echo 0)
+        [ "$NUMA_NODE" = "-1" ] && NUMA_NODE=0
+        CPU_LIST=$(cat /sys/devices/system/node/node${NUMA_NODE}/cpulist)
+        echo "GPU NUMA node: $NUMA_NODE, pinning to CPUs: $CPU_LIST"
 
-  # # Human bounding-box detection + tracking (Detectron2)
-  # - name: detectron2
-  #   image: nvcr.io/nvstaging/isaac-amr/mv_hoi_detectron2:{{image_tag}}
-  #   command: [/bin/bash]
-  #   args: [/tmp/entry.sh]
-  #   inputs:
-  #   - task: mv_preprocess
-  #   - dataset: {name: v2d_mv_hoi_data}
-  #   outputs:
-  #   - url: {{swift_output_base}}/detectron2/
-  #   files:
-  #   - path: /tmp/entry.sh
-  #     contents: |-
-  #       set -ex
-  #       python -m v2d.detectron2.lib.mv_track_bboxes \
-  #         --rgb_dir {{input:0}}/images \
-  #         --weights_dir {{input:1}}/v2d_mv_hoi_data/data/weights/detectron2 \
-  #         --output_dir {{output}} \
-  #         --config_path /tmp/detectron2_config.yaml
-  #   - path: /tmp/detectron2_config.yaml
-  #     contents: |-
-  #       rgb_path_template: "${rgb_dir}/{cam_name}.h5"
+        taskset -c "$CPU_LIST" python -m v2d.sam2.lib.mv_videos_to_masks \
+          --bbox_dir {{input:0}} \
+          --rgb_dir {{input:1}}/images \
+          --output_dir {{output}} \
+          --weights_dir {{input:2}}/v2d_mv_hoi_data/data/weights/sam2 \
+          --config_path /tmp/sam2_object_config.yaml
+    - path: /tmp/sam2_object_config.yaml
+      contents: |-
+        rgb_path_template: "${rgb_dir}/{cam_name}.h5"
+        bbox_path_template: "${bbox_dir}/{cam_name}.json"
+        mask_extension: ".h5"
 
-  # # Human masks (SAM2 with detectron2 PT bboxes)
-  # - name: sam2_human_masks
-  #   image: nvcr.io/nvstaging/isaac-amr/mv_hoi_sam2:{{image_tag}}
-  #   command: [/bin/bash]
-  #   args: [/tmp/entry.sh]
-  #   inputs:
-  #   - task: detectron2
-  #   - task: mv_preprocess
-  #   - dataset: {name: v2d_mv_hoi_data}
-  #   outputs:
-  #   - url: {{swift_output_base}}/sam2_human_masks/
-  #   files:
-  #   - path: /tmp/entry.sh
-  #     contents: |-
-  #       set -ex
-  #       python -m v2d.sam2.lib.mv_videos_to_masks \
-  #         --bbox_dir {{input:0}} \
-  #         --rgb_dir {{input:1}}/images \
-  #         --output_dir {{output}} \
-  #         --weights_dir {{input:2}}/v2d_mv_hoi_data/data/weights/sam2 \
-  #         --config_path /tmp/sam2_human_config.yaml
-  #   - path: /tmp/sam2_human_config.yaml
-  #     contents: |-
-  #       rgb_path_template: "${rgb_dir}/{cam_name}.h5"
-  #       mask_extension: ".h5"
+  # Gate: object mask containment vs labeled bboxes
+  - name: check_object_mask
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    resource: cpu_small
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: sam2_object_masks
+    - task: mv_preprocess
+    outputs:
+    - url: {{swift_output_base}}/check_object_mask/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.mv.postprocess.lib.check_object_mask \
+          --mask_dir {{input:0}} \
+          --labeled_bbox_dir {{input:1}}/labeled_bboxes \
+          --output_dir {{output}} \
+          --min_containment {{min_mask_containment}} \
+          --bbox_padding {{mask_bbox_padding}}
+
+  # Object pose tracking (FoundationPose)
+  - name: foundation_pose
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_foundation_pose:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: check_object_mask
+    - task: mv_preprocess
+    - task: foundation_stereo
+    - task: sam2_object_masks
+    - dataset: {name: v2d_mv_hoi_data}
+    outputs:
+    - url: {{swift_output_base}}/foundation_pose/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        # Find the GPU's NUMA node and pin to its CPUs
+        PCI_ID=$(nvidia-smi --query-gpu=pci.bus_id -i 0 --format=csv,noheader \
+                 | tr '[:upper:]' '[:lower:]' | sed 's/^0000//')
+        NUMA_NODE=$(cat /sys/bus/pci/devices/${PCI_ID}/numa_node 2>/dev/null || echo 0)
+        [ "$NUMA_NODE" = "-1" ] && NUMA_NODE=0
+        CPU_LIST=$(cat /sys/devices/system/node/node${NUMA_NODE}/cpulist)
+        echo "GPU NUMA node: $NUMA_NODE, pinning to CPUs: $CPU_LIST"
+
+        MESH={{input:1}}/object_mesh/output_aligned.glb
+        SYM={{input:1}}/object_mesh/output_symmetry.json
+        if [ ! -f "$MESH" ]; then
+          echo "ERROR: $MESH not found"
+          ls -laR {{input:1}}/object_mesh
+          exit 1
+        fi
+        SYM_ARG=""
+        if [ -f "$SYM" ]; then
+          SYM_ARG="--symmetry_path $SYM"
+          echo "Using symmetry: $SYM"
+        fi
+        taskset -c "$CPU_LIST" python -m v2d.foundation_pose.lib.mv_videos_to_poses \
+          --camera_params_path {{input:1}}/edex \
+          --rgb_dir {{input:1}}/images \
+          --depth_dir {{input:2}} \
+          --mask_dir {{input:3}} \
+          --mesh_path "$MESH" \
+          $SYM_ARG \
+          --weights_dir {{input:4}}/v2d_mv_hoi_data/data/weights/foundation_pose \
+          --output_dir {{output}} \
+          --config_path /tmp/foundation_pose_config.yaml
+    - path: /tmp/foundation_pose_config.yaml
+      contents: |-
+        rgb_path_template: "${rgb_dir}/{cam_name}.h5"
+        depth_path_template: "${depth_dir}/{cam_name}/depth.h5"
+        mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}.h5"
+
+  # Human bounding-box detection + tracking (Detectron2)
+  - name: detectron2
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_detectron2:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: mv_preprocess
+    - dataset: {name: v2d_mv_hoi_data}
+    outputs:
+    - url: {{swift_output_base}}/detectron2/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        # Find the GPU's NUMA node and pin to its CPUs
+        PCI_ID=$(nvidia-smi --query-gpu=pci.bus_id -i 0 --format=csv,noheader \
+                 | tr '[:upper:]' '[:lower:]' | sed 's/^0000//')
+        NUMA_NODE=$(cat /sys/bus/pci/devices/${PCI_ID}/numa_node 2>/dev/null || echo 0)
+        [ "$NUMA_NODE" = "-1" ] && NUMA_NODE=0
+        CPU_LIST=$(cat /sys/devices/system/node/node${NUMA_NODE}/cpulist)
+        echo "GPU NUMA node: $NUMA_NODE, pinning to CPUs: $CPU_LIST"
+
+        taskset -c "$CPU_LIST" python -m v2d.detectron2.lib.mv_track_bboxes \
+          --rgb_dir {{input:0}}/images \
+          --weights_dir {{input:1}}/v2d_mv_hoi_data/data/weights/detectron2 \
+          --output_dir {{output}} \
+          --config_path /tmp/detectron2_config.yaml
+    - path: /tmp/detectron2_config.yaml
+      contents: |-
+        rgb_path_template: "${rgb_dir}/{cam_name}.h5"
+
+  # Human masks (SAM2 with detectron2 PT bboxes)
+  - name: sam2_human_masks
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_sam2:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: detectron2
+    - task: mv_preprocess
+    - dataset: {name: v2d_mv_hoi_data}
+    outputs:
+    - url: {{swift_output_base}}/sam2_human_masks/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        # Find the GPU's NUMA node and pin to its CPUs
+        PCI_ID=$(nvidia-smi --query-gpu=pci.bus_id -i 0 --format=csv,noheader \
+                 | tr '[:upper:]' '[:lower:]' | sed 's/^0000//')
+        NUMA_NODE=$(cat /sys/bus/pci/devices/${PCI_ID}/numa_node 2>/dev/null || echo 0)
+        [ "$NUMA_NODE" = "-1" ] && NUMA_NODE=0
+        CPU_LIST=$(cat /sys/devices/system/node/node${NUMA_NODE}/cpulist)
+        echo "GPU NUMA node: $NUMA_NODE, pinning to CPUs: $CPU_LIST"
+
+        taskset -c "$CPU_LIST" python -m v2d.sam2.lib.mv_videos_to_masks \
+          --bbox_dir {{input:0}} \
+          --rgb_dir {{input:1}}/images \
+          --output_dir {{output}} \
+          --weights_dir {{input:2}}/v2d_mv_hoi_data/data/weights/sam2 \
+          --config_path /tmp/sam2_human_config.yaml
+    - path: /tmp/sam2_human_config.yaml
+      contents: |-
+        rgb_path_template: "${rgb_dir}/{cam_name}.h5"
+        mask_extension: ".h5"
 
   # Human body reconstruction (SAM3D-Body)
   - name: sam3d_body
@@ -313,12 +361,9 @@ workflow:
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
-    # - task: mv_preprocess
-    # - task: detectron2
-    # - task: sam2_human_masks
-    - url: {{swift_output_base}}/mv_preprocess
-    - url: {{swift_output_base}}/detectron2
-    - url: {{swift_output_base}}/sam2_human_masks
+    - task: mv_preprocess
+    - task: detectron2
+    - task: sam2_human_masks
     - dataset: {name: v2d_mv_hoi_data}
     outputs:
     - url: {{swift_output_base}}/sam3d_body/
@@ -326,7 +371,15 @@ workflow:
     - path: /tmp/entry.sh
       contents: |-
         set -ex
-        python -m v2d.sam3d_body.lib.mv_optimize_mhr_params \
+        # Find the GPU's NUMA node and pin to its CPUs
+        PCI_ID=$(nvidia-smi --query-gpu=pci.bus_id -i 0 --format=csv,noheader \
+                 | tr '[:upper:]' '[:lower:]' | sed 's/^0000//')
+        NUMA_NODE=$(cat /sys/bus/pci/devices/${PCI_ID}/numa_node 2>/dev/null || echo 0)
+        [ "$NUMA_NODE" = "-1" ] && NUMA_NODE=0
+        CPU_LIST=$(cat /sys/devices/system/node/node${NUMA_NODE}/cpulist)
+        echo "GPU NUMA node: $NUMA_NODE, pinning to CPUs: $CPU_LIST"
+
+        taskset -c "$CPU_LIST" python -m v2d.sam3d_body.lib.mv_optimize_mhr_params \
           --camera_params_path {{input:0}}/edex \
           --rgb_dir {{input:0}}/images \
           --bbox_dir {{input:1}} \
@@ -338,230 +391,263 @@ workflow:
       contents: |-
         rgb_path_template: "${rgb_dir}/{cam_name}.h5"
         mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}.h5"
+        sam3d_body_batch_size: 16
 
-  # # Export MHR parameters to SOMA format
-  # - name: export_soma
-  #   image: nvcr.io/nvstaging/isaac-amr/mv_hoi_sam3d_body:{{image_tag}}
-  #   command: [/bin/bash]
-  #   args: [/tmp/entry.sh]
-  #   inputs:
-  #   - task: sam3d_body
-  #   - dataset: {name: v2d_mv_hoi_data}
-  #   outputs:
-  #   - url: {{swift_output_base}}/export_soma/
-  #   files:
-  #   - path: /tmp/entry.sh
-  #     contents: |-
-  #       set -ex
-  #       python -m v2d.sam3d_body.lib.export_soma \
-  #         --params_path {{input:0}}/mhr_params_mv.pt \
-  #         --mesh_path {{input:0}}/mhr_mesh_mv.pt \
-  #         --weights_dir {{input:1}}/v2d_mv_hoi_data/data/weights/sam3d_body \
-  #         --output_path {{output}}/soma_params.npz \
-  #         --foot_weight 50.0 \
-  #         --autograd_iters 100 \
-  #         --debug 1
+  # Export MHR parameters to SOMA format
+  - name: export_soma
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_sam3d_body:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: sam3d_body
+    - dataset: {name: v2d_mv_hoi_data}
+    outputs:
+    - url: {{swift_output_base}}/export_soma/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        # Find the GPU's NUMA node and pin to its CPUs
+        PCI_ID=$(nvidia-smi --query-gpu=pci.bus_id -i 0 --format=csv,noheader \
+                 | tr '[:upper:]' '[:lower:]' | sed 's/^0000//')
+        NUMA_NODE=$(cat /sys/bus/pci/devices/${PCI_ID}/numa_node 2>/dev/null || echo 0)
+        [ "$NUMA_NODE" = "-1" ] && NUMA_NODE=0
+        CPU_LIST=$(cat /sys/devices/system/node/node${NUMA_NODE}/cpulist)
+        echo "GPU NUMA node: $NUMA_NODE, pinning to CPUs: $CPU_LIST"
 
-  # # Ground plane estimation (depth + MHR foot keypoints)
-  # - name: estimate_ground_plane
-  #   image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
-  #   resource: cpu_large
-  #   command: [/bin/bash]
-  #   args: [/tmp/entry.sh]
-  #   inputs:
-  #   - task: mv_preprocess
-  #   - task: foundation_stereo
-  #   - task: sam3d_body
-  #   outputs:
-  #   - url: {{swift_output_base}}/estimate_ground_plane/
-  #   files:
-  #   - path: /tmp/entry.sh
-  #     contents: |-
-  #       set -ex
-  #       python -m v2d.mv.postprocess.lib.mv_estimate_ground_plane \
-  #         --camera_params_path {{input:0}}/edex \
-  #         --depth_dir {{input:1}} \
-  #         --human_pose_dir {{input:2}} \
-  #         --rgb_dir {{input:0}}/images \
-  #         --output_dir {{output}} \
-  #         --config_path /tmp/ground_plane_config.yaml
-  #   - path: /tmp/ground_plane_config.yaml
-  #     contents: |-
-  #       rgb_path_template: "${rgb_dir}/{cam_name}.h5"
-  #       depth_path_template: "${depth_dir}/{cam_name}/depth.h5"
-  #       mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}.h5"
+        taskset -c "$CPU_LIST" python -m v2d.sam3d_body.lib.export_soma \
+          --params_path {{input:0}}/mhr_params_mv.pt \
+          --mesh_path {{input:0}}/mhr_mesh_mv.pt \
+          --weights_dir {{input:1}}/v2d_mv_hoi_data/data/weights/sam3d_body \
+          --output_path {{output}}/soma_params.npz \
+          --foot_weight 50.0 \
+          --autograd_iters 100 \
+          --debug 1
 
-  # # Fused multiview point cloud export
-  # - name: export_fused_pointcloud
-  #   image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
-  #   resource: cpu_large
-  #   command: [/bin/bash]
-  #   args: [/tmp/entry.sh]
-  #   inputs:
-  #   - task: mv_preprocess
-  #   - task: foundation_stereo
-  #   outputs:
-  #   - url: {{swift_output_base}}/export_fused_pointcloud/
-  #   files:
-  #   - path: /tmp/entry.sh
-  #     contents: |-
-  #       set -ex
-  #       python -m v2d.mv.postprocess.lib.mv_export_fused_pointcloud \
-  #         --camera_params_path {{input:0}}/edex \
-  #         --depth_dir {{input:1}} \
-  #         --rgb_dir {{input:0}}/images \
-  #         --output_dir {{output}} \
-  #         --config_path /tmp/fused_pointcloud_config.yaml
-  #   - path: /tmp/fused_pointcloud_config.yaml
-  #     contents: |-
-  #       rgb_path_template: "${rgb_dir}/{cam_name}.h5"
-  #       depth_path_template: "${depth_dir}/{cam_name}/depth.h5"
-  #       mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}.h5"
+  # Ground plane estimation (depth + MHR foot keypoints)
+  - name: estimate_ground_plane
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    resource: cpu_large
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: mv_preprocess
+    - task: foundation_stereo
+    - task: sam3d_body
+    outputs:
+    - url: {{swift_output_base}}/estimate_ground_plane/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.mv.postprocess.lib.mv_estimate_ground_plane \
+          --camera_params_path {{input:0}}/edex \
+          --depth_dir {{input:1}} \
+          --human_pose_dir {{input:2}} \
+          --rgb_dir {{input:0}}/images \
+          --output_dir {{output}} \
+          --config_path /tmp/ground_plane_config.yaml
+    - path: /tmp/ground_plane_config.yaml
+      contents: |-
+        rgb_path_template: "${rgb_dir}/{cam_name}.h5"
+        depth_path_template: "${depth_dir}/{cam_name}/depth.h5"
+        mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}.h5"
 
-  # # Chamfer evaluation – object
-  # - name: eval_chamfer_object
-  #   image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
-  #   command: [/bin/bash]
-  #   args: [/tmp/entry.sh]
-  #   inputs:
-  #   - task: mv_preprocess
-  #   - task: foundation_pose
-  #   - task: foundation_stereo
-  #   - task: sam2_object_masks
-  #   outputs:
-  #   - url: {{swift_output_base}}/eval_chamfer_object/
-  #   files:
-  #   - path: /tmp/entry.sh
-  #     contents: |-
-  #       set -ex
-  #       MESH={{input:0}}/object_mesh/output_aligned.glb
-  #       if [ ! -f "$MESH" ]; then
-  #         echo "ERROR: $MESH not found"
-  #         exit 1
-  #       fi
-  #       python -m v2d.mv.postprocess.lib.mv_eval_chamfer_object \
-  #         --camera_params_path {{input:0}}/edex \
-  #         --object_mesh_path "$MESH" \
-  #         --object_pose_dir {{input:1}} \
-  #         --depth_dir {{input:2}} \
-  #         --mask_dir {{input:3}} \
-  #         --output_dir {{output}} \
-  #         --config_path /tmp/chamfer_object_config.yaml
-  #   - path: /tmp/chamfer_object_config.yaml
-  #     contents: |-
-  #       depth_path_template: "${depth_dir}/{cam_name}/depth.h5"
-  #       mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}.h5"
+  # Fused multiview point cloud export
+  - name: export_fused_pointcloud
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    resource: cpu_large
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: mv_preprocess
+    - task: foundation_stereo
+    outputs:
+    - url: {{swift_output_base}}/export_fused_pointcloud/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.mv.postprocess.lib.mv_export_fused_pointcloud \
+          --camera_params_path {{input:0}}/edex \
+          --depth_dir {{input:1}} \
+          --rgb_dir {{input:0}}/images \
+          --output_dir {{output}} \
+          --config_path /tmp/fused_pointcloud_config.yaml
+    - path: /tmp/fused_pointcloud_config.yaml
+      contents: |-
+        rgb_path_template: "${rgb_dir}/{cam_name}.h5"
+        depth_path_template: "${depth_dir}/{cam_name}/depth.h5"
+        mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}.h5"
 
-  # # Chamfer evaluation – human
-  # - name: eval_chamfer_human
-  #   image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
-  #   command: [/bin/bash]
-  #   args: [/tmp/entry.sh]
-  #   inputs:
-  #   - task: mv_preprocess
-  #   - task: sam3d_body
-  #   - task: foundation_stereo
-  #   - task: sam2_human_masks
-  #   outputs:
-  #   - url: {{swift_output_base}}/eval_chamfer_human/
-  #   files:
-  #   - path: /tmp/entry.sh
-  #     contents: |-
-  #       set -ex
-  #       python -m v2d.mv.postprocess.lib.mv_eval_chamfer_human \
-  #         --camera_params_path {{input:0}}/edex \
-  #         --human_pose_dir {{input:1}} \
-  #         --depth_dir {{input:2}} \
-  #         --mask_dir {{input:3}} \
-  #         --output_dir {{output}} \
-  #         --config_path /tmp/chamfer_human_config.yaml
-  #   - path: /tmp/chamfer_human_config.yaml
-  #     contents: |-
-  #       depth_path_template: "${depth_dir}/{cam_name}/depth.h5"
-  #       mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}.h5"
+  # Chamfer evaluation – object
+  - name: eval_chamfer_object
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: mv_preprocess
+    - task: foundation_pose
+    - task: foundation_stereo
+    - task: sam2_object_masks
+    outputs:
+    - url: {{swift_output_base}}/eval_chamfer_object/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        # Find the GPU's NUMA node and pin to its CPUs
+        PCI_ID=$(nvidia-smi --query-gpu=pci.bus_id -i 0 --format=csv,noheader \
+                 | tr '[:upper:]' '[:lower:]' | sed 's/^0000//')
+        NUMA_NODE=$(cat /sys/bus/pci/devices/${PCI_ID}/numa_node 2>/dev/null || echo 0)
+        [ "$NUMA_NODE" = "-1" ] && NUMA_NODE=0
+        CPU_LIST=$(cat /sys/devices/system/node/node${NUMA_NODE}/cpulist)
+        echo "GPU NUMA node: $NUMA_NODE, pinning to CPUs: $CPU_LIST"
 
-  # # Render HOI overlay videos
-  # - name: render_hoi_overlay
-  #   image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
-  #   command: [/bin/bash]
-  #   args: [/tmp/entry.sh]
-  #   inputs:
-  #   - task: mv_preprocess
-  #   - task: foundation_pose
-  #   - task: sam3d_body
-  #   outputs:
-  #   - url: {{swift_output_base}}/render_hoi_overlay/
-  #   files:
-  #   - path: /tmp/entry.sh
-  #     contents: |-
-  #       set -ex
-  #       MESH={{input:0}}/object_mesh/output_aligned.glb
-  #       if [ ! -f "$MESH" ]; then
-  #         echo "ERROR: $MESH not found"
-  #         exit 1
-  #       fi
-  #       python -m v2d.mv.postprocess.lib.mv_render_hoi_overlay \
-  #         --camera_params_path {{input:0}}/edex \
-  #         --object_mesh_path "$MESH" \
-  #         --object_pose_dir {{input:1}} \
-  #         --human_pose_dir {{input:2}} \
-  #         --rgb_dir {{input:0}}/images \
-  #         --output_dir {{output}} \
-  #         --config_path /tmp/render_overlay_config.yaml
-  #   - path: /tmp/render_overlay_config.yaml
-  #     contents: |-
-  #       rgb_path_template: "${rgb_dir}/{cam_name}.h5"
+        MESH={{input:0}}/object_mesh/output_aligned.glb
+        if [ ! -f "$MESH" ]; then
+          echo "ERROR: $MESH not found"
+          exit 1
+        fi
+        taskset -c "$CPU_LIST" python -m v2d.mv.postprocess.lib.mv_eval_chamfer_object \
+          --camera_params_path {{input:0}}/edex \
+          --object_mesh_path "$MESH" \
+          --object_pose_dir {{input:1}} \
+          --depth_dir {{input:2}} \
+          --mask_dir {{input:3}} \
+          --output_dir {{output}} \
+          --config_path /tmp/chamfer_object_config.yaml
+    - path: /tmp/chamfer_object_config.yaml
+      contents: |-
+        depth_path_template: "${depth_dir}/{cam_name}/depth.h5"
+        mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}.h5"
 
-  # # Final QC gate – aggregate chamfer + mask-containment checks
-  # - name: check_accuracy
-  #   image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
-  #   resource: cpu_small
-  #   command: [/bin/bash]
-  #   args: [/tmp/entry.sh]
-  #   inputs:
-  #   - task: eval_chamfer_object
-  #   - task: eval_chamfer_human
-  #   - task: check_object_mask
-  #   outputs:
-  #   - url: {{swift_output_base}}/check_accuracy/
-  #   files:
-  #   - path: /tmp/entry.sh
-  #     contents: |-
-  #       set -ex
-  #       python -m v2d.mv.postprocess.lib.check_accuracy \
-  #         --chamfer_object_dir {{input:0}} \
-  #         --chamfer_human_dir {{input:1}} \
-  #         --check_object_mask_dir {{input:2}} \
-  #         --output_dir {{output}} \
-  #         --max_chamfer_object {{max_chamfer_object}} \
-  #         --max_chamfer_human {{max_chamfer_human}}
+  # Chamfer evaluation – human
+  - name: eval_chamfer_human
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: mv_preprocess
+    - task: sam3d_body
+    - task: foundation_stereo
+    - task: sam2_human_masks
+    outputs:
+    - url: {{swift_output_base}}/eval_chamfer_human/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        # Find the GPU's NUMA node and pin to its CPUs
+        PCI_ID=$(nvidia-smi --query-gpu=pci.bus_id -i 0 --format=csv,noheader \
+                 | tr '[:upper:]' '[:lower:]' | sed 's/^0000//')
+        NUMA_NODE=$(cat /sys/bus/pci/devices/${PCI_ID}/numa_node 2>/dev/null || echo 0)
+        [ "$NUMA_NODE" = "-1" ] && NUMA_NODE=0
+        CPU_LIST=$(cat /sys/devices/system/node/node${NUMA_NODE}/cpulist)
+        echo "GPU NUMA node: $NUMA_NODE, pinning to CPUs: $CPU_LIST"
 
-  # # HITL intake staging – OSMO copies the output to both swift_output_base
-  # # and hitl_s3_base. Depends on check_accuracy so it only runs on PASS.
-  # - name: upload_hitl
-  #   image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
-  #   resource: cpu_small
-  #   command: [/bin/bash]
-  #   args: [/tmp/entry.sh]
-  #   inputs:
-  #   - task: mv_preprocess
-  #   - task: render_hoi_overlay
-  #   - task: check_accuracy
-  #   outputs:
-  #   - url: {{swift_output_base}}/upload_hitl/
-  #   - url: {{hitl_s3_base}}/{{hitl_batch_name}}/
-  #   files:
-  #   - path: /tmp/entry.sh
-  #     contents: |-
-  #       set -ex
-  #       python -m v2d.mv.postprocess.lib.upload_hitl \
-  #         --overlay_dir {{input:1}} \
-  #         --hoi_metadata_path {{input:0}}/hoi_metadata.yaml \
-  #         --output_dir {{output}} \
-  #         --hitl_s3_base "{{hitl_s3_base}}" \
-  #         --hitl_batch_name "{{hitl_batch_name}}" \
-  #         --video_name "{{workflow_name}}" \
-  #         --s3_region "{{s3_region}}"
+        taskset -c "$CPU_LIST" python -m v2d.mv.postprocess.lib.mv_eval_chamfer_human \
+          --camera_params_path {{input:0}}/edex \
+          --human_pose_dir {{input:1}} \
+          --depth_dir {{input:2}} \
+          --mask_dir {{input:3}} \
+          --output_dir {{output}} \
+          --config_path /tmp/chamfer_human_config.yaml
+    - path: /tmp/chamfer_human_config.yaml
+      contents: |-
+        depth_path_template: "${depth_dir}/{cam_name}/depth.h5"
+        mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}.h5"
+
+  # Render HOI overlay videos
+  - name: render_hoi_overlay
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: mv_preprocess
+    - task: foundation_pose
+    - task: sam3d_body
+    outputs:
+    - url: {{swift_output_base}}/render_hoi_overlay/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        # Find the GPU's NUMA node and pin to its CPUs
+        PCI_ID=$(nvidia-smi --query-gpu=pci.bus_id -i 0 --format=csv,noheader \
+                 | tr '[:upper:]' '[:lower:]' | sed 's/^0000//')
+        NUMA_NODE=$(cat /sys/bus/pci/devices/${PCI_ID}/numa_node 2>/dev/null || echo 0)
+        [ "$NUMA_NODE" = "-1" ] && NUMA_NODE=0
+        CPU_LIST=$(cat /sys/devices/system/node/node${NUMA_NODE}/cpulist)
+        echo "GPU NUMA node: $NUMA_NODE, pinning to CPUs: $CPU_LIST"
+
+        MESH={{input:0}}/object_mesh/output_aligned.glb
+        if [ ! -f "$MESH" ]; then
+          echo "ERROR: $MESH not found"
+          exit 1
+        fi
+        taskset -c "$CPU_LIST" python -m v2d.mv.postprocess.lib.mv_render_hoi_overlay \
+          --camera_params_path {{input:0}}/edex \
+          --object_mesh_path "$MESH" \
+          --object_pose_dir {{input:1}} \
+          --human_pose_dir {{input:2}} \
+          --rgb_dir {{input:0}}/images \
+          --output_dir {{output}} \
+          --config_path /tmp/render_overlay_config.yaml
+    - path: /tmp/render_overlay_config.yaml
+      contents: |-
+        rgb_path_template: "${rgb_dir}/{cam_name}.h5"
+
+  # Final QC gate – aggregate chamfer + mask-containment checks
+  - name: check_accuracy
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    resource: cpu_small
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: eval_chamfer_object
+    - task: eval_chamfer_human
+    - task: check_object_mask
+    outputs:
+    - url: {{swift_output_base}}/check_accuracy/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.mv.postprocess.lib.check_accuracy \
+          --chamfer_object_dir {{input:0}} \
+          --chamfer_human_dir {{input:1}} \
+          --check_object_mask_dir {{input:2}} \
+          --output_dir {{output}} \
+          --max_chamfer_object {{max_chamfer_object}} \
+          --max_chamfer_human {{max_chamfer_human}}
+
+  # HITL intake staging – OSMO copies the output to both swift_output_base
+  # and hitl_s3_base. Depends on check_accuracy so it only runs on PASS.
+  - name: upload_hitl
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    resource: cpu_small
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: mv_preprocess
+    - task: render_hoi_overlay
+    - task: check_accuracy
+    outputs:
+    - url: {{swift_output_base}}/upload_hitl/
+    - url: {{hitl_s3_base}}/{{hitl_batch_name}}/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.mv.postprocess.lib.upload_hitl \
+          --overlay_dir {{input:1}} \
+          --hoi_metadata_path {{input:0}}/hoi_metadata.yaml \
+          --output_dir {{output}} \
+          --hitl_s3_base "{{hitl_s3_base}}" \
+          --hitl_batch_name "{{hitl_batch_name}}" \
+          --video_name "{{workflow_name}}" \
+          --s3_region "{{s3_region}}"
 
 default-values:
   workflow_name: v2d_mv_hoi_reconstruction
