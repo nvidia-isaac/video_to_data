@@ -409,9 +409,12 @@ class HandKinematics:
 
             # Check if the solution is converged, terminate if it is
             for task_name, task in self.frame_tasks.items():
-                pos_error = float(
-                    np.linalg.norm(task.compute_error(self.configuration)[:3])
-                )
+                # See ``WholeBodyKinematics.compute``: cast through
+                # ``np.asarray`` so we always slice a plain ndarray, not an
+                # Eigen-backed view from pinocchio whose ``__getitem__`` can
+                # fail on slice objects on some eigenpy builds.
+                err_vec = np.asarray(task.compute_error(self.configuration))
+                pos_error = float(np.linalg.norm(err_vec[:3]))
                 last_pos_error = frame_tasks_pos_error[task_name]
                 if (
                     abs(pos_error - last_pos_error)

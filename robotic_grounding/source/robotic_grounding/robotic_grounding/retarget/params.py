@@ -330,6 +330,17 @@ G1_FOOT_FRAME_NAMES = [
     "right_ankle_roll_link",
 ]
 
+# Z-distance from the G1 ``*_ankle_roll_link`` joint origin down to the foot
+# sole. Source: ``LL_FOOT`` / ``LR_FOOT`` fixed joints in the G1 URDF
+# (``main_with_hand.urdf``) sit at ``xyz="0.04 0 -0.037"`` off each
+# ``ankle_roll_link``, so the sole is 3.7 cm below the ankle joint origin.
+# Used by the retargeter to convert ankle-frame Z to sole Z when anchoring
+# the robot to the floor. Assumes the foot is approximately level; frame-0
+# ankle pitches in nvhuman-sourced motions are small (<= ~0.3 rad), so the
+# residual Z error is a few mm — negligible versus the multi-cm grounding
+# error this replaces.
+G1_ANKLE_ROLL_OFFSET = 0.037
+
 #############################################################
 # MANO hand link definitions
 #############################################################

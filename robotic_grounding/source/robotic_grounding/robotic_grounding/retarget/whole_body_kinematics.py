@@ -247,6 +247,29 @@ class WholeBodyKinematics:
                 target_rot.copy()
             )
 
+    def _rebuild_configuration(self) -> None:
+        """Rebuild ``self.configuration`` and ``self.configuration_limits``.
+
+        Works around an eigenpy attribute-cache flake on the IsaacSim-bundled
+        pinocchio build: the same ``pink.Configuration`` object, reused for
+        many ``solve_ik`` calls, sporadically mis-resolves ``self.model``
+        mid-sequence. Building fresh objects (including the limits, which
+        hold the same ``Model`` reference) clears the per-instance cache.
+
+        Preserves the current ``q`` so the IK warm-start is unaffected; the
+        frame-task targets are owned separately and also carry over.
+        """
+        current_q = self.configuration.q.copy()
+        self.configuration = pink.Configuration(
+            self.robot.model,
+            self.robot.data,
+            current_q,
+        )
+        self.configuration_limits = [
+            ConfigurationLimit(self.robot.model),
+            VelocityLimit(self.robot.model),
+        ]
+
     def setup_frame_tasks(self) -> dict[str, FrameTask]:
         """Setup the IK frame tasks."""
         frame_tasks = {}
@@ -304,39 +327,61 @@ class WholeBodyKinematics:
         frame_tasks_converged = {task_name: False for task_name in self.frame_tasks}
 
         num_optimization_iterations = 0
+        # Bound the number of times we'll rebuild `self.configuration` in
+        # response to the binding flake described below; 2 is enough in
+        # practice (seen once in a ~1200-frame sequence) and keeps us from
+        # masking an actual runaway bug.
+        max_rebuilds_this_frame = 2
+        rebuilds_this_frame = 0
         for _ in range(self.max_iter):
-            vel = solve_ik(
-                configuration=self.configuration,
-                tasks=tasks,
-                dt=self.dt,
-                solver=self.solver,
-                safety_break=False,
-                limits=self.configuration_limits,
-            )
+            # Defensive solve. Pink's ``Configuration.get_transform_frame_to_world``
+            # resolves the frame id via ``self.model.getFrameId(frame)`` on a
+            # pinocchio ``Model``. On the IsaacSim-bundled pinocchio / eigenpy
+            # build, repeated use of the same ``Configuration`` object can
+            # cause eigenpy's attribute cache to mis-resolve ``self.model``
+            # and surface as either ``TypeError: 'Model' object is not
+            # callable`` or ``AttributeError: 'Model' object has no attribute
+            # 'model'`` — random, mid-sequence, non-deterministic. See
+            # https://github.com/stack-of-tasks/eigenpy for similar reports.
+            # Rebuilding ``Configuration`` from scratch drops the offending
+            # per-instance attribute cache; we retry the current iteration
+            # once (per frame) before accepting the last good ``q``.
+            try:
+                vel = solve_ik(
+                    configuration=self.configuration,
+                    tasks=tasks,
+                    dt=self.dt,
+                    solver=self.solver,
+                    safety_break=False,
+                    limits=self.configuration_limits,
+                )
+            except (AttributeError, TypeError) as exc:
+                if rebuilds_this_frame >= max_rebuilds_this_frame:
+                    print(
+                        f"[whole_body_kinematics] giving up on frame after "
+                        f"{rebuilds_this_frame} Pink/eigenpy rebuilds: {exc}"
+                    )
+                    break
+                rebuilds_this_frame += 1
+                self._rebuild_configuration()
+                continue
             self.configuration.integrate_inplace(vel, self.dt)
             num_optimization_iterations += 1
 
             # Convergence check.
             #
-            # The straightforward path — calling ``task.compute_error`` per
-            # task and comparing translation-error norms — goes through
-            # Pink's ``Configuration.get_transform_frame_to_world`` which
-            # does ``self.model.getFrameId(frame)`` on a pinocchio ``Model``
-            # instance. On the IsaacSim-bundled pinocchio / eigenpy build,
-            # repeated dynamic-attribute access on the Model (Pink attaches
-            # ``tangent`` / ``configuration_limit`` / ``velocity_limit`` at
-            # ``Configuration`` init) eventually causes attribute lookup to
-            # misfire mid-sequence and surfaces as
-            # ``TypeError: 'Model' object is not callable`` at a random
-            # frame. The solver's velocity norm is an equivalent
-            # equilibrium signal and avoids the flaky binding path, so we
-            # use it as a fallback and as a secondary exit condition.
+            # Even when ``solve_ik`` succeeded, the subsequent per-task
+            # ``compute_error`` path can still trip the same flake (it goes
+            # through the same ``get_transform_frame_to_world``). Use the
+            # solver's velocity norm as a fallback and as a secondary exit
+            # condition — equivalent equilibrium signal that avoids the
+            # flaky binding path entirely.
             vel_norm = float(np.linalg.norm(vel))
             for task_name, task in self.frame_tasks.items():
                 try:
                     err_vec = np.asarray(task.compute_error(self.configuration))
                     pos_error = float(np.linalg.norm(err_vec[:3]))
-                except Exception:
+                except (AttributeError, TypeError):
                     pos_error = vel_norm
                 last_pos_error = frame_tasks_pos_error[task_name]
                 if (
@@ -351,20 +396,28 @@ class WholeBodyKinematics:
             if vel_norm < self.frame_tasks_converged_threshold:
                 break
 
-        # Read each frame's world pose exactly ONCE (previously called
-        # twice, doubling exposure to the pinocchio binding bug above).
-        # Bypass Pink's wrapper by going directly through
-        # ``pin.updateFramePlacements`` so the hot path does not depend
-        # on the flaky ``self.model.getFrameId`` attribute resolution.
-        pin.forwardKinematics(
-            self.configuration.model,
-            self.configuration.data,
-            self.configuration.q,
-        )
-        pin.updateFramePlacements(self.configuration.model, self.configuration.data)
+        # Read each frame's world pose exactly ONCE. Access the pinocchio
+        # model through ``self.robot.model`` (the RobotWrapper's stable
+        # handle) rather than ``self.configuration.model`` to sidestep the
+        # eigenpy attribute-cache flake that can mis-resolve attributes on
+        # the ``Configuration`` object. Same data object throughout.
+        model = self.robot.model
+        data = self.configuration.data
+        try:
+            pin.forwardKinematics(model, data, self.configuration.q)
+            pin.updateFramePlacements(model, data)
+        except (AttributeError, TypeError) as exc:
+            print(
+                f"[whole_body_kinematics] forwardKinematics post-solve flake "
+                f"({exc}); rebuilding configuration and retrying once."
+            )
+            self._rebuild_configuration()
+            data = self.configuration.data
+            pin.forwardKinematics(model, data, self.configuration.q)
+            pin.updateFramePlacements(model, data)
         frame_pose = []
         for frame_id, _frame_name in self.robot_frame_names.items():
-            oMf = self.configuration.data.oMf[frame_id]
+            oMf = data.oMf[frame_id]
             pos = oMf.translation
             wxyz = R.from_matrix(oMf.rotation).as_quat(scalar_first=True)
             frame_pose.append(np.hstack([pos, wxyz]).tolist())

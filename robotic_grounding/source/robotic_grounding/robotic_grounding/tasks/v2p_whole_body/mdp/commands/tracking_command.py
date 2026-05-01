@@ -10,6 +10,7 @@ but operates on a single-articulation whole-body robot (not dual floating-base h
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
@@ -308,9 +309,44 @@ class TrackingCommand(CommandTerm):
         self.retargeted_left_finger_joints = md.left_finger_joints  # (T, J)
         self.retargeted_right_finger_joints = md.right_finger_joints
 
-        # Binary contact labels (may be None)
-        self.retargeted_left_contact_active = md.left_hand_contact_active  # (T,)
-        self.retargeted_right_contact_active = md.right_hand_contact_active  # (T,)
+        # Binary per-frame contact labels.
+        # If a side is absent on disk, we substitute an all-zero mask of length
+        # `num_timesteps` so the getters stay branch-free and tensor-typed. The
+        # downstream `force_closure_reward` multiplies by these, so a missing
+        # mask silently zeros the reward term; warn loudly once per init.
+        left_active = md.left_hand_contact_active
+        right_active = md.right_hand_contact_active
+        missing_sides = [
+            side
+            for side, tensor in (("left", left_active), ("right", right_active))
+            if tensor is None
+        ]
+        if len(missing_sides) == 2:
+            raise ValueError(
+                "TrackingCommand: motion data is missing per-frame contact-active "
+                "labels for both hands. `force_closure_reward` and any other "
+                "consumer of `{left,right}_hand_contact_active_command` would "
+                "contribute 0 for the entire motion, which silently disables "
+                "contact-driven learning. Re-run the retargeter so "
+                "`left_hand_contact_active` / `right_hand_contact_active` are "
+                f"populated (motion_file={self.cfg.motion_file})."
+            )
+        if missing_sides:
+            warnings.warn(
+                "TrackingCommand: motion data is missing per-frame contact-active "
+                f"labels for side(s) {missing_sides}. Falling back to all-zero masks; "
+                "`force_closure_reward` and any other consumer of "
+                "`{left,right}_hand_contact_active_command` will contribute 0 from "
+                f"this motion file ({self.cfg.motion_file}).",
+                stacklevel=2,
+            )
+        zero_mask = torch.zeros(self.num_timesteps, device=self.device)
+        self.retargeted_left_contact_active = (
+            left_active.to(self.device) if left_active is not None else zero_mask
+        )
+        self.retargeted_right_contact_active = (
+            right_active.to(self.device) if right_active is not None else zero_mask
+        )
 
     def _init_contact_data(self) -> None:
         """Load contact positions, normals, and part IDs from motion data."""
@@ -1051,22 +1087,14 @@ class TrackingCommand(CommandTerm):
     @property
     def left_hand_contact_active_command(self) -> torch.Tensor:
         """(E,) binary contact label for left hand at current timestep."""
-        if self.retargeted_left_contact_active is not None:
-            t = self.timestep.clamp(
-                max=self.retargeted_left_contact_active.shape[0] - 1
-            )
-            return self.retargeted_left_contact_active[t]
-        return torch.zeros(self.num_envs, device=self.device)
+        t = self.timestep.clamp(max=self.retargeted_left_contact_active.shape[0] - 1)
+        return self.retargeted_left_contact_active[t]
 
     @property
     def right_hand_contact_active_command(self) -> torch.Tensor:
         """(E,) binary contact label for right hand at current timestep."""
-        if self.retargeted_right_contact_active is not None:
-            t = self.timestep.clamp(
-                max=self.retargeted_right_contact_active.shape[0] - 1
-            )
-            return self.retargeted_right_contact_active[t]
-        return torch.zeros(self.num_envs, device=self.device)
+        t = self.timestep.clamp(max=self.retargeted_right_contact_active.shape[0] - 1)
+        return self.retargeted_right_contact_active[t]
 
     # ------------------------------------------------------------------
     # Command lifecycle
