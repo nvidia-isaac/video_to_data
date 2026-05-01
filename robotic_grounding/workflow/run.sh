@@ -157,15 +157,34 @@ case "$CMD" in
             mkdir -p "${CONTAINER_PASSWD_DIR}"
             chmod 0700 "${CACHE_ROOT}" "${CONTAINER_PASSWD_DIR}" 2>/dev/null || true
             umask 0022
+            # Per-container shadowed /etc/passwd and /etc/group. We add an
+            # entry for the Isaac Sim image's owner (uid/gid 1234, name
+            # isaac-sim) so that --group-add 1234 below resolves to a real
+            # name inside the container; cosmetic but keeps tools that call
+            # getgrgid() happy.
             cat > "${CONTAINER_PASSWD_DIR}/passwd" <<EOF
 root:x:0:0:root:/root:/bin/bash
+isaac-sim:x:1234:1234::/isaac-sim:/bin/bash
 ${HOST_USERNAME}:x:${HOST_UID}:${HOST_GID}:${HOST_USERNAME}:/tmp:/bin/bash
 EOF
             cat > "${CONTAINER_PASSWD_DIR}/group" <<EOF
 root:x:0:
+isaac-sim:x:1234:${HOST_USERNAME}
 ${HOST_GROUPNAME}:x:${HOST_GID}:
 EOF
             chmod 0644 "${CONTAINER_PASSWD_DIR}/passwd" "${CONTAINER_PASSWD_DIR}/group"
+
+            # Per-container writable dirs for Kit's data/cache/logs. The
+            # base image owns /isaac-sim/kit/{data,cache,logs} as
+            # uid:gid 1234:1234 mode 0750/0755, so as a non-root user we
+            # can't write there even with --group-add 1234 (group has r-x,
+            # not w). Bind-mount writable host dirs over those paths so
+            # Kit's user.config.json, shader cache, and log files land
+            # somewhere we own.
+            KIT_DATA_DIR="${CONTAINER_PASSWD_DIR}/kit-data"
+            KIT_CACHE_DIR="${CONTAINER_PASSWD_DIR}/kit-cache"
+            KIT_LOGS_DIR="${CONTAINER_PASSWD_DIR}/kit-logs"
+            mkdir -p "${KIT_DATA_DIR}" "${KIT_CACHE_DIR}" "${KIT_LOGS_DIR}"
 
             docker run --rm -it \
                 --runtime=nvidia \
@@ -175,10 +194,14 @@ EOF
                 --user "${HOST_UID}:${HOST_GID}" \
                 -v "$(pwd)/..:/workspace/video_to_data" \
                 ${DATA_MOUNT} \
+                --group-add 1234 \
                 -v "${HOME}/.ssh:/tmp/.ssh:ro" \
                 -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
                 -v "${CONTAINER_PASSWD_DIR}/passwd:/etc/passwd:ro" \
                 -v "${CONTAINER_PASSWD_DIR}/group:/etc/group:ro" \
+                -v "${KIT_DATA_DIR}:/isaac-sim/kit/data" \
+                -v "${KIT_CACHE_DIR}:/isaac-sim/kit/cache" \
+                -v "${KIT_LOGS_DIR}:/isaac-sim/kit/logs" \
                 -e HOME=/tmp \
                 -e "USER=${HOST_USERNAME}" \
                 -e DISPLAY=${DISPLAY} \
