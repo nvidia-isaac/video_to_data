@@ -32,7 +32,10 @@ from sam_3d_body import load_sam_3d_body, SAM3DBodyEstimator
 from sam_3d_body.models.heads import MHRHead
 from sam_3d_body.models.modules import mhr_utils
 from sam_3d_body.metadata.mhr70 import pose_info as mhr70_pose_info
-from .estimate_mhr_params import estimate_mhr_params
+from .estimate_mhr_params import (
+    estimate_mhr_params,
+    mhr_estimation_cache_matches,
+)
 from v2d.mv.vis.renderer import Renderer
 from .renderer_gpu import GPURenderer
 from .visibility import (
@@ -579,7 +582,7 @@ def mv_optimize_mhr_params(
     cam_extrinsics: list[np.ndarray],
     weights_dir: Path,
     rgb_paths: list[Path],
-    bbox_paths: list[Path],
+    bbox_paths: list[Path | None] | None,
     mhr_params_paths: list[Path],
     mhr_mesh_paths: list[Path],
     mhr_params_mv_path: Path,
@@ -590,6 +593,15 @@ def mv_optimize_mhr_params(
     sam3d_body_batch_size: int = 1,
     debug: int = 0,
 ):
+    if bbox_paths is None and mask_dirs is None:
+        raise ValueError("Either bbox_paths or mask_dirs is required")
+    if bbox_paths is None:
+        bbox_paths = [None] * len(rgb_paths)
+    if len(bbox_paths) != len(rgb_paths):
+        raise ValueError(f"bbox_paths length {len(bbox_paths)} != rgb_paths length {len(rgb_paths)}")
+    if mask_dirs is not None and len(mask_dirs) != len(rgb_paths):
+        raise ValueError(f"mask_dirs length {len(mask_dirs)} != rgb_paths length {len(rgb_paths)}")
+
     frame_sources = [FrameSource.from_path(p) for p in rgb_paths]
 
     body_model_path = weights_dir / "sam-3d-body-dinov3/model.ckpt"
@@ -619,14 +631,25 @@ def mv_optimize_mhr_params(
     )):
         params_path = Path(params_path)
         mesh_path = Path(mesh_path)
-        if params_path.exists():
+        mask_path = mask_dirs[cam_idx] if mask_dirs is not None else None
+        cache_valid = mhr_estimation_cache_matches(
+            params_path=params_path,
+            rgb_path=frame_source.path,
+            bbox_path=bbox_path,
+            mask_path=mask_path,
+            n_frames=frame_source.n_frames,
+        )
+        if cache_valid:
             print(f"Loading cached MHR params for camera {cam_idx}: {params_path}")
             mhr_outputs = torch.load(params_path)
         else:
+            if params_path.exists():
+                print(f"Ignoring stale MHR params cache for camera {cam_idx}: {params_path}")
             print(f"Running SAM3D body estimation for camera {cam_idx}")
             mhr_outputs = estimate_mhr_params(
                 rgb_path=frame_source.path,
                 bbox_path=bbox_path,
+                mask_path=mask_path,
                 cam_intrinsics=K.cpu().numpy(),
                 output_params_path=params_path,
                 output_mesh_path=mesh_path,
@@ -776,13 +799,17 @@ def mv_optimize_mhr_params_from_config(cfg):
     cam_intrinsics: list[np.ndarray] = []
     cam_extrinsics: list[np.ndarray] = []
     rgb_paths: list[Path] = []
-    bbox_paths: list[Path] = []
+    bbox_paths: list[Path | None] | None = None
     mhr_params_paths: list[Path] = []
     mhr_mesh_paths: list[Path] = []
     mask_dirs: list[Path] | None = None
 
+    if cfg.get("bbox_dir", None) is not None:
+        bbox_paths = []
     if cfg.get("mask_dir", None) is not None:
         mask_dirs = []
+    if bbox_paths is None and mask_dirs is None:
+        raise ValueError("Config must provide at least one of bbox_dir or mask_dir")
 
     for cam_id in cfg.cameras:
         cam = rig.get_camera(cam_id)
@@ -792,9 +819,10 @@ def mv_optimize_mhr_params_from_config(cfg):
         rgb_paths.append(
             Path(cfg.rgb_path_template.format(cam_name=cam.name))
         )
-        bbox_paths.append(
-            Path(cfg.bbox_path_template.format(cam_name=cam.name))
-        )
+        if bbox_paths is not None:
+            bbox_paths.append(
+                Path(cfg.bbox_path_template.format(cam_name=cam.name))
+            )
         mhr_params_paths.append(
             Path(cfg.mhr_params_path_template.format(cam_name=cam.name))
         )
@@ -836,7 +864,7 @@ if __name__ == "__main__":
     parser.add_argument("--rgb_dir", type=str, required=True, help="Directory containing input frames")
     parser.add_argument("--camera_params_path", type=str, required=True, help="Path to camera parameters")
     parser.add_argument("--weights_dir", type=str, required=True, help="Directory containing model weights")
-    parser.add_argument("--bbox_dir", type=str, required=True, help="Directory containing bounding boxes")
+    parser.add_argument("--bbox_dir", type=str, default=None, help="Directory containing bounding boxes")
     parser.add_argument("--mask_dir", type=str, default=None, help="Directory containing SAM2 masks (optional)")
     parser.add_argument("--output_dir", type=str, required=True, help="Directory for outputs")
     parser.add_argument("--config_path", type=str, default=None,
@@ -852,8 +880,9 @@ if __name__ == "__main__":
         "output_dir": args.output_dir,
         "camera_params_path": args.camera_params_path,
         "weights_dir": args.weights_dir,
-        "bbox_dir": args.bbox_dir,
     }
+    if args.bbox_dir is not None:
+        overrides["bbox_dir"] = args.bbox_dir
     if args.mask_dir is not None:
         overrides["mask_dir"] = args.mask_dir
     if args.debug is not None:

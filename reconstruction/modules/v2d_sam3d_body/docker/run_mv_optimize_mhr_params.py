@@ -10,8 +10,8 @@ def run_mv_optimize_mhr_params(
     camera_params_path: str,
     rgb_dir: str,
     weights_dir: str,
-    bbox_dir: str,
     output_dir: str,
+    bbox_dir: str | None = None,
     mask_dir: str | None = None,
     config_path: str = str(_LIB_CONFIG),
     debug: int = -1,
@@ -21,9 +21,10 @@ def run_mv_optimize_mhr_params(
         "camera_params_path": camera_params_path,
         "rgb_dir": rgb_dir,
         "weights_dir": weights_dir,
-        "bbox_dir": bbox_dir,
         "config_path": config_path,
     }
+    if bbox_dir:
+        inputs["bbox_dir"] = bbox_dir
     if mask_dir:
         inputs["mask_dir"] = mask_dir
 
@@ -55,7 +56,7 @@ if __name__ == "__main__":
     parser.add_argument("--rgb_dir", type=str, required=True, help="Directory containing input frames")
     parser.add_argument("--camera_params_path", type=str, required=True, help="Path to camera parameters")
     parser.add_argument("--weights_dir", type=str, required=True, help="Directory containing model weights")
-    parser.add_argument("--bbox_dir", type=str, required=True, help="Directory containing bounding boxes")
+    parser.add_argument("--bbox_dir", type=str, default=None, help="Directory containing bounding boxes")
     parser.add_argument("--mask_dir", type=str, default=None, help="Directory containing SAM2 masks (optional)")
     parser.add_argument("--output_dir", type=str, required=True, help="Directory for outputs")
     parser.add_argument("--config_path", type=str, default=str(_LIB_CONFIG), help="Path to config YAML")
@@ -67,8 +68,8 @@ if __name__ == "__main__":
         camera_params_path=args.camera_params_path,
         rgb_dir=args.rgb_dir,
         weights_dir=args.weights_dir,
-        bbox_dir=args.bbox_dir,
         output_dir=args.output_dir,
+        bbox_dir=args.bbox_dir,
         mask_dir=args.mask_dir,
         config_path=args.config_path,
         debug=args.debug,

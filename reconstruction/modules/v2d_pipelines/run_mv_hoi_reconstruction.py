@@ -64,13 +64,13 @@ def main(
     hoi_overlay_dir = os.path.join(output_dir, "postprocess", "hoi_overlay")
     wis3d_dir = os.path.join(output_dir, "postprocess", "wis3d")
 
-    # Extract images + intrinsics from rosbag
-    run_rosbag_to_edex(
-        rosbag_path=rosbag_path,
-        output_dir=raw_dir,
-        no_extrinsics=True,
-        dev=dev,
-    )
+    # # Extract images + intrinsics from rosbag
+    # run_rosbag_to_edex(
+    #     rosbag_path=rosbag_path,
+    #     output_dir=raw_dir,
+    #     no_extrinsics=True,
+    #     dev=dev,
+    # )
 
     # Preprocessing (rectification, rescaling, video encoding, HOI bbox remap)
     run_mv_preprocess(
@@ -83,14 +83,14 @@ def main(
         dev=dev,
     )
 
-    # Stereo depth estimation
-    run_mv_image_list_to_depth(
-        camera_params_path=os.path.join(preprocess_dir, "edex"),
-        rgb_dir=preprocess_images_dir,
-        output_dir=foundation_stereo_dir,
-        model_dir=os.path.join(RECON_DIR, "data/weights/foundation_stereo"),
-        dev=dev,
-    )
+    # # Stereo depth estimation
+    # run_mv_image_list_to_depth(
+    #     camera_params_path=os.path.join(preprocess_dir, "edex"),
+    #     rgb_dir=preprocess_images_dir,
+    #     output_dir=foundation_stereo_dir,
+    #     model_dir=os.path.join(RECON_DIR, "data/weights/foundation_stereo"),
+    #     dev=dev,
+    # )
 
     # Detect object bounding boxes with Grounding DINO
     run_mv_image_list_to_object_bboxes(
@@ -111,19 +111,19 @@ def main(
         dev=dev,
     )
 
-    # Track object pose with FoundationPose (requires depth + object masks)
-    sym_json = os.path.join(preprocess_mesh_dir, "output_symmetry.json")
-    run_mv_videos_to_poses(
-        camera_params_path=os.path.join(preprocess_dir, "edex"),
-        rgb_dir=preprocess_images_dir,
-        depth_dir=foundation_stereo_dir,
-        mask_dir=sam2_object_dir,
-        mesh_path=_find_pinned_mesh(preprocess_mesh_dir),
-        symmetry_path=sym_json if os.path.exists(sym_json) else None,
-        weights_dir=os.path.join(RECON_DIR, "data/weights/foundation_pose"),
-        output_dir=foundation_pose_dir,
-        dev=dev,
-    )
+    # # Track object pose with FoundationPose (requires depth + object masks)
+    # sym_json = os.path.join(preprocess_mesh_dir, "output_symmetry.json")
+    # run_mv_videos_to_poses(
+    #     camera_params_path=os.path.join(preprocess_dir, "edex"),
+    #     rgb_dir=preprocess_images_dir,
+    #     depth_dir=foundation_stereo_dir,
+    #     mask_dir=sam2_object_dir,
+    #     mesh_path=_find_pinned_mesh(preprocess_mesh_dir),
+    #     symmetry_path=sym_json if os.path.exists(sym_json) else None,
+    #     weights_dir=os.path.join(RECON_DIR, "data/weights/foundation_pose"),
+    #     output_dir=foundation_pose_dir,
+    #     dev=dev,
+    # )
 
     # Detect + track human bounding boxes
     run_mv_track_bboxes(
@@ -153,79 +153,79 @@ def main(
         dev=dev,
     )
 
-    # Export MHR parameters to SOMA format
-    run_export_soma(
-        params_path=os.path.join(sam3d_body_dir, "mhr_params_mv.pt"),
-        output_path=os.path.join(export_soma_dir, "soma_params.npz"),
-        mesh_path=os.path.join(sam3d_body_dir, "mhr_mesh_mv.pt"),
-        weights_dir=os.path.join(RECON_DIR, "data/weights/sam3d_body"),
-        autograd_iters=100,
-        foot_weight=50.0,
-        debug=1,
-        dev=dev,
-    )
+    # # Export MHR parameters to SOMA format
+    # run_export_soma(
+    #     params_path=os.path.join(sam3d_body_dir, "mhr_params_mv.pt"),
+    #     output_path=os.path.join(export_soma_dir, "soma_params.npz"),
+    #     mesh_path=os.path.join(sam3d_body_dir, "mhr_mesh_mv.pt"),
+    #     weights_dir=os.path.join(RECON_DIR, "data/weights/sam3d_body"),
+    #     autograd_iters=100,
+    #     foot_weight=50.0,
+    #     debug=1,
+    #     dev=dev,
+    # )
 
-    # Export fused multiview point clouds
-    run_mv_export_fused_pointcloud(
-        camera_params_path=os.path.join(preprocess_dir, "edex"),
-        depth_dir=foundation_stereo_dir,
-        rgb_dir=preprocess_images_dir,
-        output_dir=fused_pointcloud_dir,
-        dev=dev,
-    )
+    # # Export fused multiview point clouds
+    # run_mv_export_fused_pointcloud(
+    #     camera_params_path=os.path.join(preprocess_dir, "edex"),
+    #     depth_dir=foundation_stereo_dir,
+    #     rgb_dir=preprocess_images_dir,
+    #     output_dir=fused_pointcloud_dir,
+    #     dev=dev,
+    # )
 
-    # Estimate ground plane from depth + MHR foot keypoints
-    run_mv_estimate_ground_plane(
-        camera_params_path=os.path.join(preprocess_dir, "edex"),
-        depth_dir=foundation_stereo_dir,
-        human_pose_dir=sam3d_body_dir,
-        output_dir=ground_plane_dir,
-        rgb_dir=preprocess_images_dir,
-        dev=dev,
-    )
+    # # Estimate ground plane from depth + MHR foot keypoints
+    # run_mv_estimate_ground_plane(
+    #     camera_params_path=os.path.join(preprocess_dir, "edex"),
+    #     depth_dir=foundation_stereo_dir,
+    #     human_pose_dir=sam3d_body_dir,
+    #     output_dir=ground_plane_dir,
+    #     rgb_dir=preprocess_images_dir,
+    #     dev=dev,
+    # )
 
-    # Evaluate chamfer distance for human mesh
-    run_mv_eval_chamfer_human(
-        camera_params_path=os.path.join(preprocess_dir, "edex"),
-        human_pose_dir=sam3d_body_dir,
-        output_dir=chamfer_human_dir,
-        depth_dir=foundation_stereo_dir,
-        mask_dir=sam2_human_dir,
-        dev=dev,
-    )
+    # # Evaluate chamfer distance for human mesh
+    # run_mv_eval_chamfer_human(
+    #     camera_params_path=os.path.join(preprocess_dir, "edex"),
+    #     human_pose_dir=sam3d_body_dir,
+    #     output_dir=chamfer_human_dir,
+    #     depth_dir=foundation_stereo_dir,
+    #     mask_dir=sam2_human_dir,
+    #     dev=dev,
+    # )
 
-    # Evaluate chamfer distance for object mesh
-    run_mv_eval_chamfer_object(
-        camera_params_path=os.path.join(preprocess_dir, "edex"),
-        object_mesh_path=_find_pinned_mesh(preprocess_mesh_dir),
-        object_pose_dir=foundation_pose_dir,
-        output_dir=chamfer_object_dir,
-        depth_dir=foundation_stereo_dir,
-        mask_dir=sam2_object_dir,
-        dev=dev,
-    )
+    # # Evaluate chamfer distance for object mesh
+    # run_mv_eval_chamfer_object(
+    #     camera_params_path=os.path.join(preprocess_dir, "edex"),
+    #     object_mesh_path=_find_pinned_mesh(preprocess_mesh_dir),
+    #     object_pose_dir=foundation_pose_dir,
+    #     output_dir=chamfer_object_dir,
+    #     depth_dir=foundation_stereo_dir,
+    #     mask_dir=sam2_object_dir,
+    #     dev=dev,
+    # )
 
-    # Render HOI overlay videos (object + human mesh on camera frames)
-    run_mv_render_hoi_overlay(
-        camera_params_path=os.path.join(preprocess_dir, "edex"),
-        object_mesh_path=_find_pinned_mesh(preprocess_mesh_dir),
-        object_pose_dir=foundation_pose_dir,
-        human_pose_dir=sam3d_body_dir,
-        output_dir=hoi_overlay_dir,
-        rgb_dir=preprocess_images_dir,
-        dev=dev,
-    )
+    # # Render HOI overlay videos (object + human mesh on camera frames)
+    # run_mv_render_hoi_overlay(
+    #     camera_params_path=os.path.join(preprocess_dir, "edex"),
+    #     object_mesh_path=_find_pinned_mesh(preprocess_mesh_dir),
+    #     object_pose_dir=foundation_pose_dir,
+    #     human_pose_dir=sam3d_body_dir,
+    #     output_dir=hoi_overlay_dir,
+    #     rgb_dir=preprocess_images_dir,
+    #     dev=dev,
+    # )
 
-    # Generate Wis3D interactive 3D visualization
-    run_mv_visualize_wis3d(
-        camera_params_path=os.path.join(preprocess_dir, "edex"),
-        object_mesh_path=_find_pinned_mesh(preprocess_mesh_dir),
-        object_pose_dir=foundation_pose_dir,
-        human_pose_dir=sam3d_body_dir,
-        output_dir=wis3d_dir,
-        ground_plane_dir=ground_plane_dir,
-        dev=dev,
-    )
+    # # Generate Wis3D interactive 3D visualization
+    # run_mv_visualize_wis3d(
+    #     camera_params_path=os.path.join(preprocess_dir, "edex"),
+    #     object_mesh_path=_find_pinned_mesh(preprocess_mesh_dir),
+    #     object_pose_dir=foundation_pose_dir,
+    #     human_pose_dir=sam3d_body_dir,
+    #     output_dir=wis3d_dir,
+    #     ground_plane_dir=ground_plane_dir,
+    #     dev=dev,
+    # )
 
     print("\n=== Multi-View Reconstruction Complete ===")
 

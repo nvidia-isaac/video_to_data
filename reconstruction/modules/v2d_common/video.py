@@ -10,6 +10,8 @@ import json
 import logging
 import os
 import subprocess
+import threading
+from concurrent.futures import Future, ThreadPoolExecutor
 from fractions import Fraction
 from pathlib import Path
 from typing import Any, Iterator
@@ -442,6 +444,8 @@ class FrameWriter:
         *,
         fps: int = 30,
         crf: int = 17,
+        png_num_workers: int | None = None,
+        png_max_pending: int | None = None,
     ) -> "FrameWriter":
         """Auto-detect backend and return the appropriate writer subclass."""
         path = Path(path)
@@ -450,7 +454,11 @@ class FrameWriter:
             return _HDF5Writer(path)
         if suffix in _VIDEO_EXTENSIONS:
             return _VideoWriter(path, fps=fps, crf=crf)
-        return _PNGDirWriter(path)
+        return _PNGDirWriter(
+            path,
+            num_workers=png_num_workers,
+            max_pending=png_max_pending,
+        )
 
     # ------------------------------------------------------------------
     # write interface (subclasses override)
@@ -477,26 +485,109 @@ class FrameWriter:
 
 
 class _PNGDirWriter(FrameWriter):
-    """Writes individual PNG files into a directory."""
+    """Writes individual PNG files into a directory using background workers."""
 
-    def __init__(self, path: Path):
+    def __init__(
+        self,
+        path: Path,
+        num_workers: int | None = None,
+        max_pending: int | None = None,
+    ):
         self._path = path
+        self._path.mkdir(parents=True, exist_ok=True)
         self._closed = False
         self._png_counter = 0
+        if num_workers is None:
+            num_workers = min(8, os.cpu_count() or 1)
+        self._num_workers = max(1, int(num_workers))
+        if max_pending is None:
+            max_pending = self._num_workers * 2
+        self._max_pending = max(1, int(max_pending))
+        self._executor = ThreadPoolExecutor(
+            max_workers=self._num_workers,
+            thread_name_prefix=f"png-writer-{self._path.name or 'frames'}",
+        )
+        self._pending_slots = threading.BoundedSemaphore(self._max_pending)
+        self._lock = threading.Lock()
+        self._futures: set[Future] = set()
+        self._errors: list[BaseException] = []
+
+    @staticmethod
+    def _write_png(path: Path, frame: np.ndarray) -> None:
+        iio.imwrite(path, frame)
+
+    def _raise_if_error(self) -> None:
+        with self._lock:
+            if self._errors:
+                raise self._errors[0]
+
+    def _on_done(self, fut: Future) -> None:
+        try:
+            fut.result()
+        except BaseException as exc:
+            with self._lock:
+                self._errors.append(exc)
+        finally:
+            with self._lock:
+                self._futures.discard(fut)
+            self._pending_slots.release()
 
     def write_frame(self, frame: np.ndarray, stem: str | None = None) -> None:
-        if self._closed:
-            raise RuntimeError("FrameWriter is closed")
         if np.issubdtype(frame.dtype, np.floating):
             raise TypeError(
                 f"PNG mode does not accept float arrays (got {frame.dtype}). "
                 "Encode to uint8/uint16 first."
             )
-        self._path.mkdir(parents=True, exist_ok=True)
-        if stem is None:
-            stem = f"{self._png_counter:06d}"
-        iio.imwrite(self._path / f"{stem}.png", frame)
-        self._png_counter += 1
+
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("FrameWriter is closed")
+            if self._errors:
+                raise self._errors[0]
+            if stem is None:
+                stem = f"{self._png_counter:06d}"
+            self._png_counter += 1
+            output_path = self._path / f"{stem}.png"
+
+        self._pending_slots.acquire()
+        try:
+            self._raise_if_error()
+            frame_snapshot = np.array(frame, copy=True, order="C")
+            fut = self._executor.submit(self._write_png, output_path, frame_snapshot)
+            with self._lock:
+                self._futures.add(fut)
+            fut.add_done_callback(self._on_done)
+        except BaseException:
+            self._pending_slots.release()
+            raise
+
+    def close(self) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            futures = list(self._futures)
+
+        error: BaseException | None = None
+        for fut in futures:
+            try:
+                fut.result()
+            except BaseException as exc:
+                if error is None:
+                    error = exc
+
+        self._executor.shutdown(wait=True)
+        with self._lock:
+            if error is None and self._errors:
+                error = self._errors[0]
+        if error is not None:
+            raise error
+
+    def __del__(self):
+        try:
+            self.close()
+        except BaseException:
+            pass
 
 
 class _HDF5Writer(FrameWriter):

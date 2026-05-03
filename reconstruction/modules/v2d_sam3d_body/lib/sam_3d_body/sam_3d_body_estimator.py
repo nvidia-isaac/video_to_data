@@ -270,6 +270,7 @@ class SAM3DBodyEstimator:
         self,
         images: list,
         bboxes: Optional[list] = None,
+        masks: Optional[list] = None,
         cam_ints: Optional[list] = None,
         inference_type: str = "body",
     ):
@@ -284,6 +285,8 @@ class SAM3DBodyEstimator:
                 top-down transform crops/resizes each to the model's input.
             bboxes: optional list of length B; each entry is a (4,) or (1, 4)
                 xyxy bbox, or None (use full image).
+            masks: optional list of length B; each entry is an HxW or HxWx1
+                uint8 mask, or None (disable mask conditioning for that frame).
             cam_ints: optional list of length B; each entry is a (3, 3) torch
                 tensor or None (use default FOV from prepare_batch).
             inference_type: "body" only — full/hand variants would need their
@@ -308,12 +311,26 @@ class SAM3DBodyEstimator:
                 box = np.asarray(bboxes[i]).reshape(-1, 4)[0]
             else:
                 box = np.array([0, 0, w, h], dtype=np.float32)
+            mask = np.zeros((h, w, 1), dtype=np.uint8)
+            mask_score = np.array(0.0, dtype=np.float32)
+            if masks is not None and masks[i] is not None:
+                mask_arr = np.asarray(masks[i])
+                if mask_arr.ndim == 2:
+                    mask_arr = mask_arr[..., None]
+                elif mask_arr.ndim == 3 and mask_arr.shape[-1] != 1:
+                    mask_arr = mask_arr.max(axis=-1, keepdims=True)
+                if mask_arr.shape[:2] != (h, w):
+                    raise ValueError(
+                        f"Mask shape {mask_arr.shape[:2]} does not match image shape {(h, w)}"
+                    )
+                mask = mask_arr.astype(np.uint8)
+                mask_score = np.array(1.0, dtype=np.float32)
             data_info = dict(
                 img=img,
                 bbox=box,
                 bbox_format="xyxy",
-                mask=np.zeros((h, w, 1), dtype=np.uint8),
-                mask_score=np.array(0.0, dtype=np.float32),
+                mask=mask,
+                mask_score=mask_score,
             )
             data_list.append(self.transform(data_info))
 
@@ -378,7 +395,7 @@ class SAM3DBodyEstimator:
                 "scale_params": out["scale"][i],
                 "shape_params": out["shape"][i],
                 "expr_params": out["face"][i],
-                "mask": None,
+                "mask": masks[i] if masks is not None else None,
                 "pred_joint_coords": out["pred_joint_coords"][i],
                 "pred_global_rots": out["joint_global_rots"][i],
                 "mhr_model_params": out["mhr_model_params"][i],

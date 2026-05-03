@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import time
 
@@ -20,6 +21,168 @@ import trimesh
 from v2d.mv.vis.renderer import Renderer
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+PROMPT_SOURCE_MASK = "mask"
+PROMPT_SOURCE_BBOX_FALLBACK = "bbox_fallback"
+PROMPT_SOURCE_FULL_IMAGE_FALLBACK = "full_image_fallback"
+PROMPT_METADATA_VERSION = 1
+
+
+def mhr_estimation_metadata_path(params_path: Path) -> Path:
+    """Return the sidecar metadata path for cached per-camera MHR params."""
+    return Path(str(params_path) + ".meta.json")
+
+
+def _metadata_path_value(path: Path | None) -> str | None:
+    return str(Path(path).resolve()) if path is not None else None
+
+
+def _prompt_mode(mask_path: Path | None) -> str:
+    return "mask" if mask_path is not None else "bbox"
+
+
+def build_mhr_estimation_metadata(
+    rgb_path: Path,
+    bbox_path: Path | None,
+    mask_path: Path | None,
+    n_frames: int,
+    prompt_counts: dict[str, int] | None = None,
+) -> dict:
+    """Describe the prompt inputs used to produce cached per-camera MHR params.
+
+    The sidecar lets multiview estimation tell whether an existing
+    ``mhr_params.pt`` was produced from bbox prompts or mask prompts, and from
+    which source files, before reusing it.
+    """
+    return {
+        "version": PROMPT_METADATA_VERSION,
+        "prompt_mode": _prompt_mode(mask_path),
+        "source_paths": {
+            "rgb_path": _metadata_path_value(rgb_path),
+            "bbox_path": _metadata_path_value(bbox_path),
+            "mask_path": _metadata_path_value(mask_path),
+        },
+        "n_frames": int(n_frames),
+        "prompt_counts": {
+            PROMPT_SOURCE_MASK: 0,
+            PROMPT_SOURCE_BBOX_FALLBACK: 0,
+            PROMPT_SOURCE_FULL_IMAGE_FALLBACK: 0,
+            **(prompt_counts or {}),
+        },
+    }
+
+
+def mhr_estimation_cache_matches(
+    params_path: Path,
+    rgb_path: Path,
+    bbox_path: Path | None,
+    mask_path: Path | None,
+    n_frames: int,
+) -> bool:
+    """Return True when an existing per-camera MHR cache can be reused.
+
+    Without this check, a mask-driven rerun could accidentally load an older
+    bbox-only ``mhr_params.pt`` and skip the new SAM2 mask prompts entirely.
+    """
+    params_path = Path(params_path)
+    meta_path = mhr_estimation_metadata_path(params_path)
+    if not params_path.exists() or not meta_path.exists():
+        return False
+    try:
+        with open(meta_path) as f:
+            metadata = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return False
+
+    expected = build_mhr_estimation_metadata(
+        rgb_path=rgb_path,
+        bbox_path=bbox_path,
+        mask_path=mask_path,
+        n_frames=n_frames,
+    )
+    return (
+        metadata.get("version") == expected["version"]
+        and metadata.get("prompt_mode") == expected["prompt_mode"]
+        and metadata.get("source_paths") == expected["source_paths"]
+        and metadata.get("n_frames") == expected["n_frames"]
+    )
+
+
+def _full_image_bbox(image: np.ndarray) -> np.ndarray:
+    h, w = image.shape[:2]
+    return np.array([0, 0, w, h], dtype=np.float32)
+
+
+def _is_valid_bbox(bbox: np.ndarray | None) -> bool:
+    if bbox is None:
+        return False
+    box = np.asarray(bbox, dtype=np.float32).reshape(-1, 4)[0]
+    return bool(
+        np.isfinite(box).all()
+        and box[2] - box[0] > 1.0
+        and box[3] - box[1] > 1.0
+    )
+
+
+def _normalize_mask(mask: np.ndarray, image_shape: tuple[int, int]) -> np.ndarray:
+    """Normalize a mask image to uint8 (H, W, 1), preserving 0/positive values."""
+    mask = np.asarray(mask)
+    if mask.ndim == 3:
+        if mask.shape[-1] == 1:
+            mask = mask[..., 0]
+        else:
+            mask = mask.max(axis=-1)
+    if mask.ndim != 2:
+        raise ValueError(f"Expected 2D mask, got shape {mask.shape}")
+
+    h, w = image_shape
+    if mask.shape[:2] != (h, w):
+        raise ValueError(
+            f"Mask shape {mask.shape[:2]} does not match image shape {(h, w)}"
+        )
+
+    mask = (mask > 0).astype(np.uint8) * 255
+    return mask[..., None]
+
+
+def _bbox_from_mask(mask: np.ndarray) -> np.ndarray | None:
+    """Return xyxy bbox around positive mask pixels, or None for empty masks."""
+    mask_2d = mask[..., 0] if mask.ndim == 3 else mask
+    ys, xs = np.where(mask_2d > 0)
+    if len(xs) == 0:
+        return None
+    return np.array(
+        [xs.min(), ys.min(), xs.max() + 1, ys.max() + 1],
+        dtype=np.float32,
+    )
+
+
+def _select_frame_prompt(
+    image: np.ndarray,
+    stem: str,
+    frame_idx: int,
+    bbox_track: np.ndarray | None,
+    mask_source: FrameSource | None,
+    mask_stem_to_idx: dict[str, int],
+) -> tuple[np.ndarray, np.ndarray | None, str]:
+    """Select bbox/mask prompt for one frame, preferring non-empty masks."""
+    if mask_source is not None and stem in mask_stem_to_idx:
+        mask = _normalize_mask(
+            mask_source[mask_stem_to_idx[stem]],
+            image_shape=image.shape[:2],
+        )
+        mask_bbox = _bbox_from_mask(mask)
+        if _is_valid_bbox(mask_bbox):
+            return mask_bbox, mask, PROMPT_SOURCE_MASK
+
+    if bbox_track is not None and _is_valid_bbox(bbox_track[frame_idx]):
+        return (
+            np.asarray(bbox_track[frame_idx], dtype=np.float32).reshape(4),
+            None,
+            PROMPT_SOURCE_BBOX_FALLBACK,
+        )
+
+    return _full_image_bbox(image), None, PROMPT_SOURCE_FULL_IMAGE_FALLBACK
 
 
 def coalesce_mhr_outputs_dict(
@@ -98,6 +261,7 @@ def estimate_mhr_params(
     output_params_path: Path,
     cam_intrinsics: np.ndarray | None = None,
     bbox_path: Path | None = None,
+    mask_path: Path | None = None,
     output_mesh_path: Path | None = None,
     estimator: SAM3DBodyEstimator | None = None,
     weights_dir: Path | None = None,
@@ -107,7 +271,10 @@ def estimate_mhr_params(
     """Run SAM3D-Body inference on a single camera's frames.
 
     If *cam_intrinsics* is None, the model uses a default FOV.
-    If *bbox_path* is None, the full image is used as the bbox each frame.
+    Either *bbox_path* or *mask_path* is required. If masks are provided,
+    valid non-empty masks drive both crop bboxes and mask conditioning. Missing
+    or empty masks fall back to bboxes, then to full-image crops with no mask
+    conditioning.
     If *batch_size* > 1, frames are processed in batches via process_batch,
     which amortizes Python/PyTorch dispatcher overhead — meaningful win on
     cluster nodes with slower per-core CPUs. batch_size=1 uses process_one_image.
@@ -116,6 +283,12 @@ def estimate_mhr_params(
     """
     output_params_path = Path(output_params_path).resolve()
     output_params_path.parent.mkdir(parents=True, exist_ok=True)
+    rgb_path = Path(rgb_path)
+    bbox_path = Path(bbox_path) if bbox_path is not None else None
+    mask_path = Path(mask_path) if mask_path is not None else None
+
+    if bbox_path is None and mask_path is None:
+        raise ValueError("Either bbox_path or mask_path is required")
 
     frame_source = FrameSource.from_path(rgb_path)
     n_frames = frame_source.n_frames
@@ -123,7 +296,6 @@ def estimate_mhr_params(
 
     bbox_track = None
     if bbox_path is not None:
-        bbox_path = Path(bbox_path)
         if not bbox_path.exists():
             raise FileNotFoundError(f"BBox track not found: {bbox_path}")
         bbox_data = torch.load(bbox_path, weights_only=False)
@@ -131,6 +303,12 @@ def estimate_mhr_params(
         assert bbox_track.shape[0] == n_frames, (
             f"BBox track has {bbox_track.shape[0]} frames, but source has {n_frames}"
         )
+
+    mask_source = None
+    mask_stem_to_idx: dict[str, int] = {}
+    if mask_path is not None:
+        mask_source = FrameSource.from_path(mask_path)
+        mask_stem_to_idx = {stem: i for i, stem in enumerate(mask_source.stems)}
 
     if estimator is None:
         if weights_dir is None:
@@ -162,6 +340,11 @@ def estimate_mhr_params(
     )
 
     all_outputs: list[dict] = []
+    prompt_counts = {
+        PROMPT_SOURCE_MASK: 0,
+        PROMPT_SOURCE_BBOX_FALLBACK: 0,
+        PROMPT_SOURCE_FULL_IMAGE_FALLBACK: 0,
+    }
     frame_iter = frame_source.iter_frames()
     pbar = tqdm(total=n_frames, desc="Running SAM3D-Body estimation")
     for batch_idx, start in enumerate(range(0, n_frames, batch_size)):
@@ -169,10 +352,25 @@ def estimate_mhr_params(
         bs = end - start
 
         images = [next(frame_iter) for _ in range(bs)]
-        bbox_list = (
-            [bbox_track[start + j] for j in range(bs)]
-            if bbox_track is not None else None
-        )
+        bbox_list = []
+        mask_list = []
+        prompt_source_list = []
+        for j, image in enumerate(images):
+            frame_idx = start + j
+            box, mask, prompt_source = _select_frame_prompt(
+                image=image,
+                stem=frame_source.stems[frame_idx],
+                frame_idx=frame_idx,
+                bbox_track=bbox_track,
+                mask_source=mask_source,
+                mask_stem_to_idx=mask_stem_to_idx,
+            )
+            bbox_list.append(box)
+            mask_list.append(mask)
+            prompt_source_list.append(prompt_source)
+            prompt_counts[prompt_source] += 1
+
+        batch_has_masks = any(mask is not None for mask in mask_list)
         cam_int_list = (
             [cam_int_tensor for _ in range(bs)]
             if cam_int_tensor is not None else None
@@ -187,12 +385,15 @@ def estimate_mhr_params(
                 # Keep single-frame path going through process_one_image
                 # for parity with batch_size=1 callers.
                 ci = cam_int_list[0].unsqueeze(0) if cam_int_list is not None else None
-                bb = bbox_list[0] if bbox_list is not None else None
+                bb = bbox_list[0]
+                mm = mask_list[0] if batch_has_masks else None
                 return estimator.process_one_image(
-                    img=images[0], bboxes=bb, cam_int=ci, inference_type="body",
+                    img=images[0], bboxes=bb, masks=mm, cam_int=ci, inference_type="body",
                 )
             return estimator.process_batch(
-                images=images, bboxes=bbox_list, cam_ints=cam_int_list,
+                images=images, bboxes=bbox_list,
+                masks=mask_list if batch_has_masks else None,
+                cam_ints=cam_int_list,
                 inference_type="body",
             )
 
@@ -217,6 +418,8 @@ def estimate_mhr_params(
         infer_time = time.time() - t_start
 
         assert len(outputs) == bs, f"Expected {bs} outputs, got {len(outputs)}"
+        for output, prompt_source in zip(outputs, prompt_source_list):
+            output["prompt_source"] = prompt_source
         all_outputs.extend(outputs)
 
         if batch_idx % 10 == 0:
@@ -273,6 +476,16 @@ def estimate_mhr_params(
 
     torch.save(mhr_params, output_params_path)
     print(f"Saved MHR params for {n_frames} frames to {output_params_path}")
+    metadata = build_mhr_estimation_metadata(
+        rgb_path=rgb_path,
+        bbox_path=bbox_path,
+        mask_path=mask_path,
+        n_frames=n_frames,
+        prompt_counts=prompt_counts,
+    )
+    with open(mhr_estimation_metadata_path(output_params_path), "w") as f:
+        json.dump(metadata, f, indent=2)
+    print(f"Saved MHR metadata to {mhr_estimation_metadata_path(output_params_path)}")
 
     if output_mesh_path is not None:
         torch.save(mhr_mesh, output_mesh_path)
@@ -295,7 +508,9 @@ if __name__ == "__main__":
                         help="Path to camera intrinsics JSON. If omitted, the model uses a default FOV.")
     parser.add_argument("--weights_dir", type=Path, required=True, help="Directory containing model weights")
     parser.add_argument("--bbox_path", type=Path, default=None,
-                        help="Path to bbox track .pt file. If omitted, the full image is used as the bbox.")
+                        help="Optional path to bbox track .pt file.")
+    parser.add_argument("--mask_path", type=Path, default=None,
+                        help="Optional path to SAM2 mask directory or .h5 file.")
     parser.add_argument("--output_params_path", type=Path, default=Path("mhr_params.pt"))
     parser.add_argument("--output_mesh_path", type=Path, default=None)
     parser.add_argument("--batch_size", type=int, default=1,
@@ -313,6 +528,7 @@ if __name__ == "__main__":
         cam_intrinsics=cam_intrinsics,
         rgb_path=args.rgb_path,
         bbox_path=args.bbox_path,
+        mask_path=args.mask_path,
         output_params_path=args.output_params_path,
         output_mesh_path=args.output_mesh_path,
         weights_dir=args.weights_dir,

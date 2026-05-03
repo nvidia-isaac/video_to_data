@@ -10,6 +10,7 @@ def run_estimate_mhr_params(
     output_params_path: str,
     cam_intrinsics_path: str | None = None,
     bbox_path: str | None = None,
+    mask_path: str | None = None,
     output_mesh_path: str | None = None,
     batch_size: int = 1,
     debug: int = -1,
@@ -23,6 +24,8 @@ def run_estimate_mhr_params(
         inputs["cam_intrinsics_path"] = cam_intrinsics_path
     if bbox_path is not None:
         inputs["bbox_path"] = bbox_path
+    if mask_path is not None:
+        inputs["mask_path"] = mask_path
 
     outputs = {"output_params_path": output_params_path}
     if output_mesh_path:
@@ -61,7 +64,9 @@ if __name__ == "__main__":
                         help="Optional. If omitted, the model uses a default FOV.")
     parser.add_argument("--weights_dir", type=str, required=True)
     parser.add_argument("--bbox_path", type=str, default=None,
-                        help="Optional. If omitted, the full image is used as the bbox.")
+                        help="Optional bbox track .pt path.")
+    parser.add_argument("--mask_path", type=str, default=None,
+                        help="Optional SAM2 mask directory or .h5 path.")
     parser.add_argument("--output_params_path", type=str, required=True)
     parser.add_argument("--output_mesh_path", type=str, default=None)
     parser.add_argument("--batch_size", type=int, default=1,
@@ -75,6 +80,7 @@ if __name__ == "__main__":
         cam_intrinsics_path=args.cam_intrinsics_path,
         weights_dir=args.weights_dir,
         bbox_path=args.bbox_path,
+        mask_path=args.mask_path,
         output_params_path=args.output_params_path,
         output_mesh_path=args.output_mesh_path,
         batch_size=args.batch_size,
