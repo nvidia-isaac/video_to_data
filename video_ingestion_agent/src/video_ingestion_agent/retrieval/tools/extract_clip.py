@@ -78,16 +78,34 @@ class ExtractClipTool(BaseTool):
         Get video path with fallback logic.
 
         Priority:
-        1. Explicit video_path parameter
+        1. Explicit video_path parameter (with leading-slash repair, see below)
         2. video_id lookup in registry
         3. default_video_path
         4. First video in registry
+
+        Note: the analyzer LLM occasionally rewrites a relative path
+        like ``data/foo.mp4`` as ``/data/foo.mp4`` when echoing search
+        results back through ``relevant_clips``. We attempt cheap
+        recovery here rather than refactor the analyzer-to-synthesizer
+        contract — strip a leading ``/`` and retry, and if that still
+        misses, fall through to the registry by ``video_id``.
 
         Raises:
             ValueError: If no video path available
         """
         if video_path:
-            return video_path
+            if Path(video_path).exists():
+                return video_path
+            # LLM-mutation repair: ``/data/foo.mp4`` → ``data/foo.mp4``.
+            if video_path.startswith("/"):
+                stripped = video_path.lstrip("/")
+                if Path(stripped).exists():
+                    return stripped
+            # If video_id is also supplied, prefer the registry over the
+            # corrupted LLM-supplied path rather than failing outright.
+            if video_id is not None and video_id in self.video_registry:
+                return self.video_registry[video_id]
+            return video_path  # let downstream existence-check raise the canonical error
 
         if video_id is not None and video_id in self.video_registry:
             return self.video_registry[video_id]

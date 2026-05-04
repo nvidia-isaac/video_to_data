@@ -1,86 +1,79 @@
-# Release-Readiness Assessment
+# Release-Readiness Plan
 
-> Pre-publication audit of `video_ingestion_agent` for external open-source release.
-> Recorded so it can be picked up later — nothing in this document changes code.
+> Tracking the remaining work between `video_ingestion_agent` as it sits today
+> in the `nvidia-isaac/video_to_data` monorepo and a public open-source release.
+> Items completed this session are marked **DONE** with the relevant commits;
+> remaining work is grouped by why it's still open.
 
-## Verdict — **NOT YET READY**
+## Verdict — **partial; safe to push the import branch, not yet safe to flip the repo public**
 
-The codebase itself is in good shape:
+What's working:
 
-- 284/285 unit tests pass; 14/14 component smoke tests pass.
-- End-to-end pipeline runs cleanly on a real video (segmentation → verify →
-  refine → entity graph → embeddings → DB write → HTML report).
-- `ruff check` + `ruff format` clean; pre-commit passes.
+- 288/289 unit tests pass (4 added this session for the retrieval path
+  fallback); 14/14 component smoke tests pass.
+- Full ingestion pipeline runs end-to-end on real video at the new
+  location (segmentation → optional verify/refine → entity graph →
+  embeddings → DB write → HTML report).
+- Retrieval agent runs end-to-end and now actually extracts `.mp4`
+  clips (the leading-slash path bug is patched defensively).
+- Webapp boots, serves UI, and reads our local `outputs/graph.db`
+  through the `DatabaseService` layer.
+- vLLM 0.15.x is now pinned in `pyproject.toml` so a fresh
+  `uv pip install -e ".[all]"` doesn't pull the broken 0.20+ Qwen3-VL.
 - Apache-2.0 LICENSE present; SPDX headers on every source file.
-- Dependencies are all OSS-license-compatible.
-- `.gitignore` already covers logs, runs, outputs, caches, IDE files.
 
-What blocks publication is the **public-facing surface**: URLs, docs,
-defaults, and missing OSS conventions. About 1–2 days of cleanup,
-excluding any external-infrastructure decisions (W&B project rename,
-NGC re-publish, OSMO removal).
+What still blocks public flip: a handful of internal-infrastructure
+references the maintainer chose to defer until the broader monorepo
+integration is complete; an author-email placeholder; and the larger
+research/writing deliverables (benchmarks + paper).
 
 ---
 
 ## Blockers — must fix before flipping to public
 
-### 1. URL / identifier mismatch from the rename
+### 1. URL / identifier sweep — **DONE** (commit `ca490b3` / earlier)
 
-The rename pass intentionally left URLs alone because the new external
-slug hadn't been decided. Today the repo is internally inconsistent.
+- `pyproject.toml [project.urls]` — all 4 URLs now point at
+  `github.com/nvidia-isaac/video_to_data` (Repository / Issues) and
+  `.../tree/main/video_ingestion_agent` (Homepage / Documentation).
+- `docs/conf.py` — `github_url`, `internal_git_url`, `external_git_url`,
+  and the two `code_link_base_url` entries all point at the monorepo;
+  `released = True`.
+- `README.md` docs link points at the subfolder URL.
+- Two leftover GitLab issue links in `docs/pages/development.rst` and
+  `docs/pages/troubleshooting.rst` rewritten to GitHub Issues.
+- **One remainder:** `pyproject.toml` `authors[0].email` is still
+  `TODO@nvidia.com`. Maintainer to supply the real address.
 
-- `pyproject.toml:111-115` — `name = "video_ingestion_agent"` but every
-  `[project.urls]` entry still points at `github.com/NVIDIA/v2p_video_agent`.
-- `pyproject.toml:8-10` — `authors = [{name = "V2P Team", email =
-  "v2p@nvidia.com"}]` still uses the old team identity.
-- `docs/conf.py:79` — `github_url` points at internal GitLab
-  (`gitlab-master.nvidia.com/liuw/v2p_video_agent`).
-- `docs/conf.py:101-107` — `video_ingestion_agent_docs_config` has 4 URL
-  fields (internal git, external git, internal/external code-link bases)
-  all still referencing `v2p_video_agent`.
-- `docs/conf.py:29` — `released = False`. Flips docs to "external"
-  rendering when set True; needs flipping (and the URLs above need to be
-  correct for external mode).
-- `README.md:11` — the docs link points at internal GitLab Pages
-  (`v2p-video-agent-eec0b3.gitlab-master-pages.nvidia.com`) which won't
-  resolve for external readers.
+### 2. README rewrite — **DONE** (commit `ca490b3` / `b0db57a`)
 
-**Decision needed:** what is the public GitHub slug?
-`NVIDIA/video_ingestion_agent`? Same question for the public docs site
-(`nvidia.github.io/video_ingestion_agent`?).
+Replaced the original 17-line stub with a 158-line README covering:
+feature overview, requirements, install (one-shot `[all]` plus
+partial-extras list), quickstart matching the verified end-to-end
+flow, deferred-verification gotcha note, docs links, license,
+citation placeholder.
 
-### 2. README is far too thin for a public landing page
+### 3. `docs/pages/deployment.rst` is mostly internal infrastructure — **DEFERRED**
 
-`README.md` is 17 lines: title, one-line description, broken docs URL,
-license. For a public NVIDIA repo this needs:
+Maintainer choice (this session): keep the OSMO + nvstaging
+references in place until the system is integrated and verified end
+to end inside the monorepo. Cleanup to follow.
 
-- Brief feature overview (segmentation, entity-graph, retrieval).
-- Hardware / OS requirements.
-- Install instructions (`uv pip install -e .` + the `[server]` extra for
-  the vLLM workflow).
-- Quickstart example a new reader can copy-paste — at minimum the
-  `serve.py` + `run_ingestion.py` commands we know work end-to-end.
-- Link to the published Sphinx docs.
-- Citation / license / acknowledgements.
+References still in:
+- "OSMO cluster" prose at the top of the page.
+- `nvcr.io/nvstaging/isaac-amr/video_ingestion_agent:latest` in three
+  Docker examples.
+- `/mnt/nfs/outputs` example NFS path.
+- Full OSMO workflow walkthrough (lines 50–end).
 
-### 3. `docs/pages/deployment.rst` is mostly internal infrastructure
+### 4. Internal infrastructure baked into runtime defaults — **DEFERRED**
 
-The whole page is OSMO-deployment-focused with internal-only references:
+Maintainer choice: address with #3 once the system is running in
+prod. Functional impact: zero — `default_db_dir` is overridden at
+runtime via `configs/retrieval.yaml`'s `database.directory`. Only a
+cosmetic source-code embarrassment for public eyes.
 
-- Line 4: "OSMO cluster" — internal NVIDIA orchestration system.
-- Lines 18, 28, 47: `nvcr.io/nvstaging/isaac-amr/video_ingestion_agent:latest`
-  — internal NGC staging registry; external users can't pull.
-- Line 84: `/mnt/nfs/outputs` — internal NFS layout.
-- Lines 50–end: full OSMO workflow walkthrough.
-
-**Decision needed:** keep this page (with a clear "internal NVIDIA
-deployment, illustrative only" disclaimer at the top) or remove the OSMO
-section entirely from the public docs?
-
-### 4. Internal infrastructure baked into runtime defaults
-
-These defaults will break first-run UX for external users:
-
+References still in:
 - `src/video_ingestion_agent/webapp/config.py:34` —
   `default_db_dir = "/mnt/amlfs-02/shared/liuw/v2p/database"`
 - `src/video_ingestion_agent/webapp/config.py:391` —
@@ -88,164 +81,169 @@ These defaults will break first-run UX for external users:
 - `src/video_ingestion_agent/benchmark/wandb_logger.py:34` —
   `entity: str = "nvidia-isaac"` (default W&B entity).
 
-Replace defaults with portable ones (`outputs/`, `~/.video_ingestion_agent/db`,
-or env-var driven). The W&B entity should default to `None` (use the
-caller's account) and become an explicit opt-in.
+### 5. Dockerfile base image is internal-only — **DEFERRED**
 
-### 5. Dockerfile base image is internal-only
+Maintainer choice: defer with #3 / #4. `Dockerfile:27` —
+`ARG BASE_IMAGE=nvcr.io/nvstaging/isaac-amr/cosmos_reason_2`.
 
-`Dockerfile:27` — `ARG BASE_IMAGE=nvcr.io/nvstaging/isaac-amr/cosmos_reason_2`.
-External users can't pull this. Either:
+### 6. OSMO workflows are internal-only — **DEFERRED**
 
-- Switch the default `BASE_IMAGE` to a publicly pullable PyTorch+CUDA
-  image (e.g. `nvcr.io/nvidia/pytorch:24.10-py3`), or
-- Document explicitly that the image needs a base override and provide
-  an override example.
+Maintainer choice: defer with #3 / #4. `osmo_workflows/*.yaml` and
+`scripts/run_osmo.py` defaults at `nvcr.io/nvstaging/isaac-amr/...`.
 
-### 6. OSMO workflows are internal-only
+---
 
-`osmo_workflows/*.yaml` reference internal cluster pools, NFS shares,
-and NGC tags. `scripts/run_osmo.py` defaults to
-`nvcr.io/nvstaging/isaac-amr/v2p_*:latest`. **Decision needed:** ship as
-"NVIDIA-internal example, advanced users only" or move to a separate
-internal-only repo?
+## Recently fixed (this session, commit `b0db57a`)
+
+These weren't on the original blocker list — they surfaced during the
+integration test inside the monorepo and were fixed in line with the
+"smooth onboarding" goal:
+
+- **vLLM version pin.** `vllm>=0.8.0` resolved to `vllm==0.20.1` in a
+  fresh venv, which has a Qwen3-VL deepstack regression
+  (`num_tokens=336 > deepstack_input_embeds_num_tokens=329`) that
+  crashes inference on first call. Tightened to
+  `vllm>=0.15.1,<0.20`.
+- **`[all]` extra** now includes `[server]` so a single
+  `uv pip install -e ".[all]"` brings vLLM along with everything else.
+- **Retrieval clip-extraction "Video not found" with leading slash.**
+  The analyzer LLM occasionally rewrites `data/foo.mp4` →
+  `/data/foo.mp4` when echoing search results back. Defensive
+  recovery now lives in `extract_clip._get_video_path`: it strips a
+  bogus leading `/` and falls back to the `video_id` registry. Four
+  unit tests cover the cases.
+- **Troubleshooting docs.** Two new entries in
+  `docs/pages/troubleshooting.rst` covering the vLLM-deepstack and
+  retrieval-leading-slash symptoms.
+
+These fixes also imply: a deeper analyzer-LLM refactor (don't trust
+LLM-echoed paths/timestamps/video_ids — re-resolve from search-result
+identity) is still open as a future improvement, but the user-facing
+wound is closed.
 
 ---
 
 ## Outstanding deliverables — research / writing in flight
 
-These are release-gating but different in kind from the repo-hygiene
-punch list above: they need execution and writing time, not edits.
+Unchanged from the original assessment; both items are weeks of work,
+not part of the blocker pass.
 
 ### A. Benchmark segmentation + retrieval on HoT3D and EPIC-KITCHENS
 
-Numbers in the paper and on the public docs landing page should come
-from real benchmark runs, not anecdote.
-
-**Segmentation (EPIC-KITCHENS-100).** Infrastructure is already wired
-up: `configs/benchmark_epic_kitchens.yaml`,
-`src/video_ingestion_agent/benchmark/load_epic_kitchens.py`,
-`scripts/run_benchmark.py`, and the EPIC-KITCHENS adapter
-(`src/video_ingestion_agent/benchmark/adapter.py`). Run end-to-end
-across the standard validation split, log to W&B (after the entity-
-default fix in Blocker §4), and capture: segment-level precision /
-recall / F1 against the gold verb+noun annotations, refinement-loop
-convergence rate, and wall-clock per video.
-
-**Segmentation + retrieval (HoT3D).** No HoT3D-specific benchmark
-harness exists yet — `src/video_ingestion_agent/benchmark/` has only
-the EPIC-KITCHENS loader. Need:
-
-- A HoT3D loader analogous to `load_epic_kitchens.py` that maps HoT3D
-  ground-truth annotations into `ClipContext`-compatible records.
-- A retrieval-evaluation harness on top of the existing
-  `RetrievalAgent` — query → recovered clips → IoU/recall against gold
-  intervals. Nothing in the current `tests/` exercises retrieval against
-  ground truth.
-- A run script (`scripts/run_hot3d_benchmark.py`) and a config
-  (`configs/benchmark_hot3d.yaml`).
-
-Existing HoT3D references in the repo are NFS paths only
-(`/mnt/amlfs-02/shared/liuw/v2p/hot3d/...`), which need to either move
-to a portable location or be replaced with a download script before
-the benchmark is reproducible externally.
-
-**Output:** a results table in `docs/pages/benchmark.rst` (currently
-covers the design, not numbers) and a section in the paper.
+- **EPIC-KITCHENS-100** harness exists
+  (`configs/benchmark_epic_kitchens.yaml`,
+  `src/video_ingestion_agent/benchmark/load_epic_kitchens.py`,
+  `scripts/run_benchmark.py`,
+  `src/video_ingestion_agent/benchmark/adapter.py`). Run end-to-end
+  on the standard val split, log to W&B.
+- **HoT3D** scaffolding is now partially in place — the user added
+  `src/video_ingestion_agent/benchmark/load_hot3d.py`,
+  `src/video_ingestion_agent/benchmark/evaluate_hot3d.py`, and
+  `scripts/run_benchmark_hot3d.py` (still has unused-import warnings
+  flagged by ruff — deliberate WIP scaffolding). Need a config and a
+  retrieval-evaluation harness on top.
+- HoT3D references are still NFS paths
+  (`/mnt/amlfs-02/shared/liuw/v2p/hot3d/...`); needs a portable
+  fixture or a download script before the benchmark is reproducible
+  externally.
+- **Output:** results table in `docs/pages/benchmark.rst` (currently
+  covers design, not numbers) and a section in the paper.
 
 ### B. Finish the paper draft
 
-Public release should ideally land alongside the paper, or at least
-with an arXiv link in the README. Open items:
-
-- Locate / surface the current draft (not in this repo today; presumably
-  in a separate Overleaf or paper repo). Decide whether to mirror a
-  preprint into this repo under `paper/` or just link out.
-- Lock benchmark numbers from item A above into the results section.
-- Figures: the architecture diagram (`docs/images/video_ingestion_agent_overview.jpg`)
-  is reusable; pipeline / retrieval-loop figures should be regenerated
-  to match the rename.
-- Citation: once a preprint is up, add `CITATION.cff` to the repo
-  (also listed under Nits) and update the README "Citation" section.
-- License + author list review for paper-vs-repo consistency.
-
-These two items are the long pole. Repo-hygiene blockers can be
-finished in 1–2 days; benchmarks + paper are weeks.
+- Locate the current draft (not in this repo) and decide whether to
+  mirror under `paper/` or link out.
+- Lock benchmark numbers from item A.
+- Refresh figures (architecture diagram already renamed to
+  `docs/images/video_ingestion_agent_overview.jpg`); pipeline /
+  retrieval-loop figures need regeneration.
+- Add `CITATION.cff` and update the README citation block once a
+  preprint is up.
 
 ---
 
 ## Cleanup — should fix, low cost
 
-- **No `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`,
-  `CHANGELOG.md`.** All four are NVIDIA-OSS standard. Crib from an
-  existing public NVIDIA repo's templates.
-- **No GitHub Actions.** `.gitlab-ci.yml` runs pre-commit + Sphinx
-  build — port the equivalent two jobs to `.github/workflows/ci.yml`
-  so PRs against the public repo get checked.
-- **No test markers for GPU / integration tests.** Today all 285 tests
-  run as unit tests because nothing real-time ever exercises a GPU path
-  in CI. Once GitHub Actions is live, mark the GPU-touching tests with
-  `@pytest.mark.gpu` and skip them in the no-GPU CI lane.
-- **`entity_graph_build.log` (413 KB) sits in the working tree.** Not
-  tracked by git (verified: `git ls-files entity_graph_build.log` → empty;
-  `.gitignore` line 88 covers `*.log`). Just `rm` it before publishing.
-- **pre-commit pin is old.** `.pre-commit-config.yaml:43` pins ruff
-  v0.9.6; current ruff (0.15.x) prints a "removed rule UP038" warning
-  locally because pyproject.toml's `ignore` list still contains UP038.
-  Either bump the pin or drop UP038 from the ignore list (and verify
-  no new violations surface).
-- **`pyproject.toml [project.scripts]` was deleted in the rename pass.**
-  No README / docs claim those CLI commands exist (verified during
-  rename), but worth a single re-grep before publishing.
-- **Author block.** `{name = "V2P Team", email = "v2p@nvidia.com"}` —
-  rename to a real maintainer alias for the public repo.
+- **`CONTRIBUTING.md` / `CODE_OF_CONDUCT.md` / `SECURITY.md` /
+  `CHANGELOG.md`** — these typically live at the **monorepo root**.
+  Confirm what's already at `nvidia-isaac/video_to_data` root and
+  reuse rather than adding subfolder duplicates.
+- **GitHub Actions workflow.** The monorepo already follows a
+  `<package>_pipeline_ci.yml` convention
+  (`reconstruction_pipeline_ci.yml`, `robotic_grounding_ci.yml`).
+  Add `video_ingestion_agent_pipeline_ci.yml` running pre-commit +
+  Sphinx build, scoped to `video_ingestion_agent/**` paths. The
+  current `.gitlab-ci.yml` inside the subfolder can be removed once
+  ported.
+- **Test markers for GPU / integration tests.** All 288 tests run as
+  CPU unit tests today. Mark the GPU-touching ones with
+  `@pytest.mark.gpu` so a CPU-only CI lane can skip them cleanly.
+- **`pyproject.toml [project.scripts]` orphans** — re-grepped this
+  session, no remaining doc references to the deleted `v2p-*` CLI
+  commands. **No action needed.**
+- **`entity_graph_build.log`** (413 KB working-tree artifact, not
+  git-tracked) — **deleted this session.**
+- **pre-commit ruff pin is old** (`v0.9.6`) — attempted to drop the
+  `UP038` ignore this session; surfaced 15 pre-existing
+  `isinstance(x, (X, Y))` violations the team explicitly preferred to
+  keep. **Reverted.** The local "removed rule UP038" warning persists
+  cosmetically; bumping the pre-commit ruff pin to current would
+  silence it but risks new lint flags.
+- **Author block** — partially fixed (name = "NVIDIA Isaac Team"),
+  email still `TODO@nvidia.com`. Real address pending.
 
 ---
 
 ## Nits — nice to have, not gating
 
 - Add badges to README (license, Python version, docs build).
-- `CITATION.cff` if the project is intended to be cited academically.
-- mypy is configured permissively (`disallow_untyped_defs = false`).
-  Fine for alpha; tightening can wait.
-- Coverage isn't enforced — `pyproject.toml` runs `--cov` but no
-  threshold. Optional.
+- `CITATION.cff` once a preprint is up.
+- Tighten mypy (`disallow_untyped_defs = false` today).
+- Add a coverage threshold to `pyproject.toml`'s pytest config.
 
 ---
 
-## Decisions needed before action
+## Decisions — status
 
-These determine the shape of the follow-up implementation plan:
-
-1. **Public GitHub slug** — `NVIDIA/video_ingestion_agent`? Different?
-2. **Public docs URL** — GitHub Pages under that repo? `nvidia.github.io/...`?
-3. **Maintainer identity** — what name + email goes in `pyproject.toml`?
-4. **OSMO + NGC-internal content** — keep with a disclaimer, or strip?
-   This determines whether `osmo_workflows/`, `scripts/run_osmo.py`,
-   and the OSMO half of `docs/pages/deployment.rst` stay or go.
-5. **Dockerfile base image** — replace default with a publicly pullable
-   image, or require users to override `--build-arg BASE_IMAGE`?
-6. **W&B defaults** — drop the `nvidia-isaac` entity / `v2p-benchmark`
-   project entirely, or keep them as documented examples in optional
-   benchmark code?
+| # | Decision | Status |
+| --- | --- | --- |
+| 1 | Public GitHub slug | **Decided:** `nvidia-isaac/video_to_data` (subfolder `video_ingestion_agent/`). |
+| 2 | Public docs URL | **Decided:** subfolder URL on GitHub for now (`.../tree/main/video_ingestion_agent`); separate Sphinx hosting deferred. |
+| 3 | Maintainer identity | **Partial:** name = "NVIDIA Isaac Team"; email TBD. |
+| 4 | OSMO + NGC-internal content | **Deferred** — maintainer keeping until system integration is verified. |
+| 5 | Dockerfile base image | **Deferred** — same group as #4. |
+| 6 | W&B defaults | **Deferred** — same group as #4. |
 
 ---
 
-## Verification — what "ready" looks like
+## Verification — what's been confirmed; what still needs checking
 
-After the blocker pass:
+**Confirmed this session:**
 
-1. `rg -i 'v2p|gitlab-master|nvstaging|nvidia-isaac|/mnt/amlfs|liuw'`
-   returns zero hits outside test fixtures and historical commit
-   messages.
-2. `git ls-files` is clean — no logs, no caches, no `__pycache__`.
-3. README quickstart commands work on a fresh clone in a fresh venv on
-   a machine with one GPU, a `HF_TOKEN`, and ffmpeg.
-4. `cd docs && make html` succeeds with `released = True` and the
-   rendered HTML's external links resolve to public URLs.
-5. `pre-commit run --all-files` clean.
-6. `python scripts/run_ingestion.py <video> -c configs/ingestion.yaml`
-   end-to-end on a sample video (already verified to work today).
-7. A second-pair-of-eyes pass over the rendered docs landing page,
-   architecture page, and README catches anything internal that text
-   search missed.
+1. `pytest tests/ -o addopts=""` → **288 passed, 1 skipped** at the
+   destination (`/home/liuw/Projects/video_to_data/video_ingestion_agent`).
+2. `ruff check .` clean modulo pre-existing user-WIP HoT3D file
+   warnings.
+3. `pre-commit run --all-files` passes on the destination.
+4. End-to-end ingestion: `python scripts/run_ingestion.py <video>
+   -c configs/ingestion.yaml --no-verify` populates
+   `outputs/graph.db` (1 video, 6 entities, 11 relationships, 3
+   action_segments) and `outputs/vector.db` (14 frame embeddings).
+5. Retrieval queries via `scripts/run_retrieval.py` return correct
+   clips and now extract real `.mp4` files under `outputs/clips/`.
+6. Webapp boots on `127.0.0.1:7861`, serves Gradio HTML (HTTP 200,
+   138 KB), `DatabaseService` reads our local DBs correctly.
+7. `rg -i 'gitlab-master|NVIDIA/v2p_video_agent|v2p-video-agent-eec0b3'`
+   returns zero hits outside this tracking doc.
+
+**Still to check (post-blocker-pass):**
+
+1. `cd docs && make html` builds Sphinx with `released = True` and
+   the rendered HTML's external links resolve to the monorepo URLs.
+2. Once `[server]` extras and other internal-infra defaults are
+   addressed, a fresh-clone fresh-venv install of `[all]` followed
+   by the README quickstart works on a machine that doesn't have any
+   of `liuw`'s NFS mounts available.
+3. A second-pair-of-eyes pass over the rendered docs landing page,
+   architecture page, and README to catch anything internal that
+   text search missed.

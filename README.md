@@ -5,22 +5,25 @@ Monorepo for **Video to Data (V2D)** — an end-to-end pipeline that converts hu
 ## End-to-End Workflow
 
 ```
- ┌───────────────┐   ┌──────────────────┐   ┌────────────────────────────┐
- │ Human demo    │ → │ 1. Reconstruction│ → │ 2. Robotic Grounding       │
- │ video / rosbag│   │ depth · masks ·  │   │ retargeting → Isaac Lab    │
- │               │   │ meshes · 6D pose │   │ RL training (RSL-RL PPO)   │
- │               │   │ · SMPL body      │   │                            │
- └───────────────┘   └──────────────────┘   └────────────────────────────┘
-                         reconstruction/         robotic_grounding/
+ ┌───────────────┐   ┌──────────────────────┐   ┌──────────────────────┐   ┌────────────────────────────┐
+ │ Human demo    │ → │ 1. Video Ingestion   │ → │ 2. Reconstruction    │ → │ 3. Robotic Grounding       │
+ │ video / rosbag│   │    Agent             │   │ depth · masks ·      │   │ retargeting → Isaac Lab    │
+ │               │   │ action segments ·    │   │ meshes · 6D pose ·   │   │ RL training (RSL-RL PPO)   │
+ │               │   │ entity graph ·       │   │ SMPL body            │   │                            │
+ │               │   │ visual embeddings    │   │                      │   │                            │
+ └───────────────┘   └──────────────────────┘   └──────────────────────┘   └────────────────────────────┘
+                       video_ingestion_agent/      reconstruction/             robotic_grounding/
 ```
 
-1. **Reconstruction** — containerized vision modules turn RGB (or stereo) video into per-frame depth, object masks, textured meshes, 6-DoF object poses, and SMPL human body parameters. Multi-view pipelines (`run_mv_hoi_reconstruction`, `run_mv_calibration`) orchestrate the full reconstruction from a rosbag.
-2. **Robotic Grounding** — human motion (e.g. Arctic) is retargeted onto the target robot embodiment (Sharpa), then the reconstructed scene and retargeted motion drive Isaac Lab environments trained with RSL-RL PPO to produce deployable policies.
+1. **Video Ingestion Agent** — a LangGraph-driven agentic workflow that segments demonstration videos into temporally-bounded action clips, extracts an entity-relation scene graph, and stores per-frame SigLIP-2 embeddings. The result is a queryable action database (`graph.db` + `vector.db`) that lets downstream stages select which clips to process via natural-language retrieval, instead of brute-forcing the full video.
+2. **Reconstruction** — containerized vision modules turn the selected RGB (or stereo) clips into per-frame depth, object masks, textured meshes, 6-DoF object poses, and SMPL human body parameters. Multi-view pipelines (`run_mv_hoi_reconstruction`, `run_mv_calibration`) orchestrate the full reconstruction from a rosbag.
+3. **Robotic Grounding** — human motion (e.g. Arctic) is retargeted onto the target robot embodiment (Sharpa), then the reconstructed scene and retargeted motion drive Isaac Lab environments trained with RSL-RL PPO to produce deployable policies.
 
 ## Packages
 
 | Package | Role | Runtime |
 |---|---|---|
+| [`video_ingestion_agent/`](video_ingestion_agent/) | Video → action segments + entity scene graph + frame embeddings. LangGraph pipeline (segment → verify/refine → entity graph → embeddings) plus an EGAgent-style natural-language retrieval agent and an optional Gradio UI. | Python venv + vLLM server |
 | [`reconstruction/`](reconstruction/) | Video → depth, masks, meshes, 6D poses, human body. 18 containerized modules + multi-view pipelines. | Docker (per-module images) |
 | [`robotic_grounding/`](robotic_grounding/) | RL training on NVIDIA Isaac Lab 2.3.1 with RSL-RL (PPO); motion retargeting utilities. | Docker (`nvcr.io/nvstaging/isaac-amr`) |
 
@@ -32,6 +35,31 @@ Monorepo for **Video to Data (V2D)** — an end-to-end pipeline that converts hu
 - NVIDIA driver 580.126.09 / CUDA 13.0 recommended (for `robotic_grounding`)
 
 ## Quickstart
+
+### Video Ingestion Agent (video → queryable action database)
+
+```bash
+cd video_ingestion_agent
+
+uv venv .venv && source .venv/bin/activate
+uv pip install -e ".[all]"     # vLLM, webapp, benchmark, dev tools
+
+# 1. Start the vLLM server (loads the VLM, ~1 minute)
+python scripts/serve.py -c configs/ingestion.yaml
+
+# 2. Ingest a video — segmentation → entity graph → report
+python scripts/run_ingestion.py path/to/video.mp4 \
+  -c configs/ingestion.yaml --no-verify -o runs/my_run
+
+# 3. Retrieve clips with natural language
+python scripts/run_retrieval.py "Find clips where someone picks up a mug" \
+  -d outputs/ -c configs/retrieval.yaml
+
+# 4. Or browse interactively in the web UI
+python scripts/run_webapp.py
+```
+
+See [video_ingestion_agent/README.md](video_ingestion_agent/README.md) for hardware requirements, the full extras list, the verify/refine loop, and batch-ingestion across multiple GPUs. Pre-publication TODOs are tracked in [video_ingestion_agent/docs/release_readiness.md](video_ingestion_agent/docs/release_readiness.md).
 
 ### Reconstruction (video → 3D data)
 

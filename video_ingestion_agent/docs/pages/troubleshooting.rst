@@ -223,6 +223,48 @@ Then restart the vLLM server (if using vllm backend):
 
 See :doc:`/pages/model_backends` for the full list of supported backends and models.
 
+vLLM crashes on first inference with "deepstack tokens" error
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Symptom (in ``~/.video_ingestion_agent/vllm.log``)::
+
+   ValueError: Requested more deepstack tokens than available in buffer:
+   num_tokens=336 > self.deepstack_input_embeds_num_tokens=329
+
+This is a regression in vLLM 0.20+ specific to Qwen3-VL. The pinned
+range in ``pyproject.toml`` (``vllm>=0.15.1,<0.20``) avoids it, so a
+fresh ``uv pip install -e ".[all]"`` resolves cleanly. If you've
+manually installed a newer vllm and hit this, downgrade:
+
+.. code-block:: bash
+
+   uv pip install 'vllm==0.15.1'
+
+If the downgrade also surfaces a flashinfer cubin/library version
+mismatch (``flashinfer-cubin version (X) does not match flashinfer
+version (Y)``), the documented bypass is::
+
+   FLASHINFER_DISABLE_VERSION_CHECK=1 python scripts/serve.py -c configs/ingestion.yaml
+
+Long-term, align flashinfer/cubin via ``uv pip install --reinstall``.
+
+Retrieval reports "Video not found" with a leading slash
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Symptom: the retrieval agent's reasoning chain finishes successfully
+and selects a clip, but the final ffmpeg extraction fails with
+``Video not found: /data/test_videos/your_video.mp4`` (note the
+leading ``/``) even though the file exists at the relative path.
+
+Root cause: the analyzer LLM occasionally rewrites a relative path
+like ``data/foo.mp4`` as ``/data/foo.mp4`` when echoing search results
+back through ``relevant_clips``. Defensive recovery lives in
+``video_ingestion_agent.retrieval.tools.extract_clip._get_video_path``
+— it strips the leading slash and falls back to the ``video_id``
+registry. If you still hit this, file an issue and confirm the source
+video is reachable at the path stored in ``graph.db`` (``SELECT
+video_path FROM video_metadata``).
+
 See Also
 --------
 

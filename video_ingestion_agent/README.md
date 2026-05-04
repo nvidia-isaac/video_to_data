@@ -77,9 +77,16 @@ cd video_to_data/video_ingestion_agent
 uv venv .venv
 source .venv/bin/activate
 
-# Core (lightweight; for the vLLM backend, also install [server])
-uv pip install -e .
-uv pip install -e ".[server]"           # vLLM
+# Recommended: one-shot install of everything (vLLM, webapp, benchmark, dev tools)
+uv pip install -e ".[all]"
+```
+
+For tighter environments, mix and match the per-feature extras:
+
+```bash
+uv pip install -e .                     # core only (no GPU, no UI)
+uv pip install -e ".[server]"           # vLLM (production inference backend)
+uv pip install -e ".[local]"            # in-process HuggingFace inference
 uv pip install -e ".[webapp]"           # Gradio UI
 uv pip install -e ".[benchmark]"        # EPIC-KITCHENS evaluation
 uv pip install -e ".[dev]"              # tests, ruff, mypy
@@ -94,7 +101,7 @@ two minutes (excluding initial model download):
 # 1. Start the vLLM server in the background (loads the VLM, ~1 minute)
 python scripts/serve.py -c configs/ingestion.yaml
 
-# 2. Run the pipeline on one video — segmentation → verify → entity graph → report
+# 2. Run the pipeline on one video — segmentation → entity graph → report
 python scripts/run_ingestion.py path/to/video.mp4 -c configs/ingestion.yaml
 
 # 3. Query the resulting database
@@ -106,6 +113,14 @@ python scripts/run_webapp.py
 ```
 
 Stop the server with `python scripts/serve.py --stop`.
+
+> **Note on the verify/refine loop.** The shipped `configs/ingestion.yaml`
+> sets `enable_verification: false` and `enable_refinement: false` for fast
+> first-run iteration. To exercise the full LangGraph pipeline (critic VLM
+> reviews each clip and triggers re-annotation when needed), copy the config
+> and flip both toggles to `true`, then add `--max-iterations 3` to the
+> `run_ingestion.py` invocation. On short videos the critic can be strict —
+> if 0 clips pass verification the resulting database is empty.
 
 For batch ingestion across many videos and GPUs:
 

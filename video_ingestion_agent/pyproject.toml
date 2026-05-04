@@ -63,8 +63,10 @@ local = [
 ]
 
 # vLLM server (install in the server env, not the pipeline env)
+# Upper bound dodges the 0.20+ Qwen3-VL deepstack-tokens regression
+# (`num_tokens > deepstack_input_embeds_num_tokens`).
 server = [
-    "vllm>=0.8.0",
+    "vllm>=0.15.1,<0.20",
 ]
 
 dev = [
@@ -108,7 +110,7 @@ benchmark = [
 ]
 
 all = [
-    "video_ingestion_agent[local,dev,docs,viz,webapp,benchmark]",
+    "video_ingestion_agent[local,server,dev,docs,viz,webapp,benchmark]",
 ]
 
 [project.urls]
