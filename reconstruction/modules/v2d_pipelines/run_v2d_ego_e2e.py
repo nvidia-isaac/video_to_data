@@ -2,51 +2,59 @@
 End-to-end ego hand + object reconstruction pipeline from a single video.
 
 Given an MP4 and a text prompt describing the held object, this script runs:
-  1.  Frame extraction
-  2.  MoGe monocular depth + intrinsics
-  3.  Grounding DINO object detection (reference frame only)
-  4.  SAM2 object mask tracking (full video)
-  5.  SAM3D textured mesh generation (reference frame + depth)
-  6.  FoundationPose scale estimation → scaled mesh
-  7.  FoundationPose 6-DOF tracking
-  8.  EKF smoothing of object poses
-  9.  Ego hand reconstruction (ViPE + Dyn-HaMR)
- 10.  Hand/object depth alignment (align_world_results)
+  1.  Ego hand reconstruction (ViPE + Dyn-HaMR)  [runs first — no prior deps]
+  2.  Convert DynHaMR EXR depth → depth_vipe/ + intrinsics_vipe.json
+  3.  Frame extraction
+  4.  MoGe monocular depth + intrinsics
+  5.  Grounding DINO object detection (reference frame only)
+  6.  SAM2 object mask tracking (full video)
+  7.  SAM3D textured mesh generation  (uses --depth_source depth)
+  8.  FoundationPose scale estimation  (uses --depth_source depth)
+  9.  FoundationPose 6-DOF tracking    (uses --depth_source depth)
+  10. EKF smoothing of object poses    (uses --depth_source intrinsics)
+  11. Hand/object depth alignment      (uses --depth_source depth + intrinsics)
+
+The --depth_source flag (moge | vipe) selects which depth map and intrinsics
+are fed to SAM3D, FoundationPose, EKF, and the hand-alignment step.
+Both depth sources are always computed so results can be compared.
 
 Output directory layout:
   <output_dir>/
-  ├── frames/                    # Extracted video frames
-  ├── depth/                     # MoGe depth PNGs
-  ├── depth_vipe/                # DynHaMR depth PNGs (converted from EXR)
-  ├── intrinsics_vipe.json       # DynHaMR camera intrinsics
-  ├── intrinsics/                # Per-frame intrinsics JSONs
-  ├── intrinsics_stable.json     # Temporally stabilised intrinsics
-  ├── dino_detections.json       # Grounding DINO bboxes (frame 0)
-  ├── sam2_prompts.json          # SAM2 prompt file
-  ├── masks/1/                   # Per-frame object masks
-  ├── mesh/
-  │   ├── textured_mesh.obj      # SAM3D textured mesh
-  │   ├── mesh_transform.json    # SAM3D scale/pose transform
-  │   └── mesh_intrinsics.json   # SAM3D-estimated intrinsics
-  ├── mesh_pretransformed.obj    # SAM3D mesh with rotation+scale applied (metric units)
-  ├── mesh_scaled.obj            # Depth-aligned, scale-corrected mesh
-  ├── scale.json                 # Estimated mesh scale factor
-  ├── poses/                     # Raw FoundationPose per-frame JSONs
-  ├── poses_smoothed/            # EKF-smoothed per-frame pose JSONs
-  ├── poses_smoothed_render/     # FoundationPose overlay video on smoothed poses
-  ├── hand_reconstruction/       # Dyn-HaMR + ViPE outputs
-  │   ├── MANO_RIGHT.pkl         # (auto-copied by run_reconstruction)
-  │   ├── BMC/                   # (auto-copied by run_reconstruction)
-  │   └── logs/                  # Dyn-HaMR logs (world_results.npz here)
-  ├── world_results_aligned.npz  # Final depth-aligned hand + object poses
-  ├── render_aligned.mp4         # 2×2 grid render using trans_aligned
-  └── render_unaligned.mp4       # 2×2 grid render using trans (for comparison)
+  ├── frames/                      # Extracted video frames
+  ├── depth/                       # MoGe depth PNGs
+  ├── depth_vipe/                  # DynHaMR depth PNGs (converted from EXR)
+  ├── intrinsics/                  # Per-frame MoGe intrinsics JSONs
+  ├── intrinsics_stable.json       # Temporally stabilised MoGe intrinsics
+  ├── intrinsics_vipe.json         # DynHaMR camera intrinsics
+  ├── dino_detections.json         # Grounding DINO bboxes (frame 0)
+  ├── sam2_prompts.json            # SAM2 prompt file
+  ├── masks/1/                     # Per-frame object masks
+  ├── hand_reconstruction/         # Dyn-HaMR + ViPE outputs
+  │   ├── MANO_RIGHT.pkl
+  │   ├── BMC/
+  │   └── logs/                    # world_results.npz lives here
+  │
+  │   The following are created once per --depth_source (ds = moge | vipe):
+  ├── mesh_{ds}/
+  │   ├── textured_mesh.obj        # SAM3D textured mesh
+  │   ├── mesh_transform.json      # SAM3D scale/pose transform
+  │   └── mesh_intrinsics.json     # SAM3D-estimated intrinsics
+  ├── mesh_pretransformed_{ds}.obj # SAM3D mesh with rotation+scale applied
+  ├── mesh_scaled_{ds}.obj         # Depth-aligned, scale-corrected mesh
+  ├── scale_{ds}.json              # Estimated mesh scale factor
+  ├── poses_{ds}/                  # Raw FoundationPose per-frame JSONs
+  ├── poses_smoothed_{ds}/         # EKF-smoothed per-frame pose JSONs
+  ├── poses_smoothed_render_{ds}/  # FoundationPose overlay video
+  ├── world_results_aligned_{ds}.npz  # Final depth-aligned hand + object poses
+  ├── render_aligned_{ds}.mp4      # 2×2 grid render using trans_aligned
+  └── render_unaligned_{ds}.mp4    # 2×2 grid render using trans (for comparison)
 
 Usage:
     python modules/v2d_pipelines/run_v2d_ego_e2e.py \\
         --video_path data/my_video.mp4 \\
         --prompt "blue cup" \\
         --output_dir data/outputs/my_video \\
+        --depth_source vipe \\
         --moge_weights             data/weights/moge \\
         --grounding_dino_weights   data/weights/grounding_dino \\
         --sam2_weights             data/weights/sam2 \\
@@ -116,11 +124,14 @@ def parse_args() -> argparse.Namespace:
                         "(default: --hand_reconstruction_weights)")
 
     # Optional tuning
+    p.add_argument("--depth_source", choices=["moge", "vipe"], default="moge",
+                   help="Depth source for SAM3D, scale estimation, FP tracking, and hand "
+                        "alignment. Both depth sources are always computed. (default: moge)")
     p.add_argument("--reference_frame", type=int, default=0,
                    help="Frame used for DINO detection, SAM3D, and FP registration (default: 0).")
     p.add_argument("--smooth_sigma",    type=float, default=5.0,
                    help="Gaussian sigma (frames) for hand translation smoothing (default: 5.0).")
-    p.add_argument("--dev", action="store_true", 
+    p.add_argument("--dev", action="store_true",
                    help="Mount local module source into containers (live-edit mode).")
     return p.parse_args()
 
@@ -239,7 +250,7 @@ def _convert_dynhamr_depth(
         print(f"  Converting {len(exr_names)} EXR frames → {out_dir}")
 
         # Read image dimensions from first frame
-        depth0, img_w, img_h = _read_exr(zf.read(exr_names[0]))
+        _, img_w, img_h = _read_exr(zf.read(exr_names[0]))
 
         for name in exr_names:
             frame   = int(os.path.splitext(name)[0])
@@ -274,60 +285,104 @@ def run_v2d_ego_e2e(
     foundation_pose_weights: str,
     hand_reconstruction_weights: str,
     mano_weights: str | None = None,
+    depth_source: str = "moge",
     reference_frame: int = 0,
     smooth_sigma: float = 5.0,
     dev: bool = False,
 ) -> None:
-    video_path  = os.path.abspath(video_path)
-    output_dir  = os.path.abspath(output_dir)
+    if depth_source not in ("moge", "vipe"):
+        raise ValueError(f"depth_source must be 'moge' or 'vipe', got {depth_source!r}")
+
+    video_path   = os.path.abspath(video_path)
+    output_dir   = os.path.abspath(output_dir)
     mano_weights = os.path.abspath(mano_weights or hand_reconstruction_weights)
     os.makedirs(output_dir, exist_ok=True)
 
     OBJECT_ID = 1
 
-    # -- Output paths --------------------------------------------------------
-    frames_dir          = f"{output_dir}/frames"
-    depth_dir           = f"{output_dir}/depth"
-    intrinsics_dir      = f"{output_dir}/intrinsics"
-    intrinsics_stable   = f"{output_dir}/intrinsics_stable.json"
-    dino_detections     = f"{output_dir}/dino_detections.json"
-    sam2_prompts        = f"{output_dir}/sam2_prompts.json"
-    masks_dir           = f"{output_dir}/masks"
-    mesh_dir            = f"{output_dir}/mesh"
-    mesh_path           = f"{mesh_dir}/textured_mesh.obj"
-    mesh_transform      = f"{mesh_dir}/mesh_transform.json"
-    mesh_intrinsics     = f"{mesh_dir}/mesh_intrinsics.json"
-    mesh_pretransformed = f"{output_dir}/mesh_pretransformed.obj"
-    mesh_scaled         = f"{output_dir}/mesh_scaled.obj"
-    scale_path          = f"{output_dir}/scale.json"
-    poses_dir                = f"{output_dir}/poses"
-    poses_smooth_dir         = f"{output_dir}/poses_smoothed"
-    poses_smooth_render_dir  = f"{output_dir}/poses_smoothed_render"
-    hand_recon_dir      = f"{output_dir}/hand_reconstruction"
-    depth_vipe_dir      = f"{output_dir}/depth_vipe"
-    intrinsics_vipe     = f"{output_dir}/intrinsics_vipe.json"
-    world_aligned       = f"{output_dir}/world_results_aligned.npz"
-    render_aligned      = f"{output_dir}/render_aligned.mp4"
-    render_unaligned    = f"{output_dir}/render_unaligned.mp4"
+    # -- Depth-source-independent output paths --------------------------------
+    frames_dir        = f"{output_dir}/frames"
+    depth_dir         = f"{output_dir}/depth"
+    intrinsics_dir    = f"{output_dir}/intrinsics"
+    intrinsics_stable = f"{output_dir}/intrinsics_stable.json"
+    depth_vipe_dir    = f"{output_dir}/depth_vipe"
+    intrinsics_vipe   = f"{output_dir}/intrinsics_vipe.json"
+    hand_recon_dir    = f"{output_dir}/hand_reconstruction"
+    dino_detections   = f"{output_dir}/dino_detections.json"
+    sam2_prompts      = f"{output_dir}/sam2_prompts.json"
+    masks_dir         = f"{output_dir}/masks"
 
-    ref_rgb    = f"{frames_dir}/{reference_frame:06d}.png"
-    ref_depth  = f"{depth_dir}/{reference_frame:06d}.png"
-    ref_mask   = f"{masks_dir}/{OBJECT_ID}/{reference_frame:06d}.png"
+    # -- Active depth source --------------------------------------------------
+    if depth_source == "vipe":
+        active_depth_dir  = depth_vipe_dir
+        active_intrinsics = intrinsics_vipe
+    else:
+        active_depth_dir  = depth_dir
+        active_intrinsics = intrinsics_stable
+
+    # -- Depth-source-dependent output paths (suffixed) -----------------------
+    ds                      = depth_source
+    mesh_dir                = f"{output_dir}/mesh_{ds}"
+    mesh_path               = f"{mesh_dir}/textured_mesh.obj"
+    mesh_transform          = f"{mesh_dir}/mesh_transform.json"
+    mesh_intrinsics         = f"{mesh_dir}/mesh_intrinsics.json"
+    mesh_pretransformed     = f"{output_dir}/mesh_pretransformed_{ds}.obj"
+    mesh_scaled             = f"{output_dir}/mesh_scaled_{ds}.obj"
+    scale_path              = f"{output_dir}/scale_{ds}.json"
+    poses_dir               = f"{output_dir}/poses_{ds}"
+    poses_smooth_dir        = f"{output_dir}/poses_smoothed_{ds}"
+    poses_smooth_render_dir = f"{output_dir}/poses_smoothed_render_{ds}"
+    world_aligned           = f"{output_dir}/world_results_aligned_{ds}.npz"
+    render_aligned          = f"{output_dir}/render_aligned_{ds}.mp4"
+    render_unaligned        = f"{output_dir}/render_unaligned_{ds}.mp4"
+
+    ref_rgb   = f"{frames_dir}/{reference_frame:06d}.png"
+    ref_depth = f"{active_depth_dir}/{reference_frame:06d}.png"
+    ref_mask  = f"{masks_dir}/{OBJECT_ID}/{reference_frame:06d}.png"
 
     print(f"\n{'='*60}")
-    print(f"  video : {os.path.basename(video_path)}")
-    print(f"  prompt: {prompt!r}")
-    print(f"  output: {output_dir}")
+    print(f"  video        : {os.path.basename(video_path)}")
+    print(f"  prompt       : {prompt!r}")
+    print(f"  output       : {output_dir}")
+    print(f"  depth_source : {depth_source}")
     print(f"{'='*60}\n")
 
     # -----------------------------------------------------------------------
-    # Step 1: Extract frames
+    # Step 1: Ego hand reconstruction (ViPE + Dyn-HaMR)
+    # Runs first — only requires video_path, no depth or frame deps.
+    # -----------------------------------------------------------------------
+    world_results_npz = _find_world_results(hand_recon_dir)
+    if not _step("Ego hand reconstruction (ViPE + Dyn-HaMR)",
+                 world_results_npz is not None):
+        run_reconstruction(
+            video_input = video_path,
+            output_dir  = hand_recon_dir,
+            weights_dir = hand_reconstruction_weights,
+        )
+        world_results_npz = _find_world_results(hand_recon_dir)
+        if world_results_npz is None:
+            raise RuntimeError(
+                "No smooth_fit world_results.npz found after reconstruction — "
+                f"check {hand_recon_dir}/logs/"
+            )
+
+    print(f"  world_results: {world_results_npz}")
+
+    # -----------------------------------------------------------------------
+    # Step 2: Convert DynHaMR EXR depth → inverse-depth PNGs (depth_vipe)
+    # -----------------------------------------------------------------------
+    if not _step("Convert DynHaMR depth (EXR → uint16 PNG)", _has_files(depth_vipe_dir)):
+        _convert_dynhamr_depth(hand_recon_dir, depth_vipe_dir,
+                               world_results_npz, intrinsics_vipe)
+
+    # -----------------------------------------------------------------------
+    # Step 3: Extract frames
     # -----------------------------------------------------------------------
     if not _step("Extract frames", _has_files(frames_dir)):
         extract_images(video_path, frames_dir)
 
     # -----------------------------------------------------------------------
-    # Step 2: MoGe depth
+    # Step 4: MoGe depth + intrinsics
     # -----------------------------------------------------------------------
     if not _step("MoGe depth + intrinsics", _has_files(depth_dir)):
         run_moge_depth(
@@ -342,7 +397,7 @@ def run_v2d_ego_e2e(
         stabilize_intrinsics(intrinsics_dir, intrinsics_stable)
 
     # -----------------------------------------------------------------------
-    # Step 3: Grounding DINO → SAM2 prompts
+    # Step 5: Grounding DINO → SAM2 prompts
     # -----------------------------------------------------------------------
     if not _step("Grounding DINO (frame 0)", os.path.exists(dino_detections)):
         run_image_to_object_bboxes(
@@ -368,7 +423,7 @@ def run_v2d_ego_e2e(
             json.dump(prompts.to_dict(), f, indent=2)
 
     # -----------------------------------------------------------------------
-    # Step 4: SAM2 object mask tracking
+    # Step 6: SAM2 object mask tracking
     # -----------------------------------------------------------------------
     if not _step("SAM2 mask tracking", _has_files(f"{masks_dir}/{OBJECT_ID}")):
         run_video_to_masks(
@@ -380,10 +435,11 @@ def run_v2d_ego_e2e(
         )
 
     # -----------------------------------------------------------------------
-    # Step 5: SAM3D textured mesh generation
+    # Step 7: SAM3D textured mesh generation
+    # Uses: active_depth_dir, active_intrinsics
     # -----------------------------------------------------------------------
     os.makedirs(mesh_dir, exist_ok=True)
-    if not _step("SAM3D mesh generation", os.path.exists(mesh_path)):
+    if not _step(f"SAM3D mesh generation ({ds} depth)", os.path.exists(mesh_path)):
         run_image_to_mesh(
             image_path            = ref_rgb,
             mask_path             = ref_mask,
@@ -394,27 +450,28 @@ def run_v2d_ego_e2e(
             with_texture_baking   = True,
             with_mesh_postprocess = True,
             depth_path            = ref_depth,
-            depth_intrinsics_path = intrinsics_stable,
+            depth_intrinsics_path = active_intrinsics,
             depth_mask_path       = ref_mask,
             dev                   = dev,
         )
 
     # -----------------------------------------------------------------------
-    # Step 5b: Apply SAM3D transform (rotation + scale) to mesh
+    # Step 7b: Apply SAM3D transform (rotation + scale) to mesh
     # -----------------------------------------------------------------------
-    if not _step("Apply SAM3D transform to mesh", os.path.exists(mesh_pretransformed)):
+    if not _step(f"Apply SAM3D transform ({ds})", os.path.exists(mesh_pretransformed)):
         _apply_sam3d_transform(mesh_path, mesh_transform, mesh_pretransformed)
 
     # -----------------------------------------------------------------------
-    # Step 6: FoundationPose scale estimation
+    # Step 8: FoundationPose scale estimation
+    # Uses: active_depth_dir, active_intrinsics
     # -----------------------------------------------------------------------
-    if not _step("Scale estimation", os.path.exists(mesh_scaled)):
+    if not _step(f"Scale estimation ({ds} depth)", os.path.exists(mesh_scaled)):
         run_estimate_mesh_scale(
             mesh_path             = mesh_pretransformed,
             rgb_path              = ref_rgb,
             depth_path            = ref_depth,
             mask_path             = ref_mask,
-            intrinsics_path       = intrinsics_stable,
+            intrinsics_path       = active_intrinsics,
             weights_dir           = foundation_pose_weights,
             scale_path            = scale_path,
             rescaled_mesh_path    = mesh_scaled,
@@ -429,90 +486,66 @@ def run_v2d_ego_e2e(
         )
 
     # -----------------------------------------------------------------------
-    # Step 7: FoundationPose 6-DOF tracking
+    # Step 9: FoundationPose 6-DOF tracking
+    # Uses: active_depth_dir, active_intrinsics
     # -----------------------------------------------------------------------
-    if not _step("FoundationPose tracking", _has_files(poses_dir)):
+    if not _step(f"FoundationPose tracking ({ds} depth)", _has_files(poses_dir)):
         run_video_to_poses(
-            video_path            = video_path,
-            depth_folder          = depth_dir,
-            masks_folder          = f"{masks_dir}/{OBJECT_ID}",
-            camera_intrinsics_path= intrinsics_stable,
-            mesh_path             = mesh_scaled,
-            poses_dir             = poses_dir,
-            weights_dir           = foundation_pose_weights,
-            reference_frame       = reference_frame,
-            mask_depth            = True,
-            dev                   = dev,
+            video_path             = video_path,
+            depth_folder           = active_depth_dir,
+            masks_folder           = f"{masks_dir}/{OBJECT_ID}",
+            camera_intrinsics_path = active_intrinsics,
+            mesh_path              = mesh_scaled,
+            poses_dir              = poses_dir,
+            weights_dir            = foundation_pose_weights,
+            reference_frame        = reference_frame,
+            mask_depth             = True,
+            dev                    = dev,
         )
 
     # -----------------------------------------------------------------------
-    # Step 8: EKF smoothing
+    # Step 10: EKF smoothing
+    # Uses: active_intrinsics
     # -----------------------------------------------------------------------
-    if not _step("EKF pose smoothing", _has_files(poses_smooth_dir)):
+    if not _step(f"EKF pose smoothing ({ds})", _has_files(poses_smooth_dir)):
         run_ekf_smoothing(
-            poses_dir             = poses_dir,
-            mesh_path             = mesh_scaled,
-            intrinsics_path       = intrinsics_stable,
-            weights_dir           = foundation_pose_weights,
-            output_dir            = poses_smooth_dir,
-            masks_folder          = f"{masks_dir}/{OBJECT_ID}",
-            process_noise_xy      = 0.01,
-            process_noise_z       = 0.01,
-            process_noise_r       = 0.02,
-            measurement_noise_xy  = 0.01,
-            measurement_noise_z   = 0.04,
-            measurement_noise_r   = 0.02,
-            dev                   = dev,
+            poses_dir            = poses_dir,
+            mesh_path            = mesh_scaled,
+            intrinsics_path      = active_intrinsics,
+            weights_dir          = foundation_pose_weights,
+            output_dir           = poses_smooth_dir,
+            masks_folder         = f"{masks_dir}/{OBJECT_ID}",
+            process_noise_xy     = 0.01,
+            process_noise_z      = 0.01,
+            process_noise_r      = 0.02,
+            measurement_noise_xy = 0.01,
+            measurement_noise_z  = 0.04,
+            measurement_noise_r  = 0.02,
+            dev                  = dev,
         )
 
     # -----------------------------------------------------------------------
-    # Step 8b: Render smoothed poses (FoundationPose overlay video)
+    # Step 10b: Render smoothed poses (FoundationPose overlay video)
     # -----------------------------------------------------------------------
-    if not _step("Render smoothed poses", _has_files(poses_smooth_render_dir)):
+    if not _step(f"Render smoothed poses ({ds})", _has_files(poses_smooth_render_dir)):
         run_render_poses(
             mesh_path       = mesh_scaled,
             poses_dir       = poses_smooth_dir,
             frames_dir      = frames_dir,
-            intrinsics_path = intrinsics_stable,
+            intrinsics_path = active_intrinsics,
             output_dir      = poses_smooth_render_dir,
             dev             = dev,
         )
 
     # -----------------------------------------------------------------------
-    # Step 9: Ego hand reconstruction (ViPE + Dyn-HaMR)
+    # Step 11: Hand/object depth alignment
+    # Uses: active_depth_dir, active_intrinsics
     # -----------------------------------------------------------------------
-    world_results_npz = _find_world_results(hand_recon_dir)
-    if not _step("Ego hand reconstruction (ViPE + Dyn-HaMR)",
-                 world_results_npz is not None):
-        run_reconstruction(
-            video_input = video_path,
-            output_dir  = hand_recon_dir,
-            weights_dir = hand_reconstruction_weights,
-        )
-        world_results_npz = _find_world_results(hand_recon_dir)
-        if world_results_npz is None:
-            raise RuntimeError(
-                "No smooth_fit world_results.npz found after reconstruction — "
-                f"check {hand_recon_dir}/logs/"
-            )
-
-    print(f"  world_results: {world_results_npz}")
-
-    # -----------------------------------------------------------------------
-    # Step 9b: Convert DynHaMR EXR depth → inverse-depth PNGs (depth_vipe)
-    # -----------------------------------------------------------------------
-    if not _step("Convert DynHaMR depth (EXR → uint16 PNG)", _has_files(depth_vipe_dir)):
-        _convert_dynhamr_depth(hand_recon_dir, depth_vipe_dir,
-                               world_results_npz, intrinsics_vipe)
-
-    # -----------------------------------------------------------------------
-    # Step 10: Hand/object depth alignment
-    # -----------------------------------------------------------------------
-    if not _step("Hand/object depth alignment", os.path.exists(world_aligned)):
+    if not _step(f"Hand/object depth alignment ({ds})", os.path.exists(world_aligned)):
         run_align_world_results(
             input_hand_data  = world_results_npz,
-            depth_dir        = depth_dir,
-            depth_intrinsics = intrinsics_stable,
+            depth_dir        = active_depth_dir,
+            depth_intrinsics = active_intrinsics,
             mano_model_dir   = mano_weights,
             output_hand_data = world_aligned,
             object_masks_dir = f"{masks_dir}/{OBJECT_ID}",
@@ -522,9 +555,9 @@ def run_v2d_ego_e2e(
         )
 
     # -----------------------------------------------------------------------
-    # Step 11: Render aligned result (trans_aligned) — 2×2 grid video
+    # Step 12: Render aligned result (trans_aligned) — 2×2 grid video
     # -----------------------------------------------------------------------
-    if not _step("Render aligned (trans_aligned)", os.path.exists(render_aligned)):
+    if not _step(f"Render aligned (trans_aligned, {ds})", os.path.exists(render_aligned)):
         run_render_dynhamr_video(
             world_results_path = world_aligned,
             frames_folder      = frames_dir,
@@ -537,9 +570,9 @@ def run_v2d_ego_e2e(
         )
 
     # -----------------------------------------------------------------------
-    # Step 12: Render unaligned result (trans) for comparison
+    # Step 13: Render unaligned result (trans) for comparison
     # -----------------------------------------------------------------------
-    if not _step("Render unaligned (trans)", os.path.exists(render_unaligned)):
+    if not _step(f"Render unaligned (trans, {ds})", os.path.exists(render_unaligned)):
         run_render_dynhamr_video(
             world_results_path = world_aligned,
             frames_folder      = frames_dir,
@@ -552,7 +585,7 @@ def run_v2d_ego_e2e(
         )
 
     print(f"\n{'='*60}")
-    print(f"  Done!")
+    print(f"  Done!  (depth_source={depth_source})")
     print(f"  Aligned hand + object: {world_aligned}")
     print(f"  Scaled mesh:           {mesh_scaled}")
     print(f"  Smoothed poses:        {poses_smooth_dir}/")
@@ -578,6 +611,7 @@ if __name__ == "__main__":
         foundation_pose_weights     = args.foundation_pose_weights,
         hand_reconstruction_weights = args.hand_reconstruction_weights,
         mano_weights                = args.mano_weights,
+        depth_source                = args.depth_source,
         reference_frame             = args.reference_frame,
         smooth_sigma                = args.smooth_sigma,
         dev                         = args.dev,
