@@ -11,6 +11,7 @@ OSMO workflows for the MV HOI reconstruction and calibration pipelines.
 | `push_images.sh`            | Tag + push images to `nvcr.io/nvstaging/isaac-amr` and record version |
 | `submit.py`                 | Submit workflows (single sequence or auto-scan)                    |
 | `query.py`                  | Show workflow status / summaries; owns OSMO read helpers + refresh |
+| `blacklist.py`              | Add/list/remove dataset-scoped sequence blacklist entries          |
 | `db.py`                     | SQLite schema + CRUD for versions and workflows                    |
 | `config.yaml`               | Dataset configs (swift paths, pools, QC thresholds)                |
 | `osmo/*.yaml`               | OSMO workflow definitions (`mv_calibration`, `mv_hoi_reconstruction`) |
@@ -19,7 +20,7 @@ OSMO workflows for the MV HOI reconstruction and calibration pipelines.
 
 ## Database
 
-Two tables in `processing.db`:
+Core tables in `processing.db`:
 
 ### `pipeline_versions`
 One row per published image set. Version is semver and strictly increasing.
@@ -46,6 +47,16 @@ One row per OSMO workflow submission.
 | `details`          | Free-form context (e.g. `task_failed: eval_chamfer_object`)   |
 | `created_at`       | Submission time                                               |
 | `updated_at`       | Last status change                                            |
+
+### `blacklisted_sequences`
+Dataset-scoped sequence names that `submit.py` should ignore by default.
+
+| Column          | Notes                                      |
+|-----------------|--------------------------------------------|
+| `dataset`       | Key from `config.yaml` → `datasets`; part of PK |
+| `sequence_name` | Swift sequence directory name; part of PK  |
+| `reason`        | Optional free-form reason                  |
+| `blacklisted_at` | Timestamp when the row was first blacklisted |
 
 ## State machine
 
@@ -78,6 +89,10 @@ the DB is fresh before any read or write.
 
 `_failure_detail` only reports root-cause `FAILED` tasks in `details`;
 `FAILED_UPSTREAM` / `FAILED_CANCELED` tasks are excluded.
+
+If refresh sees that a sequence's two most recent runs for the same pipeline
+both failed with identical `details`, it automatically adds a dataset-scoped
+blacklist entry using those `details` as the reason and prints a message.
 
 ## Pipeline versioning
 
@@ -140,6 +155,24 @@ python submit.py --dataset sc_office_4exo_1 --pipeline mv_hoi_reconstruction --s
 ```
 
 `--force` bypasses all confirmation/cancel logic.
+
+Blacklisted sequences are skipped in both auto and manual mode. The blacklist
+is scoped by dataset, so the same sequence name can be blocked for one dataset
+and still submitted for another. `--force` also bypasses the blacklist.
+
+```bash
+# Add or update an entry:
+python blacklist.py --dataset sc_office_4exo_1 --sequence <name> --reason "bad capture"
+
+# Add without a reason:
+python blacklist.py --dataset sc_office_4exo_1 --sequence <name>
+
+# Remove an entry:
+python blacklist.py --dataset sc_office_4exo_1 --sequence <name> --remove
+
+# List entries for a dataset:
+python blacklist.py --dataset sc_office_4exo_1 --list
+```
 
 ### Test mode
 

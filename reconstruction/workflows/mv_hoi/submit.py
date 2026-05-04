@@ -21,6 +21,8 @@ import yaml
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
 from db import (
+    get_blacklisted_sequence,
+    get_blacklisted_sequences,
     get_latest_version,
     get_latest_workflow,
     get_workflows_by_dataset,
@@ -160,6 +162,14 @@ def _generate_workflow_name(pipeline_type: str, version: str) -> str:
     return f"v2d_{pipeline_type}_{ver}_{ts}"
 
 
+def _blacklist_skip_message(sequence_name: str, dataset_name: str, reason: str | None) -> str:
+    suffix = f": {reason}" if reason else ""
+    return (
+        f"  {sequence_name}: skipping (blacklisted for {dataset_name}{suffix}). "
+        "Use --force to submit anyway."
+    )
+
+
 def submit_sequence(
     sequence_name: str,
     dataset_name: str,
@@ -170,6 +180,18 @@ def submit_sequence(
     dry_run: bool = False,
 ) -> str | None:
     """Build --set vars, submit OSMO workflow, record in DB. Return workflow name."""
+    if not force:
+        blacklist_entry = get_blacklisted_sequence(
+            dataset_name, sequence_name, db_path=DB_PATH,
+        )
+        if blacklist_entry:
+            print(
+                _blacklist_skip_message(
+                    sequence_name, dataset_name, blacklist_entry.get("reason"),
+                )
+            )
+            return None
+
     latest = get_latest_workflow(
         sequence_name, dataset_name, pipeline_type, db_path=DB_PATH, table=TABLE,
     )
@@ -388,6 +410,22 @@ def auto_submit(
         bounds = f"[{start_time or '-inf'}, {end_time or '+inf'}]"
         print(f"Filtered to {len(sequences)} sequences in time range {bounds}")
 
+    skipped_blacklisted = 0
+    if not force:
+        blacklist = {
+            row["sequence_name"]: row
+            for row in get_blacklisted_sequences(dataset_name, db_path=DB_PATH)
+        }
+        if blacklist:
+            before = len(sequences)
+            sequences = [seq for seq in sequences if seq not in blacklist]
+            skipped_blacklisted = before - len(sequences)
+            if skipped_blacklisted:
+                print(
+                    f"Skipped {skipped_blacklisted} blacklisted sequence(s). "
+                    "Use --force to submit anyway."
+                )
+
     skip_statuses = {"PASS", "WAITING_WF", "WAITING_QC"}
     if not retry_failed:
         skip_statuses.add("FAIL")
@@ -427,7 +465,7 @@ def main() -> None:
                         help="Pipeline type (e.g. mv_calibration, mv_hoi_reconstruction)")
     parser.add_argument("--sequence", help="Single sequence (manual mode)")
     parser.add_argument("--force", action="store_true",
-                        help="Force resubmit even if WAITING_WF, WAITING_QC, or PASS")
+                        help="Force resubmit even if blacklisted, WAITING_WF, WAITING_QC, or PASS")
     parser.add_argument("--retry_failed", action="store_true",
                         help="In auto mode, also retry sequences whose latest run failed")
     parser.add_argument("--start_time",

@@ -4,6 +4,7 @@ Tables:
   pipeline_versions — semver version string with message (shared)
   workflows         — per-sequence workflow submissions and their status
   workflows_test    — same schema, used for test-mode submissions
+  blacklisted_sequences — dataset-scoped sequence submission blacklist
 """
 
 import os
@@ -68,7 +69,27 @@ def init_db(db_path: str = DB_PATH) -> None:
             ON workflows_test(dataset, sequence_name);
         CREATE INDEX IF NOT EXISTS idx_workflows_test_status
             ON workflows_test(status);
+
+        CREATE TABLE IF NOT EXISTS blacklisted_sequences (
+            dataset        TEXT NOT NULL,
+            sequence_name  TEXT NOT NULL,
+            reason         TEXT,
+            blacklisted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (dataset, sequence_name)
+        );
     """)
+    columns = {
+        row["name"] for row in conn.execute("PRAGMA table_info(blacklisted_sequences)")
+    }
+    if "blacklisted_at" not in columns:
+        conn.execute(
+            "ALTER TABLE blacklisted_sequences ADD COLUMN blacklisted_at TIMESTAMP"
+        )
+        conn.execute(
+            """UPDATE blacklisted_sequences
+               SET blacklisted_at = CURRENT_TIMESTAMP
+               WHERE blacklisted_at IS NULL"""
+        )
     conn.commit()
     conn.close()
 
@@ -125,6 +146,88 @@ def insert_version(version: str, message: str = "", db_path: str = DB_PATH) -> s
     conn.commit()
     conn.close()
     return version
+
+
+# ── Sequence blacklist ────────────────────────────────────────────────
+
+
+def upsert_blacklisted_sequence(
+    dataset: str,
+    sequence_name: str,
+    reason: str | None = None,
+    db_path: str = DB_PATH,
+) -> None:
+    """Add a dataset/sequence blacklist entry, or update its reason."""
+    conn = get_connection(db_path)
+    conn.execute(
+        """INSERT INTO blacklisted_sequences
+           (dataset, sequence_name, reason, blacklisted_at)
+           VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+           ON CONFLICT(dataset, sequence_name) DO UPDATE SET
+               reason = excluded.reason""",
+        (dataset, sequence_name, reason),
+    )
+    conn.commit()
+    conn.close()
+
+
+def remove_blacklisted_sequence(
+    dataset: str,
+    sequence_name: str,
+    db_path: str = DB_PATH,
+) -> bool:
+    """Remove a dataset/sequence blacklist entry. Return True if removed."""
+    conn = get_connection(db_path)
+    cur = conn.execute(
+        """DELETE FROM blacklisted_sequences
+           WHERE dataset = ? AND sequence_name = ?""",
+        (dataset, sequence_name),
+    )
+    conn.commit()
+    removed = cur.rowcount > 0
+    conn.close()
+    return removed
+
+
+def get_blacklisted_sequence(
+    dataset: str,
+    sequence_name: str,
+    db_path: str = DB_PATH,
+) -> dict | None:
+    conn = get_connection(db_path)
+    row = conn.execute(
+        """SELECT dataset, sequence_name, reason, blacklisted_at
+           FROM blacklisted_sequences
+           WHERE dataset = ? AND sequence_name = ?""",
+        (dataset, sequence_name),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def is_sequence_blacklisted(
+    dataset: str,
+    sequence_name: str,
+    db_path: str = DB_PATH,
+) -> bool:
+    """Return True if the sequence is blacklisted for the dataset."""
+    return get_blacklisted_sequence(dataset, sequence_name, db_path=db_path) is not None
+
+
+def get_blacklisted_sequences(
+    dataset: str,
+    db_path: str = DB_PATH,
+) -> list[dict]:
+    conn = get_connection(db_path)
+    rows = conn.execute(
+        """SELECT dataset, sequence_name, reason, blacklisted_at
+           FROM blacklisted_sequences
+           WHERE dataset = ?
+           ORDER BY sequence_name""",
+        (dataset,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 # ── Workflow CRUD ──────────────────────────────────────────────────────
@@ -207,6 +310,29 @@ def get_latest_workflow(
     ).fetchone()
     conn.close()
     return dict(row) if row else None
+
+
+def get_recent_workflows_for_sequence(
+    sequence_name: str,
+    dataset: str,
+    pipeline_type: str | None = None,
+    limit: int = 2,
+    db_path: str = DB_PATH,
+    table: str = "workflows",
+) -> list[dict]:
+    """Return recent workflow rows for a dataset/sequence, newest first."""
+    conn = get_connection(db_path)
+    query = f"""SELECT * FROM {table}
+       WHERE sequence_name = ? AND dataset = ?"""
+    params: list = [sequence_name, dataset]
+    if pipeline_type:
+        query += " AND pipeline_type = ?"
+        params.append(pipeline_type)
+    query += " ORDER BY created_at DESC, id DESC LIMIT ?"
+    params.append(limit)
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 def get_workflows_by_dataset(

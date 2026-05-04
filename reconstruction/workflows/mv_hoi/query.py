@@ -24,11 +24,14 @@ import yaml
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
 from db import (
+    get_blacklisted_sequence,
     get_latest_workflow,
+    get_recent_workflows_for_sequence,
     get_summary,
     get_workflows_by_dataset,
     init_db,
     update_workflow,
+    upsert_blacklisted_sequence,
 )
 
 DB_PATH = os.path.join(SCRIPT_DIR, "processing.db")
@@ -87,6 +90,44 @@ def _failure_detail(info: dict) -> str:
     return info.get("status", "failed").lower()
 
 
+def _maybe_auto_blacklist_repeated_failure(
+    workflow: dict,
+    db_path: str = DB_PATH,
+    table: str = "workflows",
+) -> None:
+    """Blacklist a sequence after its two latest runs fail with same details."""
+    recent = get_recent_workflows_for_sequence(
+        workflow["sequence_name"],
+        workflow["dataset"],
+        pipeline_type=workflow["pipeline_type"],
+        limit=2,
+        db_path=db_path,
+        table=table,
+    )
+    if len(recent) < 2:
+        return
+    if any(row["status"] != "FAIL" for row in recent):
+        return
+
+    reason = recent[0].get("details") or ""
+    if not reason or any((row.get("details") or "") != reason for row in recent):
+        return
+
+    existing = get_blacklisted_sequence(
+        workflow["dataset"], workflow["sequence_name"], db_path=db_path,
+    )
+    if existing:
+        return
+
+    upsert_blacklisted_sequence(
+        workflow["dataset"], workflow["sequence_name"], reason=reason, db_path=db_path,
+    )
+    print(
+        f"Auto-blacklisted {workflow['dataset']}/{workflow['sequence_name']} "
+        f"after 2 recent {workflow['pipeline_type']} failures: {reason}"
+    )
+
+
 def refresh_waiting(
     dataset: str,
     pipeline_type: str | None = None,
@@ -110,6 +151,7 @@ def refresh_waiting(
             detail = _failure_detail(info)
             update_workflow(wf["workflow_name"], status="FAIL",
                            details=detail, db_path=db_path, table=table)
+            _maybe_auto_blacklist_repeated_failure(wf, db_path=db_path, table=table)
 
 
 def show_sequence(dataset: str, sequence: str, pipeline_type: str) -> None:
