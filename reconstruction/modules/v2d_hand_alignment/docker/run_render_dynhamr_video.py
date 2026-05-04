@@ -10,22 +10,29 @@ def run_render_dynhamr_video(
     fps: float = 25.0,
     start: int = 0,
     end: int | None = None,
+    use_trans_aligned: bool = True,
+    object_mesh_path: str | None = None,
+    object_poses_dir: str | None = None,
     dev: bool = False,
 ) -> None:
+    extra: dict = {"fps": fps, "start": start, "end": end}
+    if not use_trans_aligned:
+        extra["no_trans_aligned"] = True
+    inputs = {
+        "world_results":    world_results_path,
+        "frames_folder":    frames_folder,
+        "mano_assets_root": mano_assets_root,
+    }
+    if object_mesh_path is not None:
+        inputs["object_mesh_path"] = object_mesh_path
+    if object_poses_dir is not None:
+        inputs["object_poses_dir"] = object_poses_dir
     run_in_container(
         image=IMAGE_NAME,
         module="v2d.hand_alignment.lib.render_dynhamr_video",
-        inputs={
-            "world_results":    world_results_path,
-            "frames_folder":    frames_folder,
-            "mano_assets_root": mano_assets_root,
-        },
+        inputs=inputs,
         outputs={"output": output_path},
-        extra_args={
-            "fps":   fps,
-            "start": start,
-            "end":   end,
-        },
+        extra_args=extra,
         dev=dev,
         modules_dir=MODULES_DIR,
         gpus=False,
@@ -43,6 +50,12 @@ if __name__ == "__main__":
     parser.add_argument("--fps",   type=float, default=25.0)
     parser.add_argument("--start", type=int,   default=0)
     parser.add_argument("--end",   type=int,   default=None)
+    parser.add_argument("--use_trans_aligned",  dest="use_trans_aligned",
+                        action="store_true",  default=True)
+    parser.add_argument("--no_trans_aligned",   dest="use_trans_aligned",
+                        action="store_false")
+    parser.add_argument("--object_mesh_path",  default=None)
+    parser.add_argument("--object_poses_dir",  default=None)
     parser.add_argument("--dev",   action="store_true")
     args = parser.parse_args()
     run_render_dynhamr_video(
@@ -53,5 +66,8 @@ if __name__ == "__main__":
         fps                = args.fps,
         start              = args.start,
         end                = args.end,
+        use_trans_aligned  = args.use_trans_aligned,
+        object_mesh_path   = args.object_mesh_path,
+        object_poses_dir   = args.object_poses_dir,
         dev                = args.dev,
     )

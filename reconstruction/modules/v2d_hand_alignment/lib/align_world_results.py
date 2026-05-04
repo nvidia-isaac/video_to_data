@@ -33,6 +33,7 @@ import os
 
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
+from tqdm import tqdm
 
 from v2d.common.datatypes import Transform3d
 from v2d.hand_alignment.lib.hand_object_alignment import HandObjectAlignment
@@ -85,18 +86,15 @@ def align_world_results(
 
     for h in range(B):
         side = 1 if is_right_track[h] else 0
-        for f in range(T):
+        for f in tqdm(range(T), desc=f"  hand {h} ({'right' if is_right_track[h] else 'left'})",
+                      unit="frame", ncols=80):
             try:
-                delta_cam   = alignment.compute_offset(side, f)          # (3,) camera space
-                delta_world = cam_R[h, f].T @ delta_cam                  # (3,) world space
+                delta_cam   = alignment.compute_offset(side, f)
+                delta_world = cam_R[h, f].T @ delta_cam
                 trans_aligned[h, f] += delta_world
                 offsets[h, f] = delta_cam[2]
             except Exception as e:
-                print(f"  hand {h} frame {f}: offset failed ({e})")
-
-            if f % 100 == 0:
-                n_valid = int(np.sum(np.isfinite(offsets[h, :f+1])))
-                print(f"  hand {h} frame {f:4d}  valid so far: {n_valid}")
+                tqdm.write(f"  hand {h} frame {f}: offset failed ({e})")
 
     for h in range(B):
         side = 'right' if is_right_track[h] else 'left'
