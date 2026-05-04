@@ -26,6 +26,7 @@ Output directory layout:
   │   ├── textured_mesh.obj      # SAM3D textured mesh
   │   ├── mesh_transform.json    # SAM3D scale/pose transform
   │   └── mesh_intrinsics.json   # SAM3D-estimated intrinsics
+  ├── mesh_pretransformed.obj    # SAM3D mesh with rotation+scale applied (metric units)
   ├── mesh_scaled.obj            # Depth-aligned, scale-corrected mesh
   ├── scale.json                 # Estimated mesh scale factor
   ├── poses/                     # Raw FoundationPose per-frame JSONs
@@ -55,6 +56,9 @@ import argparse
 import glob
 import json
 import os
+
+import numpy as np
+import trimesh
 
 from v2d.common.datatypes import BoundingBox, Sam2Prompt, Sam2Prompts
 from v2d.common.utils import extract_images
@@ -108,7 +112,7 @@ def parse_args() -> argparse.Namespace:
                    help="Frame used for DINO detection, SAM3D, and FP registration (default: 0).")
     p.add_argument("--smooth_sigma",    type=float, default=5.0,
                    help="Gaussian sigma (frames) for hand translation smoothing (default: 5.0).")
-    p.add_argument("--dev", action="store_true",
+    p.add_argument("--dev", action="store_true", 
                    help="Mount local module source into containers (live-edit mode).")
     return p.parse_args()
 
@@ -127,6 +131,55 @@ def _step(label: str, done: bool) -> bool:
         return True
     print(f"  [run ] {label}")
     return False
+
+
+def _find_world_results(hand_recon_dir: str) -> str | None:
+    """Return the final smooth_fit world_results.npz, or None if not found.
+
+    DynHaMR writes many intermediate checkpoints under smooth_fit/, root_fit/,
+    init/, and hamer/.  The canonical final output is the highest-numbered file
+    under smooth_fit/.
+    """
+    candidates = glob.glob(
+        f"{hand_recon_dir}/logs/**/smooth_fit/*_world_results.npz", recursive=True
+    )
+    if not candidates:
+        return None
+    return max(candidates)
+
+
+def _apply_sam3d_transform(mesh_path: str, transform_path: str, out_path: str) -> None:
+    """Apply the SAM3D rotation+scale (not translation) to mesh vertices and save.
+
+    SAM3D outputs the mesh in a local normalized space. The mesh_transform.json
+    carries the rotation R and uniform scale s needed to bring it to metric
+    camera space.  We bake R*s into the vertices so FoundationPose sees a
+    properly-scaled mesh (translation is omitted — FP estimates it during
+    registration).
+    """
+    with open(transform_path) as f:
+        t = json.load(f)
+
+    qw, qx, qy, qz = t["rotation"]
+    sx, sy, sz      = t["scale"]
+    R = np.array([
+        [1 - 2*qy*qy - 2*qz*qz,  2*qx*qy - 2*qw*qz,      2*qx*qz + 2*qw*qy],
+        [2*qx*qy + 2*qw*qz,      1 - 2*qx*qx - 2*qz*qz,  2*qy*qz - 2*qw*qx],
+        [2*qx*qz - 2*qw*qy,      2*qy*qz + 2*qw*qx,      1 - 2*qx*qx - 2*qy*qy],
+    ], dtype=np.float64)
+    RS = R @ np.diag([sx, sy, sz])
+
+    scene = trimesh.load(mesh_path)
+    if isinstance(scene, trimesh.Scene):
+        meshes = list(scene.geometry.values())
+        for m in meshes:
+            m.vertices = (RS @ m.vertices.T).T
+        result = trimesh.util.concatenate(meshes)
+    else:
+        scene.vertices = (RS @ scene.vertices.T).T
+        result = scene
+
+    result.export(out_path)
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +220,7 @@ def run_v2d_ego_e2e(
     mesh_path           = f"{mesh_dir}/textured_mesh.obj"
     mesh_transform      = f"{mesh_dir}/mesh_transform.json"
     mesh_intrinsics     = f"{mesh_dir}/mesh_intrinsics.json"
+    mesh_pretransformed = f"{output_dir}/mesh_pretransformed.obj"
     mesh_scaled         = f"{output_dir}/mesh_scaled.obj"
     scale_path          = f"{output_dir}/scale.json"
     poses_dir           = f"{output_dir}/poses"
@@ -214,7 +268,7 @@ def run_v2d_ego_e2e(
             output_path = dino_detections,
             prompt      = prompt,
             model_dir   = grounding_dino_weights,
-            dev         = dev,
+            dev         = False,
         )
 
     if not os.path.exists(sam2_prompts):
@@ -264,11 +318,17 @@ def run_v2d_ego_e2e(
         )
 
     # -----------------------------------------------------------------------
+    # Step 5b: Apply SAM3D transform (rotation + scale) to mesh
+    # -----------------------------------------------------------------------
+    if not _step("Apply SAM3D transform to mesh", os.path.exists(mesh_pretransformed)):
+        _apply_sam3d_transform(mesh_path, mesh_transform, mesh_pretransformed)
+
+    # -----------------------------------------------------------------------
     # Step 6: FoundationPose scale estimation
     # -----------------------------------------------------------------------
     if not _step("Scale estimation", os.path.exists(mesh_scaled)):
         run_estimate_mesh_scale(
-            mesh_path             = mesh_path,
+            mesh_path             = mesh_pretransformed,
             rgb_path              = ref_rgb,
             depth_path            = ref_depth,
             mask_path             = ref_mask,
@@ -326,26 +386,21 @@ def run_v2d_ego_e2e(
     # -----------------------------------------------------------------------
     # Step 9: Ego hand reconstruction (ViPE + Dyn-HaMR)
     # -----------------------------------------------------------------------
-    _world_results = glob.glob(
-        f"{hand_recon_dir}/logs/**/*_world_results.npz", recursive=True
-    )
+    world_results_npz = _find_world_results(hand_recon_dir)
     if not _step("Ego hand reconstruction (ViPE + Dyn-HaMR)",
-                 len(_world_results) == 1):
+                 world_results_npz is not None):
         run_reconstruction(
             video_input = video_path,
             output_dir  = hand_recon_dir,
             weights_dir = hand_reconstruction_weights,
         )
-        _world_results = glob.glob(
-            f"{hand_recon_dir}/logs/**/*_world_results.npz", recursive=True
-        )
-        if len(_world_results) != 1:
+        world_results_npz = _find_world_results(hand_recon_dir)
+        if world_results_npz is None:
             raise RuntimeError(
-                f"Expected 1 world_results.npz after reconstruction, "
-                f"found: {_world_results}"
+                "No smooth_fit world_results.npz found after reconstruction — "
+                f"check {hand_recon_dir}/logs/"
             )
 
-    world_results_npz = _world_results[0]
     print(f"  world_results: {world_results_npz}")
 
     # -----------------------------------------------------------------------
