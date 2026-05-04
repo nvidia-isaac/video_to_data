@@ -1,0 +1,249 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 620" font-family="'Segoe UI', Arial, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#555"/>
+    </marker>
+    <marker id="arrow-blue" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#2563EB"/>
+    </marker>
+    <linearGradient id="headerGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#1E3A5F"/>
+      <stop offset="100%" stop-color="#2563EB"/>
+    </linearGradient>
+    <filter id="shadow" x="-2%" y="-2%" width="104%" height="108%">
+      <feDropShadow dx="1" dy="2" stdDeviation="2" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="960" height="620" fill="#F8FAFC" rx="12"/>
+
+  <!-- Title -->
+  <rect x="0" y="0" width="960" height="52" rx="12" fill="url(#headerGrad)"/>
+  <rect x="0" y="20" width="960" height="32" fill="url(#headerGrad)"/>
+  <text x="480" y="34" text-anchor="middle" fill="white" font-size="18" font-weight="700">v2p_video_agent — Scaling Architecture</text>
+
+  <!-- ================================================================ -->
+  <!-- SECTION 1: Video Discovery & Sharding                           -->
+  <!-- ================================================================ -->
+  <rect x="30" y="68" width="900" height="100" rx="8" fill="white" stroke="#CBD5E1" filter="url(#shadow)"/>
+  <rect x="30" y="68" width="900" height="28" rx="8" fill="#EFF6FF"/>
+  <rect x="30" y="82" width="900" height="14" fill="#EFF6FF"/>
+  <text x="50" y="87" font-size="13" font-weight="700" fill="#1E40AF">1. Video Discovery &amp; Duration-Aware LPT Sharding</text>
+
+  <!-- Video files -->
+  <rect x="55" y="104" width="120" height="48" rx="6" fill="#DBEAFE" stroke="#93C5FD"/>
+  <text x="115" y="124" text-anchor="middle" font-size="11" fill="#1E40AF">Input Directory</text>
+  <text x="115" y="140" text-anchor="middle" font-size="10" fill="#3B82F6">1000+ videos</text>
+
+  <!-- Arrow -->
+  <line x1="180" y1="128" x2="225" y2="128" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- ffprobe -->
+  <rect x="230" y="108" width="100" height="38" rx="6" fill="#FEF3C7" stroke="#FCD34D"/>
+  <text x="280" y="124" text-anchor="middle" font-size="10" font-weight="600" fill="#92400E">ffprobe</text>
+  <text x="280" y="137" text-anchor="middle" font-size="9" fill="#B45309">duration probe</text>
+
+  <!-- Arrow -->
+  <line x1="335" y1="128" x2="380" y2="128" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- LPT Sort -->
+  <rect x="385" y="108" width="130" height="38" rx="6" fill="#FEF3C7" stroke="#FCD34D"/>
+  <text x="450" y="124" text-anchor="middle" font-size="10" font-weight="600" fill="#92400E">LPT Sort</text>
+  <text x="450" y="137" text-anchor="middle" font-size="9" fill="#B45309">longest-first greedy</text>
+
+  <!-- Arrow -->
+  <line x1="520" y1="128" x2="565" y2="128" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Shards output -->
+  <g transform="translate(575, 102)">
+    <rect x="0" y="0" width="70" height="22" rx="4" fill="#DCFCE7" stroke="#86EFAC"/>
+    <text x="35" y="15" text-anchor="middle" font-size="9" fill="#166534">Shard 0</text>
+    <rect x="78" y="0" width="70" height="22" rx="4" fill="#DCFCE7" stroke="#86EFAC"/>
+    <text x="113" y="15" text-anchor="middle" font-size="9" fill="#166534">Shard 1</text>
+    <rect x="156" y="0" width="70" height="22" rx="4" fill="#DCFCE7" stroke="#86EFAC"/>
+    <text x="191" y="15" text-anchor="middle" font-size="9" fill="#166534">Shard 2</text>
+    <text x="245" y="15" font-size="12" fill="#6B7280">...</text>
+    <rect x="260" y="0" width="70" height="22" rx="4" fill="#DCFCE7" stroke="#86EFAC"/>
+    <text x="295" y="15" text-anchor="middle" font-size="9" fill="#166534">Shard N</text>
+    <text x="165" y="46" text-anchor="middle" font-size="9" fill="#6B7280">balanced by total duration</text>
+  </g>
+
+  <!-- Resume badge -->
+  <rect x="780" y="68" width="140" height="28" rx="14" fill="#F0FDF4" stroke="#4ADE80"/>
+  <text x="850" y="86" text-anchor="middle" font-size="10" font-weight="600" fill="#15803D">Resume support</text>
+
+  <!-- ================================================================ -->
+  <!-- SECTION 2: Parallel GPU Workers (full width)                    -->
+  <!-- ================================================================ -->
+  <rect x="30" y="182" width="900" height="248" rx="8" fill="white" stroke="#CBD5E1" filter="url(#shadow)"/>
+  <rect x="30" y="182" width="900" height="28" rx="8" fill="#F0FDF4"/>
+  <rect x="30" y="196" width="900" height="14" fill="#F0FDF4"/>
+  <text x="50" y="201" font-size="13" font-weight="700" fill="#166534">2. Parallel GPU Workers (subprocess per GPU)</text>
+
+  <!-- Worker 0 -->
+  <rect x="50" y="220" width="195" height="195" rx="6" fill="#F8FAFC" stroke="#E2E8F0" stroke-dasharray="4"/>
+  <rect x="55" y="225" width="185" height="22" rx="4" fill="#DCFCE7" stroke="#86EFAC"/>
+  <text x="147" y="240" text-anchor="middle" font-size="10" font-weight="600" fill="#166534">Worker 0 · GPU 0</text>
+
+  <rect x="62" y="254" width="170" height="20" rx="3" fill="#DBEAFE" stroke="#93C5FD"/>
+  <text x="147" y="268" text-anchor="middle" font-size="9" fill="#1E40AF">Segment (chunked 15s)</text>
+  <line x1="147" y1="274" x2="147" y2="280" stroke="#93C5FD" stroke-width="1"/>
+  <rect x="62" y="280" width="170" height="20" rx="3" fill="#DBEAFE" stroke="#93C5FD"/>
+  <text x="147" y="294" text-anchor="middle" font-size="9" fill="#1E40AF">Verify / Refine loop</text>
+  <line x1="147" y1="300" x2="147" y2="306" stroke="#93C5FD" stroke-width="1"/>
+  <rect x="62" y="306" width="170" height="20" rx="3" fill="#DBEAFE" stroke="#93C5FD"/>
+  <text x="147" y="320" text-anchor="middle" font-size="9" fill="#1E40AF">Entity Extraction</text>
+  <line x1="147" y1="326" x2="147" y2="332" stroke="#93C5FD" stroke-width="1"/>
+  <rect x="62" y="332" width="170" height="20" rx="3" fill="#E0E7FF" stroke="#A5B4FC"/>
+  <text x="147" y="346" text-anchor="middle" font-size="9" fill="#3730A3">Frame Embedding</text>
+  <line x1="147" y1="352" x2="147" y2="358" stroke="#93C5FD" stroke-width="1"/>
+  <rect x="62" y="358" width="170" height="20" rx="3" fill="#DBEAFE" stroke="#93C5FD"/>
+  <text x="147" y="372" text-anchor="middle" font-size="9" fill="#1E40AF">Entity Linking</text>
+  <line x1="147" y1="378" x2="147" y2="384" stroke="#93C5FD" stroke-width="1"/>
+  <rect x="62" y="384" width="170" height="20" rx="3" fill="#DBEAFE" stroke="#93C5FD"/>
+  <text x="147" y="398" text-anchor="middle" font-size="9" fill="#1E40AF">DB Write (WAL)</text>
+
+  <!-- Worker 1 -->
+  <rect x="270" y="220" width="195" height="195" rx="6" fill="#F8FAFC" stroke="#E2E8F0" stroke-dasharray="4"/>
+  <rect x="275" y="225" width="185" height="22" rx="4" fill="#DCFCE7" stroke="#86EFAC"/>
+  <text x="367" y="240" text-anchor="middle" font-size="10" font-weight="600" fill="#166534">Worker 1 · GPU 1</text>
+
+  <rect x="282" y="254" width="170" height="20" rx="3" fill="#DBEAFE" stroke="#93C5FD"/>
+  <text x="367" y="268" text-anchor="middle" font-size="9" fill="#1E40AF">Segment (chunked 15s)</text>
+  <line x1="367" y1="274" x2="367" y2="280" stroke="#93C5FD" stroke-width="1"/>
+  <rect x="282" y="280" width="170" height="20" rx="3" fill="#DBEAFE" stroke="#93C5FD"/>
+  <text x="367" y="294" text-anchor="middle" font-size="9" fill="#1E40AF">Verify / Refine loop</text>
+  <line x1="367" y1="300" x2="367" y2="306" stroke="#93C5FD" stroke-width="1"/>
+  <rect x="282" y="306" width="170" height="20" rx="3" fill="#DBEAFE" stroke="#93C5FD"/>
+  <text x="367" y="320" text-anchor="middle" font-size="9" fill="#1E40AF">Entity Extraction</text>
+  <line x1="367" y1="326" x2="367" y2="332" stroke="#93C5FD" stroke-width="1"/>
+  <rect x="282" y="332" width="170" height="20" rx="3" fill="#E0E7FF" stroke="#A5B4FC"/>
+  <text x="367" y="346" text-anchor="middle" font-size="9" fill="#3730A3">Frame Embedding</text>
+  <line x1="367" y1="352" x2="367" y2="358" stroke="#93C5FD" stroke-width="1"/>
+  <rect x="282" y="358" width="170" height="20" rx="3" fill="#DBEAFE" stroke="#93C5FD"/>
+  <text x="367" y="372" text-anchor="middle" font-size="9" fill="#1E40AF">Entity Linking</text>
+  <line x1="367" y1="378" x2="367" y2="384" stroke="#93C5FD" stroke-width="1"/>
+  <rect x="282" y="384" width="170" height="20" rx="3" fill="#DBEAFE" stroke="#93C5FD"/>
+  <text x="367" y="398" text-anchor="middle" font-size="9" fill="#1E40AF">DB Write (WAL)</text>
+
+  <!-- Dots -->
+  <text x="487" y="320" font-size="28" fill="#94A3B8">...</text>
+
+  <!-- Worker N -->
+  <rect x="530" y="220" width="195" height="195" rx="6" fill="#F8FAFC" stroke="#E2E8F0" stroke-dasharray="4"/>
+  <rect x="535" y="225" width="185" height="22" rx="4" fill="#DCFCE7" stroke="#86EFAC"/>
+  <text x="627" y="240" text-anchor="middle" font-size="10" font-weight="600" fill="#166534">Worker N · GPU N</text>
+
+  <rect x="542" y="254" width="170" height="20" rx="3" fill="#DBEAFE" stroke="#93C5FD"/>
+  <text x="627" y="268" text-anchor="middle" font-size="9" fill="#1E40AF">Segment (chunked 15s)</text>
+  <line x1="627" y1="274" x2="627" y2="280" stroke="#93C5FD" stroke-width="1"/>
+  <rect x="542" y="280" width="170" height="20" rx="3" fill="#DBEAFE" stroke="#93C5FD"/>
+  <text x="627" y="294" text-anchor="middle" font-size="9" fill="#1E40AF">Verify / Refine loop</text>
+  <line x1="627" y1="300" x2="627" y2="306" stroke="#93C5FD" stroke-width="1"/>
+  <rect x="542" y="306" width="170" height="20" rx="3" fill="#DBEAFE" stroke="#93C5FD"/>
+  <text x="627" y="320" text-anchor="middle" font-size="9" fill="#1E40AF">Entity Extraction</text>
+  <line x1="627" y1="326" x2="627" y2="332" stroke="#93C5FD" stroke-width="1"/>
+  <rect x="542" y="332" width="170" height="20" rx="3" fill="#E0E7FF" stroke="#A5B4FC"/>
+  <text x="627" y="346" text-anchor="middle" font-size="9" fill="#3730A3">Frame Embedding</text>
+  <line x1="627" y1="352" x2="627" y2="358" stroke="#93C5FD" stroke-width="1"/>
+  <rect x="542" y="358" width="170" height="20" rx="3" fill="#DBEAFE" stroke="#93C5FD"/>
+  <text x="627" y="372" text-anchor="middle" font-size="9" fill="#1E40AF">Entity Linking</text>
+  <line x1="627" y1="378" x2="627" y2="384" stroke="#93C5FD" stroke-width="1"/>
+  <rect x="542" y="384" width="170" height="20" rx="3" fill="#DBEAFE" stroke="#93C5FD"/>
+  <text x="627" y="398" text-anchor="middle" font-size="9" fill="#1E40AF">DB Write (WAL)</text>
+
+  <!-- CUDA_VISIBLE_DEVICES annotation -->
+  <rect x="750" y="224" width="168" height="44" rx="6" fill="#FEF9C3" stroke="#FCD34D"/>
+  <text x="834" y="242" text-anchor="middle" font-size="9" font-weight="600" fill="#854D0E">CUDA_VISIBLE_DEVICES</text>
+  <text x="834" y="258" text-anchor="middle" font-size="9" fill="#92400E">1 GPU per worker</text>
+
+  <!-- empty_cache annotation -->
+  <rect x="750" y="280" width="168" height="44" rx="6" fill="#FEF9C3" stroke="#FCD34D"/>
+  <text x="834" y="298" text-anchor="middle" font-size="9" font-weight="600" fill="#854D0E">empty_cache()</text>
+  <text x="834" y="314" text-anchor="middle" font-size="9" fill="#92400E">between videos</text>
+
+  <!-- Chunked processing annotation -->
+  <rect x="750" y="336" width="168" height="74" rx="6" fill="#ECFDF5" stroke="#86EFAC"/>
+  <text x="834" y="354" text-anchor="middle" font-size="9" font-weight="600" fill="#065F46">Chunked Processing</text>
+  <!-- Mini timeline -->
+  <rect x="764" y="362" width="140" height="12" rx="2" fill="#F0FDF4" stroke="#86EFAC"/>
+  <rect x="764" y="362" width="35" height="12" rx="2" fill="#86EFAC"/>
+  <rect x="801" y="362" width="35" height="12" fill="#6EE7B7"/>
+  <rect x="838" y="362" width="35" height="12" fill="#86EFAC"/>
+  <rect x="875" y="362" width="29" height="12" rx="2" fill="#6EE7B7"/>
+  <text x="781" y="372" text-anchor="middle" font-size="6" fill="#065F46">15s</text>
+  <text x="818" y="372" text-anchor="middle" font-size="6" fill="#065F46">15s</text>
+  <text x="855" y="372" text-anchor="middle" font-size="6" fill="#065F46">15s</text>
+  <text x="889" y="372" text-anchor="middle" font-size="6" fill="#065F46">...</text>
+  <text x="834" y="396" text-anchor="middle" font-size="8" fill="#6B7280">1.5s overlap</text>
+  <text x="834" y="406" text-anchor="middle" font-size="8" fill="#6B7280">bounds VRAM per call</text>
+
+  <!-- ================================================================ -->
+  <!-- SECTION 3: Shared Databases (full width)                        -->
+  <!-- ================================================================ -->
+  <rect x="30" y="448" width="900" height="90" rx="8" fill="white" stroke="#CBD5E1" filter="url(#shadow)"/>
+  <rect x="30" y="448" width="900" height="28" rx="8" fill="#FFF7ED"/>
+  <rect x="30" y="462" width="900" height="14" fill="#FFF7ED"/>
+  <text x="50" y="467" font-size="13" font-weight="700" fill="#C2410C">3. Shared Databases (SQLite WAL mode — concurrent multi-worker writes)</text>
+
+  <!-- graph.db -->
+  <rect x="100" y="486" width="300" height="40" rx="6" fill="#FFEDD5" stroke="#FDBA74"/>
+  <text x="250" y="504" text-anchor="middle" font-size="12" font-weight="600" fill="#C2410C">graph.db</text>
+  <text x="250" y="519" text-anchor="middle" font-size="9" fill="#EA580C">entities · relationships · action segments · video metadata</text>
+
+  <!-- vector.db -->
+  <rect x="470" y="486" width="300" height="40" rx="6" fill="#FFEDD5" stroke="#FDBA74"/>
+  <text x="620" y="504" text-anchor="middle" font-size="12" font-weight="600" fill="#C2410C">vector.db</text>
+  <text x="620" y="519" text-anchor="middle" font-size="9" fill="#EA580C">SigLIP-2 frame embeddings</text>
+
+  <!-- Arrows from workers to DBs -->
+  <line x1="147" y1="418" x2="147" y2="448" stroke="#EA580C" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="367" y1="418" x2="367" y2="448" stroke="#EA580C" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="627" y1="418" x2="627" y2="448" stroke="#EA580C" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- WAL badge -->
+  <rect x="808" y="493" width="80" height="28" rx="14" fill="#FEF3C7" stroke="#FCD34D"/>
+  <text x="848" y="511" text-anchor="middle" font-size="9" font-weight="700" fill="#92400E">WAL mode</text>
+
+  <!-- ================================================================ -->
+  <!-- SECTION 4: Parallel Retrieval (full width)                      -->
+  <!-- ================================================================ -->
+  <rect x="30" y="556" width="900" height="50" rx="8" fill="white" stroke="#CBD5E1" filter="url(#shadow)"/>
+  <rect x="30" y="556" width="900" height="28" rx="8" fill="#F0F9FF"/>
+  <rect x="30" y="570" width="900" height="14" fill="#F0F9FF"/>
+  <text x="50" y="575" font-size="13" font-weight="700" fill="#0369A1">4. Parallel Sub-task Search (Retrieval Agent — LangGraph Send API)</text>
+
+  <!-- Compact flow -->
+  <rect x="50" y="588" width="72" height="14" rx="3" fill="#DBEAFE" stroke="#93C5FD"/>
+  <text x="86" y="598" text-anchor="middle" font-size="7" fill="#1E40AF">User Query</text>
+
+  <line x1="126" y1="595" x2="146" y2="595" stroke="#0369A1" stroke-width="1" marker-end="url(#arrow-blue)"/>
+
+  <rect x="150" y="588" width="80" height="14" rx="3" fill="#BFDBFE" stroke="#60A5FA"/>
+  <text x="190" y="598" text-anchor="middle" font-size="7" font-weight="600" fill="#1E40AF">Decomposer</text>
+
+  <line x1="234" y1="591" x2="270" y2="586" stroke="#0369A1" stroke-width="1" marker-end="url(#arrow-blue)"/>
+  <line x1="234" y1="595" x2="270" y2="595" stroke="#0369A1" stroke-width="1" marker-end="url(#arrow-blue)"/>
+  <line x1="234" y1="599" x2="270" y2="604" stroke="#0369A1" stroke-width="1" marker-end="url(#arrow-blue)"/>
+
+  <text x="252" y="582" font-size="6" font-weight="600" fill="#0369A1">Send</text>
+
+  <rect x="275" y="580" width="160" height="12" rx="3" fill="#DBEAFE" stroke="#93C5FD"/>
+  <text x="355" y="589" text-anchor="middle" font-size="6" fill="#1E40AF">Plan ? Execute ? Analyze (task 1)</text>
+  <rect x="275" y="593" width="160" height="12" rx="3" fill="#DBEAFE" stroke="#93C5FD"/>
+  <text x="355" y="602" text-anchor="middle" font-size="6" fill="#1E40AF">Plan ? Execute ? Analyze (task N)</text>
+
+  <text x="442" y="595" font-size="8" fill="#6B7280">concurrent</text>
+
+  <line x1="490" y1="592" x2="510" y2="595" stroke="#0369A1" stroke-width="1" marker-end="url(#arrow-blue)"/>
+  <line x1="490" y1="598" x2="510" y2="595" stroke="#0369A1" stroke-width="1" marker-end="url(#arrow-blue)"/>
+
+  <rect x="515" y="588" width="90" height="14" rx="3" fill="#BFDBFE" stroke="#60A5FA"/>
+  <text x="560" y="598" text-anchor="middle" font-size="7" font-weight="600" fill="#1E40AF">VQA Synthesizer</text>
+
+  <line x1="609" y1="595" x2="629" y2="595" stroke="#0369A1" stroke-width="1" marker-end="url(#arrow-blue)"/>
+
+  <rect x="633" y="588" width="60" height="14" rx="3" fill="#DCFCE7" stroke="#86EFAC"/>
+  <text x="663" y="598" text-anchor="middle" font-size="7" font-weight="600" fill="#166534">Results</text>
+</svg>
