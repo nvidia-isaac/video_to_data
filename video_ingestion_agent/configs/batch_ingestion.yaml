@@ -1,0 +1,113 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Batch Ingestion Pipeline Configuration
+# Optimised for processing 1000+ videos across multiple GPU shards on OSMO.
+# All shards share a single TP=8 vLLM server and write to the same graph.db / vector.db.
+
+# ============================================================
+# Model Configuration
+# ============================================================
+models:
+  # Visual language model for segmentation and verification
+  vlm_model: "Qwen/Qwen3-VL-8B-Instruct"
+  vlm_backend: "vllm"  # "local", "api", or "vllm"
+  vlm_fps: 4             # Frame sampling rate for VLM
+
+  # LLM for entity extraction from segment descriptions
+  # If null, falls back to vlm_model
+  llm_model: null
+  llm_backend: "vllm"  # Uses the same vLLM server as vlm_backend
+
+  # Frame embedding model (SigLIP-2, always local on each shard)
+  embedding_model: "google/siglip2-base-patch16-256"
+  embedding_batch_size: 16
+
+  # Device and authentication
+  device: "cuda"
+  api_key: null  # Or set NIM_API_KEY env var
+
+  # vLLM backend settings (only used when vlm_backend: "vllm")
+  vllm_url: "http://localhost:8000/v1"
+  vllm_local_media: true  # Use file:// URLs (fastest, requires same machine)
+  vllm_tp_size: 8         # Tensor parallel across 8 GPUs (OSMO H100 node)
+
+# ============================================================
+# Paths
+# ============================================================
+paths:
+  input_videos_dir: "data/videos"   # overridden by --input-dir CLI
+  runs_dir: "runs"                  # overridden by --output-dir CLI
+
+# ============================================================
+# Segmentation Configuration (Hybrid)
+# ============================================================
+segmentation:
+  chunk_size: 15.0   # Seconds per chunk for VLM processing
+  chunk_overlap: 1.5  # Overlap between chunks
+
+  # Segment constraints
+  min_clip_s: 1.0     # Minimum clip duration (seconds)
+  max_clip_s: 30.0    # Maximum clip duration (seconds)
+
+  # Video scanning
+  video_extensions:
+    - ".mp4"
+    - ".mov"
+    - ".mkv"
+    - ".MP4"
+
+  # VLM prompts for segmentation.
+  # Defaults are in ingestion/segmentation/prompts.py.
+  # Uncomment and edit below to override per-experiment.
+  # system_prompt: ""
+  # user_prompt: ""
+
+# ============================================================
+# Verification (Critic) Configuration
+# ============================================================
+verification:
+  max_iterations: 3  # Maximum verify-refine iterations
+
+  # VLM prompts for verification (critic).
+  # Defaults are in ingestion/segmentation/prompts.py.
+  # Uncomment and edit below to override per-experiment.
+  # system_prompt: ""
+  # user_prompt: ""
+
+# ============================================================
+# Entity Extraction Configuration
+# ============================================================
+entity_extraction:
+  max_time_gap: 30.0       # Max gap for entity merging (seconds)
+  min_entity_confidence: 0.5
+  min_relationship_confidence: 0.5
+
+# ============================================================
+# Processing (Frame Extraction)
+# ============================================================
+processing:
+  fps: 1.0  # Frame sampling rate for embeddings
+
+# ============================================================
+# Database Configuration
+# ============================================================
+database:
+  directory: "outputs/"     # fallback; batch script overrides via CLI
+  embedding_dim: 768        # SigLIP2 base-patch16-256
+
+# ============================================================
+# Logging
+# ============================================================
+logging:
+  level: "INFO"
+  save_responses: false     # disable for throughput at scale
+  response_dir: "outputs/debug/entity_extraction"
+
+# ============================================================
+# Pipeline Feature Toggles
+# ============================================================
+enable_verification: true
+enable_refinement: true
+enable_entity_graph: true
+enable_reporting: false      # skip per-video HTML reports at scale

@@ -1,0 +1,101 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Benchmark Configuration for HOT3D (Aria) ground truth from per-object contact
+# segmentation.
+#
+# Differences from EPIC-KITCHENS benchmark:
+#   - Tuned to HOT3D clip statistics (median 4.5s, p95 13.9s, max 44s).
+#   - Verification + refinement disabled for the first pass (quick baseline).
+#   - Entity graph disabled (not evaluating graph construction).
+
+experiment_name: "hot3d_aria_baseline"
+
+# ============================================================
+# Model Configuration
+# ============================================================
+models:
+  vlm_model: "Qwen/Qwen3-VL-8B-Instruct"
+  vlm_backend: "vllm"
+  vlm_fps: 4
+
+  llm_model: null
+  llm_backend: "local"
+
+  embedding_model: "google/siglip2-base-patch16-256"
+
+  device: "cuda"
+  api_key: null
+
+  vllm_url: "http://localhost:8000/v1"
+  vllm_tp_size: 8
+  vllm_local_media: true
+
+# ============================================================
+# Paths (benchmark-specific)
+# ============================================================
+paths:
+  input_videos_dir: "data/benchmark/hot3d/videos"
+  runs_dir: "runs/benchmark_hot3d"
+
+# ============================================================
+# Segmentation Configuration
+# ============================================================
+segmentation:
+  chunk_size: 15.0
+  chunk_overlap: 1.5
+
+  # HOT3D contact-anchored events:
+  #   min duration ≈ 0.5s (matches our `opening_s`).
+  #   max duration ≈ 44s in the corpus; cap at 45s + slack.
+  min_clip_s: 0.5
+  max_clip_s: 45.0
+
+  video_extensions:
+    - ".mp4"
+    - ".MP4"
+
+  # VLM prompts default to ingestion/segmentation/prompts.py.
+
+# ============================================================
+# Verification Configuration
+# ============================================================
+verification:
+  max_iterations: 1   # disabled effectively (enable_verification=false below)
+
+# ============================================================
+# Entity Extraction Configuration (not used in benchmark)
+# ============================================================
+entity_extraction:
+  max_time_gap: 30.0
+  min_entity_confidence: 0.5
+  min_relationship_confidence: 0.5
+
+# ============================================================
+# Processing
+# ============================================================
+processing:
+  fps: 1.0
+
+# ============================================================
+# Database (not used in benchmark)
+# ============================================================
+database:
+  directory: "outputs/"
+  embedding_dim: 768
+
+# ============================================================
+# Logging
+# ============================================================
+logging:
+  level: "INFO"
+  save_responses: true
+  response_dir: "runs/benchmark_hot3d/debug"
+
+# ============================================================
+# Pipeline Feature Toggles (HOT3D baseline)
+# ============================================================
+enable_verification: false    # off for first baseline; turn on for ablation
+enable_refinement: false      # off for first baseline; turn on for ablation
+enable_entity_graph: false    # always off for benchmark
+enable_reporting: false       # benchmark report replaces it

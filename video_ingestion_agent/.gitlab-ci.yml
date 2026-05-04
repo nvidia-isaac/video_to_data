@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+stages:
+  - lint
+  - docs
+
+pre-commit:
+  stage: lint
+  image: python:3.10.2-slim-bullseye
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends git
+    - pip install pre-commit
+  script:
+    - pre-commit run --all-files
+
+pages:
+  stage: docs
+  image: python:3.10.2-slim-bullseye
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends git make
+    - pip install -r docs/requirements.txt
+  script:
+    - make -C docs html
+    - mv docs/_build/current/html public
+  artifacts:
+    paths:
+      - public
+  only:
+    - main
