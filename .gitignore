@@ -14,3 +14,6 @@ CLAUDE.md
 .envrc.local
 robotic_grounding/reconstructed_data/
 robotic_grounding/checkpoints/
+
+# Reconstruction
+reconstruction/soma_data/

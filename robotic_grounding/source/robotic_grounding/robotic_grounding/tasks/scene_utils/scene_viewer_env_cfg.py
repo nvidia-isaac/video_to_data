@@ -9,7 +9,7 @@ from __future__ import annotations
 import isaaclab.sim as sim_utils
 import isaaclab.terrains as terrain_gen
 import torch
-from isaaclab.assets import AssetBaseCfg
+from isaaclab.assets import ArticulationCfg, AssetBaseCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
@@ -24,6 +24,10 @@ from robotic_grounding.tasks.scene_utils import (
     apply_scene_objects,
     apply_scene_robot,
 )
+from robotic_grounding.tasks.scene_utils.replay_data import (
+    SingleRobotTrajectory,
+    load_replay_trajectory,
+)
 from robotic_grounding.tasks.v2p import mdp
 
 
@@ -37,6 +41,44 @@ def _zero_reward(env: object) -> torch.Tensor:
 
 def _never_done(env: object) -> torch.Tensor:
     return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)  # type: ignore[attr-defined]
+
+
+def _seed_robot_init_state_from_motion(env_cfg: object, motion_file: str) -> None:
+    """Seed `env_cfg.scene.robot.init_state` from the saved frame-0 robot pose.
+
+    Without this, the viewer spawns the URDF at the asset default pose
+    (e.g. world origin facing +X) and lets gravity drop it. The retargeted
+    object trajectory is stored in the same world frame as the retargeted
+    robot, so re-zeroing the robot rotates the relative robot/object
+    heading and the object can end up behind a forward-facing URDF when
+    the original body had a different yaw.
+    """
+    try:
+        replay = load_replay_trajectory(motion_file)
+    except Exception:  # noqa: BLE001 -- viewer-only path, missing fields are non-fatal
+        return
+    if not isinstance(replay, SingleRobotTrajectory):
+        return
+    if not hasattr(env_cfg.scene, "robot") or env_cfg.scene.robot is None:  # type: ignore[attr-defined]
+        return
+
+    pos = tuple(float(v) for v in replay.robot_root_position[0].tolist())
+    rot = tuple(float(v) for v in replay.robot_root_wxyz[0].tolist())
+    joint_names = list(replay.robot_joint_names)
+    joint_pos_arr = replay.robot_joint_positions[0].tolist()
+    joint_pos = {
+        name: float(value)
+        for name, value in zip(joint_names, joint_pos_arr, strict=True)
+    }
+    robot_cfg: ArticulationCfg = env_cfg.scene.robot  # type: ignore[attr-defined]
+    env_cfg.scene.robot = robot_cfg.replace(  # type: ignore[attr-defined]
+        init_state=ArticulationCfg.InitialStateCfg(
+            pos=pos,
+            rot=rot,
+            joint_pos=joint_pos,
+            joint_vel={".*": 0.0},
+        ),
+    )
 
 
 @configclass
@@ -145,3 +187,4 @@ class SceneViewerEnvCfg(ManagerBasedRLEnvCfg):
             apply_scene_objects(self, scene_config)
             if scene_config.robot_name is not None:
                 apply_scene_robot(self, scene_config, static=False)
+                _seed_robot_init_state_from_motion(self, self.motion_file)
