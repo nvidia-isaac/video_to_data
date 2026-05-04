@@ -17,6 +17,8 @@ Output directory layout:
   <output_dir>/
   ├── frames/                    # Extracted video frames
   ├── depth/                     # MoGe depth PNGs
+  ├── depth_vipe/                # DynHaMR depth PNGs (converted from EXR)
+  ├── intrinsics_vipe.json       # DynHaMR camera intrinsics
   ├── intrinsics/                # Per-frame intrinsics JSONs
   ├── intrinsics_stable.json     # Temporally stabilised intrinsics
   ├── dino_detections.json       # Grounding DINO bboxes (frame 0)
@@ -31,11 +33,14 @@ Output directory layout:
   ├── scale.json                 # Estimated mesh scale factor
   ├── poses/                     # Raw FoundationPose per-frame JSONs
   ├── poses_smoothed/            # EKF-smoothed per-frame pose JSONs
+  ├── poses_smoothed_render/     # FoundationPose overlay video on smoothed poses
   ├── hand_reconstruction/       # Dyn-HaMR + ViPE outputs
   │   ├── MANO_RIGHT.pkl         # (auto-copied by run_reconstruction)
   │   ├── BMC/                   # (auto-copied by run_reconstruction)
   │   └── logs/                  # Dyn-HaMR logs (world_results.npz here)
-  └── world_results_aligned.npz  # Final depth-aligned hand + object poses
+  ├── world_results_aligned.npz  # Final depth-aligned hand + object poses
+  ├── render_aligned.mp4         # 2×2 grid render using trans_aligned
+  └── render_unaligned.mp4       # 2×2 grid render using trans (for comparison)
 
 Usage:
     python modules/v2d_pipelines/run_v2d_ego_e2e.py \\
@@ -56,6 +61,7 @@ import argparse
 import glob
 import json
 import os
+import zipfile
 
 import numpy as np
 import trimesh
@@ -65,9 +71,11 @@ from v2d.common.utils import extract_images
 from v2d.depth.lib.stabilize_intrinsics import stabilize_intrinsics
 from v2d.foundation_pose.docker.run_ekf_smoothing import run_ekf_smoothing
 from v2d.foundation_pose.docker.run_estimate_mesh_scale import run_estimate_mesh_scale
+from v2d.foundation_pose.docker.run_render_poses import run_render_poses
 from v2d.foundation_pose.docker.run_video_to_poses import run_video_to_poses
 from v2d.grounding_dino.docker.run_image_to_object_bboxes import run_image_to_object_bboxes
 from v2d.hand_alignment.docker.run_align_world_results import run_align_world_results
+from v2d.hand_alignment.docker.run_render_dynhamr_video import run_render_dynhamr_video
 from v2d.moge.docker.run_video_to_depth import run_video_to_depth as run_moge_depth
 from v2d.sam2.docker.run_video_to_masks import run_video_to_masks
 from v2d.sam3d.docker.run_image_to_mesh import run_image_to_mesh
@@ -182,6 +190,75 @@ def _apply_sam3d_transform(mesh_path: str, transform_path: str, out_path: str) -
     result.export(out_path)
 
 
+def _convert_dynhamr_depth(
+    hand_recon_dir: str,
+    out_dir: str,
+    world_results_path: str,
+    intrinsics_out_path: str,
+) -> None:
+    """Convert DynHaMR EXR depth zip → inverse-depth uint16 PNGs + intrinsics JSON.
+
+    DynHaMR writes depth/video.zip containing per-frame EXR files with a
+    single Z channel in metric metres.  Converts to the pipeline's standard
+    inverse-depth encoding: pixel = uint16(65535 / (depth_m + 1)).
+
+    Intrinsics are read from world_results.npz ('intrins' field = [fx,fy,cx,cy]);
+    image dimensions are taken from the first EXR frame.
+
+    EXR names use 5-digit indices (00000.exr); output PNGs use 6-digit
+    indices (000000.png) to match the rest of the pipeline.
+    """
+    import OpenEXR
+    import Imath
+    import tempfile as _tempfile
+    from PIL import Image as _Image
+
+    zip_path = os.path.join(hand_recon_dir, "depth", "video.zip")
+    if not os.path.exists(zip_path):
+        raise FileNotFoundError(f"DynHaMR depth zip not found: {zip_path}")
+
+    os.makedirs(out_dir, exist_ok=True)
+    pixel_type = Imath.PixelType(Imath.PixelType.FLOAT)
+
+    def _read_exr(raw_bytes):
+        with _tempfile.NamedTemporaryFile(suffix=".exr", delete=False) as tmp:
+            tmp.write(raw_bytes)
+            tmp_path = tmp.name
+        try:
+            exr = OpenEXR.InputFile(tmp_path)
+            dw  = exr.header()["dataWindow"]
+            w   = dw.max.x - dw.min.x + 1
+            h   = dw.max.y - dw.min.y + 1
+            buf = exr.channel("Z", pixel_type)
+            return np.frombuffer(buf, dtype=np.float32).reshape(h, w), w, h
+        finally:
+            os.unlink(tmp_path)
+
+    with zipfile.ZipFile(zip_path) as zf:
+        exr_names = sorted(n for n in zf.namelist() if n.endswith(".exr"))
+        print(f"  Converting {len(exr_names)} EXR frames → {out_dir}")
+
+        # Read image dimensions from first frame
+        depth0, img_w, img_h = _read_exr(zf.read(exr_names[0]))
+
+        for name in exr_names:
+            frame   = int(os.path.splitext(name)[0])
+            out_png = os.path.join(out_dir, f"{frame:06d}.png")
+            depth, _, _ = _read_exr(zf.read(name))
+            inv = (65535.0 / (depth.astype(np.float64) + 1.0)).clip(0, 65535)
+            _Image.fromarray(inv.astype(np.uint16)).save(out_png)
+
+    # Write intrinsics JSON from world_results.npz
+    wr = np.load(world_results_path, allow_pickle=True)
+    fx, fy, cx, cy = [float(x) for x in wr['intrins']]
+    intrinsics = {"fx": fx, "fy": fy, "cx": cx, "cy": cy,
+                  "width": img_w, "height": img_h}
+    with open(intrinsics_out_path, "w") as f:
+        json.dump(intrinsics, f, indent=2)
+    print(f"  Intrinsics → {intrinsics_out_path}  "
+          f"(fx={fx:.1f} fy={fy:.1f} cx={cx:.1f} cy={cy:.1f} {img_w}×{img_h})")
+
+
 # ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
@@ -223,10 +300,15 @@ def run_v2d_ego_e2e(
     mesh_pretransformed = f"{output_dir}/mesh_pretransformed.obj"
     mesh_scaled         = f"{output_dir}/mesh_scaled.obj"
     scale_path          = f"{output_dir}/scale.json"
-    poses_dir           = f"{output_dir}/poses"
-    poses_smooth_dir    = f"{output_dir}/poses_smoothed"
+    poses_dir                = f"{output_dir}/poses"
+    poses_smooth_dir         = f"{output_dir}/poses_smoothed"
+    poses_smooth_render_dir  = f"{output_dir}/poses_smoothed_render"
     hand_recon_dir      = f"{output_dir}/hand_reconstruction"
+    depth_vipe_dir      = f"{output_dir}/depth_vipe"
+    intrinsics_vipe     = f"{output_dir}/intrinsics_vipe.json"
     world_aligned       = f"{output_dir}/world_results_aligned.npz"
+    render_aligned      = f"{output_dir}/render_aligned.mp4"
+    render_unaligned    = f"{output_dir}/render_unaligned.mp4"
 
     ref_rgb    = f"{frames_dir}/{reference_frame:06d}.png"
     ref_depth  = f"{depth_dir}/{reference_frame:06d}.png"
@@ -384,6 +466,19 @@ def run_v2d_ego_e2e(
         )
 
     # -----------------------------------------------------------------------
+    # Step 8b: Render smoothed poses (FoundationPose overlay video)
+    # -----------------------------------------------------------------------
+    if not _step("Render smoothed poses", _has_files(poses_smooth_render_dir)):
+        run_render_poses(
+            mesh_path       = mesh_scaled,
+            poses_dir       = poses_smooth_dir,
+            frames_dir      = frames_dir,
+            intrinsics_path = intrinsics_stable,
+            output_dir      = poses_smooth_render_dir,
+            dev             = dev,
+        )
+
+    # -----------------------------------------------------------------------
     # Step 9: Ego hand reconstruction (ViPE + Dyn-HaMR)
     # -----------------------------------------------------------------------
     world_results_npz = _find_world_results(hand_recon_dir)
@@ -404,6 +499,13 @@ def run_v2d_ego_e2e(
     print(f"  world_results: {world_results_npz}")
 
     # -----------------------------------------------------------------------
+    # Step 9b: Convert DynHaMR EXR depth → inverse-depth PNGs (depth_vipe)
+    # -----------------------------------------------------------------------
+    if not _step("Convert DynHaMR depth (EXR → uint16 PNG)", _has_files(depth_vipe_dir)):
+        _convert_dynhamr_depth(hand_recon_dir, depth_vipe_dir,
+                               world_results_npz, intrinsics_vipe)
+
+    # -----------------------------------------------------------------------
     # Step 10: Hand/object depth alignment
     # -----------------------------------------------------------------------
     if not _step("Hand/object depth alignment", os.path.exists(world_aligned)):
@@ -419,11 +521,43 @@ def run_v2d_ego_e2e(
             dev              = dev,
         )
 
+    # -----------------------------------------------------------------------
+    # Step 11: Render aligned result (trans_aligned) — 2×2 grid video
+    # -----------------------------------------------------------------------
+    if not _step("Render aligned (trans_aligned)", os.path.exists(render_aligned)):
+        run_render_dynhamr_video(
+            world_results_path = world_aligned,
+            frames_folder      = frames_dir,
+            mano_assets_root   = mano_weights,
+            output_path        = render_aligned,
+            use_trans_aligned  = True,
+            object_mesh_path   = mesh_scaled,
+            object_poses_dir   = poses_smooth_dir,
+            dev                = dev,
+        )
+
+    # -----------------------------------------------------------------------
+    # Step 12: Render unaligned result (trans) for comparison
+    # -----------------------------------------------------------------------
+    if not _step("Render unaligned (trans)", os.path.exists(render_unaligned)):
+        run_render_dynhamr_video(
+            world_results_path = world_aligned,
+            frames_folder      = frames_dir,
+            mano_assets_root   = mano_weights,
+            output_path        = render_unaligned,
+            use_trans_aligned  = False,
+            object_mesh_path   = mesh_scaled,
+            object_poses_dir   = poses_smooth_dir,
+            dev                = dev,
+        )
+
     print(f"\n{'='*60}")
     print(f"  Done!")
     print(f"  Aligned hand + object: {world_aligned}")
     print(f"  Scaled mesh:           {mesh_scaled}")
     print(f"  Smoothed poses:        {poses_smooth_dir}/")
+    print(f"  Render (aligned):      {render_aligned}")
+    print(f"  Render (unaligned):    {render_unaligned}")
     print(f"{'='*60}\n")
 
 
