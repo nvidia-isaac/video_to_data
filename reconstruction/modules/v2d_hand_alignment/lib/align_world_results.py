@@ -1,0 +1,220 @@
+"""
+Align DynHaMR world_results.npz to monocular depth and attach object poses.
+
+Uses HandObjectAlignment.compute_offset per frame to find the camera-space
+depth shift needed, back-projects it to world units, and stores the result as
+a new 'trans_aligned' field alongside the original 'trans'.
+
+Optionally loads per-frame FoundationPose object transforms (Transform3d JSON)
+and stores them in both camera and world frame.
+
+Output schema: all original world_results fields plus:
+  trans_aligned    (B, T, 3)  depth-aligned translation, same world units as trans
+  object_pose_cam  (T, 4, 4)  object-to-camera SE(3) [present if --object_poses_dir]
+  object_pose_world (T, 4, 4) object-to-world SE(3)  [present if --object_poses_dir]
+
+Usage:
+    python -m v2d.hand_alignment.lib.align_world_results \\
+        --input_hand_data   data/.../world_results.npz \\
+        --depth_dir         data/.../depth_moge \\
+        --depth_intrinsics  data/.../intrinsics_moge_stable.json \\
+        --mano_model_dir    data/weights/hand \\
+        --output_hand_data  data/.../world_results_aligned.npz \\
+        --object_masks_dir  data/.../masks/1 \\
+        --object_poses_dir  data/.../poses_moge_smoothed \\
+        --smooth_sigma      5.0
+"""
+
+from __future__ import annotations
+
+import argparse
+import glob
+import os
+
+import numpy as np
+from scipy.ndimage import gaussian_filter1d
+
+from v2d.common.datatypes import Transform3d
+from v2d.hand_alignment.lib.hand_object_alignment import HandObjectAlignment
+
+
+def align_world_results(
+    input_hand_data: str,
+    depth_dir: str,
+    depth_intrinsics_path: str,
+    mano_model_dir: str,
+    output_hand_data: str,
+    object_masks_dir: str | None = None,
+    object_poses_dir: str | None = None,
+    smooth_sigma: float = 5.0,
+) -> None:
+    wr = np.load(input_hand_data, allow_pickle=True)
+
+    trans       = wr['trans'].astype(np.float64)          # (B, T, 3)
+    cam_R       = wr['cam_R'].astype(np.float64)          # (B, T, 3, 3)
+    cam_t       = wr['cam_t'].astype(np.float64)          # (B, T, 3)
+    is_right    = wr['is_right']                           # (B, T)
+    world_scale = float(wr['world_scale'].flat[0]) if 'world_scale' in wr else 1.0
+
+    B, T = trans.shape[:2]
+    is_right_track = is_right.mean(axis=1) > 0.5          # (B,) — per-track majority vote
+
+    print(f"world_scale: {world_scale:.4f}  hands: {B}  frames: {T}")
+
+    # ------------------------------------------------------------------
+    # Build alignment helper (pre-computes MANO FK for all frames)
+    # ------------------------------------------------------------------
+    alignment = HandObjectAlignment(
+        pose_data_path        = input_hand_data,
+        depth_folder          = depth_dir,
+        depth_intrinsics_path = depth_intrinsics_path,
+        mano_assets_root      = mano_model_dir,
+        occlusion_mask_folder = object_masks_dir,
+    )
+
+    # ------------------------------------------------------------------
+    # Per-hand per-frame depth offset → trans_aligned
+    # ------------------------------------------------------------------
+    # HandObjectAlignment._compute_hand does NOT apply world_scale, so
+    # compute_offset returns a delta in the same camera-space units as the
+    # rendered verts.  Rotating back with cam_R.T gives a world-space delta
+    # in those same units, which can be added directly to trans.
+    print("\nComputing per-frame depth offsets...")
+    trans_aligned = trans.copy()
+    offsets = np.full((B, T), np.nan)
+
+    for h in range(B):
+        side = 1 if is_right_track[h] else 0
+        for f in range(T):
+            try:
+                delta_cam   = alignment.compute_offset(side, f)          # (3,) camera space
+                delta_world = cam_R[h, f].T @ delta_cam                  # (3,) world space
+                trans_aligned[h, f] += delta_world
+                offsets[h, f] = delta_cam[2]
+            except Exception as e:
+                print(f"  hand {h} frame {f}: offset failed ({e})")
+
+            if f % 100 == 0:
+                n_valid = int(np.sum(np.isfinite(offsets[h, :f+1])))
+                print(f"  hand {h} frame {f:4d}  valid so far: {n_valid}")
+
+    for h in range(B):
+        side = 'right' if is_right_track[h] else 'left'
+        n_valid = int(np.sum(np.isfinite(offsets[h])))
+        med = float(np.nanmedian(offsets[h])) if n_valid > 0 else float('nan')
+        print(f"  hand {h} ({side}): {n_valid}/{T} valid  median dz={med:.4f}")
+
+    # ------------------------------------------------------------------
+    # Optional temporal smoothing of trans_aligned
+    # ------------------------------------------------------------------
+    if smooth_sigma > 0.0:
+        print(f"\nSmoothing trans_aligned with sigma={smooth_sigma} frames...")
+        frames = np.arange(T)
+        for h in range(B):
+            valid = np.isfinite(offsets[h])
+            if valid.sum() < 2:
+                print(f"  hand {h}: too few valid frames, skipping smoothing")
+                continue
+            filled = trans_aligned[h].copy()
+            for dim in range(3):
+                filled[:, dim] = np.interp(frames, frames[valid], trans_aligned[h, valid, dim])
+            smoothed = np.stack([
+                gaussian_filter1d(filled[:, dim], sigma=smooth_sigma) for dim in range(3)
+            ], axis=-1)
+            shift = np.linalg.norm(smoothed[valid] - trans_aligned[h, valid], axis=-1)
+            print(f"  hand {h}: max_shift={shift.max():.4f}  mean_shift={shift.mean():.4f}")
+            trans_aligned[h] = smoothed
+
+    # ------------------------------------------------------------------
+    # Object poses in camera and world frame
+    # ------------------------------------------------------------------
+    out = {k: wr[k] for k in wr.files}
+    out['trans_aligned'] = trans_aligned.astype(np.float32)
+
+    if object_poses_dir is not None:
+        pose_files = sorted(glob.glob(os.path.join(object_poses_dir, '*.json')))
+        if not pose_files:
+            print(f"Warning: no JSON files found in {object_poses_dir}")
+        else:
+            print(f"\nLoading {len(pose_files)} object poses from {object_poses_dir}...")
+            T_cam_all   = []
+            T_world_all = []
+            for f in range(T):
+                path = os.path.join(object_poses_dir, f"{f:06d}.json")
+                if not os.path.exists(path):
+                    T_cam_all.append(np.eye(4))
+                    T_world_all.append(np.eye(4))
+                    continue
+
+                T_cam = Transform3d.load(path).to_matrix()   # (4, 4) object→camera
+
+                # cam→world from hand 0's extrinsics (same camera for all hands)
+                R = cam_R[0, f]
+                t = cam_t[0, f]
+                cam_to_world       = np.eye(4)
+                cam_to_world[:3, :3] = R.T
+                cam_to_world[:3, 3]  = -(R.T @ t)
+
+                T_world = cam_to_world @ T_cam               # (4, 4) object→world
+
+                T_cam_all.append(T_cam)
+                T_world_all.append(T_world)
+
+            out['object_pose_cam']   = np.stack(T_cam_all).astype(np.float32)    # (T, 4, 4)
+            out['object_pose_world'] = np.stack(T_world_all).astype(np.float32)  # (T, 4, 4)
+            print(f"  Added object_pose_cam and object_pose_world  shape: {out['object_pose_cam'].shape}")
+
+    # ------------------------------------------------------------------
+    # Save
+    # ------------------------------------------------------------------
+    os.makedirs(os.path.dirname(os.path.abspath(output_hand_data)), exist_ok=True)
+    np.savez_compressed(output_hand_data, **out)
+    print(f"\nSaved → {output_hand_data}")
+    print(f"  trans_aligned: depth-aligned world units"
+          + (f", smoothed (sigma={smooth_sigma})" if smooth_sigma > 0 else ""))
+    if 'object_pose_cam' in out:
+        print(f"  object_pose_cam / object_pose_world: {out['object_pose_cam'].shape}")
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description='Align DynHaMR world_results.npz to monocular depth.'
+    )
+    parser.add_argument('--input_hand_data',  required=True,
+                        help='DynHaMR world_results.npz')
+    parser.add_argument('--depth_dir',        required=True,
+                        help='Folder of depth PNGs (000000.png, …)')
+    parser.add_argument('--depth_intrinsics', required=True,
+                        help='Depth intrinsics JSON {fx,fy,cx,cy,width,height}')
+    parser.add_argument('--mano_model_dir',   required=True,
+                        help='Dir containing MANO_RIGHT.pkl (or models/ subdir)')
+    parser.add_argument('--output_hand_data', required=True,
+                        help='Output path for world_results_aligned.npz')
+    parser.add_argument('--object_masks_dir', default=None,
+                        help='Per-frame object mask PNGs (SAM2); excluded from depth comparison')
+    parser.add_argument('--object_poses_dir', default=None,
+                        help='Per-frame FoundationPose Transform3d JSON files; '
+                             'written to output as object_pose_cam / object_pose_world')
+    parser.add_argument('--smooth_sigma',     type=float, default=5.0,
+                        help='Gaussian sigma (frames) for smoothing trans_aligned. '
+                             '0 = disable. (default: 5.0)')
+    args = parser.parse_args()
+
+    align_world_results(
+        input_hand_data       = args.input_hand_data,
+        depth_dir             = args.depth_dir,
+        depth_intrinsics_path = args.depth_intrinsics,
+        mano_model_dir        = args.mano_model_dir,
+        output_hand_data      = args.output_hand_data,
+        object_masks_dir      = args.object_masks_dir,
+        object_poses_dir      = args.object_poses_dir,
+        smooth_sigma          = args.smooth_sigma,
+    )
+
+
+if __name__ == '__main__':
+    main()

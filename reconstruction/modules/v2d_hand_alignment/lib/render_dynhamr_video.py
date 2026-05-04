@@ -56,7 +56,8 @@ def render_dynhamr_video(
 
     root_orient = wr['root_orient'].astype(np.float32)   # (B, T, 3)
     pose_body   = wr['pose_body'].astype(np.float32)     # (B, T, 15, 3)
-    trans       = wr['trans'].astype(np.float32)         # (B, T, 3)
+    trans_key   = 'trans_aligned' if 'trans_aligned' in wr else 'trans'
+    trans       = wr[trans_key].astype(np.float32)       # (B, T, 3)
     betas       = wr['betas'].astype(np.float32)         # (B, 10)
     cam_R       = wr['cam_R'].astype(np.float64)         # (B, T, 3, 3)
     cam_t       = wr['cam_t'].astype(np.float64)         # (B, T, 3)
@@ -74,6 +75,7 @@ def render_dynhamr_video(
         use_pca=False,
         side="right",
         center_idx=None,
+        flat_hand_mean=True,    # DynHaMR pose_body is full axis-angle; don't add hands_mean
         mano_assets_root=mano_assets_root,
     )
     faces_right = mano_layer.th_faces.numpy()           # (F, 3)
