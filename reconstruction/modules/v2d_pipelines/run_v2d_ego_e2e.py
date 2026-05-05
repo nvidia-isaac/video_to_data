@@ -573,6 +573,7 @@ def run_v2d_ego_e2e(
             use_trans_aligned  = True,
             object_mesh_path   = mesh_scaled,
             object_poses_dir   = poses_smooth_dir,
+            intrinsics_path    = active_intrinsics,
             dev                = dev,
         )
 
@@ -588,6 +589,7 @@ def run_v2d_ego_e2e(
             use_trans_aligned  = False,
             object_mesh_path   = mesh_scaled,
             object_poses_dir   = poses_smooth_dir,
+            intrinsics_path    = active_intrinsics,
             dev                = dev,
         )
 
