@@ -81,10 +81,19 @@ References still in:
 - `src/video_ingestion_agent/benchmark/wandb_logger.py:34` —
   `entity: str = "nvidia-isaac"` (default W&B entity).
 
-### 5. Dockerfile base image is internal-only — **DEFERRED**
+### 5. Dockerfile base image is internal-only — **DONE**
 
-Maintainer choice: defer with #3 / #4. `Dockerfile:27` —
-`ARG BASE_IMAGE=nvcr.io/nvstaging/isaac-amr/cosmos_reason_2`.
+`Dockerfile` now defaults to the public lean CUDA + cuDNN devel image
+(`nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04`), mirroring the upstream
+`nvidia-cosmos/cosmos-reason2` Dockerfile. Python, uv, vLLM, and the
+pipeline are installed in a single `uv pip install -e ".[server,benchmark,webapp]"`
+step; no pre-baked-package conflicts to work around. Verified end-to-end
+inside the container (vLLM startup → ingestion → retrieval, ~2 min 25 s on
+an RTX 5880 Ada with weights cached). The `BASE_IMAGE` and `CUDA_VERSION`
+build args are preserved for downstream overrides. `docs/pages/deployment.rst`
+updated to match. The local backend (`cosmos_model.py`, `LocalModelWrapper`)
+is independent of the image and continues to work for users who install
+with the `[local]` extra.
 
 ### 6. OSMO workflows are internal-only — **DEFERRED**
 
@@ -211,7 +220,7 @@ not part of the blocker pass.
 | 2 | Public docs URL | **Decided:** subfolder URL on GitHub for now (`.../tree/main/video_ingestion_agent`); separate Sphinx hosting deferred. |
 | 3 | Maintainer identity | **Partial:** name = "NVIDIA Isaac Team"; email TBD. |
 | 4 | OSMO + NGC-internal content | **Deferred** — maintainer keeping until system integration is verified. |
-| 5 | Dockerfile base image | **Deferred** — same group as #4. |
+| 5 | Dockerfile base image | **Done** — switched to public lean `nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04` (mirrors upstream cosmos-reason2). |
 | 6 | W&B defaults | **Deferred** — same group as #4. |
 
 ---

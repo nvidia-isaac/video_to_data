@@ -74,22 +74,24 @@ Recommend [`uv`](https://docs.astral.sh/uv/) for environment management:
 git clone https://github.com/nvidia-isaac/video_to_data.git
 cd video_to_data/video_ingestion_agent
 
-uv venv .venv
+# Recommended: lock-aware sync — same versions as the Dockerfile and CI.
+uv sync --all-extras
 source .venv/bin/activate
-
-# Recommended: one-shot install of everything (vLLM, webapp, benchmark, dev tools)
-uv pip install -e ".[all]"
 ```
+
+`uv sync` reads `uv.lock` and creates `.venv` with the integration-tested
+versions (vLLM, torch, transformers, ...). Pass `--frozen` to make it fail
+loudly if `pyproject.toml` has drifted from the lock.
 
 For tighter environments, mix and match the per-feature extras:
 
 ```bash
-uv pip install -e .                     # core only (no GPU, no UI)
-uv pip install -e ".[server]"           # vLLM (production inference backend)
-uv pip install -e ".[local]"            # in-process HuggingFace inference
-uv pip install -e ".[webapp]"           # Gradio UI
-uv pip install -e ".[benchmark]"        # EPIC-KITCHENS evaluation
-uv pip install -e ".[dev]"              # tests, ruff, mypy
+uv sync                                 # core only (no GPU, no UI)
+uv sync --extra server                  # vLLM (production inference backend)
+uv sync --extra local                   # in-process HuggingFace inference
+uv sync --extra webapp                  # Gradio UI
+uv sync --extra benchmark               # EPIC-KITCHENS evaluation
+uv sync --extra dev                     # tests, ruff, mypy
 ```
 
 ## Quickstart

@@ -7,25 +7,34 @@ cluster.
 Docker
 ------
 
-The Dockerfile builds on a customized ``cosmos_reason_2`` base image, which includes
-PyTorch and CUDA pre-installed. vLLM and pipeline dependencies are installed on top.
+The Dockerfile builds on the public ``nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04``
+image, which ships CUDA + cuDNN. Python, uv, vLLM, and the pipeline dependencies
+are installed on top via ``uv sync --frozen``, which reads the committed
+``uv.lock`` so the container ends up with the exact versions in the host
+``.venv`` (vLLM, torch, transformers, ...). The base layout mirrors the
+upstream ``nvidia-cosmos/cosmos-reason2`` Dockerfile.
 
 Build
 ^^^^^
 
 .. code-block:: bash
 
-   docker build -t nvcr.io/nvstaging/isaac-amr/video_ingestion_agent:latest .
+   docker build -t video_ingestion_agent:latest .
 
-The base image defaults to ``nvcr.io/nvstaging/isaac-amr/cosmos_reason_2`` and can be
-overridden with ``--build-arg BASE_IMAGE=<image>``.
+The base image defaults to ``nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04`` and
+can be overridden with ``--build-arg BASE_IMAGE=<image>`` (or
+``--build-arg CUDA_VERSION=<x.y.z>`` to switch CUDA versions while keeping
+the same naming pattern).
 
 Push
 ^^^^
 
+Tag and push to whatever registry your environment uses:
+
 .. code-block:: bash
 
-   docker push nvcr.io/nvstaging/isaac-amr/video_ingestion_agent:latest
+   docker tag video_ingestion_agent:latest <your-registry>/video_ingestion_agent:latest
+   docker push <your-registry>/video_ingestion_agent:latest
 
 .. note::
 
@@ -44,7 +53,7 @@ Run Locally with Docker
      -v /path/to/videos:/data/videos \
      -v /path/to/outputs:/outputs \
      -p 8000:8000 -p 7860:7860 \
-     nvcr.io/nvstaging/isaac-amr/video_ingestion_agent:latest \
+     video_ingestion_agent:latest \
      bash -c "python scripts/serve.py -c configs/ingestion.yaml && python scripts/run_webapp.py"
 
 OSMO Cluster
