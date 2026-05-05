@@ -28,7 +28,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -167,9 +167,7 @@ class Hot3dGT:
             "hand_breakdown": {
                 "right_only": sum(1 for s in self.segments if s.hands_involved == ["right"]),
                 "left_only": sum(1 for s in self.segments if s.hands_involved == ["left"]),
-                "both": sum(
-                    1 for s in self.segments if set(s.hands_involved) == {"right", "left"}
-                ),
+                "both": sum(1 for s in self.segments if set(s.hands_involved) == {"right", "left"}),
             },
         }
 

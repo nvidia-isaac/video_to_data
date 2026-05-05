@@ -13,8 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-default_language_version:
-  python: python3.10
 exclude: (?x)(
     ^outputs/|
     ^data/

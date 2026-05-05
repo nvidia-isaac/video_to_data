@@ -25,14 +25,12 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
 from video_ingestion_agent.benchmark.evaluate import (
-    PredSegment,
-    compute_iou_matrix,
     temporal_iou,
 )
 from video_ingestion_agent.benchmark.load_hot3d import Hot3dGT, HotGTSegment
@@ -135,9 +133,7 @@ def _ap_at_tiou(
     fp = np.zeros(len(preds))
     for k, i in enumerate(sorted_idx):
         candidate_gts = [
-            j
-            for j in range(len(gts))
-            if j not in matched_gt and iou[i, j] >= tiou_threshold
+            j for j in range(len(gts)) if j not in matched_gt and iou[i, j] >= tiou_threshold
         ]
         if not candidate_gts:
             fp[k] = 1
@@ -247,9 +243,7 @@ def object_accuracy(
     try:
         from sentence_transformers import SentenceTransformer
     except ImportError:
-        logger.warning(
-            "sentence-transformers not available; skipping object-similarity metric."
-        )
+        logger.warning("sentence-transformers not available; skipping object-similarity metric.")
         return {"object_similarity_mean": 0.0, "object_matches": 0}
 
     model = SentenceTransformer(model_name)
@@ -267,8 +261,7 @@ def object_accuracy(
         matched_gt: set[int] = set()
         for i in sorted(range(len(preds)), key=lambda x: -preds[x].score):
             cands = [
-                j for j in range(len(gts))
-                if j not in matched_gt and iou[i, j] >= tiou_threshold
+                j for j in range(len(gts)) if j not in matched_gt and iou[i, j] >= tiou_threshold
             ]
             if not cands:
                 continue
@@ -348,7 +341,9 @@ def main() -> None:
 
     print("\n=== Loaded ===", flush=True)
     print(f"  GT  : {sum(len(v) for v in gts_by_video.values())} segs / {len(gts_by_video)} videos")
-    print(f"  Pred: {sum(len(v) for v in preds_by_video.values())} segs / {len(preds_by_video)} videos")
+    print(
+        f"  Pred: {sum(len(v) for v in preds_by_video.values())} segs / {len(preds_by_video)} videos"
+    )
 
     results: dict[str, dict] = {
         "metadata": {
@@ -360,12 +355,8 @@ def main() -> None:
             "n_pred_segments": sum(len(v) for v in preds_by_video.values()),
             "tiou_thresholds": args.tiou_thresholds,
         },
-        "temporal": compute_map_at_tiou(
-            preds_by_video, gts_by_video, args.tiou_thresholds
-        ),
-        "boundary": boundary_metrics(
-            preds_by_video, gts_by_video, tol_s=args.boundary_tol_s
-        ),
+        "temporal": compute_map_at_tiou(preds_by_video, gts_by_video, args.tiou_thresholds),
+        "boundary": boundary_metrics(preds_by_video, gts_by_video, tol_s=args.boundary_tol_s),
     }
     if not args.no_object_similarity:
         results["object"] = object_accuracy(

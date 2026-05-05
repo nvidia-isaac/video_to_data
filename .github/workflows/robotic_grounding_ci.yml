@@ -10,8 +10,15 @@ name: Robotic Grounding CI
 on:
   push:
     branches: [main]
+    paths:
+      - 'robotic_grounding/**'
+      - '.github/workflows/robotic_grounding_ci.yml'
   pull_request:
     branches: [main]
+    paths:
+      - 'robotic_grounding/**'
+      - '.github/workflows/robotic_grounding_ci.yml'
+  workflow_dispatch:
 
 # Cancel in-progress runs for the same PR
 concurrency:

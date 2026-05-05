@@ -117,11 +117,14 @@ def main() -> None:
         cmd = [
             sys.executable,
             str(_PROJECT_ROOT / "scripts" / "run_benchmark.py"),
-            "-c", str(args.config),
-            "--output-dir", str(benchmark_dir),
+            "-c",
+            str(args.config),
+            "--output-dir",
+            str(benchmark_dir),
             "--ingest-only",
             "--resume",
-            "--num-gpus", str(args.num_gpus),
+            "--num-gpus",
+            str(args.num_gpus),
         ]
         if args.video_ids:
             cmd.extend(["--video-ids", *args.video_ids])
@@ -139,11 +142,17 @@ def main() -> None:
 
     # ---------- Evaluate ----------
     eval_cmd = [
-        sys.executable, "-m", "video_ingestion_agent.benchmark.evaluate_hot3d",
-        "--predictions", str(predictions_path),
-        "--ground-truth", str(args.ground_truth),
-        "--output", str(benchmark_dir / "eval_results.json"),
-        "--tiou-thresholds", *[str(t) for t in args.tiou_thresholds],
+        sys.executable,
+        "-m",
+        "video_ingestion_agent.benchmark.evaluate_hot3d",
+        "--predictions",
+        str(predictions_path),
+        "--ground-truth",
+        str(args.ground_truth),
+        "--output",
+        str(benchmark_dir / "eval_results.json"),
+        "--tiou-thresholds",
+        *[str(t) for t in args.tiou_thresholds],
     ]
     if args.video_ids:
         eval_cmd.extend(["--video-filter", *args.video_ids])
