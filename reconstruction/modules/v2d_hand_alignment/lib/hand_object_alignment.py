@@ -201,6 +201,42 @@ class HandObjectAlignment:
                          y / z * z_p - y,
                          dz], dtype=np.float64)
 
+    def _reproject(self, v: np.ndarray, src_intrinsics, target_intrinsics) -> np.ndarray:
+        """Reproject camera-space point(s) from src to target intrinsics (z unchanged)."""
+        fx,   fy,   cx,   cy   = src_intrinsics
+        fx_p, fy_p, cx_p, cy_p = target_intrinsics
+        x, y, z = v[..., 0], v[..., 1], v[..., 2]
+        x_p = (z / fx_p) * (x / z * fx + cx - cx_p)
+        y_p = (z / fy_p) * (y / z * fy + cy - cy_p)
+        return np.stack([x_p, y_p, np.broadcast_to(z, x_p.shape)], axis=-1)
+
+    def compute_offset_reprojected(self, side: int, t: int) -> np.ndarray:
+        """Camera-space [dx, dy, dz] accounting for DynHaMR vs depth intrinsics.
+
+        compute_offset renders with DynHaMR intrinsics, but the target depth image
+        was produced with different intrinsics (MoGe / ViPE).  This method applies
+        the raw depth offset to the hand centroid, then reprojects from DynHaMR
+        pixel space into depth pixel space so the x/y shift is expressed in the
+        depth image's coordinate system.
+
+        Returns:
+            offset (3,) float64 in depth-intrinsics camera space.
+        """
+        offset = self.compute_offset(side, t)          # (3,) under DynHaMR intrinsics
+
+        verts   = self.right_verts_cam if side == 1 else self.left_verts_cam
+        centroid = verts[t].numpy().mean(axis=0)        # (3,) original cam-space centroid
+
+        shifted  = centroid + offset                    # centroid after depth shift
+
+        reproj = self._reproject(
+            shifted.reshape(1, 3),
+            self.pose_data['intrins'],
+            self.get_depth_intrinsics(),
+        ).reshape(3)
+
+        return (reproj - centroid).astype(np.float64)
+
     def compute_scale(self, side: int, t: int) -> float:
         """Depth scale factor: median(depth_image / rendered_depth) over hand pixels."""
         mesh         = self.get_mesh(side, t)

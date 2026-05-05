@@ -98,6 +98,7 @@ def render_dynhamr_video(
     use_trans_aligned: bool = True,
     object_mesh_path: str | None = None,
     object_poses_dir: str | None = None,
+    intrinsics_path: str | None = None,
 ) -> None:
     wr = np.load(world_results_path, allow_pickle=True)
 
@@ -107,7 +108,17 @@ def render_dynhamr_video(
     cam_R       = wr['cam_R'].astype(np.float64)         # (B, T, 3, 3)
     cam_t       = wr['cam_t'].astype(np.float64)         # (B, T, 3)
     is_right    = wr['is_right']                         # (B, T)
-    fx, fy, cx, cy = [float(x) for x in wr['intrins']]
+
+    if intrinsics_path is not None:
+        with open(intrinsics_path) as f:
+            intr = json.load(f)
+        fx, fy, cx, cy = intr['fx'], intr['fy'], intr['cx'], intr['cy']
+        print(f"  Using intrinsics override (file): fx={fx:.1f} fy={fy:.1f} cx={cx:.1f} cy={cy:.1f}")
+    elif 'intrins_aligned' in wr:
+        fx, fy, cx, cy = [float(x) for x in wr['intrins_aligned']]
+        print(f"  Using intrins_aligned: fx={fx:.1f} fy={fy:.1f} cx={cx:.1f} cy={cy:.1f}")
+    else:
+        fx, fy, cx, cy = [float(x) for x in wr['intrins']]
 
     if use_trans_aligned and 'trans_aligned' in wr:
         trans       = wr['trans_aligned'].astype(np.float32)
@@ -319,6 +330,8 @@ def main() -> None:
                         action='store_false')
     parser.add_argument('--object_mesh_path',  default=None)
     parser.add_argument('--object_poses_dir',  default=None)
+    parser.add_argument('--intrinsics_path',   default=None,
+                        help='Optional JSON {fx,fy,cx,cy} to override world_results intrinsics.')
     args = parser.parse_args()
 
     render_dynhamr_video(
@@ -332,6 +345,7 @@ def main() -> None:
         use_trans_aligned  = args.use_trans_aligned,
         object_mesh_path   = args.object_mesh_path,
         object_poses_dir   = args.object_poses_dir,
+        intrinsics_path    = args.intrinsics_path,
     )
 
 

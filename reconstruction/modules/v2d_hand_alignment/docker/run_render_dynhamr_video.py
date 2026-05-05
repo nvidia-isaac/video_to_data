@@ -13,6 +13,7 @@ def run_render_dynhamr_video(
     use_trans_aligned: bool = True,
     object_mesh_path: str | None = None,
     object_poses_dir: str | None = None,
+    intrinsics_path: str | None = None,
     dev: bool = False,
 ) -> None:
     extra: dict = {"fps": fps, "start": start, "end": end}
@@ -27,6 +28,8 @@ def run_render_dynhamr_video(
         inputs["object_mesh_path"] = object_mesh_path
     if object_poses_dir is not None:
         inputs["object_poses_dir"] = object_poses_dir
+    if intrinsics_path is not None:
+        inputs["intrinsics_path"] = intrinsics_path
     run_in_container(
         image=IMAGE_NAME,
         module="v2d.hand_alignment.lib.render_dynhamr_video",
@@ -56,6 +59,7 @@ if __name__ == "__main__":
                         action="store_false")
     parser.add_argument("--object_mesh_path",  default=None)
     parser.add_argument("--object_poses_dir",  default=None)
+    parser.add_argument("--intrinsics_path",   default=None)
     parser.add_argument("--dev",   action="store_true")
     args = parser.parse_args()
     run_render_dynhamr_video(
@@ -69,5 +73,6 @@ if __name__ == "__main__":
         use_trans_aligned  = args.use_trans_aligned,
         object_mesh_path   = args.object_mesh_path,
         object_poses_dir   = args.object_poses_dir,
+        intrinsics_path    = args.intrinsics_path,
         dev                = args.dev,
     )

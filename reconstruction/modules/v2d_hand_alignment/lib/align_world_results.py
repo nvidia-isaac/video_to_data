@@ -9,9 +9,10 @@ Optionally loads per-frame FoundationPose object transforms (Transform3d JSON)
 and stores them in both camera and world frame.
 
 Output schema: all original world_results fields plus:
-  trans_aligned    (B, T, 3)  depth-aligned translation, same world units as trans
-  object_pose_cam  (T, 4, 4)  object-to-camera SE(3) [present if --object_poses_dir]
-  object_pose_world (T, 4, 4) object-to-world SE(3)  [present if --object_poses_dir]
+  trans_aligned     (B, T, 3)  depth-aligned translation, same world units as trans
+  intrins_aligned   (4,)       [fx,fy,cx,cy] of the depth image used for alignment
+  object_pose_cam   (T, 4, 4)  object-to-camera SE(3) [present if --object_poses_dir]
+  object_pose_world (T, 4, 4)  object-to-world SE(3)  [present if --object_poses_dir]
 
 Usage:
     python -m v2d.hand_alignment.lib.align_world_results \\
@@ -80,7 +81,7 @@ def align_world_results(
     # compute_offset returns a delta in the same camera-space units as the
     # rendered verts.  Rotating back with cam_R.T gives a world-space delta
     # in those same units, which can be added directly to trans.
-    print("\nComputing per-frame depth offsets...")
+    print("\nComputing per-frame depth offsets (reprojected)...")
     trans_aligned = trans.copy()
     offsets = np.full((B, T), np.nan)
 
@@ -89,7 +90,7 @@ def align_world_results(
         for f in tqdm(range(T), desc=f"  hand {h} ({'right' if is_right_track[h] else 'left'})",
                       unit="frame", ncols=80):
             try:
-                delta_cam   = alignment.compute_offset(side, f)
+                delta_cam   = alignment.compute_offset_reprojected(side, f)
                 delta_world = cam_R[h, f].T @ delta_cam
                 trans_aligned[h, f] += delta_world
                 offsets[h, f] = delta_cam[2]
@@ -128,6 +129,10 @@ def align_world_results(
     # ------------------------------------------------------------------
     out = {k: wr[k] for k in wr.files}
     out['trans_aligned'] = trans_aligned.astype(np.float32)
+
+    # Store the depth intrinsics used for alignment so renderers can use them
+    depth_intr = alignment.get_depth_intrinsics()   # [fx, fy, cx, cy]
+    out['intrins_aligned'] = depth_intr.astype(np.float64)
 
     if object_poses_dir is not None:
         pose_files = sorted(glob.glob(os.path.join(object_poses_dir, '*.json')))
