@@ -37,11 +37,14 @@ from tqdm import tqdm
 
 
 HAND_COLORS = [
-    (100, 180, 255, 200),   # hand 0 — blue
-    (255, 160,  80, 200),   # hand 1 — orange
+    ( 60, 160, 255, 255),   # hand 0 — vivid blue
+    (255, 120,  30, 255),   # hand 1 — vivid orange
 ]
-OBJ_COLOR_CAM   = (80, 220,  80, 160)   # semi-transparent green (camera overlay)
-OBJ_COLOR_WORLD = (80, 200,  80, 220)   # slightly more opaque (world views)
+OBJ_COLOR_CAM   = ( 40, 230,  40, 255)  # vivid green
+OBJ_COLOR_WORLD = ( 40, 210,  40, 255)  # vivid green
+
+# Camera panel: background dimming factor where mesh is rendered (0=black, 1=full bright)
+_BG_DARKEN = 0.45
 
 _CV_TO_GL = np.array([1.0, -1.0, -1.0])
 
@@ -246,9 +249,13 @@ def render_dynhamr_video(
                 tm_o.visual.face_colors = np.array(OBJ_COLOR_CAM, dtype=np.uint8)
                 scene0.add(pyrender.Mesh.from_trimesh(tm_o, smooth=False))
             rgba0, _ = renderer.render(scene0, flags=pyrender.RenderFlags.RGBA)
-            overlay  = Image.fromarray(rgba0, 'RGBA')
-            bg       = Image.open(frame_files[f]).convert('RGBA').resize((pw, ph))
-            panels.append(Image.alpha_composite(bg, overlay).convert('RGB'))
+            bg_rgb  = np.array(Image.open(frame_files[f]).convert('RGB').resize((pw, ph)),
+                               dtype=np.float32)
+            ov      = np.array(Image.fromarray(rgba0, 'RGBA'), dtype=np.float32)
+            mask    = ov[:, :, 3:4] / 255.0                     # coverage [0,1]
+            bg_out  = bg_rgb * (1.0 - mask * (1.0 - _BG_DARKEN))  # dim bg where mesh is
+            result  = (mask * ov[:, :, :3] + (1.0 - mask) * bg_out).clip(0, 255).astype(np.uint8)
+            panels.append(Image.fromarray(result))
 
             # ---- Panels 1-3: world-space views (gray background) ----
             for world_pose in world_cam_poses:

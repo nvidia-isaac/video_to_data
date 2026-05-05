@@ -131,6 +131,9 @@ def parse_args() -> argparse.Namespace:
                    help="Frame used for DINO detection, SAM3D, and FP registration (default: 0).")
     p.add_argument("--smooth_sigma",    type=float, default=5.0,
                    help="Gaussian sigma (frames) for hand translation smoothing (default: 5.0).")
+    p.add_argument("--reregister_iou_thresh", type=float, default=0.3,
+                   help="IoU threshold below which FoundationPose re-registers from scratch. "
+                        "Set to 0 to disable. (default: 0.3)")
     p.add_argument("--dev", action="store_true",
                    help="Mount local module source into containers (live-edit mode).")
     return p.parse_args()
@@ -224,9 +227,11 @@ def _convert_dynhamr_depth(
     import tempfile as _tempfile
     from PIL import Image as _Image
 
-    zip_path = os.path.join(hand_recon_dir, "depth", "video.zip")
-    if not os.path.exists(zip_path):
-        raise FileNotFoundError(f"DynHaMR depth zip not found: {zip_path}")
+    depth_subdir = os.path.join(hand_recon_dir, "depth")
+    zip_files = glob.glob(os.path.join(depth_subdir, "*.zip"))
+    if not zip_files:
+        raise FileNotFoundError(f"No depth zip found in {depth_subdir}")
+    zip_path = zip_files[0]
 
     os.makedirs(out_dir, exist_ok=True)
     pixel_type = Imath.PixelType(Imath.PixelType.FLOAT)
@@ -288,6 +293,7 @@ def run_v2d_ego_e2e(
     depth_source: str = "moge",
     reference_frame: int = 0,
     smooth_sigma: float = 5.0,
+    reregister_iou_thresh: float | None = 0.3,
     dev: bool = False,
 ) -> None:
     if depth_source not in ("moge", "vipe"):
@@ -500,6 +506,7 @@ def run_v2d_ego_e2e(
             weights_dir            = foundation_pose_weights,
             reference_frame        = reference_frame,
             mask_depth             = True,
+            reregister_iou_thresh  = reregister_iou_thresh if reregister_iou_thresh else None,
             dev                    = dev,
         )
 
@@ -614,5 +621,6 @@ if __name__ == "__main__":
         depth_source                = args.depth_source,
         reference_frame             = args.reference_frame,
         smooth_sigma                = args.smooth_sigma,
+        reregister_iou_thresh       = args.reregister_iou_thresh,
         dev                         = args.dev,
     )
