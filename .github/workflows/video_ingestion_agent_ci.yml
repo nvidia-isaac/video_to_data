@@ -80,6 +80,16 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Install ffmpeg
+        # ffmpeg is a runtime dependency of the package (see README) and a
+        # handful of tests under `tests/test_common_utils.py` create synthetic
+        # videos via `ffmpeg -f lavfi`. Without it those tests raise
+        # `FileNotFoundError: [Errno 2] No such file or directory: 'ffmpeg'`.
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq --no-install-recommends ffmpeg
+          ffmpeg -version | head -n1
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
