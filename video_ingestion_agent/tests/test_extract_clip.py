@@ -6,6 +6,7 @@
 Specifically covers the LLM-mutation case where the analyzer rewrites
 a relative path (``data/foo.mp4``) as absolute (``/data/foo.mp4``).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -42,9 +43,7 @@ def test_get_video_path_strips_corrupted_leading_slash(fake_video):
 
 def test_get_video_path_falls_through_to_registry_when_path_invalid(fake_video):
     """If neither raw nor stripped path exists, video_id registry wins."""
-    tool = ExtractClipTool(
-        video_paths={42: fake_video}, output_dir="outputs/clips_test"
-    )
+    tool = ExtractClipTool(video_paths={42: fake_video}, output_dir="outputs/clips_test")
     bogus = "/no/such/path/movie.mp4"
     assert tool._get_video_path(video_id=42, video_path=bogus) == fake_video
 
