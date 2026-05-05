@@ -1,0 +1,91 @@
+# Ego E2E Pipeline — Setup Guide
+
+Setup for `modules/v2d_pipelines/run_v2d_ego_e2e.py`.
+All commands run from `reconstruction/`.
+
+## Prerequisites
+
+- Docker with NVIDIA Container Toolkit (`nvidia-smi` accessible inside containers)
+- Python 3.10+
+- `ffmpeg` on `PATH`
+
+## 1. Install host packages
+
+```bash
+pip install -e modules/v2d_pipelines
+./scripts/install_packages.sh
+```
+
+## 2. Build Docker images
+
+```bash
+# All containers used by the pipeline:
+python -m v2d.moge.docker.build
+python -m v2d.grounding_dino.docker.build
+python -m v2d.sam2.docker.build
+python -m v2d.sam3d.docker.build
+python -m v2d.foundation_pose.docker.build
+python modules/v2d_ego_hand_reconstruction/docker/build.py
+python modules/v2d_hand_alignment/docker/build.py
+```
+
+Or build everything at once:
+
+```bash
+./scripts/build_containers.sh
+```
+
+## 3. Download model weights
+
+```bash
+python -m v2d.moge.docker.run_download_weights           --output_dir data/weights/moge
+python -m v2d.grounding_dino.docker.run_download_weights --output_dir data/weights/grounding_dino
+python -m v2d.sam2.docker.run_download_weights           --output_dir data/weights/sam2
+python -m v2d.sam3d.docker.run_download_weights          --output_dir data/weights/sam3d
+python -m v2d.foundation_pose.docker.run_download_weights --output_dir data/weights/foundation_pose
+```
+
+**SAM3D requires a Hugging Face token** for gated model access. Either set `HF_TOKEN` in your
+environment or log in with `huggingface-cli login` beforehand.
+
+## 4. Prepare MANO weights (for DynHaMR + hand alignment)
+
+Download `MANO_RIGHT.pkl` from https://mano.is.tue.mpg.de/ and generate BMC data
+following https://github.com/MengHao666/Hand-BMC-pytorch (run up to `python calculate_bmc.py`).
+
+Place both in the weights directory:
+
+```
+data/weights/hand/
+├── MANO_RIGHT.pkl
+└── BMC/
+    └── *.npy
+```
+
+## 5. Run the pipeline
+
+```bash
+python modules/v2d_pipelines/run_v2d_ego_e2e.py \
+    --video_path  data/my_video.mp4 \
+    --prompt      "blue cup" \
+    --output_dir  data/outputs/my_video \
+    --depth_source moge
+```
+
+All weight paths default to `data/weights/<model>` relative to cwd so no extra flags are needed
+if you followed the layout above.
+
+### Key options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--depth_source` | `moge` | Depth for FP tracking: `moge` or `vipe` (DynHaMR) |
+| `--reference_frame` | `0` | Frame used for DINO, SAM3D, and FP registration |
+| `--reregister_iou_thresh` | `0.3` | IoU threshold for FP re-registration; `0` to disable |
+| `--smooth_sigma` | `5.0` | Gaussian sigma (frames) for hand translation smoothing |
+| `--dev` | off | Mount local module source into containers (live-edit) |
+
+### Resuming a partial run
+
+Every step checks whether its output already exists and skips if so. Simply re-run the same
+command to resume from where it stopped.
