@@ -18,16 +18,16 @@ import argparse
 import colorsys
 import random
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pyarrow.parquet as pq
 import trimesh
 from pxr import Gf, Usd, UsdGeom, UsdPhysics
+from robotic_grounding.motion_schema import load_motion_data_parquet
 from robotic_grounding.retarget import HUMAN_MOTION_DATA_DIR
 from robotic_grounding.retarget.data_logger import (
     ManoSharpaData,
-    NvhumanDex3Data,
-    NvhumanG1Data,
     add_sequence_filter_args,
     filter_sequence_ids,
     list_sequence_ids,
@@ -82,24 +82,33 @@ def _load_object_meshes_from_paths(
 
 
 def _detect_parquet_schema(input_dir: Path) -> str:
-    """Detect which data logger schema a parquet dataset uses."""
-    columns = set(pq.read_table(str(input_dir), use_pandas_metadata=False).schema.names)
-    if "robot_root_position" in columns:
-        return "nvhuman_g1"
-    if "robot_right_wrist_euler_xyz" in columns:
-        return "nvhuman_dex3"
+    """Detect which data logger schema a parquet dataset uses.
+
+    Returns one of:
+        ``motion_v1``     — unified whole-body / bimanual schema
+        ``mano_sharpa``   — legacy dual-hand V2P retarget schema
+    """
+    # Pick the first parquet file rather than the whole dataset to avoid the
+    # Hive partition auto-inference clash (string vs dictionary columns).
+    first = next(Path(input_dir).rglob("*.parquet"), None)
+    if first is None:
+        raise FileNotFoundError(f"No parquet files under {input_dir}")
+    columns = set(pq.ParquetFile(str(first)).schema.names)
+    if "schema_version" in columns:
+        return "motion_v1"
     return "mano_sharpa"
 
 
-def _load_parquet_data(
-    input_dir: Path, sequence_id: str, schema: str
-) -> ManoSharpaData | NvhumanDex3Data | NvhumanG1Data:
+def _load_parquet_data(input_dir: Path, sequence_id: str, schema: str) -> Any:
     """Load one sequence from Parquet using the appropriate data logger class."""
     filters = [("sequence_id", "=", sequence_id)]
-    if schema == "nvhuman_g1":
-        return NvhumanG1Data.from_parquet(str(input_dir), filters=filters)
-    if schema == "nvhuman_dex3":
-        return NvhumanDex3Data.from_parquet(str(input_dir), filters=filters)
+    if schema == "motion_v1":
+        partition_dir = Path(input_dir) / f"sequence_id={sequence_id}"
+        # motion_v1 files are partitioned by robot_name as well; take the first.
+        inner = next(partition_dir.glob("robot_name=*"), None)
+        if inner is None:
+            raise FileNotFoundError(f"No robot_name=* partition under {partition_dir}")
+        return load_motion_data_parquet(str(inner))
     return ManoSharpaData.from_parquet(str(input_dir), filters=filters)
 
 
@@ -107,9 +116,7 @@ def load_object_mesh_and_poses(
     input_dir: Path,
     sequence_id: str,
     schema: str | None = None,
-) -> tuple[
-    ManoSharpaData | NvhumanDex3Data | NvhumanG1Data, dict[str, trimesh.Trimesh]
-]:
+) -> tuple[Any, dict[str, trimesh.Trimesh]]:
     """Load one sequence from Parquet and its object meshes via object_mesh_paths.
 
     Returns:
@@ -197,7 +204,7 @@ def _frames_where_object_still(
 
 
 def still_frames_from_object_data(
-    data: ManoSharpaData | NvhumanDex3Data | NvhumanG1Data,
+    data: Any,
     body_index: int = 0,
     pos_threshold_m: float = 0.001,
     angle_threshold_rad: float = 0.01,
@@ -205,10 +212,16 @@ def still_frames_from_object_data(
     """Return frame indices where the given object body is still.
 
     Works with any schema that has ``object_body_position`` and
-    ``object_body_wxyz`` fields.
+    ``object_body_wxyz`` fields (either nested python lists or torch tensors).
     """
-    positions = np.array(data.object_body_position, dtype=np.float64)
-    quats = np.array(data.object_body_wxyz, dtype=np.float64)
+    obj_pos = data.object_body_position
+    obj_quat = data.object_body_wxyz
+    if hasattr(obj_pos, "cpu"):
+        obj_pos = obj_pos.cpu().numpy()
+    if hasattr(obj_quat, "cpu"):
+        obj_quat = obj_quat.cpu().numpy()
+    positions = np.array(obj_pos, dtype=np.float64)
+    quats = np.array(obj_quat, dtype=np.float64)
     positions = positions[:, body_index, :]
     quats = quats[:, body_index, :]
     return _frames_where_object_still(
@@ -428,7 +441,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--dataset",
-        choices=get_all_dataset_names() + ("nvhuman_g1",),
+        choices=get_all_dataset_names() + ("nvhuman_g1", "motion_v1"),
         default="oakink2",
         help="Dataset for default input_dir when --input_dir not set.",
     )
@@ -456,9 +469,7 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _compute_height_offset(
-    data: ManoSharpaData | NvhumanDex3Data | NvhumanG1Data, schema: str
-) -> float:
+def _compute_height_offset(data: Any, schema: str) -> float:
     """Compute the Z offset needed to align parquet data with the spawned scene.
 
     Object and support-surface positions from the retarget pipeline are
@@ -578,7 +589,7 @@ def main() -> None:
     args = _parse_args()
     if args.input_dir:
         input_dir = args.input_dir
-    elif args.dataset == "nvhuman_g1":
+    elif args.dataset in {"nvhuman_g1", "motion_v1"}:
         input_dir = DEFAULT_INPUT_DIR_G1
     else:
         config = get_dataset_config(args.dataset)

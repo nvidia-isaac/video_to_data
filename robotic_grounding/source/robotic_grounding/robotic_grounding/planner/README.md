@@ -66,51 +66,26 @@ V2P Retargeted Parquet (arctic_processed/)
 
 ## Output Parquet Schema
 
-The output parquet is Hive-partitioned by `sequence_id` and `robot_name`. It contains everything needed by `TrackingCommand` and `SceneConfig.from_motion_file()`.
+The planner writes the unified `motion_v1` schema (see
+[../motion_schema/README.md](../motion_schema/README.md) and
+[../motion_schema/motion_schema.md](../motion_schema/motion_schema.md)). Hive
+layout: `<output>/sequence_id=<seq>/robot_name=<robot>/data.parquet`.
 
-### Planner Body Motion
+The planner populates:
 
-| Column | Shape | Description |
-|--------|-------|-------------|
-| `qpos` | (T, 80) | Full qpos: root(7) + body(29) + left_fingers(22) + right_fingers(22) |
-| `joint_names` | list | Joint name ordering in qpos |
-| `qpos_layout` | JSON | Index ranges: root_pos, root_quat, body_joints, finger_joints |
-| `fps` | float | Output frame rate |
-| `ee_pos_w` | (T, 2, 3) | Planner EE target positions [left, right] |
-| `ee_quat_w` | (T, 2, 4) | Planner EE target orientations [left, right] |
-| `ee_link_names` | list | `["left_wrist_yaw_link", "right_wrist_yaw_link"]` |
+- Robot state (`robot_root_position`, `robot_root_wxyz`, `robot_joint_positions`,
+  `robot_joint_names`) decomposed from the planner's mujoco qpos.
+- `ee_link_names = ["left_wrist_yaw_link", "right_wrist_yaw_link"]` with
+  `ee_pose_w (T, 2, 7)` built from the reference wrist trajectories.
+- Object metadata + trajectory (`object_body_position`, `object_body_wxyz`,
+  `object_body_names`, `object_articulation`, mesh/URDF paths copied from the
+  upstream ManoSharpaData retarget file).
+- Per-side hand frames + finger joints + contact groups carried over verbatim
+  from V2P.
 
-### Hand Keypoints (from V2P retargeting)
-
-| Column | Shape | Description |
-|--------|-------|-------------|
-| `robot_{side}_wrist_position` | (T, 3) | Retargeted wrist positions |
-| `robot_{side}_wrist_wxyz` | (T, 4) | Retargeted wrist orientations |
-| `robot_{side}_finger_joints` | (T, J) | Retargeted finger joint angles |
-| `robot_{side}_frames` | (T, K, 7) | Hand FK frames [pos(3), quat(4)] |
-| `{side}_robot_frame_names` | list | Body names for hand frames |
-| `{side}_robot_finger_joint_names` | list | Finger joint names |
-
-### Contact Data (from V2P retargeting)
-
-| Column | Shape | Description |
-|--------|-------|-------------|
-| `mano_{side}_link_contact_positions` | (T, N, 4) | Contact positions on hand [xyz, part_id] |
-| `mano_{side}_object_contact_positions` | (T, N, 4) | Contact positions on object |
-| `mano_{side}_object_contact_normals` | (T, N, 4) | Contact normals |
-| `mano_{side}_object_contact_part_ids` | (T, N) | Object body index per contact |
-
-### Object and Scene (for SceneConfig)
-
-| Column | Shape | Description |
-|--------|-------|-------------|
-| `object_name` | string | Object name for registry lookup |
-| `object_body_names` | list | Object body names |
-| `object_body_position` | (T, B, 3) | Object body trajectory |
-| `object_body_wxyz` | (T, B, 4) | Object body orientations |
-| `object_articulation` | (T,) | Articulation parameter (0 = rigid) |
-| `support_position` | (3,) | Support surface center XYZ |
-| `support_size` | (3,) | Support surface dimensions |
+Support surfaces are discovered by `SceneConfig.from_motion_file()` from the
+sibling `reconstructed_stage/` directory; they are not embedded in the parquet
+(previously stored as `support_position` / `support_size`).
 
 ## Inference Module
 

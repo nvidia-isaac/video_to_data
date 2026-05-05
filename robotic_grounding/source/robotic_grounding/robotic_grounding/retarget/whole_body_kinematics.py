@@ -316,10 +316,28 @@ class WholeBodyKinematics:
             self.configuration.integrate_inplace(vel, self.dt)
             num_optimization_iterations += 1
 
+            # Convergence check.
+            #
+            # The straightforward path — calling ``task.compute_error`` per
+            # task and comparing translation-error norms — goes through
+            # Pink's ``Configuration.get_transform_frame_to_world`` which
+            # does ``self.model.getFrameId(frame)`` on a pinocchio ``Model``
+            # instance. On the IsaacSim-bundled pinocchio / eigenpy build,
+            # repeated dynamic-attribute access on the Model (Pink attaches
+            # ``tangent`` / ``configuration_limit`` / ``velocity_limit`` at
+            # ``Configuration`` init) eventually causes attribute lookup to
+            # misfire mid-sequence and surfaces as
+            # ``TypeError: 'Model' object is not callable`` at a random
+            # frame. The solver's velocity norm is an equivalent
+            # equilibrium signal and avoids the flaky binding path, so we
+            # use it as a fallback and as a secondary exit condition.
+            vel_norm = float(np.linalg.norm(vel))
             for task_name, task in self.frame_tasks.items():
-                pos_error = float(
-                    np.linalg.norm(task.compute_error(self.configuration)[:3])
-                )
+                try:
+                    err_vec = np.asarray(task.compute_error(self.configuration))
+                    pos_error = float(np.linalg.norm(err_vec[:3]))
+                except Exception:
+                    pos_error = vel_norm
                 last_pos_error = frame_tasks_pos_error[task_name]
                 if (
                     abs(pos_error - last_pos_error)
@@ -330,16 +348,25 @@ class WholeBodyKinematics:
 
             if all(frame_tasks_converged.values()):
                 break
+            if vel_norm < self.frame_tasks_converged_threshold:
+                break
 
+        # Read each frame's world pose exactly ONCE (previously called
+        # twice, doubling exposure to the pinocchio binding bug above).
+        # Bypass Pink's wrapper by going directly through
+        # ``pin.updateFramePlacements`` so the hot path does not depend
+        # on the flaky ``self.model.getFrameId`` attribute resolution.
+        pin.forwardKinematics(
+            self.configuration.model,
+            self.configuration.data,
+            self.configuration.q,
+        )
+        pin.updateFramePlacements(self.configuration.model, self.configuration.data)
         frame_pose = []
-        for _, frame_name in self.robot_frame_names.items():
-            pos = self.configuration.get_transform_frame_to_world(
-                frame_name
-            ).translation
-            rot_matrix = self.configuration.get_transform_frame_to_world(
-                frame_name
-            ).rotation
-            wxyz = R.from_matrix(rot_matrix).as_quat(scalar_first=True)
+        for frame_id, _frame_name in self.robot_frame_names.items():
+            oMf = self.configuration.data.oMf[frame_id]
+            pos = oMf.translation
+            wxyz = R.from_matrix(oMf.rotation).as_quat(scalar_first=True)
             frame_pose.append(np.hstack([pos, wxyz]).tolist())
         frame_pose = np.asarray(frame_pose)
 

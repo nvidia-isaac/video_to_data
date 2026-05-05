@@ -19,18 +19,16 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 import os
 from pathlib import Path
 
 import mujoco
 import numpy as np
-import pyarrow as pa
-import pyarrow.parquet as pq
 from scipy.interpolate import interp1d
 from scipy.spatial.transform import Rotation, Slerp
 
 from robotic_grounding.assets import ASSET_DIR
+from robotic_grounding.motion_schema import MotionData, save_motion_parquet
 from robotic_grounding.planner.data_adapters import interpolate_robot_motion_data
 from robotic_grounding.planner.inference import MotionInferenceAgent
 from robotic_grounding.planner.motion_reps import xyzw_to_wxyz
@@ -40,7 +38,7 @@ from robotic_grounding.planner.transforms import (
     transform_reference,
 )
 from robotic_grounding.planner.visualization import visualize
-from robotic_grounding.retarget.data_logger import ManoDex3Data, ManoSharpaData
+from robotic_grounding.retarget.data_logger import ManoSharpaData
 
 # -- Constants ------------------------------------------------------------------
 
@@ -120,7 +118,10 @@ def load_v2p_reference(
     if robot_type == "sharpa":
         data_class = ManoSharpaData
     else:
-        data_class = ManoDex3Data
+        raise NotImplementedError(
+            f"Planner only supports robot_type='sharpa'; got {robot_type!r}. "
+            "Dex3 planner input is not available in this tree."
+        )
     motion = data_class.from_parquet(
         root_path=parquet_folder, filters=filters, trajectory_id=trajectory_id
     )
@@ -267,182 +268,214 @@ def save_planner_parquet(
     ref_data,
     model,
     ref_raw,
-    support_pos,
     robot_type,
     sequence_id,
 ):
-    """Save planner output as Hive-partitioned parquet.
+    """Save planner output as a `motion_v1` Hive-partitioned parquet.
 
-    Embeds: body qpos (from planner), EE/object/finger/contact data (from V2P),
-    scene metadata (support surface, object info).
+    Embeds: body qpos (from planner), EE/object/finger/contact data (from V2P).
     """
     T = full_qpos.shape[0]
     T_ref = ref_data["left_pos"].shape[0]
     T_use = min(T, T_ref)
 
-    # Joint names from model
-    joint_names = [
-        mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, i)
-        for i in range(model.njnt)
-    ]
-
-    # Build qpos_layout
+    # Decompose full_qpos into root + body + finger slices to populate
+    # `robot_root_*` and `robot_joint_positions` directly.
     nq = int(model.nq)
     left_finger_start = right_finger_start = None
     for i in range(model.njnt):
         name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, i)
-        adr = int(model.jnt_qposadr[i])
         if "left_hand" in name and left_finger_start is None:
-            left_finger_start = adr
+            left_finger_start = int(model.jnt_qposadr[i])
         if "right_hand" in name and right_finger_start is None:
-            right_finger_start = adr
+            right_finger_start = int(model.jnt_qposadr[i])
     body_end = left_finger_start if left_finger_start else nq
-    left_finger_end = right_finger_start if right_finger_start else nq
-    right_finger_end = nq
-    qpos_layout = json.dumps(
-        {
-            "root_pos": [0, 3],
-            "root_quat_wxyz": [3, 7],
-            "body_joints": [7, body_end],
-            "left_finger_joints": (
-                [left_finger_start, left_finger_end] if left_finger_start else [nq, nq]
-            ),
-            "right_finger_joints": (
-                [right_finger_start, right_finger_end]
-                if right_finger_start
-                else [nq, nq]
-            ),
-        }
-    )
 
-    # Build data dict for parquet
-    data = {
-        # Planner body qpos
-        "qpos": [full_qpos[:T_use].tolist()],
-        "joint_names": [joint_names],
-        "qpos_layout": [qpos_layout],
-        "fps": [float(FPS)],
-        "ee_link_names": [["left_wrist_yaw_link", "right_wrist_yaw_link"]],
-        # Wrist targets from reference (per-side)
-        "robot_left_wrist_position": [ref_data["left_pos"][:T_use].tolist()],
-        "robot_left_wrist_wxyz": [ref_data["left_quat"][:T_use].tolist()],
-        "robot_right_wrist_position": [ref_data["right_pos"][:T_use].tolist()],
-        "robot_right_wrist_wxyz": [ref_data["right_quat"][:T_use].tolist()],
-        # Object from reference (all bodies)
-        "object_body_position": [
-            ref_data.get("object_pos_all", ref_data["object_pos"][:, None])[
-                :T_use
-            ].tolist()
-        ],
-        "object_body_wxyz": [
-            ref_data.get("object_quat_all", ref_data["object_quat"][:, None])[
-                :T_use
-            ].tolist()
-        ],
-        "object_name": [ref_data.get("object_name", "box")],
-        # Support surface
-        "support_position": [support_pos],
-        "support_size": [SUPPORT_SIZE],
-    }
+    qpos_slice = full_qpos[:T_use]
+    robot_root_position = qpos_slice[:, 0:3].tolist()
+    robot_root_wxyz = qpos_slice[:, 3:7].tolist()
+    robot_joint_positions = qpos_slice[:, 7:body_end].tolist()
 
-    # Embed V2P hand/contact data from the original motion_data
+    # Build joint names aligned with robot_joint_positions (body joints only).
+    all_joint_names = [
+        mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, i)
+        for i in range(model.njnt)
+    ]
+    # mujoco joints include the free-flyer as the first joint; body-joint
+    # names start after the free-flyer. This matches the existing planner
+    # contract: joint_names had 43 entries for the 43 body DOFs.
+    robot_joint_names = [n for n in all_joint_names if n and "free" not in n.lower()]
+    # Filter out finger joints which live in their own finger qpos slice.
+    robot_joint_names = [
+        n for n in robot_joint_names if "left_hand" not in n and "right_hand" not in n
+    ]
+
+    # EE pose built from per-side wrist position + wxyz reference.
+    left_pos = np.asarray(ref_data["left_pos"][:T_use], dtype=np.float32)
+    left_quat = np.asarray(ref_data["left_quat"][:T_use], dtype=np.float32)
+    right_pos = np.asarray(ref_data["right_pos"][:T_use], dtype=np.float32)
+    right_quat = np.asarray(ref_data["right_quat"][:T_use], dtype=np.float32)
+    ee_pose_w = np.stack(
+        [
+            np.concatenate([left_pos, left_quat], axis=-1),
+            np.concatenate([right_pos, right_quat], axis=-1),
+        ],
+        axis=1,
+    )  # (T, 2, 7)
+
+    # Object body position / wxyz — support single- or multi-body.
+    obj_body_pos = ref_data.get("object_pos_all", ref_data["object_pos"][:, None])
+    obj_body_wxyz = ref_data.get("object_quat_all", ref_data["object_quat"][:, None])
+    object_body_position = np.asarray(obj_body_pos, dtype=np.float32)[:T_use].tolist()
+    object_body_wxyz = np.asarray(obj_body_wxyz, dtype=np.float32)[:T_use].tolist()
+
+    # Object metadata carried over from the upstream ManoSharpaData file.
     motion = ref_raw.get("_motion_data")
+    object_name = str(ref_data.get("object_name", "box"))
+    object_body_names = ["object"]
+    safe_object_body_names = ["object"]
+    object_mesh_paths: list[str] = []
+    object_urdf_paths: list[str] = []
+    object_articulation: list[float] = [0.0] * T_use
+    object_root_axis_angle: list | None = None
+    object_root_position: list | None = None
+    safe_object_name = object_name
+    if motion is not None:
+        if getattr(motion, "object_body_names", None):
+            object_body_names = list(motion.object_body_names)
+        if getattr(motion, "safe_object_body_names", None):
+            safe_object_body_names = list(motion.safe_object_body_names)
+        if getattr(motion, "object_mesh_paths", None):
+            object_mesh_paths = list(motion.object_mesh_paths)
+        if getattr(motion, "object_urdf_paths", None):
+            object_urdf_paths = list(motion.object_urdf_paths)
+        if getattr(motion, "safe_object_name", None):
+            safe_object_name = motion.safe_object_name
+        obj_art = getattr(motion, "object_articulation", None)
+        if obj_art is not None:
+            object_articulation = np.asarray(obj_art, dtype=np.float32)[:T_use].tolist()
+        oraa = getattr(motion, "object_root_axis_angle", None)
+        if oraa is not None:
+            object_root_axis_angle = np.asarray(oraa, dtype=np.float32)[:T_use].tolist()
+        orp = getattr(motion, "object_root_position", None)
+        if orp is not None:
+            object_root_position = np.asarray(orp, dtype=np.float32)[:T_use].tolist()
+
+    # Per-side hand groups from the V2P retargeting.
+    hand_sides: list[str] = []
+    hand_frame_names: list[list[str]] = []
+    hand_frames_w: list[list[list[list[float]]]] = []
+    hand_finger_joint_names: list[list[str]] = []
+    hand_finger_joints: list[list[list[float]]] = []
+    # Per-side contact groups.
+    hand_link_contact_positions: list[list[list[list[float]]]] = []
+    hand_link_contact_normals: list[list[list[list[float]]]] = []
+    hand_object_contact_positions: list[list[list[list[float]]]] = []
+    hand_object_contact_normals: list[list[list[list[float]]]] = []
+    hand_object_contact_part_ids: list[list[list[int]]] = []
+    hand_contact_link_names: list[list[str]] = []
+
     if motion is not None:
         for side in ("left", "right"):
             wrist_pos = getattr(motion, f"robot_{side}_wrist_position", None)
-            wrist_wxyz = getattr(motion, f"robot_{side}_wrist_wxyz", None)
-            finger_joints = getattr(motion, f"robot_{side}_finger_joints", None)
-            frames = getattr(motion, f"robot_{side}_frames", None)
-            frame_names = getattr(motion, f"{side}_robot_frame_names", None)
-            link_contacts = getattr(motion, f"mano_{side}_link_contact_positions", None)
-            obj_contacts = getattr(
-                motion, f"mano_{side}_object_contact_positions", None
+            if wrist_pos is None:
+                continue
+            hand_sides.append(side)
+            frames = getattr(motion, f"robot_{side}_frames", None) or []
+            frame_names = getattr(motion, f"{side}_robot_frame_names", None) or []
+            finger_joints = getattr(motion, f"robot_{side}_finger_joints", None) or []
+            finger_joint_names = (
+                getattr(motion, f"{side}_robot_finger_joint_names", None) or []
+            )
+            link_contacts = (
+                getattr(motion, f"mano_{side}_link_contact_positions", None) or []
+            )
+            link_normals = (
+                getattr(motion, f"mano_{side}_link_contact_normals", None) or []
+            )
+            obj_contacts = (
+                getattr(motion, f"mano_{side}_object_contact_positions", None) or []
+            )
+            obj_normals = (
+                getattr(motion, f"mano_{side}_object_contact_normals", None) or []
+            )
+            part_ids = (
+                getattr(motion, f"mano_{side}_object_contact_part_ids", None) or []
             )
 
-            if wrist_pos is not None:
-                data[f"robot_{side}_wrist_position"] = [
-                    np.array(wrist_pos, dtype=np.float32)[:T_use].tolist()
-                ]
-            if wrist_wxyz is not None:
-                data[f"robot_{side}_wrist_wxyz"] = [
-                    np.array(wrist_wxyz, dtype=np.float32)[:T_use].tolist()
-                ]
-            if finger_joints is not None:
-                data[f"robot_{side}_finger_joints"] = [
-                    np.array(finger_joints, dtype=np.float32)[:T_use].tolist()
-                ]
-            if frames is not None:
-                data[f"robot_{side}_frames"] = [
-                    np.array(frames, dtype=np.float32)[:T_use].tolist()
-                ]
-            if frame_names is not None:
-                data[f"{side}_robot_frame_names"] = [list(frame_names)]
-            if link_contacts is not None:
-                data[f"mano_{side}_link_contact_positions"] = [
-                    np.array(link_contacts, dtype=np.float32)[:T_use].tolist()
-                ]
-            if obj_contacts is not None:
-                data[f"mano_{side}_object_contact_positions"] = [
-                    np.array(obj_contacts, dtype=np.float32)[:T_use].tolist()
-                ]
+            hand_frame_names.append(list(frame_names))
+            hand_frames_w.append(
+                np.asarray(frames, dtype=np.float32)[:T_use].tolist() if frames else []
+            )
+            hand_finger_joint_names.append(list(finger_joint_names))
+            hand_finger_joints.append(
+                np.asarray(finger_joints, dtype=np.float32)[:T_use].tolist()
+                if finger_joints
+                else []
+            )
+            # Contact positions today carry (T, N, 4) with part_id in the 4th
+            # column; strip to (T, N, 3) for the unified layout.
+            hand_contact_link_names.append([])
+            hand_link_contact_positions.append(
+                np.asarray(link_contacts)[:T_use, :, :3].tolist()
+                if link_contacts
+                else []
+            )
+            hand_link_contact_normals.append(
+                np.asarray(link_normals)[:T_use, :, :3].tolist() if link_normals else []
+            )
+            hand_object_contact_positions.append(
+                np.asarray(obj_contacts)[:T_use, :, :3].tolist() if obj_contacts else []
+            )
+            hand_object_contact_normals.append(
+                np.asarray(obj_normals)[:T_use, :, :3].tolist() if obj_normals else []
+            )
+            hand_object_contact_part_ids.append(
+                np.asarray(part_ids, dtype=np.int32)[:T_use].tolist()
+                if part_ids
+                else []
+            )
 
-    # SceneConfig compatibility columns (needed by SceneConfig.from_motion_file())
-    if motion is not None:
-        # Object metadata
-        for attr in (
-            "object_body_names",
-            "safe_object_body_names",
-            "safe_object_name",
-            "object_urdf_paths",
-            "object_mesh_paths",
-        ):
-            val = getattr(motion, attr, None)
-            if val is not None:
-                data[attr] = [list(val) if isinstance(val, (list, tuple)) else val]
-
-        # Object articulation (needed for articulated/rigid detection)
-        obj_art = getattr(motion, "object_articulation", None)
-        if obj_art is not None:
-            data["object_articulation"] = [
-                np.array(obj_art, dtype=np.float32)[:T_use].tolist()
-            ]
-        else:
-            data["object_articulation"] = [[0.0] * T_use]
-
-        # Object root pose (for articulated objects)
-        for attr in ("object_root_position", "object_root_axis_angle"):
-            val = getattr(motion, attr, None)
-            if val is not None:
-                data[attr] = [np.array(val, dtype=np.float32)[:T_use].tolist()]
-
-        # Contact normals and part IDs
-        for side in ("left", "right"):
-            for suffix in ("object_contact_normals", "object_contact_part_ids"):
-                attr = f"mano_{side}_{suffix}"
-                val = getattr(motion, attr, None)
-                if val is not None:
-                    data[attr] = [np.array(val)[:T_use].tolist()]
-
-        # Finger joint names
-        for side_attr in (
-            "left_robot_finger_joint_names",
-            "right_robot_finger_joint_names",
-        ):
-            val = getattr(motion, side_attr, None)
-            if val is not None:
-                data[side_attr] = [list(val)]
-
-    # Write as Hive-partitioned parquet
-    robot_name = "g1_sharpa" if robot_type == "sharpa" else "g1_dex3"
-    partition_dir = (
-        Path(output_dir) / f"sequence_id={sequence_id}" / f"robot_name={robot_name}"
+    robot_name = "g1" if robot_type == "sharpa" else "g1_dex3"
+    md = MotionData(
+        sequence_id=sequence_id,
+        robot_name=robot_name,
+        motion_kind="single_robot",
+        source_dataset="planner",
+        raw_motion_file="",
+        fps=float(FPS),
+        coord_frame="robot_base_z_up",
+        robot_joint_names=robot_joint_names,
+        robot_root_position=robot_root_position,
+        robot_root_wxyz=robot_root_wxyz,
+        robot_joint_positions=robot_joint_positions,
+        ee_link_names=["left_wrist_yaw_link", "right_wrist_yaw_link"],
+        ee_pose_w=ee_pose_w.tolist(),
+        object_name=object_name,
+        safe_object_name=safe_object_name,
+        object_body_names=object_body_names,
+        safe_object_body_names=safe_object_body_names,
+        object_mesh_paths=object_mesh_paths,
+        object_urdf_paths=object_urdf_paths,
+        object_articulation=object_articulation,
+        object_root_axis_angle=object_root_axis_angle,
+        object_root_position=object_root_position,
+        object_body_position=object_body_position,
+        object_body_wxyz=object_body_wxyz,
+        hand_sides=hand_sides,
+        hand_frame_names=hand_frame_names,
+        hand_frames_w=hand_frames_w,
+        hand_finger_joint_names=hand_finger_joint_names,
+        hand_finger_joints=hand_finger_joints,
+        hand_contact_link_names=hand_contact_link_names,
+        hand_link_contact_positions=hand_link_contact_positions,
+        hand_link_contact_normals=hand_link_contact_normals,
+        hand_object_contact_positions=hand_object_contact_positions,
+        hand_object_contact_normals=hand_object_contact_normals,
+        hand_object_contact_part_ids=hand_object_contact_part_ids,
     )
-    partition_dir.mkdir(parents=True, exist_ok=True)
-    out_path = partition_dir / "data.parquet"
-
-    table = pa.table(data)
-    pq.write_table(table, str(out_path))
-    print(f"  Saved {out_path} ({T_use} frames)")
+    partition_dir = save_motion_parquet(md, root_path=str(output_dir))
+    print(f"  Saved {partition_dir} ({T_use} frames)")
     return T_use
 
 
@@ -605,13 +638,13 @@ def main():
         sequence_id = motion.sequence_id
 
     output_dir = args.output or str(Path.cwd() / "planner_processed")
+    _ = support_pos  # support surface now lives in reconstructed_stage/, not parquet
     save_planner_parquet(
         output_dir,
         full_qpos,
         ref_data,
         model,
         ref_raw,
-        support_pos,
         args.robot,
         sequence_id,
     )
@@ -633,9 +666,7 @@ def main():
             mesh_paths = getattr(motion, "object_mesh_paths", None)
             obj_name = getattr(motion, "object_name", None)
             if mesh_paths:
-                for mp in (
-                    mesh_paths if isinstance(mesh_paths, list) else [mesh_paths]
-                ):
+                for mp in mesh_paths if isinstance(mesh_paths, list) else [mesh_paths]:
                     if os.path.exists(mp):
                         object_mesh_path = mp
                         break

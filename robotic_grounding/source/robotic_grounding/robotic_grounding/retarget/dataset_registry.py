@@ -177,18 +177,6 @@ DATASET_CONFIGS: dict[str, DatasetConfig] = {
         loader_script="scripts/retarget/dexycb_loader.py",
         retarget_script="scripts/retarget/dexycb_to_sharpa.py",
     ),
-    "v2d_reconstruction": DatasetConfig(
-        name="v2d_reconstruction",
-        fps=25.0,
-        mano_kwargs={"flat_hand_mean": False, "center_idx": None},
-        mesh_vertex_scale=1.0,
-        mesh_format="obj",
-        has_articulated_objects=False,
-        has_contact_data=False,
-        has_support_surfaces=False,
-        loader_script="scripts/retarget/v2d_reconstruction_loader.py",
-        retarget_script="scripts/retarget/v2d_reconstruction_to_sharpa.py",
-    ),
 }
 
 

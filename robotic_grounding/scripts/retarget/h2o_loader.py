@@ -83,6 +83,22 @@ DEFAULT_H2O_DIR = HUMAN_MOTION_DATA_DIR / "h2o" / "dataset"
 LOADED_SAVE_DIR = HUMAN_MOTION_DATA_DIR / "h2o" / "h2o_loaded"
 H2O_FPS = 30.0
 
+# H2O's world frame is the initial head-mounted camera pose in OpenCV
+# convention: +X right, +Y **down** (gravity), +Z forward.  Isaac Sim
+# (and the rest of the pipeline) expects +Z up.  Rotate −90° around X so
+# H2O +Y (gravity) → Isaac Sim −Z (gravity) without flipping handedness:
+#
+#   (x, y, z)_H2O  →  (x, z, −y)_ZUP
+#
+# Same shape as DexYCB's ``_MASTER_TO_ZUP`` — the rigs are both OpenCV.
+# Without this rotation, hands end up ~60 cm *above* the head in the
+# output parquet, with palms pointing along +Y (a horizontal direction)
+# instead of down — which is what the Isaac Sim renders look like when
+# compared against the paper's reference figures on the H2O project page.
+H2O_WORLD_TO_ZUP = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]], dtype=np.float32)
+_H2O_WORLD_TO_ZUP_T4 = np.eye(4, dtype=np.float32)
+_H2O_WORLD_TO_ZUP_T4[:3, :3] = H2O_WORLD_TO_ZUP
+
 # H2O object class IDs (from official dataset documentation).
 # Index 0 ("background") is used when no object is active in a frame.
 # TODO: verify this mapping against the actual data — in particular whether
@@ -169,20 +185,25 @@ def _parse_cam_pose_file(path: Path) -> np.ndarray:
 
 
 def _load_cam_pose_series(cam_pose_dir: Path, frame_ids: list[str]) -> np.ndarray:
-    """Return (N, 4, 4) cam-to-world series, one matrix per frame.
+    """Return (N, 4, 4) cam → Isaac-Z-up world series, one matrix per frame.
 
-    H2O poses are stored in the egocentric-camera frame; the dataset's
-    per-frame ``cam_pose/{fid}.txt`` is the camera→world extrinsic, and
-    the world frame is gravity-aligned by construction (external rig
-    calibration). If the directory or an individual file is missing, a
-    warning is emitted and identity is used for those frames — keeping
-    the loader runnable against H2O variants that omit cam_pose.
+    H2O ships a per-frame ``cam_pose/{fid}.txt`` camera→world extrinsic,
+    where "world" is H2O's own frame: initial head-mounted camera in
+    OpenCV convention (+Y down = gravity).  Isaac Sim and the rest of
+    the pipeline expect +Z up, so we pre-multiply each matrix by
+    :data:`_H2O_WORLD_TO_ZUP_T4`.  Downstream call sites then compose
+    ``cam_pose[i] @ <thing in cam frame>`` and land in Isaac-world
+    directly — no per-site rotation bookkeeping.
+
+    Missing files emit a warning and fall back to just the Y-down→Z-up
+    rotation (cam-frame output, still Z-up); this keeps the loader
+    runnable against H2O variants that omit ``cam_pose/``.
     """
-    series = np.tile(np.eye(4, dtype=np.float32), (len(frame_ids), 1, 1))
+    series = np.tile(_H2O_WORLD_TO_ZUP_T4, (len(frame_ids), 1, 1)).copy()
     if not cam_pose_dir.is_dir():
         warnings.warn(
             f"cam_pose directory missing at {cam_pose_dir}; "
-            "falling back to identity (output will be in camera frame).",
+            "falling back to Y-down→Z-up only (no per-frame extrinsic).",
             stacklevel=2,
         )
         return series
@@ -192,11 +213,11 @@ def _load_cam_pose_series(cam_pose_dir: Path, frame_ids: list[str]) -> np.ndarra
         if not pose_file.exists():
             missing += 1
             continue
-        series[i] = _parse_cam_pose_file(pose_file)
+        series[i] = _H2O_WORLD_TO_ZUP_T4 @ _parse_cam_pose_file(pose_file)
     if missing:
         warnings.warn(
             f"cam_pose missing for {missing}/{len(frame_ids)} frames under "
-            f"{cam_pose_dir}; using identity for those frames.",
+            f"{cam_pose_dir}; using identity (pre-rotated) for those frames.",
             stacklevel=2,
         )
     return series
@@ -373,6 +394,10 @@ class H2ODatasetLoader(DatasetLoaderBase):
         # Track object class IDs that appear in the obj_pose_rt files so we
         # can reuse them in load_object_data and get_object_mesh_paths.
         obj_ids_seen: list[int] = []
+        # Per-frame object cam-frame translations (only frames with a valid
+        # class_id). Used below to compute z_lift so Isaac Sim's floor plane
+        # ends up below the scene.
+        obj_t_cams_per_frame: list[np.ndarray] = []
 
         for fid in frame_ids:
             left_raw, right_raw, left_valid, right_valid = _parse_hand_pose_file(
@@ -401,12 +426,15 @@ class H2ODatasetLoader(DatasetLoaderBase):
             if left_betas is None:
                 left_betas = left_raw[52:62].copy()
 
-            # Object: read the class_id from obj_pose_rt for this frame.
+            # Object: read the class_id and cam-frame translation from
+            # obj_pose_rt for this frame. The translation feeds z_lift below.
             obj_file = src.take_dir / "obj_pose_rt" / f"{fid}.txt"
             if obj_file.exists():
-                class_id, _ = _parse_object_pose_file(obj_file)
-                if class_id > 0 and class_id not in obj_ids_seen:
-                    obj_ids_seen.append(class_id)
+                class_id, T_obj_cam = _parse_object_pose_file(obj_file)
+                if class_id > 0:
+                    if class_id not in obj_ids_seen:
+                        obj_ids_seen.append(class_id)
+                    obj_t_cams_per_frame.append(T_obj_cam[:3, 3])
 
         H = len(frame_ids)
         right_global_orient = np.stack(right_g_list).astype(np.float32)
@@ -422,6 +450,37 @@ class H2ODatasetLoader(DatasetLoaderBase):
         # the per-frame cam_pose/*.txt extrinsic (camera-to-world). The
         # resulting world frame is gravity-aligned by the H2O rig calibration.
         cam_pose = _load_cam_pose_series(src.take_dir / "cam_pose", frame_ids)
+
+        # Fold a per-sequence z_lift into cam_pose translation so the lowest
+        # point in the scene (hand trans or object origin) lands at least
+        # _GROUND_MARGIN above Isaac Sim's floor plane at z = 0.  Without it,
+        # H2O's world origin (= initial head pose) puts tabletops and held
+        # objects at negative z — they clip through the floor and
+        # reconstruct_support_surfaces.py's 0.05 m ground filter drops every
+        # point, so Stage 3 produces no support surface and Stage 5 (URDF
+        # generation + video) has nothing to spawn.  1 m is generous enough
+        # to clear the tallest H2O object half-extent (chips: 0.131 m)
+        # regardless of its orientation.  Same idiom as the other loaders.
+        _GROUND_MARGIN = 1.0
+        min_z = np.inf
+        for i in range(H):
+            R_cw = cam_pose[i, :3, :3]
+            t_cw = cam_pose[i, :3, 3]
+            min_z = min(
+                min_z,
+                float((R_cw @ right_trans[i] + t_cw)[2]),
+                float((R_cw @ left_trans[i] + t_cw)[2]),
+            )
+        # Objects: cam_pose[0] is good enough for the bound since the head
+        # moves ≤ a few cm in typical H2O sequences.
+        if obj_t_cams_per_frame:
+            R0, t0 = cam_pose[0, :3, :3], cam_pose[0, :3, 3]
+            for t_obj_cam in obj_t_cams_per_frame:
+                min_z = min(min_z, float((R0 @ t_obj_cam + t0)[2]))
+        z_lift = max(0.0, _GROUND_MARGIN - (min_z if np.isfinite(min_z) else 0.0))
+        if z_lift > 0.0:
+            cam_pose[:, 2, 3] += z_lift
+
         self._cam_pose_cache[sequence_info.sequence_id] = cam_pose
         for i in range(H):
             R_cw = cam_pose[i, :3, :3]
@@ -569,8 +628,21 @@ class H2ODatasetLoader(DatasetLoaderBase):
         return load_meshes_to_device(mesh_paths, device, vertex_scale=1.0)
 
     def get_mano_kwargs(self) -> dict[str, Any]:
-        """H2O uses standard MANO with axis-angle (no PCA, no flat hand mean)."""
-        return {"flat_hand_mean": False, "center_idx": None}
+        """Return MANO layer kwargs for H2O.
+
+        H2O stores absolute MANO axis-angle (not deltas from the MANO
+        dataset-mean finger pose), so ``flat_hand_mean=True`` is correct —
+        it tells the MANO layer to treat our 45-D finger_pose as the final
+        pose rather than adding ``hands_mean`` on top.  This matches the
+        official ``taeinkwon/h2oplayer`` viewer, which constructs
+        ``ManoLayer(use_pca=False, flat_hand_mean=True, side=…)``.
+
+        Using ``flat_hand_mean=False`` (the previous setting) silently
+        adds the MANO mean finger curl to the already-curled H2O pose;
+        the shifted joint-0 position then cascades through the IK and
+        shows up as a ~45° wrist pitch offset in the Isaac Sim render.
+        """
+        return {"flat_hand_mean": True, "center_idx": None}
 
     def get_fps(self) -> float:
         """H2O frame rate."""

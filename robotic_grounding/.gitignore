@@ -226,6 +226,10 @@ core
 
 # Claude related files
 .claude/
+!.claude/commands/getneval.md
+!.claude/commands/eval-record.md
+!.claude/commands/grid-video.md
+!.claude/commands/launch-two-stage.md
 CLAUDE.md
 *.code-workspace
 
@@ -243,11 +247,23 @@ wandb/
 
 # Monitor state
 scripts/monitor_state.json
+scripts/monitor_state_exp*.json
 
 experiments/exp*/
 experiments/registry.local.yaml
+experiments/*.mp4
+experiments/*/*.mp4
+experiments/eval_recordings/*/*.mp4
+experiments/EXPERIMENT_LOG.md
+experiments/*/*.md
 
 # wandb checkpoints
 wandb_checkpoints/
 
 exps/
+
+# Temporary generated YAML files (e.g. OSMO workflow submissions)
+tmp_*.yaml
+
+# Visualizer datasets (large binary recordings, downloaded via sync_visualizer_data.py)
+visualizer/datasets/

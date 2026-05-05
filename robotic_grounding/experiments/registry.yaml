@@ -4,6 +4,7 @@
 # Example experiments (committed):
 example_single: example_single_run
 example_sequences: example_sequence_list
+example_osmo_sequences: example_osmo_sequences
 example_sweep: example_param_sweep
 stage1: example_stage1_nocoll
 stage2: example_stage2
@@ -11,6 +12,7 @@ two_stage: example_two_stage
 
 # Whole-body experiments:
 recon_body_apple: recon_body_apple_pick
+recon_body_shalin_bottle_1: recon_body_shalin_bottle_1
 
 # Private experiments: create experiments/registry.local.yaml (gitignored) with your entries:
 # exp41: exp41_my_experiment

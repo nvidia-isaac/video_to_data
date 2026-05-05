@@ -19,8 +19,6 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from robotic_grounding.retarget.params import G1_WHOLEBODY_TO_NVHUMAN_MAPPING
-
 # Type alias for field specification
 # Format: (field_name, pyarrow_type, python_type, is_time_series)
 FieldSpec = tuple[str, pa.DataType, type, bool]
@@ -173,50 +171,6 @@ MANO_FIELDS: list[FieldSpec] = [
     ),
 ]
 
-NVHUMAN_NUM_JOINTS = 93
-NVHUMAN_FIELDS: list[FieldSpec] = [
-    ("nvhuman_betas", pa.list_(pa.float32()), list[float], False),
-    # Time series
-    (
-        "nvhuman_joints",
-        pa.list_(pa.list_(pa.list_(pa.float32(), 3), NVHUMAN_NUM_JOINTS)),
-        list[list[list[float]]],
-        True,
-    ),
-    (
-        "nvhuman_joints_wxyz",
-        pa.list_(pa.list_(pa.list_(pa.float32(), 4), NVHUMAN_NUM_JOINTS)),
-        list[list[list[float]]],
-        True,
-    ),
-    # Head trajectory
-    (
-        "nvhuman_head_translation",
-        pa.list_(pa.list_(pa.float32(), 3)),
-        list[list[float]],
-        True,
-    ),
-    (
-        "nvhuman_head_wxyz",
-        pa.list_(pa.list_(pa.float32(), 4)),
-        list[list[float]],
-        True,
-    ),
-    # Root trajectory
-    (
-        "nvhuman_root_translation",
-        pa.list_(pa.list_(pa.float32(), 3)),
-        list[list[float]],
-        True,
-    ),
-    (
-        "nvhuman_root_wxyz",
-        pa.list_(pa.list_(pa.float32(), 4)),
-        list[list[float]],
-        True,
-    ),
-]
-
 #############################################################
 # Robot fields
 #############################################################
@@ -291,126 +245,6 @@ SHARPA_FIELDS: list[FieldSpec] = [
         True,
     ),
     ("robot_left_num_optimization_iterations", pa.list_(pa.int32()), list[int], True),
-]
-
-DEX3_NUM_FINGER_JOINTS = 7
-DEX3_NUM_FRAMES = 36
-DEX3_FIELDS: list[FieldSpec] = [
-    ("right_robot_finger_joint_names", pa.list_(pa.string()), list[str], False),
-    ("right_robot_frame_names", pa.list_(pa.string()), list[str], False),
-    ("right_robot_frame_task_names", pa.list_(pa.string()), list[str], False),
-    ("left_robot_finger_joint_names", pa.list_(pa.string()), list[str], False),
-    ("left_robot_frame_names", pa.list_(pa.string()), list[str], False),
-    ("left_robot_frame_task_names", pa.list_(pa.string()), list[str], False),
-    # Time series
-    (
-        "robot_right_wrist_position",
-        pa.list_(pa.list_(pa.float32(), 3)),
-        list[list[float]],
-        True,
-    ),
-    (
-        "robot_right_wrist_euler_xyz",
-        pa.list_(pa.list_(pa.float32(), 3)),
-        list[list[float]],
-        True,
-    ),
-    (
-        "robot_right_finger_joints",
-        pa.list_(pa.list_(pa.float32(), DEX3_NUM_FINGER_JOINTS)),
-        list[list[float]],
-        True,
-    ),
-    (
-        "robot_right_frames",
-        pa.list_(pa.list_(pa.list_(pa.float32(), 7), DEX3_NUM_FRAMES)),
-        list[list[list[float]]],
-        True,
-    ),
-    (
-        "robot_right_frame_task_errors",
-        pa.list_(pa.list_(pa.float32())),
-        list[list[float]],
-        True,
-    ),
-    ("robot_right_ik_error", pa.list_(pa.float32()), list[float], True),
-    ("robot_right_num_optimization_iterations", pa.list_(pa.int32()), list[int], True),
-    (
-        "robot_left_wrist_position",
-        pa.list_(pa.list_(pa.float32(), 3)),
-        list[list[float]],
-        True,
-    ),
-    (
-        "robot_left_wrist_euler_xyz",
-        pa.list_(pa.list_(pa.float32(), 3)),
-        list[list[float]],
-        True,
-    ),
-    (
-        "robot_left_finger_joints",
-        pa.list_(pa.list_(pa.float32(), DEX3_NUM_FINGER_JOINTS)),
-        list[list[float]],
-        True,
-    ),
-    (
-        "robot_left_frames",
-        pa.list_(pa.list_(pa.list_(pa.float32(), 7), DEX3_NUM_FRAMES)),
-        list[list[list[float]]],
-        True,
-    ),
-    (
-        "robot_left_frame_task_errors",
-        pa.list_(pa.list_(pa.float32())),
-        list[list[float]],
-        True,
-    ),
-    ("robot_left_ik_error", pa.list_(pa.float32()), list[float], True),
-    ("robot_left_num_optimization_iterations", pa.list_(pa.int32()), list[int], True),
-]
-
-#############################################################
-# Whole body robot fields (G1)
-#############################################################
-G1_NUM_FRAME_TASKS = len(G1_WHOLEBODY_TO_NVHUMAN_MAPPING)
-G1_FIELDS: list[FieldSpec] = [
-    ("robot_joint_names", pa.list_(pa.string()), list[str], False),
-    ("robot_frame_names", pa.list_(pa.string()), list[str], False),
-    ("robot_frame_task_names", pa.list_(pa.string()), list[str], False),
-    ("source_to_robot_scale", pa.float32(), float, False),
-    # Time series
-    (
-        "robot_root_position",
-        pa.list_(pa.list_(pa.float32(), 3)),
-        list[list[float]],
-        True,
-    ),
-    (
-        "robot_root_wxyz",
-        pa.list_(pa.list_(pa.float32(), 4)),
-        list[list[float]],
-        True,
-    ),
-    (
-        "robot_joint_positions",
-        pa.list_(pa.list_(pa.float32())),
-        list[list[float]],
-        True,
-    ),
-    (
-        "robot_frames",
-        pa.list_(pa.list_(pa.list_(pa.float32(), 7))),
-        list[list[list[float]]],
-        True,
-    ),
-    (
-        "robot_frame_task_errors",
-        pa.list_(pa.list_(pa.float32(), G1_NUM_FRAME_TASKS)),
-        list[list[float]],
-        True,
-    ),
-    ("robot_ik_error", pa.list_(pa.float32()), list[float], True),
-    ("robot_num_optimization_iterations", pa.list_(pa.int32()), list[int], True),
 ]
 
 #############################################################
@@ -675,17 +509,10 @@ def filter_sequence_ids(sequence_ids: list[str], args: argparse.Namespace) -> li
 #############################################################
 # Logger Classes
 #############################################################
+# ManoSharpaData remains the logger for the dual-hand V2P pipeline.
+# The NvhumanG1 / NvhumanDex3 layouts are retired; their producers now write
+# the unified `motion_v1` schema via `robotic_grounding.motion_schema`.
 ManoSharpaData = create_data_logger_class(
     "ManoSharpaData",
     BASE_FIELDS + MANO_FIELDS + SHARPA_FIELDS + OBJECT_FIELDS,
-)
-
-NvhumanDex3Data = create_data_logger_class(
-    "NvhumanDex3Data",
-    BASE_FIELDS + NVHUMAN_FIELDS + DEX3_FIELDS + OBJECT_FIELDS,
-)
-
-NvhumanG1Data = create_data_logger_class(
-    "NvhumanG1Data",
-    BASE_FIELDS + NVHUMAN_FIELDS + G1_FIELDS + OBJECT_FIELDS,
 )
