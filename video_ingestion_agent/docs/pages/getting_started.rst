@@ -63,16 +63,13 @@ Installation
 
 :git_clone_code_block:
 
-2. Create a virtual environment
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. code-block:: bash
-
-   uv venv .venv
-   source .venv/bin/activate
-
-3. Install dependencies
+2. Install dependencies
 ^^^^^^^^^^^^^^^^^^^^^^^
+
+The repository ships a ``uv.lock`` file pinning the integration-tested
+versions of vLLM, torch, transformers, and the rest of the dependency
+tree. ``uv sync`` reads it, creates ``.venv``, and installs the project
+in editable mode — the same flow used by the Dockerfile and CI.
 
 .. tabs::
 
@@ -83,7 +80,8 @@ Installation
 
       .. code-block:: bash
 
-         uv pip install -e .
+         uv sync
+         source .venv/bin/activate
 
    .. tab:: All Features
 
@@ -91,7 +89,8 @@ Installation
 
       .. code-block:: bash
 
-         uv pip install -e ".[all]"
+         uv sync --all-extras
+         source .venv/bin/activate
 
    .. tab:: Pick and Choose
 
@@ -100,25 +99,31 @@ Installation
       .. code-block:: bash
 
          # vLLM server (install in server environment)
-         uv pip install -e ".[server]"
+         uv sync --extra server
 
          # Local HuggingFace model inference (requires GPU)
-         uv pip install -e ".[local]"
+         uv sync --extra local
 
          # Web interface (Gradio)
-         uv pip install -e ".[webapp]"
+         uv sync --extra webapp
 
          # EPIC-KITCHENS benchmark evaluation
-         uv pip install -e ".[benchmark]"
+         uv sync --extra benchmark
 
          # Development tools (pytest, ruff, mypy)
-         uv pip install -e ".[dev]"
+         uv sync --extra dev
 
          # Documentation (Sphinx)
-         uv pip install -e ".[docs]"
+         uv sync --extra docs
 
          # Visualization (matplotlib, plotly)
-         uv pip install -e ".[viz]"
+         uv sync --extra viz
+
+.. tip::
+
+   Pass ``--frozen`` (e.g. ``uv sync --all-extras --frozen``) to make the
+   install fail loudly if ``pyproject.toml`` has drifted from the lock —
+   this is what CI and the Dockerfile use for strict reproducibility.
 
 Dependency Groups
 ^^^^^^^^^^^^^^^^^
