@@ -112,7 +112,9 @@ jobs:
 
       - name: Install package + extras
         run: |
-          uv venv .venv
+          # Reuse a cache-restored venv when present; `uv venv` errors out on
+          # an existing directory and `--clear` would defeat the cache.
+          [ -f .venv/bin/activate ] || uv venv .venv
           source .venv/bin/activate
           # [local] for torch/transformers/timm needed by visual-extractor tests;
           # [dev] for pytest + ruff; [benchmark] for sentence-transformers/wandb
