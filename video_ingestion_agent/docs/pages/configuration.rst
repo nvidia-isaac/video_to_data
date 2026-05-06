@@ -381,6 +381,52 @@ Environment Variables
    * - ``OPENAI_API_KEY``
      - API key for OpenAI backend
 
+Optional integrations
+---------------------
+
+The webapp can optionally surface integrations with sibling packages by
+adding a top-level block to the webapp YAML. Omit (or set to ``null``)
+to hide the corresponding tab.
+
+Reconstruction
+^^^^^^^^^^^^^^
+
+The webapp ships a Reconstruct tab as a worked integration example with
+the sibling ``reconstruction`` package (hand + object 3D reconstruction
+from a video segment). The tab is **not** part of the agent itself; the
+config block is optional. To enable, add a ``reconstruction:`` block to
+your webapp YAML:
+
+.. code-block:: yaml
+
+   reconstruction:
+     out_root: outputs/webapp/reconstruction
+
+     weights:
+       moge:                /tmp/moge_weights
+       grounding_dino:      /tmp/gd_weights
+       sam2:                /tmp/sam2_weights
+       sam3d:               /tmp/sam3d_weights
+       foundation_pose:     /tmp/fp_weights
+       hand_reconstruction: /tmp/hand_weights
+
+     images:
+       moge:            v2d_moge:latest
+       grounding_dino:  v2d_grounding_dino:latest
+       sam2:            v2d_sam2:latest
+       sam3d:           v2d_sam3d:latest
+       mesh:            v2d_mesh:latest
+       foundation_pose: v2d_foundation_pose:latest
+       hand_alignment:  v2d_hand_alignment:latest
+
+     reconstruction_python: ../reconstruction/.venv/bin/python
+     reconstruction_root:   ../reconstruction
+
+The integration depends on Docker (~110 GB of images), MANO + BMC weight
+staging, and a working ``reconstruction/.venv``. See
+``src/video_ingestion_agent/reconstruction_interface/ego_e2e/README.md``
+for the full setup recipe.
+
 See Also
 --------
 
