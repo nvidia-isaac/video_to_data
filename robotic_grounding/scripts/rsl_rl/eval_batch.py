@@ -57,6 +57,7 @@ from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 import isaaclab_tasks  # noqa: F401
 import robotic_grounding.tasks  # noqa: F401
 from robotic_grounding.tasks.scene_utils import SceneConfig, apply_scene_config
+from viewer_utils import autoframe_viewer
 
 from isaaclab_tasks.utils.hydra import hydra_task_config
 
@@ -88,6 +89,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg, agent_cfg):
     if env_cfg.motion_file is not None:
         scene_cfg = SceneConfig.from_motion_file(env_cfg.motion_file)
         apply_scene_config(env_cfg, scene_cfg)
+        autoframe_viewer(env_cfg, scene_cfg.motion_file)
     env_cfg.seed = agent_cfg.seed
     env_cfg.sim.device = args_cli.device if args_cli.device else env_cfg.sim.device
 
@@ -146,9 +148,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg, agent_cfg):
                     my_ep_tracking_len[i] = _cmd.tracking_lengths[i].float()
 
         data = completed[: args_cli.eval_episodes]
-        ratios = [
-            min(max(e[0] - _warmup, 0), traj_len) / max(traj_len, 1) for e in data
-        ]
+        _usable = max(traj_len - _warmup, 1)
+        ratios = [min(max(e[0] - _warmup, 0), _usable) / _usable for e in data]
         n_full = sum(1 for r in ratios if r >= 0.99)
         mean_r = sum(ratios) / len(ratios)
         std_r = (

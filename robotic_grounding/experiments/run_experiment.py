@@ -191,6 +191,7 @@ def generate_single_task_workflow(
 ) -> str:
     """Generate OSMO workflow YAML for a single training task."""
     osmo_cfg = config.get("osmo", {})
+    storage_gi = osmo_cfg.get("storage_gi", 200)
     # OSMO runs in a fresh container; local checkpoint paths don't exist.
     # - osmo.resume_from: false -> train from scratch
     # - osmo.resume_from: "<local path>" -> upload via dataset input (localpath) at submit time
@@ -216,6 +217,10 @@ def generate_single_task_workflow(
         overrides = {**overrides, **osmo_cfg["run_name_overrides"]}
     seed = config.get("seed")
     video = config.get("video", True)
+    eval_video_only = config.get("eval_video_only", False)
+    video_length = config.get("video_length")
+    video_interval = config.get("video_interval")
+    eval_episodes_per_save = config.get("eval_episodes_per_save", 0)
     motion_file = config.get("motion_file")
     num_envs = config.get("num_envs")
     max_iterations = config.get("max_iterations")
@@ -223,7 +228,30 @@ def generate_single_task_workflow(
     zero_actor = config.get("zero_actor", False)
     use_primitive_urdfs = config.get("use_primitive_urdfs", False)
     logger = config.get("logger", "wandb")
-    log_project_name = config.get("log_project_name", "v2p_hands")
+    log_project_name = config.get("wandb_project") or config.get(
+        "log_project_name", "v2p_hands"
+    )
+    # Derive motion_file from OSMO dataset path when motion_data_url is set, matching
+    # the behaviour of generate_multi_sequence_workflow so single-sequence relaunch
+    # batches use the same path format as the original multi-sequence workflow.
+    urdfs_src_path = None
+    if (
+        motion_file is None
+        and motion_data_url
+        and "sequences" in config
+        and config["sequences"]
+    ):
+        seq_id = config["sequences"][0]
+        dataset_name = motion_data_url.rstrip("/").split("/")[-1]
+        sequences_subfolder = osmo_cfg.get("sequences_subfolder", "arctic_processed")
+        if sequences_subfolder == "arctic_processed":
+            dataset_seq_id = seq_id.replace("arctic_", "dataset_", 1)
+        else:
+            dataset_seq_id = seq_id
+        motion_file = f"{{{{input:0}}}}/{dataset_name}/{sequences_subfolder}/sequence_id={dataset_seq_id}/robot_name=sharpa_wave"
+        urdfs_subfolder = osmo_cfg.get("urdfs_subfolder")
+        if urdfs_subfolder:
+            urdfs_src_path = f"{{{{input:0}}}}/{dataset_name}/{urdfs_subfolder}"
 
     entry = make_entry_script(
         run_name,
@@ -234,12 +262,17 @@ def generate_single_task_workflow(
         num_envs=num_envs,
         max_iterations=max_iterations,
         video=video,
+        eval_video_only=eval_video_only,
+        video_length=video_length,
+        video_interval=video_interval,
+        eval_episodes_per_save=eval_episodes_per_save,
         task=task,
         logger=logger,
         log_project_name=log_project_name,
         zero_actor=zero_actor,
         use_primitive_urdfs=use_primitive_urdfs,
         use_timestamp=True,
+        urdfs_src_path=urdfs_src_path,
     )
     # Escape for YAML literal block
     entry_indent = "\n".join("        " + line for line in entry.split("\n"))
@@ -274,7 +307,7 @@ workflow:
       cpu: 6
       gpu: 1
       memory: 120Gi
-      storage: 200Gi
+      storage: {storage_gi}Gi
 
   tasks:
   - name: train
@@ -309,7 +342,7 @@ def _seq_to_key(seq_id: str) -> str:
 
 
 def generate_multi_sequence_workflow(
-    exp_id: str, config: dict, overrides: dict[str, str]
+    exp_id: str, config: dict, overrides: dict[str, str], workflow_label: str = ""
 ) -> str:
     """Generate a multi-task OSMO workflow for single-stage configs with multiple sequences.
 
@@ -317,13 +350,18 @@ def generate_multi_sequence_workflow(
     """
     sequences = config.get("sequences", [])
     osmo_cfg = config.get("osmo", {})
+    storage_gi = osmo_cfg.get("storage_gi", 200)
     motion_data_url = osmo_cfg.get("motion_data_url")
     run_name_suffix = config.get("run_name_suffix", exp_id)
     project = config.get("wandb_project", "v2p_hands")
     eval_video_only = config.get("eval_video_only", False)
     video = config.get("video", True)
+    video_length = config.get("video_length")
+    video_interval = config.get("video_interval")
+    eval_episodes_per_save = config.get("eval_episodes_per_save", 0)
     seed = config.get("seed")
     num_envs = config.get("num_envs")
+    task = config.get("task", "Sharpa-V2P-v0")
     use_primitive_urdfs = config.get("use_primitive_urdfs", False)
     wandb_api_key = os.environ.get("WANDB_API_KEY", "")
     if not wandb_api_key:
@@ -338,14 +376,27 @@ def generate_multi_sequence_workflow(
 
         if motion_data_url:
             dataset_name = motion_data_url.rstrip("/").split("/")[-1]
-            dataset_seq_id = seq_id.replace("arctic_", "dataset_", 1)
-            motion_file = f"{{{{input:0}}}}/{dataset_name}/arctic_processed/sequence_id={dataset_seq_id}/robot_name=sharpa_wave"
+            sequences_subfolder = osmo_cfg.get(
+                "sequences_subfolder", "arctic_processed"
+            )
+            if sequences_subfolder == "arctic_processed":
+                dataset_seq_id = seq_id.replace("arctic_", "dataset_", 1)
+            else:
+                dataset_seq_id = seq_id
+            motion_file = f"{{{{input:0}}}}/{dataset_name}/{sequences_subfolder}/sequence_id={dataset_seq_id}/robot_name=sharpa_wave"
             inputs_block = (
                 "\n    inputs:\n" "    - dataset:\n" f"        name: {dataset_name}\n"
+            )
+            urdfs_subfolder = osmo_cfg.get("urdfs_subfolder")
+            urdfs_src_path = (
+                f"{{{{input:0}}}}/{dataset_name}/{urdfs_subfolder}"
+                if urdfs_subfolder
+                else None
             )
         else:
             motion_file = f"arctic/arctic_processed/{seq_id}/sharpa_wave"
             inputs_block = ""
+            urdfs_src_path = None
 
         entry = make_entry_script(
             run_name,
@@ -355,10 +406,15 @@ def generate_multi_sequence_workflow(
             num_envs=num_envs,
             video=video,
             eval_video_only=eval_video_only,
+            video_length=video_length,
+            video_interval=video_interval,
+            eval_episodes_per_save=eval_episodes_per_save,
+            task=task,
             logger="wandb",
             log_project_name=project,
             use_primitive_urdfs=use_primitive_urdfs,
             use_timestamp=True,
+            urdfs_src_path=urdfs_src_path,
         )
         entry_indent = "\n".join("        " + line for line in entry.split("\n"))
         task_name = f"train-{seq_key.replace('_', '-')}"
@@ -391,13 +447,13 @@ def generate_multi_sequence_workflow(
         f"      cpu: 6\n"
         f"      gpu: 1\n"
         f"      memory: 120Gi\n"
-        f"      storage: 200Gi\n"
+        f"      storage: {storage_gi}Gi\n"
         f"\n"
         f"  tasks:\n"
         f"{tasks_str}\n"
         f"\n"
         f"default-values:\n"
-        f"  workflow_name: robotic_grounding_{exp_id}\n"
+        f"  workflow_name: robotic_grounding_{exp_id}{'_' + workflow_label if workflow_label else ''}\n"
         f"  image: nvcr.io/nvstaging/isaac-amr/robotic-grounding:latest\n"
     )
 
@@ -430,6 +486,10 @@ def _print_workflow(exp_id: str, config: dict) -> None:
         resume_from = None
     seed = config.get("seed")
     video = config.get("video", True)
+    eval_video_only = config.get("eval_video_only", False)
+    video_length = config.get("video_length")
+    video_interval = config.get("video_interval")
+    eval_episodes_per_save = config.get("eval_episodes_per_save", 0)
     motion_file = config.get("motion_file")
     num_envs = config.get("num_envs")
     max_iterations = config.get("max_iterations")
@@ -449,6 +509,10 @@ def _print_workflow(exp_id: str, config: dict) -> None:
         num_envs=num_envs,
         max_iterations=max_iterations,
         video=video,
+        eval_video_only=eval_video_only,
+        video_length=video_length,
+        video_interval=video_interval,
+        eval_episodes_per_save=eval_episodes_per_save,
         task=task,
         logger=logger,
         log_project_name=log_project_name,
@@ -484,6 +548,7 @@ def run_osmo(
     image: str | None = None,
     priority: str = "NORMAL",
     dry_run: bool = False,
+    workflow_label: str = "",
 ) -> None:
     """Generate workflow YAML and submit to OSMO via run_osmo.py."""
     if not dry_run:
@@ -508,7 +573,9 @@ def run_osmo(
         workflow_content = generator(exp_id, config)
     elif "sequences" in config and len(config["sequences"]) > 1:
         _, overrides = get_effective_overrides(config, osmo=True)
-        workflow_content = generate_multi_sequence_workflow(exp_id, config, overrides)
+        workflow_content = generate_multi_sequence_workflow(
+            exp_id, config, overrides, workflow_label
+        )
     else:
         run_name, overrides = get_effective_overrides(config, osmo=True)
         if "osmo" in config and "run_name_suffix" in config["osmo"]:
@@ -539,6 +606,8 @@ def run_osmo(
             exp_name = "exp10_sequence_parallel"
         elif exp_id == "exp11":
             exp_name = "exp11_zeroinit"
+        if workflow_label:
+            exp_name = f"{exp_name}_{workflow_label}"
         cmd = [
             sys.executable,
             str(run_osmo_py),
@@ -904,8 +973,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--pool",
-        default="isaac-dev-l40s-04",
-        help="OSMO pool (default: isaac-dev-l40s-04)",
+        default=None,
+        help="OSMO pool (default: from config osmo.pool, or isaac-dev-l40s-04)",
     )
     parser.add_argument(
         "--build-image", action="store_true", help="Build and push image before OSMO"
@@ -938,6 +1007,11 @@ def main() -> None:
         "--run-name-prefix",
         default=None,
         help="Prefix to prepend to W&B run names (e.g. 'exp48_')",
+    )
+    parser.add_argument(
+        "--workflow-label",
+        default="",
+        help="Label appended to the OSMO workflow name for descriptive identification (e.g. 'init', 'rerun_2')",
     )
     args = parser.parse_args()
 
@@ -987,14 +1061,17 @@ def main() -> None:
         # Image precedence: CLI --image > config osmo.image > (auto-derived from exp_id
         # when --build-image and nothing else is set, see run_osmo) > workflow YAML default.
         image = args.image or osmo_cfg.get("image")
+        pool = args.pool or osmo_cfg.get("pool", "isaac-dev-l40s-04")
+        priority = args.priority or osmo_cfg.get("priority", "NORMAL")
         run_osmo(
             args.exp_id,
             config,
-            pool=args.pool,
+            pool=pool,
             build_image=build_image,
             image=image,
-            priority=args.priority,
+            priority=priority,
             dry_run=args.dry_run,
+            workflow_label=args.workflow_label,
         )
     elif args.wandb_sweep_create:
         create_wandb_sweep(args.exp_id, config)

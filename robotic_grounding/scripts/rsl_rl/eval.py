@@ -141,6 +141,7 @@ except ImportError:
 import isaaclab_tasks  # noqa: F401
 import robotic_grounding.tasks  # noqa: F401
 from robotic_grounding.tasks.scene_utils import SceneConfig, apply_scene_config
+from viewer_utils import autoframe_viewer
 
 from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import hydra_task_config
@@ -172,12 +173,14 @@ def main(
         apply_scene_config(
             env_cfg, scene_config, use_primitive_urdfs=args_cli.use_primitive_urdfs
         )
+        autoframe_viewer(env_cfg, scene_config.motion_file)
     elif args_cli.scene_config is not None:
         env_cfg.scene_config_path = args_cli.scene_config
         scene_config = SceneConfig.from_yaml(args_cli.scene_config)
         apply_scene_config(
             env_cfg, scene_config, use_primitive_urdfs=args_cli.use_primitive_urdfs
         )
+        autoframe_viewer(env_cfg, scene_config.motion_file)
 
     # set the environment seed
     # note: certain randomizations occur in the environment initialization so we set the seed here
@@ -361,10 +364,10 @@ def main(
         data = completed[:eval_episodes]
         lens = [e[0] for e in data]
         traj_len = _cmd.retargeted_horizon
-        # Subtract warm-start steps from ep_len; cap at traj_len to keep ratio in [0, 1]
-        ratios = [
-            min(max(e[0] - _warmup, 0), traj_len) / max(traj_len, 1) for e in data
-        ]
+        # Ratio = post-warmup steps / post-warmup trajectory length so a perfectly
+        # completing episode always gives ratio = 1.0.
+        _usable = max(traj_len - _warmup, 1)
+        ratios = [min(max(e[0] - _warmup, 0), _usable) / _usable for e in data]
         full = sum(1 for r in ratios if r >= 0.99)
         mean_len = sum(lens) / len(lens)
         std_len = (
