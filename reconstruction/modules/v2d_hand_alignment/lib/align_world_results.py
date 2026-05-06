@@ -11,6 +11,10 @@ and stores them in both camera and world frame.
 Output schema: all original world_results fields plus:
   trans_aligned     (B, T, 3)  depth-aligned translation, same world units as trans
   intrins_aligned   (4,)       [fx,fy,cx,cy] of the depth image used for alignment
+  hand_scale        ()         constant uniform mesh scale that makes the
+                               aligned hand silhouette match the image under
+                               the depth intrinsics (n_pixels-weighted median
+                               of per-frame depth_image / rendered_depth)
   object_pose_cam   (T, 4, 4)  object-to-camera SE(3) [present if --object_poses_dir]
   object_pose_world (T, 4, 4)  object-to-world SE(3)  [present if --object_poses_dir]
 
@@ -75,33 +79,65 @@ def align_world_results(
     )
 
     # ------------------------------------------------------------------
-    # Per-hand per-frame depth offset → trans_aligned
+    # Per-hand per-frame depth offset → trans_aligned + per-frame scales
     # ------------------------------------------------------------------
-    # HandObjectAlignment._compute_hand does NOT apply world_scale, so
-    # compute_offset returns a delta in the same camera-space units as the
-    # rendered verts.  Rotating back with cam_R.T gives a world-space delta
-    # in those same units, which can be added directly to trans.
-    print("\nComputing per-frame depth offsets (reprojected)...")
+    # One render pass per (hand, frame) yields both the offset (used for
+    # trans_aligned) and the per-frame depth-vs-render scale (aggregated into
+    # a single global hand_scale below).
+    print("\nComputing per-frame depth alignment (offset + scale)...")
     trans_aligned = trans.copy()
-    offsets = np.full((B, T), np.nan)
+    offsets       = np.full((B, T), np.nan)
+    scales        = np.full((B, T), np.nan)
+    pixels        = np.zeros((B, T), dtype=np.int64)
 
     for h in range(B):
         side = 1 if is_right_track[h] else 0
+        # The renderer mirrors v_world.x AFTER adding trans for the left hand
+        # (render_dynhamr_video.py: `v_world[:, :, 0] = -v_world[:, :, 0]`),
+        # so for left hands we must mirror the world-space delta to keep the
+        # cam-space shift equal to delta_cam.  Derivation:
+        #   v_cam = cam_R · M · (verts_local + trans) + cam_t      # left
+        #   ⇒ delta_world = M · cam_R.T · delta_cam,   M = diag(-1, 1, 1)
         for f in tqdm(range(T), desc=f"  hand {h} ({'right' if is_right_track[h] else 'left'})",
                       unit="frame", ncols=80):
             try:
-                delta_cam   = alignment.compute_offset_reprojected(side, f)
-                delta_world = cam_R[h, f].T @ delta_cam
+                a = alignment.compute_alignment(side, f)
+                delta_world = cam_R[h, f].T @ a["offset_reprojected"]
+                if side == 0:
+                    delta_world[0] = -delta_world[0]
                 trans_aligned[h, f] += delta_world
-                offsets[h, f] = delta_cam[2]
+                offsets[h, f] = a["offset_reprojected"][2]
+                scales[h, f]  = a["scale"]
+                pixels[h, f]  = a["n_pixels"]
             except Exception as e:
-                tqdm.write(f"  hand {h} frame {f}: offset failed ({e})")
+                tqdm.write(f"  hand {h} frame {f}: alignment failed ({e})")
 
     for h in range(B):
         side = 'right' if is_right_track[h] else 'left'
         n_valid = int(np.sum(np.isfinite(offsets[h])))
-        med = float(np.nanmedian(offsets[h])) if n_valid > 0 else float('nan')
-        print(f"  hand {h} ({side}): {n_valid}/{T} valid  median dz={med:.4f}")
+        med_dz  = float(np.nanmedian(offsets[h])) if n_valid > 0 else float('nan')
+        med_s   = float(np.nanmedian(scales[h]))  if n_valid > 0 else float('nan')
+        print(f"  hand {h} ({side}): {n_valid}/{T} valid  median dz={med_dz:.4f}  median scale={med_s:.4f}")
+
+    # ------------------------------------------------------------------
+    # Aggregate per-frame scales → single global hand_scale (n_pixels-weighted)
+    # ------------------------------------------------------------------
+    # Reject frames with very small masks (occluded / clipped) or absurd
+    # scale values (a fully-occluded hand can yield wild ratios).
+    valid = (pixels >= 256) & np.isfinite(scales) & (scales > 0.2) & (scales < 5.0)
+    if valid.any():
+        s_vals = scales[valid].astype(np.float64)
+        w_vals = pixels[valid].astype(np.float64)
+        order  = np.argsort(s_vals)
+        s_sorted = s_vals[order]
+        w_cum    = np.cumsum(w_vals[order])
+        cutoff   = w_cum[-1] / 2.0
+        hand_scale = float(s_sorted[int(np.searchsorted(w_cum, cutoff))])
+        print(f"\nGlobal hand_scale = {hand_scale:.4f}  "
+              f"(weighted median over {int(valid.sum())}/{B*T} frames)")
+    else:
+        hand_scale = 1.0
+        print("\nGlobal hand_scale = 1.0  (no valid frames; alignment will not rescale)")
 
     # ------------------------------------------------------------------
     # Optional temporal smoothing of trans_aligned
@@ -129,6 +165,7 @@ def align_world_results(
     # ------------------------------------------------------------------
     out = {k: wr[k] for k in wr.files}
     out['trans_aligned'] = trans_aligned.astype(np.float32)
+    out['hand_scale']    = np.float32(hand_scale)
 
     # Store the depth intrinsics used for alignment so renderers can use them
     depth_intr = alignment.get_depth_intrinsics()   # [fx, fy, cx, cy]
@@ -175,6 +212,7 @@ def align_world_results(
     print(f"\nSaved → {output_hand_data}")
     print(f"  trans_aligned: depth-aligned world units"
           + (f", smoothed (sigma={smooth_sigma})" if smooth_sigma > 0 else ""))
+    print(f"  hand_scale:    {hand_scale:.4f}")
     if 'object_pose_cam' in out:
         print(f"  object_pose_cam / object_pose_world: {out['object_pose_cam'].shape}")
 

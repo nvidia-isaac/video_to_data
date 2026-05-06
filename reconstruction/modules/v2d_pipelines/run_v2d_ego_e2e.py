@@ -579,6 +579,8 @@ def run_v2d_ego_e2e(
 
     # -----------------------------------------------------------------------
     # Step 13: Render unaligned result (trans) for comparison
+    # Raw DynHaMR `trans` was optimized under ViPE intrinsics, so we must
+    # project it through ViPE intrinsics regardless of --depth_source.
     # -----------------------------------------------------------------------
     if not _step(f"Render unaligned (trans, {ds})", os.path.exists(render_unaligned)):
         run_render_dynhamr_video(
@@ -589,7 +591,7 @@ def run_v2d_ego_e2e(
             use_trans_aligned  = False,
             object_mesh_path   = mesh_scaled,
             object_poses_dir   = poses_smooth_dir,
-            intrinsics_path    = active_intrinsics,
+            intrinsics_path    = intrinsics_vipe,
             dev                = dev,
         )
 

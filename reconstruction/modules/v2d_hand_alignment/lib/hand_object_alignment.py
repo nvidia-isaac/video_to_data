@@ -170,37 +170,6 @@ class HandObjectAlignment:
     # Alignment
     # ------------------------------------------------------------------
 
-    def compute_offset(self, side: int, t: int) -> np.ndarray:
-        """Camera-space [dx, dy, dz] to shift the hand to match the depth image.
-
-        Renders the hand using DynHaMR intrinsics, computes the median depth
-        difference over visible, non-occluded pixels, then scales dx/dy so the
-        centroid moves along the camera ray.
-
-        Returns:
-            offset (3,) float64 in the same units as verts_cam (DynHaMR world
-            units, since _compute_hand does not apply world_scale).
-        """
-        mesh         = self.get_mesh(side, t)
-        depth_image  = self.get_depth_image(t)
-        occ_mask     = self.get_occlusion_mask(t)
-        h, w         = depth_image.shape
-        _, depth     = self.render_mesh(mesh, (w, h), self.pose_data['intrins'])
-
-        hand_mask = depth != 0
-        if occ_mask is not None:
-            hand_mask &= ~occ_mask
-
-        dz = float(np.median(depth_image[hand_mask] - depth[hand_mask]))
-
-        z = float(np.mean(mesh.vertices[:, 2]))
-        x = float(np.mean(mesh.vertices[:, 0]))
-        y = float(np.mean(mesh.vertices[:, 1]))
-        z_p = z + dz
-        return np.array([x / z * z_p - x,
-                         y / z * z_p - y,
-                         dz], dtype=np.float64)
-
     def _reproject(self, v: np.ndarray, src_intrinsics, target_intrinsics) -> np.ndarray:
         """Reproject camera-space point(s) from src to target intrinsics (z unchanged)."""
         fx,   fy,   cx,   cy   = src_intrinsics
@@ -210,41 +179,81 @@ class HandObjectAlignment:
         y_p = (z / fy_p) * (y / z * fy + cy - cy_p)
         return np.stack([x_p, y_p, np.broadcast_to(z, x_p.shape)], axis=-1)
 
-    def compute_offset_reprojected(self, side: int, t: int) -> np.ndarray:
-        """Camera-space [dx, dy, dz] accounting for DynHaMR vs depth intrinsics.
+    def compute_alignment(self, side: int, t: int) -> dict:
+        """Single render pass; returns offset, offset_reprojected, scale, n_pixels.
 
-        compute_offset renders with DynHaMR intrinsics, but the target depth image
-        was produced with different intrinsics (MoGe / ViPE).  This method applies
-        the raw depth offset to the hand centroid, then reprojects from DynHaMR
-        pixel space into depth pixel space so the x/y shift is expressed in the
-        depth image's coordinate system.
+        Renders the hand under DynHaMR (ViPE) intrinsics once and derives:
+          offset             — cam-space [dx, dy, dz] under ViPE intrinsics that
+                               shifts the hand centroid to match the depth image
+                               along its camera ray.
+          offset_reprojected — same shift but expressed in depth-image cam
+                               coordinates (used when depth intrinsics differ
+                               from ViPE).
+          scale              — median(depth_image / rendered_depth) over hand
+                               pixels.  Constant across time when the depth
+                               source disagrees with DynHaMR by a uniform scale,
+                               which is the dominant monocular failure mode.
+          n_pixels           — number of valid hand-mask pixels (use as a weight
+                               when aggregating across frames).
 
-        Returns:
-            offset (3,) float64 in depth-intrinsics camera space.
+        Raises if the hand mask is empty (e.g. fully occluded or off-image).
         """
-        offset = self.compute_offset(side, t)          # (3,) under DynHaMR intrinsics
+        mesh        = self.get_mesh(side, t)
+        depth_image = self.get_depth_image(t)
+        occ_mask    = self.get_occlusion_mask(t)
+        h, w        = depth_image.shape
+        _, rendered = self.render_mesh(mesh, (w, h), self.pose_data['intrins'])
 
-        verts   = self.right_verts_cam if side == 1 else self.left_verts_cam
-        centroid = verts[t].numpy().mean(axis=0)        # (3,) original cam-space centroid
+        hand_mask = rendered != 0
+        if occ_mask is not None:
+            hand_mask &= ~occ_mask
 
-        shifted  = centroid + offset                    # centroid after depth shift
+        n_pixels = int(hand_mask.sum())
+        if n_pixels == 0:
+            raise RuntimeError(f"empty hand mask (side={side}, t={t})")
 
-        reproj = self._reproject(
+        di = depth_image[hand_mask]
+        dr = rendered[hand_mask]
+
+        dz = float(np.median(di - dr))
+        scale = float(np.median(di / dr))
+
+        # Offset along the camera ray: shift centroid by (dx, dy, dz) so its
+        # pixel projection is unchanged but its depth becomes z + dz.
+        z = float(np.mean(mesh.vertices[:, 2]))
+        x = float(np.mean(mesh.vertices[:, 0]))
+        y = float(np.mean(mesh.vertices[:, 1]))
+        z_p = z + dz
+        offset = np.array([x / z * z_p - x,
+                           y / z * z_p - y,
+                           dz], dtype=np.float64)
+
+        # Reproject the depth-shifted centroid into the depth-image cam frame.
+        verts    = self.right_verts_cam if side == 1 else self.left_verts_cam
+        centroid = verts[t].numpy().mean(axis=0)
+        shifted  = centroid + offset
+        reproj   = self._reproject(
             shifted.reshape(1, 3),
             self.pose_data['intrins'],
             self.get_depth_intrinsics(),
         ).reshape(3)
+        offset_reprojected = (reproj - centroid).astype(np.float64)
 
-        return (reproj - centroid).astype(np.float64)
+        return {
+            "offset":             offset,
+            "offset_reprojected": offset_reprojected,
+            "scale":              scale,
+            "n_pixels":           n_pixels,
+        }
+
+    def compute_offset(self, side: int, t: int) -> np.ndarray:
+        """Backward-compat shim; prefer :meth:`compute_alignment`."""
+        return self.compute_alignment(side, t)["offset"]
+
+    def compute_offset_reprojected(self, side: int, t: int) -> np.ndarray:
+        """Backward-compat shim; prefer :meth:`compute_alignment`."""
+        return self.compute_alignment(side, t)["offset_reprojected"]
 
     def compute_scale(self, side: int, t: int) -> float:
-        """Depth scale factor: median(depth_image / rendered_depth) over hand pixels."""
-        mesh         = self.get_mesh(side, t)
-        depth_image  = self.get_depth_image(t)
-        occ_mask     = self.get_occlusion_mask(t)
-        h, w         = depth_image.shape
-        _, depth     = self.render_mesh(mesh, (w, h), self.pose_data['intrins'])
-        hand_mask = depth != 0
-        if occ_mask is not None:
-            hand_mask &= ~occ_mask
-        return float(np.median(depth_image[hand_mask] / depth[hand_mask]))
+        """Backward-compat shim; prefer :meth:`compute_alignment`."""
+        return self.compute_alignment(side, t)["scale"]
