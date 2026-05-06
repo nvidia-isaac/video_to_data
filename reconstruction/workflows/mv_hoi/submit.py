@@ -120,10 +120,10 @@ def resolve_mesh_url(
     base = f"{mesh_prefix}/{object_id}".lstrip("/")
     for method in ("einstar", "bundlesdf"):
         method_pfx = f"{base}/{method}/"
-        resp = client.list_objects_v2(Bucket=bucket, Prefix=method_pfx, MaxKeys=20)
-        for obj in resp.get("Contents", []):
-            if any(obj["Key"].endswith(ext) for ext in (".obj", ".glb", ".ply", ".stl")):
-                return f"{mesh_base.rstrip('/')}/{object_id}/{method}/"
+        aligned_key = f"{method_pfx}output_aligned.glb"
+        resp = client.list_objects_v2(Bucket=bucket, Prefix=aligned_key, MaxKeys=1)
+        if any(obj["Key"] == aligned_key for obj in resp.get("Contents", [])):
+            return f"{mesh_base.rstrip('/')}/{object_id}/{method}/"
     return None
 
 

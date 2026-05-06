@@ -95,9 +95,9 @@ workflow:
     - path: /tmp/entry.sh
       contents: |-
         set -ex
-        MESH=$(find {{input:2}} -type f \( -name "*.obj" -o -name "*.glb" -o -name "*.ply" -o -name "*.stl" \) | head -1)
-        if [ -z "$MESH" ]; then
-          echo "ERROR: No mesh file found in {{input:2}}"
+        MESH={{input:2}}/output_aligned.glb
+        if [ ! -f "$MESH" ]; then
+          echo "ERROR: $MESH not found"
           ls -laR {{input:2}}
           exit 1
         fi

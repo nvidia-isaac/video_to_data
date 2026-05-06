@@ -226,6 +226,49 @@ def test_auto_submit_force_bypasses_blacklist(monkeypatch, tmp_path):
     assert submitted == [("dataset_a", "blocked_sequence", True)]
 
 
+class _FakeMeshClient:
+    def __init__(self, keys):
+        self.keys = keys
+
+    def list_objects_v2(self, *, Bucket, Prefix, MaxKeys):
+        contents = [
+            {"Key": key}
+            for key in self.keys
+            if key.startswith(Prefix)
+        ][:MaxKeys]
+        return {"Contents": contents}
+
+
+def test_resolve_mesh_url_requires_aligned_mesh():
+    client = _FakeMeshClient([
+        "mesh/mug/einstar/output.glb",
+        "mesh/mug/bundlesdf/output_aligned.glb",
+    ])
+
+    assert submit.resolve_mesh_url(
+        client,
+        "container",
+        "mesh",
+        "mug",
+        "swift://host/AUTH_account/container/mesh",
+    ) == "swift://host/AUTH_account/container/mesh/mug/bundlesdf/"
+
+
+def test_resolve_mesh_url_ignores_output_aligned_prefix_without_exact_file():
+    client = _FakeMeshClient([
+        "mesh/mug/einstar/output_aligned.glb.bak",
+        "mesh/mug/bundlesdf/output.glb",
+    ])
+
+    assert submit.resolve_mesh_url(
+        client,
+        "container",
+        "mesh",
+        "mug",
+        "swift://host/AUTH_account/container/mesh",
+    ) is None
+
+
 def test_refresh_waiting_auto_blacklists_repeated_failure(
     monkeypatch, tmp_path, capsys,
 ):
