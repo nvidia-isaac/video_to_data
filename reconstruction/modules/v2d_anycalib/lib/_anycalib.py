@@ -29,35 +29,25 @@ _CAM_ID_TO_DISTORTION: dict[str, tuple[str, int]] = {
 _model_cache: dict[str, object] = {}
 
 
-def _resolve_checkpoint(weights_path: str) -> str:
-    """Return a path AnyCalib can load (file or HF-style snapshot directory)."""
-    if not os.path.exists(weights_path):
-        raise FileNotFoundError(f"AnyCalib weights not found at {weights_path}")
-    if os.path.isfile(weights_path):
-        return weights_path
-    for name in ("model.safetensors", "pytorch_model.bin", "model.pt"):
-        candidate = os.path.join(weights_path, name)
-        if os.path.exists(candidate):
-            return weights_path  # AnyCalib loads the directory itself
-    return weights_path
-
-
 def _get_model(weights_path: str, model_id: str = "anycalib_gen"):
-    """Load (and cache) an AnyCalib model. ``model_id`` selects the checkpoint
-    variant (anycalib_pinhole / radial / gen / dist)."""
+    """Load (and cache) an AnyCalib model.
+
+    ``weights_path`` is treated as the ``TORCH_HOME`` cache directory (AnyCalib
+    pulls both its checkpoint and the DINOv2 backbone via ``torch.hub``).
+    ``model_id`` selects the variant (anycalib_pinhole / gen / dist / edit).
+    """
     cache_key = f"{model_id}::{weights_path}"
     if cache_key in _model_cache:
         return _model_cache[cache_key]
 
-    from anycalib import AnyCalib  # imported lazily so the lib is import-safe
+    weights_path = os.path.abspath(weights_path)
+    if not os.path.exists(weights_path):
+        raise FileNotFoundError(f"AnyCalib weights cache not found at {weights_path}")
+    os.environ["TORCH_HOME"] = weights_path
 
-    ckpt = _resolve_checkpoint(weights_path)
-    print(f"Loading AnyCalib ({model_id}) from {ckpt}")
-    model = AnyCalib(model_id=model_id)
-    state_loader = getattr(model, "load_pretrained", None)
-    if callable(state_loader):
-        state_loader(ckpt)
-    model = model.to("cuda").eval()
+    from anycalib import AnyCalib  # imported after TORCH_HOME is set
+    print(f"Loading AnyCalib '{model_id}' (TORCH_HOME={weights_path})")
+    model = AnyCalib(model_id=model_id).to("cuda").eval()
     _model_cache[cache_key] = model
     return model
 

@@ -4,7 +4,7 @@ import subprocess
 
 from v2d.anycalib.docker._config import IMAGE_NAME, MODULES_DIR
 
-DEFAULT_MODEL_ID = "javrtg/anycalib_gen"
+DEFAULT_MODEL_ID = "anycalib_gen"
 
 
 def run_download(output_dir: str, model_id: str = DEFAULT_MODEL_ID, dev: bool = False) -> None:
@@ -16,7 +16,7 @@ def run_download(output_dir: str, model_id: str = DEFAULT_MODEL_ID, dev: bool = 
         "docker", "run", "--rm",
         "--gpus", "all",
         "--user", f"{os.getuid()}:{os.getgid()}",
-        "-e", "HF_HOME=/tmp/hf_cache",
+        "-e", "TORCH_HOME=/data/weights",
         "-v", f"{output_dir}:/data/weights",
     ]
     if dev:
@@ -34,7 +34,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Download AnyCalib checkpoint")
     parser.add_argument("--output_dir", required=True, help="Output directory for checkpoint")
     parser.add_argument("--model_id", type=str, default=DEFAULT_MODEL_ID,
-                        help="HF repo id (default: javrtg/anycalib_gen)")
+                        help="AnyCalib variant: anycalib_pinhole|gen|dist|edit")
     parser.add_argument("--dev", action="store_true", help="Mount local modules for development")
     args = parser.parse_args()
     run_download(output_dir=args.output_dir, model_id=args.model_id, dev=args.dev)
