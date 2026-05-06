@@ -15,6 +15,7 @@ def mesh_render_image(
     mesh: Mesh,
     intrinsics: CameraIntrinsics,
     background: Image | None = None,
+    renderer=None,
 ) -> Image:
     """
     Render an RGB image of the mesh from a camera at the origin.
@@ -24,6 +25,11 @@ def mesh_render_image(
 
     If background is provided, the rendered mesh is alpha-composited over it.
     Otherwise background pixels are black (0, 0, 0).
+
+    renderer: optional pre-created pyrender.OffscreenRenderer. When provided it is
+    reused and not deleted on return, which avoids the per-frame OpenGL context
+    overhead in batch render loops. When None (default), a renderer is created and
+    deleted automatically.
 
     Requires pyrender and an offscreen OpenGL backend.
     """
@@ -47,11 +53,14 @@ def mesh_render_image(
     )
     scene.add(camera, pose=_CV_TO_GL)
 
-    r = pyrender.OffscreenRenderer(intrinsics.width, intrinsics.height)
+    owned = renderer is None
+    if owned:
+        renderer = pyrender.OffscreenRenderer(intrinsics.width, intrinsics.height)
     try:
-        color, _ = r.render(scene, flags=pyrender.RenderFlags.RGBA)
+        color, _ = renderer.render(scene, flags=pyrender.RenderFlags.RGBA)
     finally:
-        r.delete()
+        if owned:
+            renderer.delete()
 
     if background is None:
         return Image(data=color[:, :, :3].astype(np.uint8))

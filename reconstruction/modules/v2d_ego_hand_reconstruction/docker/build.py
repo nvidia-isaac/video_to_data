@@ -7,15 +7,19 @@ upstream IsaacTeleop.
 import subprocess
 from pathlib import Path
 
-from v2d_ego_hand_reconstruction.docker._config import VENDOR_DIR
+from v2d_ego_hand_reconstruction.docker._config import MODULE_DIR, VENDOR_DIR
+
+
+def _sync_vendor() -> None:
+    """Fetch vendored sources from IsaacTeleop if not already present."""
+    subprocess.run([str(Path(MODULE_DIR) / "sync.sh")], check=True)
 
 
 def _run_vendor_script(script: str, *args: str) -> None:
     vendor = Path(VENDOR_DIR)
     if not vendor.is_dir():
-        raise FileNotFoundError(
-            f"{vendor} not found. Run sync.sh first to fetch vendored sources."
-        )
+        print(f"{vendor} not found. Running sync.sh to fetch vendored sources...")
+        _sync_vendor()
     subprocess.run(
         [str(vendor / "docker" / script), *args],
         check=True,
