@@ -14,7 +14,7 @@
 # and avoids duplicating that lint-quality check.
 #
 # To add a new package: append it to `matrix.package`, add its source
-# globs to the `paths:` filter, and add a list item to docs_root/index.html.
+# globs to the `paths:` filter, and add a list item to docs/index.html.
 
 name: Docs
 
@@ -24,7 +24,7 @@ on:
     paths:
       - 'video_ingestion_agent/docs/**'
       - 'video_ingestion_agent/pyproject.toml'
-      - 'docs_root/**'
+      - 'docs/**'
       - '.github/workflows/docs.yml'
   # Build (but don't deploy) on PRs targeting main so changes to the
   # workflow itself or to package docs are validated before merge.
@@ -35,7 +35,7 @@ on:
     paths:
       - 'video_ingestion_agent/docs/**'
       - 'video_ingestion_agent/pyproject.toml'
-      - 'docs_root/**'
+      - 'docs/**'
       - '.github/workflows/docs.yml'
   workflow_dispatch: {}
 
@@ -110,13 +110,13 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Checkout (for docs_root/index.html)
+      - name: Checkout (for docs/index.html)
         uses: actions/checkout@v4
 
       - name: Stage landing page
         run: |
           mkdir -p _site
-          cp docs_root/index.html _site/index.html
+          cp docs/index.html _site/index.html
 
       - name: Download all package docs artifacts
         uses: actions/download-artifact@v4
