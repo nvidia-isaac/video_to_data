@@ -25,7 +25,83 @@ What's working:
 What still blocks public flip: a handful of internal-infrastructure
 references the maintainer chose to defer until the broader monorepo
 integration is complete; an author-email placeholder; and the larger
-research/writing deliverables (benchmarks + paper).
+research/writing deliverables (benchmarks + paper). The 2026 May
+release schedule (gdoc: `2026 May Release Schedule`, 05/01–05/22)
+additionally commits to two P0 feature workstreams — reconstruction
+integration and user-story polish — tracked in **Planned P0 work**
+below.
+
+---
+
+## Planned P0 work — 2026 May release schedule
+
+The release plan (gdoc: `2026 May Release Schedule`, 05/01–05/22)
+commits to four workstreams in May. The Blockers / Cleanup /
+Verification sections below cover the public-flip polish layer; this
+section tracks the workstream-level deliverables. Cross-references
+point to the existing detail items.
+
+### 1. Code cleaning up — week 1–2 [P0]
+
+- License headers + URL sweep + monorepo move + monorepo docs URLs —
+  **DONE.** (Blockers #1, Decisions #1–2.)
+- `v2p` → `v2d` rename across runtime defaults, configs, docs —
+  **NOT STARTED.** Touches
+  `src/video_ingestion_agent/webapp/config.py:34,391`,
+  `src/video_ingestion_agent/benchmark/wandb_logger.py`, NFS examples
+  in `docs/pages/deployment.rst`, and any `v2p`-suffixed identifiers
+  elsewhere. Overlaps with Blocker #4 (internal-path defaults) but is
+  a project-wide rename, not just path scrubbing.
+- Switch internal API entry point — **NOT STARTED.** Decide on the
+  canonical public API surface (`RetrievalAgent`,
+  `create_pipeline_graph`, webapp service entry) and migrate
+  internal-only helpers off the package `__init__`.
+- Docker: disable HF model launching to avoid heavy dependency —
+  **PARTIAL.** Public base-image swap is done (Blockers #5); default
+  install (`[server]` / `[all]`) should not pull the HF transformers /
+  local-backend stack unless `[local]` is explicitly requested.
+
+### 2. Reconstruction integration — week 2–3 [P0]
+
+End-to-end demo of video → entity graph → reconstruction. The branch
+name `liuw/integrate_reconstruction` is named for this workstream;
+nothing has shipped yet beyond the monorepo import.
+
+- **Webapp UI integration.** Wire the sibling `reconstruction` package
+  into `src/video_ingestion_agent/webapp/tabs/` so a selected
+  segment/clip can be sent to reconstruction and the result rendered
+  in-app. Open decision: cross-package import vs. subprocess vs.
+  service call.
+- **Mono-view example (mp4 + obj mesh).** Reproducible script + config
+  showing a single-camera ingestion → mesh export. Likely under
+  `examples/` (new dir) with a small fixture video.
+- **Multi-view example (rosbags).** Same as above for rosbag input.
+  Open decision: rosbag reader as a `[ros]` extra vs. example-only
+  optional dependency.
+
+### 3. User story & experience — week 3–4 [P0]
+
+- **Brev integration / agentic skills.** Package the retrieval agent
+  as a Brev skill so end users don't have to clone the repo.
+  **NOT STARTED.**
+- **Release assets.** Teaser image / hero video for the README and
+  landing page. Architecture diagram already exists
+  (`docs/images/video_ingestion_agent_overview.jpg`); still owe a
+  teaser output sample and social-card art. **NOT STARTED.**
+- **WebUI improvements.** Polish pass on `webapp/tabs/` — empty-state
+  copy, error surfaces, loading states for long ingestion runs.
+  **NOT STARTED.**
+- **Seamless deployment experience.** One-command quickstart on a
+  clean GPU VM. Verification item #2 (fresh-clone fresh-venv `[all]`
+  install) is the gate. **PARTIAL** — Dockerfile swap done, end-to-end
+  VM run not yet exercised.
+
+### 4. Tech report — week 4–5 [P1]
+
+See **Outstanding deliverables A** (extended below) and **B** for
+per-item detail. Workstream covers benchmarks (segmentation,
+retrieval, token usage, processing time, scalability) plus the paper
+draft.
 
 ---
 
@@ -155,8 +231,31 @@ not part of the blocker pass.
   (`/mnt/amlfs-02/shared/liuw/v2p/hot3d/...`); needs a portable
   fixture or a download script before the benchmark is reproducible
   externally.
-- **Output:** results table in `docs/pages/benchmark.rst` (currently
-  covers design, not numbers) and a section in the paper.
+- **HoT3D variant — labels from contact data.** Plan calls for using
+  HoT3D contact-data annotations (rather than image-only labels) as
+  ground truth for segmentation. Partially scaffolded in
+  `src/video_ingestion_agent/benchmark/evaluate_hot3d.py`; still owe
+  the contact-label loader + comparison metric.
+- **Retrieval hit-rate benchmark.** Treat EPIC-KITCHENS / HoT3D
+  ground truth as query targets and measure clip-level retrieval
+  hit-rate from `RetrievalAgent`. Separate harness from the
+  segmentation eval above — starts from an already-built `outputs/`
+  database.
+- **Retrieval agent-setup comparison.** Parallel vs. sequential
+  decomposition, step-budget sensitivity, hierarchical-relaxation
+  depth. Reuses the hit-rate harness with config sweeps.
+- **Token-usage benchmark + optimization.** Per-stage prompt-token /
+  output-token cost across the ingestion + retrieval pipelines.
+  Identify prompt-caching opportunities and redundant re-encodes.
+- **Processing-time benchmark + optimization.** Wall-clock per stage
+  (segment / verify / extract / embed / write) at fixed video length.
+  Tunables: vLLM TP size, embedding batch size, frame stride.
+- **Scalability analysis.** Multi-shard ingestion throughput vs.
+  number of GPUs (1, 2, 4, 8) and SQLite WAL contention floor at
+  scale.
+- **Output:** results tables in `docs/pages/benchmark.rst`
+  (currently covers design, not numbers) and corresponding sections
+  in the paper.
 
 ### B. Finish the paper draft
 

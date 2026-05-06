@@ -39,6 +39,12 @@ class AppConfig:
     default_clips_dir: str = "outputs/clips"
     config_dir: str = "configs"
 
+    # Reconstruction (cross-package chain via examples/). Loaded from the
+    # `reconstruction:` block of the webapp config file. None disables the
+    # tab gracefully — users who don't have the v2d_* containers built can
+    # still use ingestion + retrieval.
+    reconstruction: dict | None = None
+
     # Default configs
     default_ingestion_config: str = "configs/ingestion.yaml"
     default_retrieval_config: str = "configs/retrieval.yaml"
@@ -272,6 +278,44 @@ class AppConfig:
             margin-top: 12px;
             border-radius: 10px !important;
         }
+
+        /* ── Reconstruction tab ── */
+        .recon-shell { padding: 0 8px 16px; }
+        .recon-bar {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin: 12px 0 18px;
+        }
+        .recon-stage {
+            padding: 6px 12px;
+            border-radius: 18px;
+            border: 1px solid var(--border-color-primary);
+            font-size: 13px;
+            font-weight: 600;
+        }
+        .recon-pending { color: var(--body-text-color-subdued); }
+        .recon-running {
+            color: #76B900;
+            border-color: #76B900;
+            box-shadow: 0 0 8px rgba(118,185,0,0.3);
+            animation: recon-pulse 1.4s ease-in-out infinite;
+        }
+        .recon-ok {
+            color: #76B900;
+            border-color: #76B900;
+            background: rgba(118,185,0,0.07);
+        }
+        .recon-err {
+            color: #e53935;
+            border-color: #e53935;
+            background: rgba(229,57,53,0.07);
+        }
+        @keyframes recon-pulse {
+            0%, 100% { box-shadow: 0 0 6px rgba(118,185,0,0.3); }
+            50%      { box-shadow: 0 0 14px rgba(118,185,0,0.6); }
+        }
+        .recon-log-accordion { margin-top: 12px; }
     """
 
     dark_mode_head: str = """
@@ -318,6 +362,9 @@ class AppConfig:
         for key, value in data.items():
             if hasattr(config, key):
                 setattr(config, key, value)
+        # Pass through `reconstruction:` block as-is (parsed by the service).
+        if "reconstruction" in data:
+            config.reconstruction = data["reconstruction"]
         return config
 
     @classmethod
