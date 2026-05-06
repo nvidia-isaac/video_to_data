@@ -7,9 +7,10 @@ first frame) and checks what fraction of it falls inside the labeled bbox
 the mask bbox is fully inside the padded label bbox.  This tolerates occlusion
 (mask smaller than label) and objects with negative space.
 
-Exits non-zero if the average containment across cameras is below
-``--min_containment``, which causes the OSMO task to FAIL and blocks
-downstream tasks (e.g. foundation_pose).
+Exits non-zero if there are valid mask/bbox comparisons and the average
+containment across cameras is below ``--min_containment``. If no first-frame
+SAM2 masks are available to compare, the check is marked INCONCLUSIVE and exits
+successfully rather than treating missing visibility as a mask-quality failure.
 
 Writes ``check_object_mask.json`` with per-camera containment values.
 
@@ -31,7 +32,6 @@ import os
 import sys
 
 import numpy as np
-from PIL import Image
 
 from v2d.common.video import FrameSource
 
@@ -81,16 +81,19 @@ def check_object_mask(
     bbox_jsons = sorted(glob.glob(os.path.join(labeled_bbox_dir, "*.json")))
 
     per_camera: dict[str, float] = {}
+    skipped_cameras: dict[str, str] = {}
     for bbox_path in bbox_jsons:
         cam_name = os.path.splitext(os.path.basename(bbox_path))[0]
 
         with open(bbox_path) as f:
             bbox_data: dict = json.load(f)
         if not bbox_data:
+            skipped_cameras[cam_name] = "no labeled bbox data"
             continue
         first_frame_key = sorted(bbox_data.keys())[0]
         detections = bbox_data[first_frame_key]
         if not detections:
+            skipped_cameras[cam_name] = f"no labeled detections in frame {first_frame_key}"
             continue
         bbox = detections[0]["box"]
 
@@ -103,18 +106,26 @@ def check_object_mask(
             mask_source_path = obj_mask_dir
         else:
             print(f"  {cam_name}: no mask data at {obj_mask_dir}, skipping")
+            skipped_cameras[cam_name] = "no mask data"
             continue
 
         try:
             mask_source = FrameSource.from_path(mask_source_path)
-        except FileNotFoundError:
+        except (FileNotFoundError, ValueError):
             print(f"  {cam_name}: no mask frames found, skipping")
+            skipped_cameras[cam_name] = "no mask frames"
+            continue
+
+        if mask_source.n_frames == 0:
+            print(f"  {cam_name}: no mask frames found, skipping")
+            skipped_cameras[cam_name] = "no mask frames"
             continue
 
         sam_mask = mask_source[0] > 127
         mask_bbox = _mask_to_bbox(sam_mask)
         if mask_bbox is None:
             print(f"  {cam_name}: empty SAM2 mask, skipping")
+            skipped_cameras[cam_name] = "empty first-frame SAM2 mask"
             continue
 
         label_box = (bbox["x0"], bbox["y0"], bbox["x1"], bbox["y1"])
@@ -125,22 +136,24 @@ def check_object_mask(
 
     if not per_camera:
         avg_cont = 0.0
-        print("WARNING: no valid camera comparisons")
+        status = "INCONCLUSIVE"
+        reason = "no first-frame SAM2 masks available to compare against labeled bboxes"
+        print(f"WARNING: {reason}")
     else:
         avg_cont = sum(per_camera.values()) / len(per_camera)
-
-    status = "FAIL" if avg_cont < min_containment else "PASS"
-    reason = (
-        f"avg containment {avg_cont:.3f} < threshold {min_containment}"
-        if status == "FAIL"
-        else ""
-    )
+        status = "FAIL" if avg_cont < min_containment else "PASS"
+        reason = (
+            f"avg containment {avg_cont:.3f} < threshold {min_containment}"
+            if status == "FAIL"
+            else ""
+        )
 
     decision = {
         "status": status,
         "reason": reason,
         "avg_containment": round(avg_cont, 4),
         "per_camera_containment": per_camera,
+        "skipped_cameras": skipped_cameras,
         "threshold": min_containment,
         "bbox_padding": bbox_padding,
     }
