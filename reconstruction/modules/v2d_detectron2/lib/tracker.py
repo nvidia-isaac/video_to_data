@@ -49,10 +49,13 @@ class Track:
 
     def __repr__(self) -> str:
         motion = self.total_motion()
+        span = self.trajectory_span()
+        size = self.average_bbox_size()
         return (
             f"Track(id={self.track_id}, frames={self.length}, "
-            f"span={self.start_frame}-{self.end_frame}, "
-            f"motion={motion:.0f}px, state={self.state.name})"
+            f"length={self.start_frame}-{self.end_frame}, "
+            f"motion={motion:.0f}px, span={span:.0f}px, "
+            f"size={size:.0f}px^2, state={self.state.name})"
         )
 
     def append(self, frame_idx: int, bbox: np.ndarray, score: float):
@@ -146,6 +149,15 @@ class Track:
             return 0.0
         centers = self._smoothed_centers()
         return float(np.hypot(np.ptp(centers[:, 0]), np.ptp(centers[:, 1])))
+
+    def average_bbox_size(self) -> float:
+        """Mean bbox area across all observations in this track, in pixels^2."""
+        if self.length < 1:
+            return 0.0
+        bboxes = self.get_bboxes()
+        widths = np.maximum(0.0, bboxes[:, 2] - bboxes[:, 0])
+        heights = np.maximum(0.0, bboxes[:, 3] - bboxes[:, 1])
+        return float(np.mean(widths * heights))
 
 
 
@@ -448,10 +460,12 @@ class IoUTracker:
                 "center"   — track whose avg bbox center is closest to image center.
                 "motion"   — track with the most total bbox-center displacement.
                 "combined" — weighted sum of normalized length, center proximity,
-                             motion, and trajectory span. Tune via *weights* dict.
+                             motion, trajectory span, and average bbox size.
+                             Tune via *weights* dict.
             weights: Weights for "combined" mode.
-                Keys: "length", "center", "motion", "span".
-                Defaults to {"length": 0.2, "center": 0.2, "motion": 0.3, "span": 0.3}.
+                Keys: "length", "center", "motion", "span", "size".
+                Defaults to {"length": 0.2, "center": 0.2, "motion": 0.25,
+                "span": 0.25, "size": 0.1}.
         """
         if not tracks:
             raise ValueError("No tracks to select from")
@@ -479,12 +493,19 @@ class IoUTracker:
             return min(tracks, key=center_dist)
 
         if method == "combined":
-            w_cfg = weights or {"length": 0.2, "center": 0.2, "motion": 0.3, "span": 0.3}
+            w_cfg = weights or {
+                "length": 0.2,
+                "center": 0.2,
+                "motion": 0.1,
+                "span": 0.2,
+                "size": 0.3,
+            }
 
             lengths = np.array([t.length for t in tracks], dtype=float)
             dists = np.array([center_dist(t) for t in tracks], dtype=float)
             motions = np.array([t.total_motion() for t in tracks], dtype=float)
             spans = np.array([t.trajectory_span() for t in tracks], dtype=float)
+            sizes = np.array([t.average_bbox_size() for t in tracks], dtype=float)
 
             def normalize(a: np.ndarray) -> np.ndarray:
                 r = a.max() - a.min()
@@ -495,6 +516,7 @@ class IoUTracker:
                 + w_cfg.get("center", 0) * (1.0 - normalize(dists))
                 + w_cfg.get("motion", 0) * normalize(motions)
                 + w_cfg.get("span", 0) * normalize(spans)
+                + w_cfg.get("size", 0) * normalize(sizes)
             )
             return tracks[int(np.argmax(scores))]
 
