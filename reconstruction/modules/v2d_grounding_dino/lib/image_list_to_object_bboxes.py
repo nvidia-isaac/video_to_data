@@ -2,7 +2,7 @@
 
 Usage:
     python -m v2d.grounding_dino.lib.image_list_to_object_bboxes \
-        --rgb_dir /data/frames \
+        --image_dir /data/frames \
         --output_path /data/bboxes.json \
         --prompt "robot arm" \
         --model_dir /data/models
@@ -96,7 +96,7 @@ def _detect(model, image_rgb: np.ndarray, prompt: str,
 
 
 def image_list_to_object_bboxes(
-    rgb_dir: str,
+    image_dir: str,
     output_path: str,
     prompt: str,
     model_dir: str,
@@ -104,7 +104,7 @@ def image_list_to_object_bboxes(
     text_threshold: float = 0.25,
 ) -> dict:
     """Run Grounding DINO on all images in a directory or HDF5 and write JSON."""
-    source = FrameSource.from_path(rgb_dir)
+    source = FrameSource.from_path(image_dir)
 
     os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
     model = _get_model(model_dir)
@@ -127,7 +127,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Grounding DINO: detect objects in a directory of images"
     )
-    parser.add_argument('--rgb_dir', required=True, help='Directory of input images')
+    parser.add_argument('--image_dir', required=True, help='Directory of input images')
     parser.add_argument('--output_path', required=True,
                         help='Output JSON file path (keyed by image stem)')
     parser.add_argument('--prompt', required=True,
@@ -144,7 +144,7 @@ def main():
     args = parser.parse_args()
 
     results = image_list_to_object_bboxes(
-        rgb_dir=args.rgb_dir,
+        image_dir=args.image_dir,
         output_path=args.output_path,
         prompt=args.prompt,
         model_dir=args.model_dir,
@@ -154,7 +154,7 @@ def main():
 
     if args.debug_output:
         from v2d.grounding_dino.lib.vis import visualize_image_list_bboxes
-        visualize_image_list_bboxes(args.rgb_dir, results, args.debug_output)
+        visualize_image_list_bboxes(args.image_dir, results, args.debug_output)
 
 
 if __name__ == '__main__':

@@ -3,7 +3,7 @@ from v2d.grounding_dino.docker._config import IMAGE_NAME, MODULES_DIR
 
 
 def run_image_list_to_object_bboxes(
-    rgb_dir: str,
+    image_dir: str,
     output_path: str,
     prompt: str,
     model_dir: str,
@@ -15,7 +15,7 @@ def run_image_list_to_object_bboxes(
     run_in_container(
         image=IMAGE_NAME,
         module="v2d.grounding_dino.lib.image_list_to_object_bboxes",
-        inputs={"rgb_dir": rgb_dir, "model_dir": model_dir},
+        inputs={"image_dir": image_dir, "model_dir": model_dir},
         outputs={"output_path": output_path, "debug_output": debug_output},
         extra_args={"prompt": prompt, "box_threshold": box_threshold, "text_threshold": text_threshold},
         dev=dev,
@@ -28,7 +28,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Grounding DINO: detect objects in image directory")
-    parser.add_argument('--rgb_dir', required=True)
+    parser.add_argument('--image_dir', required=True)
     parser.add_argument('--output_path', required=True)
     parser.add_argument('--prompt', required=True)
     parser.add_argument('--model_dir', required=True)
@@ -39,7 +39,7 @@ if __name__ == "__main__":
     parser.add_argument('--dev', action='store_true', help='Mount local modules for development')
     args = parser.parse_args()
     run_image_list_to_object_bboxes(
-        args.rgb_dir, args.output_path, args.prompt, args.model_dir,
+        args.image_dir, args.output_path, args.prompt, args.model_dir,
         box_threshold=args.box_threshold, text_threshold=args.text_threshold,
         debug_output=args.debug_output, dev=args.dev,
     )
