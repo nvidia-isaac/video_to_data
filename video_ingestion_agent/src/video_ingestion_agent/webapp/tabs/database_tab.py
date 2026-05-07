@@ -101,6 +101,7 @@ def create_database_tab(services: dict[str, Any], config: AppConfig) -> dict[str
             label="Results",
             interactive=False,
             wrap=True,
+            elem_classes=["db-results-table"],
         )
 
         # Hidden: video map data (populated on load, accessible via Videos radio)
@@ -147,6 +148,7 @@ def create_database_tab(services: dict[str, Any], config: AppConfig) -> dict[str
                 headers=["frame_id", "video_id", "timestamp", "similarity", "video_path"],
                 interactive=False,
                 wrap=True,
+                elem_classes=["db-results-table"],
             )
 
     # State

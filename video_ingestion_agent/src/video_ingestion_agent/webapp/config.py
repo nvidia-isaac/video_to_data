@@ -316,6 +316,24 @@ class AppConfig:
             50%      { box-shadow: 0 0 14px rgba(118,185,0,0.6); }
         }
         .recon-log-accordion { margin-top: 12px; }
+
+        /* ── Database tab result tables ──
+           Snake_case column names (e.g. secondary_object_id) wrap one
+           character per line on narrow columns because `wrap=True` adds
+           the .wrap class which sets `word-break: break-word`.
+           Modern Gradio renders headers as .header-cell divs (no <th>),
+           so target those directly and override the inner span styles. */
+        .db-results-table .header-cell,
+        .db-results-table .header-cell .cell-wrap,
+        .db-results-table .header-cell .cell-wrap span,
+        .db-results-table .header-cell .cell-wrap .wrap {
+            white-space: nowrap !important;
+            word-break: keep-all !important;
+            overflow-wrap: normal !important;
+            overflow: visible !important;
+            text-overflow: clip !important;
+            max-width: none !important;
+        }
     """
 
     dark_mode_head: str = """

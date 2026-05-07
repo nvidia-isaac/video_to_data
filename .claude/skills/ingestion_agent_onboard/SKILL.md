@@ -85,7 +85,8 @@ The right install profile depends on the backend the user chose in Step 0. Use t
 |--------------------------------------|---------|
 | `vllm` backend (running server locally) | `uv sync` (base ships with vLLM client + the package) |
 | `local` backend (in-process HuggingFace) | `uv sync --extra local` |
-| `api` backend (cloud) | `uv sync` |
+| `api` backend (cloud) — entity graph enabled (default) | `uv sync --extra local` (SigLIP-2 always runs locally and needs torch) |
+| `api` backend (cloud) — entity graph disabled (`--no-entity-graph` at ingest) | `uv sync` |
 | Need the webapp too (any backend) | append `--extra webapp` (e.g., `uv sync --extra local --extra webapp`) |
 | Want everything (dev + benchmark + viz + docs + ...) | `uv sync --all-extras` |
 
@@ -280,34 +281,37 @@ Ask: "Do you want the entity graph + visual search at ingest (recommended), or s
 
 #### Switch the config to api backend
 
-Edit `configs/ingestion.yaml` (or a copy):
+Edit `configs/ingestion.yaml` (or a copy). **Three things must change**, not just the backends — the shipped `vlm_model: "Qwen/Qwen3-VL-8B-Instruct"` is a vLLM model name and is *not* served by NIM Inference API under that name. If you only flip the backends and leave the model name, every VLM/LLM call returns **401 Unauthorized** (the gateway surfaces unknown-model as 401, not 404, which is misleading). Update all three:
 
 ```yaml
 models:
+  vlm_model: "openai/openai/gpt-5.2"   # ← also update; default Qwen name 401s on NIM
   vlm_backend: api
   llm_backend: api
+  # llm_model: null  # null falls back to vlm_model, so updating vlm_model is enough
   # If using a non-NIM endpoint:
   # api_base_url: https://your-endpoint/v1
   # If you'd rather put the key in YAML than env (env is preferred):
   # api_key: nvapi-...
 ```
 
+Known-good NIM Inference API model identifiers (as of 2026-05): `openai/openai/gpt-5.2` (used in this walkthrough), `openai/gpt-4o`, `google/gemini-1.5-pro`. If unsure what the user's endpoint serves, ask them to do a quick `curl` test against `https://inference-api.nvidia.com/v1/chat/completions` with a candidate model name before committing.
+
 Make the edit (or guide them to), then verify:
 
 ```bash
-grep -E "vlm_backend|llm_backend|api_base_url" configs/ingestion.yaml
+grep -E "vlm_model|vlm_backend|llm_backend|api_base_url" configs/ingestion.yaml
 ```
 
-Should show `api`, `api`.
+Should show the new model name plus `api`, `api`.
 
 #### If this fails
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | `NIM_API_KEY environment variable not set` at ingest | Env var not exported in the same shell that runs ingest | Re-export in the right shell |
-| `401 Unauthorized` from the API | Wrong key, expired, or model access not granted on the user's NIM account | Surface to user with the API host's error body |
+| `401 Unauthorized` from the API on every retry | Most common cause: wrong **model name** (NIM gateway returns 401, not 404, for unknown models). Less common: wrong key, expired, or model access not granted | First, sanity-check with `curl` (see Step 2c above) using a candidate model name. If `curl` works, the key is fine — fix `models.vlm_model` in the YAML. Only if `curl` also 401s, treat it as an auth issue |
 | Slow per-call latency | API roundtrip is inherent | For fast iteration, vllm is faster. For one-off batch runs, API is fine and avoids GPU provisioning |
-| Model not found at endpoint | The default `models.vlm_model` (`Qwen/Qwen3-VL-8B-Instruct`) may not be served by every API host | Update `models.vlm_model` to whatever the endpoint actually serves; check the host's model listing |
 | `models.api_base_url` defaulting to NIM but user is on OpenAI | Need to set `api_base_url` explicitly | Add `api_base_url: https://api.openai.com/v1` (or wherever) |
 
 No verification command here either — the next ingest will be the proof. **Confirm: "API backend configured. Ready to ingest your first video?"**
@@ -363,7 +367,9 @@ Pass: both non-zero. Tell the user the counts.
 
 | Symptom | Fix |
 |---------|-----|
-| Backend errors at ingest start (`ConnectionError`, `401 Unauthorized`, `import torch` failure) | Backend-specific: **vllm**: server crashed — `serve.py --status` / `--logs`. **local**: `import torch; torch.cuda.is_available()` should be True. **api**: re-verify `NIM_API_KEY` is exported in *this* shell and the model named in `models.vlm_model` is served by the endpoint |
+| Backend errors at ingest start (`ConnectionError`, `401 Unauthorized`, `import torch` failure) | Backend-specific: **vllm**: server crashed — `serve.py --status` / `--logs`. **local**: `import torch; torch.cuda.is_available()` should be True. **api**: re-verify `NIM_API_KEY` is exported in *this* shell and that `models.vlm_model` is a model the endpoint actually serves (the default Qwen name 401s on NIM — see Step 2c) |
+| `AttributeError: module 'cv2' has no attribute 'VideoCapture'` at segment node | Broken `opencv-python-headless` install — the `cv2/` directory is missing its `.so` extension (sometimes only `cv2/qt/` survives a partial sync). Reinstall: `uv pip install --reinstall opencv-python-headless` |
+| `ModuleNotFoundError: No module named 'torch'` at entity-graph stage | The `[local]` extra wasn't installed. SigLIP-2 always runs locally regardless of backend, so api/vllm users still need torch when entity graph is enabled. Run `uv sync --extra local` (plus any other extras already in use) |
 | `Total clips: 0` in summary | Segmentation produced nothing. Look at the actual VLM responses logged in `runs/<ts>/pipeline.log` — usually the VLM returned malformed JSON or an empty array. Try a smaller `chunk_size` or different `vlm_fps` |
 | Clips look way too short or way too long | Tune `segmentation.min_clip_s` / `max_clip_s` in the config. Kitchen tends to want 1–15 s; robot manipulation 2–10 s |
 | VLM produces generic labels ("object", "container") | Increase `models.vlm_fps` (more frames -> better visual context); or override `segmentation.system_prompt` with domain-specific guidance |
