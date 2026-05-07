@@ -18,6 +18,13 @@ OSMO workflows for the MV HOI reconstruction and calibration pipelines.
 | `processing.db`             | SQLite DB for normal runs (git-ignored)                            |
 | `processing_test.db`        | SQLite DB for `--test` runs (git-ignored)                          |
 
+## Prerequisites
+
+The workflow management scripts shell out to the `osmo` CLI. Ensure `osmo` is
+installed, on `PATH`, and authenticated before running `submit.py`, `query.py`,
+or commands that cancel/resubmit workflows. The scripts also expect the Swift
+credentials used by `config.yaml` to be available in the environment.
+
 ## Database
 
 Core tables in `processing.db`:
@@ -85,7 +92,11 @@ a running workflow.
 `refresh_waiting(dataset, pipeline)` (defined in `query.py`) polls OSMO for
 every `WAITING_WF` row and advances it to `WAITING_QC` or `FAIL`. It runs
 automatically at the top of every `query.py` and `submit.py` invocation, so
-the DB is fresh before any read or write.
+the DB is fresh before any read or write. OSMO status queries are run through a
+bounded thread pool because they are mostly CLI/network I/O; DB updates remain
+serial. Use `--refresh-workers` or `MV_HOI_REFRESH_WORKERS` to tune concurrency
+(default: CPU core count). Refresh progress is printed as simple counts so cron
+logs remain readable.
 
 `_failure_detail` only reports root-cause `FAILED` tasks in `details`;
 `FAILED_UPSTREAM` / `FAILED_CANCELED` tasks are excluded.
@@ -134,6 +145,7 @@ Auto mode scans Swift for sequences and submits up to `max_concurrent`:
 # WAITING_QC / FAIL. Use --retry_failed to include failed sequences.
 python submit.py --dataset sc_office_4exo_1 --pipeline mv_hoi_reconstruction
 python submit.py --dataset sc_office_4exo_1 --pipeline mv_hoi_reconstruction --retry_failed
+python submit.py --dataset sc_office_4exo_1 --pipeline mv_hoi_reconstruction --refresh-workers 16
 
 # Dry run (prints osmo submit command without executing):
 python submit.py ... --dry_run
@@ -210,6 +222,9 @@ python query.py --dataset <d> --pipeline <p> --latest
 
 # Include all pipelines (calibration + reconstruction) in summary/list:
 python query.py --dataset <d> --pipeline <p> --all-pipelines
+
+# Tune parallel OSMO polling during the automatic WAITING_WF refresh:
+python query.py --dataset <d> --pipeline <p> --summary --refresh-workers 16
 ```
 
 `--latest` composes with both `--summary` and the default list view.

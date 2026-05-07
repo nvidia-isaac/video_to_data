@@ -30,7 +30,7 @@ from db import (
     insert_workflow,
     update_workflow,
 )
-from query import osmo_cancel, refresh_waiting
+from query import DEFAULT_REFRESH_WORKERS, osmo_cancel, refresh_waiting
 
 DB_PATH = os.path.join(SCRIPT_DIR, "processing.db")
 TABLE = "workflows"
@@ -479,6 +479,10 @@ def main() -> None:
                         help="Build and print the osmo submit command without running it")
     parser.add_argument("--test", action="store_true",
                         help="Use workflows_test table and append _test to output paths")
+    parser.add_argument("--refresh-workers", type=int, default=DEFAULT_REFRESH_WORKERS,
+                        help="Concurrent OSMO queries for WAITING_WF refresh "
+                             f"(default: {DEFAULT_REFRESH_WORKERS}; env: "
+                             "MV_HOI_REFRESH_WORKERS)")
     args = parser.parse_args()
 
     global TABLE
@@ -502,9 +506,8 @@ def main() -> None:
 
     init_db(DB_PATH)
 
-    print("Refreshing waiting workflow statuses...")
     refresh_waiting(args.dataset, pipeline_type=args.pipeline, db_path=DB_PATH,
-                    table=TABLE)
+                    table=TABLE, max_workers=args.refresh_workers)
 
     if args.sequence:
         submit_sequence(

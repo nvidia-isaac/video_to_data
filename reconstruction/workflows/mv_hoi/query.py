@@ -14,6 +14,7 @@ List all:
 """
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
 import subprocess
@@ -36,6 +37,7 @@ from db import (
 
 DB_PATH = os.path.join(SCRIPT_DIR, "processing.db")
 TABLE = "workflows"
+DEFAULT_REFRESH_WORKERS = int(os.environ.get("MV_HOI_REFRESH_WORKERS", os.cpu_count() or 1))
 
 
 def load_config() -> dict:
@@ -128,20 +130,59 @@ def _maybe_auto_blacklist_repeated_failure(
     )
 
 
+def _query_waiting_workflow(workflow: dict) -> tuple[dict, dict]:
+    """Return (workflow row, OSMO query info) for a WAITING_WF row."""
+    osmo_id = workflow.get("osmo_workflow_id") or workflow["workflow_name"]
+    return workflow, osmo_query(osmo_id)
+
+
+def _query_waiting_workflows(
+    workflows: list[dict],
+    max_workers: int,
+) -> list[tuple[dict, dict]]:
+    """Query OSMO in parallel while leaving DB writes to the caller."""
+    if not workflows:
+        return []
+
+    worker_count = max(1, min(max_workers, len(workflows)))
+    if worker_count == 1:
+        return [_query_waiting_workflow(wf) for wf in workflows]
+
+    results: list[tuple[dict, dict]] = []
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = [
+            executor.submit(_query_waiting_workflow, wf)
+            for wf in workflows
+        ]
+        for completed_count, future in enumerate(as_completed(futures), start=1):
+            results.append(future.result())
+            if completed_count == len(futures) or completed_count % 10 == 0:
+                print(f"  refreshed {completed_count}/{len(futures)} workflow(s)")
+    return results
+
+
 def refresh_waiting(
     dataset: str,
     pipeline_type: str | None = None,
     db_path: str = DB_PATH,
     table: str = "workflows",
+    max_workers: int = DEFAULT_REFRESH_WORKERS,
 ) -> None:
     """Poll OSMO for WAITING_WF rows and advance or fail them."""
     workflows = get_workflows_by_dataset(
         dataset, pipeline_type=pipeline_type, status="WAITING_WF",
         db_path=db_path, table=table,
     )
-    for wf in workflows:
-        osmo_id = wf.get("osmo_workflow_id") or wf["workflow_name"]
-        info = osmo_query(osmo_id)
+    if not workflows:
+        print("Refreshing waiting workflow statuses: 0 WAITING_WF rows")
+        return
+
+    worker_count = max(1, min(max_workers, len(workflows)))
+    print(
+        f"Refreshing waiting workflow statuses: {len(workflows)} WAITING_WF "
+        f"row(s) with {worker_count} worker(s)"
+    )
+    for wf, info in _query_waiting_workflows(workflows, max_workers=max_workers):
         wf_status = info["status"]
         if wf_status == "COMPLETED":
             update_workflow(wf["workflow_name"], status="WAITING_QC",
@@ -277,6 +318,10 @@ def main() -> None:
                         help="Include all pipeline types in summary/list")
     parser.add_argument("--test", action="store_true",
                         help="Use workflows_test table")
+    parser.add_argument("--refresh-workers", type=int, default=DEFAULT_REFRESH_WORKERS,
+                        help="Concurrent OSMO queries for WAITING_WF refresh "
+                             f"(default: {DEFAULT_REFRESH_WORKERS}; env: "
+                             "MV_HOI_REFRESH_WORKERS)")
     args = parser.parse_args()
 
     config = load_config()
@@ -293,7 +338,7 @@ def main() -> None:
     pipeline_type = None if args.all_pipelines else args.pipeline
 
     refresh_waiting(args.dataset, pipeline_type=pipeline_type, db_path=DB_PATH,
-                    table=TABLE)
+                    table=TABLE, max_workers=args.refresh_workers)
 
     if args.sequence:
         show_sequence(args.dataset, args.sequence, args.pipeline)

@@ -359,3 +359,45 @@ def test_refresh_waiting_does_not_blacklist_different_failure_details(
         "dataset_a", "sequence_a", db_path=db_path,
     ) is None
     assert "Auto-blacklisted" not in capsys.readouterr().out
+
+
+def test_refresh_waiting_updates_multiple_workflows(monkeypatch, tmp_path):
+    db_path = _db_path(tmp_path)
+    db.insert_version("1.0.0", db_path=db_path)
+    db.insert_workflow(
+        sequence_name="sequence_done",
+        dataset="dataset_a",
+        pipeline_type="mv_calibration",
+        pipeline_version="1.0.0",
+        workflow_name="wf-done",
+        osmo_workflow_id="osmo-done",
+        status="WAITING_WF",
+        db_path=db_path,
+    )
+    db.insert_workflow(
+        sequence_name="sequence_failed",
+        dataset="dataset_a",
+        pipeline_type="mv_calibration",
+        pipeline_version="1.0.0",
+        workflow_name="wf-failed",
+        osmo_workflow_id="osmo-failed",
+        status="WAITING_WF",
+        db_path=db_path,
+    )
+
+    def fake_osmo_query(workflow_id):
+        if workflow_id == "osmo-done":
+            return {"status": "COMPLETED", "tasks": {}}
+        return {"status": "FAILED", "tasks": {"solve_calibration": "FAILED"}}
+
+    monkeypatch.setattr(query, "osmo_query", fake_osmo_query)
+
+    query.refresh_waiting(
+        "dataset_a", pipeline_type="mv_calibration", db_path=db_path,
+        max_workers=2,
+    )
+
+    assert db.get_workflow("wf-done", db_path=db_path)["status"] == "WAITING_QC"
+    failed = db.get_workflow("wf-failed", db_path=db_path)
+    assert failed["status"] == "FAIL"
+    assert failed["details"] == "task_failed: solve_calibration"
