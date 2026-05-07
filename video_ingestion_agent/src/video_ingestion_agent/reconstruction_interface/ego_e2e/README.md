@@ -68,12 +68,6 @@ helpers (EXR convert, SAM3D-transform application, intrinsics
 stabilization) that need their deps in *its* venv. None of this is torch —
 just lightweight wrappers + trimesh + OpenEXR.
 
-**Don't use** `reconstruction/scripts/install_packages.sh` — it's
-incomplete (missing `v2d_depth`, `v2d_hand_alignment/docker`,
-`v2d_mesh/docker`, `trimesh`, `OpenEXR`, `Imath`) and the integration
-will fail at run time with `ModuleNotFoundError`. Use this recipe
-instead — it's the working set:
-
 ```bash
 cd reconstruction
 uv venv

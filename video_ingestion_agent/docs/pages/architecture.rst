@@ -4,7 +4,7 @@ Architecture Overview
 Video Ingestion Agent is built around two core workflows orchestrated by
 `LangGraph <https://github.com/langchain-ai/langgraph>`_ state graphs:
 
-.. image:: /images/video_ingestion_agent_overview.jpg
+.. image:: ../images/video_ingestion_agent_overview.jpg
    :alt: Video Ingestion Agent Architecture Overview
    :align: center
 
