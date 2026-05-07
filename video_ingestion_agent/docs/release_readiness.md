@@ -64,20 +64,25 @@ point to the existing detail items.
 ### 2. Reconstruction integration — week 2–3 [P0]
 
 End-to-end demo of video → entity graph → reconstruction. The branch
-name `liuw/integrate_reconstruction` is named for this workstream;
-nothing has shipped yet beyond the monorepo import.
+name `liuw/integrate_reconstruction` is named for this workstream.
 
-- **Webapp UI integration.** Wire the sibling `reconstruction` package
-  into `src/video_ingestion_agent/webapp/tabs/` so a selected
-  segment/clip can be sent to reconstruction and the result rendered
-  in-app. Open decision: cross-package import vs. subprocess vs.
-  service call.
-- **Mono-view example (mp4 + obj mesh).** Reproducible script + config
-  showing a single-camera ingestion → mesh export. Likely under
-  `examples/` (new dir) with a small fixture video.
-- **Multi-view example (rosbags).** Same as above for rosbag input.
-  Open decision: rosbag reader as a `[ros]` extra vs. example-only
-  optional dependency.
+- **Webapp UI integration.** ✅ **DONE** (commit `0eaa4ec`). The webapp
+  ships an optional Reconstruct tab driven by
+  `src/video_ingestion_agent/reconstruction_interface/ego_e2e/run_ego_e2e.py`,
+  which subprocesses into reconstruction's `.venv` to invoke the
+  16-stage `run_v2d_ego_e2e.py` orchestrator. `[run ]/[skip]` markers
+  drive the status bar; cross-tab "Reconstruct →" jumps from the
+  Retrieve tab into the Reconstruct tab in one click. Decision:
+  subprocess into a sibling `.venv` (no cross-package Python imports
+  in the agent's `.venv`).
+- **Mono-view example (mp4 + obj mesh).** ✅ **DONE** as the integration
+  itself — the Reconstruct tab consumes ingestion's
+  `clips_final.jsonl` and yields per-segment `mesh_scaled_<ds>.obj` +
+  `render_aligned_<ds>.mp4`. Setup recipe in
+  `src/video_ingestion_agent/reconstruction_interface/ego_e2e/README.md`.
+- **Multi-view example (rosbags).** **NOT STARTED.** Deferred — open
+  decision: rosbag reader as a `[ros]` extra vs. example-only optional
+  dependency.
 
 ### 3. User story & experience — week 3–4 [P0]
 

@@ -68,6 +68,12 @@ helpers (EXR convert, SAM3D-transform application, intrinsics
 stabilization) that need their deps in *its* venv. None of this is torch —
 just lightweight wrappers + trimesh + OpenEXR.
 
+**Don't use** `reconstruction/scripts/install_packages.sh` — it's
+incomplete (missing `v2d_depth`, `v2d_hand_alignment/docker`,
+`v2d_mesh/docker`, `trimesh`, `OpenEXR`, `Imath`) and the integration
+will fail at run time with `ModuleNotFoundError`. Use this recipe
+instead — it's the working set:
+
 ```bash
 cd reconstruction
 uv venv
@@ -77,6 +83,7 @@ uv pip install \
     -e modules/v2d_depth \
     -e modules/v2d_sam2/docker \
     -e modules/v2d_sam3d/docker \
+    -e modules/v2d_mesh/docker \
     -e modules/v2d_moge/docker \
     -e modules/v2d_grounding_dino/docker \
     -e modules/v2d_foundation_pose/docker \
@@ -88,10 +95,6 @@ uv pip install \
 # Sanity:
 uv run python -c "from v2d.pipelines.run_v2d_ego_e2e import run_v2d_ego_e2e; print('OK')"
 ```
-
-`scripts/install_packages.sh` covers most of these but is missing
-`v2d_depth`, `v2d_hand_alignment/docker`, `trimesh`, `OpenEXR`, `Imath`.
-The recipe above is the working set.
 
 ### 3. Stage MANO + BMC weights (~15 min, ~10 MB)
 

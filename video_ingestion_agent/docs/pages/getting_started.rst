@@ -180,8 +180,14 @@ daemon and persists across pipeline runs.
    # Stop the server
    python scripts/serve.py --stop
 
-The server downloads model weights on first run via HuggingFace. Set ``HF_TOKEN``
-if the model requires authentication.
+The server downloads model weights on first run via HuggingFace. Set the
+``HF_TOKEN`` environment variable if the model requires authentication
+(both the default ``Qwen/Qwen3-VL-8B-Instruct`` and SigLIP-2 are gated):
+
+.. code-block:: bash
+
+   export HF_TOKEN=hf_xxx          # from https://huggingface.co/settings/tokens
+   python scripts/serve.py -c configs/ingestion.yaml
 
 .. note::
 
@@ -253,8 +259,13 @@ After ingestion, use natural language to find and extract clips:
 .. code-block:: bash
 
    python scripts/run_retrieval.py "Find all pick up mug actions" \
-     -d outputs/my_video/ \
-     -o outputs/clips/
+     -d outputs/ \
+     --output-dir outputs/clips/
+
+``-d`` points at the **database directory** containing both ``graph.db``
+and ``vector.db`` — the same directory written by ``run_ingestion.py``
+(its ``database.directory`` config key). ``--output-dir`` is where the
+extracted ``.mp4`` files land; the script defines no short ``-o`` form.
 
 The retrieval agent decomposes your query into sub-tasks, searches the entity graph
 and visual embeddings, and extracts the top matching clips.

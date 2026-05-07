@@ -257,7 +257,7 @@ Usage
    # Basic query
    python scripts/run_retrieval.py "Find all pick up mug actions" \
      -d outputs/my_video/ \
-     -o outputs/clips/
+     --output-dir outputs/clips/
 
    # The agent outputs extracted clips:
    # outputs/clips/
