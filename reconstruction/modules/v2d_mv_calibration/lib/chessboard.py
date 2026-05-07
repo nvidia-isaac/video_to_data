@@ -7,25 +7,25 @@ from pathlib import Path
 from typing import Any
 
 import cv2
-import imageio.v3 as iio
 import numpy as np
 from tqdm import tqdm
+
+from v2d.common.video import FrameSource
 
 
 logger = logging.getLogger(__name__)
 
 
-def _read_png(path: Path) -> np.ndarray:
-    return iio.imread(path, plugin="pillow")
-
-
 def _chessboard_detect_worker(
-    image_file_lists: list[list[Path]],
+    source_paths: list[str],
     board_size: tuple[int, int],
     start_idx: int,
     end_idx: int,
+    frames_slice: slice | None = None,
     progress_queue: Any = None,
-) -> list[list[np.ndarray | None]]:
+) -> tuple[list[list[np.ndarray | None]], list[int]]:
+    sources = [FrameSource.from_path(p, frames_slice=frames_slice) for p in source_paths]
+
     chessboard_flags = (
         cv2.CALIB_CB_ADAPTIVE_THRESH
         + cv2.CALIB_CB_NORMALIZE_IMAGE
@@ -33,13 +33,14 @@ def _chessboard_detect_worker(
     )
     criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 40, 0.001)
     correspondences = []
+    frame_indices = []
 
     for t in range(start_idx, end_idx):
         row_t = []
         found = 0
-        for cam_files in image_file_lists:
-            img = _read_png(cam_files[t])
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        for src in sources:
+            img = src[t]
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
             ret, corners = cv2.findChessboardCorners(gray, board_size, chessboard_flags)
             if ret:
                 corners_refined = cv2.cornerSubPix(gray, corners, (5, 5), (-1, -1), criteria)
@@ -50,31 +51,48 @@ def _chessboard_detect_worker(
 
         if found >= 2:
             correspondences.append(row_t)
+            frame_indices.append(t)
 
         if progress_queue is not None:
             progress_queue.put(1)
 
-    return correspondences
+    for src in sources:
+        src.close()
+
+    return correspondences, frame_indices
 
 
 def chessboard_extract_correspondences(
-    image_file_lists: list[list[Path]],
-    board_size: tuple[int, int],
+    source_paths: list[str | Path],
+    board_size: tuple[int, int] = (9, 6),
     num_workers: int = 8,
-) -> list[list[np.ndarray | None]]:
+    frames_slice: slice | None = None,
+) -> tuple[list[list[np.ndarray | None]], list[int]]:
     """Extract chessboard correspondences from multi-camera images.
 
     Args:
-        image_file_lists: List of per-camera file lists (sorted PNG paths).
+        source_paths: Per-camera paths (directory or .h5) for FrameSource.
         board_size: (width, height) inner corners of the chessboard.
         num_workers: Number of parallel workers.
+        frames_slice: Optional slice to limit frame range.
 
     Returns:
-        List of frames, each a list of per-camera correspondences
-        (either (P, 2) array or None if not detected).
+        Tuple of (correspondences, frame_indices).
     """
-    N = len(image_file_lists)
-    L = min(len(f) for f in image_file_lists)
+    src_path_strs = [str(p) for p in source_paths]
+    temp_sources = [FrameSource.from_path(p, frames_slice=frames_slice) for p in source_paths]
+    per_cam_counts = [s.n_frames for s in temp_sources]
+    for s in temp_sources:
+        s.close()
+
+    N = len(src_path_strs)
+    L = min(per_cam_counts)
+
+    if max(per_cam_counts) != L:
+        logger.warning(
+            "Camera image counts differ: %s. Clipping to %d frames.",
+            per_cam_counts, L,
+        )
 
     logger.info(
         f"Extracting chessboard correspondences"
@@ -96,10 +114,11 @@ def chessboard_extract_correspondences(
                 futures.append(
                     executor.submit(
                         _chessboard_detect_worker,
-                        image_file_lists,
+                        src_path_strs,
                         board_size,
                         start_idx,
                         end_idx,
+                        frames_slice,
                         progress_queue,
                     )
                 )
@@ -117,5 +136,7 @@ def chessboard_extract_correspondences(
                     except Exception:
                         pass
 
-            correspondences = [future.result() for future in futures]
-            return [row for per_worker in correspondences for row in per_worker]
+            results = [future.result() for future in futures]
+            correspondences = [row for corrs, _ in results for row in corrs]
+            frame_indices = [idx for _, idxs in results for idx in idxs]
+            return correspondences, frame_indices

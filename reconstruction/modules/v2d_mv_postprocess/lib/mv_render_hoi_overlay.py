@@ -12,14 +12,14 @@ import trimesh
 from tqdm import tqdm
 
 from v2d.mv.rig import RigConfig
-from v2d.mv.io.video import FrameSource, get_video_writer, tile_videos
+from v2d.common.video import FrameSource, get_video_writer, tile_videos
 from v2d.mv.vis.renderer import Renderer
 
 HUMAN_MESH_COLOR = np.array([102, 230, 179], dtype=np.uint8)  # light green
 
 
 def render_hoi_overlay(
-    source: FrameSource,
+    rgb_path: Path,
     output_path: Path,
     object_mesh: trimesh.Trimesh,
     object_poses: np.ndarray,
@@ -31,7 +31,7 @@ def render_hoi_overlay(
     """Render object + human mesh overlay onto video frames.
 
     Args:
-        source: Frame source (image dir or video).
+        rgb_path: Path to RGB frames (image dir, .h5, or video file).
         output_path: Output video path.
         object_mesh: Object mesh in its canonical frame.
         object_poses: (N, 4, 4) per-frame object-to-world poses.
@@ -40,6 +40,7 @@ def render_hoi_overlay(
         cam_intrinsics: (3, 3) camera intrinsic matrix.
         cam_extrinsics: (4, 4) T_world_from_camera matrix.
     """
+    source = FrameSource.from_path(rgb_path)
     n_frames = min(source.n_frames, len(object_poses), len(human_vertices))
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -83,10 +84,8 @@ def render_hoi_overlay_from_config(cfg):
 
     mhr_mesh = torch.load(cfg.mhr_mesh_mv_path, weights_only=False, map_location="cpu")
 
-    pred_vertices = mhr_mesh["pred_vertices"].cpu().numpy()
+    human_vertices = mhr_mesh["pred_vertices"].cpu().numpy()
     human_faces = mhr_mesh["faces"].cpu().numpy()
-    pred_cam_t = mhr_mesh["pred_cam_t"].cpu().numpy()
-    human_vertices = pred_vertices + pred_cam_t[:, None, :]
 
     object_poses = np.load(cfg.object_pose_path)
 
@@ -96,16 +95,12 @@ def render_hoi_overlay_from_config(cfg):
     for cam_id in cfg.cameras:
         cam = rig.get_camera(cam_id)
 
-        if cfg.get("image_dir"):
-            source = FrameSource(image_dir=Path(cfg.image_path_template.format(cam_name=cam.name)))
-        else:
-            source = FrameSource(video_path=Path(cfg.video_path_template.format(cam_name=cam.name)))
-
+        rgb_path = Path(cfg.rgb_path_template.format(cam_name=cam.name))
         output_path = Path(cfg.output_dir) / f"{cam.name}_hoi_overlay.mp4"
 
         print(f"Rendering HOI overlay for camera {cam.name}...")
         render_hoi_overlay(
-            source=source,
+            rgb_path=rgb_path,
             output_path=output_path,
             object_mesh=object_mesh,
             object_poses=object_poses,
@@ -122,7 +117,7 @@ def render_hoi_overlay_from_config(cfg):
     tiled_path = Path(cfg.output_dir) / "tiled_hoi_overlay.mp4"
     print(f"Tiling {len(overlay_paths)} overlays into {tiled_path}...")
     tile_videos(
-        sources=[FrameSource(video_path=p) for p in overlay_paths],
+        sources=[FrameSource.from_path(p) for p in overlay_paths],
         output_path=tiled_path,
         tile_shape=tile_shape,
         output_image_size=tile_image_size,
@@ -136,20 +131,18 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Render HOI overlay for all cameras from config")
     parser.add_argument("--camera_params_path", type=str, required=True)
+    parser.add_argument("--rgb_dir", type=str, required=True)
     parser.add_argument("--object_mesh_path", type=str, required=True)
     parser.add_argument("--object_pose_dir", type=str, required=True)
     parser.add_argument("--human_pose_dir", type=str, required=True)
     parser.add_argument("--output_dir", type=str, required=True)
-    parser.add_argument("--image_dir", type=str, default=None)
-    parser.add_argument("--video_dir", type=str, default=None)
-    parser.add_argument(
-        "--config_path",
-        type=str,
-        default=str(Path(__file__).parent / "mv_render_hoi_overlay.yaml"),
-    )
+    parser.add_argument("--config_path", type=str, default=None,
+                        help="Optional override config (merged on top of defaults)")
     args = parser.parse_args()
 
-    cfg = OmegaConf.load(args.config_path)
+    cfg = OmegaConf.load(Path(__file__).parent / "mv_render_hoi_overlay.yaml")
+    if args.config_path:
+        cfg = OmegaConf.merge(cfg, OmegaConf.load(args.config_path))
     overrides = {k: v for k, v in vars(args).items() if k != "config_path" and v is not None}
     cfg = OmegaConf.merge(cfg, overrides)
     render_hoi_overlay_from_config(cfg)

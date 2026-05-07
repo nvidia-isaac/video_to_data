@@ -14,13 +14,16 @@ import os
 import subprocess
 from pathlib import Path
 
+import numpy as np
+from PIL import Image
+
 import groundingdino
-from groundingdino.util.inference import load_image, load_model, predict
+import groundingdino.datasets.transforms as T
+from groundingdino.util.inference import load_model, predict
 from torchvision.ops import box_convert
 
 from v2d.common.datatypes import BoundingBox
-
-IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp'}
+from v2d.common.video import FrameSource
 
 _CHECKPOINT_URL = (
     "https://github.com/IDEA-Research/GroundingDINO/releases/download/"
@@ -49,10 +52,24 @@ def _get_model(model_dir: str):
     return _model
 
 
-def _detect(model, image_path: str, prompt: str,
+_TRANSFORM = T.Compose([
+    T.RandomResize([800], max_size=1333),
+    T.ToTensor(),
+    T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+])
+
+
+def _preprocess_image(image_rgb: np.ndarray):
+    """Apply GroundingDINO preprocessing to a numpy RGB array."""
+    pil_image = Image.fromarray(image_rgb)
+    image_transformed, _ = _TRANSFORM(pil_image, None)
+    return image_transformed
+
+
+def _detect(model, image_rgb: np.ndarray, prompt: str,
             box_threshold: float, text_threshold: float) -> list[dict]:
-    image_source, image = load_image(image_path)
-    h, w, _ = image_source.shape
+    h, w = image_rgb.shape[:2]
+    image = _preprocess_image(image_rgb)
 
     boxes_cxcywh, logits, phrases = predict(
         model=model,
@@ -86,24 +103,18 @@ def image_list_to_object_bboxes(
     box_threshold: float = 0.35,
     text_threshold: float = 0.25,
 ) -> dict:
-    """Run Grounding DINO on all images in a directory and write a single JSON."""
-    image_files = sorted(
-        p for p in Path(image_dir).iterdir()
-        if p.suffix.lower() in IMAGE_EXTENSIONS
-    )
-
-    if not image_files:
-        raise FileNotFoundError(f"No image files found in: {image_dir}")
+    """Run Grounding DINO on all images in a directory or HDF5 and write JSON."""
+    source = FrameSource.from_path(image_dir)
 
     os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
     model = _get_model(model_dir)
 
     results = {}
-    for image_path in image_files:
-        detections = _detect(model, str(image_path), prompt, box_threshold, text_threshold)
-        results[image_path.stem] = detections
-        if len(results) % 10 == 0:
-            print(f"  processed {len(results)} images...")
+    for i in range(source.n_frames):
+        detections = _detect(model, source[i], prompt, box_threshold, text_threshold)
+        results[source.stems[i]] = detections
+        if (i + 1) % 10 == 0:
+            print(f"  processed {i + 1}/{source.n_frames} images...")
 
     with open(output_path, 'w') as f:
         json.dump(results, f, indent=2)

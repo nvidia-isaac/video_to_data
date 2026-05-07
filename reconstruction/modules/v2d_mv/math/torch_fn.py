@@ -286,25 +286,6 @@ def se3_pose_mean_pairwise_distance(
     return dist
 
 
-def se3_pose_select_arg(
-    poses: torch.Tensor,
-    dist_weight: float = 10.0,
-    top_n: int = 2,
-) -> torch.Tensor:
-    """
-    Select the best pose from the given poses by the minimum pairwise distance.
-    Arguments:
-        poses: (D, 4, 4), D=compare dimension
-        dist_weight: float, weight of translation distance
-        top_n: int, number of best poses to average
-    Returns:
-        best_idx: (top_n,) tensor of indices
-    """
-    dist = se3_pose_mean_pairwise_distance(poses, dist_weight)
-    best_idx = torch.argsort(dist)[:top_n]
-    return best_idx
-
-
 def se3_pose_inliers(
     poses: torch.Tensor,
     dist_weight: float = 10.0,

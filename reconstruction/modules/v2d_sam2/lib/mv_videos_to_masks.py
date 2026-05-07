@@ -100,17 +100,11 @@ def mv_videos_to_masks_from_config(cfg):
     """Run video_to_masks for each camera defined by the rig config."""
     rig = RigConfig(cfg.rig_config)
 
-    if cfg.image_dir is None and cfg.video_dir is None:
-        raise ValueError("At least one of image_dir or video_dir is required")
-
     for cam_id in cfg.cameras:
         cam = rig.get_camera(cam_id)
         print(f"\n=== Processing camera: {cam.name} ===")
 
-        if cfg.image_dir is not None:
-            source_path = cfg.image_path_template.format(cam_name=cam.name)
-        else:
-            source_path = cfg.video_path_template.format(cam_name=cam.name)
+        source_path = cfg.rgb_path_template.format(cam_name=cam.name)
 
         bbox_path = cfg.bbox_path_template.format(cam_name=cam.name)
         masks_dir = cfg.mask_path_template.format(cam_name=cam.name)
@@ -126,7 +120,10 @@ def mv_videos_to_masks_from_config(cfg):
             prompts_path = f.name
 
         try:
-            video_to_masks(source_path, prompts_path, masks_dir, cfg.weights_dir)
+            video_to_masks(
+                source_path, prompts_path, masks_dir, cfg.weights_dir,
+                mask_extension=cfg.get("mask_extension", ""),
+            )
         finally:
             os.unlink(prompts_path)
 
@@ -141,34 +138,25 @@ if __name__ == "__main__":
     )
     parser.add_argument("--bbox_dir", type=str, required=True,
                         help="Directory containing per-camera bbox_track .pt files")
-
-    input_group = parser.add_mutually_exclusive_group(required=True)
-    input_group.add_argument("--image_dir", type=str, default=None,
-                             help="Directory containing per-camera image folders")
-    input_group.add_argument("--video_dir", type=str, default=None,
-                             help="Directory containing per-camera video files")
-
+    parser.add_argument("--rgb_dir", type=str, required=True,
+                        help="Directory containing per-camera input frames")
     parser.add_argument("--output_dir", type=str, required=True,
                         help="Output directory for per-camera masks")
     parser.add_argument("--weights_dir", type=str, required=True,
                         help="Path to SAM2 weights directory")
-    parser.add_argument(
-        "--config_path",
-        type=str,
-        default=str(Path(__file__).parent / "mv_videos_to_masks.yaml"),
-    )
+    parser.add_argument("--config_path", type=str, default=None,
+                        help="Optional override config (merged on top of defaults)")
     args = parser.parse_args()
 
-    cfg = OmegaConf.load(args.config_path)
+    cfg = OmegaConf.load(Path(__file__).parent / "mv_videos_to_masks.yaml")
+    if args.config_path:
+        cfg = OmegaConf.merge(cfg, OmegaConf.load(args.config_path))
     overrides: dict = {
         "bbox_dir": args.bbox_dir,
+        "rgb_dir": args.rgb_dir,
         "output_dir": args.output_dir,
         "weights_dir": args.weights_dir,
     }
-    if args.image_dir is not None:
-        overrides["image_dir"] = args.image_dir
-    elif args.video_dir is not None:
-        overrides["video_dir"] = args.video_dir
 
     cfg = OmegaConf.merge(cfg, overrides)
     mv_videos_to_masks_from_config(cfg)

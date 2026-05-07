@@ -1,13 +1,10 @@
-image_dir: null
-video_dir: null
-
+rgb_dir: ???
 output_dir: ???
 
 rig_config: stereo-4
 cameras: [0, 2, 4, 6]
 
-image_path_template: "${image_dir}/{cam_name}"
-video_path_template: "${video_dir}/{cam_name}.mp4"
+rgb_path_template: "${rgb_dir}/{cam_name}"
 output_path_template: "${output_dir}/{cam_name}_bbox_track.pt"
 
 batch_size: 2
@@ -18,10 +15,25 @@ detector:
   det_cat_id: 0  # 0: person
   bbox_thr: 0.5  # minimum confidence score for a detection to be considered valid
   default_to_full_image: True  # if no valid detections, return the full image as a detection
+  test_score_thresh: 0.1  # model-internal NMS threshold; lower for ByteTrack (0.1), default IoU (0.25)
 
-tracker:
+tracker_type: byte  # "iou" or "byte"
+
+iou_tracker:
   iou_threshold: 0.3
   max_lost: 30
   min_hits: 3
+  merge_max_gap: 10
+  merge_iou_threshold: 0.5
+
+byte_tracker:
+  track_thresh: 0.6         # high confidence threshold (first association)
+  det_thresh: 0.1           # low confidence threshold (second association)
+  match_thresh: 0.8         # IoU threshold for first association
+  second_match_thresh: 0.5  # IoU threshold for second association
+  max_lost: 30
+  min_hits: 3
+  merge_max_gap: 60         # frames gap tolerance for merging fragmented tracks
+  merge_iou_threshold: 0.3  # IoU threshold for merging (lower = more aggressive)
 
 debug: 2

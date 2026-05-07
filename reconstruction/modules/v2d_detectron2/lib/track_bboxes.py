@@ -7,13 +7,13 @@ import time
 
 import cv2
 import imageio.v3 as iio
-import numpy as np
 import torch
 from tqdm import tqdm
 
-from v2d.mv.io.video import FrameSource, get_video_writer
+from v2d.common.video import FrameSource, get_video_writer
 
 from .build_detector import Detector
+from .bytetracker import ByteTracker
 from .tracker import IoUTracker
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -26,17 +26,35 @@ class DetectorConfig:
     det_cat_id: int = 0
     bbox_thr: float = 0.5
     default_to_full_image: bool = True
+    test_score_thresh: float = 0.25
 
 
 @dataclass
-class TrackerConfig:
+class IoUTrackerConfig:
     iou_threshold: float = 0.3
     max_lost: int = 30
     min_hits: int = 3
+    merge_max_gap: int = 10
+    merge_iou_threshold: float = 0.5
+
+
+@dataclass
+class ByteTrackerConfig:
+    track_thresh: float = 0.6
+    det_thresh: float = 0.1
+    match_thresh: float = 0.8
+    second_match_thresh: float = 0.5
+    max_lost: int = 30
+    min_hits: int = 3
+    merge_max_gap: int = 60
+    merge_iou_threshold: float = 0.3
+
+
+TrackerConfig = IoUTrackerConfig | ByteTrackerConfig
 
 
 def track_bboxes(
-    frame_source: FrameSource,
+    rgb_path: Path,
     output_path: str | Path,
     detector_cfg: DetectorConfig | None = None,
     tracker_cfg: TrackerConfig | None = None,
@@ -44,7 +62,7 @@ def track_bboxes(
     debug: int = 0,
     detector: Detector | None = None,
 ) -> dict:
-    """Run detection + IoU tracking on a single camera's frames.
+    """Run detection + tracking on a single camera's frames.
 
     Saves a .pt dict to *output_path* and returns it.
 
@@ -56,13 +74,18 @@ def track_bboxes(
     if detector_cfg is None:
         detector_cfg = DetectorConfig()
     if tracker_cfg is None:
-        tracker_cfg = TrackerConfig()
+        tracker_cfg = IoUTrackerConfig()
+
+    use_byte = isinstance(tracker_cfg, ByteTrackerConfig)
 
     output_path = Path(output_path).resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    frame_source = FrameSource.from_path(rgb_path)
     n_frames = frame_source.n_frames
     image_size = frame_source.image_size
+
+    effective_bbox_thr = tracker_cfg.det_thresh if use_byte else detector_cfg.bbox_thr
 
     if detector is None:
         weights_path = f"{detector_cfg.weights_dir}/cascade_mask_rcnn_vitdet_{detector_cfg.model_size}"
@@ -71,6 +94,7 @@ def track_bboxes(
             device=DEVICE,
             model_size=detector_cfg.model_size,
             path=weights_path,
+            test_score_thresh=detector_cfg.test_score_thresh,
         )
 
     if debug > 0:
@@ -79,15 +103,27 @@ def track_bboxes(
 
     det_kwargs = dict(
         det_cat_id=detector_cfg.det_cat_id,
-        bbox_thr=detector_cfg.bbox_thr,
+        bbox_thr=effective_bbox_thr,
         default_to_full_image=detector_cfg.default_to_full_image,
     )
 
-    tracker = IoUTracker(
-        iou_threshold=tracker_cfg.iou_threshold,
-        max_lost=tracker_cfg.max_lost,
-        min_hits=tracker_cfg.min_hits,
-    )
+    if use_byte:
+        tracker: IoUTracker | ByteTracker = ByteTracker(
+            track_thresh=tracker_cfg.track_thresh,
+            match_thresh=tracker_cfg.match_thresh,
+            second_match_thresh=tracker_cfg.second_match_thresh,
+            max_lost=tracker_cfg.max_lost,
+            min_hits=tracker_cfg.min_hits,
+        )
+        print(f"Using ByteTracker (track_thresh={tracker_cfg.track_thresh}, "
+              f"det_thresh={tracker_cfg.det_thresh})")
+    else:
+        tracker = IoUTracker(
+            iou_threshold=tracker_cfg.iou_threshold,
+            max_lost=tracker_cfg.max_lost,
+            min_hits=tracker_cfg.min_hits,
+        )
+        print(f"Using IoUTracker (iou_threshold={tracker_cfg.iou_threshold})")
 
     n_batches = (n_frames + batch_size - 1) // batch_size
     for batch_start, batch_frames in tqdm(frame_source.iter_batches(batch_size),
@@ -106,6 +142,11 @@ def track_bboxes(
                 elapsed = time.time() - start_time
                 tqdm.write(f"Frame {frame_idx} detection time: {elapsed:.3f}s")
                 image = batch_frames[offset].copy()
+                H_img, W_img = image.shape[:2]
+                label = f"Frame {frame_idx}"
+                (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 1.0, 2)
+                cv2.putText(image, label, (W_img - tw - 10, th + 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
                 bboxes_int = bboxes.astype(int)
                 for j, bbox in enumerate(bboxes_int):
                     cv2.rectangle(image, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0, 255, 255), 2)
@@ -114,7 +155,11 @@ def track_bboxes(
                 iio.imwrite(debug_det_dir / f"bbox_{frame_idx:06d}.png", image)
 
     tracks = tracker.finalize()
-    tracks = IoUTracker.merge_fragmented_tracks(tracks)
+    tracks = IoUTracker.merge_fragmented_tracks(
+        tracks,
+        max_gap=tracker_cfg.merge_max_gap,
+        iou_threshold=tracker_cfg.merge_iou_threshold,
+    )
     if debug > 0:
         print("=== Tracking Results ===")
         for track in tracks:
@@ -139,6 +184,11 @@ def track_bboxes(
         writer = get_video_writer(debug_video_path, fps=30, crf=23)
         for i, image in tqdm(enumerate(frame_source.iter_frames()),
                              total=n_frames, desc="Rendering debug video"):
+            H_img, W_img = image.shape[:2]
+            label = f"Frame {i}"
+            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 1.0, 2)
+            cv2.putText(image, label, (W_img - tw - 10, th + 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
             bbox = bbox_track[i].astype(int)
             cv2.rectangle(image, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0, 255, 255), 2)
             cv2.putText(image, f"Score: {scores[i]:.2f}", (bbox[0], bbox[1] - 10),
@@ -152,11 +202,8 @@ def track_bboxes(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run person detection + tracking on a single camera")
-
-    input_group = parser.add_mutually_exclusive_group(required=True)
-    input_group.add_argument("--image_dir", type=str, help="Directory of PNG images")
-    input_group.add_argument("--video_path", type=str, help="Path to video file")
-
+    parser.add_argument("--rgb_path", type=str, required=True,
+                        help="Path to input frames (image dir, .h5, or video file)")
     parser.add_argument("--output_path", type=str, required=True, help="Output .pt file path")
 
     det = parser.add_argument_group("detector")
@@ -176,12 +223,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    source = FrameSource(
-        image_dir=args.image_dir,
-        video_path=args.video_path,
-    )
     track_bboxes(
-        frame_source=source,
+        rgb_path=args.rgb_path,
         output_path=args.output_path,
         detector_cfg=DetectorConfig(
             model_size=args.model_size,
@@ -190,7 +233,7 @@ if __name__ == "__main__":
             bbox_thr=args.bbox_thr,
             default_to_full_image=not args.no_default_to_full_image,
         ),
-        tracker_cfg=TrackerConfig(
+        tracker_cfg=IoUTrackerConfig(
             iou_threshold=args.iou_threshold,
             max_lost=args.max_lost,
             min_hits=args.min_hits,

@@ -13,7 +13,8 @@ dependencies = [
     "imageio[pillow]",
     "tqdm",
     "omegaconf",
-    "v2d-mv[io]",
+    "v2d-common[io]",
+    "v2d-mv",
 ]
 
 [tool.setuptools]

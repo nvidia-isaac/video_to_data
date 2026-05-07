@@ -16,7 +16,7 @@ dependencies = [
     "tqdm",
     "torch",
     "omegaconf",
-    "v2d-mv[io]",
+    "v2d-mv[io,math]",
 ]
 
 [tool.setuptools]

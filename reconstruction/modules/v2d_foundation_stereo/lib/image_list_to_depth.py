@@ -27,8 +27,10 @@ import os
 from pathlib import Path
 
 import cv2
+import numpy as np
 
 from v2d.common.datatypes import CameraIntrinsics, DepthImage
+from v2d.common.video import FrameSource, FrameWriter
 from v2d.foundation_stereo.lib.export_engine import ensure_engine
 from v2d.foundation_stereo.lib.trt_inference import (
     FoundationStereoInference,
@@ -71,18 +73,6 @@ def _load_calibration(args) -> dict:
     }
 
 
-IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp'}
-
-
-def _find_matching(right_dir: str, stem: str) -> str | None:
-    """Find a file in right_dir with the same stem (any image extension)."""
-    for ext in IMAGE_EXTENSIONS:
-        candidate = os.path.join(right_dir, stem + ext)
-        if os.path.exists(candidate):
-            return candidate
-    return None
-
-
 def image_list_to_depth(
     left_dir: str,
     right_dir: str,
@@ -102,8 +92,11 @@ def image_list_to_depth(
     scale: if != 1.0, images are resized before inference and outputs are at
     the scaled resolution. The calibration dict should already reflect the
     scaled intrinsics.
+
+    ``depth_folder`` is auto-detected: if it ends in ``.h5``, depth maps are
+    packed into an HDF5 file (uint16 inverse-depth).  Otherwise they are
+    written as individual PNGs in a directory.
     """
-    os.makedirs(depth_folder, exist_ok=True)
     os.makedirs(intrinsics_folder, exist_ok=True)
 
     fx = float(calibration['fx'])
@@ -114,64 +107,71 @@ def image_list_to_depth(
 
     inference = _get_inference(model_dir)
 
-    left_files = sorted(
-        p for p in Path(left_dir).iterdir()
-        if p.suffix.lower() in IMAGE_EXTENSIONS
-    )
-    left_files = left_files[start_idx:end_idx]
+    left_source = FrameSource.from_path(left_dir)
+    right_source = FrameSource.from_path(right_dir)
 
-    if not left_files:
-        raise FileNotFoundError(f"No image files found in left_dir: {left_dir}")
+    if left_source.n_frames != right_source.n_frames:
+        print(f"  [warn] frame count mismatch: left={left_source.n_frames}, "
+              f"right={right_source.n_frames}")
 
+    right_stem_to_idx = {s: i for i, s in enumerate(right_source.stems)}
+    left_stems = left_source.stems[start_idx:end_idx]
+
+    is_png_output = Path(depth_folder).suffix.lower() not in (".h5", ".hdf5")
+    depth_writer = FrameWriter.from_path(depth_folder)
     processed = 0
     skipped = 0
 
-    for left_path in left_files:
-        stem = left_path.stem
+    try:
+        for left_idx, stem in enumerate(left_stems, start=start_idx):
+            if is_png_output:
+                out_path = os.path.join(depth_folder, f"{stem}.png")
+                if os.path.exists(out_path):
+                    skipped += 1
+                    continue
 
-        out_depth = os.path.join(depth_folder, f"{stem}.png")
-        if os.path.exists(out_depth):
-            skipped += 1
-            continue
+            if stem not in right_stem_to_idx:
+                print(f"  [skip] no matching right frame for: {stem}")
+                skipped += 1
+                continue
 
-        right_path = _find_matching(right_dir, stem)
-        if right_path is None:
-            print(f"  [skip] no matching right image for: {left_path.name}")
-            skipped += 1
-            continue
+            right_idx = right_stem_to_idx[stem]
 
-        left_image = cv2.imread(str(left_path), cv2.IMREAD_COLOR)
-        right_image = cv2.imread(right_path, cv2.IMREAD_COLOR)
-        if left_image is None:
-            print(f"  [skip] failed to read: {left_path}")
-            skipped += 1
-            continue
-        if right_image is None:
-            print(f"  [skip] failed to read: {right_path}")
-            skipped += 1
-            continue
+            try:
+                left_image = left_source[left_idx]
+                right_image = right_source[right_idx]
+            except Exception as e:
+                print(f"  [skip] failed to read frame {stem}: {e}")
+                skipped += 1
+                continue
 
-        if scale != 1.0:
-            h, w = left_image.shape[:2]
-            new_w = int(w * scale)
-            new_h = int(h * scale)
-            interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC
-            left_image = cv2.resize(left_image, (new_w, new_h), interpolation=interp)
-            right_image = cv2.resize(right_image, (new_w, new_h), interpolation=interp)
+            left_bgr = cv2.cvtColor(left_image, cv2.COLOR_RGB2BGR)
+            right_bgr = cv2.cvtColor(right_image, cv2.COLOR_RGB2BGR)
 
-        disparity_px, _ = inference.infer(left_image, right_image)
-        depth_m = disparity_to_depth(disparity_px, fx, baseline)
+            if scale != 1.0:
+                h, w = left_bgr.shape[:2]
+                new_w = int(w * scale)
+                new_h = int(h * scale)
+                interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC
+                left_bgr = cv2.resize(left_bgr, (new_w, new_h), interpolation=interp)
+                right_bgr = cv2.resize(right_bgr, (new_w, new_h), interpolation=interp)
 
-        depth_img = DepthImage(depth=depth_m)
-        depth_img.to_pil_image().save(os.path.join(depth_folder, f"{stem}.png"))
+            disparity_px, _ = inference.infer(left_bgr, right_bgr)
+            depth_m = disparity_to_depth(disparity_px, fx, baseline)
 
-        h, w = left_image.shape[:2]
-        intrinsics = CameraIntrinsics(fx=fx, fy=fy, cx=cx, cy=cy, width=w, height=h)
-        intrinsics.save(os.path.join(intrinsics_folder, f"{stem}.json"))
+            depth_img = DepthImage(depth=depth_m)
+            depth_uint16 = np.array(depth_img.to_pil_image(), dtype=np.uint16)
+            depth_writer.write_frame(depth_uint16, stem=stem)
 
-        processed += 1
-        if processed % 10 == 0:
-            print(f"  processed {processed} pairs...")
+            h, w = left_bgr.shape[:2]
+            intrinsics = CameraIntrinsics(fx=fx, fy=fy, cx=cx, cy=cy, width=w, height=h)
+            intrinsics.save(os.path.join(intrinsics_folder, f"{stem}.json"))
+
+            processed += 1
+            if processed % 10 == 0:
+                print(f"  processed {processed} pairs...")
+    finally:
+        depth_writer.close()
 
     print(f"Done. processed={processed}, skipped={skipped}")
 

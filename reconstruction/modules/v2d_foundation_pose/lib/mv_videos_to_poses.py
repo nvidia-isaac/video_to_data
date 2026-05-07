@@ -12,26 +12,32 @@ import trimesh
 
 from v2d.common.datatypes import DepthImage, Mask
 from v2d.mesh.lib.mesh import Mesh
-from v2d.mv.io.video import FrameSource, get_video_writer
+from v2d.common.video import FrameSource, get_video_writer
 from v2d.mv.math.numpy_fn import pose_two_euro_filter
 from v2d.mv.rig import RigConfig
 
 from .fp_utils import draw_posed_3d_box, draw_xyz_axis
 from .multiview_tracker import MultiViewTracker
+from .symmetry import load_symmetry_group
 
 
 def mv_videos_to_poses(
     cam_names: list[str],
     cam_intrinsics: list[np.ndarray],
     cam_extrinsics: list[np.ndarray],
-    frame_sources: list[FrameSource],
+    rgb_paths: list[Path],
     depth_dirs: list[Path],
     mask_dirs: list[Path],
     mesh_path: Path,
     weights_dir: str,
     pose_path: Path,
+    symmetry_path: Path | None = None,
     scale: float = 0.5,
     depth_direction_trust: float = 0.5,
+    visible_ratio_cutoff_high: float = 0.3,
+    visible_ratio_cutoff_low: float = 0.01,
+    precision_high: float = 1.0,
+    precision_low: float = 0.01,
     est_refine_iter: int = 5,
     track_refine_iter: int = 2,
     debug: int = 0,
@@ -42,14 +48,26 @@ def mv_videos_to_poses(
         cam_names: per-camera names (used for debug output naming).
         cam_intrinsics: list of (3,3) K matrices, one per camera.
         cam_extrinsics: list of (4,4) cam-to-world transforms, one per camera.
-        frame_sources: per-camera RGB FrameSource (image dir or video).
+        rgb_paths: per-camera paths to RGB frames (image dir, .h5, or video file).
         depth_dirs: per-camera depth directories (inverse-depth PNGs via DepthImage).
         mask_dirs: per-camera object mask directories (first PNG used for registration).
         mesh_path: path to the object mesh file.
         weights_dir: path to FoundationPose weights.
         pose_path: output path for filtered poses .npy file.
+        symmetry_path: optional path to a BOP-style symmetry annotation JSON
+            (typically `<mesh_dir>/output_symmetry.json`). When provided and
+            the file exists, per-view registrations at frame 0 are
+            canonicalized into a common equivalence-class representative
+            before averaging. If None or missing, behavior matches the
+            no-symmetry case.
         scale: resolution scale factor (e.g. 0.5 for half resolution). Scales
             intrinsics and resizes images/depths/masks accordingly.
+        depth_direction_trust: weight for depth axis in anisotropic translation averaging.
+        visible_ratio_cutoff_high: visibility ratio at which a camera gets full precision.
+        visible_ratio_cutoff_low: visibility ratio below which a camera is excluded.
+            Set equal to cutoff_high for hard cutoff with uniform weighting.
+        precision_high: precision weight for cameras at or above cutoff_high.
+        precision_low: precision weight for cameras at cutoff_low.
         est_refine_iter: refinement iterations for registration.
         track_refine_iter: refinement iterations for tracking.
         debug: 0=off, 1=overlay videos after processing, 2=also per-frame images every 30 frames.
@@ -65,23 +83,35 @@ def mv_videos_to_poses(
     tm = mesh.to_trimesh()
     _, obb_extents = trimesh.bounds.oriented_bounds(tm)
     print(f"Mesh: {len(tm.vertices)} verts, OBB extents={obb_extents}, min={obb_extents.min():.4f}")
-    tracker = MultiViewTracker(mesh, weights_dir, num_cameras, depth_direction_trust=depth_direction_trust)
 
-    mask_file_lists = []
-    for d in mask_dirs:
-        files = sorted(Path(d).glob("*.png"))
-        if not files:
-            raise FileNotFoundError(f"No PNG masks found in {d}")
-        mask_file_lists.append(files)
+    symmetry_group = None
+    if symmetry_path is not None and Path(symmetry_path).exists():
+        symmetry_group = load_symmetry_group(symmetry_path)
+        print(f"Loaded symmetry group: {len(symmetry_group)} elements from {symmetry_path}")
+    else:
+        print(f"No symmetry annotation; canonicalization disabled (symmetry_path={symmetry_path})")
 
-    depth_file_lists = []
-    for d in depth_dirs:
-        files = sorted(Path(d).glob("*.png"))
-        if not files:
-            raise FileNotFoundError(f"No depth PNG files in {d}")
-        depth_file_lists.append(files)
+    tracker = MultiViewTracker(
+        mesh, weights_dir, num_cameras,
+        depth_direction_trust=depth_direction_trust,
+        visible_ratio_cutoff_high=visible_ratio_cutoff_high,
+        visible_ratio_cutoff_low=visible_ratio_cutoff_low,
+        precision_high=precision_high,
+        precision_low=precision_low,
+        symmetry_group=symmetry_group,
+    )
+
+    frame_sources = [FrameSource.from_path(p) for p in rgb_paths]
+    mask_sources = [FrameSource.from_path(d) for d in mask_dirs]
+    depth_sources = [FrameSource.from_path(d) for d in depth_dirs]
 
     num_frames = frame_sources[0].n_frames
+    for j, (fs, ds, ms) in enumerate(zip(frame_sources, depth_sources, mask_sources)):
+        if fs.n_frames != num_frames or ds.n_frames != num_frames or ms.n_frames != num_frames:
+            raise ValueError(
+                f"camera {cam_names[j]}: frame count mismatch "
+                f"(rgb={fs.n_frames}, depth={ds.n_frames}, mask={ms.n_frames}, expected={num_frames})"
+            )
     frame_iterators = [fs.iter_frames() for fs in frame_sources]
 
     all_poses = []
@@ -109,8 +139,8 @@ def mv_videos_to_poses(
     print(f"Starting multi-view tracking for {num_frames} frames across {num_cameras} cameras")
     for i in tqdm(range(num_frames), desc="Tracking"):
         rgbs = [next(it) for it in frame_iterators]
-        depths = [DepthImage.load(str(depth_file_lists[j][i])).depth for j in range(num_cameras)]
-        masks = [Mask.load(str(mask_file_lists[j][i])).mask > 0.5 for j in range(num_cameras)]
+        depths = [DepthImage.from_array(depth_sources[j][i]).depth for j in range(num_cameras)]
+        masks = [mask_sources[j][i] > 128 for j in range(num_cameras)]
 
         for j in range(num_cameras):
             if target_size is not None:
@@ -127,11 +157,14 @@ def mv_videos_to_poses(
                 ).astype(bool)
 
         if i == 0:
-            avg_pose, world_poses, select_idx = tracker.register(
+            avg_pose, world_poses, visible_ratios, select_idx = tracker.register(
                 rgbs, depths, masks, Ks, Ts, iteration=est_refine_iter,
+                debug_dump_path=(
+                    str(pose_path.parent / "register_debug.json") if debug >= 1 else None
+                ),
             )
         else:
-            avg_pose, world_poses, select_idx = tracker.track(
+            avg_pose, world_poses, visible_ratios, select_idx = tracker.track(
                 rgbs, depths, masks, Ks, Ts, iteration=track_refine_iter,
             )
 
@@ -160,6 +193,7 @@ def mv_videos_to_poses(
     print(f"Applying Two Euro filter to {output_poses.shape[0]} poses")
     filtered_poses = pose_two_euro_filter(output_poses)
     np.save(pose_path, filtered_poses)
+    print(f"Saved poses to {pose_path}")
 
     if debug >= 1:
         parent = pose_path.parent
@@ -177,8 +211,6 @@ def mv_videos_to_poses(
     #         filtered_poses, cam_names, frame_sources, Ks_orig, Ts, tracker,
     #         pose_path, num_frames,
     #     )
-
-    print(f"Saved poses to {pose_path}")
 
 
 def _render_debug_videos(
@@ -307,7 +339,7 @@ def mv_videos_to_poses_from_config(cfg):
     cam_names: list[str] = []
     cam_intrinsics: list[np.ndarray] = []
     cam_extrinsics: list[np.ndarray] = []
-    frame_sources: list[FrameSource] = []
+    rgb_paths: list[Path] = []
     depth_dirs: list[Path] = []
     mask_dirs: list[Path] = []
 
@@ -317,32 +349,36 @@ def mv_videos_to_poses_from_config(cfg):
         cam_intrinsics.append(cam.param.K)
         cam_extrinsics.append(cam.param.T)
 
-        if cfg.image_dir is not None:
-            frame_sources.append(
-                FrameSource(image_dir=Path(cfg.image_path_template.format(cam_name=cam.name)))
-            )
-        elif cfg.video_dir is not None:
-            frame_sources.append(
-                FrameSource(video_path=Path(cfg.video_path_template.format(cam_name=cam.name)))
-            )
-        else:
-            raise ValueError("At least one of image_dir or video_dir is required")
-
+        rgb_paths.append(Path(cfg.rgb_path_template.format(cam_name=cam.name)))
         depth_dirs.append(Path(cfg.depth_path_template.format(cam_name=cam.name)))
         mask_dirs.append(Path(cfg.mask_path_template.format(cam_name=cam.name)))
+
+    mesh_path = Path(cfg.mesh_path)
+    symmetry_path = cfg.get("symmetry_path", None)
+    if symmetry_path is None:
+        auto = mesh_path.parent / "output_symmetry.json"
+        if auto.exists():
+            symmetry_path = auto
+    else:
+        symmetry_path = Path(symmetry_path)
 
     mv_videos_to_poses(
         cam_names=cam_names,
         cam_intrinsics=cam_intrinsics,
         cam_extrinsics=cam_extrinsics,
-        frame_sources=frame_sources,
+        rgb_paths=rgb_paths,
         depth_dirs=depth_dirs,
         mask_dirs=mask_dirs,
-        mesh_path=Path(cfg.mesh_path),
+        mesh_path=mesh_path,
         weights_dir=cfg.weights_dir,
         pose_path=Path(cfg.pose_path),
+        symmetry_path=symmetry_path,
         scale=scale,
         depth_direction_trust=cfg.get("depth_direction_trust", 0.5),
+        visible_ratio_cutoff_high=cfg.get("visible_ratio_cutoff_high", 0.3),
+        visible_ratio_cutoff_low=cfg.get("visible_ratio_cutoff_low", 0.3),
+        precision_high=cfg.get("precision_high", 1.0),
+        precision_low=cfg.get("precision_low", 0.01),
         est_refine_iter=cfg.get("est_refine_iter", 5),
         track_refine_iter=cfg.get("track_refine_iter", 2),
         debug=cfg.get("debug", 0),
@@ -352,11 +388,12 @@ def mv_videos_to_poses_from_config(cfg):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Multi-view 6-DoF object tracking with FoundationPose")
     parser.add_argument("--camera_params_path", type=str, required=True)
-    parser.add_argument("--image_dir", type=str, default=None)
-    parser.add_argument("--video_dir", type=str, default=None)
+    parser.add_argument("--rgb_dir", type=str, required=True)
     parser.add_argument("--depth_dir", type=str, required=True)
     parser.add_argument("--mask_dir", type=str, required=True)
     parser.add_argument("--mesh_path", type=str, required=True)
+    parser.add_argument("--symmetry_path", type=str, default=None,
+                        help="Optional BOP-style symmetry JSON (defaults to <mesh_dir>/output_symmetry.json)")
     parser.add_argument("--weights_dir", type=str, required=True)
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--scale", type=float, default=None,
@@ -365,14 +402,14 @@ if __name__ == "__main__":
     parser.add_argument("--debug", type=int, default=None)
     args = parser.parse_args()
 
-    default_config = Path(__file__).parent / "mv_videos_to_poses.yaml"
-    config_path = args.config_path or str(default_config)
-    cfg = OmegaConf.load(config_path)
+    cfg = OmegaConf.load(Path(__file__).parent / "mv_videos_to_poses.yaml")
+    if args.config_path:
+        cfg = OmegaConf.merge(cfg, OmegaConf.load(args.config_path))
 
     overrides = {}
     for key in [
-        "camera_params_path", "image_dir", "video_dir", "depth_dir",
-        "mask_dir", "mesh_path", "weights_dir", "output_dir", "scale", "debug",
+        "camera_params_path", "rgb_dir", "depth_dir",
+        "mask_dir", "mesh_path", "symmetry_path", "weights_dir", "output_dir", "scale", "debug",
     ]:
         val = getattr(args, key)
         if val is not None:

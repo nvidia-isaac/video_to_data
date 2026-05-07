@@ -65,28 +65,28 @@ def visualize_image_bboxes(image_path: str, detections: list[dict], debug_dir: s
     return out_path
 
 
-def visualize_image_list_bboxes(image_dir: str, results: dict, debug_dir: str):
-    """Draw detections on each image in a directory and save to debug_dir.
+def visualize_image_list_bboxes(rgb_path: str, results: dict, debug_dir: str):
+    """Draw detections on each image and save to debug_dir.
 
     Args:
-        image_dir: Directory of source images.
+        rgb_path: Path to source frames (image dir, .h5, or video file).
         results: Dict mapping image stem → list of detection dicts
                  (output of image_list_to_object_bboxes).
         debug_dir: Directory to save annotated images.
     """
+    from v2d.common.video import FrameSource
+
     os.makedirs(debug_dir, exist_ok=True)
-    image_dir = Path(image_dir)
+    source = FrameSource.from_path(rgb_path)
+    stem_to_idx = {s: i for i, s in enumerate(source.stems)}
+
     written = 0
     for stem, detections in results.items():
-        # Find the matching image file (any extension)
-        matches = list(image_dir.glob(f"{stem}.*"))
-        if not matches:
+        if stem not in stem_to_idx:
             continue
-        image_path = str(matches[0])
-        image = cv2.imread(image_path)
-        if image is None:
-            continue
-        annotated = _draw_detections(image, detections)
+        image = source[stem_to_idx[stem]]
+        image_bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+        annotated = _draw_detections(image_bgr, detections)
         out_path = os.path.join(debug_dir, f"{stem}.jpg")
         cv2.imwrite(out_path, annotated)
         written += 1

@@ -8,7 +8,7 @@ _DEFAULT_CONFIG = Path(__file__).parent.parent / "lib" / "calibrate_extrinsics.y
 
 def run_calibrate_extrinsics(
     camera_params_path: str,
-    image_dir: str,
+    rgb_dir: str,
     output_dir: str,
     config_path: str = str(_DEFAULT_CONFIG),
     start: int | None = None,
@@ -19,7 +19,7 @@ def run_calibrate_extrinsics(
 ) -> None:
     inputs = {
         "camera_params_path": camera_params_path,
-        "image_dir": image_dir,
+        "rgb_dir": rgb_dir,
         "config_path": config_path,
     }
 
@@ -54,7 +54,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Run extrinsic calibration in Docker")
     parser.add_argument("--camera_params_path", type=str, required=True)
-    parser.add_argument("--image_dir", type=str, required=True)
+    parser.add_argument("--rgb_dir", type=str, required=True)
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--config_path", type=str, default=str(_DEFAULT_CONFIG))
     parser.add_argument("--start", type=int, default=None)
@@ -66,7 +66,7 @@ if __name__ == "__main__":
 
     run_calibrate_extrinsics(
         camera_params_path=args.camera_params_path,
-        image_dir=args.image_dir,
+        rgb_dir=args.rgb_dir,
         output_dir=args.output_dir,
         config_path=args.config_path,
         start=args.start,

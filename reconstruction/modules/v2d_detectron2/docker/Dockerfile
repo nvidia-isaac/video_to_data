@@ -14,7 +14,8 @@ RUN pip install 'detectron2[all] @ git+https://github.com/facebookresearch/detec
 
 COPY . /workspace
 
-RUN pip install -e "/workspace/v2d_mv[io]" \
+RUN pip install -e "/workspace/v2d_common[io]" \
+                -e /workspace/v2d_mv \
                 -e /workspace/v2d_detectron2/lib
 
 ENV TORCH_HOME=/tmp/torch_cache

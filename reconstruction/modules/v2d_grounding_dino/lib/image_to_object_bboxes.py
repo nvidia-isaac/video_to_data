@@ -13,11 +13,13 @@ import json
 import os
 import subprocess
 
+import imageio.v3 as iio
 import groundingdino
-from groundingdino.util.inference import load_image, load_model, predict
+from groundingdino.util.inference import load_model, predict
 from torchvision.ops import box_convert
 
 from v2d.common.datatypes import BoundingBox
+from .image_list_to_object_bboxes import _preprocess_image
 
 _CHECKPOINT_URL = (
     "https://github.com/IDEA-Research/GroundingDINO/releases/download/"
@@ -59,8 +61,9 @@ def image_to_bboxes(
         raise FileNotFoundError(f"Image not found: {image_path}")
 
     model = _get_model(model_dir)
-    image_source, image = load_image(image_path)
-    h, w, _ = image_source.shape
+    image_source = iio.imread(image_path)
+    h, w = image_source.shape[:2]
+    image = _preprocess_image(image_source)
 
     boxes_cxcywh, logits, phrases = predict(
         model=model,
