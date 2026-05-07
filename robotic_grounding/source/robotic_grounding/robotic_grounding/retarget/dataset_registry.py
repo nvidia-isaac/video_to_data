@@ -61,7 +61,10 @@ class DatasetConfig:
             data. Empty string means "dataset/" (the default).
             TACO overrides this to "dataset/Hand_Poses/".
         loader_script: Path to the loader script relative to repo root.
-        retarget_script: Path to the retarget script relative to repo root.
+        retarget_scripts: Mapping from robot name (e.g. "sharpa_wave",
+            "dex3") to retarget script path (relative to repo root). Allows
+            ``run_retarget.py --dataset arctic --robot dex3`` to dispatch to
+            the right per-robot retargeter.
     """
 
     # Identity
@@ -90,7 +93,7 @@ class DatasetConfig:
 
     # Script dispatch (relative to repo root)
     loader_script: str = ""
-    retarget_script: str = ""
+    retarget_scripts: dict[str, str] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +111,10 @@ DATASET_CONFIGS: dict[str, DatasetConfig] = {
         has_contact_data=True,
         css_raw_prefix="dataset/Hand_Poses/",
         loader_script="scripts/retarget/taco_loader.py",
-        retarget_script="scripts/retarget/taco_to_sharpa.py",
+        retarget_scripts={
+            "sharpa_wave": "scripts/retarget/taco_to_sharpa.py",
+            "dex3": "scripts/retarget/taco_to_dex3.py",
+        },
     ),
     "arctic": DatasetConfig(
         name="arctic",
@@ -120,7 +126,10 @@ DATASET_CONFIGS: dict[str, DatasetConfig] = {
         has_contact_data=True,
         link_to_site_quat_wxyz=(0.5, -0.5, 0.5, 0.5),
         loader_script="scripts/retarget/arctic_loader.py",
-        retarget_script="scripts/retarget/arctic_to_sharpa.py",
+        retarget_scripts={
+            "sharpa_wave": "scripts/retarget/arctic_to_sharpa.py",
+            "dex3": "scripts/retarget/arctic_to_dex3.py",
+        },
     ),
     "oakink2": DatasetConfig(
         name="oakink2",
@@ -131,7 +140,7 @@ DATASET_CONFIGS: dict[str, DatasetConfig] = {
         has_articulated_objects=False,
         has_contact_data=True,
         loader_script="scripts/retarget/oakink2_loader.py",
-        retarget_script="scripts/retarget/oakink2_to_sharpa.py",
+        retarget_scripts={"sharpa_wave": "scripts/retarget/oakink2_to_sharpa.py"},
     ),
     "hot3d": DatasetConfig(
         name="hot3d",
@@ -142,7 +151,7 @@ DATASET_CONFIGS: dict[str, DatasetConfig] = {
         has_articulated_objects=False,
         has_contact_data=True,
         loader_script="scripts/retarget/hot3d_loader.py",
-        retarget_script="scripts/retarget/hot3d_to_sharpa.py",
+        retarget_scripts={"sharpa_wave": "scripts/retarget/hot3d_to_sharpa.py"},
     ),
     "h2o": DatasetConfig(
         name="h2o",
@@ -153,7 +162,7 @@ DATASET_CONFIGS: dict[str, DatasetConfig] = {
         has_articulated_objects=False,
         has_contact_data=True,
         loader_script="scripts/retarget/h2o_loader.py",
-        retarget_script="scripts/retarget/h2o_to_sharpa.py",
+        retarget_scripts={"sharpa_wave": "scripts/retarget/h2o_to_sharpa.py"},
     ),
     "grab": DatasetConfig(
         name="grab",
@@ -164,7 +173,7 @@ DATASET_CONFIGS: dict[str, DatasetConfig] = {
         has_articulated_objects=False,
         has_contact_data=True,
         loader_script="scripts/retarget/grab_loader.py",
-        retarget_script="scripts/retarget/grab_to_sharpa.py",
+        retarget_scripts={"sharpa_wave": "scripts/retarget/grab_to_sharpa.py"},
     ),
     "dexycb": DatasetConfig(
         name="dexycb",
@@ -175,7 +184,7 @@ DATASET_CONFIGS: dict[str, DatasetConfig] = {
         has_articulated_objects=False,
         has_contact_data=True,
         loader_script="scripts/retarget/dexycb_loader.py",
-        retarget_script="scripts/retarget/dexycb_to_sharpa.py",
+        retarget_scripts={"sharpa_wave": "scripts/retarget/dexycb_to_sharpa.py"},
     ),
 }
 
