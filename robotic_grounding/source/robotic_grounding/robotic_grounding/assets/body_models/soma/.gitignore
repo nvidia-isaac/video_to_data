@@ -1,0 +1,11 @@
+# SOMA-X body-model assets are large binary blobs (~822 MB total) that
+# users download on first use via `python scripts/setup_soma_assets.py`,
+# which delegates to `soma.SOMALayer` (HuggingFace-backed). Keep the
+# directory pinned in git so `read_soma._resolve_data_root` can find it,
+# but never commit the assets themselves.
+*.npz
+*.pt
+*.npy
+*.obj
+MHR/
+!.gitignore

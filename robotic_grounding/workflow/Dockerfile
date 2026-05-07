@@ -44,6 +44,14 @@ RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir --no-build-iso
     git+https://github.com/mattloper/chumpy.git \
     git+https://github.com/lixiny/manotorch.git
 
+# Install py-soma-x for SOMA body model used by `scripts/retarget/soma_to_g1.py`.
+# Assets are auto-downloaded from HuggingFace on first SOMALayer use; the
+# robotic_grounding code instantiates SOMALayer with
+# `data_root=BODY_MODELS_DIR / "soma"` so per-run assets land at a known path
+# inside the bind-mounted repo. Pin via PyPI release.
+RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
+    py-soma-x
+
 # Install Retargeting dependencies
 RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
     mujoco \
