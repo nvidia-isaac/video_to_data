@@ -196,6 +196,7 @@ from v2d.mv.calibration.docker.run_calibrate_extrinsics import run_calibrate_ext
 | `v2d_detectron2` | Person detection + IoU tracking from images/video (Detectron2 ViTDet). MV: `run_mv_track_bboxes` |
 | `v2d_moge` | Monocular depth + camera intrinsics from video (MoGe model) |
 | `v2d_unidepth` | Monocular depth estimation (UniDepth model) |
+| `v2d_anycalib` | Single-view camera calibration (intrinsics + distortion) and undistortion for image / video / image folder (AnyCalib model) |
 | `v2d_sam2` | Video segmentation with interactive annotation UI. MV: `run_mv_videos_to_masks` (bbox track `.pt` or grounding dino `.json`) |
 | `v2d_sam3d` | 3D mesh reconstruction from image + mask |
 | `v2d_sam3d_body` | Human body pose and shape estimation (SAM3D-Body MHR). MV: `run_mv_optimize_mhr_params` |

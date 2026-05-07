@@ -83,6 +83,39 @@ class CameraIntrinsics:
             [0, 0, 1]
         ], dtype=np.float32)
 
+
+@dataclass
+class CameraDistortion:
+    """Camera lens distortion parameters.
+
+    Companion to ``CameraIntrinsics`` (which only carries pinhole fx/fy/cx/cy).
+    The model name follows OpenCV conventions:
+
+    - ``"pinhole"``        — no distortion (``params == []``)
+    - ``"opencv"``         — Brown-Conrady ``[k1, k2, p1, p2, k3, ...]``
+                             (4, 5, 8, 12, or 14 coefficients accepted)
+    - ``"opencv_fisheye"`` — Kannala-Brandt fisheye ``[k1, k2, k3, k4]``
+    """
+    model: str
+    params: list[float]
+
+    def to_dict(self) -> dict:
+        return {"model": self.model, "params": list(self.params)}
+
+    @staticmethod
+    def from_dict(d: dict) -> 'CameraDistortion':
+        return CameraDistortion(model=d["model"], params=list(d["params"]))
+
+    def save(self, path: str) -> None:
+        with open(path, 'w') as f:
+            json.dump(self.to_dict(), f, indent=4)
+
+    @staticmethod
+    def load(path: str) -> 'CameraDistortion':
+        with open(path) as f:
+            return CameraDistortion.from_dict(json.load(f))
+
+
 @dataclass
 class Transform3d:
     rotation: list[float]

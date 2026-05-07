@@ -127,6 +127,17 @@ def render_dynhamr_video(
         trans       = wr['trans'].astype(np.float32)
         trans_label = 'trans'
 
+    # When rendering the depth-aligned hand under depth intrinsics, scale the
+    # MANO mesh by the constant hand_scale produced by align_world_results so
+    # the silhouette matches the image (compensates for fx mismatch and
+    # MoGe-vs-DynHaMR depth disagreement).  Apply only to aligned renders;
+    # raw `trans` is image-correct under ViPE intrinsics with scale = 1.
+    if use_trans_aligned and 'hand_scale' in wr.files:
+        hand_scale = float(wr['hand_scale'])
+    else:
+        hand_scale = 1.0
+    print(f"  hand_scale = {hand_scale:.4f}")
+
     B, T = root_orient.shape[:2]
     is_right_track = is_right.mean(axis=1) > 0.5
 
@@ -157,6 +168,13 @@ def render_dynhamr_video(
         hand_betas  = torch.from_numpy(np.tile(betas[h], (T, 1)))
         mano_out    = mano_layer(hand_pose, hand_betas)
         verts_local = mano_out.verts.detach().numpy()  # (T, 778, 3)
+
+        # Scale around the per-frame centroid so the centroid pixel is preserved
+        # (trans_aligned already places it correctly) while the silhouette grows
+        # or shrinks to match the image under the depth intrinsics.
+        if hand_scale != 1.0:
+            c = verts_local.mean(axis=1, keepdims=True)        # (T, 1, 3)
+            verts_local = (verts_local - c) * hand_scale + c
 
         v_world = verts_local + trans[h, :, None, :]  # DynHaMR world units (no world_scale)
         if left:
