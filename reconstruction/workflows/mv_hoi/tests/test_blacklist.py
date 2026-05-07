@@ -115,7 +115,7 @@ def test_submit_sequence_skips_blacklisted_manual_sequence(
     assert "blacklisted for dataset_a: bad capture" in capsys.readouterr().out
 
 
-def test_submit_sequence_force_bypasses_blacklist(monkeypatch, tmp_path):
+def test_submit_sequence_force_removes_blacklist(monkeypatch, tmp_path):
     db_path = _db_path(tmp_path)
     db.insert_version("1.0.0", db_path=db_path)
     db.upsert_blacklisted_sequence(
@@ -151,6 +151,45 @@ def test_submit_sequence_force_bypasses_blacklist(monkeypatch, tmp_path):
 
     assert result == "wf-force"
     assert inserted[0]["sequence_name"] == "blocked_sequence"
+    assert db.get_blacklisted_sequence(
+        "dataset_a", "blocked_sequence", db_path=db_path,
+    ) is None
+
+
+def test_submit_sequence_force_dry_run_preserves_blacklist(
+    monkeypatch, tmp_path, capsys,
+):
+    db_path = _db_path(tmp_path)
+    db.insert_version("1.0.0", db_path=db_path)
+    db.upsert_blacklisted_sequence(
+        "dataset_a", "blocked_sequence", reason="bad capture", db_path=db_path,
+    )
+
+    monkeypatch.setattr(submit, "DB_PATH", db_path)
+    monkeypatch.setattr(submit, "_generate_workflow_name", lambda *_args: "wf-force")
+    monkeypatch.setattr(
+        submit,
+        "get_s3_client",
+        lambda *_args, **_kwargs: (object(), "bucket", "root"),
+    )
+
+    result = submit.submit_sequence(
+        "blocked_sequence",
+        "dataset_a",
+        _dataset_cfg(),
+        "mv_calibration",
+        force=True,
+        dry_run=True,
+    )
+
+    assert result == "wf-force"
+    assert db.get_blacklisted_sequence(
+        "dataset_a", "blocked_sequence", db_path=db_path,
+    ) is not None
+    assert (
+        "[dry-run] would remove blacklist entry for blocked_sequence due to --force"
+        in capsys.readouterr().out
+    )
 
 
 def test_auto_submit_filters_blacklist_by_active_dataset(monkeypatch, tmp_path):
@@ -224,6 +263,44 @@ def test_auto_submit_force_bypasses_blacklist(monkeypatch, tmp_path):
     )
 
     assert submitted == [("dataset_a", "blocked_sequence", True)]
+
+
+def test_auto_submit_force_removes_blacklist_for_submitted_sequence(monkeypatch, tmp_path):
+    db_path = _db_path(tmp_path)
+    db.insert_version("1.0.0", db_path=db_path)
+    db.upsert_blacklisted_sequence(
+        "dataset_a", "blocked_sequence", reason="bad capture", db_path=db_path,
+    )
+
+    monkeypatch.setattr(submit, "DB_PATH", db_path)
+    monkeypatch.setattr(submit, "_generate_workflow_name", lambda *_args: "wf-force")
+    monkeypatch.setattr(
+        submit,
+        "get_s3_client",
+        lambda *_args, **_kwargs: (object(), "bucket", "root"),
+    )
+    monkeypatch.setattr(
+        submit,
+        "list_sequences",
+        lambda *_args, **_kwargs: ["blocked_sequence"],
+    )
+    monkeypatch.setattr(
+        submit,
+        "osmo_submit",
+        lambda *_args, **_kwargs: "osmo-force",
+    )
+
+    submit.auto_submit(
+        "dataset_a", _dataset_cfg(), "mv_calibration", force=True,
+    )
+
+    assert db.get_blacklisted_sequence(
+        "dataset_a", "blocked_sequence", db_path=db_path,
+    ) is None
+    latest = db.get_latest_workflow(
+        "blocked_sequence", "dataset_a", "mv_calibration", db_path=db_path,
+    )
+    assert latest["workflow_name"] == "wf-force"
 
 
 class _FakeMeshClient:

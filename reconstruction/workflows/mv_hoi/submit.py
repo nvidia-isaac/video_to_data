@@ -28,6 +28,7 @@ from db import (
     get_workflows_by_dataset,
     init_db,
     insert_workflow,
+    remove_blacklisted_sequence,
     update_workflow,
 )
 from query import DEFAULT_REFRESH_WORKERS, osmo_cancel, refresh_waiting
@@ -180,17 +181,16 @@ def submit_sequence(
     dry_run: bool = False,
 ) -> str | None:
     """Build --set vars, submit OSMO workflow, record in DB. Return workflow name."""
-    if not force:
-        blacklist_entry = get_blacklisted_sequence(
-            dataset_name, sequence_name, db_path=DB_PATH,
-        )
-        if blacklist_entry:
-            print(
-                _blacklist_skip_message(
-                    sequence_name, dataset_name, blacklist_entry.get("reason"),
-                )
+    blacklist_entry = get_blacklisted_sequence(
+        dataset_name, sequence_name, db_path=DB_PATH,
+    )
+    if blacklist_entry and not force:
+        print(
+            _blacklist_skip_message(
+                sequence_name, dataset_name, blacklist_entry.get("reason"),
             )
-            return None
+        )
+        return None
 
     latest = get_latest_workflow(
         sequence_name, dataset_name, pipeline_type, db_path=DB_PATH, table=TABLE,
@@ -311,6 +311,11 @@ def submit_sequence(
         osmo_workflow_id = osmo_submit(workflow_yaml, pool, set_vars, dry_run=dry_run)
         if dry_run:
             print(f"  [dry-run] would insert workflow {workflow_name}")
+            if force and blacklist_entry:
+                print(
+                    f"  [dry-run] would remove blacklist entry for "
+                    f"{sequence_name} due to --force"
+                )
             return workflow_name
         insert_workflow(
             sequence_name=sequence_name,
@@ -324,6 +329,10 @@ def submit_sequence(
             db_path=DB_PATH,
             table=TABLE,
         )
+        if force and blacklist_entry and remove_blacklisted_sequence(
+            dataset_name, sequence_name, db_path=DB_PATH,
+        ):
+            print(f"  {sequence_name}: removed blacklist entry due to --force")
         print(f"  Workflow ID: {osmo_workflow_id}")
         return workflow_name
     except subprocess.CalledProcessError as e:
@@ -465,7 +474,8 @@ def main() -> None:
                         help="Pipeline type (e.g. mv_calibration, mv_hoi_reconstruction)")
     parser.add_argument("--sequence", help="Single sequence (manual mode)")
     parser.add_argument("--force", action="store_true",
-                        help="Force resubmit even if blacklisted, WAITING_WF, WAITING_QC, or PASS")
+                        help="Force resubmit even if blacklisted, WAITING_WF, WAITING_QC, or PASS; "
+                             "successful non-dry-run submits remove matching blacklist entries")
     parser.add_argument("--retry_failed", action="store_true",
                         help="In auto mode, also retry sequences whose latest run failed")
     parser.add_argument("--start_time",

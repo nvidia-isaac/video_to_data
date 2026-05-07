@@ -166,11 +166,14 @@ based on the latest row's status:
 python submit.py --dataset sc_office_4exo_1 --pipeline mv_hoi_reconstruction --sequence <name>
 ```
 
-`--force` bypasses all confirmation/cancel logic.
+`--force` bypasses all confirmation/cancel logic. When a forced non-dry-run
+submission succeeds for a blacklisted sequence, the matching blacklist entry is
+removed.
 
 Blacklisted sequences are skipped in both auto and manual mode. The blacklist
 is scoped by dataset, so the same sequence name can be blocked for one dataset
-and still submitted for another. `--force` also bypasses the blacklist.
+and still submitted for another. `--force` submits blacklisted sequences anyway
+and removes the blacklist entry after a successful non-dry-run submit.
 
 ```bash
 # Add or update an entry:
