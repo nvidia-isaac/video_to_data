@@ -231,8 +231,17 @@ def _sharpa_to_dual_hand(data: ManoSharpaData) -> DualHandTrajectory:
 def load_replay_trajectory(
     motion_file: str,
     trajectory_id: int = 0,
+    start_frame: int = 0,
+    end_frame: int | None = None,
 ) -> ReplayTrajectory:
-    """Load replay trajectory from a motion parquet path for known schemas."""
+    """Load replay trajectory from a motion parquet path for known schemas.
+
+    Args:
+        motion_file: Parquet file or partition directory.
+        trajectory_id: Trajectory index (legacy ManoSharpaData only).
+        start_frame: First frame to keep (motion_v1 only). Default 0.
+        end_frame: One past the last frame (motion_v1 only). None = full.
+    """
     resolved, filters = _resolve_path_and_filters(motion_file)
 
     resolved_path = Path(resolved)
@@ -253,6 +262,7 @@ def load_replay_trajectory(
                 f"Unsupported motion schema version: {md.schema_version!r}. "
                 f"Run scripts/motion_schema/migrate_to_v1.py to upgrade."
             )
+        md = md.trim(start_frame, end_frame)
         return _motion_v1_to_replay(md)
 
     # Legacy: ManoSharpaData (dual-hand V2P pipeline, not yet on motion_v1).

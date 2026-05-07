@@ -1923,9 +1923,9 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         #     self.object_body_wxyz_command_e,
         # ).mean(dim=-1)
 
+        # Log the per-env VOC scale actually applied to the object controller.
         self.metrics["virtual_object_controller_scale_factor"] = (
-            self.virtual_object_controller_scale_factor
-            * torch.ones(self.num_envs, device=self.device)
+            self.virtual_object_controller_scale_factor_per_env.squeeze(-1)
         )
 
         if not self.cfg.enable_additional_metrics:

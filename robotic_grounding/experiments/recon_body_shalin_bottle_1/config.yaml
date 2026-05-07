@@ -20,7 +20,7 @@ train_overrides:
   env.commands.motion.reset_freeze_steps: 50
   env.commands.motion.voc_decay_steps: 10
   env.commands.motion.voc_reset_scale: 1.0
-  env.commands.motion.initial_virtual_object_control_curriculum_scale: 0.0
+  env.commands.motion.initial_virtual_object_control_curriculum_scale: 1.0
   env.episode_length_s: 5.0
 
 osmo:

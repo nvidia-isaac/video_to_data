@@ -59,6 +59,9 @@ def load_motion_data(
             f"or `replay_data.load_replay_trajectory`."
         )
 
+    end_frame = None if cfg.motion_end_frame < 0 else cfg.motion_end_frame
+    md = md.trim(cfg.motion_start_frame, end_frame)
+
     if md.ee_link_names:
         ee_link_ids, _ = robot.find_bodies(list(md.ee_link_names))
         md.ee_link_ids = ee_link_ids

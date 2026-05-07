@@ -1004,6 +1004,11 @@ def main() -> None:
         help="Print generated OSMO entry script (train command) without submitting",
     )
     parser.add_argument(
+        "--run-name",
+        default=None,
+        help="Override the config's run_name (the W&B run name will be {timestamp}_{run_name}).",
+    )
+    parser.add_argument(
         "--run-name-prefix",
         default=None,
         help="Prefix to prepend to W&B run names (e.g. 'exp48_')",
@@ -1038,6 +1043,8 @@ def main() -> None:
 
     _, config = load_experiment_config(args.exp_id)
 
+    if args.run_name is not None:
+        config["run_name"] = args.run_name
     if args.run_name_prefix is not None:
         config["run_name_prefix"] = args.run_name_prefix
 

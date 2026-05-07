@@ -219,6 +219,53 @@ class TestTrackingCommand(unittest.TestCase):
             f"Timesteps should stay at end till reset. Got: {self.tracking_cmd.timestep}",
         )
 
+    def test_update_metrics_populates_expected_metric_shapes(self) -> None:
+        """Test that update_metrics fills the expected per-env metric tensors."""
+        self.tracking_cmd._update_metrics()
+
+        expected_metric_names = [
+            "anchor_position_error",
+            "anchor_wxyz_error",
+            "joint_pos_error",
+            "left_hand_wrist_position_error",
+            "left_hand_wrist_wxyz_error",
+            "left_hand_finger_joints_error",
+            "right_hand_wrist_position_error",
+            "right_hand_wrist_wxyz_error",
+            "right_hand_finger_joints_error",
+            "object_body_position_error",
+            "object_body_wxyz_error",
+            "virtual_object_controller_scale_factor",
+        ]
+
+        for metric_name in expected_metric_names:
+            self.assertIn(metric_name, self.tracking_cmd.metrics)
+            metric = self.tracking_cmd.metrics[metric_name]
+            self.assertEqual(
+                metric.shape,
+                (self.env.num_envs,),
+                f"{metric_name} should be shape {(self.env.num_envs,)}",
+            )
+            self.assertTrue(
+                torch.isfinite(metric).all(),
+                f"{metric_name} should contain only finite values",
+            )
+
+    def test_update_metrics_tracks_per_env_voc_scale(self) -> None:
+        """Test that VOC metric mirrors the currently applied per-env scale."""
+        expected = torch.tensor([[0.25], [0.75]], device=self.env.device)
+        self.tracking_cmd.virtual_object_controller_scale_factor_per_env[:] = expected
+
+        self.tracking_cmd._update_metrics()
+
+        self.assertTrue(
+            torch.allclose(
+                self.tracking_cmd.metrics["virtual_object_controller_scale_factor"],
+                expected.squeeze(-1),
+            ),
+            "VOC metric should match per-env applied VOC scale",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

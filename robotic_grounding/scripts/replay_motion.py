@@ -45,6 +45,18 @@ parser.add_argument(
     help="Stop at the last frame instead of looping (default: loop).",
 )
 parser.add_argument("--num_envs", type=int, default=1, help="Number of environments.")
+parser.add_argument(
+    "--start_frame",
+    type=int,
+    default=0,
+    help="First frame of the source motion to play (inclusive).",
+)
+parser.add_argument(
+    "--end_frame",
+    type=int,
+    default=None,
+    help="One past the last frame to play. Default: end of sequence.",
+)
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 
@@ -184,6 +196,8 @@ class Trajectory:
         motion_file: str,
         device: torch.device,
         spawn_root_z: float = 0.0,
+        start_frame: int = 0,
+        end_frame: int | None = None,
     ) -> None:
         """Load trajectory arrays from Parquet into GPU tensors.
 
@@ -192,8 +206,12 @@ class Trajectory:
             device: Target torch device.
             spawn_root_z: Initial root Z from the spawned robot cfg used to
                 calibrate the height offset so the robot stands on the ground.
+            start_frame: First frame to keep (motion_v1 only).
+            end_frame: One past the last frame to keep. None = full.
         """
-        replay = load_replay_trajectory(motion_file)
+        replay = load_replay_trajectory(
+            motion_file, start_frame=start_frame, end_frame=end_frame
+        )
         self.fps = replay.fps
         self.num_frames = replay.num_frames
         self.robot_layout = replay.robot_layout
@@ -417,7 +435,13 @@ class ContactOverlay:
     stays False and the marker for that side will never be shown.
     """
 
-    def __init__(self, motion_file: str, device: torch.device) -> None:
+    def __init__(
+        self,
+        motion_file: str,
+        device: torch.device,
+        start_frame: int = 0,
+        end_frame: int | None = None,
+    ) -> None:
         """Load contact overlay data, or no-op if the parquet lacks the fields."""
         self.has_left: bool = False
         self.has_right: bool = False
@@ -428,6 +452,7 @@ class ContactOverlay:
 
         try:
             md = load_motion_data_parquet(motion_file, device=str(device))
+            md = md.trim(start_frame, end_frame)
         except Exception as exc:
             print(f"[WARN] Contact overlay disabled (motion_v1 load failed): {exc}")
             return
@@ -527,7 +552,13 @@ def main() -> None:
     device = env.device
 
     spawn_root_z = _get_spawn_root_z(cfg)
-    traj = Trajectory(args_cli.motion_file, device, spawn_root_z=spawn_root_z)
+    traj = Trajectory(
+        args_cli.motion_file,
+        device,
+        spawn_root_z=spawn_root_z,
+        start_frame=args_cli.start_frame,
+        end_frame=args_cli.end_frame,
+    )
 
     # Resolve object handle by scene-config name (not hardcoded "object")
     object_names = cfg.events.setup_collision_groups.params.get("object_names", [])
@@ -562,7 +593,12 @@ def main() -> None:
 
     # Contact overlay (motion_v1 parquets only). Anchors at each wrist; shows
     # while the per-frame contact-active mask is on.
-    contact_overlay = ContactOverlay(args_cli.motion_file, device)
+    contact_overlay = ContactOverlay(
+        args_cli.motion_file,
+        device,
+        start_frame=args_cli.start_frame,
+        end_frame=args_cli.end_frame,
+    )
     if traj.height_offset != 0.0:
         # Apply the same Z lift the replay loader used so markers sit on the
         # actual kinematic wrists (legacy whole-body data only).

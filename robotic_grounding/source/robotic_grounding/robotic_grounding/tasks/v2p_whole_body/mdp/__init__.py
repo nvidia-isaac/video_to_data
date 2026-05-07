@@ -7,6 +7,7 @@
 from . import (  # noqa: F401
     actions,
     commands,
+    curriculum,
     events,
     observations,
     rewards,
