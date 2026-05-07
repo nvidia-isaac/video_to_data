@@ -1,30 +1,46 @@
-"""Hand-mask pipeline: detect hands on a reference frame and propagate via SAM2.
+"""Hand pipeline: detection → SAM2 tracking → HaMeR → depth alignment.
 
 Steps:
-  1. Extract frames from the input video.
-  2. Run MediaPipe Hands on the reference frame  → hand_detections.json
-  3. Build SAM2 prompts from those bboxes        → sam2_prompts.json
-  4. Run SAM2 video propagation                  → masks/{1,2,...}/*.png
-  5. Write a sidecar mapping object_id → handedness → hand_tracks.json
-  6. Render prompts overlay PNG + mask overlay MP4 for verification.
+  0.  AnyCalib undistortion           [optional, --undistort]
+  1.  Extract frames
+  2.  MoGe depth + intrinsics         [only when --run_hamer]
+  2b. Stabilise intrinsics            [only when --run_hamer]
+  3.  MediaPipe HandLandmarker        → hand_detections.json
+  4.  Build SAM2 prompts               → sam2_prompts.json + hand_tracks.json
+  5.  SAM2 mask propagation            → masks/{1,2,...}/*.png
+  6.  Render prompts overlay PNG + mask overlay MP4
+  7.  HaMeR per-track per-frame        [--run_hamer]
+  8.  Render HaMeR mesh overlay        [--run_hamer]
+  9.  Align HaMeR to depth             [--run_hamer]
+  10. Render aligned HaMeR overlay     [--run_hamer]
 
-Output directory layout:
+Output directory layout (with --undistort + --run_hamer):
   <output_dir>/
-  ├── frames/                   # extracted video frames
-  ├── hand_detections.json      # MediaPipe per-detection list
-  ├── sam2_prompts.json         # one prompt per hand, object_id = 1..N
-  ├── hand_tracks.json          # {object_id: is_right, score} mapping
-  ├── prompts_overlay.png       # reference frame + bbox prompts
-  ├── masks_overlay.mp4         # full video + per-track colored masks
-  └── masks/
-      ├── 1/000000.png ...
-      └── 2/000000.png ...
+  ├── anycalib/{intrinsics,distortion}.json
+  │   ├── undistorted.mp4
+  │   └── undistorted_intrinsics.json
+  ├── frames/
+  ├── depth/                       # MoGe depth PNGs
+  ├── intrinsics/                  # MoGe per-frame intrinsics JSONs
+  ├── intrinsics_stable.json       # stabilised single-JSON intrinsics
+  ├── hand_detections.json
+  ├── sam2_prompts.json
+  ├── hand_tracks.json
+  ├── prompts_overlay.png
+  ├── masks_overlay.mp4
+  ├── masks/{1,2}/                 # SAM2 hand masks per track
+  ├── hamer/{1,2}/*.json           # HaMeR per-frame MANO + virtual cam
+  ├── hamer_overlay.mp4
+  ├── hamer_aligned/{1,2}/*.json   # depth-aligned, real-intrinsics
+  └── hamer_aligned_overlay.mp4
 
 Usage:
     python modules/v2d_pipelines/run_hand_masks.py \\
         --video_path data/my_video.mp4 \\
         --output_dir data/outputs/my_video \\
-        --sam2_weights data/weights/sam2
+        --sam2_weights data/weights/sam2 \\
+        --undistort \\
+        --run_hamer
 
 Run from reconstruction/.
 """
@@ -39,9 +55,16 @@ import tempfile
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+from v2d.anycalib.docker.run_video_to_calibration import run_video_to_calibration
 from v2d.common.datatypes import BoundingBox, Sam2Prompt, Sam2Prompts
 from v2d.common.utils import extract_images
+from v2d.depth.lib.stabilize_intrinsics import stabilize_intrinsics
+from v2d.hamer.docker.run_align_hands import run_align_hands
+from v2d.hamer.docker.run_masks_to_hands import run_masks_to_hands
+from v2d.hamer.docker.run_render_hands_aligned_video import run_render_hands_aligned_video
+from v2d.hamer.docker.run_render_hands_video import run_render_hands_video
 from v2d.hand_detector.docker.run_image_to_hand_bboxes import run_image_to_hand_bboxes
+from v2d.moge.docker.run_video_to_depth import run_video_to_depth as run_moge_depth
 from v2d.sam2.docker.run_video_to_masks import run_video_to_masks
 
 
@@ -171,31 +194,79 @@ def run_hand_masks(
     max_num_hands: int = 2,
     min_detection_confidence: float = 0.5,
     pad_ratio: float = 0.15,
+    undistort: bool = False,
+    anycalib_weights: str = "data/weights/anycalib",
+    moge_weights: str = "data/weights/moge",
+    run_hamer: bool = False,
+    hamer_weights: str | None = None,
+    bbox_expansion: float = 1.7,
+    mask_min_pixels: int = 256,
     dev: bool = False,
 ) -> None:
     video_path = os.path.abspath(video_path)
     output_dir = os.path.abspath(output_dir)
     os.makedirs(output_dir, exist_ok=True)
 
-    frames_dir       = f"{output_dir}/frames"
-    hand_detections  = f"{output_dir}/hand_detections.json"
-    sam2_prompts     = f"{output_dir}/sam2_prompts.json"
-    hand_tracks      = f"{output_dir}/hand_tracks.json"
-    masks_dir        = f"{output_dir}/masks"
-    prompts_overlay  = f"{output_dir}/prompts_overlay.png"
-    masks_overlay    = f"{output_dir}/masks_overlay.mp4"
-    ref_rgb          = f"{frames_dir}/{reference_frame:06d}.png"
+    frames_dir         = f"{output_dir}/frames"
+    depth_dir          = f"{output_dir}/depth"
+    intrinsics_dir     = f"{output_dir}/intrinsics"
+    intrinsics_stable  = f"{output_dir}/intrinsics_stable.json"
+    anycalib_dir       = f"{output_dir}/anycalib"
+    anycalib_intr      = f"{anycalib_dir}/intrinsics.json"
+    anycalib_dist      = f"{anycalib_dir}/distortion.json"
+    undistorted_video  = f"{anycalib_dir}/undistorted.mp4"
+    undistorted_intr   = f"{anycalib_dir}/undistorted_intrinsics.json"
+    hand_detections    = f"{output_dir}/hand_detections.json"
+    sam2_prompts       = f"{output_dir}/sam2_prompts.json"
+    hand_tracks        = f"{output_dir}/hand_tracks.json"
+    masks_dir          = f"{output_dir}/masks"
+    prompts_overlay    = f"{output_dir}/prompts_overlay.png"
+    masks_overlay      = f"{output_dir}/masks_overlay.mp4"
+    ref_rgb            = f"{frames_dir}/{reference_frame:06d}.png"
 
     print(f"\n{'='*60}")
     print(f"  video           : {os.path.basename(video_path)}")
     print(f"  output          : {output_dir}")
     print(f"  reference_frame : {reference_frame}")
     print(f"  selfie          : {selfie}")
+    print(f"  undistort       : {undistort}")
+    print(f"  run_hamer       : {run_hamer}")
     print(f"{'='*60}\n")
+
+    # 0. AnyCalib undistortion (optional) ------------------------------------
+    if undistort:
+        os.makedirs(anycalib_dir, exist_ok=True)
+        if not _step("AnyCalib undistortion", os.path.exists(undistorted_video)):
+            run_video_to_calibration(
+                video_path                  = video_path,
+                intrinsics_path             = anycalib_intr,
+                distortion_path             = anycalib_dist,
+                weights_path                = anycalib_weights,
+                undistorted_video_path      = undistorted_video,
+                undistorted_intrinsics_path = undistorted_intr,
+                dev                         = dev,
+            )
+        video_path = undistorted_video
+        print(f"  → using undistorted video: {video_path}")
 
     # 1. Extract frames -------------------------------------------------------
     if not _step("Extract frames", _has_files(frames_dir)):
         extract_images(video_path, frames_dir)
+
+    # 2. MoGe depth + intrinsics + stabilise (only if HaMeR alignment will run)
+    if run_hamer:
+        moge_input_intrinsics = undistorted_intr if undistort else None
+        if not _step("MoGe depth + intrinsics", _has_files(depth_dir)):
+            run_moge_depth(
+                video_path            = video_path,
+                depth_folder          = depth_dir,
+                intrinsics_folder     = intrinsics_dir,
+                weights_path          = moge_weights,
+                input_intrinsics_path = moge_input_intrinsics,
+                dev                   = dev,
+            )
+        if not _step("Stabilise intrinsics", os.path.exists(intrinsics_stable)):
+            stabilize_intrinsics(intrinsics_dir, intrinsics_stable)
 
     # 2. Hand detection on reference frame ------------------------------------
     # Treat an existing-but-empty detections file as "redo" — otherwise a
@@ -286,13 +357,79 @@ def run_hand_masks(
             output_path=masks_overlay,
         )
 
+    # 6. Optional HaMeR per-frame reconstruction -----------------------------
+    hamer_dir             = f"{output_dir}/hamer"
+    hamer_overlay         = f"{output_dir}/hamer_overlay.mp4"
+    hamer_aligned_dir     = f"{output_dir}/hamer_aligned"
+    hamer_aligned_overlay = f"{output_dir}/hamer_aligned_overlay.mp4"
+    if run_hamer:
+        if hamer_weights is None:
+            raise ValueError("--hamer_weights is required when --run_hamer is set")
+        mano_assets_root = os.path.join(hamer_weights, "_DATA", "data")
+
+        # masks_to_hands has its own per-frame skip logic, so always invoke
+        # it — re-runs short-circuit cheaply per JSON.
+        if not _step("HaMeR per-frame regression", False):
+            run_masks_to_hands(
+                frames_dir       = frames_dir,
+                masks_dir        = masks_dir,
+                tracks_path      = hand_tracks,
+                output_dir       = hamer_dir,
+                weights_dir      = hamer_weights,
+                bbox_expansion   = bbox_expansion,
+                mask_min_pixels  = mask_min_pixels,
+                dev              = dev,
+            )
+
+        if not _step("Render HaMeR mesh overlay", os.path.exists(hamer_overlay)):
+            run_render_hands_video(
+                frames_dir       = frames_dir,
+                hamer_dir        = hamer_dir,
+                mano_assets_root = mano_assets_root,
+                output_path      = hamer_overlay,
+                dev              = dev,
+            )
+
+        # Align HaMeR to MoGe depth + real intrinsics. Per-frame skip is
+        # internal, so always invoke.
+        if not _step("Align HaMeR to depth", False):
+            run_align_hands(
+                hamer_dir         = hamer_dir,
+                depth_dir         = depth_dir,
+                intrinsics_path   = intrinsics_stable,
+                mano_assets_root  = mano_assets_root,
+                output_dir        = hamer_aligned_dir,
+                hand_masks_dir    = masks_dir,
+                mask_min_pixels   = mask_min_pixels,
+                dev               = dev,
+            )
+
+        if not _step("Render aligned HaMeR overlay",
+                     os.path.exists(hamer_aligned_overlay)):
+            run_render_hands_aligned_video(
+                frames_dir       = frames_dir,
+                aligned_dir      = hamer_aligned_dir,
+                mano_assets_root = mano_assets_root,
+                output_path      = hamer_aligned_overlay,
+                dev              = dev,
+            )
+
     print(f"\n{'='*60}")
     print(f"  Done.")
+    if undistort:
+        print(f"  anycalib        : {anycalib_dir}/")
     print(f"  hand_detections : {hand_detections}")
     print(f"  hand_tracks     : {hand_tracks}")
     print(f"  masks           : {masks_dir}/{{1..{len(detections)}}}/")
     print(f"  prompts_overlay : {prompts_overlay}")
     print(f"  masks_overlay   : {masks_overlay}")
+    if run_hamer:
+        print(f"  depth           : {depth_dir}/")
+        print(f"  intrinsics      : {intrinsics_stable}")
+        print(f"  hamer           : {hamer_dir}/{{1..{len(detections)}}}/*.json")
+        print(f"  hamer_overlay   : {hamer_overlay}")
+        print(f"  hamer_aligned   : {hamer_aligned_dir}/{{1..{len(detections)}}}/*.json")
+        print(f"  hamer_aligned_overlay : {hamer_aligned_overlay}")
     print(f"{'='*60}\n")
 
 
@@ -310,6 +447,23 @@ def parse_args() -> argparse.Namespace:
                    help="MediaPipe detection threshold (default 0.3 — lowered "
                         "from MediaPipe's stock 0.5 for harder views).")
     p.add_argument("--pad_ratio", type=float, default=0.15)
+    p.add_argument("--undistort", action="store_true",
+                   help="Run AnyCalib first to estimate intrinsics + distortion "
+                        "and rebind video_path to the undistorted MP4.")
+    p.add_argument("--anycalib_weights", default="data/weights/anycalib",
+                   help="AnyCalib weights dir (used only with --undistort).")
+    p.add_argument("--moge_weights", default="data/weights/moge",
+                   help="MoGe weights dir (used only with --run_hamer).")
+    p.add_argument("--run_hamer", action="store_true",
+                   help="After SAM2, run HaMeR per (track, frame), align it "
+                        "to MoGe depth, and render verification overlays.")
+    p.add_argument("--hamer_weights", default="data/weights/hamer",
+                   help="Dir containing _DATA/hamer_ckpts/ (and MANO_RIGHT.pkl "
+                        "under _DATA/data/).")
+    p.add_argument("--bbox_expansion", type=float, default=1.7,
+                   help="Expand SAM2 mask bbox by this factor for HaMeR crop.")
+    p.add_argument("--mask_min_pixels", type=int, default=256,
+                   help="Skip HaMeR when SAM2 mask has fewer than this many pixels.")
     p.add_argument("--dev", action="store_true")
     return p.parse_args()
 
@@ -325,5 +479,12 @@ if __name__ == "__main__":
         max_num_hands            = args.max_num_hands,
         min_detection_confidence = args.min_detection_confidence,
         pad_ratio                = args.pad_ratio,
+        undistort                = args.undistort,
+        anycalib_weights         = args.anycalib_weights,
+        moge_weights             = args.moge_weights,
+        run_hamer                = args.run_hamer,
+        hamer_weights            = args.hamer_weights,
+        bbox_expansion           = args.bbox_expansion,
+        mask_min_pixels          = args.mask_min_pixels,
         dev                      = args.dev,
     )
