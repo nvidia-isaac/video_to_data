@@ -71,10 +71,13 @@ def video_to_depth(
         input_intrinsics_path:   Optional path to a CameraIntrinsics JSON with
                                  known calibrated intrinsics. When provided, the
                                  horizontal FoV is derived from fx and passed to
-                                 MoGe so it only solves for the affine depth
-                                 shift rather than estimating focal length. The
-                                 known intrinsics are written to the output
-                                 folder instead of MoGe's estimates.
+                                 MoGe as a focal-length prior so it only solves
+                                 for the affine depth shift. The intrinsics
+                                 written to disk are still MoGe's returned
+                                 values (cx/cy fixed at image center,
+                                 fy = aspect-corrected fx) — these are the
+                                 ones geometrically consistent with the depth
+                                 tensor.
     """
     model = _get_model(weights_path)
     os.makedirs(depth_folder, exist_ok=True)
@@ -86,11 +89,11 @@ def video_to_depth(
     if mask_folder is not None:
         os.makedirs(mask_folder, exist_ok=True)
 
-    known_intrinsics: CameraIntrinsics | None = None
     fov_x: float | None = None
     if input_intrinsics_path is not None:
-        known_intrinsics = CameraIntrinsics.load(input_intrinsics_path)
-        fov_x = float(np.degrees(2 * np.arctan(known_intrinsics.width / (2 * known_intrinsics.fx))))
+        known = CameraIntrinsics.load(input_intrinsics_path)
+        fov_x = float(np.degrees(2 * np.arctan(known.width / (2 * known.fx))))
+        print(f"  Using fov_x={fov_x:.2f}° from {input_intrinsics_path}")
 
     cap = cv2.VideoCapture(video_path)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -117,19 +120,15 @@ def video_to_depth(
 
             for i, img in enumerate(image_batch):
                 depth = predictions["depth"][i].cpu().numpy()
-
-                if known_intrinsics is not None:
-                    camera_intrinsics = known_intrinsics
-                else:
-                    intrinsics = predictions["intrinsics"][i].cpu().numpy()
-                    camera_intrinsics = CameraIntrinsics(
-                        fx=float(intrinsics[0, 0] * img.width),
-                        fy=float(intrinsics[1, 1] * img.height),
-                        cx=float(intrinsics[0, 2] * img.width),
-                        cy=float(intrinsics[1, 2] * img.height),
-                        width=img.width,
-                        height=img.height,
-                    )
+                intrinsics = predictions["intrinsics"][i].cpu().numpy()
+                camera_intrinsics = CameraIntrinsics(
+                    fx=float(intrinsics[0, 0] * img.width),
+                    fy=float(intrinsics[1, 1] * img.height),
+                    cx=float(intrinsics[0, 2] * img.width),
+                    cy=float(intrinsics[1, 2] * img.height),
+                    width=img.width,
+                    height=img.height,
+                )
 
                 frame_idx = frame_index - len(image_batch) + i + 1
                 DepthImage(depth=depth).to_pil_image().save(
