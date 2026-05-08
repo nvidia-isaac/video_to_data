@@ -259,10 +259,13 @@ class FrameCache:
 
         for t, fidx in enumerate(tqdm(frame_indices, ncols=80,
                                        desc="caching frames", unit="frame")):
-            # RGB.
+            # RGB. Resize during load (PIL) if source resolution differs
+            # from the cache target (height, width). PIL.size is (W, H).
             rgb_path = _find_frame_file(frames_dir, fidx)
-            arr = np.asarray(Image.open(rgb_path).convert("RGB"),
-                             dtype=np.float32) / 255.0
+            img = Image.open(rgb_path).convert("RGB")
+            if img.size != (width, height):
+                img = img.resize((width, height), Image.BILINEAR)
+            arr = np.asarray(img, dtype=np.float32) / 255.0
             self.rgb[t] = torch.from_numpy(arr)
 
             # Object mask (zero if missing or wrong-shape).
@@ -275,16 +278,19 @@ class FrameCache:
                     mdir, fidx, height, width)
 
             # Optional depth (infinity-fills propagate into the loss mask).
+            # Resize via PIL bilinear before decoding inverse-depth — the
+            # tiny smoothing introduced by interpolating raw uint16 values
+            # is fine for our soft depth prior.
             if self.has_depth:
                 dpath = os.path.join(depth_dir, f"{fidx:06d}.png")
                 if os.path.exists(dpath):
-                    px = np.asarray(Image.open(dpath)).astype(np.float32)
+                    img_d = Image.open(dpath)
+                    if img_d.size != (width, height):
+                        img_d = img_d.resize((width, height), Image.BILINEAR)
+                    px = np.asarray(img_d).astype(np.float32)
                     with np.errstate(divide="ignore"):
                         d = 1.0 / (px / 65535.0) - 1.0
-                    if d.shape == (height, width):
-                        self.depth[t] = torch.from_numpy(d)
-                    else:
-                        self.depth[t].fill_(float("inf"))
+                    self.depth[t] = torch.from_numpy(d)
                 else:
                     self.depth[t].fill_(float("inf"))
 
@@ -322,12 +328,16 @@ def _load_mask_or_zero(mask_dir: str, fidx: int, H: int, W: int) -> torch.Tensor
     p = os.path.join(mask_dir, f"{fidx:06d}.png")
     if not os.path.exists(p):
         return torch.zeros((H, W), dtype=torch.float32)
-    m = Mask.load(p).mask.astype(np.float32)
-    if m.ndim == 3:
-        m = m[..., 0]
-    if m.shape != (H, W):
-        return torch.zeros((H, W), dtype=torch.float32)
-    return torch.from_numpy((m > 0.5).astype(np.float32))
+    # Resize via PIL nearest-neighbor before decoding so binary mask
+    # values stay {0, 1}. PIL.size is (W, H).
+    img = Image.open(p)
+    if img.size != (W, H):
+        img = img.resize((W, H), Image.NEAREST)
+    arr = np.asarray(img).astype(np.float32)
+    if arr.ndim == 3:
+        arr = arr[..., 0]
+    arr = arr / arr.max() if arr.max() > 1.0 else arr
+    return torch.from_numpy((arr > 0.5).astype(np.float32))
 
 
 # ---------------------------------------------------------------------------

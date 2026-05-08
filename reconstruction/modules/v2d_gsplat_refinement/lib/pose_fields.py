@@ -63,6 +63,15 @@ class ObjectPoseField(nn.Module):
         R = quat_to_rotmat(q)                               # (3, 3)
         return R, self.translation[t]
 
+    def batched_forward(
+        self, t_idx: torch.Tensor       # (B,) long tensor of positional indices
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Batched version of forward — returns ((B, 3, 3), (B, 3))."""
+        aa = self.axis_angle[t_idx]                        # (B, 3)
+        q  = axis_angle_to_quat(aa)                         # (B, 4)
+        R  = quat_to_rotmat(q)                              # (B, 3, 3)
+        return R, self.translation[t_idx]
+
     def export_track(self) -> ObjectPoseTrack:
         """Return the optimized state as an ObjectPoseTrack (for I/O)."""
         q = axis_angle_to_quat(self.axis_angle)             # (T, 4)
@@ -194,6 +203,51 @@ class HandPoseField(nn.Module):
             R_per_vert = M @ R_per_vert @ M
 
         verts = verts + self.cam_t[t]                                            # (N, 3)
+        return verts, R_per_vert
+
+    def batched_posed_verts_and_rotmats_camera(
+        self, t_idx: torch.Tensor       # (B,) long tensor of positional indices
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Batched version of ``posed_verts_and_rotmats_camera``.
+
+        Returns:
+            verts:      (B, N_verts, 3) MANO vertices in camera frame.
+            R_per_vert: (B, N_verts, 3, 3) per-vertex LBS deformation
+                        rotation in camera frame.
+
+        Single MANO forward over the whole batch (replaces B per-frame
+        calls); LBS skinning is one big einsum. The biggest speedup of
+        this whole change comes from this method — at batch=1 ManoLayer
+        is mostly kernel-launch overhead.
+        """
+        B = int(t_idx.shape[0])
+        pose_aa_b = torch.cat(
+            [self.global_orient[t_idx], self.hand_pose[t_idx]], dim=-1
+        )                                                                    # (B, 48)
+        betas_b = self.betas.unsqueeze(0).expand(B, -1)                      # (B, 10)
+        out = self.mano(pose_aa_b, betas_b)
+        verts = out.verts                                                    # (B, N, 3)
+
+        if hasattr(out, "transforms_abs"):
+            R_joints = out.transforms_abs[:, :, :3, :3]                      # (B, J, 3, 3)
+        else:
+            R_joints = torch.eye(3, device=verts.device).expand(B, 16, 3, 3).contiguous()
+        # Per-joint deformation rotation: R_def = R_current @ R_rest^T.
+        R_def = R_joints @ self._R_joints_rest_inv.unsqueeze(0)              # (B, J, 3, 3)
+
+        # Per-vertex LBS skinning: R_v = sum_j W[v, j] * R_def[b, j].
+        R_per_vert = torch.einsum(
+            "vj,bjik->bvik", self._skin_weights, R_def
+        )                                                                    # (B, N, 3, 3)
+
+        if not self.is_right:
+            mirror = verts.new_tensor([-1.0, 1.0, 1.0])
+            verts = verts * mirror                                           # broadcast over (B, N, 3)
+            M = torch.diag(mirror)
+            # M @ R @ M for every (b, v); contract via broadcasting.
+            R_per_vert = M @ R_per_vert @ M
+
+        verts = verts + self.cam_t[t_idx].unsqueeze(1)                       # (B, 1, 3) → (B, N, 3)
         return verts, R_per_vert
 
     def export_track(self, raw_records: list[dict]) -> HandPoseTrack:

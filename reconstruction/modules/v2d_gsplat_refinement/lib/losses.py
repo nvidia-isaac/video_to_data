@@ -27,6 +27,7 @@ def photometric_loss(
     target_rgb: torch.Tensor,      # (H, W, 3)
     union_mask: torch.Tensor,      # (H, W) in {0, 1}
     mask_background_to_black: bool = False,
+    use_l2: bool = False,
 ) -> torch.Tensor:
     """Per-foreground-pixel L1 between rendered and target RGB.
 
@@ -45,10 +46,16 @@ def photometric_loss(
     n = union_mask.sum().clamp_min(1.0)
     if mask_background_to_black:
         target = target_rgb * union_mask.unsqueeze(-1)
-        diff = (rendered_rgb - target).abs().sum(dim=-1)    # (H, W)
-        return diff.sum() / n
-    diff = (rendered_rgb - target_rgb).abs().sum(dim=-1)    # (H, W)
-    return (diff * union_mask).sum() / n
+        d = rendered_rgb - target
+    else:
+        d = rendered_rgb - target_rgb
+    if use_l2:
+        per_pixel = (d * d).sum(dim=-1)                     # (H, W)
+    else:
+        per_pixel = d.abs().sum(dim=-1)
+    if mask_background_to_black:
+        return per_pixel.sum() / n
+    return (per_pixel * union_mask).sum() / n
 
 
 def delta_p_regularizer(delta_p: torch.Tensor) -> torch.Tensor:
@@ -70,6 +77,7 @@ def silhouette_loss(
     rendered_class_map: torch.Tensor,    # (H, W, K) per-pixel class probabilities
     target_class_map: torch.Tensor,      # (H, W, K) one-hot per-pixel class targets
     class_weights: torch.Tensor | None = None,   # (K,) optional per-class weight
+    use_l2: bool = False,
 ) -> torch.Tensor:
     """Per-pixel L1 between a composited class-label render and the SAM2
     one-hot class targets, with optional per-class weighting.
@@ -85,7 +93,8 @@ def silhouette_loss(
     sources differently, e.g. trust the SAM2 object mask more than the
     hand masks when the latter are flickery.
     """
-    diff = (rendered_class_map - target_class_map).abs()       # (H, W, K)
+    d = rendered_class_map - target_class_map                   # (H, W, K)
+    diff = (d * d) if use_l2 else d.abs()
     if class_weights is not None:
         diff = diff * class_weights                             # broadcast (K,) → (H, W, K)
     return diff.mean()
@@ -171,6 +180,7 @@ def balanced_photometric_loss(
     obj_mask: torch.Tensor,                 # (H, W) in {0, 1}
     hand_masks: list[torch.Tensor],         # each (H, W) in {0, 1}
     include_background: bool = True,
+    use_l2: bool = False,
 ) -> torch.Tensor:
     """Per-pixel L1 weighted so each *entity* contributes equally,
     regardless of how many pixels it covers.
@@ -185,7 +195,11 @@ def balanced_photometric_loss(
     Background, when included, is the complement of the union of all
     foreground masks.
     """
-    diff = (rendered_rgb - target_rgb).abs().sum(dim=-1)        # (H, W)
+    d = rendered_rgb - target_rgb
+    if use_l2:
+        diff = (d * d).sum(dim=-1)                              # (H, W)
+    else:
+        diff = d.abs().sum(dim=-1)                              # (H, W)
     weight_map = torch.zeros_like(diff)
     weight_map = weight_map + obj_mask / obj_mask.sum().clamp_min(1.0)
 
@@ -199,6 +213,42 @@ def balanced_photometric_loss(
         weight_map = weight_map + bg_mask / bg_mask.sum().clamp_min(1.0)
 
     return (diff * weight_map).sum()
+
+
+def pose_init_prior_loss(
+    axis_angle: torch.Tensor,             # (T, 3) current
+    translation: torch.Tensor,            # (T, 3) current
+    axis_angle_init: torch.Tensor,        # (T, 3) frozen reference (FP/HaMeR)
+    translation_init: torch.Tensor,       # (T, 3) frozen reference
+    per_frame_weights: torch.Tensor,      # (T,) e.g. confidence
+) -> torch.Tensor:
+    """Per-frame weighted squared distance from an initial pose.
+
+    Rotation distance is measured in quaternion space with double-cover
+    sign alignment so axis-angle representation wraps don't appear as
+    huge phantom drift. Translation uses plain squared L2.
+
+    Used to anchor high-confidence frames near their input poses while
+    leaving low-confidence frames (low ``per_frame_weights``) free to
+    move under photometric pull.
+    """
+    # axis-angle → unit quaternion.
+    a = axis_angle.norm(dim=-1, keepdim=True).clamp_min(1e-8)
+    q = torch.cat([
+        torch.cos(a * 0.5),
+        axis_angle / a * torch.sin(a * 0.5),
+    ], dim=-1)
+    a0 = axis_angle_init.norm(dim=-1, keepdim=True).clamp_min(1e-8)
+    q0 = torch.cat([
+        torch.cos(a0 * 0.5),
+        axis_angle_init / a0 * torch.sin(a0 * 0.5),
+    ], dim=-1)
+    dot = (q * q0).sum(dim=-1, keepdim=True)
+    q0_aligned = torch.where(dot < 0, -q0, q0)
+    rot_diff_sq = ((q - q0_aligned) ** 2).sum(dim=-1)               # (T,)
+
+    trans_diff_sq = ((translation - translation_init) ** 2).sum(dim=-1)
+    return (per_frame_weights * (rot_diff_sq + trans_diff_sq)).sum()
 
 
 def beta_prior_loss(beta: torch.Tensor, beta_init: torch.Tensor) -> torch.Tensor:

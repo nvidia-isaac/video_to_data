@@ -105,6 +105,14 @@ class BackgroundPoseField(nn.Module):
         R = quat_to_rotmat(q)
         return R, self.translation[t]
 
+    def batched_forward(
+        self, t_idx: torch.Tensor       # (B,) long tensor of positional indices
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        aa = self.axis_angle[t_idx]                        # (B, 3)
+        q  = axis_angle_to_quat(aa)                         # (B, 4)
+        R  = quat_to_rotmat(q)                              # (B, 3, 3)
+        return R, self.translation[t_idx]                   # (B, 3, 3), (B, 3)
+
 
 # ---------------------------------------------------------------------------
 # Initialization from a reference frame's depth + RGB.

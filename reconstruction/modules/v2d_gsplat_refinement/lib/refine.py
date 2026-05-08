@@ -80,6 +80,7 @@ from .losses import (
     delta_p_regularizer,
     depth_loss,
     photometric_loss,
+    pose_init_prior_loss,
     rotation_smoothness,
     silhouette_loss,
     temporal_smoothness,
@@ -218,6 +219,11 @@ def refine(
     object_mask_dir: str,
     refined_object_poses_dir: str,
     overlay_path: str,
+    # Learned global object scale: when provided, written as a JSON file
+    # ``{"scale": float}``. Per-frame Transform3d scales are then left
+    # untouched (passthrough of input). When None, falls back to baking
+    # the learned scale into each frame's Transform3d.scale (legacy).
+    refined_object_scale_path: str | None = None,
     left_hand_pose_dir: str | None = None,
     left_hand_mask_dir: str | None = None,
     right_hand_pose_dir: str | None = None,
@@ -274,6 +280,38 @@ def refine(
     # be stuck in flat regions of the loss.
     coarse_init_scale_factor: float = 1.0,
     coarse_decay_epochs: int | None = None,
+    # Distance-from-reference per-frame pose confidence. c_t scales
+    # per-frame photometric/silhouette/depth (high-c frames contribute
+    # more to Gaussian appearance) AND modulates a pose-init prior
+    # (high-c frames are pinned near input pose). 0 disables.
+    pose_confidence_decay: float = 0.0,                     # τ in frames; 0 disables (static c)
+    pose_confidence_ref_frame: int | None = None,           # fidx; falls back to bg_ref_frame, then first frame
+    # Dynamic per-frame confidence based on quaternion-aligned distance
+    # to neighbor frames' rotations, recomputed every batch from the
+    # current pose state. Multiplies into the per-frame loss together
+    # with the static confidence: c_total[t] = c_static[t] * c_dynamic[t].
+    # Set the static decay to 0 to use ONLY dynamic (uniform static = 1).
+    pose_confidence_dynamic_tau: float = 0.0,               # quat-distance² scale; 0 disables
+    w_pose_init_prior: float = 0.0,                         # weight for the c_t-scaled pose-init prior
+    # Per-frame discrete rotation search for the object pose. For each
+    # frame, render the current Gaussian set at N candidate rotations
+    # (batched as multiple viewmats in a single gsplat call), score by
+    # photometric + silhouette IoU vs the SAM2 target, snap the frame's
+    # axis_angle to the best candidate. Handles rotation errors that are
+    # too large for the photometric basin to recover via gradient.
+    rotation_search_n_candidates: int = 0,                  # 0 disables
+    rotation_search_period: int = 0,                        # 0 = run once at start; >0 = also every K epochs
+    rotation_search_local_frac: float = 0.5,                # fraction of candidates as local perturbations (rest are global SO(3))
+    rotation_search_local_max_deg: float = 30.0,            # max angle for local perturbations
+    rotation_search_silhouette_weight: float = 1.0,         # IoU weight in scoring (photometric weight is 1.0)
+    rotation_search_smoothness_weight: float = 1.0,         # causal smoothness weight: penalize candidates far from previous frame's rotation (in quat-aligned space). Forward sweep is implicit; t=0 has no penalty.
+    use_l2_photometric: bool = False,                       # squared error instead of L1 for the photometric loss
+    use_l2_silhouette: bool = False,                        # squared error instead of L1 for the class-label silhouette loss
+    # Train at lower resolution for speed. 1.0 = native; 0.5 ≈ 4x faster
+    # rendering (gsplat is ~linear in pixel count). Cache, intrinsics,
+    # and all downstream renders use the scaled dimensions; the final
+    # overlay video is also at the scaled resolution.
+    train_resolution_scale: float = 1.0,
     freeze_bg_rot: bool = False,
     freeze_bg_trans: bool = False,
     weights: LossWeights | None = None,
@@ -300,6 +338,18 @@ def refine(
 
     # ----- intrinsics, frames, masks ----------------------------------------
     K, W, H = load_intrinsics(intrinsics_path, str(device))
+    if train_resolution_scale != 1.0:
+        s = float(train_resolution_scale)
+        K = K.clone()
+        K[0, 0] *= s   # fx
+        K[1, 1] *= s   # fy
+        K[0, 2] *= s   # cx
+        K[1, 2] *= s   # cy
+        W_scaled = max(1, int(round(W * s)))
+        H_scaled = max(1, int(round(H * s)))
+        print(f"Training resolution: {W}x{H} → {W_scaled}x{H_scaled} "
+              f"(scale={s:.3f}); render time ≈ {s*s:.3f}× of native.")
+        W, H = W_scaled, H_scaled
 
     object_track = load_object_poses(object_poses_dir, str(device))
     hand_tracks: list[tuple[str, HandPoseTrack, str, str | None]] = []
@@ -507,6 +557,79 @@ def refine(
         dtype=torch.float32, device=device,
     )
 
+    # ----- pre-allocate static class-label tensor --------------------------
+    # The per-Gaussian one-hot labels depend only on Gaussian counts, not
+    # on per-frame state, so we build them once and reuse every step.
+    # Layout matches concat_frames([obj] + hands + [bg]): block-diagonal
+    # one-hots, with bg's block all zeros.
+    K_classes_static = 1 + len(hand_slots)
+    obj_n_static = obj_gaussians.num_gaussians()
+    hand_n_static = [s.gaussians.num_gaussians() for s in hand_slots]
+    bg_n_static  = bg_gaussians.num_gaussians() if bg_gaussians is not None else 0
+    _label_chunks: list[torch.Tensor] = []
+    obj_label = torch.zeros(obj_n_static, K_classes_static, device=device)
+    obj_label[:, 0] = 1.0
+    _label_chunks.append(obj_label)
+    for i, n in enumerate(hand_n_static):
+        h_label = torch.zeros(n, K_classes_static, device=device)
+        h_label[:, i + 1] = 1.0
+        _label_chunks.append(h_label)
+    if bg_n_static > 0:
+        _label_chunks.append(torch.zeros(bg_n_static, K_classes_static, device=device))
+    labels_static = torch.cat(_label_chunks, dim=0).contiguous()             # (sum_N, K)
+
+    # ----- per-frame pose confidence ----------------------------------------
+    n_frames_local = len(frame_indices)
+    if pose_confidence_decay > 0.0:
+        # Resolve reference frame: explicit → bg_ref_frame → first frame.
+        ref_t_pose = 0
+        for cand in (pose_confidence_ref_frame, bg_ref_frame):
+            if cand is None:
+                continue
+            try:
+                ref_t_pose = frame_indices.index(int(cand))
+                break
+            except ValueError:
+                continue
+        t_arr = torch.arange(n_frames_local, device=device, dtype=torch.float32)
+        pose_confidence = torch.exp(
+            -(t_arr - float(ref_t_pose)).abs() / float(pose_confidence_decay)
+        )
+        print(f"Pose confidence: ref t={ref_t_pose} "
+              f"(frame {frame_indices[ref_t_pose]:06d}), "
+              f"τ={pose_confidence_decay} frames; "
+              f"c range [{pose_confidence.min().item():.3f}, "
+              f"{pose_confidence.max().item():.3f}].")
+    else:
+        pose_confidence = torch.ones(n_frames_local, device=device)
+
+    # Snapshot of the initial object pose (frozen reference for the prior).
+    init_obj_axis_angle  = obj_pose_field.axis_angle.detach().clone()
+    init_obj_translation = obj_pose_field.translation.detach().clone()
+
+    # Helper for dynamic pose confidence: per-frame quat-aligned distance
+    # to neighbors → exp(-dist² / τ). Recomputed each batch.
+    def _compute_dynamic_pose_confidence() -> torch.Tensor:
+        with torch.no_grad():
+            aa = obj_pose_field.axis_angle                              # (T, 3)
+            T = aa.shape[0]
+            ang = aa.norm(dim=-1, keepdim=True).clamp_min(1e-8)
+            q = torch.cat([torch.cos(ang * 0.5),
+                           aa / ang * torch.sin(ang * 0.5)], dim=-1)    # (T, 4)
+            # Sign-aligned squared distance to prev (T-1 entries).
+            dot = (q[1:] * q[:-1]).sum(dim=-1, keepdim=True)
+            q_prev_aligned = torch.where(dot < 0, -q[:-1], q[:-1])
+            d_prev = ((q[1:] - q_prev_aligned) ** 2).sum(dim=-1)        # (T-1,)
+            # Build per-frame mean of available neighbor distances.
+            zero = aa.new_zeros(1)
+            d_to_prev = torch.cat([zero, d_prev])                       # (T,) — d to t-1
+            d_to_next = torch.cat([d_prev, zero])                       # (T,) — d to t+1
+            counts = torch.full((T,), 2.0, device=aa.device)
+            counts[0]  = 1.0
+            counts[-1] = 1.0
+            mean_dist = (d_to_prev + d_to_next) / counts
+            return torch.exp(-mean_dist / float(pose_confidence_dynamic_tau))
+
     # ----- training loop (epochs × random permutation × batched accumulation)
     n_frames = len(frame_indices)
     rng = np.random.default_rng(seed)
@@ -617,6 +740,33 @@ def refine(
             print(f"Epoch {epoch}: warmup over; pose optimization on "
                   f"(per freeze_* flags).")
 
+        # Discrete rotation search: runs at the warmup boundary (when
+        # poses unfreeze for the first time, Gaussians are settled enough
+        # to score candidates well) and optionally every K epochs after.
+        if rotation_search_n_candidates > 0 and not freeze_object_rot:
+            do_search = (epoch == n_gaussian_only_epochs)
+            if rotation_search_period > 0 and epoch >= n_gaussian_only_epochs:
+                do_search = do_search or (
+                    (epoch - n_gaussian_only_epochs) % rotation_search_period == 0
+                )
+            if do_search:
+                pbar.set_description(f"refine (rot search at epoch {epoch})")
+                n_upd = _discrete_rotation_search(
+                    obj_gaussians          = obj_gaussians,
+                    obj_pose_field         = obj_pose_field,
+                    optimizer              = optimizer,
+                    cache                  = cache,
+                    K=K, W=W, H=H, device=device,
+                    n_candidates           = rotation_search_n_candidates,
+                    local_frac             = rotation_search_local_frac,
+                    local_max_deg          = rotation_search_local_max_deg,
+                    silhouette_weight      = rotation_search_silhouette_weight,
+                    smoothness_weight      = rotation_search_smoothness_weight,
+                    seed                   = seed + epoch,
+                )
+                print(f"Rotation search updated {n_upd}/{n_frames} frames.")
+                pbar.set_description("refine")
+
         order = rng.permutation(n_frames)              # frame visit order
         for batch_start in range(0, n_frames, batch_size):
             batch_ts = order[batch_start : batch_start + batch_size]
@@ -636,29 +786,65 @@ def refine(
             else:
                 coarse_scale_mul = 1.0
 
+            # Dynamic per-frame confidence (recomputed each batch from
+            # current pose state). Multiplies with the static confidence.
+            if pose_confidence_dynamic_tau > 0.0:
+                pose_confidence_dyn = _compute_dynamic_pose_confidence()
+            else:
+                pose_confidence_dyn = None
+
+            # ---- batched per-frame compute (cache + poses) ----------------
+            # Single-pass index tensor for the batch. All per-frame quantities
+            # that don't depend on Gaussian rasterization (MANO LBS, object
+            # pose, bg pose, cache fetches) are computed in one big tensor op
+            # here, instead of B small ops in the per-frame loop below. The
+            # ManoLayer call alone goes from ~B kernel-launch-bound batch=1
+            # invocations to a single batch=B invocation — biggest single win.
+            batch_ts_t = torch.as_tensor(
+                [int(x) for x in batch_ts], device=device, dtype=torch.long
+            )
+            B = int(batch_ts_t.shape[0])
+
+            # Cache fetch — single H2D transfer per buffer instead of B.
+            batch_rgb       = cache.rgb[batch_ts_t.cpu()].to(device, non_blocking=True)         # (B, H, W, 3)
+            batch_obj_mask  = cache.obj_mask[batch_ts_t.cpu()].to(device, non_blocking=True)    # (B, H, W)
+            batch_hand_msks = [
+                m[batch_ts_t.cpu()].to(device, non_blocking=True) for m in cache.hand_masks
+            ]                                                                                    # list of (B, H, W)
+            batch_depth = (
+                cache.depth[batch_ts_t.cpu()].to(device, non_blocking=True)
+                if cache.depth is not None else None
+            )                                                                                    # (B, H, W) or None
+            # Union mask per batch member (vectorized).
+            batch_union = batch_obj_mask.clone()
+            for hm in batch_hand_msks:
+                batch_union = torch.maximum(batch_union, hm)
+
+            # Poses, batched.
+            R_obj_b, t_obj_b = obj_pose_field.batched_forward(batch_ts_t)                       # (B, 3, 3), (B, 3)
+            hand_batched: list[tuple[torch.Tensor, torch.Tensor]] = []
+            for slot in hand_slots:
+                hv, hr = slot.pose_field.batched_posed_verts_and_rotmats_camera(batch_ts_t)
+                hand_batched.append((hv, hr))                                                    # (B, V, 3), (B, V, 3, 3)
+            if bg_gaussians is not None:
+                R_bg_b, t_bg_b = bg_pose_field.batched_forward(batch_ts_t)                      # (B, 3, 3), (B, 3)
+
             # Per-frame losses, summed across the batch then backward once.
-            for t in batch_ts:
+            for i, t in enumerate(batch_ts):
                 t = int(t)
-                sup = cache.get(t, device)
-                obj_mask = sup["obj_mask"]
-                hand_msks = sup["hand_masks"]
-                union_mask = obj_mask.clone()
-                for m in hand_msks:
-                    union_mask = torch.maximum(union_mask, m)
+                obj_mask  = batch_obj_mask[i]
+                hand_msks = [hm[i] for hm in batch_hand_msks]
+                union_mask = batch_union[i]
+                target_rgb_t = batch_rgb[i]
 
-                R_obj, t_obj = obj_pose_field(t)
-                obj_frame    = obj_gaussians(R_obj, t_obj)
-                hand_frames  = []
-                for slot in hand_slots:
-                    verts_cam, R_per_vert = slot.pose_field.posed_verts_and_rotmats_camera(t)
-                    hand_frames.append(slot.gaussians(verts_cam, R_per_vert))
-
-                # Optional background: rigid Gaussian set in world frame
-                # transformed by per-frame world→camera pose.
+                obj_frame   = obj_gaussians(R_obj_b[i], t_obj_b[i])
+                hand_frames = [
+                    slot.gaussians(hv[i], hr[i])
+                    for slot, (hv, hr) in zip(hand_slots, hand_batched)
+                ]
                 bg_frame = None
                 if bg_gaussians is not None:
-                    R_bg, t_bg = bg_pose_field(t)
-                    bg_frame = bg_gaussians(R_bg, t_bg)
+                    bg_frame = bg_gaussians(R_bg_b[i], t_bg_b[i])
 
                 all_frames = [obj_frame] + hand_frames
                 if bg_frame is not None:
@@ -669,66 +855,56 @@ def refine(
                         combined, scales=combined.scales * coarse_scale_mul
                     )
 
-                # Per-Gaussian class one-hot labels: object → class 0,
-                # hand i → class i+1. Background Gaussians get an all-zero
-                # label vector so they contribute RGB but not class
-                # probability — at a background pixel the target one-hot
-                # is also zeros, so L1 is satisfied with zero gradient on
-                # the background's class channels.
-                K_classes = 1 + len(hand_slots)
-                label_chunks = [obj_frame.means.new_zeros(
-                    obj_frame.means.shape[0], K_classes)]
-                label_chunks[0][:, 0] = 1.0
-                for i, hf in enumerate(hand_frames):
-                    chunk = hf.means.new_zeros(hf.means.shape[0], K_classes)
-                    chunk[:, i + 1] = 1.0
-                    label_chunks.append(chunk)
-                if bg_frame is not None:
-                    label_chunks.append(
-                        bg_frame.means.new_zeros(bg_frame.means.shape[0], K_classes)
-                    )
-                labels = torch.cat(label_chunks, dim=0)            # (sum_N, K)
-
+                # Class labels are static (depend only on Gaussian counts);
+                # built once at startup as ``labels_static``.
                 rgb_pred, depth_pred, _, class_pred = render_rgb_depth(
-                    combined, K, W, H, extra_features=labels)
+                    combined, K, W, H, extra_features=labels_static)
 
                 # Photometric:
                 #   - balance_photometric_by_mask: per-entity inverse-area
-                #     weighting so each entity (object, each hand, optional
-                #     background) contributes equally regardless of pixel
-                #     count.
-                #   - else if bg_gaussians: full-image L1 (background
-                #     Gaussians explain non-foreground; bg dominates by
-                #     pixel count).
+                #     weighting so each entity contributes equally.
+                #   - else if bg_gaussians: full-image L1.
                 #   - else: foreground-only L1 (or black-bg masked variant).
                 if balance_photometric_by_mask:
                     fl = weights.photometric * balanced_photometric_loss(
-                        rgb_pred, sup["rgb"],
+                        rgb_pred, target_rgb_t,
                         obj_mask, hand_msks,
                         include_background=(bg_gaussians is not None),
+                        use_l2=use_l2_photometric,
                     )
                 elif bg_gaussians is not None:
-                    fl = weights.photometric * (rgb_pred - sup["rgb"]).abs().mean()
+                    diff_full = rgb_pred - target_rgb_t
+                    if use_l2_photometric:
+                        fl = weights.photometric * (diff_full * diff_full).mean()
+                    else:
+                        fl = weights.photometric * diff_full.abs().mean()
                 else:
                     fl = weights.photometric * photometric_loss(
-                        rgb_pred, sup["rgb"], union_mask,
+                        rgb_pred, target_rgb_t, union_mask,
                         mask_background_to_black=mask_background_to_black,
+                        use_l2=use_l2_photometric,
                     )
 
-                # Class-label silhouette: target = (H, W, K) one-hot from
-                # SAM2 masks. Background pixels are all-zero (no class).
-                target_class = obj_mask.new_zeros((H, W, K_classes))
+                # Class-label silhouette target.
+                target_class = obj_mask.new_zeros((H, W, K_classes_static))
                 target_class[..., 0] = obj_mask
-                for i, hmask in enumerate(hand_msks):
-                    target_class[..., i + 1] = hmask
+                for k_h, hmask in enumerate(hand_msks):
+                    target_class[..., k_h + 1] = hmask
                 fl = fl + weights.silhouette * silhouette_loss(
                     class_pred, target_class,
                     class_weights=silhouette_class_weights,
+                    use_l2=use_l2_silhouette,
                 )
 
-                if sup["depth"] is not None:
+                if batch_depth is not None:
                     fl = fl + weights.depth * depth_loss(
-                        depth_pred, sup["depth"], union_mask)
+                        depth_pred, batch_depth[i], union_mask)
+
+                # Confidence weighting (static × dynamic).
+                c_t = pose_confidence[t]
+                if pose_confidence_dyn is not None:
+                    c_t = c_t * pose_confidence_dyn[t]
+                fl = fl * c_t
 
                 total = total + fl
 
@@ -749,6 +925,17 @@ def refine(
             loss = loss + weights.obj_scale_prior * (
                 obj_gaussians._log_scale_global ** 2
             )
+            # Per-frame pose-init prior weighted by confidence: pulls
+            # high-confidence frames toward FoundationPose's input pose,
+            # leaves low-confidence frames free.
+            if w_pose_init_prior > 0.0:
+                loss = loss + w_pose_init_prior * pose_init_prior_loss(
+                    obj_pose_field.axis_angle,
+                    obj_pose_field.translation,
+                    init_obj_axis_angle,
+                    init_obj_translation,
+                    pose_confidence,
+                )
             if bg_gaussians is not None:
                 loss = loss + weights.delta_p_reg * delta_p_regularizer(
                     bg_gaussians._delta_p
@@ -794,14 +981,25 @@ def refine(
         _stitch_progress_video(progress_dir)
 
     # ----- save outputs -----------------------------------------------------
-    # Bake the learned global object scale into the per-frame Transform3d
-    # scale field so downstream renderers (which apply Transform3d to the
-    # original mesh) see the correct size without needing to know about
-    # _log_scale_global.
     s_obj_learned = float(obj_gaussians.object_scale().detach())
     print(f"Learned object scale: {s_obj_learned:.4f}")
     refined_obj_track = obj_pose_field.export_track()
-    refined_obj_track.scales = refined_obj_track.scales * s_obj_learned
+    if refined_object_scale_path is None:
+        # Legacy path: bake the learned global scale into the per-frame
+        # Transform3d.scale so downstream renderers that read pd["scale"]
+        # see the correct size without needing to know about s_obj.
+        refined_obj_track.scales = refined_obj_track.scales * s_obj_learned
+    else:
+        # Clean path: keep per-frame scales as input, save the learned
+        # scale to its own JSON for explicit consumption by the renderer.
+        os.makedirs(
+            os.path.dirname(os.path.abspath(refined_object_scale_path)) or ".",
+            exist_ok=True,
+        )
+        import json as _json
+        with open(refined_object_scale_path, "w") as f:
+            _json.dump({"scale": s_obj_learned}, f, indent=2)
+        print(f"Wrote learned object scale → {refined_object_scale_path}")
     save_object_poses(refined_obj_track, refined_object_poses_dir)
     print(f"Wrote refined object poses → {refined_object_poses_dir}")
     for slot in hand_slots:
@@ -891,6 +1089,178 @@ def _stitch_progress_video(progress_dir: str, fps: float = 30.0) -> None:
         print(f"Wrote progress video → {out_path}")
     except subprocess.CalledProcessError:
         print(f"Warning: failed to stitch progress video from {progress_dir}")
+
+
+def _generate_rotation_candidates(
+    current_rotmat: torch.Tensor,    # (3, 3)
+    n_candidates: int,
+    n_local: int,
+    local_max_rad: float,
+    seed: int,
+) -> torch.Tensor:
+    """Return (n_candidates, 3, 3) rotation matrices.
+
+    Layout:
+      idx 0           — current rotation (so the search never regresses)
+      idx 1..n_local  — local perturbations of current (axis-angle within
+                        ±local_max_rad on a random axis)
+      idx n_local+1.. — global uniform-on-SO(3) rotations
+    """
+    from .gaussians import axis_angle_to_quat, quat_to_rotmat
+
+    device = current_rotmat.device
+    rots = [current_rotmat]
+    g = torch.Generator(device="cpu").manual_seed(seed)
+
+    if n_local > 0:
+        axes = torch.randn(n_local, 3, generator=g)
+        axes = axes / axes.norm(dim=-1, keepdim=True).clamp_min(1e-8)
+        angles = torch.rand(n_local, generator=g) * local_max_rad
+        aa = (axes * angles.unsqueeze(-1)).to(device)
+        q_perturb = axis_angle_to_quat(aa)                 # (n_local, 4)
+        R_perturb = quat_to_rotmat(q_perturb)              # (n_local, 3, 3)
+        # Apply perturbation in current frame: R = R_perturb @ R_current.
+        rots.append((R_perturb @ current_rotmat.unsqueeze(0)).reshape(-1, 3, 3))
+
+    n_global = n_candidates - 1 - n_local
+    if n_global > 0:
+        # Uniform on SO(3) via random unit quaternions.
+        q_rand = torch.randn(n_global, 4, generator=g)
+        q_rand = q_rand / q_rand.norm(dim=-1, keepdim=True).clamp_min(1e-8)
+        # Convert (x,y,z,w) order doesn't matter here since we feed straight
+        # to quat_to_rotmat which expects (w,x,y,z) — randn samples are
+        # rotation-isotropic either way.
+        R_global = quat_to_rotmat(q_rand.to(device))       # (n_global, 3, 3)
+        rots.append(R_global)
+
+    out = torch.cat([r if r.dim() == 3 else r.unsqueeze(0) for r in rots], dim=0)
+    return out
+
+
+def _discrete_rotation_search(
+    obj_gaussians,
+    obj_pose_field,
+    optimizer,
+    cache,
+    K, W: int, H: int, device,
+    n_candidates: int,
+    local_frac: float,
+    local_max_deg: float,
+    silhouette_weight: float,
+    smoothness_weight: float,
+    seed: int,
+) -> int:
+    """Per-frame batched rotation hypothesis search for the object pose.
+
+    For each frame, render all N candidate rotations in a *single* gsplat
+    call (each candidate is a different viewmat sharing the same Gaussian
+    set in canonical frame), score by photometric L1 + silhouette IoU
+    against the SAM2 target, and snap the frame's axis_angle to the best
+    candidate. Optimizer state for the axis_angle parameter is cleared so
+    Adam's running moments don't fight the snap.
+
+    Returns the number of frames whose pose was updated.
+    """
+    from .gaussians import axis_angle_to_quat, quat_to_rotmat, rotmat_to_quat
+    from .pose_fields import _quat_to_axis_angle
+    from gsplat.rendering import rasterization
+
+    n_frames = obj_pose_field.axis_angle.shape[0]
+    n_local  = max(1, int(local_frac * (n_candidates - 1)))
+    n_local  = min(n_local, n_candidates - 1)
+
+    # Canonical Gaussians (object frame, with global object scale baked in).
+    # Calling forward(I, 0) gives positions in object frame.
+    with torch.no_grad():
+        canon = obj_gaussians(
+            torch.eye(3, device=device),
+            torch.zeros(3, device=device),
+        )
+
+    n_updated = 0
+    pbar = tqdm(range(n_frames), ncols=80, desc="rotation search")
+    with torch.no_grad():
+        for t in pbar:
+            current_aa = obj_pose_field.axis_angle[t]
+            current_rot = quat_to_rotmat(axis_angle_to_quat(current_aa))   # (3, 3)
+            current_t   = obj_pose_field.translation[t]                    # (3,)
+
+            candidates = _generate_rotation_candidates(
+                current_rotmat=current_rot,
+                n_candidates=n_candidates,
+                n_local=n_local,
+                local_max_rad=float(local_max_deg) * 3.141592653589793 / 180.0,
+                seed=seed + t,
+            )                                                              # (N, 3, 3)
+            N = candidates.shape[0]
+
+            # Build (N, 4, 4) viewmats with same translation, varying rotation.
+            viewmats = torch.eye(4, device=device).unsqueeze(0).repeat(N, 1, 1)
+            viewmats[:, :3, :3] = candidates
+            viewmats[:, :3,  3] = current_t
+
+            Ks = K.unsqueeze(0).expand(N, 3, 3).contiguous()
+            out, alphas, _ = rasterization(
+                means     = canon.means,
+                quats     = canon.quats,
+                scales    = canon.scales,
+                opacities = canon.opacities,
+                colors    = canon.colors,
+                viewmats  = viewmats,
+                Ks        = Ks,
+                width     = W,
+                height    = H,
+                render_mode = "RGB",
+            )
+            # out: (N, H, W, 3); alphas: (N, H, W, 1)
+
+            target_rgb  = cache.rgb[t].to(device, non_blocking=True)        # (H, W, 3)
+            target_mask = cache.obj_mask[t].to(device, non_blocking=True)   # (H, W)
+
+            photo = (out - target_rgb.unsqueeze(0)).abs().mean(dim=(1, 2, 3))  # (N,)
+            alpha = alphas[..., 0]                                           # (N, H, W)
+            inter = (alpha * target_mask.unsqueeze(0)).sum(dim=(1, 2))
+            denom = (alpha.sum(dim=(1, 2)) + target_mask.sum() - inter).clamp_min(1e-6)
+            iou   = inter / denom
+
+            score = -photo + silhouette_weight * iou                       # (N,)
+
+            # Causal smoothness: penalize candidates that diverge from the
+            # previous (already-snapped) frame's rotation. Forward sweep is
+            # implicit in the for-t loop: by the time we score frame t,
+            # frame t-1 has its final snapped axis_angle. Quat-aligned
+            # squared distance handles the q ≡ -q double cover.
+            if t > 0 and smoothness_weight > 0.0:
+                q_cand = rotmat_to_quat(candidates)                         # (N, 4)
+                q_prev = axis_angle_to_quat(
+                    obj_pose_field.axis_angle[t - 1].unsqueeze(0)
+                )[0]                                                        # (4,)
+                dot = (q_cand * q_prev.unsqueeze(0)).sum(dim=-1, keepdim=True)
+                q_prev_aligned = torch.where(
+                    dot < 0,
+                    -q_prev.unsqueeze(0).expand_as(q_cand),
+                     q_prev.unsqueeze(0).expand_as(q_cand),
+                )
+                smooth_pen = ((q_cand - q_prev_aligned) ** 2).sum(dim=-1)   # (N,)
+                score = score - smoothness_weight * smooth_pen
+
+            best  = int(score.argmax())
+
+            if best != 0:
+                best_R = candidates[best]
+                # rotmat → quat → axis-angle.
+                best_q = rotmat_to_quat(best_R)
+                best_aa = _quat_to_axis_angle(best_q.unsqueeze(0))[0]
+                obj_pose_field.axis_angle.data[t] = best_aa
+                n_updated += 1
+
+    # Clear Adam state for the snapped parameter so running moments don't
+    # fight the new init. State will be lazily re-initialized on the next
+    # optimizer.step() call.
+    if obj_pose_field.axis_angle in optimizer.state:
+        optimizer.state[obj_pose_field.axis_angle] = {}
+
+    return n_updated
 
 
 def _render_overlay_sequence(
@@ -1159,6 +1529,63 @@ def main() -> None:
     p.add_argument("--coarse_decay_epochs", type=int, default=None,
                    help="Epochs over which to anneal the coarse scale "
                         "factor back to 1.0 (default: full n_epochs).")
+    p.add_argument("--pose_confidence_decay", type=float, default=0.0,
+                   help="Per-frame pose confidence τ (in frames) for "
+                        "exp(-|t-ref|/τ) decay from the reference frame. "
+                        "Scales per-frame photometric/silhouette/depth "
+                        "and modulates the pose-init prior. 0 disables "
+                        "(uniform confidence).")
+    p.add_argument("--pose_confidence_ref_frame", type=int, default=None,
+                   help="Reference frame index (frame_idx, not positional) "
+                        "for confidence decay. Falls back to "
+                        "--bg_ref_frame, then 0.")
+    p.add_argument("--pose_confidence_dynamic_tau", type=float, default=0.0,
+                   help="Dynamic per-frame confidence based on quat-aligned "
+                        "distance to neighbor frames' rotations, recomputed "
+                        "each batch. c_dyn[t] = exp(-mean_neighbor_dist² / τ). "
+                        "Multiplies with the static distance-from-ref "
+                        "confidence. Set --pose_confidence_decay 0 to use "
+                        "ONLY the dynamic confidence. 0 disables.")
+    p.add_argument("--w_pose_init_prior", type=float, default=0.0,
+                   help="Weight of the c_t-scaled pose-init prior. Pulls "
+                        "high-confidence object poses back toward "
+                        "FoundationPose input. 0 disables.")
+    p.add_argument("--rotation_search_n_candidates", type=int, default=0,
+                   help="Per-frame discrete rotation hypothesis search. "
+                        "Render N candidate rotations in one batched gsplat "
+                        "call, snap the frame's axis_angle to the best. "
+                        "0 disables. 32-64 is typical.")
+    p.add_argument("--rotation_search_period", type=int, default=0,
+                   help="If >0, run rotation search every K epochs (after "
+                        "the warmup boundary). 0 = run only once at the "
+                        "warmup boundary.")
+    p.add_argument("--rotation_search_local_frac", type=float, default=0.5,
+                   help="Fraction of search candidates that are local "
+                        "perturbations of the current rotation; the rest "
+                        "are global uniform-on-SO(3) rotations.")
+    p.add_argument("--rotation_search_local_max_deg", type=float, default=30.0,
+                   help="Max angle (deg) for local perturbations.")
+    p.add_argument("--rotation_search_silhouette_weight", type=float, default=1.0,
+                   help="Silhouette IoU weight in candidate scoring "
+                        "(photometric L1 weight is fixed at 1.0).")
+    p.add_argument("--rotation_search_smoothness_weight", type=float, default=1.0,
+                   help="Causal smoothness weight in candidate scoring. "
+                        "Each candidate is penalized by its quat-aligned "
+                        "squared distance to the previous (already-snapped) "
+                        "frame's rotation. 0 disables, biasing only toward "
+                        "image fit. The frame at t=0 has no penalty.")
+    p.add_argument("--use_l2_photometric", action="store_true",
+                   help="Use squared error (L2) for the photometric loss "
+                        "instead of L1. Smoother gradient near the optimum, "
+                        "less robust to outliers.")
+    p.add_argument("--use_l2_silhouette", action="store_true",
+                   help="Use squared error (L2) for the class-label "
+                        "silhouette loss instead of L1.")
+    p.add_argument("--train_resolution_scale", type=float, default=1.0,
+                   help="Render at this scale of native resolution. "
+                        "Cache, intrinsics, and renders all use the "
+                        "scaled dimensions. 0.5 ≈ 4x faster rendering "
+                        "with negligible accuracy hit. 1.0 = native.")
     p.add_argument("--freeze_bg_rot",       action="store_true",
                    help="Hold background rotation at identity.")
     p.add_argument("--freeze_bg_trans",     action="store_true",
@@ -1219,6 +1646,19 @@ def main() -> None:
         cosine_lr_min_ratio         = args.cosine_lr_min_ratio,
         coarse_init_scale_factor    = args.coarse_init_scale_factor,
         coarse_decay_epochs         = args.coarse_decay_epochs,
+        pose_confidence_decay       = args.pose_confidence_decay,
+        pose_confidence_ref_frame   = args.pose_confidence_ref_frame,
+        pose_confidence_dynamic_tau = args.pose_confidence_dynamic_tau,
+        w_pose_init_prior           = args.w_pose_init_prior,
+        rotation_search_n_candidates= args.rotation_search_n_candidates,
+        rotation_search_period      = args.rotation_search_period,
+        rotation_search_local_frac  = args.rotation_search_local_frac,
+        rotation_search_local_max_deg = args.rotation_search_local_max_deg,
+        rotation_search_silhouette_weight = args.rotation_search_silhouette_weight,
+        rotation_search_smoothness_weight = args.rotation_search_smoothness_weight,
+        use_l2_photometric                = args.use_l2_photometric,
+        use_l2_silhouette                 = args.use_l2_silhouette,
+        train_resolution_scale            = args.train_resolution_scale,
         freeze_bg_rot               = args.freeze_bg_rot,
         freeze_bg_trans             = args.freeze_bg_trans,
         weights = LossWeights(

@@ -9,6 +9,7 @@ def run_render_hands_aligned_video(
     output_path: str,
     object_mesh_path: str | None = None,
     object_poses_dir: str | None = None,
+    object_scale: float = 1.0,
     fps: float = 30.0,
     alpha: float = 0.55,
     dev: bool = False,
@@ -27,7 +28,7 @@ def run_render_hands_aligned_video(
         module="v2d.hamer.lib.render_hands_aligned_video",
         inputs=inputs,
         outputs={"output_path": output_path},
-        extra_args={"fps": fps, "alpha": alpha},
+        extra_args={"fps": fps, "alpha": alpha, "object_scale": object_scale},
         dev=dev,
         modules_dir=MODULES_DIR,
         gpus=True,
@@ -44,6 +45,7 @@ if __name__ == "__main__":
     parser.add_argument("--output_path",      required=True)
     parser.add_argument("--object_mesh_path", default=None)
     parser.add_argument("--object_poses_dir", default=None)
+    parser.add_argument("--object_scale", type=float, default=1.0)
     parser.add_argument("--fps",   type=float, default=30.0)
     parser.add_argument("--alpha", type=float, default=0.55)
     parser.add_argument("--dev", action="store_true")
@@ -55,6 +57,7 @@ if __name__ == "__main__":
         output_path      = args.output_path,
         object_mesh_path = args.object_mesh_path,
         object_poses_dir = args.object_poses_dir,
+        object_scale     = args.object_scale,
         fps              = args.fps,
         alpha            = args.alpha,
         dev              = args.dev,

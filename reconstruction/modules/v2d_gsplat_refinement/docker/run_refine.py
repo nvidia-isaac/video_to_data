@@ -10,6 +10,7 @@ def run_refine(
     object_mask_dir: str,
     refined_object_poses_dir: str,
     overlay_path: str,
+    refined_object_scale_path: str | None = None,
     left_hand_pose_dir: str | None = None,
     left_hand_mask_dir: str | None = None,
     right_hand_pose_dir: str | None = None,
@@ -66,6 +67,19 @@ def run_refine(
     cosine_lr_min_ratio: float = 0.0,
     coarse_init_scale_factor: float = 1.0,
     coarse_decay_epochs: int | None = None,
+    pose_confidence_decay: float = 0.0,
+    pose_confidence_ref_frame: int | None = None,
+    pose_confidence_dynamic_tau: float = 0.0,
+    w_pose_init_prior: float = 0.0,
+    rotation_search_n_candidates: int = 0,
+    rotation_search_period: int = 0,
+    rotation_search_local_frac: float = 0.5,
+    rotation_search_local_max_deg: float = 30.0,
+    rotation_search_silhouette_weight: float = 1.0,
+    rotation_search_smoothness_weight: float = 1.0,
+    use_l2_photometric: bool = False,
+    use_l2_silhouette: bool = False,
+    train_resolution_scale: float = 1.0,
     freeze_bg_rot: bool = False,
     freeze_bg_trans: bool = False,
     w_smooth_bg_rot: float = 0.1,
@@ -95,6 +109,8 @@ def run_refine(
         "refined_object_poses_dir": refined_object_poses_dir,
         "overlay_path":             overlay_path,
     }
+    if refined_object_scale_path is not None:
+        outputs["refined_object_scale_path"] = refined_object_scale_path
     for k, v in {
         "refined_left_hand_pose_dir":  refined_left_hand_pose_dir,
         "refined_right_hand_pose_dir": refined_right_hand_pose_dir,
@@ -151,6 +167,19 @@ def run_refine(
         "cosine_lr_min_ratio":        cosine_lr_min_ratio,
         "coarse_init_scale_factor":   coarse_init_scale_factor,
         "coarse_decay_epochs":        coarse_decay_epochs,
+        "pose_confidence_decay":         pose_confidence_decay,
+        "pose_confidence_ref_frame":     pose_confidence_ref_frame,
+        "pose_confidence_dynamic_tau":   pose_confidence_dynamic_tau,
+        "w_pose_init_prior":             w_pose_init_prior,
+        "rotation_search_n_candidates":      rotation_search_n_candidates,
+        "rotation_search_period":            rotation_search_period,
+        "rotation_search_local_frac":        rotation_search_local_frac,
+        "rotation_search_local_max_deg":     rotation_search_local_max_deg,
+        "rotation_search_silhouette_weight": rotation_search_silhouette_weight,
+        "rotation_search_smoothness_weight": rotation_search_smoothness_weight,
+        "use_l2_photometric":                use_l2_photometric,
+        "use_l2_silhouette":                 use_l2_silhouette,
+        "train_resolution_scale":            train_resolution_scale,
         "freeze_bg_rot":       freeze_bg_rot,
         "freeze_bg_trans":     freeze_bg_trans,
         "w_smooth_bg_rot":     w_smooth_bg_rot,
@@ -237,6 +266,19 @@ if __name__ == "__main__":
     p.add_argument("--cosine_lr_min_ratio", type=float, default=0.0)
     p.add_argument("--coarse_init_scale_factor", type=float, default=1.0)
     p.add_argument("--coarse_decay_epochs", type=int, default=None)
+    p.add_argument("--pose_confidence_decay", type=float, default=0.0)
+    p.add_argument("--pose_confidence_ref_frame", type=int, default=None)
+    p.add_argument("--pose_confidence_dynamic_tau", type=float, default=0.0)
+    p.add_argument("--w_pose_init_prior", type=float, default=0.0)
+    p.add_argument("--rotation_search_n_candidates",      type=int,   default=0)
+    p.add_argument("--rotation_search_period",            type=int,   default=0)
+    p.add_argument("--rotation_search_local_frac",        type=float, default=0.5)
+    p.add_argument("--rotation_search_local_max_deg",     type=float, default=30.0)
+    p.add_argument("--rotation_search_silhouette_weight", type=float, default=1.0)
+    p.add_argument("--rotation_search_smoothness_weight", type=float, default=1.0)
+    p.add_argument("--use_l2_photometric", action="store_true")
+    p.add_argument("--use_l2_silhouette",  action="store_true")
+    p.add_argument("--train_resolution_scale", type=float, default=1.0)
     p.add_argument("--freeze_bg_rot",       action="store_true")
     p.add_argument("--freeze_bg_trans",     action="store_true")
     p.add_argument("--w_smooth_bg_rot",     type=float, default=0.1)
@@ -308,6 +350,19 @@ if __name__ == "__main__":
         cosine_lr_min_ratio         = args.cosine_lr_min_ratio,
         coarse_init_scale_factor    = args.coarse_init_scale_factor,
         coarse_decay_epochs         = args.coarse_decay_epochs,
+        pose_confidence_decay       = args.pose_confidence_decay,
+        pose_confidence_ref_frame   = args.pose_confidence_ref_frame,
+        pose_confidence_dynamic_tau = args.pose_confidence_dynamic_tau,
+        w_pose_init_prior           = args.w_pose_init_prior,
+        rotation_search_n_candidates      = args.rotation_search_n_candidates,
+        rotation_search_period            = args.rotation_search_period,
+        rotation_search_local_frac        = args.rotation_search_local_frac,
+        rotation_search_local_max_deg     = args.rotation_search_local_max_deg,
+        rotation_search_silhouette_weight = args.rotation_search_silhouette_weight,
+        rotation_search_smoothness_weight = args.rotation_search_smoothness_weight,
+        use_l2_photometric                = args.use_l2_photometric,
+        use_l2_silhouette                 = args.use_l2_silhouette,
+        train_resolution_scale            = args.train_resolution_scale,
         freeze_bg_rot               = args.freeze_bg_rot,
         freeze_bg_trans             = args.freeze_bg_trans,
         w_smooth_bg_rot             = args.w_smooth_bg_rot,

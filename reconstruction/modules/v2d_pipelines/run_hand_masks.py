@@ -650,6 +650,7 @@ def run_hand_masks(
     refined_hamer_dir          = f"{output_dir}/hamer_refined"
     refined_overlay            = f"{output_dir}/refined_overlay.mp4"
     hamer_refined_overlay      = f"{output_dir}/hamer_refined_overlay.mp4"
+    refined_object_scale_json  = f"{output_dir}/refined_object_scale.json"
     if run_refinement:
         if not (run_hamer and object_prompt is not None):
             raise ValueError(
@@ -680,6 +681,7 @@ def run_hand_masks(
                 object_mask_dir             = f"{masks_dir}/{object_track_id}",
                 refined_object_poses_dir    = refined_poses_dir,
                 overlay_path                = refined_overlay,
+                refined_object_scale_path   = refined_object_scale_json,
                 left_hand_pose_dir          = _maybe(left_pose_in),
                 left_hand_mask_dir          = _maybe(left_mask_in),
                 right_hand_pose_dir         = _maybe(right_pose_in),
@@ -688,8 +690,8 @@ def run_hand_masks(
                 refined_right_hand_pose_dir = _maybe(right_pose_out),
                 depth_dir                   = depth_dir,
                 mano_assets_root            = mano_assets_root,
-                n_epochs                    = 24,
-                batch_size                  = 32,
+                n_epochs                    = 64,
+                batch_size                  = 128,
                 render_every                = refinement_render_every,
                 lr_gaussians                = 3e-2,
                 lr_hand_gaussians           = 3e-2,
@@ -698,35 +700,52 @@ def run_hand_masks(
                 # ratios — positions sensitive, opacity loose, color
                 # moderate — adapted to our base LR of 1e-2.
                 lr_mul_delta_p              = 0.1,
-                lr_mul_quat                 = 0.1,
-                lr_mul_scale                = 2.0,
+                lr_mul_quat                 = 0.5,
+                lr_mul_scale                = 3.0,
                 lr_mul_opacity              = 5.0,
-                lr_mul_color                = 0.5,
+                lr_mul_color                = 1.0,
                 lr_mul_obj_global_scale     = 0.1,
-                lr_object_pose              = 1e-2,
-                lr_hand_pose                = 1e-3,
+                lr_object_pose              = 3e-3,
+                lr_hand_pose                = 3e-3,
                 lr_betas                    = 1e-4,
-                w_photometric               = 5.0,
-                w_silhouette                 = 5.0,
+                w_photometric               = 1.0,
+                w_silhouette                 = 1.0,
                 w_silhouette_hand            = 1.0,
                 w_silhouette_obj            = 1.0,
                 w_depth                     = 0.001,
                 w_smooth_obj_rot            = 0.001,
                 w_smooth_obj_trans          = 0.001,
-                w_smooth_hand_rot           = 0.01,
-                w_smooth_hand_finger        = 0.001,
-                w_smooth_hand_trans         = 0.01,
-                w_beta_prior                = 1.0,
+                w_smooth_hand_rot           = 0.001,
+                w_smooth_hand_finger        = 0.0001,
+                w_smooth_hand_trans         = 0.001,
+                w_beta_prior                = 0.1,
                 n_gaussian_only_epochs      = 2,
                 seed                        = 0,
                 with_background             = True,
+                mask_background_to_black    = False,
                 balance_photometric_by_mask = False,
                 bg_ref_frame                = reference_frame,
-                lr_bg_gaussians             = 1e-2,
-                lr_bg_pose                  = 1e-3,
+                lr_bg_gaussians             = 3e-2,
+                lr_bg_pose                  = 3e-3,
                 use_cosine_lr_schedule      = True,
                 cosine_lr_min_ratio         = 0.1,
                 coarse_init_scale_factor    = 1.0,
+                pose_confidence_decay       = 0.0,
+                pose_confidence_ref_frame   = reference_frame,
+                w_pose_init_prior           = 0.0,
+                # Discrete rotation search to recover frames whose
+                # FoundationPose rotation is outside the photometric
+                # basin. Runs once at the warmup boundary by default.
+                rotation_search_n_candidates      = 0,
+                rotation_search_period            = 0,    # 0 = once at warmup boundary; >0 = every K epochs
+                rotation_search_local_frac        = 0.5,
+                rotation_search_local_max_deg     = 15.0,
+                rotation_search_silhouette_weight = 1.0,
+                rotation_search_smoothness_weight = 1.0,    # causal: penalize candidates that diverge from previous (snapped) frame
+                use_l2_photometric               = False,
+                use_l2_silhouette                = False,
+                pose_confidence_dynamic_tau      = 0.0,
+                train_resolution_scale          = 0.5,
                 dev                         = dev,
             )
 
@@ -734,6 +753,14 @@ def run_hand_masks(
         # aligned overlay does — but using the refined poses + refined
         # MANO params. Output is a directly comparable video to
         # hamer_aligned_overlay.mp4 so you can A/B the refinement.
+        # Read the learned object scale (saved by run_refine) and apply
+        # it explicitly to the mesh; per-frame Transform3d.scale stays
+        # at whatever FoundationPose tracked.
+        learned_object_scale = 1.0
+        if os.path.exists(refined_object_scale_json):
+            with open(refined_object_scale_json) as f:
+                learned_object_scale = float(json.load(f).get("scale", 1.0))
+            print(f"  Loaded learned object scale: {learned_object_scale:.4f}")
         if not _step("Render refined HaMeR overlay",
                      os.path.exists(hamer_refined_overlay)):
             run_render_hands_aligned_video(
@@ -743,6 +770,7 @@ def run_hand_masks(
                 output_path        = hamer_refined_overlay,
                 object_mesh_path   = mesh_scaled,
                 object_poses_dir   = refined_poses_dir,
+                object_scale       = learned_object_scale,
                 dev                = dev,
             )
 

@@ -224,6 +224,7 @@ def render_hands_aligned_video(
     output_path: str,
     object_mesh_path: str | None = None,
     object_poses_dir: str | None = None,
+    object_scale: float = 1.0,
     fps: float = 30.0,
     alpha: float = 0.55,
 ) -> None:
@@ -244,6 +245,13 @@ def render_hands_aligned_video(
     obj_faces = None
     if object_mesh_path is not None and object_poses_dir is not None:
         obj_verts_base, obj_faces = _load_object_mesh(object_mesh_path)
+        if object_scale != 1.0:
+            # Apply learned global object scale once to the canonical mesh
+            # vertices, before any per-frame transform — Transform3d.scale
+            # in the per-frame JSONs is left to do whatever the upstream
+            # tracker baked in (typically [1,1,1] post-FoundationPose).
+            obj_verts_base = obj_verts_base * float(object_scale)
+            print(f"  Applied object_scale={object_scale:.4f} to mesh.")
 
     W_full, H_full = Image.open(frame_files[0]).size
     pw = (W_full // 2) & ~1
@@ -395,6 +403,11 @@ def main() -> None:
                         help="Optional FoundationPose-scaled object mesh.")
     parser.add_argument("--object_poses_dir", default=None,
                         help="Optional FoundationPose smoothed per-frame poses.")
+    parser.add_argument("--object_scale", type=float, default=1.0,
+                        help="Global multiplier applied to object mesh "
+                             "vertices before per-frame transforms. Use "
+                             "for learned-scale outputs from the gsplat "
+                             "refinement step.")
     parser.add_argument("--fps",   type=float, default=30.0)
     parser.add_argument("--alpha", type=float, default=0.55)
     args = parser.parse_args()
@@ -405,6 +418,7 @@ def main() -> None:
         output_path      = args.output_path,
         object_mesh_path = args.object_mesh_path,
         object_poses_dir = args.object_poses_dir,
+        object_scale     = args.object_scale,
         fps              = args.fps,
         alpha            = args.alpha,
     )
