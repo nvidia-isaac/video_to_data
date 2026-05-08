@@ -4,7 +4,13 @@ wandb/
 __pycache__
 **.egg-info
 CLAUDE.md
+# Ignore .claude/ wherever it appears...
 .claude/
+# ...but keep the root .claude/skills/ tracked (shared skills across packages).
+!/.claude/
+/.claude/*
+!/.claude/skills/
+!/.claude/skills/**
 *.code-workspace
 
 # Auto-generated no-collision URDFs (created at pipeline runtime from *_rigid.urdf)

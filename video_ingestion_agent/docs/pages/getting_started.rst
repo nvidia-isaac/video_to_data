@@ -4,6 +4,23 @@ Getting Started
 This guide walks you through installing Video Ingestion Agent, starting the inference server,
 and running your first video through the pipeline.
 
+.. tip:: **Prefer a guided, interactive walkthrough?**
+
+   If you're using Claude Code in the parent ``video_to_data/`` workspace, two
+   skills cover this guide end-to-end and are version-controlled at
+   ``video_to_data/.claude/skills/``:
+
+   - ``/ingestion_agent_onboard`` — drives first-run setup one step at a time:
+     triage, pick an inference backend (vLLM / local / API), install, start
+     the server (only if you chose vLLM), run your first ingest, query the
+     database, tour the webapp, and optionally batch-ingest. Verifies between
+     steps so failures don't compound.
+   - ``/ingestion_agent_doctor`` — diagnostic checklist for when something is
+     broken or before a first run: vLLM health, GPU/driver, HuggingFace auth,
+     database integrity, Python environment, run-dir sanity.
+
+   The rest of this page is the manual reference for the same flow.
+
 What You'll Build
 -----------------
 
