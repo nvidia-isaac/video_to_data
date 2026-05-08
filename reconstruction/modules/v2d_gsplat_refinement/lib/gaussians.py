@@ -1,0 +1,349 @@
+"""Gaussian primitive sets for joint hand+object refinement.
+
+Two sets, both following the standard 3DGS parameterization (means / quats /
+scales / opacities / colors), but with different per-frame deformation:
+
+  ObjectGaussians  -- anchored to mesh vertices in object frame; per frame the
+                      whole set is rigidly transformed by the object pose
+                      (R_obj_t, t_obj_t).
+  HandGaussians    -- anchored to MANO rest-pose vertices; per frame each
+                      Gaussian's world position is the corresponding posed
+                      vertex (LBS via manotorch). Hand Gaussians are isotropic
+                      to avoid having to also rotate per-Gaussian quaternions
+                      under articulation -- one less coupled DOF and the
+                      photometric loss isn't sensitive to it at typical
+                      Gaussian sizes.
+
+Both sets expose canonical-frame parameters as ``nn.Parameter``s so they're
+captured by a single ``optim.Adam(model.parameters(), ...)`` in the trainer.
+Per-frame attributes are computed in ``forward(frame_idx)`` and returned as
+a flat record the renderer consumes.
+
+Object pose, MANO global rot+trans, MANO articulation, and (optionally) MANO
+shape are *not* attributes of these classes -- they live in their own
+``nn.Module`` wrappers (``ObjectPoseField`` / ``HandPoseField``) so the
+canonical Gaussians are decoupled from the per-frame state.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+# ---------------------------------------------------------------------------
+# Quaternion helpers
+# ---------------------------------------------------------------------------
+
+def axis_angle_to_quat(aa: torch.Tensor) -> torch.Tensor:
+    """(..., 3) axis-angle → (..., 4) quaternion (w, x, y, z)."""
+    angle = aa.norm(dim=-1, keepdim=True).clamp_min(1e-8)
+    axis = aa / angle
+    half = angle * 0.5
+    w = torch.cos(half)
+    xyz = axis * torch.sin(half)
+    return torch.cat([w, xyz], dim=-1)
+
+
+def quat_mul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Quaternion multiplication a*b. Both (..., 4) in (w, x, y, z)."""
+    aw, ax, ay, az = a.unbind(-1)
+    bw, bx, by, bz = b.unbind(-1)
+    return torch.stack([
+        aw*bw - ax*bx - ay*by - az*bz,
+        aw*bx + ax*bw + ay*bz - az*by,
+        aw*by - ax*bz + ay*bw + az*bx,
+        aw*bz + ax*by - ay*bx + az*bw,
+    ], dim=-1)
+
+
+def quat_to_rotmat(q: torch.Tensor) -> torch.Tensor:
+    """(..., 4) quat (w, x, y, z) → (..., 3, 3) rotation matrix."""
+    q = F.normalize(q, dim=-1)
+    w, x, y, z = q.unbind(-1)
+    return torch.stack([
+        torch.stack([1 - 2*(y*y + z*z), 2*(x*y - w*z),     2*(x*z + w*y)], dim=-1),
+        torch.stack([2*(x*y + w*z),     1 - 2*(x*x + z*z), 2*(y*z - w*x)], dim=-1),
+        torch.stack([2*(x*z - w*y),     2*(y*z + w*x),     1 - 2*(x*x + y*y)], dim=-1),
+    ], dim=-2)
+
+
+# ---------------------------------------------------------------------------
+# Frame record (per-frame world-space Gaussians, ready for the rasterizer)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class GaussianFrame:
+    """World-space Gaussian attributes for a single camera at a single frame.
+
+    means:     (N, 3)
+    quats:     (N, 4) -- (w, x, y, z), unnormalized OK; rasterizer normalizes
+    scales:    (N, 3)
+    opacities: (N,)   -- in [0, 1]
+    colors:    (N, 3) -- in [0, 1] approx; rasterizer treats as RGB
+    """
+    means: torch.Tensor
+    quats: torch.Tensor
+    scales: torch.Tensor
+    opacities: torch.Tensor
+    colors: torch.Tensor
+
+
+def concat_frames(frames: list[GaussianFrame]) -> GaussianFrame:
+    if len(frames) == 1:
+        return frames[0]
+    return GaussianFrame(
+        means     = torch.cat([f.means     for f in frames], dim=0),
+        quats     = torch.cat([f.quats     for f in frames], dim=0),
+        scales    = torch.cat([f.scales    for f in frames], dim=0),
+        opacities = torch.cat([f.opacities for f in frames], dim=0),
+        colors    = torch.cat([f.colors    for f in frames], dim=0),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Object Gaussians: rigidly attached to a mesh in object frame
+# ---------------------------------------------------------------------------
+
+class ObjectGaussians(nn.Module):
+    """One Gaussian per anchor point (typically mesh vertex), in object frame.
+
+    Learnable params (all in canonical / object frame):
+      _delta_p     : (N, 3)         -- offset from anchor, init 0
+      _quat_canon  : (N, 4)         -- canonical orientation, init identity
+      _log_scale   : (N, 3)         -- log of axis-aligned scales
+      _opacity_logit: (N,)
+      _color       : (N, 3)         -- raw RGB in [0, 1]-ish; clamped at render
+
+    Anchor positions and the object pose are *inputs* to ``forward``.
+    """
+
+    def __init__(
+        self,
+        anchor_positions: torch.Tensor,    # (N, 3) in object frame
+        init_color: torch.Tensor,          # (N, 3) in [0, 1]
+        init_scale: float,                 # mean edge-length / 3 is typical
+        init_opacity: float = 0.9,
+    ) -> None:
+        super().__init__()
+        N = anchor_positions.shape[0]
+        device = anchor_positions.device
+
+        self.register_buffer("anchor", anchor_positions.contiguous())
+        self._delta_p       = nn.Parameter(torch.zeros(N, 3, device=device))
+        self._quat_canon    = nn.Parameter(
+            torch.tensor([1.0, 0.0, 0.0, 0.0], device=device).repeat(N, 1)
+        )
+        self._log_scale     = nn.Parameter(
+            torch.full((N, 3), float(torch.log(torch.tensor(init_scale))),
+                       device=device)
+        )
+        self._opacity_logit = nn.Parameter(
+            torch.full((N,), float(_logit(init_opacity)), device=device)
+        )
+        self._color         = nn.Parameter(init_color.contiguous().clone())
+        # Single global object scale, learned in log-space (init log=0 ⇒ s=1).
+        # Multiplies anchor positions AND per-Gaussian scales so the visual
+        # Gaussian sizes track geometric scale. Saved into the refined
+        # Transform3d JSON's scale field at export time.
+        self._log_scale_global = nn.Parameter(torch.zeros((), device=device))
+
+    def num_gaussians(self) -> int:
+        return self.anchor.shape[0]
+
+    def forward(
+        self,
+        R_obj: torch.Tensor,    # (3, 3) object-to-camera rotation
+        t_obj: torch.Tensor,    # (3,)   object-to-camera translation
+    ) -> GaussianFrame:
+        """Transform canonical Gaussians into camera/world frame for one camera.
+
+        We render in *camera* frame (viewmat = identity), so the object pose
+        is applied directly: positions go to camera frame, and so do quats.
+        Global object scale ``s_obj = exp(_log_scale_global)`` multiplies
+        canonical positions and per-Gaussian scales together — visual size
+        and geometric extent stay coupled so the rendered object grows /
+        shrinks coherently rather than producing a sparse-or-clumped splat
+        cloud at the wrong scale.
+        """
+        s_obj = self._log_scale_global.exp()                          # ()
+        # Canonical position in object frame, scaled by s_obj.
+        p_obj = (self.anchor + self._delta_p) * s_obj                # (N, 3)
+        # Apply object pose: x_cam = R_obj @ x_obj + t_obj.
+        means = p_obj @ R_obj.T + t_obj                              # (N, 3)
+        # Compose object rotation onto canonical quat: q_cam = q_obj * q_canon.
+        q_obj = _rotmat_to_quat(R_obj).expand_as(self._quat_canon)   # (N, 4)
+        quats = quat_mul(q_obj, self._quat_canon)                    # (N, 4)
+        scales    = self._log_scale.exp() * s_obj                    # (N, 3)
+        opacities = torch.sigmoid(self._opacity_logit)
+        colors    = self._color
+        return GaussianFrame(means, quats, scales, opacities, colors)
+
+    def object_scale(self) -> torch.Tensor:
+        """Current learned global object scale (scalar)."""
+        return self._log_scale_global.exp()
+
+
+# ---------------------------------------------------------------------------
+# Hand Gaussians: anchored to MANO rest-pose verts, deformed each frame by
+# manotorch (LBS). Isotropic so we don't have to articulate per-Gaussian quat.
+# ---------------------------------------------------------------------------
+
+class HandGaussians(nn.Module):
+    """One Gaussian per MANO vertex (778 typically), per hand. Same
+    parameterization as ``ObjectGaussians`` (anisotropic scale + per-Gaussian
+    quaternion + Δp position offset) so the two sets have comparable degrees
+    of freedom.
+
+    Positions and rotations follow MANO's LBS each frame:
+      - ``posed_verts_cam`` (from manotorch) is the MANO-rest vertex
+        transported into world / camera frame.
+      - ``per_vertex_rotmat_cam`` is the per-vertex deformation rotation in
+        camera frame, computed by skinning the per-joint deformation
+        rotations with MANO's vertex weights.
+
+    Forward uses these to:
+      - Apply Δp_canon as a rest-frame offset transformed by the vertex's
+        LBS rotation, so Δp follows finger articulation.
+      - Compose the LBS rotation onto the canonical per-Gaussian quat.
+
+    Learnable params:
+      _delta_p        : (N, 3)   -- Δp in MANO-rest frame, init 0
+      _quat_canon     : (N, 4)   -- canonical orientation in rest frame, init identity
+      _log_scale      : (N, 3)   -- anisotropic axis-aligned scale, init from skin spacing
+      _opacity_logit  : (N,)
+      _color          : (N, 3)
+    """
+
+    def __init__(
+        self,
+        n_verts: int,
+        is_right: bool,
+        init_scale: float,
+        init_color: torch.Tensor,    # (3,) skin tone
+        init_opacity: float = 0.9,
+        device: str | torch.device = "cuda",
+    ) -> None:
+        super().__init__()
+        self.is_right = bool(is_right)
+        self._delta_p       = nn.Parameter(torch.zeros(n_verts, 3, device=device))
+        self._quat_canon    = nn.Parameter(
+            torch.tensor([1.0, 0.0, 0.0, 0.0], device=device).repeat(n_verts, 1)
+        )
+        self._log_scale     = nn.Parameter(
+            torch.full((n_verts, 3), float(torch.log(torch.tensor(init_scale))),
+                       device=device)
+        )
+        self._opacity_logit = nn.Parameter(
+            torch.full((n_verts,), float(_logit(init_opacity)), device=device)
+        )
+        self._color = nn.Parameter(
+            init_color.to(device).expand(n_verts, 3).contiguous().clone()
+        )
+
+    def num_gaussians(self) -> int:
+        return self._log_scale.shape[0]
+
+    def forward(
+        self,
+        posed_verts_cam: torch.Tensor,       # (N, 3)
+        per_vertex_rotmat_cam: torch.Tensor, # (N, 3, 3)
+    ) -> GaussianFrame:
+        # Δp is in MANO-rest frame; the vertex's LBS rotation carries it into
+        # world frame so it follows finger articulation rather than dangling
+        # in fixed world coordinates.
+        delta_world = torch.einsum("nij,nj->ni", per_vertex_rotmat_cam, self._delta_p)
+        means = posed_verts_cam + delta_world
+        # Compose LBS rotation onto canonical Gaussian rotation.
+        q_lbs = rotmat_to_quat(per_vertex_rotmat_cam)            # (N, 4)
+        quats = quat_mul(q_lbs, self._quat_canon)                # (N, 4)
+        return GaussianFrame(
+            means     = means,
+            quats     = quats,
+            scales    = self._log_scale.exp(),
+            opacities = torch.sigmoid(self._opacity_logit),
+            colors    = self._color,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _logit(p: float) -> float:
+    p = max(min(p, 1 - 1e-6), 1e-6)
+    return float(torch.logit(torch.tensor(p)))
+
+
+def rotmat_to_quat(R: torch.Tensor) -> torch.Tensor:
+    """(..., 3, 3) → (..., 4) quat in (w, x, y, z) convention. Differentiable
+    and robust for arbitrary rotations.
+
+    Wraps roma.rotmat_to_unitquat (which uses xyzw) and reorders to wxyz to
+    match the convention used elsewhere in this module.
+    """
+    import roma  # local import — keeps this file usable without roma for tests
+    q_xyzw = roma.rotmat_to_unitquat(R)                         # (..., 4)
+    return torch.cat([q_xyzw[..., 3:4], q_xyzw[..., :3]], dim=-1)
+
+
+def _rotmat_to_quat(R: torch.Tensor) -> torch.Tensor:
+    """Single-matrix wrapper around ``rotmat_to_quat`` for backward
+    compatibility with code that passes (3, 3)."""
+    return rotmat_to_quat(R)
+
+
+# ---------------------------------------------------------------------------
+# Initialization helpers
+# ---------------------------------------------------------------------------
+
+def init_object_gaussians_from_mesh(
+    vertices: torch.Tensor,          # (N, 3) object frame
+    vertex_colors: torch.Tensor,     # (N, 3) in [0, 1]
+    scale_factor: float = 1.0,       # Gaussian scale = scale_factor * mean
+                                      # nearest-neighbor vertex distance.
+                                      # 1.0 fills the mesh surface; smaller
+                                      # values leave gaps that no single
+                                      # Gaussian "owns".
+) -> ObjectGaussians:
+    """Initialize Gaussians at mesh vertices with scale set from inter-vertex spacing."""
+    if vertices.shape[0] < 2:
+        init_scale = 0.005
+    else:
+        # Approx mean nearest-neighbor distance via random pairs.
+        n = min(vertices.shape[0], 4096)
+        idx = torch.randperm(vertices.shape[0], device=vertices.device)[:n]
+        sub = vertices[idx]
+        d = torch.cdist(sub, sub)
+        d.fill_diagonal_(float("inf"))
+        init_scale = float(d.min(dim=1).values.mean()) * scale_factor
+        init_scale = max(init_scale, 1e-4)
+    return ObjectGaussians(
+        anchor_positions = vertices,
+        init_color       = vertex_colors,
+        init_scale       = init_scale,
+    )
+
+
+def init_hand_gaussians(
+    n_verts: int,
+    is_right: bool,
+    init_scale: float = 0.005,           # ~5 mm: MANO has ~5 mm vertex spacing
+                                          # (778 verts spread over a ~10 cm hand);
+                                          # smaller scales leave gaps between
+                                          # Gaussians that no single splat
+                                          # "owns", which weakens the per-vert
+                                          # gradient and slows hand convergence.
+    skin_tone: tuple[float, float, float] = (0.72, 0.55, 0.45),
+    device: str | torch.device = "cuda",
+) -> HandGaussians:
+    init_color = torch.tensor(skin_tone, dtype=torch.float32)
+    return HandGaussians(
+        n_verts      = n_verts,
+        is_right     = is_right,
+        init_scale   = init_scale,
+        init_color   = init_color,
+        device       = device,
+    )

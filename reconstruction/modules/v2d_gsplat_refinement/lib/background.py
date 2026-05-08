@@ -1,0 +1,165 @@
+"""Background Gaussian set + per-frame rigid background→camera pose.
+
+Models the static scene behind the foreground hand+object so the
+photometric loss can be applied to the *full* image rather than just the
+mask region. Initialized from a reference frame's MoGe depth: every pixel
+outside the foreground union mask and with finite depth becomes one
+Gaussian in 3D, anchored in the world frame defined by that reference
+frame's camera frame.
+
+Background pose is parameterized as world→camera (axis_angle, translation)
+per frame, mirroring ``ObjectPoseField``. The reference frame's pose is
+identity by construction; all other frames are also initialized identity
+and the optimizer discovers camera motion via photometric drift.
+
+Caveat: identity-init is only a good basin for sequences with small
+camera motion. For freely-moving (egocentric) cameras you'd want to seed
+from an external VO/SfM solution before this kicks in.
+"""
+from __future__ import annotations
+
+import torch
+import torch.nn as nn
+
+from .gaussians import (
+    GaussianFrame,
+    _logit,
+    axis_angle_to_quat,
+    quat_mul,
+    quat_to_rotmat,
+    rotmat_to_quat,
+)
+
+
+# ---------------------------------------------------------------------------
+# Background Gaussians: same parameter set as ObjectGaussians, but anchored
+# to a depth-unprojected world-frame point cloud rather than a mesh.
+# ---------------------------------------------------------------------------
+
+class BackgroundGaussians(nn.Module):
+    def __init__(
+        self,
+        anchor_positions: torch.Tensor,   # (N, 3) in world (= ref-frame camera) frame
+        init_color: torch.Tensor,         # (N, 3) RGB in [0, 1]
+        init_scale: torch.Tensor,         # (N,)   per-point initial Gaussian size
+        init_opacity: float = 0.9,
+    ) -> None:
+        super().__init__()
+        N = anchor_positions.shape[0]
+        device = anchor_positions.device
+
+        self.register_buffer("anchor", anchor_positions.contiguous())
+        self._delta_p       = nn.Parameter(torch.zeros(N, 3, device=device))
+        self._quat_canon    = nn.Parameter(
+            torch.tensor([1.0, 0.0, 0.0, 0.0], device=device).repeat(N, 1)
+        )
+        # Per-point init scale (depth-aware: farther points get larger Gaussians
+        # so 1-pixel image coverage holds at any depth).
+        log_scale = init_scale.clamp_min(1e-6).log().unsqueeze(-1).expand(-1, 3).contiguous()
+        self._log_scale     = nn.Parameter(log_scale.to(device).clone())
+        self._opacity_logit = nn.Parameter(
+            torch.full((N,), float(_logit(init_opacity)), device=device)
+        )
+        self._color = nn.Parameter(init_color.contiguous().clone())
+
+    def num_gaussians(self) -> int:
+        return self.anchor.shape[0]
+
+    def forward(
+        self,
+        R_bg: torch.Tensor,    # (3, 3) world→camera rotation
+        t_bg: torch.Tensor,    # (3,)   world→camera translation
+    ) -> GaussianFrame:
+        p_world = self.anchor + self._delta_p
+        means = p_world @ R_bg.T + t_bg
+        q_bg = rotmat_to_quat(R_bg).expand_as(self._quat_canon)
+        quats = quat_mul(q_bg, self._quat_canon)
+        return GaussianFrame(
+            means     = means,
+            quats     = quats,
+            scales    = self._log_scale.exp(),
+            opacities = torch.sigmoid(self._opacity_logit),
+            colors    = self._color,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Background pose field: per-frame rigid world→camera transform.
+# ---------------------------------------------------------------------------
+
+class BackgroundPoseField(nn.Module):
+    def __init__(self, n_frames: int, device, ref_frame_t: int = 0) -> None:
+        super().__init__()
+        # Identity init for every frame. The reference frame's pose is
+        # *exactly* identity by construction; other frames start there and
+        # the optimizer picks up camera motion via photometric drift.
+        self.axis_angle  = nn.Parameter(torch.zeros(n_frames, 3, device=device))
+        self.translation = nn.Parameter(torch.zeros(n_frames, 3, device=device))
+        self.ref_frame_t = int(ref_frame_t)
+
+    def num_frames(self) -> int:
+        return self.axis_angle.shape[0]
+
+    def forward(self, t: int) -> tuple[torch.Tensor, torch.Tensor]:
+        q = axis_angle_to_quat(self.axis_angle[t])
+        R = quat_to_rotmat(q)
+        return R, self.translation[t]
+
+
+# ---------------------------------------------------------------------------
+# Initialization from a reference frame's depth + RGB.
+# ---------------------------------------------------------------------------
+
+def init_background_from_depth(
+    rgb: torch.Tensor,            # (H, W, 3) in [0, 1]
+    depth: torch.Tensor,          # (H, W) metric depth, possibly +inf for invalid
+    union_mask: torch.Tensor,     # (H, W) in {0, 1} — foreground (object + hands)
+    K: torch.Tensor,              # (3, 3) intrinsics
+    max_points: int = 50000,
+    scale_factor: float = 1.5,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Unproject every background pixel to a 3D point in the camera frame.
+
+    Returns:
+        anchors:     (N, 3) point cloud in camera-frame == world-frame
+        colors:      (N, 3) RGB in [0, 1]
+        init_scales: (N,)   per-point Gaussian scale ≈ z * pixel_pitch * factor
+
+    Filters out foreground pixels and pixels with invalid depth, then
+    optionally subsamples to ``max_points`` for tractable rasterization
+    (a 1080p frame can yield ~2M background pixels — way more than gsplat
+    needs to cover the scene at typical Gaussian sizes).
+    """
+    H, W, _ = rgb.shape
+    device = rgb.device
+    fx = K[0, 0]
+    fy = K[1, 1]
+    cx = K[0, 2]
+    cy = K[1, 2]
+
+    valid = (union_mask < 0.5) & torch.isfinite(depth) & (depth > 0.0)
+    valid_idx = torch.nonzero(valid, as_tuple=False)            # (M, 2) [v, u]
+    if valid_idx.shape[0] == 0:
+        raise RuntimeError(
+            "Background init: no valid pixels in reference frame "
+            "(every pixel is either foreground or has invalid MoGe depth)."
+        )
+
+    if valid_idx.shape[0] > max_points:
+        perm = torch.randperm(valid_idx.shape[0], device=device)[:max_points]
+        valid_idx = valid_idx[perm]
+
+    v = valid_idx[:, 0].to(torch.float32)
+    u = valid_idx[:, 1].to(torch.float32)
+    z = depth[valid_idx[:, 0], valid_idx[:, 1]]
+    x = (u - cx) * z / fx
+    y = (v - cy) * z / fy
+
+    anchors = torch.stack([x, y, z], dim=-1)                    # (N, 3)
+    colors  = rgb[valid_idx[:, 0], valid_idx[:, 1]]             # (N, 3)
+    # Per-point init scale: 1-pixel projected size at depth z is ~ z / fx.
+    # Multiply by scale_factor (~1-2) so neighboring Gaussians overlap
+    # enough to fill the surface without gaps.
+    init_scales = (z / fx) * scale_factor                       # (N,)
+
+    return anchors, colors, init_scales

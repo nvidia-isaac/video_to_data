@@ -6,7 +6,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
-MODULES=(unidepth moge anycalib sam2 sam3d grounding_dino hand_detector hamer foundation_stereo foundation_pose nlf)
+MODULES=(unidepth moge anycalib sam2 sam3d grounding_dino hand_detector hamer foundation_stereo foundation_pose nlf gsplat_refinement)
 
 for module in "${MODULES[@]}"; do
   echo "Building v2d_${module}..."
