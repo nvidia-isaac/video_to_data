@@ -23,6 +23,12 @@ def run_refine(
     batch_size: int = 16,
     lr_gaussians: float = 1e-2,
     lr_hand_gaussians: float | None = None,
+    lr_mul_delta_p: float = 1.0,
+    lr_mul_quat: float = 1.0,
+    lr_mul_scale: float = 1.0,
+    lr_mul_opacity: float = 1.0,
+    lr_mul_color: float = 1.0,
+    lr_mul_obj_global_scale: float = 1.0,
     lr_object_pose: float = 1e-2,
     lr_hand_pose: float = 1e-2,
     lr_betas: float = 1e-3,
@@ -43,6 +49,7 @@ def run_refine(
     w_delta_p_reg: float = 100.0,
     w_obj_scale_prior: float = 1.0,
     mask_background_to_black: bool = False,
+    balance_photometric_by_mask: bool = False,
     freeze_object_rot: bool = False,
     freeze_object_trans: bool = False,
     freeze_object_scale: bool = False,
@@ -53,6 +60,12 @@ def run_refine(
     lr_bg_gaussians: float | None = None,
     lr_bg_pose: float = 1e-3,
     bg_max_points: int = 50000,
+    n_obj_gaussians: int | None = None,
+    n_hand_gaussians: int | None = None,
+    use_cosine_lr_schedule: bool = False,
+    cosine_lr_min_ratio: float = 0.0,
+    coarse_init_scale_factor: float = 1.0,
+    coarse_decay_epochs: int | None = None,
     freeze_bg_rot: bool = False,
     freeze_bg_trans: bool = False,
     w_smooth_bg_rot: float = 0.1,
@@ -94,8 +107,14 @@ def run_refine(
         "n_epochs":              n_epochs,
         "n_gaussian_only_epochs": n_gaussian_only_epochs,
         "batch_size":            batch_size,
-        "lr_gaussians":      lr_gaussians,
-        "lr_hand_gaussians": lr_hand_gaussians,
+        "lr_gaussians":            lr_gaussians,
+        "lr_hand_gaussians":       lr_hand_gaussians,
+        "lr_mul_delta_p":          lr_mul_delta_p,
+        "lr_mul_quat":             lr_mul_quat,
+        "lr_mul_scale":            lr_mul_scale,
+        "lr_mul_opacity":          lr_mul_opacity,
+        "lr_mul_color":            lr_mul_color,
+        "lr_mul_obj_global_scale": lr_mul_obj_global_scale,
         "lr_object_pose":    lr_object_pose,
         "lr_hand_pose":      lr_hand_pose,
         "lr_betas":          lr_betas,
@@ -114,7 +133,8 @@ def run_refine(
         "w_beta_prior":        w_beta_prior,
         "w_delta_p_reg":     w_delta_p_reg,
         "w_obj_scale_prior": w_obj_scale_prior,
-        "mask_background_to_black": mask_background_to_black,
+        "mask_background_to_black":    mask_background_to_black,
+        "balance_photometric_by_mask": balance_photometric_by_mask,
         "freeze_object_rot":   freeze_object_rot,
         "freeze_object_trans": freeze_object_trans,
         "freeze_object_scale": freeze_object_scale,
@@ -125,6 +145,12 @@ def run_refine(
         "lr_bg_gaussians":     lr_bg_gaussians,
         "lr_bg_pose":          lr_bg_pose,
         "bg_max_points":       bg_max_points,
+        "n_obj_gaussians":         n_obj_gaussians,
+        "n_hand_gaussians":        n_hand_gaussians,
+        "use_cosine_lr_schedule":     use_cosine_lr_schedule,
+        "cosine_lr_min_ratio":        cosine_lr_min_ratio,
+        "coarse_init_scale_factor":   coarse_init_scale_factor,
+        "coarse_decay_epochs":        coarse_decay_epochs,
         "freeze_bg_rot":       freeze_bg_rot,
         "freeze_bg_trans":     freeze_bg_trans,
         "w_smooth_bg_rot":     w_smooth_bg_rot,
@@ -168,6 +194,12 @@ if __name__ == "__main__":
     p.add_argument("--batch_size",      type=int,   default=4)
     p.add_argument("--lr_gaussians",      type=float, default=1e-2)
     p.add_argument("--lr_hand_gaussians", type=float, default=None)
+    p.add_argument("--lr_mul_delta_p",   type=float, default=1.0)
+    p.add_argument("--lr_mul_quat",      type=float, default=1.0)
+    p.add_argument("--lr_mul_scale",     type=float, default=1.0)
+    p.add_argument("--lr_mul_opacity",   type=float, default=1.0)
+    p.add_argument("--lr_mul_color",     type=float, default=1.0)
+    p.add_argument("--lr_mul_obj_global_scale", type=float, default=1.0)
     p.add_argument("--lr_object_pose",    type=float, default=1e-3)
     p.add_argument("--lr_hand_pose",    type=float, default=1e-3)
     p.add_argument("--lr_betas",        type=float, default=1e-4)
@@ -188,6 +220,7 @@ if __name__ == "__main__":
     p.add_argument("--w_delta_p_reg",   type=float, default=100.0)
     p.add_argument("--w_obj_scale_prior", type=float, default=1.0)
     p.add_argument("--mask_background_to_black", action="store_true")
+    p.add_argument("--balance_photometric_by_mask", action="store_true")
     p.add_argument("--freeze_object_rot",   action="store_true")
     p.add_argument("--freeze_object_trans", action="store_true")
     p.add_argument("--freeze_object_scale", action="store_true")
@@ -198,6 +231,12 @@ if __name__ == "__main__":
     p.add_argument("--lr_bg_gaussians",     type=float, default=None)
     p.add_argument("--lr_bg_pose",          type=float, default=1e-3)
     p.add_argument("--bg_max_points",       type=int,   default=50000)
+    p.add_argument("--n_obj_gaussians",     type=int,   default=None)
+    p.add_argument("--n_hand_gaussians",    type=int,   default=None)
+    p.add_argument("--use_cosine_lr_schedule", action="store_true")
+    p.add_argument("--cosine_lr_min_ratio", type=float, default=0.0)
+    p.add_argument("--coarse_init_scale_factor", type=float, default=1.0)
+    p.add_argument("--coarse_decay_epochs", type=int, default=None)
     p.add_argument("--freeze_bg_rot",       action="store_true")
     p.add_argument("--freeze_bg_trans",     action="store_true")
     p.add_argument("--w_smooth_bg_rot",     type=float, default=0.1)
@@ -226,6 +265,12 @@ if __name__ == "__main__":
         batch_size                  = args.batch_size,
         lr_gaussians                = args.lr_gaussians,
         lr_hand_gaussians           = args.lr_hand_gaussians,
+        lr_mul_delta_p              = args.lr_mul_delta_p,
+        lr_mul_quat                 = args.lr_mul_quat,
+        lr_mul_scale                = args.lr_mul_scale,
+        lr_mul_opacity              = args.lr_mul_opacity,
+        lr_mul_color                = args.lr_mul_color,
+        lr_mul_obj_global_scale     = args.lr_mul_obj_global_scale,
         lr_object_pose              = args.lr_object_pose,
         lr_hand_pose                = args.lr_hand_pose,
         lr_betas                    = args.lr_betas,
@@ -246,6 +291,7 @@ if __name__ == "__main__":
         w_delta_p_reg               = args.w_delta_p_reg,
         w_obj_scale_prior           = args.w_obj_scale_prior,
         mask_background_to_black    = args.mask_background_to_black,
+        balance_photometric_by_mask = args.balance_photometric_by_mask,
         freeze_object_rot           = args.freeze_object_rot,
         freeze_object_trans         = args.freeze_object_trans,
         freeze_object_scale         = args.freeze_object_scale,
@@ -256,6 +302,12 @@ if __name__ == "__main__":
         lr_bg_gaussians             = args.lr_bg_gaussians,
         lr_bg_pose                  = args.lr_bg_pose,
         bg_max_points               = args.bg_max_points,
+        n_obj_gaussians             = args.n_obj_gaussians,
+        n_hand_gaussians            = args.n_hand_gaussians,
+        use_cosine_lr_schedule      = args.use_cosine_lr_schedule,
+        cosine_lr_min_ratio         = args.cosine_lr_min_ratio,
+        coarse_init_scale_factor    = args.coarse_init_scale_factor,
+        coarse_decay_epochs         = args.coarse_decay_epochs,
         freeze_bg_rot               = args.freeze_bg_rot,
         freeze_bg_trans             = args.freeze_bg_trans,
         w_smooth_bg_rot             = args.w_smooth_bg_rot,

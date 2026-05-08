@@ -38,6 +38,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import dataclasses
+import math
 import os
 import subprocess
 import tempfile
@@ -57,6 +59,7 @@ from .gaussians import (
     concat_frames,
     init_hand_gaussians,
     init_object_gaussians_from_mesh,
+    resample_mesh_surface,
 )
 from .io import (
     FrameCache,
@@ -72,6 +75,7 @@ from .io import (
     save_object_poses,
 )
 from .losses import (
+    balanced_photometric_loss,
     beta_prior_loss,
     delta_p_regularizer,
     depth_loss,
@@ -227,6 +231,17 @@ def refine(
     batch_size: int = 4,
     lr_gaussians: float = 1e-2,
     lr_hand_gaussians: float | None = None,    # defaults to lr_gaussians if None
+    # Per-attribute LR multipliers applied on top of the per-set base LR
+    # (lr_gaussians / lr_hand_gaussians / lr_bg_gaussians). Defaults to 1.0
+    # everywhere preserves the old single-LR behavior; standard 3DGS uses
+    # very different ratios (e.g. opacity ~300x position) — see docstrings
+    # on the CLI flags for typical settings.
+    lr_mul_delta_p: float = 1.0,
+    lr_mul_quat: float = 1.0,
+    lr_mul_scale: float = 1.0,
+    lr_mul_opacity: float = 1.0,
+    lr_mul_color: float = 1.0,
+    lr_mul_obj_global_scale: float = 1.0,
     lr_object_pose: float = 1e-3,
     lr_hand_pose: float = 1e-3,
     lr_betas: float = 1e-4,
@@ -234,6 +249,7 @@ def refine(
     progress_dir: str | None = None,
     debug_frame_idx: int | None = None,
     mask_background_to_black: bool = False,
+    balance_photometric_by_mask: bool = False,
     freeze_object_rot: bool = False,
     freeze_object_trans: bool = False,
     freeze_object_scale: bool = False,
@@ -244,6 +260,20 @@ def refine(
     lr_bg_gaussians: float | None = None,       # defaults to lr_gaussians
     lr_bg_pose: float = 1e-3,
     bg_max_points: int = 50000,
+    n_obj_gaussians: int | None = None,    # None = use mesh vertex count as-is
+    n_hand_gaussians: int | None = None,   # None = use 778 (full MANO verts);
+                                             # smaller subsamples; >778 ignored
+                                             # (would require barycentric LBS).
+    use_cosine_lr_schedule: bool = False,
+    cosine_lr_min_ratio: float = 0.0,      # final LR / initial LR (per group)
+    # Coarse-to-fine scale annealing: at training start, multiply every
+    # Gaussian's render-time scale by this factor; decay log-linearly to
+    # 1.0 over ``coarse_decay_epochs`` (defaults to n_epochs). 1.0 disables.
+    # Wider Gaussians mean even a far-off pose has photometric overlap
+    # with the target — helps recover outlier frames that would otherwise
+    # be stuck in flat regions of the loss.
+    coarse_init_scale_factor: float = 1.0,
+    coarse_decay_epochs: int | None = None,
     freeze_bg_rot: bool = False,
     freeze_bg_trans: bool = False,
     weights: LossWeights | None = None,
@@ -307,16 +337,36 @@ def refine(
 
     # ----- learnable state --------------------------------------------------
     obj_verts, obj_colors, _obj_faces = load_object_mesh(object_mesh_path, str(device))
+    if n_obj_gaussians is not None and n_obj_gaussians != obj_verts.shape[0]:
+        print(f"Object: resampling mesh surface to {n_obj_gaussians} "
+              f"Gaussians (mesh has {obj_verts.shape[0]} verts).")
+        obj_verts, obj_colors = resample_mesh_surface(
+            obj_verts, obj_colors, _obj_faces, n_obj_gaussians,
+        )
     obj_gaussians = init_object_gaussians_from_mesh(obj_verts, obj_colors).to(device)
     obj_pose_field = ObjectPoseField(object_track).to(device)
 
     hand_slots: list[HandSlot] = []
     for side, ht, md, out_pose in hand_tracks:
         pf = HandPoseField(ht, mano_assets_root, device=device).to(device)
+        # Optionally subsample the MANO vertex set to reduce hand Gaussian
+        # count. Larger-than-778 not supported here (would require
+        # barycentric LBS skinning).
+        sub_idx: torch.Tensor | None = None
+        if n_hand_gaussians is not None and n_hand_gaussians < pf.num_verts():
+            g = torch.Generator(device="cpu").manual_seed(seed)
+            sub_idx = torch.randperm(pf.num_verts(), generator=g)[:n_hand_gaussians]
+            print(f"Hand ({side}): subsampling MANO verts "
+                  f"{pf.num_verts()} → {n_hand_gaussians}.")
+        elif n_hand_gaussians is not None and n_hand_gaussians > pf.num_verts():
+            print(f"Hand ({side}): n_hand_gaussians={n_hand_gaussians} > "
+                  f"{pf.num_verts()} MANO verts; using all 778. "
+                  f"(Supersampling would require barycentric LBS.)")
         hg = init_hand_gaussians(
-            n_verts  = pf.num_verts(),
-            is_right = ht.is_right,
-            device   = device,
+            n_verts           = pf.num_verts(),
+            is_right          = ht.is_right,
+            device            = device,
+            subsample_indices = sub_idx,
         )
         hand_slots.append(HandSlot(
             side          = side,
@@ -388,25 +438,68 @@ def refine(
         ).to(device)
 
     # ----- optimizer --------------------------------------------------------
-    param_groups = [
-        {"params": obj_gaussians.parameters(),                     "lr": lr_gaussians},
-        {"params": [obj_pose_field.axis_angle, obj_pose_field.translation],
-                                                                    "lr": lr_object_pose},
-    ]
+    # Per-attribute LR groups (multipliers shared across object / hand / bg
+    # Gaussian sets — only the per-set base LR differs). Standard 3DGS uses
+    # very different per-attribute ratios; making them user-tunable lets the
+    # caller mimic those without touching the base LRs.
+    def _gaussian_groups(gaussians, base_lr: float) -> list[dict]:
+        groups = [
+            {"params": [gaussians._delta_p],       "lr": base_lr * lr_mul_delta_p},
+            {"params": [gaussians._quat_canon],    "lr": base_lr * lr_mul_quat},
+            {"params": [gaussians._log_scale],     "lr": base_lr * lr_mul_scale},
+            {"params": [gaussians._opacity_logit], "lr": base_lr * lr_mul_opacity},
+            {"params": [gaussians._color],         "lr": base_lr * lr_mul_color},
+        ]
+        if hasattr(gaussians, "_log_scale_global"):
+            groups.append({
+                "params": [gaussians._log_scale_global],
+                "lr": base_lr * lr_mul_obj_global_scale,
+            })
+        return groups
+
+    param_groups: list[dict] = []
+    param_groups += _gaussian_groups(obj_gaussians, lr_gaussians)
+    param_groups.append({
+        "params": [obj_pose_field.axis_angle, obj_pose_field.translation],
+        "lr": lr_object_pose,
+    })
     for slot in hand_slots:
-        # Hand Gaussians get their own LR knob — they typically need a bump
+        # Hand Gaussians get their own base LR knob — they typically need a bump
         # over the object's because the hand covers fewer pixels in image and
         # gradient signal per-Gaussian is correspondingly diluted.
-        param_groups.append({"params": slot.gaussians.parameters(), "lr": lr_hand_gaussians})
-        param_groups.append({"params": [slot.pose_field.global_orient,
-                                        slot.pose_field.hand_pose,
-                                        slot.pose_field.cam_t],     "lr": lr_hand_pose})
-        param_groups.append({"params": [slot.pose_field.betas],     "lr": lr_betas})
+        param_groups += _gaussian_groups(slot.gaussians, lr_hand_gaussians)
+        param_groups.append({
+            "params": [slot.pose_field.global_orient,
+                       slot.pose_field.hand_pose,
+                       slot.pose_field.cam_t],
+            "lr": lr_hand_pose,
+        })
+        param_groups.append({"params": [slot.pose_field.betas], "lr": lr_betas})
     if bg_gaussians is not None:
-        param_groups.append({"params": bg_gaussians.parameters(),    "lr": lr_bg_gaussians})
-        param_groups.append({"params": [bg_pose_field.axis_angle,
-                                        bg_pose_field.translation], "lr": lr_bg_pose})
+        param_groups += _gaussian_groups(bg_gaussians, lr_bg_gaussians)
+        param_groups.append({
+            "params": [bg_pose_field.axis_angle, bg_pose_field.translation],
+            "lr": lr_bg_pose,
+        })
     optimizer = torch.optim.Adam(param_groups)
+
+    # Optional cosine LR schedule. LambdaLR multiplies each param group's
+    # *initial* LR by the same scalar each step, so per-attribute / per-set
+    # LR ratios are preserved as the global scale decays.
+    lr_scheduler: torch.optim.lr_scheduler.LRScheduler | None = None
+    if use_cosine_lr_schedule:
+        import math
+        steps_per_epoch_local = (len(frame_indices) + batch_size - 1) // batch_size
+        total_steps_local = max(1, n_epochs * steps_per_epoch_local)
+
+        def _cosine_lambda(step: int) -> float:
+            progress = min(step / max(1, total_steps_local - 1), 1.0)
+            cos_factor = 0.5 * (1.0 + math.cos(math.pi * progress))
+            return cosine_lr_min_ratio + (1.0 - cosine_lr_min_ratio) * cos_factor
+
+        lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, _cosine_lambda)
+        print(f"Cosine LR schedule: decay over {total_steps_local} steps "
+              f"to {cosine_lr_min_ratio:.2%} of initial LR.")
 
     # Per-class silhouette weights (allocated once, reused per step).
     silhouette_class_weights = torch.tensor(
@@ -419,6 +512,16 @@ def refine(
     rng = np.random.default_rng(seed)
     steps_per_epoch = (n_frames + batch_size - 1) // batch_size
     total_steps = n_epochs * steps_per_epoch
+    # Coarse-to-fine scale anneal setup: log-linear decay from
+    # coarse_init_scale_factor → 1.0 over coarse_decay_steps.
+    coarse_decay_steps = (
+        (coarse_decay_epochs if coarse_decay_epochs is not None else n_epochs)
+        * steps_per_epoch
+    )
+    if coarse_init_scale_factor != 1.0:
+        print(f"Coarse-to-fine scale anneal: factor "
+              f"{coarse_init_scale_factor:.2f} → 1.0 over "
+              f"{coarse_decay_steps} steps.")
     print(f"Refining: {n_epochs} epochs x {steps_per_epoch} steps "
           f"(batch_size={batch_size}, n_frames={n_frames}, "
           f"~{n_epochs} updates/frame)")
@@ -521,6 +624,18 @@ def refine(
             optimizer.zero_grad(set_to_none=True)
             total = 0.0
 
+            # Coarse-to-fine multiplier on Gaussian render-scales for this batch.
+            # Constant within the batch so all sampled frames see the same blur.
+            if coarse_init_scale_factor != 1.0:
+                anneal_progress = min(
+                    step_count / max(1, coarse_decay_steps - 1), 1.0
+                )
+                coarse_scale_mul = math.exp(
+                    math.log(coarse_init_scale_factor) * (1.0 - anneal_progress)
+                )
+            else:
+                coarse_scale_mul = 1.0
+
             # Per-frame losses, summed across the batch then backward once.
             for t in batch_ts:
                 t = int(t)
@@ -549,6 +664,10 @@ def refine(
                 if bg_frame is not None:
                     all_frames.append(bg_frame)
                 combined = concat_frames(all_frames)
+                if coarse_scale_mul != 1.0:
+                    combined = dataclasses.replace(
+                        combined, scales=combined.scales * coarse_scale_mul
+                    )
 
                 # Per-Gaussian class one-hot labels: object → class 0,
                 # hand i → class i+1. Background Gaussians get an all-zero
@@ -573,10 +692,22 @@ def refine(
                 rgb_pred, depth_pred, _, class_pred = render_rgb_depth(
                     combined, K, W, H, extra_features=labels)
 
-                # Photometric: full image when background is enabled
-                # (background Gaussians explain non-foreground pixels), or
-                # the foreground-only / black-bg masked variant otherwise.
-                if bg_gaussians is not None:
+                # Photometric:
+                #   - balance_photometric_by_mask: per-entity inverse-area
+                #     weighting so each entity (object, each hand, optional
+                #     background) contributes equally regardless of pixel
+                #     count.
+                #   - else if bg_gaussians: full-image L1 (background
+                #     Gaussians explain non-foreground; bg dominates by
+                #     pixel count).
+                #   - else: foreground-only L1 (or black-bg masked variant).
+                if balance_photometric_by_mask:
+                    fl = weights.photometric * balanced_photometric_loss(
+                        rgb_pred, sup["rgb"],
+                        obj_mask, hand_msks,
+                        include_background=(bg_gaussians is not None),
+                    )
+                elif bg_gaussians is not None:
                     fl = weights.photometric * (rgb_pred - sup["rgb"]).abs().mean()
                 else:
                     fl = weights.photometric * photometric_loss(
@@ -642,6 +773,8 @@ def refine(
 
             loss.backward()
             optimizer.step()
+            if lr_scheduler is not None:
+                lr_scheduler.step()
             step_count += 1
             pbar.update(1)
             pbar.set_postfix(loss=f"{float(loss):.4f}", epoch=epoch)
@@ -678,14 +811,13 @@ def refine(
                         slot.output_pose_dir)
         print(f"Wrote refined {slot.side}-hand poses → {slot.output_pose_dir}")
 
-    # Final overlay video.
-    overlay_seq = _render_overlay_sequence(
-        frames_dir, frame_indices, K, W, H, device,
+    # Final overlay video — streamed render + ffmpeg encode in one pass.
+    _render_overlay_video_streaming(
+        cache, frame_indices, K, W, H, device,
         obj_gaussians, obj_pose_field, hand_slots,
+        output_path=overlay_path,
         bg_gaussians=bg_gaussians, bg_pose_field=bg_pose_field,
     )
-    _save_overlay_video(overlay_seq, overlay_path)
-    print(f"Wrote overlay video → {overlay_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -766,7 +898,13 @@ def _render_overlay_sequence(
     obj_gaussians, obj_pose_field, hand_slots,
     bg_gaussians=None, bg_pose_field=None,
 ) -> list[np.ndarray]:
-    """Render every frame as image * (1 - α) + render * α and return uint8 RGBs."""
+    """Render every frame as image * (1 - α) + render * α and return uint8 RGBs.
+
+    Disk-reads source RGB per frame and accumulates into a list. Slow; kept
+    only for completeness. Production path is
+    ``_render_overlay_video_streaming`` which streams cache→render→ffmpeg
+    without materializing the full sequence in memory.
+    """
     out = []
     with torch.no_grad():
         for t, fidx in enumerate(frame_indices):
@@ -789,6 +927,74 @@ def _render_overlay_sequence(
                 mix = rgb * (1.0 - alpha.unsqueeze(-1)) + rgb_pred * alpha.unsqueeze(-1)
             out.append((mix.clamp(0, 1) * 255).to(torch.uint8).cpu().numpy())
     return out
+
+
+def _render_overlay_video_streaming(
+    cache, frame_indices, K, W, H, device,
+    obj_gaussians, obj_pose_field, hand_slots,
+    output_path: str,
+    bg_gaussians=None, bg_pose_field=None,
+    fps: float = 30.0,
+) -> None:
+    """Render + encode the overlay video in a single streaming pass.
+
+    Avoids two big costs of the old two-stage path:
+      - Re-reading source RGB from disk each frame (use the in-memory cache).
+      - Writing each frame to a temp PNG and then re-decoding it for ffmpeg
+        (pipe raw rgb24 bytes to ffmpeg's stdin instead).
+
+    For a 500-frame 720p clip this typically drops overlay export from
+    1–3 minutes to under 10 seconds.
+    """
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)) or ".", exist_ok=True)
+
+    proc = subprocess.Popen(
+        [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-f", "rawvideo",
+            "-pixel_format", "rgb24",
+            "-video_size", f"{W}x{H}",
+            "-framerate", str(fps),
+            "-i", "pipe:0",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20",
+            output_path,
+        ],
+        stdin=subprocess.PIPE,
+    )
+
+    pbar = tqdm(total=len(frame_indices), ncols=80, desc="overlay video")
+    try:
+        with torch.no_grad():
+            for t, _fidx in enumerate(frame_indices):
+                rgb = cache.rgb[t].to(device, non_blocking=True)
+                R_obj, t_obj = obj_pose_field(t)
+                obj_frame    = obj_gaussians(R_obj, t_obj)
+                hand_frames  = []
+                for s in hand_slots:
+                    v, R = s.pose_field.posed_verts_and_rotmats_camera(t)
+                    hand_frames.append(s.gaussians(v, R))
+                all_frames = [obj_frame] + hand_frames
+                if bg_gaussians is not None:
+                    R_bg, t_bg = bg_pose_field(t)
+                    all_frames.append(bg_gaussians(R_bg, t_bg))
+                combined = concat_frames(all_frames)
+                rgb_pred, _, alpha, _ = render_rgb_depth(combined, K, W, H)
+                if bg_gaussians is not None:
+                    mix = rgb_pred
+                else:
+                    mix = rgb * (1.0 - alpha.unsqueeze(-1)) + rgb_pred * alpha.unsqueeze(-1)
+                arr = (mix.clamp(0, 1) * 255).to(torch.uint8).cpu().numpy()
+                arr = np.ascontiguousarray(arr)
+                proc.stdin.write(arr.tobytes())
+                pbar.update(1)
+    finally:
+        try:
+            proc.stdin.close()
+        except BrokenPipeError:
+            pass
+        proc.wait()
+        pbar.close()
+    print(f"Wrote overlay video → {output_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -829,6 +1035,22 @@ def main() -> None:
                    help="LR for hand Gaussian attributes (defaults to "
                         "--lr_gaussians). Bump up to compensate for the "
                         "smaller image area covered by hands.")
+    # Per-attribute LR multipliers — shared across object/hand/bg Gaussian
+    # sets, multiplied by their per-set base LR. Defaults of 1.0 preserve
+    # old single-LR behavior. Standard 3DGS-ish ratios (relative to base
+    # LR of 1e-2): delta_p≈0.016, quat≈0.1, scale≈0.5, opacity≈5, color≈0.25.
+    p.add_argument("--lr_mul_delta_p",  type=float, default=1.0,
+                   help="LR multiplier for Gaussian Δp (positions).")
+    p.add_argument("--lr_mul_quat",     type=float, default=1.0,
+                   help="LR multiplier for Gaussian quaternion.")
+    p.add_argument("--lr_mul_scale",    type=float, default=1.0,
+                   help="LR multiplier for Gaussian per-axis log-scale.")
+    p.add_argument("--lr_mul_opacity",  type=float, default=1.0,
+                   help="LR multiplier for Gaussian opacity logit.")
+    p.add_argument("--lr_mul_color",    type=float, default=1.0,
+                   help="LR multiplier for Gaussian color.")
+    p.add_argument("--lr_mul_obj_global_scale", type=float, default=1.0,
+                   help="LR multiplier for the global object-scale scalar.")
     p.add_argument("--lr_object_pose",  type=float, default=1e-3)
     p.add_argument("--lr_hand_pose",    type=float, default=1e-3)
     p.add_argument("--lr_betas",        type=float, default=1e-4)
@@ -877,6 +1099,12 @@ def main() -> None:
                    help="Zero target's background and compute photometric "
                         "L1 over all pixels. Penalizes Gaussian leaks "
                         "outside the mask but makes mask errors costly.")
+    p.add_argument("--balance_photometric_by_mask", action="store_true",
+                   help="Per-pixel weight = 1/N_entity so object, each "
+                        "hand, and (when --with_background) background "
+                        "contribute equally to the photometric loss "
+                        "regardless of pixel count. Prevents the largest "
+                        "region from dominating the loss.")
     p.add_argument("--freeze_object_rot",   action="store_true",
                    help="Hold object rotation at its input value for the "
                         "entire run.")
@@ -903,6 +1131,34 @@ def main() -> None:
     p.add_argument("--lr_bg_pose",          type=float, default=1e-3)
     p.add_argument("--bg_max_points",       type=int,   default=50000,
                    help="Subsample background point cloud to this size.")
+    p.add_argument("--n_obj_gaussians",     type=int,   default=None,
+                   help="Resample the object mesh surface to exactly this "
+                        "many Gaussians. Default uses the mesh's vertex "
+                        "count; useful for high-poly meshes (decimate) "
+                        "or low-poly (densify on the surface).")
+    p.add_argument("--n_hand_gaussians",    type=int,   default=None,
+                   help="Subsample the 778 MANO vertices down to this "
+                        "many Gaussians per hand. Default uses all 778. "
+                        "Values > 778 are clipped (supersampling would "
+                        "require barycentric LBS).")
+    p.add_argument("--use_cosine_lr_schedule", action="store_true",
+                   help="Apply a cosine LR decay across all param groups "
+                        "over the full run. Per-group LR ratios are "
+                        "preserved (each group's initial LR is multiplied "
+                        "by the same cosine factor).")
+    p.add_argument("--cosine_lr_min_ratio", type=float, default=0.0,
+                   help="Final LR as a fraction of initial LR when cosine "
+                        "schedule is on (e.g. 0.1 = decays to 10%% of "
+                        "initial; 0.0 decays all the way to zero).")
+    p.add_argument("--coarse_init_scale_factor", type=float, default=1.0,
+                   help="Multiplier applied to all Gaussian render-scales "
+                        "at training start. Decays log-linearly to 1.0 "
+                        "over --coarse_decay_epochs. >1.0 widens the "
+                        "photometric basin so outlier-pose frames have "
+                        "gradient signal to be pulled in. 1.0 disables.")
+    p.add_argument("--coarse_decay_epochs", type=int, default=None,
+                   help="Epochs over which to anneal the coarse scale "
+                        "factor back to 1.0 (default: full n_epochs).")
     p.add_argument("--freeze_bg_rot",       action="store_true",
                    help="Hold background rotation at identity.")
     p.add_argument("--freeze_bg_trans",     action="store_true",
@@ -933,6 +1189,12 @@ def main() -> None:
         batch_size                  = args.batch_size,
         lr_gaussians                = args.lr_gaussians,
         lr_hand_gaussians           = args.lr_hand_gaussians,
+        lr_mul_delta_p              = args.lr_mul_delta_p,
+        lr_mul_quat                 = args.lr_mul_quat,
+        lr_mul_scale                = args.lr_mul_scale,
+        lr_mul_opacity              = args.lr_mul_opacity,
+        lr_mul_color                = args.lr_mul_color,
+        lr_mul_obj_global_scale     = args.lr_mul_obj_global_scale,
         lr_object_pose              = args.lr_object_pose,
         lr_hand_pose                = args.lr_hand_pose,
         lr_betas                    = args.lr_betas,
@@ -940,6 +1202,7 @@ def main() -> None:
         progress_dir                = args.progress_dir,
         debug_frame_idx             = args.debug_frame_idx,
         mask_background_to_black    = args.mask_background_to_black,
+        balance_photometric_by_mask = args.balance_photometric_by_mask,
         freeze_object_rot           = args.freeze_object_rot,
         freeze_object_trans         = args.freeze_object_trans,
         freeze_object_scale         = args.freeze_object_scale,
@@ -950,6 +1213,12 @@ def main() -> None:
         lr_bg_gaussians             = args.lr_bg_gaussians,
         lr_bg_pose                  = args.lr_bg_pose,
         bg_max_points               = args.bg_max_points,
+        n_obj_gaussians             = args.n_obj_gaussians,
+        n_hand_gaussians            = args.n_hand_gaussians,
+        use_cosine_lr_schedule      = args.use_cosine_lr_schedule,
+        cosine_lr_min_ratio         = args.cosine_lr_min_ratio,
+        coarse_init_scale_factor    = args.coarse_init_scale_factor,
+        coarse_decay_epochs         = args.coarse_decay_epochs,
         freeze_bg_rot               = args.freeze_bg_rot,
         freeze_bg_trans             = args.freeze_bg_trans,
         weights = LossWeights(

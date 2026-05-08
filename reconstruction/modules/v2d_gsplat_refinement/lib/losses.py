@@ -165,6 +165,42 @@ def rotation_smoothness(axis_angle: torch.Tensor) -> torch.Tensor:
     return (d * d).sum()
 
 
+def balanced_photometric_loss(
+    rendered_rgb: torch.Tensor,             # (H, W, 3)
+    target_rgb: torch.Tensor,               # (H, W, 3)
+    obj_mask: torch.Tensor,                 # (H, W) in {0, 1}
+    hand_masks: list[torch.Tensor],         # each (H, W) in {0, 1}
+    include_background: bool = True,
+) -> torch.Tensor:
+    """Per-pixel L1 weighted so each *entity* contributes equally,
+    regardless of how many pixels it covers.
+
+    For each entity i (object, hand_0, hand_1, ..., optionally background),
+    every pixel in that entity's mask gets per-pixel weight 1 / N_i. The
+    integral of the weight over the entity's mask is therefore 1 — so a
+    1%-coverage hand contributes the same total loss mass as a 10%-coverage
+    object or an 89%-coverage background. Without this rebalancing, a
+    full-image L1 is dominated by whatever covers the most pixels.
+
+    Background, when included, is the complement of the union of all
+    foreground masks.
+    """
+    diff = (rendered_rgb - target_rgb).abs().sum(dim=-1)        # (H, W)
+    weight_map = torch.zeros_like(diff)
+    weight_map = weight_map + obj_mask / obj_mask.sum().clamp_min(1.0)
+
+    union = obj_mask.clone()
+    for hm in hand_masks:
+        weight_map = weight_map + hm / hm.sum().clamp_min(1.0)
+        union = torch.maximum(union, hm)
+
+    if include_background:
+        bg_mask = 1.0 - union
+        weight_map = weight_map + bg_mask / bg_mask.sum().clamp_min(1.0)
+
+    return (diff * weight_map).sum()
+
+
 def beta_prior_loss(beta: torch.Tensor, beta_init: torch.Tensor) -> torch.Tensor:
     """Sum-squared deviation of MANO shape from its initialization.
 

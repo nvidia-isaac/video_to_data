@@ -225,22 +225,35 @@ class HandGaussians(nn.Module):
         init_color: torch.Tensor,    # (3,) skin tone
         init_opacity: float = 0.9,
         device: str | torch.device = "cuda",
+        subsample_indices: torch.Tensor | None = None,
     ) -> None:
         super().__init__()
         self.is_right = bool(is_right)
-        self._delta_p       = nn.Parameter(torch.zeros(n_verts, 3, device=device))
+        # Optionally allocate params for a strict subset of MANO vertices
+        # to control hand Gaussian count without the LBS skinning getting
+        # complex. The forward pass gathers the corresponding posed verts
+        # and rotation matrices by these indices.
+        if subsample_indices is not None:
+            self.register_buffer(
+                "_subsample_idx",
+                subsample_indices.to(device, dtype=torch.long).contiguous(),
+            )
+            n_g = int(subsample_indices.numel())
+        else:
+            n_g = n_verts
+        self._delta_p       = nn.Parameter(torch.zeros(n_g, 3, device=device))
         self._quat_canon    = nn.Parameter(
-            torch.tensor([1.0, 0.0, 0.0, 0.0], device=device).repeat(n_verts, 1)
+            torch.tensor([1.0, 0.0, 0.0, 0.0], device=device).repeat(n_g, 1)
         )
         self._log_scale     = nn.Parameter(
-            torch.full((n_verts, 3), float(torch.log(torch.tensor(init_scale))),
+            torch.full((n_g, 3), float(torch.log(torch.tensor(init_scale))),
                        device=device)
         )
         self._opacity_logit = nn.Parameter(
-            torch.full((n_verts,), float(_logit(init_opacity)), device=device)
+            torch.full((n_g,), float(_logit(init_opacity)), device=device)
         )
         self._color = nn.Parameter(
-            init_color.to(device).expand(n_verts, 3).contiguous().clone()
+            init_color.to(device).expand(n_g, 3).contiguous().clone()
         )
 
     def num_gaussians(self) -> int:
@@ -248,9 +261,14 @@ class HandGaussians(nn.Module):
 
     def forward(
         self,
-        posed_verts_cam: torch.Tensor,       # (N, 3)
-        per_vertex_rotmat_cam: torch.Tensor, # (N, 3, 3)
+        posed_verts_cam: torch.Tensor,       # (N_verts, 3)
+        per_vertex_rotmat_cam: torch.Tensor, # (N_verts, 3, 3)
     ) -> GaussianFrame:
+        # Subsample down to the Gaussian set if requested, otherwise use
+        # all vertices.
+        if hasattr(self, "_subsample_idx"):
+            posed_verts_cam = posed_verts_cam[self._subsample_idx]
+            per_vertex_rotmat_cam = per_vertex_rotmat_cam[self._subsample_idx]
         # Δp is in MANO-rest frame; the vertex's LBS rotation carries it into
         # world frame so it follows finger articulation rather than dangling
         # in fixed world coordinates.
@@ -299,6 +317,48 @@ def _rotmat_to_quat(R: torch.Tensor) -> torch.Tensor:
 # Initialization helpers
 # ---------------------------------------------------------------------------
 
+def resample_mesh_surface(
+    vertices: torch.Tensor,        # (V, 3)
+    vertex_colors: torch.Tensor,   # (V, 3) in [0, 1]
+    faces: "np.ndarray",            # (F, 3)
+    n: int,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Sample ``n`` points uniformly on the mesh surface with barycentric
+    color interpolation. Decouples Gaussian count from mesh topology.
+
+    Used to control object Gaussian density independent of whatever vertex
+    count SAM3D / FoundationPose produced. Returns (positions, colors)
+    matching the device/dtype of ``vertices``/``vertex_colors``.
+    """
+    import numpy as np
+    import trimesh
+
+    verts_np  = vertices.detach().cpu().numpy()
+    colors_np = vertex_colors.detach().cpu().numpy()
+    mesh = trimesh.Trimesh(vertices=verts_np, faces=faces, process=False)
+
+    pts, face_idx = trimesh.sample.sample_surface_even(mesh, n)
+    # sample_surface_even drops points that fail an even-spacing check;
+    # top up via plain random sampling so we end up at exactly ``n``.
+    if pts.shape[0] < n:
+        extra_pts, extra_face = trimesh.sample.sample_surface(
+            mesh, n - pts.shape[0])
+        pts = np.vstack([pts, extra_pts])
+        face_idx = np.concatenate([face_idx, extra_face])
+
+    # Barycentric interpolation of vertex colors on the sampled triangles.
+    face_verts = faces[face_idx]                                      # (n, 3)
+    tri_verts  = mesh.vertices[face_verts]                            # (n, 3, 3)
+    bary = trimesh.triangles.points_to_barycentric(tri_verts, pts)    # (n, 3)
+    tri_colors = colors_np[face_verts]                                # (n, 3, 3)
+    sampled_colors = (bary[:, :, None] * tri_colors).sum(axis=1)      # (n, 3)
+
+    return (
+        torch.from_numpy(pts.astype(np.float32)).to(vertices.device),
+        torch.from_numpy(sampled_colors.astype(np.float32)).to(vertices.device),
+    )
+
+
 def init_object_gaussians_from_mesh(
     vertices: torch.Tensor,          # (N, 3) object frame
     vertex_colors: torch.Tensor,     # (N, 3) in [0, 1]
@@ -338,12 +398,14 @@ def init_hand_gaussians(
                                           # gradient and slows hand convergence.
     skin_tone: tuple[float, float, float] = (0.72, 0.55, 0.45),
     device: str | torch.device = "cuda",
+    subsample_indices: torch.Tensor | None = None,
 ) -> HandGaussians:
     init_color = torch.tensor(skin_tone, dtype=torch.float32)
     return HandGaussians(
-        n_verts      = n_verts,
-        is_right     = is_right,
-        init_scale   = init_scale,
-        init_color   = init_color,
-        device       = device,
+        n_verts           = n_verts,
+        is_right          = is_right,
+        init_scale        = init_scale,
+        init_color        = init_color,
+        device            = device,
+        subsample_indices = subsample_indices,
     )
