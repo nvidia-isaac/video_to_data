@@ -47,7 +47,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import torch
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 from tqdm import tqdm
 
 from .background import (
@@ -1299,6 +1299,26 @@ def _render_overlay_sequence(
     return out
 
 
+def _orbit_viewmat_cv(eye: np.ndarray, target: np.ndarray, up: np.ndarray) -> np.ndarray:
+    """world→camera (4, 4) in CV convention (cam +Z forward, +Y down)."""
+    fwd = target - eye
+    fwd = fwd / max(np.linalg.norm(fwd), 1e-8)
+    x = np.cross(up, fwd)
+    nx = np.linalg.norm(x)
+    if nx < 1e-6:
+        # up ∥ fwd: pick a fallback up perpendicular to fwd.
+        alt = np.array([1.0, 0.0, 0.0]) if abs(fwd[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+        x = np.cross(alt, fwd)
+        nx = np.linalg.norm(x)
+    x = x / nx
+    y = np.cross(fwd, x)
+    R = np.stack([x, y, fwd], axis=0)                     # rows = world→cam basis
+    M = np.eye(4)
+    M[:3, :3] = R
+    M[:3, 3]  = -R @ eye
+    return M
+
+
 def _render_overlay_video_streaming(
     cache, frame_indices, K, W, H, device,
     obj_gaussians, obj_pose_field, hand_slots,
@@ -1306,24 +1326,47 @@ def _render_overlay_video_streaming(
     bg_gaussians=None, bg_pose_field=None,
     fps: float = 30.0,
 ) -> None:
-    """Render + encode the overlay video in a single streaming pass.
+    """Multi-viewpoint overlay video, streamed render+ffmpeg in one pass.
 
-    Avoids two big costs of the old two-stage path:
-      - Re-reading source RGB from disk each frame (use the in-memory cache).
-      - Writing each frame to a temp PNG and then re-decoding it for ffmpeg
-        (pipe raw rgb24 bytes to ffmpeg's stdin instead).
+    Per frame we render four panels in a single batched gsplat call (one
+    rasterization, four viewmats):
 
-    For a 500-frame 720p clip this typically drops overlay export from
-    1–3 minutes to under 10 seconds.
+        [ src cam (image underlay) ]   [ world top  ]
+        [ world side               ]   [ world back ]
+
+    World cameras orbit the *current frame's* object centroid, so each
+    frame is independently centered (matches the mesh-render grid in
+    v2d_hamer/render_hands_aligned_video.py — "world" is just whatever
+    coordinate frame the Gaussians live in for that frame, which is the
+    camera frame at time t).
+
+    Cost: one rasterization at 4× viewmats per frame (gsplat handles the
+    4-camera batch natively with shared Gaussians), plus PIL grid stitch.
     """
     os.makedirs(os.path.dirname(os.path.abspath(output_path)) or ".", exist_ok=True)
+
+    # Each panel is half resolution; the full 2x2 grid output is W × H.
+    pw = max(2, (W // 2) & ~1)        # even, ≥ 2
+    ph = max(2, (H // 2) & ~1)
+    grid_W = 2 * pw
+    grid_H = 2 * ph
+
+    # Intrinsics for half-resolution panels.
+    K_panel = K.clone()
+    K_panel[0, 0] *= pw / W
+    K_panel[1, 1] *= ph / H
+    K_panel[0, 2] *= pw / W
+    K_panel[1, 2] *= ph / H
+
+    from gsplat.rendering import rasterization
+    panel_labels = ["src cam", "top", "side", "behind"]
 
     proc = subprocess.Popen(
         [
             "ffmpeg", "-y", "-loglevel", "error",
             "-f", "rawvideo",
             "-pixel_format", "rgb24",
-            "-video_size", f"{W}x{H}",
+            "-video_size", f"{grid_W}x{grid_H}",
             "-framerate", str(fps),
             "-i", "pipe:0",
             "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20",
@@ -1335,8 +1378,16 @@ def _render_overlay_video_streaming(
     pbar = tqdm(total=len(frame_indices), ncols=80, desc="overlay video")
     try:
         with torch.no_grad():
+            bg_zeros = torch.zeros(4, 3, device=device, dtype=torch.float32)
             for t, _fidx in enumerate(frame_indices):
-                rgb = cache.rgb[t].to(device, non_blocking=True)
+                # Source image at panel resolution.
+                src_rgb_full = cache.rgb[t].to(device, non_blocking=True)         # (H, W, 3)
+                src_rgb_panel = torch.nn.functional.interpolate(
+                    src_rgb_full.permute(2, 0, 1).unsqueeze(0),
+                    size=(ph, pw), mode="bilinear", align_corners=False,
+                ).squeeze(0).permute(1, 2, 0).contiguous()                        # (ph, pw, 3)
+
+                # Build per-frame Gaussian set in current cam frame.
                 R_obj, t_obj = obj_pose_field(t)
                 obj_frame    = obj_gaussians(R_obj, t_obj)
                 hand_frames  = []
@@ -1348,13 +1399,73 @@ def _render_overlay_video_streaming(
                     R_bg, t_bg = bg_pose_field(t)
                     all_frames.append(bg_gaussians(R_bg, t_bg))
                 combined = concat_frames(all_frames)
-                rgb_pred, _, alpha, _ = render_rgb_depth(combined, K, W, H)
-                if bg_gaussians is not None:
-                    mix = rgb_pred
-                else:
-                    mix = rgb * (1.0 - alpha.unsqueeze(-1)) + rgb_pred * alpha.unsqueeze(-1)
-                arr = (mix.clamp(0, 1) * 255).to(torch.uint8).cpu().numpy()
+
+                # Object centroid + radius in current cam frame (used for orbit).
+                obj_means = obj_frame.means
+                centroid_t = obj_means.mean(dim=0)
+                radius_t   = (obj_means - centroid_t).norm(dim=-1).max().clamp_min(0.05)
+                centroid = centroid_t.cpu().numpy()
+                r = float(radius_t) * 2.5
+
+                # Four viewmats:
+                #   0: src cam (identity — Gaussians already in cam frame).
+                #   1: top    — eye above (-Y), looking down; image-up = +Z (forward).
+                #   2: side   — eye to the right (+X), looking inward.
+                #   3: behind — eye in +Z (further than centroid), looking back.
+                viewmats_np = np.stack([
+                    np.eye(4),
+                    _orbit_viewmat_cv(centroid + np.array([0.0, -r, 0.0]),
+                                      centroid, up=np.array([0.0, 0.0, 1.0])),
+                    _orbit_viewmat_cv(centroid + np.array([ r,  0.0, 0.0]),
+                                      centroid, up=np.array([0.0, -1.0, 0.0])),
+                    _orbit_viewmat_cv(centroid + np.array([0.0, 0.0,  r]),
+                                      centroid, up=np.array([0.0, -1.0, 0.0])),
+                ], axis=0)
+                viewmats = torch.from_numpy(viewmats_np).to(device, dtype=torch.float32)
+                Ks_4 = K_panel.unsqueeze(0).expand(4, 3, 3).contiguous()
+
+                out, alphas, _ = rasterization(
+                    means=combined.means,
+                    quats=combined.quats,
+                    scales=combined.scales,
+                    opacities=combined.opacities,
+                    colors=combined.colors,
+                    viewmats=viewmats,
+                    Ks=Ks_4,
+                    width=pw, height=ph,
+                    near_plane=0.01,
+                    far_plane=100.0,
+                    render_mode="RGB",
+                    backgrounds=bg_zeros,
+                )
+                rgb_pred = out[..., :3].clamp(0, 1)                              # (4, ph, pw, 3)
+                a0       = alphas[0, ..., 0].unsqueeze(-1)                       # (ph, pw, 1)
+
+                # Panel 0: blend over source image. Panels 1-3: just the render
+                # (against black bg, or full scene if bg gaussians active).
+                panel_0 = src_rgb_panel * (1.0 - a0) + rgb_pred[0] * a0
+
+                grid = torch.zeros(grid_H, grid_W, 3, device=device)
+                grid[:ph, :pw] = panel_0
+                grid[:ph, pw:] = rgb_pred[1]
+                grid[ph:, :pw] = rgb_pred[2]
+                grid[ph:, pw:] = rgb_pred[3]
+
+                arr = (grid * 255).clamp(0, 255).to(torch.uint8).cpu().numpy()
                 arr = np.ascontiguousarray(arr)
+
+                # Panel labels via PIL (cheap — adds ~1 ms/frame).
+                img = Image.fromarray(arr)
+                draw = ImageDraw.Draw(img)
+                font = _font_cached()
+                for i, label in enumerate(panel_labels):
+                    x0 = (i % 2) * pw + 6
+                    y0 = (i // 2) * ph + 6
+                    tw = draw.textlength(label, font=font)
+                    draw.rectangle([x0, y0, x0 + tw + 8, y0 + 22], fill=(0, 0, 0))
+                    draw.text((x0 + 4, y0 + 3), label, fill=(255, 255, 255), font=font)
+                arr = np.ascontiguousarray(np.asarray(img, dtype=np.uint8))
+
                 proc.stdin.write(arr.tobytes())
                 pbar.update(1)
     finally:
@@ -1364,7 +1475,17 @@ def _render_overlay_video_streaming(
             pass
         proc.wait()
         pbar.close()
-    print(f"Wrote overlay video → {output_path}")
+    print(f"Wrote multi-view overlay video → {output_path}")
+
+
+def _font_cached():
+    """Lazy small bitmap font for grid labels."""
+    try:
+        return ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16,
+        )
+    except OSError:
+        return ImageFont.load_default()
 
 
 # ---------------------------------------------------------------------------

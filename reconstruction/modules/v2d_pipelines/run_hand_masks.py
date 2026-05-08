@@ -261,7 +261,7 @@ def run_hand_masks(
     reference_frame: int = 0,
     selfie: bool = False,
     max_num_hands: int = 2,
-    min_detection_confidence: float = 0.5,
+    min_detection_confidence: float = 0.1,
     pad_ratio: float = 0.15,
     sam2_bbox_pad: float = 0.2,
     undistort: bool = False,
@@ -808,7 +808,7 @@ def parse_args() -> argparse.Namespace:
                    help="Input is from a selfie/front-facing camera (mirrored). "
                         "Defaults to rear/ego convention.")
     p.add_argument("--max_num_hands", type=int, default=2)
-    p.add_argument("--min_detection_confidence", type=float, default=0.3,
+    p.add_argument("--min_detection_confidence", type=float, default=0.1,
                    help="MediaPipe detection threshold (default 0.3 — lowered "
                         "from MediaPipe's stock 0.5 for harder views).")
     p.add_argument("--pad_ratio", type=float, default=0.15)
