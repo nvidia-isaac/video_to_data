@@ -20,7 +20,7 @@ The UI opens at ``http://localhost:7860``.
 Interface Overview
 ------------------
 
-The web app has three tabs:
+The web app has four tabs (the last is an optional integration example):
 
 Retrieval Tab
 ^^^^^^^^^^^^^
@@ -75,28 +75,61 @@ Upload a video and run it through the ingestion pipeline interactively.
 - View segmented clips with timestamps and annotations
 - Inspect the generated HTML report
 
+Reconstruct Tab
+^^^^^^^^^^^^^^^
+
+An optional **integration example** showing how the agent's action segments
+feed a downstream 3D reconstruction pipeline (the sibling ``reconstruction``
+package). Reconstruction itself is **not** part of the agent; this tab
+exists to demonstrate end-to-end usage of an ingested action segment.
+
+.. image:: ../images/webapp_reconstruct.png
+   :alt: Reconstruct tab — hand + object 3D reconstruction integration
+   :align: center
+
+Hidden by default — appears only when a ``reconstruction:`` block is
+configured in the webapp YAML (see :doc:`/pages/configuration`).
+
+**Setup:** the integration depends on a working ``reconstruction/.venv``,
+~110 GB of v2d_* Docker images, and MANO + BMC weights. See
+``src/video_ingestion_agent/reconstruction_interface/ego_e2e/README.md``
+for the recipe; ``ReconstructionConfig.validate()`` reports which images
+and weights are missing if you launch with the block enabled but
+unconfigured.
+
+**Features:**
+
+- Pick a segment from a ``clips_final.jsonl`` or jump in from the
+  Retrieve tab's "Reconstruct →" button.
+- Watch 16-stage progress driven by ``[run ]/[skip]`` markers from the
+  upstream orchestrator's stdout.
+- Preview the 2x2 grid render and the metric-scale object mesh inline.
+
 Architecture
 ------------
 
 .. code-block:: text
 
    src/video_ingestion_agent/webapp/
-   ├── app.py                    # Main Gradio application
-   ├── config.py                 # Theme, CSS, and database discovery
+   ├── app.py                        # Main Gradio application
+   ├── config.py                     # Theme, CSS, and database discovery
    ├── tabs/
-   │   ├── query_tab.py          # Natural language clip retrieval
-   │   ├── database_tab.py       # Entity graph browsing
-   │   ├── ingestion_tab.py      # Video upload and pipeline execution
-   │   └── settings_tab.py       # Runtime settings and model config
+   │   ├── query_tab.py              # Natural language clip retrieval
+   │   ├── database_tab.py           # Entity graph browsing
+   │   ├── ingestion_tab.py          # Video upload and pipeline execution
+   │   ├── reconstruction_tab.py     # Optional reconstruction integration
+   │   └── settings_tab.py           # Runtime settings and model config
    ├── services/
-   │   ├── query_service.py      # Retrieval agent backend
-   │   ├── database_service.py   # Entity graph queries
-   │   └── ingestion_service.py  # Pipeline execution backend
+   │   ├── query_service.py          # Retrieval agent backend
+   │   ├── database_service.py       # Entity graph queries
+   │   ├── ingestion_service.py      # Pipeline execution backend
+   │   └── reconstruction_service.py # Reconstruction integration orchestrator
    ├── models/
-   │   └── query_history.py      # Query history persistence
+   │   ├── query_history.py          # Query history persistence
+   │   └── reconstruction.py         # Stage definitions + request/result models
    └── components/
-       ├── graph_visualizer.py   # Plotly entity graph rendering
-       └── pipeline_visualizer.py # Pipeline progress bar
+       ├── graph_visualizer.py       # Plotly entity graph rendering
+       └── pipeline_visualizer.py    # Pipeline progress bar
 
 The web app is structured in three layers:
 

@@ -265,6 +265,37 @@ registry. If you still hit this, file an issue and confirm the source
 video is reachable at the path stored in ``graph.db`` (``SELECT
 video_path FROM video_metadata``).
 
+Pipeline-emitted error messages
+-------------------------------
+
+A small reference for error strings that the pipeline raises but the
+sections above don't already cover:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 45 55
+
+   * - Error
+     - What it means / how to fix
+   * - ``method='llm' requires a model to be provided``
+     - Raised from ``ingestion/segmentation/dedup.py`` when the dedup
+       strategy is set to ``llm`` but no model is configured. Either
+       switch ``segmentation.dedup_strategy`` to ``heuristic`` (no LLM
+       needed) or make sure ``models.vlm_model`` is set in the active
+       config.
+   * - ``Clip video not found: <path>``
+     - Raised from ``ingestion/segmentation/critic.py`` during the
+       verify/refine cycle. The temp clip the critic was about to read
+       was already cleaned up — usually because a previous run was
+       interrupted mid-cycle. Re-run the pipeline; the verify/refine
+       loop is idempotent.
+   * - ``Entity extraction failed: <details>``
+     - Generic catch-all from ``ingestion/entity_graph/extractors.py``.
+       Almost always a model-backend error (vLLM not running,
+       ``NIM_API_KEY`` missing, transient timeout). Check
+       ``python scripts/serve.py --status`` and the entity prompt
+       in ``ingestion/entity_graph/prompts.py``.
+
 See Also
 --------
 

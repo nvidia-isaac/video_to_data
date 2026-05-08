@@ -1,16 +1,16 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-# Webapp configuration with the cross-package reconstruction tab enabled.
+# Webapp configuration with the optional Reconstruct integration tab enabled.
 #
-# The `reconstruction:` block points the Reconstruct tab at the four
-# example scripts under monorepo-root `examples/` and at host-side
-# weight directories for each v2d_* container. Omit (or set to null)
-# to hide the tab.
+# The `reconstruction:` block wires the Reconstruct tab at the sibling
+# `reconstruction` package and at host-side weight directories. Omit
+# (or set to null) to hide the tab.
 #
 # *** Before running this on a fresh machine ***, complete the one-time
-# setup (~30 min, ~110 GB disk) documented at the top of examples/README.md:
-# build the six v2d_* Docker images and stage the five weight bundles.
+# setup (~30 min, ~110 GB disk) documented at
+# src/video_ingestion_agent/reconstruction_interface/ego_e2e/README.md:
+# build the v2d_* Docker images and stage the weight bundles.
 # ReconstructionConfig.validate() will refuse to enable the tab — and
 # show which containers/weights are missing — until they're in place.
 #
@@ -27,13 +27,13 @@ llm_backend: api
 llm_model: openai/openai/gpt-5.2  # Adjust to any NIM-served model id
 
 
-# ─── Reconstruction (cross-package chain via reconstruction_interface) ─
+# ─── Reconstruction integration tab (optional) ─────────────────────────
 #
-# Two pipeline modes available in the Reconstruct tab:
-#   - Basic (4 stages, ~3 min): needs the five v2d_* images + weights below.
-#   - Ego e2e (16 stages, ~10 min): adds v2d_ego_hand_reconstruction +
-#     v2d_hand_alignment, MANO + BMC weights, and a path to reconstruction's
-#     `.venv/bin/python` (the orchestrator imports v2d.* directly).
+# Drives the optional Reconstruct tab. The 16-stage hand + object
+# reconstruction pipeline runs end-to-end via subprocess into
+# reconstruction's `.venv`; each stage shells out to a v2d_*:latest
+# Docker container. Reconstruction is not part of the agent — this
+# block exists to enable a worked integration example in the webapp.
 reconstruction:
   # Where per-segment artifacts accumulate. One subdir per segment_id.
   out_root: outputs/webapp/reconstruction
