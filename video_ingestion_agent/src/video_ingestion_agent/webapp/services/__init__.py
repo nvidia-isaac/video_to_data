@@ -6,9 +6,15 @@
 from video_ingestion_agent.webapp.services.database_service import DatabaseService
 from video_ingestion_agent.webapp.services.ingestion_service import IngestionService
 from video_ingestion_agent.webapp.services.query_service import QueryService
+from video_ingestion_agent.webapp.services.reconstruction_service import (
+    ReconstructionConfig,
+    ReconstructionService,
+)
 
 __all__ = [
     "IngestionService",
     "QueryService",
     "DatabaseService",
+    "ReconstructionConfig",
+    "ReconstructionService",
 ]
