@@ -29,16 +29,19 @@ from scipy.spatial.transform import Rotation, Slerp
 
 from robotic_grounding.assets import ASSET_DIR
 from robotic_grounding.motion_schema import MotionData, save_motion_parquet
-from robotic_grounding.planner.data_adapters import interpolate_robot_motion_data
-from robotic_grounding.planner.inference import MotionInferenceAgent
-from robotic_grounding.planner.motion_reps import xyzw_to_wxyz
+from robotic_grounding.planner.motionbricks.inference import MotionInferenceAgent
+from robotic_grounding.planner.support_recon import (
+    reconstruct_support_for_sequence,
+)
 from robotic_grounding.planner.trajectory import build_interp_trajectory
 from robotic_grounding.planner.transforms import (
     apply_local_frame_fix,
     transform_reference,
+    xyzw_to_wxyz,
 )
+from robotic_grounding.planner.v2p_loader import interpolate_robot_motion_data
 from robotic_grounding.planner.visualization import visualize
-from robotic_grounding.retarget.data_logger import ManoSharpaData
+from robotic_grounding.retarget.data_logger import ManoDex3Data, ManoSharpaData
 
 # -- Constants ------------------------------------------------------------------
 
@@ -75,17 +78,6 @@ LEG_OVERRIDES = {
 LEFT_WRIST = "left_wrist_yaw_link"
 RIGHT_WRIST = "right_wrist_yaw_link"
 
-SUPPORT_SIZE = [0.15, 0.15, 0.952]
-
-# Per-sequence V2P table positions (XY from retargeting, Z=0.475 table center)
-V2P_TABLE_POSITIONS = {
-    "waffleiron_grab": [-0.0057, -0.0823, 0.475],
-    "capsulemachine_grab": [0.0198, -0.0823, 0.475],
-    "espressomachine_grab": [0.1075, -0.0941, 0.475],
-    "microwave_grab": [-0.0059, -0.1399, 0.475],
-    "mixer_grab": [-0.0039, -0.0776, 0.475],
-}
-
 _ASSETS_DIR = Path(__file__).parent / "assets"
 
 
@@ -117,10 +109,11 @@ def load_v2p_reference(
     """Load and interpolate V2P retargeted reference data."""
     if robot_type == "sharpa":
         data_class = ManoSharpaData
+    elif robot_type == "dex3":
+        data_class = ManoDex3Data
     else:
-        raise NotImplementedError(
-            f"Planner only supports robot_type='sharpa'; got {robot_type!r}. "
-            "Dex3 planner input is not available in this tree."
+        raise ValueError(
+            f"Unknown robot_type={robot_type!r}; expected 'sharpa' or 'dex3'."
         )
     motion = data_class.from_parquet(
         root_path=parquet_folder, filters=filters, trajectory_id=trajectory_id
@@ -215,25 +208,66 @@ def build_finger_mapping(model, joint_names):
     return result
 
 
-def build_full_qpos(planned_qpos, ref_data, model, T_save):
-    """Combine planned body + reference fingers + static legs."""
+def _wrist_ee_error_from_qpos(
+    full_qpos: np.ndarray,
+    ref_data: dict,
+    model: mujoco.MjModel,
+) -> float:
+    """Mean L2 distance from FK'd wrist_yaw_link bodies to V2P wrist targets.
+
+    Used to score heading-offset candidates during the local search.
+    """
+    data = mujoco.MjData(model)
+    li = model.body(LEFT_WRIST).id
+    ri = model.body(RIGHT_WRIST).id
+    target_l = np.asarray(ref_data["left_pos"], dtype=np.float64)
+    target_r = np.asarray(ref_data["right_pos"], dtype=np.float64)
+    T = min(full_qpos.shape[0], target_l.shape[0], target_r.shape[0])
+    err_l = np.empty(T, dtype=np.float64)
+    err_r = np.empty(T, dtype=np.float64)
+    for t in range(T):
+        data.qpos[: full_qpos.shape[1]] = full_qpos[t]
+        mujoco.mj_forward(model, data)
+        err_l[t] = np.linalg.norm(data.xpos[li] - target_l[t])
+        err_r[t] = np.linalg.norm(data.xpos[ri] - target_r[t])
+    return float(((err_l + err_r) / 2.0).mean())
+
+
+def build_full_qpos(
+    planned_qpos,
+    ref_data,
+    model,
+    T_save,
+    fix_lower_body=False,
+    fix_root_pos=False,
+    fix_root_rot=False,
+):
+    """Combine planned body + reference fingers + (optionally fixed) parts."""
     nq = model.nq
     full_qpos = np.zeros((T_save, nq), dtype=np.float32)
     body_map = build_body_joint_mapping(model)
     l_finger_map = build_finger_mapping(model, ref_data.get("left_joint_names", []))
     r_finger_map = build_finger_mapping(model, ref_data.get("right_joint_names", []))
 
+    identity_wxyz = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
     for t in range(T_save):
         t_plan = min(t, planned_qpos.shape[0] - 1)
-        full_qpos[t, :3] = planned_qpos[t_plan, :3]
-        full_qpos[t, 3:7] = xyzw_to_wxyz(planned_qpos[t_plan, 3:7])
+        if fix_root_pos:
+            full_qpos[t, :3] = (0.0, 0.0, ROOT_HEIGHT)
+        else:
+            full_qpos[t, :3] = planned_qpos[t_plan, :3]
+        if fix_root_rot:
+            full_qpos[t, 3:7] = identity_wxyz
+        else:
+            full_qpos[t, 3:7] = xyzw_to_wxyz(planned_qpos[t_plan, 3:7])
         for dof_idx, qi in body_map.items():
             full_qpos[t, qi] = planned_qpos[t_plan, 7 + dof_idx]
-        for jname, val in LEG_OVERRIDES.items():
-            try:
-                full_qpos[t, int(model.jnt_qposadr[model.joint(jname).id])] = val
-            except Exception:
-                pass
+        if fix_lower_body:
+            for jname, val in LEG_OVERRIDES.items():
+                try:
+                    full_qpos[t, int(model.jnt_qposadr[model.joint(jname).id])] = val
+                except Exception:
+                    pass
         f_idx = min(t, ref_data["left_finger_joints"].shape[0] - 1)
         for j, qi in enumerate(l_finger_map):
             if qi >= 0 and j < ref_data["left_finger_joints"].shape[1]:
@@ -243,23 +277,6 @@ def build_full_qpos(planned_qpos, ref_data, model, T_save):
                 full_qpos[t, qi] = ref_data["right_finger_joints"][f_idx, j]
 
     return full_qpos, body_map, l_finger_map, r_finger_map
-
-
-def compute_support_position(ref_raw, ref_data, args):
-    """Compute support surface position through the same transform pipeline."""
-    seq_key = args.v2p_sequence
-    for key in V2P_TABLE_POSITIONS:
-        if key in seq_key:
-            seq_key = key
-            break
-    v2p_table_pos = np.array(V2P_TABLE_POSITIONS.get(seq_key, [0.0, -0.14, 0.475]))
-    R_yaw = Rotation.from_euler("z", ref_data["delta_yaw"])
-    source = apply_local_frame_fix(ref_raw, robot_type=args.robot)
-    src_midpoint = 0.5 * (source["left_pos"][0] + source["right_pos"][0])
-    table_transformed = R_yaw.apply(v2p_table_pos - src_midpoint) + src_midpoint
-    table_transformed += ref_data["offset"]
-    table_transformed += np.array(args.workspace_offset)
-    return table_transformed.tolist()
 
 
 def save_planner_parquet(
@@ -279,36 +296,25 @@ def save_planner_parquet(
     T_ref = ref_data["left_pos"].shape[0]
     T_use = min(T, T_ref)
 
-    # Decompose full_qpos into root + body + finger slices to populate
-    # `robot_root_*` and `robot_joint_positions` directly.
-    nq = int(model.nq)
-    left_finger_start = right_finger_start = None
-    for i in range(model.njnt):
-        name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, i)
-        if "left_hand" in name and left_finger_start is None:
-            left_finger_start = int(model.jnt_qposadr[i])
-        if "right_hand" in name and right_finger_start is None:
-            right_finger_start = int(model.jnt_qposadr[i])
-    body_end = left_finger_start if left_finger_start else nq
-
+    # Decompose full_qpos into root + body + finger slices. Body joints are
+    # all non-hand actuated joints regardless of where they sit in the qpos
+    # layout — for dex3 the right arm joints come AFTER the left finger
+    # joints, so a single contiguous slice would drop them.
     qpos_slice = full_qpos[:T_use]
     robot_root_position = qpos_slice[:, 0:3].tolist()
     robot_root_wxyz = qpos_slice[:, 3:7].tolist()
-    robot_joint_positions = qpos_slice[:, 7:body_end].tolist()
 
-    # Build joint names aligned with robot_joint_positions (body joints only).
-    all_joint_names = [
-        mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, i)
-        for i in range(model.njnt)
-    ]
-    # mujoco joints include the free-flyer as the first joint; body-joint
-    # names start after the free-flyer. This matches the existing planner
-    # contract: joint_names had 43 entries for the 43 body DOFs.
-    robot_joint_names = [n for n in all_joint_names if n and "free" not in n.lower()]
-    # Filter out finger joints which live in their own finger qpos slice.
-    robot_joint_names = [
-        n for n in robot_joint_names if "left_hand" not in n and "right_hand" not in n
-    ]
+    body_qpos_idx: list[int] = []
+    robot_joint_names: list[str] = []
+    for i in range(model.njnt):
+        name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, i)
+        if not name or "free" in name.lower():
+            continue
+        if "left_hand" in name or "right_hand" in name:
+            continue
+        body_qpos_idx.append(int(model.jnt_qposadr[i]))
+        robot_joint_names.append(name)
+    robot_joint_positions = qpos_slice[:, body_qpos_idx].tolist()
 
     # EE pose built from per-side wrist position + wxyz reference.
     left_pos = np.asarray(ref_data["left_pos"][:T_use], dtype=np.float32)
@@ -489,7 +495,7 @@ def parse_args():
     parser.add_argument("--v2p_robot_name", default="sharpa_wave")
     parser.add_argument("--v2p_sequence", default="box_grab")
     parser.add_argument("--v2p_trajectory_id", type=int, default=0)
-    parser.add_argument("--target_fps", type=float, default=100.0)
+    parser.add_argument("--target_fps", type=float, default=150.0)
     parser.add_argument(
         "--workspace_offset", type=float, nargs=3, default=[-0.10, 0.0, -0.15]
     )
@@ -498,6 +504,40 @@ def parse_args():
     parser.add_argument("--no_viewer", action="store_true")
     parser.add_argument("--ik_verify", action="store_true")
     parser.add_argument("--ik_plan", action="store_true")
+    parser.add_argument(
+        "--fix_lower_body",
+        action="store_true",
+        help=(
+            "Override the model's lower-body (hip/knee/ankle) predictions "
+            "with a static crouch and run the AR-aware loop that pins those "
+            "bodies in the model's chunk seeds."
+        ),
+    )
+    parser.add_argument(
+        "--fix_root_pos",
+        action="store_true",
+        help="Pin root XYZ to (0, 0, ROOT_HEIGHT) regardless of model output.",
+    )
+    parser.add_argument(
+        "--fix_root_rot",
+        action="store_true",
+        help="Pin root quaternion to identity regardless of model output.",
+    )
+    parser.add_argument(
+        "--no_smooth_qpos",
+        action="store_true",
+        help="Disable post-inference qpos smoothing (global Hamming + boundary blend).",
+    )
+    parser.add_argument(
+        "--search_heading_deg",
+        type=float,
+        default=0.0,
+        help=(
+            "If > 0, run inference at heading offsets [-N, -N/2, 0, +N/2, +N] "
+            "degrees around the heading-toward-object correction and pick the "
+            "candidate with the lowest mean wrist tracking error."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -533,101 +573,141 @@ def main():
     )
     print(f"  {ref_raw['left_pos'].shape[0]} frames at {ref_raw['fps']}fps")
 
-    # Step 3-4: Transform to G1 frame
-    print("\nStep 3-4: Transform to G1 frame")
-    ref_data = transform_reference(
-        ref_raw,
-        nom,
-        workspace_offset=tuple(args.workspace_offset),
-        robot_type=args.robot,
-    )
-    print(f"  Yaw correction: {np.degrees(ref_data['delta_yaw']):.1f} deg")
-
-    T_raw = ref_data["left_pos"].shape[0]
-    N_ref = T_raw if args.ref_seconds < 0 else int(FPS * args.ref_seconds)
-    plan_n_ref = min(N_ref, T_raw)
-
-    # Step 5: Build trajectory
-    print(f"\nStep 5: Build trajectory ({plan_n_ref} ref frames)")
-    traj_lp, traj_lq, traj_rp, traj_rq, seg = build_interp_trajectory(
-        nom,
-        ref_data["left_pos"],
-        ref_data["left_quat"],
-        ref_data["right_pos"],
-        ref_data["right_quat"],
-        fps=FPS,
-        hold_start_s=HOLD_START_S,
-        interp_s=INTERP_DURATION_S,
-        hold_end_s=HOLD_END_S,
-        n_ref=plan_n_ref,
-    )
-    T_total = len(traj_lp)
-    ref_start = seg["ref_start"]
-    print(f"  {T_total} frames (ref starts at {ref_start})")
-
-    # Step 6: Inference
+    # Step 6: Inference (initial agent build)
     if args.ik_verify or args.ik_plan:
         print("IK mode — not implemented in this script yet")
         return
 
     print("\nStep 6: Inference")
     agent = MotionInferenceAgent(device="cuda")
-    root_pos = np.zeros((T_total, 3), dtype=np.float32)
-    root_pos[:, 2] = ROOT_HEIGHT
-    root_wxyz = np.tile([1.0, 0.0, 0.0, 0.0], (T_total, 1)).astype(np.float32)
-
-    result = agent.infer_from_ee_positions(
-        root_pos,
-        root_wxyz,
-        traj_lp,
-        traj_lq,
-        traj_rp,
-        traj_rq,
-        root_height_override=ROOT_HEIGHT,
-        max_chunk_tokens=6,
-        modes=("autoregressive",),
-        smooth=True,
-        half_stride_blend=True,
-    )
-    qpos_full = result["autoregressive"]["qpos"]
-    print(f"  Output: {qpos_full.shape}")
-
-    # Extract reference portion and interpolate to match ref frame count
-    T_mfm = qpos_full.shape[0]
-    T_ref_mfm = T_mfm - ref_start
-    mfm_ref = qpos_full[ref_start : ref_start + T_ref_mfm]
-
-    T_target = plan_n_ref
-    if T_ref_mfm != T_target and T_ref_mfm > 1:
-        print(f"  Interpolating: {T_ref_mfm} → {T_target} frames")
-        t_src = np.linspace(0, 1, T_ref_mfm)
-        t_dst = np.linspace(0, 1, T_target)
-        # Positions + joints: linear
-        pos_joints = np.concatenate([mfm_ref[:, :3], mfm_ref[:, 7:]], axis=1)
-        pos_joints_interp = interp1d(t_src, pos_joints, axis=0, kind="linear")(t_dst)
-        # Root quaternion (xyzw): Slerp
-        root_quats = Rotation.from_quat(mfm_ref[:, 3:7])
-        root_quats_interp = Slerp(t_src, root_quats)(t_dst).as_quat()
-        # Reassemble
-        mfm_ref_new = np.zeros((T_target, mfm_ref.shape[1]), dtype=mfm_ref.dtype)
-        mfm_ref_new[:, :3] = pos_joints_interp[:, :3]
-        mfm_ref_new[:, 3:7] = root_quats_interp
-        mfm_ref_new[:, 7:] = pos_joints_interp[:, 3:]
-        mfm_ref = mfm_ref_new
-    else:
-        mfm_ref = mfm_ref[:T_target]
-    T_save = min(T_target, mfm_ref.shape[0])
-
-    # Step 7: Build full qpos
-    print("\nStep 7: Build full qpos")
     vis_xml = hand_xml if os.path.exists(hand_xml) else scene_xml
     model = mujoco.MjModel.from_xml_path(vis_xml)
-    full_qpos, _, _, _ = build_full_qpos(mfm_ref, ref_data, model, T_save)
-    print(f"  {full_qpos.shape}")
 
-    # Compute support position
-    support_pos = compute_support_position(ref_raw, ref_data, args)
-    print(f"  Support: {np.round(support_pos, 3)}")
+    def _plan_one_offset(delta_yaw_offset_rad: float):
+        """Run Steps 3-7 for a single heading offset and return outputs + score.
+
+        Returns ``(ref_data, traj_tuple, qpos_full, mfm_ref, full_qpos,
+        ref_start, score)`` where ``score`` is the mean wrist tracking
+        error in metres.
+        """
+        ref_data_local = transform_reference(
+            ref_raw,
+            nom,
+            workspace_offset=tuple(args.workspace_offset),
+            robot_type=args.robot,
+            delta_yaw_offset=delta_yaw_offset_rad,
+        )
+        T_raw_local = ref_data_local["left_pos"].shape[0]
+        N_ref_local = (
+            T_raw_local if args.ref_seconds < 0 else int(FPS * args.ref_seconds)
+        )
+        plan_n_ref_local = min(N_ref_local, T_raw_local)
+        traj = build_interp_trajectory(
+            nom,
+            ref_data_local["left_pos"],
+            ref_data_local["left_quat"],
+            ref_data_local["right_pos"],
+            ref_data_local["right_quat"],
+            fps=FPS,
+            hold_start_s=HOLD_START_S,
+            interp_s=INTERP_DURATION_S,
+            hold_end_s=HOLD_END_S,
+            n_ref=plan_n_ref_local,
+        )
+        traj_lp_l, traj_lq_l, traj_rp_l, traj_rq_l, seg_local = traj
+        T_total_local = len(traj_lp_l)
+        ref_start_local = seg_local["ref_start"]
+        root_pos_local = np.zeros((T_total_local, 3), dtype=np.float32)
+        root_pos_local[:, 2] = ROOT_HEIGHT
+        root_wxyz_local = np.tile([1.0, 0.0, 0.0, 0.0], (T_total_local, 1)).astype(
+            np.float32
+        )
+        result_local = agent.infer_from_ee_positions(
+            root_pos_local,
+            root_wxyz_local,
+            traj_lp_l,
+            traj_lq_l,
+            traj_rp_l,
+            traj_rq_l,
+            root_height_override=ROOT_HEIGHT,
+            max_chunk_tokens=6,
+            modes=("autoregressive",),
+            smooth=not args.no_smooth_qpos,
+            half_stride_blend=True,
+            fix_lower_body=args.fix_lower_body,
+        )
+        qpos_full_local = result_local["autoregressive"]["qpos"]
+        T_mfm_local = qpos_full_local.shape[0]
+        T_ref_mfm_local = T_mfm_local - ref_start_local
+        mfm_ref_local = qpos_full_local[
+            ref_start_local : ref_start_local + T_ref_mfm_local
+        ]
+        T_target_local = plan_n_ref_local
+        if T_ref_mfm_local != T_target_local and T_ref_mfm_local > 1:
+            t_src = np.linspace(0, 1, T_ref_mfm_local)
+            t_dst = np.linspace(0, 1, T_target_local)
+            pos_joints = np.concatenate(
+                [mfm_ref_local[:, :3], mfm_ref_local[:, 7:]], axis=1
+            )
+            pos_joints_interp = interp1d(t_src, pos_joints, axis=0, kind="linear")(
+                t_dst
+            )
+            root_quats = Rotation.from_quat(mfm_ref_local[:, 3:7])
+            root_quats_interp = Slerp(t_src, root_quats)(t_dst).as_quat()
+            mfm_ref_new = np.zeros(
+                (T_target_local, mfm_ref_local.shape[1]),
+                dtype=mfm_ref_local.dtype,
+            )
+            mfm_ref_new[:, :3] = pos_joints_interp[:, :3]
+            mfm_ref_new[:, 3:7] = root_quats_interp
+            mfm_ref_new[:, 7:] = pos_joints_interp[:, 3:]
+            mfm_ref_local = mfm_ref_new
+        else:
+            mfm_ref_local = mfm_ref_local[:T_target_local]
+        T_save_local = min(T_target_local, mfm_ref_local.shape[0])
+        full_qpos_local, _, _, _ = build_full_qpos(
+            mfm_ref_local,
+            ref_data_local,
+            model,
+            T_save_local,
+            fix_lower_body=args.fix_lower_body,
+            fix_root_pos=args.fix_root_pos,
+            fix_root_rot=args.fix_root_rot,
+        )
+        score = _wrist_ee_error_from_qpos(full_qpos_local, ref_data_local, model)
+        return (
+            ref_data_local,
+            (traj_lp_l, traj_lq_l, traj_rp_l, traj_rq_l),
+            qpos_full_local,
+            mfm_ref_local,
+            full_qpos_local,
+            ref_start_local,
+            score,
+        )
+
+    if args.search_heading_deg > 0.0:
+        n = float(args.search_heading_deg)
+        candidates_deg = [-n, -n / 2.0, 0.0, n / 2.0, n]
+        print(
+            f"\nLocal heading search across {candidates_deg} deg "
+            "(picking lowest wrist EE error):"
+        )
+        scored = []
+        for d_deg in candidates_deg:
+            res = _plan_one_offset(np.radians(d_deg))
+            scored.append((d_deg, res))
+            print(f"  Δ={d_deg:+5.1f}°: wrist EE = {res[-1] * 1000:.1f}mm")
+        best_deg, best_res = min(scored, key=lambda kv: kv[1][-1])
+        print(f"  → best Δ={best_deg:+.1f}° (EE = {best_res[-1] * 1000:.1f}mm)")
+        ref_data, traj_tuple, qpos_full, mfm_ref, full_qpos, ref_start, _ = best_res
+    else:
+        ref_data, traj_tuple, qpos_full, mfm_ref, full_qpos, ref_start, score = (
+            _plan_one_offset(0.0)
+        )
+        print(f"  Wrist EE error: {score * 1000:.1f}mm")
+    traj_lp, traj_lq, traj_rp, traj_rq = traj_tuple
+    print(f"  Yaw correction: {np.degrees(ref_data['delta_yaw']):.1f} deg")
+    print(f"  {full_qpos.shape}")
 
     # Step 8: Save parquet
     print("\nStep 8: Save parquet")
@@ -638,7 +718,6 @@ def main():
         sequence_id = motion.sequence_id
 
     output_dir = args.output or str(Path.cwd() / "planner_processed")
-    _ = support_pos  # support surface now lives in reconstructed_stage/, not parquet
     save_planner_parquet(
         output_dir,
         full_qpos,
@@ -649,44 +728,71 @@ def main():
         sequence_id,
     )
 
+    # Step 8b: Reconstruct support surface USD for the transformed object
+    # positions. SceneConfig.from_motion_file walks parquet -> ../../../
+    # /reconstructed_stage/<seq>_support.usda, so we drop the USD next to
+    # the planner output rather than relying on the upstream retarget's
+    # un-transformed surface.
+    print("\nStep 8b: Reconstruct support surface")
+    support_dir = Path(output_dir) / "reconstructed_stage"
+    support_dir.mkdir(parents=True, exist_ok=True)
+    support_usda = support_dir / f"{sequence_id}_support.usda"
+    reconstruct_support_for_sequence(
+        input_dir=Path(output_dir),
+        sequence_id=sequence_id,
+        output_override=str(support_usda),
+        schema="motion_v1",
+    )
+
     # Step 9: Viewer — show the FULL trajectory (warmup + reference)
     if not args.no_viewer:
         print("\nStep 9: Viewer | Space=pause")
         # Build full qpos for the entire planner output (warmup + reference)
         vis_full_qpos, _, _, _ = build_full_qpos(
-            qpos_full, ref_data, model, qpos_full.shape[0]
+            qpos_full,
+            ref_data,
+            model,
+            qpos_full.shape[0],
+            fix_lower_body=args.fix_lower_body,
+            fix_root_pos=args.fix_root_pos,
+            fix_root_rot=args.fix_root_rot,
         )
 
         # Discover object mesh and support surface from V2P parquet
         object_mesh_path = None
         support_usda_path = None
+        resolved_mesh_paths: list[str] = []
         motion = ref_raw.get("_motion_data")
         if motion:
-            # Discover object mesh — try parquet mesh_paths then registry
+            # Resolve every per-body mesh path declared in the parquet,
+            # not just the first that exists locally — multi-body objects
+            # (e.g. taco spoon + pan) need all of them rendered.
             mesh_paths = getattr(motion, "object_mesh_paths", None)
             obj_name = getattr(motion, "object_name", None)
             if mesh_paths:
-                for mp in mesh_paths if isinstance(mesh_paths, list) else [mesh_paths]:
+                iterable = mesh_paths if isinstance(mesh_paths, list) else [mesh_paths]
+                for mp in iterable:
+                    if not mp:
+                        continue
                     if os.path.exists(mp):
-                        object_mesh_path = mp
-                        break
-                    # Resolve Docker /workspace/ paths to local assets
+                        resolved_mesh_paths.append(mp)
+                        continue
                     suffix = (
                         mp.split("assets/meshes/")[-1]
                         if "assets/meshes/" in mp
                         else None
                     )
-                    if suffix:
-                        local = os.path.join(ASSET_DIR, "meshes", suffix)
-                        if os.path.exists(local):
-                            object_mesh_path = local
-                            break
-                        # Try mesh_tex.obj in same directory
-                        local_dir = os.path.dirname(local)
-                        tex = os.path.join(local_dir, "mesh_tex.obj")
-                        if os.path.exists(tex):
-                            object_mesh_path = tex
-                            break
+                    if not suffix:
+                        continue
+                    local = os.path.join(ASSET_DIR, "meshes", suffix)
+                    if os.path.exists(local):
+                        resolved_mesh_paths.append(local)
+                        continue
+                    tex = os.path.join(os.path.dirname(local), "mesh_tex.obj")
+                    if os.path.exists(tex):
+                        resolved_mesh_paths.append(tex)
+                if resolved_mesh_paths:
+                    object_mesh_path = resolved_mesh_paths[0]
 
             # Fallback: look up from object registry
             if object_mesh_path is None and obj_name:
@@ -706,7 +812,11 @@ def main():
                         support_usda_path = str(candidate)
                         break
 
-        if object_mesh_path:
+        if resolved_mesh_paths:
+            print(f"  Object meshes ({len(resolved_mesh_paths)}):")
+            for mp in resolved_mesh_paths:
+                print(f"    {mp}")
+        elif object_mesh_path:
             print(f"  Object mesh: {object_mesh_path}")
         if support_usda_path:
             print(f"  Support: {support_usda_path}")
@@ -725,16 +835,18 @@ def main():
         obj_pos_vis = ref_data.get("object_pos_all", ref_data.get("object_pos"))
         obj_quat_vis = ref_data.get("object_quat_all", ref_data.get("object_quat"))
 
-        # Resolve per-body meshes from motion data
-        object_mesh_paths_list = []
-        body_names = getattr(motion, "object_body_names", None) or []
-        obj_name = ref_data.get("object_name", "box")
-        mesh_base = os.path.join(ASSET_DIR, "meshes", "arctic", obj_name)
-        for bname in body_names:
-            bp = os.path.join(mesh_base, f"{bname}.obj")
-            if os.path.exists(bp):
-                object_mesh_paths_list.append(bp)
-        # Fallback to single mesh_tex.obj
+        # Per-body mesh list for the viewer. Prefer the resolved per-body
+        # mesh_paths from the parquet (one entry per object body); fall back
+        # to the arctic registry layout, then to the singular mesh.
+        object_mesh_paths_list = list(resolved_mesh_paths)
+        if not object_mesh_paths_list:
+            body_names = getattr(motion, "object_body_names", None) or []
+            obj_name = ref_data.get("object_name", "box")
+            mesh_base = os.path.join(ASSET_DIR, "meshes", "arctic", obj_name)
+            for bname in body_names:
+                bp = os.path.join(mesh_base, f"{bname}.obj")
+                if os.path.exists(bp):
+                    object_mesh_paths_list.append(bp)
         if not object_mesh_paths_list and object_mesh_path:
             object_mesh_paths_list = [object_mesh_path]
 
