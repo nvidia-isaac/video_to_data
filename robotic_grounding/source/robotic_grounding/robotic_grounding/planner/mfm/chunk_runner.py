@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import torch
 
-from robotic_grounding.planner.data_adapters import extract_feature_from_bones_rep
-from robotic_grounding.planner.smoothing import hamming_smooth, smooth_qpos
+from robotic_grounding.planner.mfm.data_adapters import extract_feature_from_bones_rep
+from robotic_grounding.planner.mfm.smoothing import hamming_smooth, smooth_qpos
 
 
 def run_one_chunk(

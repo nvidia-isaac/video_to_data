@@ -41,6 +41,18 @@ _R_LOCAL_FIX_LEFT = _R_S2G_LEFT.inv()
 _R_LOCAL_FIX_RIGHT = _R_S2G_RIGHT.inv()
 
 
+def xyzw_to_wxyz(q: np.ndarray) -> np.ndarray:
+    """Permute a single quaternion or quaternion array from xyzw to wxyz."""
+    q = np.asarray(q)
+    return np.concatenate([q[..., 3:4], q[..., :3]], axis=-1)
+
+
+def wxyz_to_xyzw(q: np.ndarray) -> np.ndarray:
+    """Permute a single quaternion or quaternion array from wxyz to xyzw."""
+    q = np.asarray(q)
+    return np.concatenate([q[..., 1:4], q[..., 0:1]], axis=-1)
+
+
 def fix_quat_wxyz(q_wxyz: np.ndarray, r_fix: Rotation) -> np.ndarray:
     """Post-multiply wxyz quaternion(s) by a rotation.
 
@@ -180,6 +192,7 @@ def transform_reference(
     nominal_ee: dict,
     workspace_offset: tuple[float, float, float] = (0.0, 0.0, 0.0),
     robot_type: str = "sharpa",
+    delta_yaw_offset: float = 0.0,
 ) -> dict:
     """Full transform pipeline: local frame fix → yaw → position align → offset.
 
@@ -188,6 +201,9 @@ def transform_reference(
         nominal_ee: Nominal EE dict from get_nominal_ee().
         workspace_offset: Additional (x, y, z) offset.
         robot_type: "sharpa" or "dex3".
+        delta_yaw_offset: Extra yaw rotation in radians added on top of the
+            heading-toward-object correction. Used for local search over
+            starting heading.
 
     Returns:
         Dict with transformed positions, quaternions, finger joints, and metadata
@@ -205,7 +221,7 @@ def transform_reference(
         data.get("object_pos"),
     )
     g1_forward = 0.0  # G1 faces +X
-    delta_yaw = g1_forward - heading_src
+    delta_yaw = g1_forward - heading_src + float(delta_yaw_offset)
     data = apply_yaw_correction(data, delta_yaw)
 
     # Step 3: position offset

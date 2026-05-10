@@ -20,16 +20,16 @@ import torch
 from scipy.interpolate import interp1d
 from scipy.spatial.transform import Rotation, Slerp
 
-from robotic_grounding.planner.chunk_runner import (
+from robotic_grounding.planner.mfm.chunk_runner import (
     run_chunked_inference,
     stitch_predictions,
 )
-from robotic_grounding.planner.data_adapters import (
+from robotic_grounding.planner.mfm.data_adapters import (
     arrays_to_mfm_features,
     build_gt_qpos,
     resample_qpos,
 )
-from robotic_grounding.planner.motion_reps import quaternion_to_cont6d_np
+from robotic_grounding.planner.mfm.motion_reps import quaternion_to_cont6d_np
 
 _ASSETS_DIR = Path(__file__).parent / "assets"
 
@@ -94,7 +94,7 @@ class MotionInferenceAgent:
         self._max_tokens = bundle["max_tokens"]
         self._min_tokens = bundle["min_tokens"]
         self._start_root_only = bundle["start_root_only"]
-        self._xml_path = str(_ASSETS_DIR / "mujoco" / "g1_29dof.xml")
+        self._xml_path = str(_ASSETS_DIR.parent / "assets" / "mujoco" / "g1_29dof.xml")
 
         # Build the models dict expected by run_one_chunk
         self._models = {

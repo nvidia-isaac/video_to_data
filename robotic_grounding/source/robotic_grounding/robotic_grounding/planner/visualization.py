@@ -114,12 +114,20 @@ def _inject_scene_objects(
         for i, mesh_path in enumerate(object_mesh_paths):
             if os.path.exists(mesh_path):
                 mesh_name = f"object_mesh_{i}"
+                # Mesh files use a unit suffix to declare their vertex unit:
+                # `_cm.obj` -> centimetres (scale 0.01 -> meters); everything
+                # else assumes millimetres (scale 0.001).
+                scale = (
+                    "0.01 0.01 0.01"
+                    if mesh_path.endswith("_cm.obj")
+                    else "0.001 0.001 0.001"
+                )
                 ET.SubElement(
                     asset,
                     "mesh",
                     name=mesh_name,
                     file=mesh_path,
-                    scale="0.001 0.001 0.001",
+                    scale=scale,
                 )
                 body_name = f"object_vis_{i}"
                 obj_body = ET.SubElement(worldbody, "body", name=body_name, pos="0 0 0")
