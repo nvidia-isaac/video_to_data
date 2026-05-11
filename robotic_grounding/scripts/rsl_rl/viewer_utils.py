@@ -8,8 +8,9 @@ def autoframe_viewer(env_cfg, motion_file: str) -> None:
 
     Reads object_body_position and robot_{side}_wrist_position from the parquet,
     computes the scene centroid + extent, and positions the camera at a
-    135°-azimuth / ~30°-elevation offset capped at 2 m.  Falls back silently
-    if the parquet is missing or the required fields are absent.
+    135°-azimuth / ~30°-elevation offset with a 6 m minimum distance so the
+    cloned env grid stays visible in training video. Falls back silently if the
+    parquet is missing or the required fields are absent.
     """
     import logging
 
@@ -37,7 +38,7 @@ def autoframe_viewer(env_cfg, motion_file: str) -> None:
         lo, hi = all_pts.min(axis=0), all_pts.max(axis=0)
         center = 0.5 * (lo + hi)
         extent = max(float(np.linalg.norm(hi - lo)), 0.3)
-        dist = min(2.5 * extent, 2.0)
+        dist = max(2.5 * extent, 6.0)
         eye = center + dist * np.array([-0.60, 0.60, 0.57])
         env_cfg.viewer.lookat = tuple(float(c) for c in center)
         env_cfg.viewer.eye = tuple(float(c) for c in eye)
