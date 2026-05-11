@@ -368,6 +368,10 @@ def run_hand_masks(
     refinement_object_pose_only: bool = False,
     refinement_random_init_obj_pose: bool = False,
     refinement_ignore_optimizer_state: bool = False,
+    refinement_second_pass: bool = False,
+    refinement_second_pass_lr_scale: float = 0.3,
+    refinement_second_pass_epochs: int | None = None,
+    refinement_second_pass_batch_size: int | None = None,
     dev: bool = False,
 ) -> None:
     video_path = os.path.abspath(video_path)
@@ -740,6 +744,10 @@ def run_hand_masks(
     hamer_refined_overlay      = f"{output_dir}/hamer_refined_overlay.mp4"
     refined_object_scale_json  = f"{output_dir}/refined_object_scale.json"
     refine_checkpoint_pt       = f"{output_dir}/refine_checkpoint.pt"
+    # Optional second-pass refinement output paths (resume from pass1's
+    # checkpoint, lower LRs, larger batch).
+    refined_overlay_pass2      = f"{output_dir}/refined_overlay_pass2.mp4"
+    refine_checkpoint_pt_pass2 = f"{output_dir}/refine_checkpoint_pass2.pt"
     if run_refinement:
         if not (run_hamer and object_prompt is not None):
             raise ValueError(
@@ -761,8 +769,10 @@ def run_hand_masks(
         left_pose_out  = f"{refined_hamer_dir}/{left_tid}"  if left_tid  is not None else None
         right_pose_out = f"{refined_hamer_dir}/{right_tid}" if right_tid is not None else None
 
-        if not _step("Gaussian-splat refinement", os.path.exists(refined_overlay)):
-            run_refine(
+        # All pass-1 kwargs collected in a dict so pass-2 can reuse the
+        # base config with just a few overrides instead of duplicating
+        # the whole call.
+        pass1_kwargs: dict = dict(
                 frames_dir                  = frames_dir,
                 intrinsics_path             = intrinsics_stable,
                 object_mesh_path            = mesh_scaled,
@@ -875,7 +885,53 @@ def run_hand_masks(
                 n_obj_gaussians=5000,
                 bg_max_points=20000,
                 dev                         = dev,
-            )
+        )
+        if not _step("Gaussian-splat refinement (pass 1)",
+                     os.path.exists(refined_overlay)):
+            run_refine(**pass1_kwargs)
+
+        # Optional second pass: resume from pass-1's checkpoint, lower
+        # LRs (default 0.3×), larger batch, no warmup. Adam state is
+        # reinitialized because the new LRs differ; the lowered LR keeps
+        # the optimizer in a "polishing" regime without re-introducing
+        # the large per-step motion that the original LRs allow.
+        if refinement_second_pass:
+            sp_lr = float(refinement_second_pass_lr_scale)
+            sp_n  = (refinement_second_pass_epochs
+                     if refinement_second_pass_epochs is not None
+                     else max(8, pass1_kwargs["n_epochs"] // 2))
+            sp_bs = (refinement_second_pass_batch_size
+                     if refinement_second_pass_batch_size is not None
+                     else pass1_kwargs["batch_size"] * 4)
+            pass2_kwargs = {
+                **pass1_kwargs,
+                # Schedule / batching.
+                "n_epochs":                sp_n,
+                "batch_size":              sp_bs,
+                "n_gaussian_only_epochs":  0,
+                # Resume from pass-1 state; new LRs ⇒ wipe Adam moments.
+                "checkpoint_path":         refine_checkpoint_pt_pass2,
+                "resume_from_checkpoint":  refine_checkpoint_pt,
+                "ignore_optimizer_state":  True,
+                "overlay_path":            refined_overlay_pass2,
+                # Random init / pose-only modes only make sense on pass 1.
+                "random_init_obj_pose":    False,
+                # Scale every LR by sp_lr.
+                "lr_gaussians":          pass1_kwargs["lr_gaussians"]          * sp_lr,
+                "lr_hand_gaussians":     pass1_kwargs["lr_hand_gaussians"]     * sp_lr,
+                "lr_object_rot":         pass1_kwargs["lr_object_rot"]         * sp_lr,
+                "lr_object_trans":       pass1_kwargs["lr_object_trans"]       * sp_lr,
+                "lr_hand_global_orient": pass1_kwargs["lr_hand_global_orient"] * sp_lr,
+                "lr_hand_finger":        pass1_kwargs["lr_hand_finger"]        * sp_lr,
+                "lr_hand_trans":         pass1_kwargs["lr_hand_trans"]         * sp_lr,
+                "lr_bg_gaussians":       pass1_kwargs["lr_bg_gaussians"]       * sp_lr,
+                "lr_bg_rot":             pass1_kwargs["lr_bg_rot"]             * sp_lr,
+                "lr_bg_trans":           pass1_kwargs["lr_bg_trans"]           * sp_lr,
+                "lr_betas":              pass1_kwargs["lr_betas"]              * sp_lr,
+            }
+            if not _step("Gaussian-splat refinement (pass 2)",
+                         os.path.exists(refined_overlay_pass2)):
+                run_refine(**pass2_kwargs)
 
         # Render the refined HaMeR + object meshes the same way the
         # aligned overlay does — but using the refined poses + refined
@@ -1008,6 +1064,21 @@ def parse_args() -> argparse.Namespace:
                    help="When resuming, skip loading optimizer/LR-scheduler "
                         "state — Adam moments reinit lazily. Useful when "
                         "changing LRs / loss weights between runs.")
+    p.add_argument("--refinement_second_pass", action="store_true",
+                   help="After the first refinement, run a second polishing "
+                        "pass: resumes from pass-1's checkpoint, lower LRs "
+                        "(by --refinement_second_pass_lr_scale), larger "
+                        "batch, no warmup. Adam state is reinitialized so "
+                        "the new LRs aren't fought by stale moments.")
+    p.add_argument("--refinement_second_pass_lr_scale", type=float, default=0.3,
+                   help="Multiplier applied to every LR in pass 2 "
+                        "(Gaussian + pose + bg). 0.3 = polish; 0.1 = "
+                        "very fine polish; 1.0 = same LR as pass 1.")
+    p.add_argument("--refinement_second_pass_epochs", type=int, default=None,
+                   help="Number of pass-2 epochs. Defaults to half of "
+                        "pass-1's n_epochs (min 8).")
+    p.add_argument("--refinement_second_pass_batch_size", type=int, default=None,
+                   help="Batch size for pass 2. Defaults to 2x pass-1.")
     p.add_argument("--refinement_render_every", type=int, default=25,
                    help="Dump an overlay PNG of a reference frame every N "
                         "optimizer steps during refinement (0 disables). "
@@ -1048,5 +1119,9 @@ if __name__ == "__main__":
         refinement_object_pose_only        = args.refinement_object_pose_only,
         refinement_random_init_obj_pose    = args.refinement_random_init_obj_pose,
         refinement_ignore_optimizer_state  = args.refinement_ignore_optimizer_state,
+        refinement_second_pass             = args.refinement_second_pass,
+        refinement_second_pass_lr_scale    = args.refinement_second_pass_lr_scale,
+        refinement_second_pass_epochs      = args.refinement_second_pass_epochs,
+        refinement_second_pass_batch_size  = args.refinement_second_pass_batch_size,
         dev                      = args.dev,
     )
