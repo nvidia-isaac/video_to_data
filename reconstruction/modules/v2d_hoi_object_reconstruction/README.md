@@ -220,6 +220,41 @@ S5. Render video        → sam3d/<frame_id>/render_video.mp4
 
 ---
 
+## Quality Envelope and Limitations
+
+The current generated-mesh inventory is a practical guide, not a formal
+benchmark. In general, the pipeline works best on rigid, opaque household
+objects with enough visible surface area and texture for segmentation, stereo
+depth, and camera tracking: boxes, bottles, cans, balls, mugs, toy tools, and
+similar tabletop or carryable objects.
+
+Use extra visual QA for these cases:
+
+- **Thin or high-aspect-ratio geometry** — hoops, rackets, swords, canes, chair
+  legs, handles, and tool tips are easy to miss, thicken, fuse to nearby
+  surfaces, or reconstruct with holes.
+- **Large support-like objects** — desks, tables, platforms, crates, and large
+  boxes need broad view coverage. Partial views often leave missing backs,
+  undersides, or weak texture alignment.
+- **Reflective, dark, transparent, or textureless surfaces** — depth and SfM can
+  become unstable, and masks may leak onto background or hands.
+- **Occluded hand-object interaction frames** — hands can hide important object
+  surfaces; BundleSDF quality depends on clean masks and coherent stereo depth
+  across the selected scan frames.
+- **Two-stage alignment failures** — BundleSDF final meshes depend on
+  FoundationPose staying locked between the stationary and rotated stages. Drift
+  usually shows up in `fp_render/render.mp4` or `poses_world_debug.png`.
+- **SAM3D scale and back-side geometry** — SAM3D is useful as a quick fallback
+  and for representative-frame meshes, but scale is estimated after inference
+  and unseen geometry can be less reliable. Check `render_debug.jpg` and
+  `render_video.mp4` before treating the mesh as final.
+
+For production assets, prefer an available scanner mesh as the geometric
+reference. Treat HOI-generated meshes as requiring inspection with the overlay,
+spin, point-cloud, and chamfer tools before accepting them.
+
+---
+
 ## Troubleshooting
 
 Start from the final output and work backwards.
