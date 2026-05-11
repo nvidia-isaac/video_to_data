@@ -10,6 +10,7 @@ Manual mode — submit a single named sequence:
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import os
 import subprocess
 import sys
@@ -35,6 +36,31 @@ from query import DEFAULT_REFRESH_WORKERS, osmo_cancel, refresh_waiting
 
 DB_PATH = os.path.join(SCRIPT_DIR, "processing.db")
 TABLE = "workflows"
+
+
+@dataclass(frozen=True)
+class SubmitResult:
+    workflow_name: str
+    ambiguous: bool = False
+
+
+class AmbiguousSubmitError(RuntimeError):
+    """Raised when OSMO may have accepted the submit but did not return an ID."""
+
+    def __init__(self, error: subprocess.CalledProcessError):
+        self.error = error
+        super().__init__(_short_submit_error(error))
+
+
+_AMBIGUOUS_SUBMIT_MARKERS = (
+    "read timed out",
+    "cannot connect to osmo service",
+    "httpsconnectionpool",
+    "connectionerror",
+    "connection aborted",
+    "max retries exceeded",
+    "timed out",
+)
 
 
 def _apply_test_mode(dataset_cfg: dict) -> None:
@@ -130,6 +156,29 @@ def resolve_mesh_url(
 
 # OSMO helpers
 
+def _submit_error_text(error: subprocess.CalledProcessError) -> str:
+    return "\n".join(
+        part for part in (error.output, error.stderr) if part
+    )
+
+
+def _is_ambiguous_submit_error(error: subprocess.CalledProcessError) -> bool:
+    """Return True if OSMO may have accepted the submit before the CLI failed."""
+    if error.returncode == 10:
+        return True
+    text = _submit_error_text(error).lower()
+    return any(marker in text for marker in _AMBIGUOUS_SUBMIT_MARKERS)
+
+
+def _short_submit_error(error: subprocess.CalledProcessError) -> str:
+    for line in _submit_error_text(error).splitlines():
+        line = line.strip()
+        if not line or line == "Error message:" or line.startswith("Error code:"):
+            continue
+        return f"exit {error.returncode}: {line[:160]}"
+    return f"exit {error.returncode}"
+
+
 def osmo_submit(
     workflow_yaml: str, pool: str, set_vars: dict[str, str], *, dry_run: bool = False,
 ) -> str:
@@ -143,10 +192,13 @@ def osmo_submit(
         return set_vars.get("workflow_name", "dry-run")
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
     if result.returncode != 0:
-        raise subprocess.CalledProcessError(
+        error = subprocess.CalledProcessError(
             result.returncode, cmd,
             output=result.stdout, stderr=result.stderr,
         )
+        if _is_ambiguous_submit_error(error):
+            raise AmbiguousSubmitError(error)
+        raise error
     stdout = result.stdout.strip()
     print(f"  OSMO: {stdout}")
     for line in stdout.splitlines():
@@ -179,7 +231,7 @@ def submit_sequence(
     *,
     force: bool = False,
     dry_run: bool = False,
-) -> str | None:
+) -> SubmitResult | None:
     """Build --set vars, submit OSMO workflow, record in DB. Return workflow name."""
     blacklist_entry = get_blacklisted_sequence(
         dataset_name, sequence_name, db_path=DB_PATH,
@@ -316,7 +368,7 @@ def submit_sequence(
                     f"  [dry-run] would remove blacklist entry for "
                     f"{sequence_name} due to --force"
                 )
-            return workflow_name
+            return SubmitResult(workflow_name)
         insert_workflow(
             sequence_name=sequence_name,
             dataset=dataset_name,
@@ -334,7 +386,32 @@ def submit_sequence(
         ):
             print(f"  {sequence_name}: removed blacklist entry due to --force")
         print(f"  Workflow ID: {osmo_workflow_id}")
-        return workflow_name
+        return SubmitResult(workflow_name)
+    except AmbiguousSubmitError as e:
+        error = e.error
+        if error.stdout and error.stdout.strip():
+            print(f"  STDOUT: {error.stdout.strip()}")
+        if error.stderr and error.stderr.strip():
+            print(f"  STDERR: {error.stderr.strip()}")
+        print(f"  ERROR (exit {error.returncode})")
+        details = f"submit_ambiguous: {_short_submit_error(error)}"
+        insert_workflow(
+            sequence_name=sequence_name,
+            dataset=dataset_name,
+            pipeline_type=pipeline_type,
+            pipeline_version=version,
+            workflow_name=workflow_name,
+            osmo_workflow_id=f"{workflow_name}-1",
+            status="WAITING_WF",
+            details=details,
+            db_path=DB_PATH,
+            table=TABLE,
+        )
+        print(
+            f"  Ambiguous OSMO submit recorded as {workflow_name}-1; "
+            "assuming it may be queued."
+        )
+        return SubmitResult(workflow_name, ambiguous=True)
     except subprocess.CalledProcessError as e:
         if e.stdout and e.stdout.strip():
             print(f"  STDOUT: {e.stdout.strip()}")
@@ -457,6 +534,12 @@ def auto_submit(
         )
         if wf:
             submitted += 1
+            if isinstance(wf, SubmitResult) and wf.ambiguous:
+                print(
+                    "Ambiguous OSMO submit recorded; stopping auto-submit "
+                    "to avoid duplicate/capacity runaway."
+                )
+                break
 
     if skipped:
         print(f"Skipped {skipped} sequence(s) with status in {sorted(skip_statuses)}. "

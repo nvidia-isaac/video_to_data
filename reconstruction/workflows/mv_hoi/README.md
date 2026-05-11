@@ -151,6 +151,11 @@ python submit.py --dataset sc_office_4exo_1 --pipeline mv_hoi_reconstruction --r
 python submit.py ... --dry_run
 ```
 
+If `osmo workflow submit` returns an ambiguous transient error such as a read
+timeout, `submit.py` records a `WAITING_WF` placeholder with details starting
+`submit_ambiguous:` and assumes the OSMO ID is `<workflow_name>-1`. Auto mode
+then stops for that run to avoid duplicate submissions while OSMO catches up.
+
 Manual mode submits one named sequence. The confirmation dialog kicks in
 based on the latest row's status:
 

@@ -1,3 +1,4 @@
+import subprocess
 import sys
 import types
 from pathlib import Path
@@ -15,6 +16,19 @@ except ModuleNotFoundError:
 import db
 import query
 import submit
+
+
+def _called_process_error(
+    returncode: int,
+    stdout: str = "",
+    stderr: str = "",
+) -> subprocess.CalledProcessError:
+    return subprocess.CalledProcessError(
+        returncode,
+        "osmo workflow submit",
+        output=stdout,
+        stderr=stderr,
+    )
 
 
 def _db_path(tmp_path: Path) -> str:
@@ -90,6 +104,31 @@ def test_blacklist_helpers_are_dataset_scoped_and_removable(tmp_path):
     )
 
 
+def test_submit_error_classification_marks_timeouts_ambiguous():
+    error = _called_process_error(
+        10,
+        stdout=(
+            "Error message:\n"
+            "Cannot connect to OSMO service, with error:\n"
+            "HTTPSConnectionPool(host='us-west-2-aws.osmo.nvidia.com'): "
+            "Read timed out. (read timeout=60)\n"
+            "Error code: 1\n"
+        ),
+    )
+
+    assert submit._is_ambiguous_submit_error(error)
+    assert "Cannot connect to OSMO service" in submit._short_submit_error(error)
+
+
+def test_submit_error_classification_ignores_validation_failure():
+    error = _called_process_error(
+        2,
+        stderr="invalid choice: --bad-flag",
+    )
+
+    assert not submit._is_ambiguous_submit_error(error)
+
+
 def test_submit_sequence_skips_blacklisted_manual_sequence(
     monkeypatch, tmp_path, capsys,
 ):
@@ -149,7 +188,8 @@ def test_submit_sequence_force_removes_blacklist(monkeypatch, tmp_path):
         force=True,
     )
 
-    assert result == "wf-force"
+    assert result.workflow_name == "wf-force"
+    assert not result.ambiguous
     assert inserted[0]["sequence_name"] == "blocked_sequence"
     assert db.get_blacklisted_sequence(
         "dataset_a", "blocked_sequence", db_path=db_path,
@@ -182,7 +222,8 @@ def test_submit_sequence_force_dry_run_preserves_blacklist(
         dry_run=True,
     )
 
-    assert result == "wf-force"
+    assert result.workflow_name == "wf-force"
+    assert not result.ambiguous
     assert db.get_blacklisted_sequence(
         "dataset_a", "blocked_sequence", db_path=db_path,
     ) is not None
@@ -190,6 +231,122 @@ def test_submit_sequence_force_dry_run_preserves_blacklist(
         "[dry-run] would remove blacklist entry for blocked_sequence due to --force"
         in capsys.readouterr().out
     )
+
+
+def test_submit_sequence_ambiguous_submit_records_waiting_placeholder(
+    monkeypatch, tmp_path,
+):
+    db_path = _db_path(tmp_path)
+    db.insert_version("1.0.0", db_path=db_path)
+    error = _called_process_error(
+        10,
+        stdout=(
+            "Error message:\n"
+            "Cannot connect to OSMO service, with error:\n"
+            "HTTPSConnectionPool: Read timed out. (read timeout=60)\n"
+            "Error code: 1\n"
+        ),
+    )
+
+    monkeypatch.setattr(submit, "DB_PATH", db_path)
+    monkeypatch.setattr(submit, "_generate_workflow_name", lambda *_args: "wf-ambiguous")
+    monkeypatch.setattr(
+        submit,
+        "get_s3_client",
+        lambda *_args, **_kwargs: (object(), "bucket", "root"),
+    )
+    monkeypatch.setattr(
+        submit,
+        "osmo_submit",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            submit.AmbiguousSubmitError(error)
+        ),
+    )
+
+    result = submit.submit_sequence(
+        "maybe_submitted",
+        "dataset_a",
+        _dataset_cfg(),
+        "mv_calibration",
+    )
+
+    assert result.workflow_name == "wf-ambiguous"
+    assert result.ambiguous
+    row = db.get_workflow("wf-ambiguous", db_path=db_path)
+    assert row["sequence_name"] == "maybe_submitted"
+    assert row["status"] == "WAITING_WF"
+    assert row["osmo_workflow_id"] == "wf-ambiguous-1"
+    assert row["details"].startswith("submit_ambiguous: exit 10:")
+
+
+def test_submit_sequence_ambiguous_force_preserves_blacklist(
+    monkeypatch, tmp_path,
+):
+    db_path = _db_path(tmp_path)
+    db.insert_version("1.0.0", db_path=db_path)
+    db.upsert_blacklisted_sequence(
+        "dataset_a", "blocked_sequence", reason="bad capture", db_path=db_path,
+    )
+    error = _called_process_error(10, stdout="Read timed out. (read timeout=60)")
+
+    monkeypatch.setattr(submit, "DB_PATH", db_path)
+    monkeypatch.setattr(submit, "_generate_workflow_name", lambda *_args: "wf-ambiguous")
+    monkeypatch.setattr(
+        submit,
+        "get_s3_client",
+        lambda *_args, **_kwargs: (object(), "bucket", "root"),
+    )
+    monkeypatch.setattr(
+        submit,
+        "osmo_submit",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            submit.AmbiguousSubmitError(error)
+        ),
+    )
+
+    result = submit.submit_sequence(
+        "blocked_sequence",
+        "dataset_a",
+        _dataset_cfg(),
+        "mv_calibration",
+        force=True,
+    )
+
+    assert result.ambiguous
+    assert db.get_blacklisted_sequence(
+        "dataset_a", "blocked_sequence", db_path=db_path,
+    ) is not None
+
+
+def test_submit_sequence_non_ambiguous_submit_error_records_nothing(
+    monkeypatch, tmp_path,
+):
+    db_path = _db_path(tmp_path)
+    db.insert_version("1.0.0", db_path=db_path)
+    error = _called_process_error(2, stderr="invalid choice: --bad-flag")
+
+    monkeypatch.setattr(submit, "DB_PATH", db_path)
+    monkeypatch.setattr(submit, "_generate_workflow_name", lambda *_args: "wf-failed")
+    monkeypatch.setattr(
+        submit,
+        "get_s3_client",
+        lambda *_args, **_kwargs: (object(), "bucket", "root"),
+    )
+    monkeypatch.setattr(
+        submit,
+        "osmo_submit",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(error),
+    )
+
+    result = submit.submit_sequence(
+        "bad_submit",
+        "dataset_a",
+        _dataset_cfg(),
+        "mv_calibration",
+    )
+
+    assert result is None
+    assert db.get_workflow("wf-failed", db_path=db_path) is None
 
 
 def test_auto_submit_filters_blacklist_by_active_dataset(monkeypatch, tmp_path):
@@ -263,6 +420,46 @@ def test_auto_submit_force_bypasses_blacklist(monkeypatch, tmp_path):
     )
 
     assert submitted == [("dataset_a", "blocked_sequence", True)]
+
+
+def test_auto_submit_stops_after_ambiguous_submit(monkeypatch, tmp_path, capsys):
+    db_path = _db_path(tmp_path)
+    db.insert_version("1.0.0", db_path=db_path)
+    workflow_names = iter(["wf-first", "wf-second"])
+    attempted = []
+    error = _called_process_error(10, stdout="Read timed out. (read timeout=60)")
+
+    def fake_osmo_submit(_workflow_yaml, _pool, set_vars, **_kwargs):
+        attempted.append(set_vars["workflow_name"])
+        raise submit.AmbiguousSubmitError(error)
+
+    monkeypatch.setattr(submit, "DB_PATH", db_path)
+    monkeypatch.setattr(
+        submit,
+        "_generate_workflow_name",
+        lambda *_args: next(workflow_names),
+    )
+    monkeypatch.setattr(
+        submit,
+        "get_s3_client",
+        lambda *_args, **_kwargs: (object(), "bucket", "root"),
+    )
+    monkeypatch.setattr(
+        submit,
+        "list_sequences",
+        lambda *_args, **_kwargs: ["first_sequence", "second_sequence"],
+    )
+    monkeypatch.setattr(submit, "osmo_submit", fake_osmo_submit)
+
+    submit.auto_submit("dataset_a", _dataset_cfg(), "mv_calibration")
+
+    assert attempted == ["wf-first"]
+    assert db.get_workflow("wf-first", db_path=db_path)["status"] == "WAITING_WF"
+    assert db.get_workflow("wf-second", db_path=db_path) is None
+    assert (
+        "Ambiguous OSMO submit recorded; stopping auto-submit"
+        in capsys.readouterr().out
+    )
 
 
 def test_auto_submit_force_removes_blacklist_for_submitted_sequence(monkeypatch, tmp_path):
