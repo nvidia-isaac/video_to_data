@@ -220,6 +220,90 @@ def _has_files(directory: str) -> bool:
     return os.path.isdir(directory) and bool(os.listdir(directory))
 
 
+def _plot_pose_grad_from_checkpoint(checkpoint_path: str, output_png: str) -> None:
+    """Read the gsplat refinement checkpoint and plot per-frame pose-grad RMS.
+
+    The checkpoint's ``pose_grad_state`` block holds Adam's ``exp_avg_sq``
+    (EMA of squared gradients) for each pose parameter, labeled by name.
+    Per-frame RMS magnitude is ``sqrt(sum(exp_avg_sq, dim=axes_after_T))``;
+    high values indicate frames whose pose was *still being actively
+    updated* at the end of training — usually "uncertain" / contested.
+
+    Pure host-side debugging utility; safe to no-op if matplotlib or the
+    checkpoint isn't present.
+    """
+    try:
+        import matplotlib.pyplot as plt
+        import torch
+    except ImportError as e:
+        print(f"  Skipping pose-grad plot: missing dependency ({e}).")
+        return
+    if not os.path.exists(checkpoint_path):
+        print(f"  Skipping pose-grad plot: {checkpoint_path} not found.")
+        return
+
+    ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    pg = ckpt.get("pose_grad_state")
+    if pg is None:
+        print(f"  Checkpoint has no pose_grad_state — refusing to plot.")
+        return
+
+    # Use actual on-disk frame indices for the x-axis when available, so
+    # spikes can be matched directly to a frame in the source video. Falls
+    # back to positional indices if the checkpoint didn't save them.
+    frame_indices = ckpt.get("frame_indices")
+    if frame_indices is not None:
+        frame_indices = np.asarray(frame_indices, dtype=np.int64)
+        xlabel = "frame index"
+    else:
+        xlabel = "frame index (positional)"
+
+    def _rms(t):
+        if t is None: return None
+        t = t.detach().to(dtype=torch.float32)
+        if t.dim() >= 2:
+            t = t.reshape(t.shape[0], -1).sum(dim=-1)
+        return t.sqrt().cpu().numpy()
+
+    series: list[tuple[str, np.ndarray]] = []
+    if (v := _rms(pg.get("obj_axis_angle")))  is not None: series.append(("object axis_angle", v))
+    if (v := _rms(pg.get("obj_translation"))) is not None: series.append(("object translation", v))
+    for hi, h in enumerate(pg.get("hands", [])):
+        side = h.get("side", f"h{hi}")
+        for name in ("global_orient", "hand_pose", "cam_t"):
+            v = _rms(h.get(name))
+            if v is not None:
+                series.append((f"{side} hand {name}", v))
+
+    if not series:
+        print(f"  Pose-grad state is empty — nothing to plot.")
+        return
+
+    n_panels = len(series)
+    fig, axes = plt.subplots(
+        n_panels, 1, figsize=(10, max(2, 1.6 * n_panels)),
+        sharex=True, squeeze=False,
+    )
+    for ax, (label, v) in zip(axes[:, 0], series):
+        # If frame_indices length doesn't match, fall back to positional.
+        if frame_indices is not None and len(frame_indices) == len(v):
+            xs = frame_indices
+        else:
+            xs = np.arange(len(v))
+        ax.plot(xs, v, lw=0.9)
+        ax.set_ylabel(label, rotation=0, ha="right", va="center", fontsize=8)
+        ax.tick_params(labelsize=7)
+        ax.grid(True, alpha=0.3)
+    axes[-1, 0].set_xlabel(xlabel)
+    fig.suptitle("Per-frame Adam exp_avg_sq RMS (high = uncertain pose)",
+                 fontsize=10)
+    fig.tight_layout()
+    os.makedirs(os.path.dirname(os.path.abspath(output_png)) or ".", exist_ok=True)
+    fig.savefig(output_png, dpi=120)
+    plt.close(fig)
+    print(f"  Wrote pose-grad plot → {output_png}")
+
+
 def _step(label: str, done: bool) -> bool:
     if done:
         print(f"  [skip] {label}")
@@ -280,6 +364,10 @@ def run_hand_masks(
     refinement_epochs: int = 30,
     refinement_batch_size: int = 4,
     refinement_render_every: int = 25,
+    refinement_resume: bool = False,
+    refinement_object_pose_only: bool = False,
+    refinement_random_init_obj_pose: bool = False,
+    refinement_ignore_optimizer_state: bool = False,
     dev: bool = False,
 ) -> None:
     video_path = os.path.abspath(video_path)
@@ -651,6 +739,7 @@ def run_hand_masks(
     refined_overlay            = f"{output_dir}/refined_overlay.mp4"
     hamer_refined_overlay      = f"{output_dir}/hamer_refined_overlay.mp4"
     refined_object_scale_json  = f"{output_dir}/refined_object_scale.json"
+    refine_checkpoint_pt       = f"{output_dir}/refine_checkpoint.pt"
     if run_refinement:
         if not (run_hamer and object_prompt is not None):
             raise ValueError(
@@ -682,6 +771,26 @@ def run_hand_masks(
                 refined_object_poses_dir    = refined_poses_dir,
                 overlay_path                = refined_overlay,
                 refined_object_scale_path   = refined_object_scale_json,
+                # Save full state at end so the run can be extended via
+                # --refinement_resume on a follow-up invocation.
+                checkpoint_path             = refine_checkpoint_pt,
+                # If --refinement_resume was passed and the previous run's
+                # checkpoint exists, pick up from there. Otherwise start fresh.
+                resume_from_checkpoint      = (
+                    refine_checkpoint_pt
+                    if refinement_resume and os.path.exists(refine_checkpoint_pt)
+                    else None
+                ),
+                # Object-pose-only mode: freeze Gaussians, hand pose, and
+                # background pose. Typically combined with --refinement_resume
+                # so we start from a settled scene and only nudge obj pose.
+                freeze_gaussians            = refinement_object_pose_only,
+                freeze_hand_rot             = refinement_object_pose_only,
+                freeze_hand_trans           = refinement_object_pose_only,
+                freeze_bg_rot               = refinement_object_pose_only,
+                freeze_bg_trans             = refinement_object_pose_only,
+                random_init_obj_pose        = refinement_random_init_obj_pose,
+                ignore_optimizer_state      = refinement_ignore_optimizer_state,
                 left_hand_pose_dir          = _maybe(left_pose_in),
                 left_hand_mask_dir          = _maybe(left_mask_in),
                 right_hand_pose_dir         = _maybe(right_pose_in),
@@ -704,21 +813,34 @@ def run_hand_masks(
                 lr_mul_scale                = 3.0,
                 lr_mul_opacity              = 5.0,
                 lr_mul_color                = 1.0,
-                lr_mul_obj_global_scale     = 0.1,
-                lr_object_pose              = 3e-3,
-                lr_hand_pose                = 3e-3,
+                lr_mul_obj_global_scale     = 1.0,
+                lr_object_pose              = 3e-3,    # legacy lumped LR (used when specifics are None)
+                # Per-DOF object pose LRs — rotation typically needs a
+                # bump because its gradient is ~r× smaller than
+                # translation's (where r = object radius) due to leverage.
+                # Try 3-5× translation if rotation converges too slowly.
+                lr_object_rot               = 1e-1,
+                lr_object_trans             = 3e-3,
+                lr_hand_pose                = 3e-3,    # legacy lumped LR (used when specifics are None)
+                # Per-DOF hand pose LRs — global_orient and cam_t are the
+                # primary "where is the hand" knobs; hand_pose (finger
+                # articulation) is finickier so usually lower.
+                lr_hand_global_orient       = 1e-2,
+                lr_hand_finger              = 3e-3,
+                lr_hand_trans               = 3e-3,
                 lr_betas                    = 1e-4,
                 w_photometric               = 1.0,
                 w_silhouette                 = 1.0,
                 w_silhouette_hand            = 1.0,
                 w_silhouette_obj            = 1.0,
                 w_depth                     = 0.001,
-                w_smooth_obj_rot            = 0.001,
-                w_smooth_obj_trans          = 0.001,
-                w_smooth_hand_rot           = 0.001,
-                w_smooth_hand_finger        = 0.0001,
-                w_smooth_hand_trans         = 0.001,
+                w_smooth_obj_rot            = 0.01,
+                w_smooth_obj_trans          = 0.01,
+                w_smooth_hand_rot           = 0.01,
+                w_smooth_hand_finger        = 0.001,
+                w_smooth_hand_trans         = 0.01,
                 w_beta_prior                = 0.1,
+                w_obj_scale_prior           = 0.1,
                 n_gaussian_only_epochs      = 2,
                 seed                        = 0,
                 with_background             = True,
@@ -726,7 +848,11 @@ def run_hand_masks(
                 balance_photometric_by_mask = False,
                 bg_ref_frame                = reference_frame,
                 lr_bg_gaussians             = 3e-2,
-                lr_bg_pose                  = 3e-3,
+                lr_bg_pose                  = 3e-3,    # legacy lumped LR (used when specifics are None)
+                # Per-DOF bg pose LRs — typically rotation needs a small
+                # bump for the same leverage reason as object pose.
+                lr_bg_rot                   = 1e-2,
+                lr_bg_trans                 = 3e-3,
                 use_cosine_lr_schedule      = True,
                 cosine_lr_min_ratio         = 0.1,
                 coarse_init_scale_factor    = 1.0,
@@ -746,6 +872,8 @@ def run_hand_masks(
                 use_l2_silhouette                = False,
                 pose_confidence_dynamic_tau      = 0.0,
                 train_resolution_scale          = 0.5,
+                n_obj_gaussians=5000,
+                bg_max_points=20000,
                 dev                         = dev,
             )
 
@@ -773,6 +901,14 @@ def run_hand_masks(
                 object_scale       = learned_object_scale,
                 dev                = dev,
             )
+
+        # Plot per-frame pose-gradient RMS from the saved checkpoint
+        # (useful for spotting "uncertain" frames where the optimizer
+        # was still actively pushing the pose at end of training).
+        _plot_pose_grad_from_checkpoint(
+            refine_checkpoint_pt,
+            f"{output_dir}/pose_grad.png",
+        )
 
     print(f"\n{'='*60}")
     print(f"  Done.")
@@ -853,6 +989,25 @@ def parse_args() -> argparse.Namespace:
                         "every frame once in a random permutation).")
     p.add_argument("--refinement_batch_size", type=int, default=4,
                    help="Frames per refinement optimizer step.")
+    p.add_argument("--refinement_resume", action="store_true",
+                   help="Resume gsplat refinement from "
+                        "<output_dir>/refine_checkpoint.pt if present. "
+                        "Subsequent invocations will continue training "
+                        "from saved state instead of starting fresh.")
+    p.add_argument("--refinement_object_pose_only", action="store_true",
+                   help="Freeze Gaussians + hand pose + bg pose; only "
+                        "the object pose updates. Useful after an initial "
+                        "training pass to fine-tune object pose alone "
+                        "(typically combined with --refinement_resume).")
+    p.add_argument("--refinement_random_init_obj_pose", action="store_true",
+                   help="Randomize per-frame object pose (uniform SO(3) "
+                        "rotation, σ=0.1m translation noise) before "
+                        "training. Tests whether the optimizer can "
+                        "recover the pose from scratch.")
+    p.add_argument("--refinement_ignore_optimizer_state", action="store_true",
+                   help="When resuming, skip loading optimizer/LR-scheduler "
+                        "state — Adam moments reinit lazily. Useful when "
+                        "changing LRs / loss weights between runs.")
     p.add_argument("--refinement_render_every", type=int, default=25,
                    help="Dump an overlay PNG of a reference frame every N "
                         "optimizer steps during refinement (0 disables). "
@@ -889,5 +1044,9 @@ if __name__ == "__main__":
         refinement_epochs        = args.refinement_epochs,
         refinement_batch_size    = args.refinement_batch_size,
         refinement_render_every  = args.refinement_render_every,
+        refinement_resume                  = args.refinement_resume,
+        refinement_object_pose_only        = args.refinement_object_pose_only,
+        refinement_random_init_obj_pose    = args.refinement_random_init_obj_pose,
+        refinement_ignore_optimizer_state  = args.refinement_ignore_optimizer_state,
         dev                      = args.dev,
     )

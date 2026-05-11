@@ -248,8 +248,13 @@ def refine(
     lr_mul_opacity: float = 1.0,
     lr_mul_color: float = 1.0,
     lr_mul_obj_global_scale: float = 1.0,
-    lr_object_pose: float = 1e-3,
-    lr_hand_pose: float = 1e-3,
+    lr_object_pose: float = 1e-3,                # legacy: applies to both rot+trans if specifics are None
+    lr_object_rot: float | None = None,          # axis_angle; falls back to lr_object_pose
+    lr_object_trans: float | None = None,        # translation; falls back to lr_object_pose
+    lr_hand_pose: float = 1e-3,                  # legacy: applies to global_orient + hand_pose + cam_t if specifics are None
+    lr_hand_global_orient: float | None = None,  # MANO root rotation; falls back to lr_hand_pose
+    lr_hand_finger: float | None = None,         # MANO hand_pose (15 joint axis-angles); falls back to lr_hand_pose
+    lr_hand_trans: float | None = None,          # MANO cam_t; falls back to lr_hand_pose
     lr_betas: float = 1e-4,
     render_every: int = 0,
     progress_dir: str | None = None,
@@ -264,7 +269,9 @@ def refine(
     with_background: bool = False,
     bg_ref_frame: int | None = None,            # ref frame index; defaults to debug_frame_idx or first frame
     lr_bg_gaussians: float | None = None,       # defaults to lr_gaussians
-    lr_bg_pose: float = 1e-3,
+    lr_bg_pose: float = 1e-3,                    # legacy: applies to both rot+trans if specifics are None
+    lr_bg_rot: float | None = None,              # axis_angle; falls back to lr_bg_pose
+    lr_bg_trans: float | None = None,            # translation; falls back to lr_bg_pose
     bg_max_points: int = 50000,
     n_obj_gaussians: int | None = None,    # None = use mesh vertex count as-is
     n_hand_gaussians: int | None = None,   # None = use 778 (full MANO verts);
@@ -312,6 +319,19 @@ def refine(
     # and all downstream renders use the scaled dimensions; the final
     # overlay video is also at the scaled resolution.
     train_resolution_scale: float = 1.0,
+    multiview_include_background: bool = False,    # include bg Gaussians in the final multi-view grid
+    # Checkpointing: save a single .pt with all module state_dicts +
+    # optimizer + LR scheduler + init pose snapshot + step counter, so
+    # a follow-up run can resume from exactly this state and run more
+    # epochs. ``checkpoint_path`` controls where to save (None disables);
+    # ``resume_from_checkpoint`` loads such a file at startup before the
+    # epoch loop.
+    checkpoint_path: str | None = None,
+    resume_from_checkpoint: str | None = None,
+    ignore_optimizer_state: bool = False,    # when resuming, skip optimizer/scheduler state load
+    freeze_gaussians: bool = False,          # freeze ALL Gaussian attrs (obj + hand + bg)
+    random_init_obj_pose: bool = False,      # randomize obj pose after build (uniform rot, σ=0.1 trans)
+    random_init_obj_pose_trans_std: float = 0.1,
     freeze_bg_rot: bool = False,
     freeze_bg_trans: bool = False,
     weights: LossWeights | None = None,
@@ -324,6 +344,14 @@ def refine(
         lr_hand_gaussians = lr_gaussians
     if lr_bg_gaussians is None:
         lr_bg_gaussians = lr_gaussians
+    # Resolve per-DOF pose LR overrides; default to the lumped legacy LR.
+    if lr_object_rot is None:           lr_object_rot          = lr_object_pose
+    if lr_object_trans is None:         lr_object_trans        = lr_object_pose
+    if lr_hand_global_orient is None:   lr_hand_global_orient  = lr_hand_pose
+    if lr_hand_finger is None:          lr_hand_finger         = lr_hand_pose
+    if lr_hand_trans is None:           lr_hand_trans          = lr_hand_pose
+    if lr_bg_rot is None:               lr_bg_rot              = lr_bg_pose
+    if lr_bg_trans is None:             lr_bg_trans            = lr_bg_pose
     if (left_hand_pose_dir is not None or right_hand_pose_dir is not None) and \
        mano_assets_root is None:
         raise ValueError("mano_assets_root is required when any hand pose dir is set")
@@ -395,6 +423,21 @@ def refine(
         )
     obj_gaussians = init_object_gaussians_from_mesh(obj_verts, obj_colors).to(device)
     obj_pose_field = ObjectPoseField(object_track).to(device)
+
+    if random_init_obj_pose:
+        with torch.no_grad():
+            n = obj_pose_field.axis_angle.shape[0]
+            # Uniform random unit quaternion → axis_angle for each frame.
+            q = torch.randn(n, 4, device=device)
+            q = q / q.norm(dim=-1, keepdim=True).clamp_min(1e-8)
+            from .pose_fields import _quat_to_axis_angle
+            obj_pose_field.axis_angle.data = _quat_to_axis_angle(q)
+            # Translation: add Gaussian noise to the input. Default std
+            # is 0.1 m, typically the order of object size for HOI.
+            noise = torch.randn_like(obj_pose_field.translation) * float(random_init_obj_pose_trans_std)
+            obj_pose_field.translation.data = obj_pose_field.translation.data + noise
+        print(f"Randomized object pose: uniform SO(3) rotation, "
+              f"translation += N(0, {random_init_obj_pose_trans_std:.3f} m).")
 
     hand_slots: list[HandSlot] = []
     for side, ht, md, out_pose in hand_tracks:
@@ -507,30 +550,29 @@ def refine(
             })
         return groups
 
+    # Per-DOF param groups so rotation, translation, and (for hands) finger
+    # articulation can have independent learning rates. Adam's normalization
+    # mostly compensates for gradient-magnitude differences, but rotation
+    # needs many more steps per "physical unit" of motion than translation
+    # — separate LRs let you boost rotation explicitly when poses are
+    # converging slowly there.
     param_groups: list[dict] = []
     param_groups += _gaussian_groups(obj_gaussians, lr_gaussians)
-    param_groups.append({
-        "params": [obj_pose_field.axis_angle, obj_pose_field.translation],
-        "lr": lr_object_pose,
-    })
+    param_groups.append({"params": [obj_pose_field.axis_angle],  "lr": lr_object_rot})
+    param_groups.append({"params": [obj_pose_field.translation], "lr": lr_object_trans})
     for slot in hand_slots:
         # Hand Gaussians get their own base LR knob — they typically need a bump
         # over the object's because the hand covers fewer pixels in image and
         # gradient signal per-Gaussian is correspondingly diluted.
         param_groups += _gaussian_groups(slot.gaussians, lr_hand_gaussians)
-        param_groups.append({
-            "params": [slot.pose_field.global_orient,
-                       slot.pose_field.hand_pose,
-                       slot.pose_field.cam_t],
-            "lr": lr_hand_pose,
-        })
-        param_groups.append({"params": [slot.pose_field.betas], "lr": lr_betas})
+        param_groups.append({"params": [slot.pose_field.global_orient], "lr": lr_hand_global_orient})
+        param_groups.append({"params": [slot.pose_field.hand_pose],     "lr": lr_hand_finger})
+        param_groups.append({"params": [slot.pose_field.cam_t],         "lr": lr_hand_trans})
+        param_groups.append({"params": [slot.pose_field.betas],         "lr": lr_betas})
     if bg_gaussians is not None:
         param_groups += _gaussian_groups(bg_gaussians, lr_bg_gaussians)
-        param_groups.append({
-            "params": [bg_pose_field.axis_angle, bg_pose_field.translation],
-            "lr": lr_bg_pose,
-        })
+        param_groups.append({"params": [bg_pose_field.axis_angle],  "lr": lr_bg_rot})
+        param_groups.append({"params": [bg_pose_field.translation], "lr": lr_bg_trans})
     optimizer = torch.optim.Adam(param_groups)
 
     # Optional cosine LR schedule. LambdaLR multiplies each param group's
@@ -679,12 +721,52 @@ def refine(
     pbar = tqdm(total=total_steps, ncols=100, desc="refine")
     step_count = 0
 
-    # Dump step 0: the initialization (gray object color, skin-tone hands,
-    # poses straight from FoundationPose / HaMeR-aligned). Lets you visually
-    # confirm the init before the optimizer starts moving things.
+    # ----- optional resume from checkpoint ---------------------------------
+    # Loads after all modules + optimizer + scheduler are built, so
+    # state_dict shapes are guaranteed to exist on the target side.
+    if resume_from_checkpoint is not None:
+        ckpt = torch.load(resume_from_checkpoint, map_location=device)
+        if len(ckpt.get("hand_sides", [])) != len(hand_slots):
+            raise ValueError(
+                f"Checkpoint has {len(ckpt.get('hand_sides', []))} hand "
+                f"slots; current run has {len(hand_slots)}."
+            )
+        ck_frames = ckpt.get("frame_indices")
+        if ck_frames is not None and list(ck_frames) != list(frame_indices):
+            print("Warning: checkpoint frame_indices differ from current "
+                  "run — proceeding but state may not align.")
+
+        obj_gaussians.load_state_dict(ckpt["obj_gaussians"])
+        obj_pose_field.load_state_dict(ckpt["obj_pose_field"])
+        for slot, hg, hp in zip(hand_slots,
+                                ckpt["hand_gaussians"],
+                                ckpt["hand_pose_fields"]):
+            slot.gaussians.load_state_dict(hg)
+            slot.pose_field.load_state_dict(hp)
+        if bg_gaussians is not None and ckpt.get("bg_gaussians") is not None:
+            bg_gaussians.load_state_dict(ckpt["bg_gaussians"])
+            bg_pose_field.load_state_dict(ckpt["bg_pose_field"])
+        if ignore_optimizer_state:
+            print("Skipping optimizer/scheduler state on resume "
+                  "(--ignore_optimizer_state); Adam will reinit lazily.")
+        else:
+            optimizer.load_state_dict(ckpt["optimizer"])
+            if lr_scheduler is not None and ckpt.get("lr_scheduler") is not None:
+                lr_scheduler.load_state_dict(ckpt["lr_scheduler"])
+        if "init_obj_axis_angle" in ckpt:
+            init_obj_axis_angle  = ckpt["init_obj_axis_angle"].to(device)
+            init_obj_translation = ckpt["init_obj_translation"].to(device)
+        step_count = int(ckpt.get("step_count", 0))
+        print(f"Resumed from {resume_from_checkpoint} (step {step_count}).")
+
+    # Dump a "step 0" frame so you can visually confirm the starting state
+    # (FP/HaMeR init or resumed checkpoint state) before optimization moves
+    # things. Filename suffix marks resume to avoid overwriting the prior
+    # run's 000000.png when extending training.
     if render_every > 0:
+        start_step = step_count if resume_from_checkpoint is not None else 0
         _dump_progress_frame(
-            progress_dir, 0, debug_frame_t, cache,
+            progress_dir, start_step, debug_frame_t, cache,
             K, W, H, device,
             obj_gaussians, obj_pose_field, hand_slots,
             bg_gaussians=bg_gaussians, bg_pose_field=bg_pose_field,
@@ -699,6 +781,20 @@ def refine(
     # stale state when params are re-enabled at the warmup boundary.
     def _set_pose_grad_state(epoch: int) -> None:
         in_warmup = epoch < n_gaussian_only_epochs
+        # Whole-Gaussian freeze: pins every Gaussian-attribute parameter
+        # (obj + hand + bg) for the entire run. Combine with freeze_hand_*
+        # and freeze_bg_* to do "object-pose-only" optimization while
+        # everything else stays exactly as the (possibly resumed) state
+        # left it.
+        if freeze_gaussians:
+            for p in obj_gaussians.parameters():
+                p.requires_grad_(False)
+            for slot in hand_slots:
+                for p in slot.gaussians.parameters():
+                    p.requires_grad_(False)
+            if bg_gaussians is not None:
+                for p in bg_gaussians.parameters():
+                    p.requires_grad_(False)
         obj_pose_field.axis_angle.requires_grad_(
             not in_warmup and not freeze_object_rot)
         obj_pose_field.translation.requires_grad_(
@@ -1009,12 +1105,60 @@ def refine(
                         slot.output_pose_dir)
         print(f"Wrote refined {slot.side}-hand poses → {slot.output_pose_dir}")
 
+    # ----- optional checkpoint save ----------------------------------------
+    if checkpoint_path is not None:
+        os.makedirs(
+            os.path.dirname(os.path.abspath(checkpoint_path)) or ".",
+            exist_ok=True,
+        )
+        ckpt_save = {
+            "obj_gaussians":        obj_gaussians.state_dict(),
+            "obj_pose_field":       obj_pose_field.state_dict(),
+            "hand_gaussians":       [s.gaussians.state_dict()  for s in hand_slots],
+            "hand_pose_fields":     [s.pose_field.state_dict() for s in hand_slots],
+            "hand_sides":           [s.side for s in hand_slots],
+            "optimizer":            optimizer.state_dict(),
+            "init_obj_axis_angle":  init_obj_axis_angle.detach().cpu(),
+            "init_obj_translation": init_obj_translation.detach().cpu(),
+            "step_count":           step_count,
+            "frame_indices":        list(frame_indices),
+            "s_obj_learned":        s_obj_learned,
+        }
+        if bg_gaussians is not None:
+            ckpt_save["bg_gaussians"]  = bg_gaussians.state_dict()
+            ckpt_save["bg_pose_field"] = bg_pose_field.state_dict()
+        if lr_scheduler is not None:
+            ckpt_save["lr_scheduler"]  = lr_scheduler.state_dict()
+        # Labeled snapshot of Adam's per-frame squared-gradient EMA on
+        # pose params. The full optimizer state is also in ``optimizer``
+        # above (by integer index), but extracting by name is much easier
+        # for downstream plotting.
+        def _exp_avg_sq(p):
+            v = optimizer.state.get(p, {}).get("exp_avg_sq")
+            return v.detach().cpu() if v is not None else None
+        ckpt_save["pose_grad_state"] = {
+            "obj_axis_angle":  _exp_avg_sq(obj_pose_field.axis_angle),
+            "obj_translation": _exp_avg_sq(obj_pose_field.translation),
+            "hands": [
+                {
+                    "side":           slot.side,
+                    "global_orient":  _exp_avg_sq(slot.pose_field.global_orient),
+                    "hand_pose":      _exp_avg_sq(slot.pose_field.hand_pose),
+                    "cam_t":          _exp_avg_sq(slot.pose_field.cam_t),
+                }
+                for slot in hand_slots
+            ],
+        }
+        torch.save(ckpt_save, checkpoint_path)
+        print(f"Wrote checkpoint → {checkpoint_path}")
+
     # Final overlay video — streamed render + ffmpeg encode in one pass.
     _render_overlay_video_streaming(
         cache, frame_indices, K, W, H, device,
         obj_gaussians, obj_pose_field, hand_slots,
         output_path=overlay_path,
         bg_gaussians=bg_gaussians, bg_pose_field=bg_pose_field,
+        include_background=multiview_include_background,
     )
 
 
@@ -1325,6 +1469,7 @@ def _render_overlay_video_streaming(
     output_path: str,
     bg_gaussians=None, bg_pose_field=None,
     fps: float = 30.0,
+    include_background: bool = False,
 ) -> None:
     """Multi-viewpoint overlay video, streamed render+ffmpeg in one pass.
 
@@ -1388,6 +1533,12 @@ def _render_overlay_video_streaming(
                 ).squeeze(0).permute(1, 2, 0).contiguous()                        # (ph, pw, 3)
 
                 # Build per-frame Gaussian set in current cam frame.
+                # By default we exclude the background Gaussians so the
+                # orbit panels show only the trained foreground (object +
+                # hands) — easier to read shape/pose quality. The src-cam
+                # panel uses the same foreground-only render and gets
+                # composited over the source image, recovering the
+                # "scene with foreground overlay" look.
                 R_obj, t_obj = obj_pose_field(t)
                 obj_frame    = obj_gaussians(R_obj, t_obj)
                 hand_frames  = []
@@ -1395,7 +1546,7 @@ def _render_overlay_video_streaming(
                     v, R = s.pose_field.posed_verts_and_rotmats_camera(t)
                     hand_frames.append(s.gaussians(v, R))
                 all_frames = [obj_frame] + hand_frames
-                if bg_gaussians is not None:
+                if include_background and bg_gaussians is not None:
                     R_bg, t_bg = bg_pose_field(t)
                     all_frames.append(bg_gaussians(R_bg, t_bg))
                 combined = concat_frames(all_frames)
@@ -1501,6 +1652,11 @@ def main() -> None:
     p.add_argument("--object_mask_dir",             required=True)
     p.add_argument("--refined_object_poses_dir",    required=True)
     p.add_argument("--overlay_path",                required=True)
+    p.add_argument("--refined_object_scale_path",   default=None,
+                   help="Optional path to write the learned global object "
+                        "scale as a JSON file ``{\"scale\": float}``. When "
+                        "set, per-frame Transform3d.scale is left as input "
+                        "(scale is exported separately for the renderer).")
     p.add_argument("--left_hand_pose_dir",          default=None)
     p.add_argument("--left_hand_mask_dir",          default=None)
     p.add_argument("--right_hand_pose_dir",         default=None)
@@ -1542,8 +1698,27 @@ def main() -> None:
                    help="LR multiplier for Gaussian color.")
     p.add_argument("--lr_mul_obj_global_scale", type=float, default=1.0,
                    help="LR multiplier for the global object-scale scalar.")
-    p.add_argument("--lr_object_pose",  type=float, default=1e-3)
-    p.add_argument("--lr_hand_pose",    type=float, default=1e-3)
+    p.add_argument("--lr_object_pose",  type=float, default=1e-3,
+                   help="Legacy lumped LR for object pose (axis_angle + "
+                        "translation). Overridden by --lr_object_rot / "
+                        "--lr_object_trans if those are set.")
+    p.add_argument("--lr_object_rot",   type=float, default=None,
+                   help="Object rotation LR; defaults to --lr_object_pose. "
+                        "Bump (e.g. 3-5x trans) if rotation converges slowly.")
+    p.add_argument("--lr_object_trans", type=float, default=None,
+                   help="Object translation LR; defaults to --lr_object_pose.")
+    p.add_argument("--lr_hand_pose",    type=float, default=1e-3,
+                   help="Legacy lumped LR for hand pose; overridden by "
+                        "--lr_hand_global_orient / --lr_hand_finger / "
+                        "--lr_hand_trans if those are set.")
+    p.add_argument("--lr_hand_global_orient", type=float, default=None,
+                   help="Hand wrist/root rotation LR.")
+    p.add_argument("--lr_hand_finger",        type=float, default=None,
+                   help="Hand finger articulation LR (15 joint axis-angles). "
+                        "Often kept lower than global_orient/trans because "
+                        "fingers tend to oscillate under photometric pull.")
+    p.add_argument("--lr_hand_trans",         type=float, default=None,
+                   help="Hand cam_t LR.")
     p.add_argument("--lr_betas",        type=float, default=1e-4)
     p.add_argument("--render_every",    type=int,   default=0,
                    help="Every N optimizer steps, dump an overlay PNG of "
@@ -1619,7 +1794,11 @@ def main() -> None:
     p.add_argument("--lr_bg_gaussians",     type=float, default=None,
                    help="LR for background Gaussian attributes "
                         "(defaults to --lr_gaussians).")
-    p.add_argument("--lr_bg_pose",          type=float, default=1e-3)
+    p.add_argument("--lr_bg_pose",          type=float, default=1e-3,
+                   help="Legacy lumped LR for background pose; overridden "
+                        "by --lr_bg_rot / --lr_bg_trans if those are set.")
+    p.add_argument("--lr_bg_rot",           type=float, default=None)
+    p.add_argument("--lr_bg_trans",         type=float, default=None)
     p.add_argument("--bg_max_points",       type=int,   default=50000,
                    help="Subsample background point cloud to this size.")
     p.add_argument("--n_obj_gaussians",     type=int,   default=None,
@@ -1707,6 +1886,38 @@ def main() -> None:
                         "Cache, intrinsics, and renders all use the "
                         "scaled dimensions. 0.5 ≈ 4x faster rendering "
                         "with negligible accuracy hit. 1.0 = native.")
+    p.add_argument("--multiview_include_background", action="store_true",
+                   help="Include background Gaussians in the final multi-"
+                        "view overlay grid. Default off — orbit panels "
+                        "show only the trained foreground (object + "
+                        "hands) for cleaner shape/pose QA.")
+    p.add_argument("--checkpoint_path", default=None,
+                   help="If set, save a .pt with full state (Gaussians + "
+                        "poses + optimizer + LR scheduler + step counter) "
+                        "at the end of training.")
+    p.add_argument("--resume_from_checkpoint", default=None,
+                   help="If set, load a previously-saved checkpoint before "
+                        "the training loop. Module sizes must match (same "
+                        "n_obj_gaussians / n_hand_gaussians / "
+                        "bg_max_points / inputs).")
+    p.add_argument("--ignore_optimizer_state", action="store_true",
+                   help="When resuming, skip the optimizer (and LR "
+                        "scheduler) state load — Adam moments reinit "
+                        "lazily on the next step. Useful when changing "
+                        "LRs / weights between runs.")
+    p.add_argument("--freeze_gaussians", action="store_true",
+                   help="Freeze ALL Gaussian-attribute parameters (object "
+                        "+ hands + background) for the entire run. "
+                        "Combine with --freeze_hand_rot / --freeze_hand_trans "
+                        "/ --freeze_bg_rot / --freeze_bg_trans to leave "
+                        "object pose as the only thing that updates.")
+    p.add_argument("--random_init_obj_pose", action="store_true",
+                   help="Randomize the per-frame object pose at startup "
+                        "(uniform SO(3) rotation, translation += "
+                        "N(0, σ²)) before training begins.")
+    p.add_argument("--random_init_obj_pose_trans_std", type=float, default=0.1,
+                   help="Stddev (m) of the per-frame translation noise "
+                        "added when --random_init_obj_pose is set.")
     p.add_argument("--freeze_bg_rot",       action="store_true",
                    help="Hold background rotation at identity.")
     p.add_argument("--freeze_bg_trans",     action="store_true",
@@ -1723,6 +1934,7 @@ def main() -> None:
         object_poses_dir            = args.object_poses_dir,
         object_mask_dir             = args.object_mask_dir,
         refined_object_poses_dir    = args.refined_object_poses_dir,
+        refined_object_scale_path   = args.refined_object_scale_path,
         overlay_path                = args.overlay_path,
         left_hand_pose_dir          = args.left_hand_pose_dir,
         left_hand_mask_dir          = args.left_hand_mask_dir,
@@ -1744,7 +1956,12 @@ def main() -> None:
         lr_mul_color                = args.lr_mul_color,
         lr_mul_obj_global_scale     = args.lr_mul_obj_global_scale,
         lr_object_pose              = args.lr_object_pose,
+        lr_object_rot               = args.lr_object_rot,
+        lr_object_trans             = args.lr_object_trans,
         lr_hand_pose                = args.lr_hand_pose,
+        lr_hand_global_orient       = args.lr_hand_global_orient,
+        lr_hand_finger              = args.lr_hand_finger,
+        lr_hand_trans               = args.lr_hand_trans,
         lr_betas                    = args.lr_betas,
         render_every                = args.render_every,
         progress_dir                = args.progress_dir,
@@ -1760,6 +1977,8 @@ def main() -> None:
         bg_ref_frame                = args.bg_ref_frame,
         lr_bg_gaussians             = args.lr_bg_gaussians,
         lr_bg_pose                  = args.lr_bg_pose,
+        lr_bg_rot                   = args.lr_bg_rot,
+        lr_bg_trans                 = args.lr_bg_trans,
         bg_max_points               = args.bg_max_points,
         n_obj_gaussians             = args.n_obj_gaussians,
         n_hand_gaussians            = args.n_hand_gaussians,
@@ -1780,6 +1999,13 @@ def main() -> None:
         use_l2_photometric                = args.use_l2_photometric,
         use_l2_silhouette                 = args.use_l2_silhouette,
         train_resolution_scale            = args.train_resolution_scale,
+        multiview_include_background      = args.multiview_include_background,
+        checkpoint_path                   = args.checkpoint_path,
+        resume_from_checkpoint            = args.resume_from_checkpoint,
+        ignore_optimizer_state            = args.ignore_optimizer_state,
+        freeze_gaussians                  = args.freeze_gaussians,
+        random_init_obj_pose              = args.random_init_obj_pose,
+        random_init_obj_pose_trans_std    = args.random_init_obj_pose_trans_std,
         freeze_bg_rot               = args.freeze_bg_rot,
         freeze_bg_trans             = args.freeze_bg_trans,
         weights = LossWeights(

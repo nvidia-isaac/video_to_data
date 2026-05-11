@@ -31,7 +31,12 @@ def run_refine(
     lr_mul_color: float = 1.0,
     lr_mul_obj_global_scale: float = 1.0,
     lr_object_pose: float = 1e-2,
+    lr_object_rot: float | None = None,
+    lr_object_trans: float | None = None,
     lr_hand_pose: float = 1e-2,
+    lr_hand_global_orient: float | None = None,
+    lr_hand_finger: float | None = None,
+    lr_hand_trans: float | None = None,
     lr_betas: float = 1e-3,
     render_every: int = 25,
     progress_dir: str | None = None,
@@ -60,6 +65,8 @@ def run_refine(
     bg_ref_frame: int | None = None,
     lr_bg_gaussians: float | None = None,
     lr_bg_pose: float = 1e-3,
+    lr_bg_rot: float | None = None,
+    lr_bg_trans: float | None = None,
     bg_max_points: int = 50000,
     n_obj_gaussians: int | None = None,
     n_hand_gaussians: int | None = None,
@@ -80,6 +87,13 @@ def run_refine(
     use_l2_photometric: bool = False,
     use_l2_silhouette: bool = False,
     train_resolution_scale: float = 1.0,
+    multiview_include_background: bool = False,
+    checkpoint_path: str | None = None,
+    resume_from_checkpoint: str | None = None,
+    ignore_optimizer_state: bool = False,
+    freeze_gaussians: bool = False,
+    random_init_obj_pose: bool = False,
+    random_init_obj_pose_trans_std: float = 0.1,
     freeze_bg_rot: bool = False,
     freeze_bg_trans: bool = False,
     w_smooth_bg_rot: float = 0.1,
@@ -95,12 +109,13 @@ def run_refine(
         "object_mask_dir":  object_mask_dir,
     }
     for k, v in {
-        "left_hand_pose_dir":  left_hand_pose_dir,
-        "left_hand_mask_dir":  left_hand_mask_dir,
-        "right_hand_pose_dir": right_hand_pose_dir,
-        "right_hand_mask_dir": right_hand_mask_dir,
-        "depth_dir":           depth_dir,
-        "mano_assets_root":    mano_assets_root,
+        "left_hand_pose_dir":     left_hand_pose_dir,
+        "left_hand_mask_dir":     left_hand_mask_dir,
+        "right_hand_pose_dir":    right_hand_pose_dir,
+        "right_hand_mask_dir":    right_hand_mask_dir,
+        "depth_dir":              depth_dir,
+        "mano_assets_root":       mano_assets_root,
+        "resume_from_checkpoint": resume_from_checkpoint,
     }.items():
         if v is not None:
             inputs[k] = v
@@ -115,6 +130,7 @@ def run_refine(
         "refined_left_hand_pose_dir":  refined_left_hand_pose_dir,
         "refined_right_hand_pose_dir": refined_right_hand_pose_dir,
         "progress_dir":                progress_dir,
+        "checkpoint_path":             checkpoint_path,
     }.items():
         if v is not None:
             outputs[k] = v
@@ -131,8 +147,13 @@ def run_refine(
         "lr_mul_opacity":          lr_mul_opacity,
         "lr_mul_color":            lr_mul_color,
         "lr_mul_obj_global_scale": lr_mul_obj_global_scale,
-        "lr_object_pose":    lr_object_pose,
-        "lr_hand_pose":      lr_hand_pose,
+        "lr_object_pose":        lr_object_pose,
+        "lr_object_rot":         lr_object_rot,
+        "lr_object_trans":       lr_object_trans,
+        "lr_hand_pose":          lr_hand_pose,
+        "lr_hand_global_orient": lr_hand_global_orient,
+        "lr_hand_finger":        lr_hand_finger,
+        "lr_hand_trans":         lr_hand_trans,
         "lr_betas":          lr_betas,
         "render_every":   render_every,
         "debug_frame_idx": debug_frame_idx,
@@ -160,6 +181,8 @@ def run_refine(
         "bg_ref_frame":        bg_ref_frame,
         "lr_bg_gaussians":     lr_bg_gaussians,
         "lr_bg_pose":          lr_bg_pose,
+        "lr_bg_rot":           lr_bg_rot,
+        "lr_bg_trans":         lr_bg_trans,
         "bg_max_points":       bg_max_points,
         "n_obj_gaussians":         n_obj_gaussians,
         "n_hand_gaussians":        n_hand_gaussians,
@@ -180,6 +203,11 @@ def run_refine(
         "use_l2_photometric":                use_l2_photometric,
         "use_l2_silhouette":                 use_l2_silhouette,
         "train_resolution_scale":            train_resolution_scale,
+        "multiview_include_background":      multiview_include_background,
+        "ignore_optimizer_state":            ignore_optimizer_state,
+        "freeze_gaussians":                  freeze_gaussians,
+        "random_init_obj_pose":              random_init_obj_pose,
+        "random_init_obj_pose_trans_std":    random_init_obj_pose_trans_std,
         "freeze_bg_rot":       freeze_bg_rot,
         "freeze_bg_trans":     freeze_bg_trans,
         "w_smooth_bg_rot":     w_smooth_bg_rot,
@@ -230,7 +258,12 @@ if __name__ == "__main__":
     p.add_argument("--lr_mul_color",     type=float, default=1.0)
     p.add_argument("--lr_mul_obj_global_scale", type=float, default=1.0)
     p.add_argument("--lr_object_pose",    type=float, default=1e-3)
-    p.add_argument("--lr_hand_pose",    type=float, default=1e-3)
+    p.add_argument("--lr_object_rot",     type=float, default=None)
+    p.add_argument("--lr_object_trans",   type=float, default=None)
+    p.add_argument("--lr_hand_pose",         type=float, default=1e-3)
+    p.add_argument("--lr_hand_global_orient", type=float, default=None)
+    p.add_argument("--lr_hand_finger",        type=float, default=None)
+    p.add_argument("--lr_hand_trans",         type=float, default=None)
     p.add_argument("--lr_betas",        type=float, default=1e-4)
     p.add_argument("--render_every",    type=int,   default=0)
     p.add_argument("--progress_dir",                default=None)
@@ -259,6 +292,8 @@ if __name__ == "__main__":
     p.add_argument("--bg_ref_frame",        type=int,   default=None)
     p.add_argument("--lr_bg_gaussians",     type=float, default=None)
     p.add_argument("--lr_bg_pose",          type=float, default=1e-3)
+    p.add_argument("--lr_bg_rot",           type=float, default=None)
+    p.add_argument("--lr_bg_trans",         type=float, default=None)
     p.add_argument("--bg_max_points",       type=int,   default=50000)
     p.add_argument("--n_obj_gaussians",     type=int,   default=None)
     p.add_argument("--n_hand_gaussians",    type=int,   default=None)
@@ -279,6 +314,11 @@ if __name__ == "__main__":
     p.add_argument("--use_l2_photometric", action="store_true")
     p.add_argument("--use_l2_silhouette",  action="store_true")
     p.add_argument("--train_resolution_scale", type=float, default=1.0)
+    p.add_argument("--multiview_include_background", action="store_true")
+    p.add_argument("--ignore_optimizer_state", action="store_true")
+    p.add_argument("--freeze_gaussians",       action="store_true")
+    p.add_argument("--random_init_obj_pose",   action="store_true")
+    p.add_argument("--random_init_obj_pose_trans_std", type=float, default=0.1)
     p.add_argument("--freeze_bg_rot",       action="store_true")
     p.add_argument("--freeze_bg_trans",     action="store_true")
     p.add_argument("--w_smooth_bg_rot",     type=float, default=0.1)
@@ -314,6 +354,13 @@ if __name__ == "__main__":
         lr_mul_color                = args.lr_mul_color,
         lr_mul_obj_global_scale     = args.lr_mul_obj_global_scale,
         lr_object_pose              = args.lr_object_pose,
+        lr_object_rot               = args.lr_object_rot,
+        lr_object_trans             = args.lr_object_trans,
+        lr_hand_global_orient       = args.lr_hand_global_orient,
+        lr_hand_finger              = args.lr_hand_finger,
+        lr_hand_trans               = args.lr_hand_trans,
+        lr_bg_rot                   = args.lr_bg_rot,
+        lr_bg_trans                 = args.lr_bg_trans,
         lr_hand_pose                = args.lr_hand_pose,
         lr_betas                    = args.lr_betas,
         render_every                = args.render_every,
@@ -363,6 +410,11 @@ if __name__ == "__main__":
         use_l2_photometric                = args.use_l2_photometric,
         use_l2_silhouette                 = args.use_l2_silhouette,
         train_resolution_scale            = args.train_resolution_scale,
+        multiview_include_background      = args.multiview_include_background,
+        ignore_optimizer_state            = args.ignore_optimizer_state,
+        freeze_gaussians                  = args.freeze_gaussians,
+        random_init_obj_pose              = args.random_init_obj_pose,
+        random_init_obj_pose_trans_std    = args.random_init_obj_pose_trans_std,
         freeze_bg_rot               = args.freeze_bg_rot,
         freeze_bg_trans             = args.freeze_bg_trans,
         w_smooth_bg_rot             = args.w_smooth_bg_rot,
