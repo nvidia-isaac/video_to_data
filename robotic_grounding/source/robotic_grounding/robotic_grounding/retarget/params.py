@@ -352,6 +352,14 @@ DEX3_TO_NVHUMAN_MAPPING = {
     ".*_middle_tip": (".*HandRingEnd", 1.0, 0.0),  # Map ring finger to middle
 }
 
+DEX3_TO_MANO_MAPPING = {
+    # Dex3 .* hand sites: (target MANO joint, position cost, orientation cost)
+    ".*_hand_palm_link": ("wrist", 1.0, 0.1),
+    ".*_thumb_tip": ("thumb4", 1.0, 0.0),
+    ".*_index_tip": ("index4", 1.0, 0.0),
+    ".*_middle_tip": ("middle4", 1.0, 0.0),
+}
+
 # NVHuman convention: X=left, Y=up, Z=forward
 # Robot convention: X=forward, Y=left, Z=up
 # Mapping: NVHuman Z → Robot X, NVHuman X → Robot Y, NVHuman Y → Robot Z

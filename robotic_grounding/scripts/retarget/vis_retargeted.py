@@ -33,6 +33,7 @@ except ImportError:
     _USD_AVAILABLE = False
 from robotic_grounding.retarget import HUMAN_MOTION_DATA_DIR
 from robotic_grounding.retarget.data_logger import (
+    ManoDex3Data,
     ManoSharpaData,
     add_sequence_filter_args,
     filter_sequence_ids,
@@ -45,7 +46,20 @@ from robotic_grounding.retarget.dataset_registry import (
 from robotic_grounding.retarget.hand_kinematics import HandKinematics
 from robotic_grounding.retarget.params import MANO_FINGERTIP_INDICES, MANO_HAND_LINKS
 from robotic_grounding.retarget.read_mano import MANO
-from robotic_grounding.retarget.retarget_utils import setup_sharpa_kinematics
+from robotic_grounding.retarget.retarget_utils import (
+    setup_dex3_kinematics,
+    setup_sharpa_kinematics,
+)
+
+# Per-robot dispatch tables for data class + kinematics setup.
+ROBOT_DATA_CLASSES: dict[str, type] = {
+    "sharpa_wave": ManoSharpaData,
+    "dex3": ManoDex3Data,
+}
+ROBOT_KINEMATICS_SETUP = {
+    "sharpa_wave": setup_sharpa_kinematics,
+    "dex3": setup_dex3_kinematics,
+}
 
 DEFAULT_HTML_DIR = HUMAN_MOTION_DATA_DIR / "html"
 
@@ -189,6 +203,17 @@ def parse_args() -> argparse.Namespace:
         default=0,
         help="Row index when multiple rows match filters (default 0).",
     )
+    parser.add_argument(
+        "--robot",
+        type=str,
+        choices=list(ROBOT_DATA_CLASSES),
+        default="sharpa_wave",
+        help=(
+            "Which robot's retargeted output to visualize. Selects the data "
+            "class (ManoSharpaData / ManoDex3Data) and kinematics setup, and "
+            "filters the parquet by robot_name. Default: sharpa_wave."
+        ),
+    )
     # Adds --sequence_id, --sequence_pattern, --max_sequences (shared with
     # the loader + retarget CLIs so workflow/retarget.yaml can pass the same
     # FILTER_ARGS through every stage).
@@ -311,12 +336,14 @@ def find_support_usd(input_dir: Path, sequence_id: str) -> Path | None:
 
 def visualize_one_trajectory(
     viser_server: viser.ViserServer,
-    right_sharpa_kinematics: HandKinematics,
-    left_sharpa_kinematics: HandKinematics,
+    right_kinematics: HandKinematics,
+    left_kinematics: HandKinematics,
     viser_object_handles: dict[str, Any],
     input_dir: Path,
     sequence_id: str,
     trajectory_id: int,
+    data_class: type[ManoSharpaData] | type[ManoDex3Data] = ManoSharpaData,
+    robot_name: str = "sharpa_wave",
     show_mano: bool = False,
     visualize_contacts: bool = False,
     visualize_fingertip_distances: bool = False,
@@ -343,9 +370,12 @@ def visualize_one_trajectory(
 
     contact_points_handles: list[Any] = []
 
-    logger_data = ManoSharpaData.from_parquet(
+    logger_data = data_class.from_parquet(
         root_path=str(input_dir),
-        filters=[("sequence_id", "=", sequence_id)],
+        filters=[
+            ("sequence_id", "=", sequence_id),
+            ("robot_name", "=", robot_name),
+        ],
         trajectory_id=trajectory_id,
     )
     H = len(logger_data.robot_right_wrist_position)
@@ -405,8 +435,8 @@ def visualize_one_trajectory(
         )
 
         video_renderer = OfflineVideoRenderer(fps=int(round(float(logger_data.fps))))
-        video_renderer.add_robot("right", right_sharpa_kinematics)
-        video_renderer.add_robot("left", left_sharpa_kinematics)
+        video_renderer.add_robot("right", right_kinematics)
+        video_renderer.add_robot("left", left_kinematics)
         for obj_idx, obj_name in enumerate(logger_data.object_body_names):
             if obj_idx < len(object_mesh_paths) and object_mesh_paths[obj_idx]:
                 try:
@@ -427,21 +457,21 @@ def visualize_one_trajectory(
 
     for frame_id in range(H):
         # Right hand
-        right_qpos = right_sharpa_kinematics.robot.q0.copy()
+        right_qpos = right_kinematics.robot.q0.copy()
         right_qpos[:3] = np.array(logger_data.robot_right_wrist_position[frame_id])
         right_qpos[3:7] = np.array(logger_data.robot_right_wrist_wxyz[frame_id])[
             [1, 2, 3, 0]
         ]
         right_qpos[7:] = np.array(logger_data.robot_right_finger_joints[frame_id])
-        right_sharpa_kinematics.visualize(viser_server, right_qpos)
+        right_kinematics.visualize(viser_server, right_qpos)
         # Left hand
-        left_qpos = left_sharpa_kinematics.robot.q0.copy()
+        left_qpos = left_kinematics.robot.q0.copy()
         left_qpos[:3] = np.array(logger_data.robot_left_wrist_position[frame_id])
         left_qpos[3:7] = np.array(logger_data.robot_left_wrist_wxyz[frame_id])[
             [1, 2, 3, 0]
         ]
         left_qpos[7:] = np.array(logger_data.robot_left_finger_joints[frame_id])
-        left_sharpa_kinematics.visualize(viser_server, left_qpos)
+        left_kinematics.visualize(viser_server, left_qpos)
 
         # Update object poses from Parquet.
         # Use add_frame() (a full "add" message) rather than property-setter
@@ -673,10 +703,12 @@ def main(args: argparse.Namespace) -> None:
     if support_usd is not None and not support_usd.exists():
         raise FileNotFoundError(f"Support USD not found: {support_usd}")
 
-    right_sharpa_kinematics = setup_sharpa_kinematics(
+    setup_kinematics = ROBOT_KINEMATICS_SETUP[args.robot]
+    data_class = ROBOT_DATA_CLASSES[args.robot]
+    right_kinematics = setup_kinematics(
         side="right", frame_tasks_converged_threshold=1e-6
     )
-    left_sharpa_kinematics = setup_sharpa_kinematics(
+    left_kinematics = setup_kinematics(
         side="left", frame_tasks_converged_threshold=1e-6
     )
 
@@ -692,12 +724,14 @@ def main(args: argparse.Namespace) -> None:
         )
         visualize_one_trajectory(
             viser_server,
-            right_sharpa_kinematics,
-            left_sharpa_kinematics,
+            right_kinematics,
+            left_kinematics,
             viser_object_handles,
             input_dir=input_dir,
             sequence_id=sequence_id,
             trajectory_id=args.trajectory_id,
+            data_class=data_class,
+            robot_name=args.robot,
             show_mano=args.show_mano,
             visualize_contacts=args.visualize_contacts,
             visualize_fingertip_distances=args.visualize_fingertip_distances,

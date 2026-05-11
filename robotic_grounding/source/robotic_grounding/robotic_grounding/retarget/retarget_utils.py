@@ -18,8 +18,9 @@ import numpy as np
 import torch
 from scipy.spatial.transform import Rotation as R
 
-from robotic_grounding.retarget import SHARPA_WAVE_XMLS_DIR
+from robotic_grounding.retarget import G1_URDF_DIR, MESHES_DIR, SHARPA_WAVE_XMLS_DIR
 from robotic_grounding.retarget.hand_kinematics import (
+    Dex3HandKinematics,
     HandKinematics,
     SharpaHandKinematics,
 )
@@ -50,6 +51,37 @@ def setup_sharpa_kinematics(
     return SharpaHandKinematics(
         side=side,
         robot_asset_path=robot_asset_path,
+        source_model="mano",
+        use_relative_frames=False,
+        max_iter=max_iter,
+        frequency=frequency,
+        frame_tasks_converged_threshold=frame_tasks_converged_threshold,
+    )
+
+
+def setup_dex3_kinematics(
+    side: Literal["right", "left"],
+    frequency: float = 100.0,
+    max_iter: int = 100,
+    frame_tasks_converged_threshold: float = 1e-6,
+) -> HandKinematics:
+    """Create HandKinematics for the Dex3 hand with MANO source.
+
+    Args:
+        side: "right" or "left".
+        frequency: Solver frequency (Hz).
+        max_iter: Maximum number of IK iterations.
+        frame_tasks_converged_threshold: Convergence threshold for IK.
+
+    Returns:
+        HandKinematics instance for the given side.
+    """
+    robot_asset_path = str(G1_URDF_DIR / f"dex3_{side}.urdf")
+    package_dirs = [str(MESHES_DIR)]
+    return Dex3HandKinematics(
+        side=side,
+        robot_asset_path=robot_asset_path,
+        package_dirs=package_dirs,
         source_model="mano",
         use_relative_frames=False,
         max_iter=max_iter,

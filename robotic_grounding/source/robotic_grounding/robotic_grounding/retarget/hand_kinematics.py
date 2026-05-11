@@ -20,6 +20,7 @@ from pink.tasks import FrameTask, RelativeFrameTask
 from scipy.spatial.transform import Rotation as R
 
 from robotic_grounding.retarget.params import (
+    DEX3_TO_MANO_MAPPING,
     DEX3_TO_NVHUMAN_MAPPING,
     MANO_JOINTS_ORDER,
     NVHUMAN_JOINTS_ORDER,
@@ -565,18 +566,19 @@ class Dex3HandKinematics(HandKinematics):
         )
 
     def load_robot_model(self) -> pin.RobotWrapper:
-        """Load the robot model from URDF."""
+        """Load the robot model from URDF with free-flyer root joint."""
         return pin.RobotWrapper.BuildFromURDF(
             filename=self.robot_asset_path,
             package_dirs=self.package_dirs,
+            root_joint=pin.JointModelFreeFlyer(),
         )
 
     def get_target_to_source_mapping(self) -> dict[str, tuple[str, float, float]]:
         """Get the source to target mapping for Dex3."""
         if self.source_model == "mano":
-            raise NotImplementedError(
-                f"mano source model is not implemented yet for {self.__class__.__name__}."
-            )
+            return {
+                k.replace(".*", self.side): v for k, v in DEX3_TO_MANO_MAPPING.items()
+            }
         elif self.source_model == "nvskel":
             side_prefix = "Left" if self.side == "left" else "Right"
             mapping = {}
@@ -597,15 +599,33 @@ class Dex3HandKinematics(HandKinematics):
             raise ValueError(f"Unknown source model: {self.source_model}")
 
     def transform_source_position(self, position: np.ndarray) -> np.ndarray:
-        """Transform position from NVHuman to robot convention."""
+        """Transform position from source to robot convention."""
+        if self.source_model == "mano":
+            return position
         return position @ self._R_nvhuman_to_robot.T
 
     def transform_source_rotation(self, rotation: np.ndarray) -> np.ndarray:
-        """Transform rotation matrix from NVHuman to robot convention."""
+        """Transform rotation matrix from source to robot convention."""
+        if self.source_model == "mano":
+            return rotation
         return self._R_nvhuman_to_robot @ rotation @ self._R_nvhuman_to_robot.T
+
+    # MANO→Dex3 palm frame corrections (180° rotations)
+    _R_MANO_PALM_RIGHT = np.array(
+        [[-1, 0, 0], [0, -1, 0], [0, 0, 1]], dtype=np.float64
+    )  # 180° about Z
+    _R_MANO_PALM_LEFT = np.array(
+        [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], dtype=np.float64
+    )  # 180° about Y
 
     def get_frame_rotation_correction(self, frame_name: str) -> np.ndarray:
         """Get rotation correction for palm frames to align with human hand."""
+        if self.source_model == "mano":
+            if "palm" in frame_name:
+                if self.side == "right":
+                    return self._R_MANO_PALM_RIGHT
+                return self._R_MANO_PALM_LEFT
+            return np.eye(3)
         if "palm" in frame_name:
             return self._palm_correction
         return np.eye(3)
