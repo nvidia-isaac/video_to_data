@@ -203,6 +203,7 @@ from v2d.mv.calibration.docker.run_calibrate_extrinsics import run_calibrate_ext
 | `v2d_grounding_dino` | Text-guided object detection → bounding boxes. MV: `run_mv_image_list_to_object_bboxes` (reads prompt from `prompt.txt`) |
 | `v2d_mediapipe` | Hand bbox + handedness from a single image (MediaPipe Hands; CPU; Apache 2.0) |
 | `v2d_hamer` | Per-frame MANO hand reconstruction (HaMeR ViT) driven by SAM2 hand masks (no internal detector). Verification overlay renderer. MIT |
+| `v2d_wilor` | Hand bbox + MANO from image / image list / video / SAM2 masks (WiLoR; internal YOLO detector + ViT reconstructor, or external bboxes). Verification overlay renderer |
 | `v2d_foundation_stereo` | Stereo depth estimation from left/right image pairs. MV: `run_mv_image_list_to_depth` |
 | `v2d_foundation_pose` | 6D pose tracking + mesh alignment/simplification. MV: `run_mv_videos_to_poses` (shared-weight multi-view tracker) |
 | `v2d_nlf` | SMPL body model estimation (Neural Layered Fields) |
