@@ -105,7 +105,7 @@ from v2d.hamer.docker.run_align_hands import run_align_hands
 from v2d.hamer.docker.run_masks_to_hands import run_masks_to_hands
 from v2d.hamer.docker.run_render_hands_aligned_video import run_render_hands_aligned_video
 from v2d.hamer.docker.run_render_hands_video import run_render_hands_video
-from v2d.hand_detector.docker.run_image_to_hand_bboxes import run_image_to_hand_bboxes
+from v2d.mediapipe.docker.run_image_to_hand_bboxes import run_image_to_hand_bboxes
 from v2d.moge.docker.run_video_to_depth import run_video_to_depth as run_moge_depth
 from v2d.sam2.docker.run_video_to_masks import run_video_to_masks
 from v2d.sam3d.docker.run_image_to_mesh import run_image_to_mesh
@@ -809,8 +809,8 @@ def run_hand_masks(
                 refined_right_hand_pose_dir = _maybe(right_pose_out),
                 depth_dir                   = depth_dir,
                 mano_assets_root            = mano_assets_root,
-                n_epochs                    = 32,
-                batch_size                  = 16,
+                n_epochs                    = 64,
+                batch_size                  = 32,
                 render_every                = refinement_render_every,
                 lr_gaussians                = 3e-2,
                 lr_hand_gaussians           = 3e-2,
@@ -839,16 +839,16 @@ def run_hand_masks(
                 lr_hand_finger              = 3e-3,
                 lr_hand_trans               = 3e-3,
                 lr_betas                    = 1e-4,
-                w_photometric               = 5.0,
+                w_photometric               = 1.0,
                 w_silhouette                 = 1.0,
                 w_silhouette_hand            = 1.0,
                 w_silhouette_obj            = 1.0,
-                w_depth                     = 0.0,
-                w_smooth_obj_rot            = 0.01,
-                w_smooth_obj_trans          = 0.01,
-                w_smooth_hand_rot           = 0.01,
-                w_smooth_hand_finger        = 0.001,
-                w_smooth_hand_trans         = 0.01,
+                w_depth                     = 0.001,
+                w_smooth_obj_rot            = 0.001,
+                w_smooth_obj_trans          = 0.001,
+                w_smooth_hand_rot           = 0.001,
+                w_smooth_hand_finger        = 0.0001,
+                w_smooth_hand_trans         = 0.001,
                 w_beta_prior                = 0.1,
                 w_obj_scale_prior           = 1.0,
                 n_gaussian_only_epochs      = 2,

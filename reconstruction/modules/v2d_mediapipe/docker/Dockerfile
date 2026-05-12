@@ -34,4 +34,4 @@ RUN python -c "import mediapipe as mp; from mediapipe.tasks.python import vision
 COPY . /workspace
 
 RUN pip install -e /workspace/v2d_common \
-    -e /workspace/v2d_hand_detector/lib
+    -e /workspace/v2d_mediapipe/lib

@@ -1,7 +1,7 @@
 import os
 import subprocess
 
-IMAGE_NAME = "v2d_hand_detector"
+IMAGE_NAME = "v2d_mediapipe"
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 module_dir = os.path.join(current_dir, "..")

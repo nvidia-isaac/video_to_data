@@ -1,5 +1,5 @@
 from v2d.docker.container import run_in_container
-from v2d.hand_detector.docker._config import IMAGE_NAME, MODULES_DIR
+from v2d.mediapipe.docker._config import IMAGE_NAME, MODULES_DIR
 
 
 def run_image_to_hand_bboxes(
@@ -20,7 +20,7 @@ def run_image_to_hand_bboxes(
         extra_args["selfie"] = True
     run_in_container(
         image=IMAGE_NAME,
-        module="v2d.hand_detector.lib.image_to_hand_bboxes",
+        module="v2d.mediapipe.lib.image_to_hand_bboxes",
         inputs={"image_path": image_path},
         outputs={"output_path": output_path},
         extra_args=extra_args,

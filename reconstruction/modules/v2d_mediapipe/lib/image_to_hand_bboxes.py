@@ -6,7 +6,7 @@ hands. The model file ``hand_landmarker.task`` is baked into the docker image
 under ``/opt/mediapipe_tasks/``.
 
 Usage:
-    python -m v2d.hand_detector.lib.image_to_hand_bboxes \\
+    python -m v2d.mediapipe.lib.image_to_hand_bboxes \\
         --image_path /data/frame.jpg \\
         --output_path /data/hands/000000.json
 """
@@ -41,7 +41,7 @@ def _get_detector(task_path: str, max_num_hands: int, min_detection_confidence: 
         if not os.path.exists(task_path):
             raise FileNotFoundError(
                 f"HandLandmarker task file not found at {task_path}. "
-                "Rebuild the v2d_hand_detector image (it downloads the file "
+                "Rebuild the v2d_mediapipe image (it downloads the file "
                 "at build time)."
             )
         options = HandLandmarkerOptions(

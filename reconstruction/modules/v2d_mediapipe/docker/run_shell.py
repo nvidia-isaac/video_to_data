@@ -1,7 +1,7 @@
 import os
 import subprocess
 
-from v2d.hand_detector.docker._config import IMAGE_NAME, MODULES_DIR
+from v2d.mediapipe.docker._config import IMAGE_NAME, MODULES_DIR
 
 
 def run_shell(dev: bool = False) -> None:
@@ -19,7 +19,7 @@ def run_shell(dev: bool = False) -> None:
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Run shell in v2d_hand_detector container")
+    parser = argparse.ArgumentParser(description="Run shell in v2d_mediapipe container")
     parser.add_argument("--dev", action="store_true", help="Mount local modules for development")
     args = parser.parse_args()
     run_shell(dev=args.dev)

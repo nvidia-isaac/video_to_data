@@ -3,14 +3,14 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "v2d-hand-detector-docker"
+name = "v2d-mediapipe-docker"
 version = "0.1.0"
-description = "Docker orchestration scripts for v2d_hand_detector"
+description = "Docker orchestration scripts for v2d_mediapipe"
 requires-python = ">=3.10"
 dependencies = ["v2d-docker"]
 
 [tool.setuptools]
-packages = ["v2d.hand_detector.docker"]
+packages = ["v2d.mediapipe.docker"]
 
 [tool.setuptools.package-dir]
-"v2d.hand_detector.docker" = "."
+"v2d.mediapipe.docker" = "."

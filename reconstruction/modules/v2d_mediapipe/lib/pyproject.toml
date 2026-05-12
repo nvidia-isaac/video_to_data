@@ -3,7 +3,7 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "v2d-hand-detector-lib"
+name = "v2d-mediapipe-lib"
 version = "0.1.0"
 description = "Single-image hand detection (bbox + handedness) via MediaPipe Hands"
 requires-python = ">=3.10"
@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [tool.setuptools]
-packages = ["v2d.hand_detector.lib"]
+packages = ["v2d.mediapipe.lib"]
 
 [tool.setuptools.package-dir]
-"v2d.hand_detector.lib" = "."
+"v2d.mediapipe.lib" = "."
