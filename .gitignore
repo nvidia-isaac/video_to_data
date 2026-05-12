@@ -2,6 +2,7 @@
 data
 wandb/
 __pycache__
+.DS_Store
 **.egg-info
 CLAUDE.md
 # Ignore .claude/ wherever it appears...

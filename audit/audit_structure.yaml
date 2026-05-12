@@ -1,0 +1,342 @@
+# =============================================================================
+# Audit Structure
+# =============================================================================
+#
+# The minimum knowledge the audit agent needs to do its job. Nothing more.
+#
+# Rule: if a fact can get obsolete, it does NOT belong here — the audit
+# discovers it. Only stable, external knowledge lives in this file.
+#
+# -----------------------------------------------------------------------------
+# What lives here (stable, external knowledge):
+# -----------------------------------------------------------------------------
+#   licenses        — catalog with text fingerprints for classification
+#   taint_vectors   — which licenses propagate and which upstream package
+#                     names trigger them
+#   ignore_paths    — top-level dirs that are not modules
+#
+# -----------------------------------------------------------------------------
+# What does NOT live here (discovered at audit time):
+# -----------------------------------------------------------------------------
+#   Module list                  → walk top-level dirs, minus ignore_paths
+#   Which modules touch which    → scan imports against upstream_packages
+#     taint vectors
+#   Per-module license posture   → read LICENSE files, classify via catalog
+#   Per-module dependencies      → parse pyproject.toml / requirements
+#   Report metadata (date, sha)  → captured at audit run time
+#   Owner / repo                 → read from git remote + CODEOWNERS
+#
+# -----------------------------------------------------------------------------
+# When this file gets updated:
+# -----------------------------------------------------------------------------
+# The validate-audit-structure skill runs before every audit and flags:
+#   - LICENSE text found in repo that no fingerprint matches → add license
+#   - Restricted upstream package imported but no taint vector covers it
+#     → add taint vector
+#   - YAML parse / schema errors → fix syntax
+#
+# If validation flags an issue, the audit refuses to run until the file
+# is updated.
+# =============================================================================
+
+schema_version: 1
+structure_version: 1
+
+# -----------------------------------------------------------------------------
+# License catalog
+# -----------------------------------------------------------------------------
+# `fingerprints`: distinctive substrings the audit matches against the text
+# of any LICENSE / LICENSE.txt file it discovers. Add a new entry whenever
+# the audit reports unrecognized license text.
+# -----------------------------------------------------------------------------
+licenses:
+
+  apache2:
+    name: Apache License 2.0
+    spdx: Apache-2.0
+    category: permissive
+    commercial: ok
+    url: https://www.apache.org/licenses/LICENSE-2.0
+    fingerprints:
+      - "Apache License, Version 2.0"
+      - "SPDX-License-Identifier: Apache-2.0"
+
+  mit:
+    name: MIT
+    spdx: MIT
+    category: permissive
+    commercial: ok
+    url: https://opensource.org/licenses/MIT
+    fingerprints:
+      - "Permission is hereby granted, free of charge"
+      - "SPDX-License-Identifier: MIT"
+
+  bsd2:
+    name: BSD 2-Clause
+    spdx: BSD-2-Clause
+    category: permissive
+    commercial: ok
+    url: https://opensource.org/licenses/BSD-2-Clause
+    fingerprints:
+      - "SPDX-License-Identifier: BSD-2-Clause"
+
+  bsd3:
+    name: BSD 3-Clause
+    spdx: BSD-3-Clause
+    category: permissive
+    commercial: ok
+    url: https://opensource.org/licenses/BSD-3-Clause
+    fingerprints:
+      - "Neither the name of the copyright holder nor the names of its contributors"
+      - "SPDX-License-Identifier: BSD-3-Clause"
+
+  gpl3:
+    name: GPL-3.0
+    spdx: GPL-3.0
+    category: copyleft
+    commercial: restrictive
+    notes: |
+      Commercial use itself is permitted by GPL-3. The restriction is on
+      distribution: redistributing modified or linked code requires source
+      disclosure and that derivative works also be GPL-3. Linking doctrine
+      means using a GPL-3 library typically taints the linker as GPL-3 too.
+    url: https://www.gnu.org/licenses/gpl-3.0.html
+    fingerprints:
+      - "GNU GENERAL PUBLIC LICENSE"
+      - "SPDX-License-Identifier: GPL-3.0"
+
+  ccbync4:
+    name: CC BY-NC 4.0
+    category: cc_nc
+    commercial: not_allowed
+    notes: |
+      CC defines a commercial use as "one primarily intended for commercial
+      advantage or monetary compensation." Attribution required. No share-alike
+      requirement (derivatives can be re-licensed). Verified 2026-05-12.
+    url: https://creativecommons.org/licenses/by-nc/4.0/
+    fingerprints:
+      - "Attribution-NonCommercial 4.0"
+      - "CC BY-NC 4.0"
+
+  ccbysa4:
+    name: CC BY-SA 4.0
+    category: cc_sa
+    commercial: ok
+    notes: Share-alike — derivatives also CC BY-SA. Commercial use permitted with attribution.
+    url: https://creativecommons.org/licenses/by-sa/4.0/
+    fingerprints:
+      - "Attribution-ShareAlike 4.0"
+      - "CC BY-SA 4.0"
+
+  ccbyncsa4:
+    name: CC BY-NC-SA 4.0
+    category: cc_nc_sa
+    commercial: not_allowed
+    notes: Share-alike — derivatives also CC BY-NC-SA
+    url: https://creativecommons.org/licenses/by-nc-sa/4.0/
+    fingerprints:
+      - "Attribution-NonCommercial-ShareAlike 4.0"
+      - "CC BY-NC-SA 4.0"
+
+  nvidia_sec_3_3:
+    name: NVIDIA NC License (Sec 3.3 template — used by FoundationPose, BundleSDF)
+    category: custom_nc
+    commercial: research_only_outside_nvidia
+    notes: |
+      Verified against the LICENSE.txt in reconstruction/modules/v2d_foundation_pose/lib/FoundationPose/.
+      The license document itself does NOT use the title "NVIDIA Source Code License"
+      anywhere in its text — that name is a colloquial reference. The license
+      is identified structurally (Sections 1-5, "Definitions / License Grants /
+      Limitations / Disclaimer / Limitation of Liability") and by the Section 3.3
+      Use Limitation clause.
+
+      Section 3.3 ("Use Limitation") formally defines: "The Work and any
+      derivative works thereof only may be used or intended for use
+      non-commercially. Notwithstanding the foregoing, NVIDIA and its affiliates
+      may use the Work and any derivative works commercially. As used herein,
+      'non-commercially' means for research or evaluation purposes only."
+
+      This is more restrictive than colloquial "non-commercial" — only research
+      or evaluation is permitted. Section 3.2 requires derivative works to also
+      impose Section 3.3 on their users.
+
+      No commercial sublicense pathway is documented in the license text itself
+      (unlike FoundationStereo which has a separate NGC TAO commercial path).
+      Verified 2026-05-12.
+    url: https://github.com/NVlabs/FoundationPose/blob/main/LICENSE.txt
+    fingerprints:
+      - "used or intended for use non-commercially"
+      - "for research or evaluation purposes only"
+
+  smpl_nc:
+    name: MANO Model License (Max Planck) — also covers SMPL/SMPL-H by family
+    category: research
+    commercial: not_allowed
+    notes: |
+      Verified against https://mano.is.tue.mpg.de/license.html (2026-05-12).
+
+      Scope of verification: the linked page covers MANO. SMPL and SMPL-H have
+      separately published licenses (smpl.is.tue.mpg.de and friends) that the
+      audit has NOT independently verified at this time. They are treated as
+      part of this family for taint detection because they share the same
+      Max Planck licensing posture historically; this assumption should be
+      independently confirmed before relying on it.
+
+      Permitted: "non-commercial scientific research, non-commercial education,
+      or non-commercial artistic projects."
+
+      Explicitly prohibited: "any use for commercial, pornographic, military,
+      or surveillance purposes." Also: training commercial algorithms,
+      reverse engineering, distribution to third parties (except one archive copy).
+
+      "Non-commercial" is NOT formally defined in the license.
+
+      Commercial pathway: ps-license@tue.mpg.de — Max Planck offers separate
+      commercial licensing.
+
+      Governed by German law; agreement qualifies as a donation under
+      German Civil Code Section 521.
+    url: https://mano.is.tue.mpg.de/license.html
+    fingerprints:
+      - "MANO Model License"
+
+  smplx_nc:
+    name: SMPL-X Model License (Max Planck)
+    category: research
+    commercial: not_allowed
+    notes: |
+      Verified against https://smpl-x.is.tue.mpg.de/modellicense.html (2026-05-12).
+
+      Permitted: "non-commercial scientific research, non-commercial education,
+      or non-commercial artistic projects."
+
+      Explicitly prohibited: "commercial, pornographic, military, or surveillance
+      purposes." Specifically excludes: "incorporation in a commercial product,
+      use in a commercial service, or production of other artifacts for
+      commercial purposes." Also bars fake/defamatory content, training
+      commercial algorithms, reverse engineering, distribution to third parties.
+
+      "Non-commercial" is NOT formally defined.
+
+      Commercial pathway: available via Meshcapade.com — contact
+      smpl@max-planck-innovation.de for commercial licensing.
+
+      Governed by German law; donation under German Civil Code Section 521.
+    url: https://smpl-x.is.tue.mpg.de/modellicense.html
+    fingerprints:
+      - "SMPL-X Model License"
+
+  sam_license:
+    name: SAM License (Meta) — covers SAM 3D Objects and SAM 3D Body checkpoints + code
+    category: custom_share_alike_with_aup
+    commercial: ok_with_restrictions
+    notes: |
+      Verified 2026-05-12 against the LICENSE files in the upstream GitHub repos:
+        - https://github.com/facebookresearch/sam-3d-objects/blob/main/LICENSE
+        - https://github.com/facebookresearch/sam-3d-body/blob/main/LICENSE
+      Both repos use the same SAM License (last updated 2025-11-19).
+
+      Commercial use is permitted. Section 1.a grants a "non-exclusive,
+      worldwide, non-transferable and royalty-free limited license" including
+      use, reproduce, distribute, create derivative works of, and modify
+      the SAM Materials. There is no commercial-use prohibition clause.
+
+      However the license imposes meaningful conditions that make it not a
+      drop-in permissive license:
+
+      1. Share-alike on SAM Materials. Section 1.b.i: "If you distribute or
+         make the SAM Materials...available to a third party, you may only
+         do so under the terms of this Agreement and you shall provide a
+         copy of this Agreement with any such SAM Materials." Applies to
+         derivative works.
+      2. Acceptable-Use restrictions. Section 1.b.v prohibits use in:
+         military / warfare, nuclear industries, espionage, guns or illegal
+         weapons, ITAR-controlled activities, end uses prohibited by Trade
+         Controls.
+      3. No reverse engineering (Section 1.b.iv).
+      4. Research-publication acknowledgement required (Section 1.b.ii).
+      5. Termination: Meta may terminate on breach; upon termination user
+         must delete SAM Materials. Patent / IP litigation against Meta
+         regarding SAM Materials terminates the license.
+
+      ACCESS gating: separate from license. Hugging Face requires contact
+      info, legal name, DOB, and organization before download.
+
+      Implication for this audit: outputs from modules that use SAM models
+      can be commercially used PROVIDED the AUP is satisfied and any
+      redistribution of the SAM Materials themselves includes the SAM License.
+      Outputs are not "tainted" with non-commercial status; they are tainted
+      with the AUP carveouts and the share-alike-on-SAM-Materials clause.
+
+      Correction note: prior catalog entry (and v9) had labeled this
+      "research-only / gated for commercial." That was wrong on both
+      counts — verified by reading the actual LICENSE files.
+    url: https://github.com/facebookresearch/sam-3d-objects/blob/main/LICENSE
+    fingerprints:
+      - "SAM Materials"
+      - "SAM License"
+
+  hot3d_meta:
+    name: HOT3D Dataset License (Meta — multi-license)
+    category: mixed
+    commercial: mixed
+    notes: |
+      HOT3D applies three different licenses depending on which subset is used:
+        - Sequence data (Aria + Quest captures, non-hand annotations) → CC BY-SA 4.0 (commercial OK)
+        - Hand data (mano_hand_pose_trajectory.jsonl, umetrack_hand_pose_trajectory.jsonl, etc.) → CC BY-NC-SA 4.0 (non-commercial only)
+        - 3D object model data → modified CC BY-SA 4.0 — "shall not sell the Licensed Material, or incorporate the Licensed Material into a product to be sold"
+      Users must determine which subset(s) they use and comply with the applicable terms.
+      Verified at the URL below on 2026-05-12.
+    url: https://www.projectaria.com/datasets/hot3D/license/
+    fingerprints:
+      - "HOT3D"
+      - "Project Aria"
+
+# -----------------------------------------------------------------------------
+# Taint vectors — restrictions that propagate through pipeline
+# -----------------------------------------------------------------------------
+# `upstream_packages` are matched against import names and dependency names
+# the audit discovers in the repo. Which modules are tainted is DISCOVERED,
+# not declared here.
+# -----------------------------------------------------------------------------
+taint_vectors:
+
+  - id: smpl_family
+    license: smpl_nc
+    description: SMPL / SMPL-H / MANO — Max Planck non-commercial
+    upstream_packages: [smplx, smplh, smplpytorch, mano]
+
+  - id: nvidia_sec_3_3
+    license: nvidia_sec_3_3
+    description: NVIDIA Sec 3.3 — non-commercial for non-NVIDIA users
+    upstream_packages: [foundationpose, bundlesdf]
+
+  - id: meta_sam_3d
+    license: sam_license
+    description: Meta SAM 3D Objects / Body — SAM License (commercial OK with share-alike on SAM Materials + AUP restrictions; access gated via HF)
+    upstream_packages: [sam3d, sam-3d-objects, sam-3d-body]
+
+  - id: arctic_dataset
+    license: ccbyncsa4
+    description: Arctic dataset — CC BY-NC-SA 4.0 (share-alike propagates)
+    upstream_packages: [arctic]
+
+  - id: hot3d_dataset
+    license: hot3d_meta
+    description: HOT3D dataset — multi-license (sequences CC BY-SA, hand data CC BY-NC-SA, models modified CC BY-SA). Commercial status depends on which subset is used; see catalog entry for hot3d_meta.
+    upstream_packages: [hot3d]
+
+  - id: nc_depth_models
+    license: ccbync4
+    description: CC BY-NC depth models (UniDepth V2, Depth Anything 3)
+    upstream_packages: [unidepth, depth_anything]
+
+# -----------------------------------------------------------------------------
+# Ignored paths — top-level dirs that are not modules
+# -----------------------------------------------------------------------------
+ignore_paths:
+  - .git/
+  - .github/
+  - .claude/
+  - audit/
+  - docs/
