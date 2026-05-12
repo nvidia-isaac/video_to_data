@@ -4,7 +4,7 @@ Robotic Grounding is an NVIDIA Isaac Lab-based project for robotic manipulation.
 
 ## Where to look
 
-Most details live in per-package docs — this file only covers project-wide orientation, the dev loop, and gotchas. **Read the relevant doc before editing that package**:
+Most details live in per-package docs — this file only covers project-wide orientation, the dev loop, and gotchas. **Read the relevant doc before editing/explaining/answering questions about that package**:
 
 | Topic | Doc |
 |---|---|
