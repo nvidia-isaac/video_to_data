@@ -230,7 +230,7 @@ core
 !.claude/commands/eval-record.md
 !.claude/commands/grid-video.md
 !.claude/commands/launch-two-stage.md
-CLAUDE.md
+!CLAUDE.md
 *.code-workspace
 
 # Temporary usd files
