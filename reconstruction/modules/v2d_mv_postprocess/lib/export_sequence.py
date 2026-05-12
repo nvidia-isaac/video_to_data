@@ -98,13 +98,21 @@ def _list_objects(client, bucket: str, prefix: str) -> list[dict]:
     return objects
 
 
-def _download_file(client, bucket: str, key: str, dest: Path, dry_run: bool = False) -> bool:
+def _download_file(
+    client,
+    bucket: str,
+    key: str,
+    dest: Path,
+    dry_run: bool = False,
+    missing_ok: bool = False,
+) -> bool:
     """Download a single file, skipping if already exists with same size. Returns True if downloaded."""
     try:
         head = client.head_object(Bucket=bucket, Key=key)
         remote_size = head["ContentLength"]
     except client.exceptions.ClientError:
-        print(f"  WARNING: key not found: {key}")
+        if not missing_ok:
+            print(f"  WARNING: key not found: {key}")
         return False
 
     if dest.exists() and dest.stat().st_size == remote_size:
@@ -202,10 +210,11 @@ def _download_prefix(
     return downloaded, skipped
 
 
-def _copy_file(src: Path, dest: Path, dry_run: bool = False) -> bool:
+def _copy_file(src: Path, dest: Path, dry_run: bool = False, missing_ok: bool = False) -> bool:
     """Copy a single local file, skipping if already exists with same size. Returns True if copied."""
     if not src.exists():
-        print(f"  WARNING: source not found: {src}")
+        if not missing_ok:
+            print(f"  WARNING: source not found: {src}")
         return False
     if dest.exists() and dest.stat().st_size == src.stat().st_size:
         return False
@@ -287,7 +296,8 @@ def _is_left_camera_video(rel: str) -> bool:
 
 
 # Data mapping: (css_subpath, output_subpath, type, filter_fn, remap_fn, h5_layout)
-# type: "file" for single files, "dir" for directory prefixes,
+# type: "file" for required single files, "optional_file" for optional single files,
+#       "dir" for directory prefixes,
 #       "h5_or_dir" for data that may be packed as .h5 files or PNG dirs
 # h5_layout (h5_or_dir entries): None for top-level "*.h5" with original filename;
 #       otherwise (glob, name_template). The glob is relative to css_subpath and
@@ -307,6 +317,7 @@ _DATA_MAP = [
     ("sam2_object_masks",                 "object_masks",      "h5_or_dir", _is_left_camera_path, _strip_mask_object_id, ("*/*.h5", "{cam}.h5")),
     ("sam2_human_masks",                  "human_masks",       "h5_or_dir", _is_left_camera_path, _strip_mask_object_id, ("*/*.h5", "{cam}.h5")),
     ("foundation_pose/poses.npy",         "poses.npy",         "file", None, None, None),
+    ("foundation_pose/pose_valid_mask.npy", "pose_valid_mask.npy", "optional_file", None, None, None),
     ("sam3d_body/mhr_params_mv.pt",       "mhr_params_mv.pt",  "file", None, None, None),
     ("sam3d_body/mhr_mesh_mv.pt",         "mhr_mesh_mv.pt",    "file", None, None, None),
     ("export_soma/soma_params.npz",       "soma_params.npz",   "file", None, None, None),
@@ -320,6 +331,7 @@ _FINAL_OUTPUT_SUBPATHS = {
     "edex",
     "object_mesh",
     "poses.npy",
+    "pose_valid_mask.npy",
     "mhr_params_mv.pt",
     "soma_params.npz",
     "ground_plane.json",
@@ -451,6 +463,10 @@ def _export_local(
         if entry_type == "file":
             did = _copy_file(src_path, output / out_sub, dry_run)
             report(out_sub, int(did), int(not did))
+        elif entry_type == "optional_file":
+            did = _copy_file(src_path, output / out_sub, dry_run, missing_ok=True)
+            if did or src_path.exists():
+                report(out_sub, int(did), int(not did))
         elif entry_type == "h5_or_dir":
             h5_files = _find_h5_files_local(src_path, filter_fn, h5_layout)
             if h5_files:
@@ -525,6 +541,11 @@ def _export_remote(
             key = f"{base_prefix}/{css_sub}"
             did = _download_file(client, bucket, key, output / out_sub, dry_run)
             report(out_sub, int(did), int(not did))
+        elif entry_type == "optional_file":
+            key = f"{base_prefix}/{css_sub}"
+            did = _download_file(client, bucket, key, output / out_sub, dry_run, missing_ok=True)
+            if did or (output / out_sub).exists():
+                report(out_sub, int(did), int(not did))
         elif entry_type == "h5_or_dir":
             css_prefix = f"{base_prefix}/{css_sub}"
             h5_keys = _has_h5_remote(client, bucket, css_prefix, filter_fn, h5_layout)

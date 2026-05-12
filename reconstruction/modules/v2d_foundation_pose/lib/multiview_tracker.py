@@ -10,7 +10,9 @@ import logging
 import os
 import sys
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
+import cv2
 import numpy as np
 from scipy.spatial.transform import Rotation
 import torch
@@ -102,6 +104,15 @@ from Utils import set_seed  # noqa: E402
 import nvdiffrast.torch as dr  # noqa: E402
 
 
+@dataclass
+class MultiViewTrackingResult:
+    avg_pose: np.ndarray
+    world_poses: list[np.ndarray]
+    visible_ratios: np.ndarray
+    select_idx: np.ndarray
+    status: dict
+
+
 class MultiViewTracker:
     """Coordinate N FoundationPose estimators with shared weights."""
 
@@ -116,6 +127,16 @@ class MultiViewTracker:
         precision_high: float = 1.0,
         precision_low: float = 0.01,
         symmetry_group: list[np.ndarray] | None = None,
+        recovery_enabled: bool = True,
+        recovery_refine_iter: int = 5,
+        recovery_min_views: int = 1,
+        recovery_min_valid_depth_pixels: int = 25,
+        recovery_visible_ratio_cutoff: float = 0.3,
+        recovery_attempt_stride: int = 1,
+        under_supported_recovery_enabled: bool = True,
+        mask_pose_iou_cutoff: float = 0.05,
+        mask_explained_ratio_cutoff: float = 0.10,
+        register_debug_path: str | None = None,
     ):
         if weights_dir:
             os.environ.setdefault("FOUNDATIONPOSE_WEIGHTS_DIR", weights_dir)
@@ -154,6 +175,19 @@ class MultiViewTracker:
         self.precision_high = precision_high
         self.precision_low = precision_low
         self.symmetry_group = symmetry_group
+        self.recovery_enabled = recovery_enabled
+        self.recovery_refine_iter = recovery_refine_iter
+        self.recovery_min_views = max(1, int(recovery_min_views))
+        self.recovery_min_valid_depth_pixels = max(1, int(recovery_min_valid_depth_pixels))
+        self.recovery_visible_ratio_cutoff = recovery_visible_ratio_cutoff
+        self.recovery_attempt_stride = max(1, int(recovery_attempt_stride))
+        self.under_supported_recovery_enabled = under_supported_recovery_enabled
+        self.mask_pose_iou_cutoff = mask_pose_iou_cutoff
+        self.mask_explained_ratio_cutoff = mask_explained_ratio_cutoff
+        self.register_debug_path = register_debug_path
+        self._lost_frame_count = 0
+        self._under_supported_frame_count = 0
+        self.last_status: dict = {}
         if symmetry_group is None:
             print("[MultiViewTracker] symmetry canonicalization disabled (no symmetry annotation)")
         else:
@@ -162,6 +196,12 @@ class MultiViewTracker:
     @property
     def num_cameras(self) -> int:
         return len(self._estimators)
+
+    def seed_pose(self, avg_pose: np.ndarray, Ts: list[np.ndarray]) -> None:
+        """Seed every single-view estimator from a known fused world pose."""
+        self._sync_to_avg(np.asarray(avg_pose, dtype=float).reshape(4, 4), Ts)
+        self._lost_frame_count = 0
+        self._under_supported_frame_count = 0
 
     def register(
         self,
@@ -200,6 +240,159 @@ class MultiViewTracker:
         select_idx = visible_ratios > self.visible_ratio_cutoff_low
         assert np.sum(select_idx) > 0, "Object not visible from any camera in first frame"
 
+        avg_pose, world_poses, ref_idx, snap_indices_per_iter = self._fuse_registered_poses(
+            raw_world_poses, Ts, visible_ratios, select_idx,
+        )
+
+        if debug_dump_path is not None:
+            _dump_register_debug(
+                path=debug_dump_path,
+                symmetry_group_size=len(self.symmetry_group) if self.symmetry_group is not None else 1,
+                fp_scores=fp_scores,
+                visible_ratios=visible_ratios,
+                select_idx=select_idx,
+                ref_idx=ref_idx,
+                raw_world_poses=raw_world_poses,
+                canonical_world_poses=world_poses,
+                snap_indices_per_iter=snap_indices_per_iter,
+                avg_pose=avg_pose,
+            )
+
+        self._sync_to_avg(avg_pose, Ts)
+        self._lost_frame_count = 0
+        self._under_supported_frame_count = 0
+        status_extra = {}
+        if 0 < int(np.count_nonzero(select_idx)) < self.recovery_min_views:
+            status_extra["under_supported"] = True
+            status_extra["under_supported_initialization"] = True
+        self.last_status = self._make_status(
+            status="registered",
+            pose_valid=True,
+            visible_ratios=visible_ratios,
+            select_idx=select_idx,
+            **status_extra,
+        )
+        return avg_pose, world_poses, visible_ratios, select_idx
+
+    def track(
+        self,
+        rgbs: list[np.ndarray],
+        depths: list[np.ndarray],
+        masks: list[np.ndarray],
+        Ks: list[np.ndarray],
+        Ts: list[np.ndarray],
+        frame_index: int | None = None,
+        register_iteration: int = 5,
+        track_iteration: int = 2,
+    ) -> MultiViewTrackingResult:
+        """Process one frame across all cameras.
+
+        The first call registers the object pose. Later calls track from the
+        previous fused pose and may enter held/recovery states.
+        """
+        if self.pose_last is None:
+            result = self.register(
+                rgbs, depths, masks, Ks, Ts,
+                iteration=register_iteration,
+                debug_dump_path=self.register_debug_path,
+            )
+        else:
+            result = self._track_registered_frame(
+                rgbs, depths, masks, Ks, Ts,
+                iteration=track_iteration,
+                frame_index=frame_index,
+            )
+        return self._make_result(*result, frame_index=frame_index)
+
+    def _track_registered_frame(
+        self,
+        rgbs: list[np.ndarray],
+        depths: list[np.ndarray],
+        masks: list[np.ndarray],
+        Ks: list[np.ndarray],
+        Ts: list[np.ndarray],
+        iteration: int = 2,
+        frame_index: int | None = None,
+    ) -> tuple[np.ndarray, list[np.ndarray], np.ndarray, np.ndarray]:
+        """Track next frame after initial registration."""
+        world_poses = []
+        with _suppress_fp_logging():
+            for j, est in enumerate(self._estimators):
+                cam_pose = est.track_one(
+                    rgb=rgbs[j], depth=depths[j],
+                    K=Ks[j], iteration=iteration,
+                )
+                world_poses.append(Ts[j] @ cam_pose)
+
+        visible_ratios = self._compute_visibility(world_poses, masks, Ks, Ts)
+        select_idx = visible_ratios > self.visible_ratio_cutoff_low
+        if not select_idx.any():
+            self._under_supported_frame_count = 0
+            return self._handle_all_view_loss(
+                rgbs=rgbs,
+                depths=depths,
+                masks=masks,
+                Ks=Ks,
+                Ts=Ts,
+                tracked_visible_ratios=visible_ratios,
+                tracked_select_idx=select_idx,
+                frame_index=frame_index,
+            )
+
+        if int(select_idx.sum()) < self.recovery_min_views:
+            return self._handle_under_supported_tracking(
+                rgbs=rgbs,
+                depths=depths,
+                masks=masks,
+                Ks=Ks,
+                Ts=Ts,
+                tracked_world_poses=world_poses,
+                tracked_visible_ratios=visible_ratios,
+                tracked_select_idx=select_idx,
+                frame_index=frame_index,
+            )
+
+        avg_pose = self._weighted_se3_mean_from_poses(
+            world_poses, Ts, visible_ratios, select_idx,
+        )
+        self._sync_to_avg(avg_pose, Ts)
+        self._lost_frame_count = 0
+        self._under_supported_frame_count = 0
+        self.last_status = self._make_status(
+            status="tracked",
+            pose_valid=True,
+            visible_ratios=visible_ratios,
+            select_idx=select_idx,
+        )
+        return avg_pose, world_poses, visible_ratios, select_idx
+
+    def _make_result(
+        self,
+        avg_pose: np.ndarray,
+        world_poses: list[np.ndarray],
+        visible_ratios: np.ndarray,
+        select_idx: np.ndarray,
+        frame_index: int | None,
+    ) -> MultiViewTrackingResult:
+        status = dict(self.last_status)
+        status["frame_index"] = int(frame_index) if frame_index is not None else None
+        self.last_status = status
+        return MultiViewTrackingResult(
+            avg_pose=avg_pose,
+            world_poses=world_poses,
+            visible_ratios=visible_ratios,
+            select_idx=select_idx,
+            status=status,
+        )
+
+    def _fuse_registered_poses(
+        self,
+        raw_world_poses: list[np.ndarray],
+        Ts: list[np.ndarray],
+        visible_ratios: np.ndarray,
+        select_idx: np.ndarray,
+    ) -> tuple[np.ndarray, list[np.ndarray], int, list[list[tuple[int, float]]]]:
+        """Fuse freshly registered poses, including optional symmetry snapping."""
         snap_indices_per_iter: list[list[tuple[int, float]]] = []
         ref_idx = -1
         if self.symmetry_group is not None and len(self.symmetry_group) > 1:
@@ -229,53 +422,452 @@ class MultiViewTracker:
             avg_pose = self._weighted_se3_mean_from_poses(
                 world_poses, Ts, visible_ratios, select_idx,
             )
+        return avg_pose, world_poses, ref_idx, snap_indices_per_iter
 
-        if debug_dump_path is not None:
-            _dump_register_debug(
-                path=debug_dump_path,
-                symmetry_group_size=len(self.symmetry_group) if self.symmetry_group is not None else 1,
-                fp_scores=fp_scores,
-                visible_ratios=visible_ratios,
-                select_idx=select_idx,
-                ref_idx=ref_idx,
-                raw_world_poses=raw_world_poses,
-                canonical_world_poses=world_poses,
-                snap_indices_per_iter=snap_indices_per_iter,
-                avg_pose=avg_pose,
-            )
+    def _valid_depth_pixels(self, depth: np.ndarray, mask: np.ndarray) -> int:
+        valid = mask.astype(bool) & np.isfinite(depth) & (depth >= 0.001)
+        return int(valid.sum())
 
-        self._sync_to_avg(avg_pose, Ts)
-        return avg_pose, world_poses, visible_ratios, select_idx
+    def _should_attempt_recovery(self) -> bool:
+        if not self.recovery_enabled:
+            return False
+        return (self._lost_frame_count - 1) % self.recovery_attempt_stride == 0
 
-    def track(
+    def _should_attempt_under_supported_recovery(self) -> bool:
+        if not self.recovery_enabled or not self.under_supported_recovery_enabled:
+            return False
+        return (self._under_supported_frame_count - 1) % self.recovery_attempt_stride == 0
+
+    def _handle_all_view_loss(
         self,
         rgbs: list[np.ndarray],
         depths: list[np.ndarray],
         masks: list[np.ndarray],
         Ks: list[np.ndarray],
         Ts: list[np.ndarray],
-        iteration: int = 2,
+        tracked_visible_ratios: np.ndarray,
+        tracked_select_idx: np.ndarray,
+        frame_index: int | None,
     ) -> tuple[np.ndarray, list[np.ndarray], np.ndarray, np.ndarray]:
-        """Track next frame across all cameras.
+        held_pose = np.asarray(self.pose_last, dtype=float).reshape(4, 4)
+        self._lost_frame_count += 1
 
-        Returns:
-            avg_pose: (4,4) best world-frame pose
-            world_poses: list of (4,4) per-camera world poses
-            visible_ratios: (D,) per-camera visibility ratios
-            select_idx: boolean mask of cameras where object is visible
-        """
-        world_poses = []
-        with _suppress_fp_logging():
-            for j, est in enumerate(self._estimators):
-                cam_pose = est.track_one(
-                    rgb=rgbs[j], depth=depths[j],
-                    K=Ks[j], iteration=iteration,
-                )
-                world_poses.append(Ts[j] @ cam_pose)
+        valid_depth_pixels = np.array([
+            self._valid_depth_pixels(depths[j], masks[j])
+            for j in range(self.num_cameras)
+        ])
+        candidate_idx = valid_depth_pixels >= self.recovery_min_valid_depth_pixels
+        attempt_recovery = self._should_attempt_recovery()
 
-        avg_pose, visible_ratios, select_idx = self._avg_poses(world_poses, masks, Ks, Ts)
+        status = self._make_status(
+            status="held",
+            pose_valid=False,
+            visible_ratios=tracked_visible_ratios,
+            select_idx=tracked_select_idx,
+            recovery_attempted=bool(attempt_recovery),
+            recovery_candidate_idx=candidate_idx,
+            recovery_valid_depth_pixels=valid_depth_pixels,
+            frame_index=frame_index,
+        )
+
+        if attempt_recovery and candidate_idx.any():
+            recovered = self._attempt_recovery(
+                rgbs=rgbs,
+                depths=depths,
+                masks=masks,
+                Ks=Ks,
+                Ts=Ts,
+                candidate_idx=candidate_idx,
+                tracked_visible_ratios=tracked_visible_ratios,
+                tracked_select_idx=tracked_select_idx,
+                valid_depth_pixels=valid_depth_pixels,
+                frame_index=frame_index,
+            )
+            if recovered is not None:
+                avg_pose, world_poses, visible_ratios, select_idx, status = recovered
+                self._sync_to_avg(avg_pose, Ts)
+                self._lost_frame_count = 0
+                self.last_status = status
+                return avg_pose, world_poses, visible_ratios, select_idx
+            status = self.last_status
+
+        if attempt_recovery and not candidate_idx.any():
+            status["recovery_failure_reason"] = "no_candidate_views"
+
+        print("Object not visible from any camera, using last pose")
+        self._sync_to_avg(held_pose, Ts)
+        self.last_status = status
+        held_world_poses = [held_pose.copy() for _ in range(self.num_cameras)]
+        return held_pose, held_world_poses, tracked_visible_ratios, tracked_select_idx
+
+    def _handle_under_supported_tracking(
+        self,
+        rgbs: list[np.ndarray],
+        depths: list[np.ndarray],
+        masks: list[np.ndarray],
+        Ks: list[np.ndarray],
+        Ts: list[np.ndarray],
+        tracked_world_poses: list[np.ndarray],
+        tracked_visible_ratios: np.ndarray,
+        tracked_select_idx: np.ndarray,
+        frame_index: int | None,
+    ) -> tuple[np.ndarray, list[np.ndarray], np.ndarray, np.ndarray]:
+        self._under_supported_frame_count += 1
+        (
+            mask_valid_depth_pixels,
+            mask_pose_iou,
+            mask_explained_ratio,
+            candidate_idx,
+        ) = self._under_supported_recovery_candidates(
+            tracked_world_poses, depths, masks, Ks, Ts, tracked_select_idx,
+        )
+        if not self.recovery_enabled or not self.under_supported_recovery_enabled:
+            candidate_idx = np.zeros_like(candidate_idx, dtype=bool)
+        attempt_recovery = self._should_attempt_under_supported_recovery()
+        recovery_mode = "under_supported_mask_evidence"
+
+        if attempt_recovery and candidate_idx.any():
+            recovered = self._attempt_under_supported_recovery(
+                rgbs=rgbs,
+                depths=depths,
+                masks=masks,
+                Ks=Ks,
+                Ts=Ts,
+                tracked_world_poses=tracked_world_poses,
+                tracked_visible_ratios=tracked_visible_ratios,
+                tracked_select_idx=tracked_select_idx,
+                candidate_idx=candidate_idx,
+                mask_valid_depth_pixels=mask_valid_depth_pixels,
+                mask_pose_iou=mask_pose_iou,
+                mask_explained_ratio=mask_explained_ratio,
+                frame_index=frame_index,
+            )
+            if recovered is not None:
+                avg_pose, world_poses, visible_ratios, select_idx, status = recovered
+                self._sync_to_avg(avg_pose, Ts)
+                self._lost_frame_count = 0
+                self._under_supported_frame_count = 0
+                self.last_status = status
+                return avg_pose, world_poses, visible_ratios, select_idx
+
+            status = self.last_status
+            held_pose = np.asarray(self.pose_last, dtype=float).reshape(4, 4)
+            self._sync_to_avg(held_pose, Ts)
+            held_world_poses = [held_pose.copy() for _ in range(self.num_cameras)]
+            return held_pose, held_world_poses, tracked_visible_ratios, tracked_select_idx
+
+        if candidate_idx.any():
+            status = self._make_status(
+                status="held",
+                pose_valid=False,
+                visible_ratios=tracked_visible_ratios,
+                select_idx=tracked_select_idx,
+                recovery_attempted=False,
+                under_supported=True,
+                recovery_mode=recovery_mode,
+                mask_pose_iou=mask_pose_iou,
+                mask_explained_ratio=mask_explained_ratio,
+                mask_valid_depth_pixels=mask_valid_depth_pixels,
+                under_supported_recovery_candidate_idx=candidate_idx,
+                under_supported_recovery_visible_ratios=tracked_visible_ratios,
+                under_supported_recovery_select_idx=tracked_select_idx,
+                recovery_failure_reason="recovery_stride_skip",
+                frame_index=frame_index,
+            )
+            held_pose = np.asarray(self.pose_last, dtype=float).reshape(4, 4)
+            self._sync_to_avg(held_pose, Ts)
+            self.last_status = status
+            held_world_poses = [held_pose.copy() for _ in range(self.num_cameras)]
+            return held_pose, held_world_poses, tracked_visible_ratios, tracked_select_idx
+
+        avg_pose = self._weighted_se3_mean_from_poses(
+            tracked_world_poses, Ts, tracked_visible_ratios, tracked_select_idx,
+        )
         self._sync_to_avg(avg_pose, Ts)
-        return avg_pose, world_poses, visible_ratios, select_idx
+        self._lost_frame_count = 0
+        self.last_status = self._make_status(
+            status="tracked",
+            pose_valid=True,
+            visible_ratios=tracked_visible_ratios,
+            select_idx=tracked_select_idx,
+            recovery_attempted=False,
+            under_supported=True,
+            recovery_mode=recovery_mode,
+            mask_pose_iou=mask_pose_iou,
+            mask_explained_ratio=mask_explained_ratio,
+            mask_valid_depth_pixels=mask_valid_depth_pixels,
+            under_supported_recovery_candidate_idx=candidate_idx,
+            under_supported_recovery_visible_ratios=tracked_visible_ratios,
+            under_supported_recovery_select_idx=tracked_select_idx,
+            frame_index=frame_index,
+        )
+        return avg_pose, tracked_world_poses, tracked_visible_ratios, tracked_select_idx
+
+    def _under_supported_recovery_candidates(
+        self,
+        world_poses: list[np.ndarray],
+        depths: list[np.ndarray],
+        masks: list[np.ndarray],
+        Ks: list[np.ndarray],
+        Ts: list[np.ndarray],
+        select_idx: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        (
+            mask_valid_depth_pixels,
+            mask_pose_iou,
+            mask_explained_ratio,
+        ) = self._mask_pose_overlap_metrics(world_poses, depths, masks, Ks, Ts)
+        has_mask_evidence = mask_valid_depth_pixels >= self.recovery_min_valid_depth_pixels
+        candidate_idx = (
+            (~np.asarray(select_idx, dtype=bool))
+            & has_mask_evidence
+            & (mask_pose_iou < self.mask_pose_iou_cutoff)
+            & (mask_explained_ratio < self.mask_explained_ratio_cutoff)
+        )
+        return mask_valid_depth_pixels, mask_pose_iou, mask_explained_ratio, candidate_idx
+
+    def _mask_pose_overlap_metrics(
+        self,
+        world_poses: list[np.ndarray],
+        depths: list[np.ndarray],
+        masks: list[np.ndarray],
+        Ks: list[np.ndarray],
+        Ts: list[np.ndarray],
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        D = len(world_poses)
+        mask_valid_depth_pixels = np.zeros(D, dtype=int)
+        mask_pose_iou = np.zeros(D, dtype=float)
+        mask_explained_ratio = np.zeros(D, dtype=float)
+
+        for j, world_pose in enumerate(world_poses):
+            mask = np.asarray(masks[j], dtype=bool)
+            mask_valid_depth_pixels[j] = self._valid_depth_pixels(depths[j], mask)
+            mask_area = int(mask.sum())
+            if mask_area == 0:
+                continue
+
+            silhouette = self._mesh_silhouette_mask(
+                world_pose, Ks[j], Ts[j], mask.shape[:2],
+            )
+            intersection = int(np.logical_and(silhouette, mask).sum())
+            union = int(np.logical_or(silhouette, mask).sum())
+            if union > 0:
+                mask_pose_iou[j] = intersection / union
+            mask_explained_ratio[j] = intersection / mask_area
+
+        return mask_valid_depth_pixels, mask_pose_iou, mask_explained_ratio
+
+    def _mesh_silhouette_mask(
+        self,
+        world_pose: np.ndarray,
+        K: np.ndarray,
+        T: np.ndarray,
+        image_shape: tuple[int, int],
+    ) -> np.ndarray:
+        H, W = image_shape
+        silhouette = np.zeros((H, W), dtype=np.uint8)
+        verts_hom = np.hstack([
+            self.mesh.vertices,
+            np.ones((len(self.mesh.vertices), 1)),
+        ])
+        world_verts = (verts_hom @ np.asarray(world_pose).reshape(4, 4).T)[:, :3]
+        uv, in_bounds = xyz_to_uv(world_verts, K, T, image_size=(W, H))
+        if int(np.asarray(in_bounds, dtype=bool).sum()) < 3:
+            return silhouette.astype(bool)
+
+        pts = np.asarray(uv[np.asarray(in_bounds, dtype=bool)], dtype=np.float32)
+        pts = np.round(pts).astype(np.int32)
+        pts[:, 0] = np.clip(pts[:, 0], 0, W - 1)
+        pts[:, 1] = np.clip(pts[:, 1], 0, H - 1)
+        if len(np.unique(pts, axis=0)) < 3:
+            return silhouette.astype(bool)
+
+        hull = cv2.convexHull(pts.reshape(-1, 1, 2))
+        cv2.fillConvexPoly(silhouette, hull, 1)
+        return silhouette.astype(bool)
+
+    def _attempt_under_supported_recovery(
+        self,
+        rgbs: list[np.ndarray],
+        depths: list[np.ndarray],
+        masks: list[np.ndarray],
+        Ks: list[np.ndarray],
+        Ts: list[np.ndarray],
+        tracked_world_poses: list[np.ndarray],
+        tracked_visible_ratios: np.ndarray,
+        tracked_select_idx: np.ndarray,
+        candidate_idx: np.ndarray,
+        mask_valid_depth_pixels: np.ndarray,
+        mask_pose_iou: np.ndarray,
+        mask_explained_ratio: np.ndarray,
+        frame_index: int | None,
+    ) -> tuple[np.ndarray, list[np.ndarray], np.ndarray, np.ndarray, dict] | None:
+        recovery_world_poses = [
+            np.asarray(pose, dtype=float).reshape(4, 4).copy()
+            for pose in tracked_world_poses
+        ]
+        fp_scores = np.full(self.num_cameras, np.nan, dtype=float)
+
+        with _suppress_fp_logging():
+            for j in np.where(candidate_idx)[0]:
+                cam_pose = self._estimators[j].register(
+                    K=Ks[j], rgb=rgbs[j], depth=depths[j],
+                    ob_mask=masks[j], iteration=self.recovery_refine_iter,
+                )
+                recovery_world_poses[j] = Ts[j] @ cam_pose
+                scores = getattr(self._estimators[j], "scores", None)
+                fp_scores[j] = float(scores[0].item()) if scores is not None else float("nan")
+                torch.cuda.empty_cache()
+
+        visible_ratios = self._compute_visibility(recovery_world_poses, masks, Ks, Ts)
+        select_idx = visible_ratios > self.recovery_visible_ratio_cutoff
+        recovery_mode = "under_supported_mask_evidence"
+        if int(select_idx.sum()) < self.recovery_min_views:
+            status = self._make_status(
+                status="held",
+                pose_valid=False,
+                visible_ratios=tracked_visible_ratios,
+                select_idx=tracked_select_idx,
+                recovery_attempted=True,
+                under_supported=True,
+                recovery_mode=recovery_mode,
+                mask_pose_iou=mask_pose_iou,
+                mask_explained_ratio=mask_explained_ratio,
+                mask_valid_depth_pixels=mask_valid_depth_pixels,
+                under_supported_recovery_candidate_idx=candidate_idx,
+                under_supported_recovery_visible_ratios=visible_ratios,
+                under_supported_recovery_select_idx=select_idx,
+                recovery_fp_scores=fp_scores,
+                recovery_failure_reason="not_enough_recovered_views",
+                frame_index=frame_index,
+            )
+            self.last_status = status
+            return None
+
+        avg_pose, world_poses, _, _ = self._fuse_registered_poses(
+            recovery_world_poses, Ts, visible_ratios, select_idx,
+        )
+        status = self._make_status(
+            status="partially_recovered",
+            pose_valid=True,
+            visible_ratios=visible_ratios,
+            select_idx=select_idx,
+            recovery_attempted=True,
+            under_supported=True,
+            recovery_mode=recovery_mode,
+            mask_pose_iou=mask_pose_iou,
+            mask_explained_ratio=mask_explained_ratio,
+            mask_valid_depth_pixels=mask_valid_depth_pixels,
+            under_supported_recovery_candidate_idx=candidate_idx,
+            under_supported_recovery_visible_ratios=visible_ratios,
+            under_supported_recovery_select_idx=select_idx,
+            recovery_fp_scores=fp_scores,
+            tracked_visible_ratios=tracked_visible_ratios,
+            tracked_select_idx=tracked_select_idx,
+            frame_index=frame_index,
+        )
+        return avg_pose, world_poses, visible_ratios, select_idx, status
+
+    def _attempt_recovery(
+        self,
+        rgbs: list[np.ndarray],
+        depths: list[np.ndarray],
+        masks: list[np.ndarray],
+        Ks: list[np.ndarray],
+        Ts: list[np.ndarray],
+        candidate_idx: np.ndarray,
+        tracked_visible_ratios: np.ndarray,
+        tracked_select_idx: np.ndarray,
+        valid_depth_pixels: np.ndarray,
+        frame_index: int | None,
+    ) -> tuple[np.ndarray, list[np.ndarray], np.ndarray, np.ndarray, dict] | None:
+        recovery_world_poses = [np.asarray(self.pose_last, dtype=float).reshape(4, 4).copy()
+                                for _ in range(self.num_cameras)]
+        fp_scores = np.full(self.num_cameras, np.nan, dtype=float)
+
+        with _suppress_fp_logging():
+            for j in np.where(candidate_idx)[0]:
+                cam_pose = self._estimators[j].register(
+                    K=Ks[j], rgb=rgbs[j], depth=depths[j],
+                    ob_mask=masks[j], iteration=self.recovery_refine_iter,
+                )
+                recovery_world_poses[j] = Ts[j] @ cam_pose
+                scores = getattr(self._estimators[j], "scores", None)
+                fp_scores[j] = float(scores[0].item()) if scores is not None else float("nan")
+                torch.cuda.empty_cache()
+
+        visible_ratios = self._compute_visibility(recovery_world_poses, masks, Ks, Ts)
+        select_idx = (visible_ratios > self.recovery_visible_ratio_cutoff) & candidate_idx
+        if int(select_idx.sum()) < self.recovery_min_views:
+            status = self._make_status(
+                status="held",
+                pose_valid=False,
+                visible_ratios=tracked_visible_ratios,
+                select_idx=tracked_select_idx,
+                recovery_attempted=True,
+                recovery_candidate_idx=candidate_idx,
+                recovery_valid_depth_pixels=valid_depth_pixels,
+                recovery_visible_ratios=visible_ratios,
+                recovery_select_idx=select_idx,
+                recovery_fp_scores=fp_scores,
+                recovery_failure_reason="not_enough_recovered_views",
+                frame_index=frame_index,
+            )
+            self.last_status = status
+            return None
+
+        avg_pose, world_poses, _, _ = self._fuse_registered_poses(
+            recovery_world_poses, Ts, visible_ratios, select_idx,
+        )
+        status = self._make_status(
+            status="recovered",
+            pose_valid=True,
+            visible_ratios=visible_ratios,
+            select_idx=select_idx,
+            recovery_attempted=True,
+            recovery_candidate_idx=candidate_idx,
+            recovery_valid_depth_pixels=valid_depth_pixels,
+            recovery_visible_ratios=visible_ratios,
+            recovery_select_idx=select_idx,
+            recovery_fp_scores=fp_scores,
+            tracked_visible_ratios=tracked_visible_ratios,
+            tracked_select_idx=tracked_select_idx,
+            frame_index=frame_index,
+        )
+        return avg_pose, world_poses, visible_ratios, select_idx, status
+
+    @staticmethod
+    def _make_status(
+        status: str,
+        pose_valid: bool,
+        visible_ratios: np.ndarray,
+        select_idx: np.ndarray,
+        recovery_attempted: bool = False,
+        frame_index: int | None = None,
+        **extra,
+    ) -> dict:
+        record = {
+            "status": status,
+            "pose_valid": bool(pose_valid),
+            "visible_ratios": np.asarray(visible_ratios, dtype=float).tolist(),
+            "select_idx": np.asarray(select_idx, dtype=bool).tolist(),
+            "recovery_attempted": bool(recovery_attempted),
+        }
+        if frame_index is not None:
+            record["frame_index"] = int(frame_index)
+        for key, value in extra.items():
+            if value is None:
+                continue
+            if isinstance(value, np.ndarray):
+                if value.dtype == bool:
+                    record[key] = value.astype(bool).tolist()
+                elif np.issubdtype(value.dtype, np.integer):
+                    record[key] = value.astype(int).tolist()
+                else:
+                    record[key] = value.astype(float).tolist()
+            else:
+                record[key] = value
+        return record
 
     def _visible_ratio_to_precision(self, visible_ratio: np.ndarray) -> np.ndarray:
         if self.visible_ratio_cutoff_high <= self.visible_ratio_cutoff_low:

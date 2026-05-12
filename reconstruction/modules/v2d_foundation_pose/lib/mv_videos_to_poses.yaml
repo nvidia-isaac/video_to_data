@@ -18,11 +18,45 @@ pose_path: "${output_dir}/poses.npy"
 
 scale: 0.5
 depth_direction_trust: 0.5
-visible_ratio_cutoff_high: 0.3
-visible_ratio_cutoff_low: 0.3
+visible_ratio_cutoff_high: 0.4
+visible_ratio_cutoff_low: 0.1
 precision_high: 1.0
-precision_low: 1.0
+precision_low: 0.1
 est_refine_iter: 5
 track_refine_iter: 2
+smooth_across_recovery: false
+
+recovery:
+  enabled: true
+  refine_iter: 5
+  min_views: 2
+  min_valid_depth_pixels: 25
+  visible_ratio_cutoff: 0.3
+  attempt_stride: 1
+  under_supported:
+    enabled: true
+    mask_pose_iou_cutoff: 0.05
+    mask_explained_ratio_cutoff: 0.10
+
+repair:
+  enabled: true
+  arbitration:
+    max_step_translation_m: 0.15
+    max_step_rotation_deg: 45
+    visible_ratio_tolerance: 0.10
+  recovery_trigger:
+    enabled: true
+    max_window: 30
+    anchor_stable_frames: 5
+  snap_trigger:
+    enabled: true
+    max_span: 150
+    anchor_stable_frames: 8
+    outlier_window: 15
+    rotation_mad_scale: 5.0
+    translation_mad_scale: 5.0
+    min_rotation_deg: 10
+    max_translation_m: 0.08
+    max_burst_frames: 3
 
 debug: 2
