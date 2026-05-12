@@ -141,7 +141,7 @@ Two interchangeable implementations:
 
 ### `FixedTimestepCurriculum` (default, `V2PHandEnvCfg.curriculum`)
 
-Hard-coded schedule of `(env_step, voc_scale, reward_weights)` tuples. 
+Hard-coded schedule of `(env_step, voc_scale, reward_weights)` tuples.
 
 ### `VirtualObjectControlCurriculum` (adaptive, `Sharpa-V2P-AutoCurr-v0`)
 
