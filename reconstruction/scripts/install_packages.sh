@@ -19,6 +19,7 @@ pip install -e modules/v2d_sam2/docker \
   -e modules/v2d_mediapipe/docker \
   -e modules/v2d_hamer/docker \
   -e modules/v2d_wilor/docker \
+  -e modules/v2d_droid_slam/docker \
   -e modules/v2d_cusfm/docker \
   -e modules/v2d_bundlesdf/docker \
   -e modules/v2d_hoi_object_reconstruction/docker \
