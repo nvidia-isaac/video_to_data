@@ -10,8 +10,7 @@ Differs from ``run_hand_masks.py`` in two ways:
 Steps:
   0.  AnyCalib undistortion           [optional, --undistort]
   1.  Extract frames
-  2.  MoGe depth + intrinsics         [only when --object_prompt is set]
-  2b. Stabilise intrinsics            [only when --object_prompt is set]
+  2.  MoGe depth + intrinsics         → depth/ + intrinsics_stable.json
   3.  WiLoR over all frames           → wilor_raw/<frame:06d>.json
   4.  (Object) Grounding DINO          [only when --object_prompt is set]
   5.  Build SAM2 prompts (object + wilor ref-frame hands)
@@ -21,11 +20,24 @@ Steps:
   8.  Object branch (SAM3D + FoundationPose + EKF)   [--object_prompt]
   9.  Match wilor detections to SAM2 tracks via silhouette IoU
                                        → wilor/<track_id>/<frame:06d>.json
-  10. Render verification overlay      → wilor_overlay.mp4
+  10. Render virtual-cam overlay (raw) → wilor_overlay.mp4
+  11. Depth-align hands, real frames only (real intrinsics)
+                                       → wilor_aligned/<track_id>/<frame:06d>.json
+  12. Render aligned overlay (+ object if --object_prompt)
+                                       → wilor_aligned_overlay.mp4
+  13. Interpolate missing aligned frames
+                                       → wilor_aligned_filled/<track_id>/<frame:06d>.json
+                                         (tagged `interpolated: true|false`)
+  14. Render filled aligned overlay     → wilor_aligned_filled_overlay.mp4
+  15. Joint hand+object GS refinement   [--run_refinement, requires --object_prompt]
+                                       → poses_refined/, wilor_refined/, *_overlay.mp4
 
 Output directory layout:
   <output_dir>/
   ├── frames/
+  ├── depth/                           # MoGe depth PNGs
+  ├── intrinsics/                      # MoGe per-frame intrinsics JSONs
+  ├── intrinsics_stable.json
   ├── wilor_raw/<frame:06d>.json
   ├── hand_detections.json             # ref-frame slice of wilor_raw
   ├── sam2_prompts.json
@@ -33,8 +45,12 @@ Output directory layout:
   ├── masks/{...}/*.png
   ├── prompts_overlay.png
   ├── masks_overlay.mp4
-  ├── wilor/{...}/<frame:06d>.json
-  └── wilor_overlay.mp4
+  ├── wilor/{...}/<frame:06d>.json                  # real detections only
+  ├── wilor_overlay.mp4
+  ├── wilor_aligned/{...}/<frame:06d>.json          # aligned real frames
+  ├── wilor_aligned_overlay.mp4
+  ├── wilor_aligned_filled/{...}/<frame:06d>.json   # real + interpolated (tagged)
+  └── wilor_aligned_filled_overlay.mp4
 
 Usage:
     python modules/v2d_pipelines/run_ego_wilor.py \\
@@ -91,11 +107,16 @@ from v2d.foundation_pose.docker.run_ekf_smoothing import run_ekf_smoothing
 from v2d.foundation_pose.docker.run_estimate_mesh_scale import run_estimate_mesh_scale
 from v2d.foundation_pose.docker.run_video_to_poses import run_video_to_poses
 from v2d.grounding_dino.docker.run_image_to_object_bboxes import run_image_to_object_bboxes
+from v2d.gsplat_refinement.docker.run_refine import run_refine
+from v2d.hamer.docker.run_align_hands import run_align_hands
+from v2d.hamer.docker.run_render_hands_aligned_video import run_render_hands_aligned_video
 from v2d.moge.docker.run_video_to_depth import run_video_to_depth as run_moge_depth
+from v2d.pipelines.run_hand_masks import _plot_pose_grad_from_checkpoint
 from v2d.sam2.docker.run_video_to_masks import run_video_to_masks
 from v2d.sam3d.docker.run_image_to_mesh import run_image_to_mesh
 from v2d.wilor.docker.run_render_hands_video import run_render_hands_video as run_wilor_render
 from v2d.wilor.docker.run_tracks_from_wilor_masks import run_tracks_from_wilor_masks
+from v2d.wilor.docker.run_tracks_interpolate import run_tracks_interpolate
 from v2d.wilor.docker.run_video_to_hands import run_video_to_hands as run_wilor_video
 
 
@@ -233,11 +254,24 @@ def run_ego_wilor(
     anycalib_weights: str = "data/weights/anycalib",
     moge_weights: str = "data/weights/moge",
     min_iou: float = 0.1,
+    mask_min_pixels: int = 256,
+    interp_betas: str = "fixed",
+    interp_max_gap_frames: int = 15,
     object_prompt: str | None = None,
     grounding_dino_weights: str = "data/weights/grounding_dino",
     sam3d_weights: str = "data/weights/sam3d",
     foundation_pose_weights: str = "data/weights/foundation_pose",
     reregister_iou_thresh: float | None = 0.3,
+    run_refinement: bool = False,
+    refinement_render_every: int = 25,
+    refinement_resume: bool = False,
+    refinement_object_pose_only: bool = False,
+    refinement_random_init_obj_pose: bool = False,
+    refinement_ignore_optimizer_state: bool = False,
+    refinement_second_pass: bool = False,
+    refinement_second_pass_lr_scale: float = 0.3,
+    refinement_second_pass_epochs: int | None = None,
+    refinement_second_pass_batch_size: int | None = None,
     dev: bool = False,
 ) -> None:
     video_path = os.path.abspath(video_path)
@@ -273,8 +307,12 @@ def run_ego_wilor(
     poses_dir          = f"{output_dir}/poses"
     poses_smooth_dir   = f"{output_dir}/poses_smoothed"
     # Hand outputs
-    wilor_tracks_dir   = f"{output_dir}/wilor"
-    wilor_overlay      = f"{output_dir}/wilor_overlay.mp4"
+    wilor_tracks_dir          = f"{output_dir}/wilor"
+    wilor_overlay             = f"{output_dir}/wilor_overlay.mp4"
+    wilor_aligned_dir         = f"{output_dir}/wilor_aligned"
+    wilor_aligned_overlay     = f"{output_dir}/wilor_aligned_overlay.mp4"
+    wilor_aligned_filled_dir  = f"{output_dir}/wilor_aligned_filled"
+    wilor_aligned_filled_overlay = f"{output_dir}/wilor_aligned_filled_overlay.mp4"
     ref_rgb            = f"{frames_dir}/{reference_frame:06d}.png"
     ref_depth          = f"{depth_dir}/{reference_frame:06d}.png"
 
@@ -307,20 +345,21 @@ def run_ego_wilor(
     if not _step("Extract frames", _has_files(frames_dir)):
         extract_images(video_path, frames_dir)
 
-    # 2. MoGe depth + intrinsics (only needed for object branch) -------------
-    if object_prompt is not None:
-        moge_input_intrinsics = undistorted_intr if undistort else None
-        if not _step("MoGe depth + intrinsics", _has_files(depth_dir)):
-            run_moge_depth(
-                video_path            = video_path,
-                depth_folder          = depth_dir,
-                intrinsics_folder     = intrinsics_dir,
-                weights_path          = moge_weights,
-                input_intrinsics_path = moge_input_intrinsics,
-                dev                   = dev,
-            )
-        if not _step("Stabilise intrinsics", os.path.exists(intrinsics_stable)):
-            stabilize_intrinsics(intrinsics_dir, intrinsics_stable)
+    # 2. MoGe depth + intrinsics --------------------------------------------
+    # Needed for both the depth-alignment step (hands) and, when set, the
+    # object branch (SAM3D + FoundationPose).
+    moge_input_intrinsics = undistorted_intr if undistort else None
+    if not _step("MoGe depth + intrinsics", _has_files(depth_dir)):
+        run_moge_depth(
+            video_path            = video_path,
+            depth_folder          = depth_dir,
+            intrinsics_folder     = intrinsics_dir,
+            weights_path          = moge_weights,
+            input_intrinsics_path = moge_input_intrinsics,
+            dev                   = dev,
+        )
+    if not _step("Stabilise intrinsics", os.path.exists(intrinsics_stable)):
+        stabilize_intrinsics(intrinsics_dir, intrinsics_stable)
 
     # 3. WiLoR over all frames -----------------------------------------------
     if not _step("WiLoR per-frame detection + MANO",
@@ -531,7 +570,12 @@ def run_ego_wilor(
 
     # 9. IoU-match wilor detections to SAM2 hand tracks ----------------------
     mano_assets_root = os.path.join(wilor_weights, "pretrained_models")
-    if not _step("Match wilor detections → SAM2 tracks (silhouette IoU)", False):
+    matching_done = any(
+        _has_files(os.path.join(wilor_tracks_dir, d))
+        for d in (os.listdir(wilor_tracks_dir) if os.path.isdir(wilor_tracks_dir) else [])
+    )
+    if not _step("Match wilor detections → SAM2 tracks (silhouette IoU)",
+                 matching_done):
         run_tracks_from_wilor_masks(
             frames_dir       = frames_dir,
             wilor_raw_dir    = wilor_raw_dir,
@@ -543,14 +587,273 @@ def run_ego_wilor(
             dev              = dev,
         )
 
-    # 10. Render verification overlay ---------------------------------------
-    if not _step("Render wilor mesh overlay", os.path.exists(wilor_overlay)):
+    # 10. Render virtual-cam verification overlay (raw, real detections only)
+    if not _step("Render wilor mesh overlay (raw)", os.path.exists(wilor_overlay)):
         run_wilor_render(
             frames_dir       = frames_dir,
             wilor_dir        = wilor_tracks_dir,
             mano_assets_root = mano_assets_root,
             output_path      = wilor_overlay,
             dev              = dev,
+        )
+
+    # 11. Depth alignment to MoGe + real intrinsics (real frames only) -----
+    # Run alignment on the real-only matched detections. Interpolated frames
+    # would lie on a guessed pose that may not match the image silhouette, so
+    # aligning them against real depth would corrupt cam_t. We interpolate
+    # AFTER alignment (step 13).
+    # Reuses hamer's run_align_hands — schema is hamer-compatible.
+    object_masks_dir = (
+        f"{masks_dir}/{object_track_id}"
+        if (object_prompt is not None and object_track_id is not None) else None
+    )
+    if not _step("Align wilor hands to depth (real frames only)", False):
+        run_align_hands(
+            hamer_dir         = wilor_tracks_dir,
+            depth_dir         = depth_dir,
+            intrinsics_path   = intrinsics_stable,
+            mano_assets_root  = mano_assets_root,
+            output_dir        = wilor_aligned_dir,
+            hand_masks_dir    = masks_dir,
+            object_masks_dir  = object_masks_dir,
+            mask_min_pixels   = mask_min_pixels,
+            dev               = dev,
+        )
+
+    # 12. Render aligned overlay (real frames only) -------------------------
+    object_mesh_arg  = mesh_scaled       if (object_prompt is not None) else None
+    object_poses_arg = poses_smooth_dir  if (object_prompt is not None) else None
+    if not _step("Render aligned wilor overlay (real only)",
+                 os.path.exists(wilor_aligned_overlay)):
+        run_render_hands_aligned_video(
+            frames_dir         = frames_dir,
+            aligned_dir        = wilor_aligned_dir,
+            mano_assets_root   = mano_assets_root,
+            output_path        = wilor_aligned_overlay,
+            object_mesh_path   = object_mesh_arg,
+            object_poses_dir   = object_poses_arg,
+            dev                = dev,
+        )
+
+    # 13. Interpolate per-track gaps on the ALIGNED records ----------------
+    # Real aligned frames pass through (interpolated=false). Missing frames
+    # within --interp_max_gap_frames get SLERP/linear-filled (interpolated=
+    # true), gated on SAM2 mask presence (only fill where the hand is
+    # actually visible). `betas` policy per --interp_betas.
+    aligned_filled_done = any(
+        _has_files(os.path.join(wilor_aligned_filled_dir, d))
+        for d in (os.listdir(wilor_aligned_filled_dir)
+                  if os.path.isdir(wilor_aligned_filled_dir) else [])
+    )
+    if not _step("Interpolate missing aligned frames", aligned_filled_done):
+        run_tracks_interpolate(
+            aligned_dir    = wilor_aligned_dir,
+            masks_dir      = masks_dir,
+            output_dir     = wilor_aligned_filled_dir,
+            betas          = interp_betas,
+            max_gap_frames = interp_max_gap_frames,
+            dev            = dev,
+        )
+
+    # 14. Render filled aligned overlay (real + interpolated) --------------
+    if not _step("Render filled aligned wilor overlay",
+                 os.path.exists(wilor_aligned_filled_overlay)):
+        run_render_hands_aligned_video(
+            frames_dir         = frames_dir,
+            aligned_dir        = wilor_aligned_filled_dir,
+            mano_assets_root   = mano_assets_root,
+            output_path        = wilor_aligned_filled_overlay,
+            object_mesh_path   = object_mesh_arg,
+            object_poses_dir   = object_poses_arg,
+            dev                = dev,
+        )
+
+    # 15. Optional joint hand+object refinement via Gaussian splatting -----
+    # Mirrors run_hand_masks.py's refinement block; sources hand poses from
+    # wilor_aligned_filled/ (real + interpolated, hamer-compatible schema).
+    # gsplat sees one record per visible frame and can re-optimize the
+    # interpolated frames against the image.
+    refined_poses_dir          = f"{output_dir}/poses_refined"
+    refined_wilor_dir          = f"{output_dir}/wilor_refined"
+    refined_overlay            = f"{output_dir}/refined_overlay.mp4"
+    wilor_refined_overlay      = f"{output_dir}/wilor_refined_overlay.mp4"
+    refined_object_scale_json  = f"{output_dir}/refined_object_scale.json"
+    refine_checkpoint_pt       = f"{output_dir}/refine_checkpoint.pt"
+    refined_overlay_pass2      = f"{output_dir}/refined_overlay_pass2.mp4"
+    refine_checkpoint_pt_pass2 = f"{output_dir}/refine_checkpoint_pass2.pt"
+    if run_refinement:
+        if object_prompt is None:
+            raise ValueError(
+                "--run_refinement requires --object_prompt (joint hand+object refinement)."
+            )
+
+        with open(hand_tracks) as f:
+            htm = json.load(f)["tracks"]
+        left_tid: int | None  = next((t["object_id"] for t in htm if not t["is_right"]), None)
+        right_tid: int | None = next((t["object_id"] for t in htm if     t["is_right"]), None)
+
+        def _maybe(d: str | None) -> str | None:
+            return d if d is not None else None
+
+        left_pose_in   = f"{wilor_aligned_filled_dir}/{left_tid}"  if left_tid  is not None else None
+        right_pose_in  = f"{wilor_aligned_filled_dir}/{right_tid}" if right_tid is not None else None
+        left_mask_in   = f"{masks_dir}/{left_tid}"          if left_tid  is not None else None
+        right_mask_in  = f"{masks_dir}/{right_tid}"         if right_tid is not None else None
+        left_pose_out  = f"{refined_wilor_dir}/{left_tid}"  if left_tid  is not None else None
+        right_pose_out = f"{refined_wilor_dir}/{right_tid}" if right_tid is not None else None
+
+        pass1_kwargs: dict = dict(
+                frames_dir                  = frames_dir,
+                intrinsics_path             = intrinsics_stable,
+                object_mesh_path            = mesh_scaled,
+                object_poses_dir            = poses_dir,
+                object_mask_dir             = f"{masks_dir}/{object_track_id}",
+                refined_object_poses_dir    = refined_poses_dir,
+                overlay_path                = refined_overlay,
+                refined_object_scale_path   = refined_object_scale_json,
+                checkpoint_path             = refine_checkpoint_pt,
+                resume_from_checkpoint      = (
+                    refine_checkpoint_pt
+                    if refinement_resume and os.path.exists(refine_checkpoint_pt)
+                    else None
+                ),
+                freeze_gaussians            = refinement_object_pose_only,
+                freeze_hand_rot             = refinement_object_pose_only,
+                freeze_hand_trans           = refinement_object_pose_only,
+                freeze_bg_rot               = refinement_object_pose_only,
+                freeze_bg_trans             = refinement_object_pose_only,
+                random_init_obj_pose        = refinement_random_init_obj_pose,
+                ignore_optimizer_state      = refinement_ignore_optimizer_state,
+                left_hand_pose_dir          = _maybe(left_pose_in),
+                left_hand_mask_dir          = _maybe(left_mask_in),
+                right_hand_pose_dir         = _maybe(right_pose_in),
+                right_hand_mask_dir         = _maybe(right_mask_in),
+                refined_left_hand_pose_dir  = _maybe(left_pose_out),
+                refined_right_hand_pose_dir = _maybe(right_pose_out),
+                depth_dir                   = depth_dir,
+                mano_assets_root            = mano_assets_root,
+                n_epochs                    = 64,
+                batch_size                  = 32,
+                render_every                = refinement_render_every,
+                lr_gaussians                = 3e-2,
+                lr_hand_gaussians           = 3e-2,
+                lr_mul_delta_p              = 0.1,
+                lr_mul_quat                 = 0.5,
+                lr_mul_scale                = 3.0,
+                lr_mul_opacity              = 5.0,
+                lr_mul_color                = 1.0,
+                lr_mul_obj_global_scale     = 1.0,
+                lr_object_pose              = 3e-3,
+                lr_object_rot               = 1e-1,
+                lr_object_trans             = 3e-3,
+                lr_hand_pose                = 3e-3,
+                lr_hand_global_orient       = 1e-2,
+                lr_hand_finger              = 3e-3,
+                lr_hand_trans               = 3e-3,
+                lr_betas                    = 1e-4,
+                w_photometric               = 1.0,
+                w_silhouette                = 1.0,
+                w_silhouette_hand           = 1.0,
+                w_silhouette_obj            = 1.0,
+                w_depth                     = 0.001,
+                w_smooth_obj_rot            = 0.001,
+                w_smooth_obj_trans          = 0.001,
+                w_smooth_hand_rot           = 0.001,
+                w_smooth_hand_finger        = 0.0001,
+                w_smooth_hand_trans         = 0.001,
+                w_beta_prior                = 0.1,
+                w_obj_scale_prior           = 1.0,
+                n_gaussian_only_epochs      = 2,
+                seed                        = 0,
+                with_background             = True,
+                mask_background_to_black    = False,
+                balance_photometric_by_mask = False,
+                bg_ref_frame                = reference_frame,
+                lr_bg_gaussians             = 3e-2,
+                lr_bg_pose                  = 3e-3,
+                lr_bg_rot                   = 1e-2,
+                lr_bg_trans                 = 3e-3,
+                use_cosine_lr_schedule      = True,
+                cosine_lr_min_ratio         = 0.1,
+                coarse_init_scale_factor    = 1.0,
+                pose_confidence_decay       = 0.0,
+                pose_confidence_ref_frame   = reference_frame,
+                w_pose_init_prior           = 0.0,
+                rotation_search_n_candidates      = 0,
+                rotation_search_period            = 0,
+                rotation_search_local_frac        = 0.5,
+                rotation_search_local_max_deg     = 15.0,
+                rotation_search_silhouette_weight = 1.0,
+                rotation_search_smoothness_weight = 1.0,
+                use_l2_photometric                = False,
+                use_l2_silhouette                 = False,
+                pose_confidence_dynamic_tau       = 0.0,
+                train_resolution_scale            = 0.5,
+                n_obj_gaussians                   = 5000,
+                bg_max_points                     = 20000,
+                dev                         = dev,
+        )
+        if not _step("Gaussian-splat refinement (pass 1)",
+                     os.path.exists(refined_overlay)):
+            run_refine(**pass1_kwargs)
+
+        if refinement_second_pass:
+            sp_lr = float(refinement_second_pass_lr_scale)
+            sp_n  = (refinement_second_pass_epochs
+                     if refinement_second_pass_epochs is not None
+                     else max(8, pass1_kwargs["n_epochs"] // 2))
+            sp_bs = (refinement_second_pass_batch_size
+                     if refinement_second_pass_batch_size is not None
+                     else pass1_kwargs["batch_size"] * 4)
+            pass2_kwargs = {
+                **pass1_kwargs,
+                "n_epochs":                sp_n,
+                "batch_size":              sp_bs,
+                "n_gaussian_only_epochs":  0,
+                "checkpoint_path":         refine_checkpoint_pt_pass2,
+                "resume_from_checkpoint":  refine_checkpoint_pt,
+                "ignore_optimizer_state":  True,
+                "overlay_path":            refined_overlay_pass2,
+                "random_init_obj_pose":    False,
+                "lr_gaussians":          pass1_kwargs["lr_gaussians"]          * sp_lr,
+                "lr_hand_gaussians":     pass1_kwargs["lr_hand_gaussians"]     * sp_lr,
+                "lr_object_rot":         pass1_kwargs["lr_object_rot"]         * sp_lr,
+                "lr_object_trans":       pass1_kwargs["lr_object_trans"]       * sp_lr,
+                "lr_hand_global_orient": pass1_kwargs["lr_hand_global_orient"] * sp_lr,
+                "lr_hand_finger":        pass1_kwargs["lr_hand_finger"]        * sp_lr,
+                "lr_hand_trans":         pass1_kwargs["lr_hand_trans"]         * sp_lr,
+                "lr_bg_gaussians":       pass1_kwargs["lr_bg_gaussians"]       * sp_lr,
+                "lr_bg_rot":             pass1_kwargs["lr_bg_rot"]             * sp_lr,
+                "lr_bg_trans":           pass1_kwargs["lr_bg_trans"]           * sp_lr,
+                "lr_betas":              pass1_kwargs["lr_betas"]              * sp_lr,
+            }
+            if not _step("Gaussian-splat refinement (pass 2)",
+                         os.path.exists(refined_overlay_pass2)):
+                run_refine(**pass2_kwargs)
+
+        # Render refined hands + object using the aligned-overlay renderer
+        # so it's directly comparable to wilor_aligned_overlay.mp4.
+        learned_object_scale = 1.0
+        if os.path.exists(refined_object_scale_json):
+            with open(refined_object_scale_json) as f:
+                learned_object_scale = float(json.load(f).get("scale", 1.0))
+            print(f"  Loaded learned object scale: {learned_object_scale:.4f}")
+        if not _step("Render refined wilor overlay",
+                     os.path.exists(wilor_refined_overlay)):
+            run_render_hands_aligned_video(
+                frames_dir         = frames_dir,
+                aligned_dir        = refined_wilor_dir,
+                mano_assets_root   = mano_assets_root,
+                output_path        = wilor_refined_overlay,
+                object_mesh_path   = mesh_scaled,
+                object_poses_dir   = refined_poses_dir,
+                object_scale       = learned_object_scale,
+                dev                = dev,
+            )
+
+        _plot_pose_grad_from_checkpoint(
+            refine_checkpoint_pt,
+            f"{output_dir}/pose_grad.png",
         )
 
     print(f"\n{'='*60}")
@@ -563,8 +866,17 @@ def run_ego_wilor(
     print(f"  masks           : {masks_dir}/")
     print(f"  prompts_overlay : {prompts_overlay}")
     print(f"  masks_overlay   : {masks_overlay}")
-    print(f"  wilor (tracks)  : {wilor_tracks_dir}/")
-    print(f"  wilor_overlay   : {wilor_overlay}")
+    print(f"  wilor (raw tracks)           : {wilor_tracks_dir}/")
+    print(f"  wilor_overlay                : {wilor_overlay}")
+    print(f"  wilor_aligned                : {wilor_aligned_dir}/  (real only)")
+    print(f"  wilor_aligned_overlay        : {wilor_aligned_overlay}")
+    print(f"  wilor_aligned_filled         : {wilor_aligned_filled_dir}/  (real + interpolated)")
+    print(f"  wilor_aligned_filled_overlay : {wilor_aligned_filled_overlay}")
+    if run_refinement:
+        print(f"  poses_refined         : {refined_poses_dir}/")
+        print(f"  wilor_refined         : {refined_wilor_dir}/")
+        print(f"  refined_overlay       : {refined_overlay}")
+        print(f"  wilor_refined_overlay : {wilor_refined_overlay}")
     print(f"{'='*60}\n")
 
 
@@ -586,6 +898,17 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--min_iou", type=float, default=0.1,
                    help="Minimum silhouette-vs-mask IoU for a wilor detection "
                         "to be assigned to a SAM2 track in a given frame.")
+    p.add_argument("--mask_min_pixels", type=int, default=256,
+                   help="During depth alignment, frames whose intersection "
+                        "(rendered-MANO ∧ SAM2 hand mask) is below this "
+                        "pixel count keep cam_t unchanged (dz=0).")
+    p.add_argument("--interp_betas", default="fixed", choices=("fixed", "interp"),
+                   help="MANO shape (betas) policy during interpolation: "
+                        "'fixed' = median per track applied to every frame "
+                        "(real + interpolated); 'interp' = per-frame linear.")
+    p.add_argument("--interp_max_gap_frames", type=int, default=15,
+                   help="Skip interpolating when bracketing real detections "
+                        "are more than this many frames apart.")
     p.add_argument("--object_prompt", default=None,
                    help="Grounding-DINO text prompt for the held object "
                         "(e.g. 'blue cup'). When set, runs the full object "
@@ -596,6 +919,36 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--reregister_iou_thresh", type=float, default=0.3,
                    help="FoundationPose re-register-from-scratch IoU threshold "
                         "(0 to disable).")
+    p.add_argument("--run_refinement", action="store_true",
+                   help="After alignment, jointly refine hand+object poses via "
+                        "Gaussian splatting. Requires --object_prompt.")
+    p.add_argument("--refinement_render_every", type=int, default=25,
+                   help="Dump an overlay PNG of a reference frame every N "
+                        "optimizer steps during refinement (0 disables).")
+    p.add_argument("--refinement_resume", action="store_true",
+                   help="Resume gsplat refinement from "
+                        "<output_dir>/refine_checkpoint.pt if present.")
+    p.add_argument("--refinement_object_pose_only", action="store_true",
+                   help="Freeze Gaussians + hand pose + bg pose; only the "
+                        "object pose updates. Usually combined with "
+                        "--refinement_resume.")
+    p.add_argument("--refinement_random_init_obj_pose", action="store_true",
+                   help="Randomize per-frame object pose before training. "
+                        "Tests whether the optimizer can recover the pose "
+                        "from scratch.")
+    p.add_argument("--refinement_ignore_optimizer_state", action="store_true",
+                   help="When resuming, skip loading optimizer/LR-scheduler "
+                        "state — Adam moments reinit lazily.")
+    p.add_argument("--refinement_second_pass", action="store_true",
+                   help="After the first refinement, run a second polishing "
+                        "pass (resumes from pass-1's checkpoint, lower LRs, "
+                        "larger batch, no warmup).")
+    p.add_argument("--refinement_second_pass_lr_scale", type=float, default=0.3,
+                   help="Multiplier applied to every LR in pass 2.")
+    p.add_argument("--refinement_second_pass_epochs", type=int, default=None,
+                   help="Number of pass-2 epochs. Defaults to half of pass-1.")
+    p.add_argument("--refinement_second_pass_batch_size", type=int, default=None,
+                   help="Batch size for pass 2. Defaults to 4x pass-1.")
     p.add_argument("--dev", action="store_true")
     return p.parse_args()
 
@@ -613,10 +966,23 @@ if __name__ == "__main__":
         anycalib_weights        = args.anycalib_weights,
         moge_weights            = args.moge_weights,
         min_iou                 = args.min_iou,
+        mask_min_pixels         = args.mask_min_pixels,
+        interp_betas            = args.interp_betas,
+        interp_max_gap_frames   = args.interp_max_gap_frames,
         object_prompt           = args.object_prompt,
         grounding_dino_weights  = args.grounding_dino_weights,
         sam3d_weights           = args.sam3d_weights,
         foundation_pose_weights = args.foundation_pose_weights,
         reregister_iou_thresh   = args.reregister_iou_thresh,
+        run_refinement                    = args.run_refinement,
+        refinement_render_every           = args.refinement_render_every,
+        refinement_resume                 = args.refinement_resume,
+        refinement_object_pose_only       = args.refinement_object_pose_only,
+        refinement_random_init_obj_pose   = args.refinement_random_init_obj_pose,
+        refinement_ignore_optimizer_state = args.refinement_ignore_optimizer_state,
+        refinement_second_pass            = args.refinement_second_pass,
+        refinement_second_pass_lr_scale   = args.refinement_second_pass_lr_scale,
+        refinement_second_pass_epochs     = args.refinement_second_pass_epochs,
+        refinement_second_pass_batch_size = args.refinement_second_pass_batch_size,
         dev                     = args.dev,
     )
