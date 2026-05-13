@@ -24,8 +24,8 @@ train_overrides:
   # Frame range of the source motion to train on. -1 for motion_end_frame
   # means run to the end of the sequence.
   # Use replay_motion_viser.py to visualize the motion and get the frame range.
-  env.commands.motion.motion_start_frame: 250
-  env.commands.motion.motion_end_frame: 500
+  env.commands.motion.motion_start_frame: 300
+  env.commands.motion.motion_end_frame: -1
   env.episode_length_s: 5.0
   # Reset the shoulder spread to 0.2
   env.commands.motion.reset_shoulder_spread: 0.2

@@ -119,6 +119,58 @@ def build_train_command(
     return cmd
 
 
+def build_eval_command(
+    overrides: dict[str, Any],
+    *,
+    checkpoint: str | None = None,
+    seed: int | None = None,
+    motion_file: str | None = None,
+    num_envs: int | None = None,
+    video: bool = False,
+    video_length: int | None = None,
+    eval_episodes: int | None = None,
+    task: str = "Sharpa-V2P-v0",
+    logger: str | None = None,
+    log_project_name: str | None = None,
+    use_primitive_urdfs: bool = False,
+    real_time: bool = False,
+) -> list[str]:
+    """Build eval.py command as list of args.
+
+    Mirrors build_train_command but only forwards flags eval.py understands.
+    Hydra-style train_overrides are forwarded verbatim so configs can scope
+    e.g. motion_start_frame / motion_end_frame uniformly across train + eval.
+    """
+    cmd = [
+        "python",
+        "scripts/rsl_rl/eval.py",
+        "--video" if video else "",
+        "--use_primitive_urdfs" if use_primitive_urdfs else "",
+        "--real-time" if real_time else "",
+        "--task",
+        task,
+    ]
+    cmd = [c for c in cmd if c]
+    if checkpoint:
+        cmd.extend(["--checkpoint", checkpoint])
+    if seed is not None:
+        cmd.extend(["--seed", str(seed)])
+    if motion_file is not None:
+        cmd.extend(["--motion_file", motion_file])
+    if num_envs is not None:
+        cmd.extend(["--num_envs", str(num_envs)])
+    if video_length is not None:
+        cmd.extend(["--video_length", str(video_length)])
+    if eval_episodes is not None:
+        cmd.extend(["--eval_episodes", str(eval_episodes)])
+    if logger:
+        cmd.extend(["--logger", logger])
+    if log_project_name:
+        cmd.extend(["--log_project_name", log_project_name])
+    cmd.extend(overrides_to_cli(overrides))
+    return cmd
+
+
 def make_entry_script(
     run_name: str,
     overrides: dict[str, Any],
