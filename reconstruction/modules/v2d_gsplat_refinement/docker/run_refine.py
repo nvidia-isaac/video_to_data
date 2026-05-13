@@ -68,6 +68,7 @@ def run_refine(
     lr_bg_rot: float | None = None,
     lr_bg_trans: float | None = None,
     bg_max_points: int = 50000,
+    background_pose_init_dir: str | None = None,
     n_obj_gaussians: int | None = None,
     n_hand_gaussians: int | None = None,
     use_cosine_lr_schedule: bool = False,
@@ -116,6 +117,7 @@ def run_refine(
         "depth_dir":              depth_dir,
         "mano_assets_root":       mano_assets_root,
         "resume_from_checkpoint": resume_from_checkpoint,
+        "background_pose_init_dir": background_pose_init_dir,
     }.items():
         if v is not None:
             inputs[k] = v
@@ -295,6 +297,10 @@ if __name__ == "__main__":
     p.add_argument("--lr_bg_rot",           type=float, default=None)
     p.add_argument("--lr_bg_trans",         type=float, default=None)
     p.add_argument("--bg_max_points",       type=int,   default=50000)
+    p.add_argument("--background_pose_init_dir", default=None,
+                   help="Optional folder of per-frame Transform3d JSONs "
+                        "(cam-to-world; DROID/COLMAP convention) used to "
+                        "seed the background pose field.")
     p.add_argument("--n_obj_gaussians",     type=int,   default=None)
     p.add_argument("--n_hand_gaussians",    type=int,   default=None)
     p.add_argument("--use_cosine_lr_schedule", action="store_true")
@@ -391,6 +397,7 @@ if __name__ == "__main__":
         lr_bg_gaussians             = args.lr_bg_gaussians,
         lr_bg_pose                  = args.lr_bg_pose,
         bg_max_points               = args.bg_max_points,
+        background_pose_init_dir    = args.background_pose_init_dir,
         n_obj_gaussians             = args.n_obj_gaussians,
         n_hand_gaussians            = args.n_hand_gaussians,
         use_cosine_lr_schedule      = args.use_cosine_lr_schedule,

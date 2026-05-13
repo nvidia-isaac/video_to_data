@@ -11,6 +11,11 @@ Steps:
   0.  AnyCalib undistortion           [optional, --undistort]
   1.  Extract frames
   2.  MoGe depth + intrinsics         → depth/ + intrinsics_stable.json
+  2c. DROID-SLAM trajectory           [optional, --run_slam]
+                                       → slam_poses/<frame:06d>.json
+                                       (scale-aligned to MoGe depth; seeds
+                                       gsplat's background pose field
+                                       at step 15 when --run_refinement)
   3.  WiLoR over all frames           → wilor_raw/<frame:06d>.json
   4.  (Object) Grounding DINO          [only when --object_prompt is set]
   5.  Build SAM2 prompts (object + wilor ref-frame hands)
@@ -38,6 +43,8 @@ Output directory layout:
   ├── depth/                           # MoGe depth PNGs
   ├── intrinsics/                      # MoGe per-frame intrinsics JSONs
   ├── intrinsics_stable.json
+  ├── slam_poses/<frame:06d>.json      # [--run_slam] DROID-SLAM cam-to-world
+  ├── slam_trajectory.txt              # [--run_slam] TUM format
   ├── wilor_raw/<frame:06d>.json
   ├── hand_detections.json             # ref-frame slice of wilor_raw
   ├── sam2_prompts.json
@@ -103,6 +110,7 @@ from v2d.anycalib.docker.run_video_to_calibration import run_video_to_calibratio
 from v2d.common.datatypes import BoundingBox, Sam2Prompt, Sam2Prompts
 from v2d.common.utils import extract_images
 from v2d.depth.lib.stabilize_intrinsics import stabilize_intrinsics
+from v2d.droid_slam.docker.run_video_to_slam import run_video_to_slam
 from v2d.foundation_pose.docker.run_ekf_smoothing import run_ekf_smoothing
 from v2d.foundation_pose.docker.run_estimate_mesh_scale import run_estimate_mesh_scale
 from v2d.foundation_pose.docker.run_video_to_poses import run_video_to_poses
@@ -262,6 +270,8 @@ def run_ego_wilor(
     sam3d_weights: str = "data/weights/sam3d",
     foundation_pose_weights: str = "data/weights/foundation_pose",
     reregister_iou_thresh: float | None = 0.3,
+    run_slam: bool = False,
+    droid_slam_weights: str = "data/weights/droid_slam",
     run_refinement: bool = False,
     refinement_render_every: int = 25,
     refinement_resume: bool = False,
@@ -306,6 +316,8 @@ def run_ego_wilor(
     scale_path         = f"{output_dir}/scale.json"
     poses_dir          = f"{output_dir}/poses"
     poses_smooth_dir   = f"{output_dir}/poses_smoothed"
+    slam_poses_dir            = f"{output_dir}/slam_poses"
+    slam_trajectory           = f"{output_dir}/slam_trajectory.txt"
     # Hand outputs
     wilor_tracks_dir          = f"{output_dir}/wilor"
     wilor_overlay             = f"{output_dir}/wilor_overlay.mp4"
@@ -322,6 +334,7 @@ def run_ego_wilor(
     print(f"  reference_frame : {reference_frame}")
     print(f"  undistort       : {undistort}")
     print(f"  object_prompt   : {object_prompt}")
+    print(f"  run_slam        : {run_slam}")
     print(f"  min_iou         : {min_iou}")
     print(f"{'='*60}\n")
 
@@ -360,6 +373,24 @@ def run_ego_wilor(
         )
     if not _step("Stabilise intrinsics", os.path.exists(intrinsics_stable)):
         stabilize_intrinsics(intrinsics_dir, intrinsics_stable)
+
+    # 2c. Optional DROID-SLAM ----------------------------------------------
+    # Per-frame camera-to-world Transform3d JSONs. Scale-aligned to MoGe
+    # depth so the trajectory is in metric units consistent with the rest of
+    # the pipeline. Used downstream to seed gsplat's background pose field
+    # (see step 15) — the identity-init basin in gsplat is only good for
+    # near-static cameras; ego sequences need this seed.
+    if run_slam:
+        if not _step("DROID-SLAM trajectory", _has_files(slam_poses_dir)):
+            run_video_to_slam(
+                video_path            = video_path,
+                poses_folder          = slam_poses_dir,
+                weights_path          = droid_slam_weights,
+                input_intrinsics_path = intrinsics_stable,
+                align_to_depth_folder = depth_dir,
+                trajectory_path       = slam_trajectory,
+                dev                   = dev,
+            )
 
     # 3. WiLoR over all frames -----------------------------------------------
     if not _step("WiLoR per-frame detection + MANO",
@@ -766,6 +797,10 @@ def run_ego_wilor(
                 n_gaussian_only_epochs      = 2,
                 seed                        = 0,
                 with_background             = True,
+                # Seed bg pose from DROID-SLAM (when --run_slam). Without
+                # this, BackgroundPoseField identity-inits, which is a tiny
+                # basin for moving cameras.
+                background_pose_init_dir    = slam_poses_dir if run_slam else None,
                 mask_background_to_black    = False,
                 balance_photometric_by_mask = False,
                 bg_ref_frame                = reference_frame,
@@ -872,6 +907,9 @@ def run_ego_wilor(
     print(f"  wilor_aligned_overlay        : {wilor_aligned_overlay}")
     print(f"  wilor_aligned_filled         : {wilor_aligned_filled_dir}/  (real + interpolated)")
     print(f"  wilor_aligned_filled_overlay : {wilor_aligned_filled_overlay}")
+    if run_slam:
+        print(f"  slam_poses                   : {slam_poses_dir}/")
+        print(f"  slam_trajectory              : {slam_trajectory}")
     if run_refinement:
         print(f"  poses_refined         : {refined_poses_dir}/")
         print(f"  wilor_refined         : {refined_wilor_dir}/")
@@ -919,6 +957,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--reregister_iou_thresh", type=float, default=0.3,
                    help="FoundationPose re-register-from-scratch IoU threshold "
                         "(0 to disable).")
+    p.add_argument("--run_slam", action="store_true",
+                   help="Run DROID-SLAM after MoGe (scale-aligned to MoGe "
+                        "depth). Per-frame Transform3d JSONs go to "
+                        "<output_dir>/slam_poses/. When combined with "
+                        "--run_refinement, they seed gsplat's background "
+                        "pose field (critical for moving cameras).")
+    p.add_argument("--droid_slam_weights", default="data/weights/droid_slam",
+                   help="DROID-SLAM weights dir (used only with --run_slam).")
     p.add_argument("--run_refinement", action="store_true",
                    help="After alignment, jointly refine hand+object poses via "
                         "Gaussian splatting. Requires --object_prompt.")
@@ -974,6 +1020,8 @@ if __name__ == "__main__":
         sam3d_weights           = args.sam3d_weights,
         foundation_pose_weights = args.foundation_pose_weights,
         reregister_iou_thresh   = args.reregister_iou_thresh,
+        run_slam                = args.run_slam,
+        droid_slam_weights      = args.droid_slam_weights,
         run_refinement                    = args.run_refinement,
         refinement_render_every           = args.refinement_render_every,
         refinement_resume                 = args.refinement_resume,

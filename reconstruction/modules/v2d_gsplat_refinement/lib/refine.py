@@ -90,6 +90,80 @@ from .render import render_rgb_depth
 
 
 # ---------------------------------------------------------------------------
+# Background pose seeding (external VO/SfM init)
+# ---------------------------------------------------------------------------
+
+
+def _seed_background_pose_field(
+    bg_pose_field,                          # BackgroundPoseField
+    frame_indices: list[int],
+    ref_t: int,
+    poses_dir: str,
+) -> tuple[int, int]:
+    """Overwrite bg_pose_field.{axis_angle, translation} from a Transform3d dir.
+
+    ``poses_dir`` contains per-frame ``<frame_idx:06d>.json`` files in DROID's
+    camera-to-world convention. gsplat's "world" is the reference frame's
+    camera frame, so we rebase:
+
+        T_w2c_gsplat(t) = T_cw(t)^-1 @ T_cw(ref)
+
+    Missing or unreadable frames keep the identity (zeros) init.
+    Frames whose ``Transform3d.scale`` differs from 1 are skipped — caller
+    should pass a scale-aligned trajectory.
+    """
+    from v2d.common.datatypes import Transform3d
+    from .pose_fields import _quat_to_axis_angle
+
+    ref_fidx = frame_indices[ref_t]
+    ref_path = os.path.join(poses_dir, f"{ref_fidx:06d}.json")
+    if not os.path.exists(ref_path):
+        raise FileNotFoundError(
+            f"background_pose_init_dir is set but reference-frame pose "
+            f"{ref_path} does not exist. The relative-pose composition needs "
+            f"the reference frame to anchor the gsplat world frame."
+        )
+    M_ref = Transform3d.load(ref_path).to_matrix()         # cam→world (DROID)
+    M_ref_inv = np.linalg.inv(M_ref)                       # world→cam (DROID)
+
+    device = bg_pose_field.axis_angle.device
+    aa_init = bg_pose_field.axis_angle.detach().clone()    # (T, 3) zeros
+    tr_init = bg_pose_field.translation.detach().clone()    # (T, 3) zeros
+
+    n_loaded = 0
+    n_missing = 0
+    for t, fidx in enumerate(frame_indices):
+        if t == ref_t:
+            n_loaded += 1
+            continue
+        path = os.path.join(poses_dir, f"{fidx:06d}.json")
+        if not os.path.exists(path):
+            n_missing += 1
+            continue
+        tf = Transform3d.load(path)
+        if any(abs(s - 1.0) > 1e-3 for s in tf.scale):
+            n_missing += 1
+            continue
+        M_cw_t = tf.to_matrix()                            # cam→world
+        # T_w2c_gsplat = T_cw(t)^-1 @ T_cw(ref)
+        M_w2c_gsplat = np.linalg.inv(M_cw_t) @ M_ref
+        R = torch.from_numpy(M_w2c_gsplat[:3, :3]).to(device, dtype=torch.float32)
+        t_vec = torch.from_numpy(M_w2c_gsplat[:3, 3]).to(device, dtype=torch.float32)
+        # rotmat → quat (w,x,y,z) → axis-angle (3,)
+        from .gaussians import rotmat_to_quat
+        q = rotmat_to_quat(R)
+        aa = _quat_to_axis_angle(q)
+        aa_init[t] = aa
+        tr_init[t] = t_vec
+        n_loaded += 1
+
+    with torch.no_grad():
+        bg_pose_field.axis_angle.data.copy_(aa_init)
+        bg_pose_field.translation.data.copy_(tr_init)
+    return n_loaded, n_missing
+
+
+# ---------------------------------------------------------------------------
 # Containers
 # ---------------------------------------------------------------------------
 
@@ -273,6 +347,16 @@ def refine(
     lr_bg_rot: float | None = None,              # axis_angle; falls back to lr_bg_pose
     lr_bg_trans: float | None = None,            # translation; falls back to lr_bg_pose
     bg_max_points: int = 50000,
+    # Optional: seed the background pose field with an external VO/SfM solution
+    # (e.g. DROID-SLAM). Folder of per-frame `Transform3d` JSONs encoding
+    # camera-to-world SE(3) (DROID/COLMAP convention). When set, after
+    # BackgroundPoseField construction we replace the identity init with
+    # T_w2c_gsplat(t) = T_cw(t)^-1 @ T_cw(ref) so the ref frame stays identity
+    # and other frames carry the relative motion. Missing/unreadable frames
+    # fall back to identity. Frames whose `Transform3d.scale` differs from 1
+    # are ignored — pass a scale-aligned trajectory (e.g. via DROID's
+    # --align_to_depth_folder).
+    background_pose_init_dir: str | None = None,
     n_obj_gaussians: int | None = None,    # None = use mesh vertex count as-is
     n_hand_gaussians: int | None = None,   # None = use 778 (full MANO verts);
                                              # smaller subsamples; >778 ignored
@@ -529,6 +613,13 @@ def refine(
         bg_pose_field = BackgroundPoseField(
             n_frames=len(frame_indices), device=device, ref_frame_t=ref_t
         ).to(device)
+
+        if background_pose_init_dir is not None:
+            n_loaded, n_missing = _seed_background_pose_field(
+                bg_pose_field, frame_indices, ref_t, background_pose_init_dir,
+            )
+            print(f"Background pose seeded from {background_pose_init_dir}: "
+                  f"{n_loaded} frames loaded, {n_missing} fell back to identity.")
 
     # ----- optimizer --------------------------------------------------------
     # Per-attribute LR groups (multipliers shared across object / hand / bg
@@ -1801,6 +1892,14 @@ def main() -> None:
     p.add_argument("--lr_bg_trans",         type=float, default=None)
     p.add_argument("--bg_max_points",       type=int,   default=50000,
                    help="Subsample background point cloud to this size.")
+    p.add_argument("--background_pose_init_dir", default=None,
+                   help="Optional folder of per-frame `Transform3d` JSONs "
+                        "(camera-to-world; DROID/COLMAP convention) used "
+                        "to seed the background pose field. With this set, "
+                        "non-reference frames start at the relative pose "
+                        "implied by the VO/SfM solution instead of identity, "
+                        "which is the right basin for moving/egocentric "
+                        "cameras.")
     p.add_argument("--n_obj_gaussians",     type=int,   default=None,
                    help="Resample the object mesh surface to exactly this "
                         "many Gaussians. Default uses the mesh's vertex "
@@ -1980,6 +2079,7 @@ def main() -> None:
         lr_bg_rot                   = args.lr_bg_rot,
         lr_bg_trans                 = args.lr_bg_trans,
         bg_max_points               = args.bg_max_points,
+        background_pose_init_dir    = args.background_pose_init_dir,
         n_obj_gaussians             = args.n_obj_gaussians,
         n_hand_gaussians            = args.n_hand_gaussians,
         use_cosine_lr_schedule      = args.use_cosine_lr_schedule,
