@@ -35,6 +35,7 @@ from robotic_grounding.tasks.v2p_whole_body.mdp.terminations import (
     ee_quat_error,
     object_pos_error,
     object_quat_error,
+    timestep_termination,
 )
 
 POLICY_DIR = f"{POLICY_ASSET_DIR}/sonic"
@@ -315,7 +316,11 @@ class G1SonicRewardsCfg:
 class G1SonicTerminationsCfg:
     """Shared termination config."""
 
-    timeout = DoneTerm(func=il_mdp.time_out, time_out=True)
+    timeout = DoneTerm(
+        func=timestep_termination,
+        params={"command_name": "motion"},
+        time_out=True,
+    )
     anchor_pos_error = DoneTerm(
         func=anchor_pos_error,
         params={"command_name": "motion", "threshold": 0.70},

@@ -75,6 +75,18 @@ parser.add_argument(
     help="Motion file to load.",
 )
 parser.add_argument(
+    "--motion_start_frame",
+    type=int,
+    default=None,
+    help="First frame of the source motion to use (inclusive). 0 = beginning.",
+)
+parser.add_argument(
+    "--motion_end_frame",
+    type=int,
+    default=None,
+    help="One past the last frame to use. -1 means end of sequence.",
+)
+parser.add_argument(
     "--wandb_id",
     type=str,
     default=None,
@@ -149,6 +161,27 @@ from isaaclab_tasks.utils.hydra import hydra_task_config
 # PLACEHOLDER: Extension template (do not remove this comment)
 
 
+def _apply_eval_defaults(env_cfg) -> None:
+    """Force deterministic eval behaviour: frame 0 reset, VOC fully off.
+
+    Eval should reproduce the policy's behaviour against the reference
+    trajectory, not exercise the training-time exploration helpers. We:
+    - Reset every env to frame 0 (`always_reset_to_first_frame`).
+    - Zero out the virtual-object-control scale + reset target so the policy
+      drives the object on its own.
+    - Disable the curriculum entirely so it cannot bump VOC back up the way
+      it does at training step 0 (see G1SonicReconBodyVOCCurriculumCfg).
+    """
+    if hasattr(env_cfg, "commands") and hasattr(env_cfg.commands, "motion"):
+        motion_cfg = env_cfg.commands.motion
+        motion_cfg.always_reset_to_first_frame = True
+        motion_cfg.initial_virtual_object_control_curriculum_scale = 0.0
+        motion_cfg.voc_reset_scale = 0.0
+        motion_cfg.voc_decay_steps = 0
+    if hasattr(env_cfg, "curriculum"):
+        env_cfg.curriculum = None
+
+
 @hydra_task_config(args_cli.task, args_cli.agent)
 def main(
     env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg,
@@ -181,6 +214,16 @@ def main(
             env_cfg, scene_config, use_primitive_urdfs=args_cli.use_primitive_urdfs
         )
         autoframe_viewer(env_cfg, scene_config.motion_file)
+
+    # Apply optional motion frame range overrides.
+    if hasattr(env_cfg, "commands") and hasattr(env_cfg.commands, "motion"):
+        if args_cli.motion_start_frame is not None:
+            env_cfg.commands.motion.motion_start_frame = args_cli.motion_start_frame
+        if args_cli.motion_end_frame is not None:
+            env_cfg.commands.motion.motion_end_frame = args_cli.motion_end_frame
+
+    # Eval-mode safety: deterministic reset + VOC off.
+    _apply_eval_defaults(env_cfg)
 
     # set the environment seed
     # note: certain randomizations occur in the environment initialization so we set the seed here

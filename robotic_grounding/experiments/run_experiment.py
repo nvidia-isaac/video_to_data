@@ -43,6 +43,7 @@ from experiments.utils import (  # noqa: E402
     DEFAULT_OSMO_IMAGE_REPO,
     DEFAULT_OSMO_PIPELINE_IMAGE,
     DEFAULT_WANDB_ENTITY,
+    build_eval_command,
     build_train_command,
     make_entry_script,
     overrides_to_cli,
@@ -102,15 +103,29 @@ def get_effective_overrides(
 
 
 def run_local(
-    exp_id: str, config: dict, variant: str | None = None, dry_run: bool = False
+    exp_id: str,
+    config: dict,
+    variant: str | None = None,
+    dry_run: bool = False,
+    *,
+    num_envs_override: int | None = None,
+    max_iterations_override: int | None = None,
+    logger_override: str | None = None,
+    extra_overrides: dict[str, str] | None = None,
 ) -> int:
     """Run experiment locally via train.py."""
     run_name = config.get("run_name", f"{exp_id}_run")
     overrides = dict(config.get("train_overrides", {}))
+    if extra_overrides:
+        overrides.update(extra_overrides)
     resume_from = config.get("resume_from")
     seed = config.get("seed")
     motion_file = config.get("motion_file")
-    max_iterations = config.get("max_iterations")
+    max_iterations = (
+        max_iterations_override
+        if max_iterations_override is not None
+        else config.get("max_iterations")
+    )
     # Stage 1 (osmo_multi_task): pick first sequence, derive motion_file.
     if "osmo_multi_task" in config:
         seq_ids = config["osmo_multi_task"].get("sequence_ids", [])
@@ -153,7 +168,10 @@ def run_local(
             print(f"[WARNING] No workflow.py found for {exp_id}; variant flag ignored.")
 
     video = config.get("video", True)
-    num_envs = config.get("num_envs")
+    num_envs = (
+        num_envs_override if num_envs_override is not None else config.get("num_envs")
+    )
+    logger = logger_override if logger_override is not None else config.get("logger")
     cmd = build_train_command(
         run_name,
         overrides,
@@ -164,9 +182,60 @@ def run_local(
         max_iterations=max_iterations,
         video=video,
         task=config.get("task", "Sharpa-V2P-v0"),
-        logger=config.get("logger"),
+        logger=logger,
         log_project_name=config.get("log_project_name"),
         zero_actor=config.get("zero_actor", False),
+    )
+    cmd_str = " ".join(cmd)
+    print(f"Running: {cmd_str}")
+    if dry_run:
+        return 0
+    result = subprocess.run(cmd_str, shell=True, check=False)
+    return result.returncode
+
+
+def run_eval(
+    exp_id: str,
+    config: dict,
+    *,
+    checkpoint: str | None = None,
+    num_envs: int | None = None,
+    video: bool = False,
+    video_length: int | None = None,
+    eval_episodes: int | None = None,
+    real_time: bool = False,
+    extra_overrides: dict[str, str] | None = None,
+    dry_run: bool = False,
+) -> int:
+    """Run eval.py for the given experiment using its config.yaml as source of truth.
+
+    Pulls motion_file, task, and the same train_overrides block used by training
+    so train + eval stay in sync (frame range, freeze steps, etc.). CLI flags
+    layered on top via run_experiment.py override config values.
+    """
+    motion_file = config.get("motion_file")
+    overrides = dict(config.get("train_overrides", {}))
+    if extra_overrides:
+        overrides.update(extra_overrides)
+
+    if num_envs is None:
+        num_envs = config.get("num_envs")
+    seed = config.get("seed")
+
+    cmd = build_eval_command(
+        overrides,
+        checkpoint=checkpoint,
+        seed=seed,
+        motion_file=motion_file,
+        num_envs=num_envs,
+        video=video,
+        video_length=video_length,
+        eval_episodes=eval_episodes,
+        task=config.get("task", "Sharpa-V2P-v0"),
+        logger=config.get("logger"),
+        log_project_name=config.get("log_project_name"),
+        use_primitive_urdfs=config.get("use_primitive_urdfs", False),
+        real_time=real_time,
     )
     cmd_str = " ".join(cmd)
     print(f"Running: {cmd_str}")
@@ -967,6 +1036,44 @@ def main() -> None:
     parser.add_argument("--local", action="store_true", help="Run locally via train.py")
     parser.add_argument("--osmo", action="store_true", help="Submit to OSMO")
     parser.add_argument(
+        "--eval",
+        action="store_true",
+        help="Run eval.py locally with the experiment's motion_file + train_overrides.",
+    )
+    parser.add_argument(
+        "--checkpoint",
+        default=None,
+        help="(--eval) Path to the policy checkpoint to evaluate.",
+    )
+    parser.add_argument(
+        "--num-envs",
+        type=int,
+        default=None,
+        help="(--eval) Override num_envs from config.",
+    )
+    parser.add_argument(
+        "--video",
+        action="store_true",
+        help="(--eval) Record an evaluation video.",
+    )
+    parser.add_argument(
+        "--video-length",
+        type=int,
+        default=None,
+        help="(--eval) Number of steps in the recorded video.",
+    )
+    parser.add_argument(
+        "--eval-episodes",
+        type=int,
+        default=None,
+        help="(--eval) Stop after this many completed episodes and print stats.",
+    )
+    parser.add_argument(
+        "--real-time",
+        action="store_true",
+        help="(--eval) Run eval at real time, sleeping between sim steps.",
+    )
+    parser.add_argument(
         "--wandb-sweep-create",
         action="store_true",
         help="Create wandb sweep config (exp6 only)",
@@ -1018,6 +1125,26 @@ def main() -> None:
         default="",
         help="Label appended to the OSMO workflow name for descriptive identification (e.g. 'init', 'rerun_2')",
     )
+    parser.add_argument(
+        "--max-iterations",
+        type=int,
+        default=None,
+        help="(--local) Override max_iterations from config (useful for smoke tests).",
+    )
+    parser.add_argument(
+        "--logger",
+        default=None,
+        help="(--local) Override logger from config, e.g. tensorboard for offline smoke tests.",
+    )
+    parser.add_argument(
+        "-O",
+        "--override",
+        action="append",
+        default=[],
+        metavar="KEY=VAL",
+        help="Hydra-style override appended to train_overrides / eval overrides. Repeatable. "
+        "Example: -O env.episode_length_s=2.0 -O env.commands.motion.voc_decay_steps=2",
+    )
     args = parser.parse_args()
 
     if args.list:
@@ -1036,6 +1163,7 @@ def main() -> None:
     if (
         not args.local
         and not args.osmo
+        and not args.eval
         and not args.wandb_sweep_create
         and not args.print_workflow
     ):
@@ -1048,6 +1176,13 @@ def main() -> None:
     if args.run_name_prefix is not None:
         config["run_name_prefix"] = args.run_name_prefix
 
+    extra_overrides: dict[str, str] = {}
+    for item in args.override:
+        if "=" not in item:
+            parser.error(f"--override expects KEY=VAL, got: {item!r}")
+        k, v = item.split("=", 1)
+        extra_overrides[k.strip()] = v.strip()
+
     if args.print_workflow:
         _print_workflow(args.exp_id, config)
         return
@@ -1057,9 +1192,33 @@ def main() -> None:
         run_pipeline(args.exp_id, config, args)
         return
 
+    if args.eval:
+        sys.exit(
+            run_eval(
+                args.exp_id,
+                config,
+                checkpoint=args.checkpoint,
+                num_envs=args.num_envs,
+                video=args.video,
+                video_length=args.video_length,
+                eval_episodes=args.eval_episodes,
+                real_time=args.real_time,
+                extra_overrides=extra_overrides or None,
+                dry_run=args.dry_run,
+            )
+        )
     if args.local:
         sys.exit(
-            run_local(args.exp_id, config, variant=args.variant, dry_run=args.dry_run)
+            run_local(
+                args.exp_id,
+                config,
+                variant=args.variant,
+                dry_run=args.dry_run,
+                num_envs_override=args.num_envs,
+                max_iterations_override=args.max_iterations,
+                logger_override=args.logger,
+                extra_overrides=extra_overrides or None,
+            )
         )
     elif args.osmo:
         # Use --build-image from CLI, or osmo.build_image from config (e.g. exp9 needs it for contact_force)

@@ -11,11 +11,13 @@ stage2: example_stage2
 two_stage: example_two_stage
 
 # Whole-body experiments:
+recon_body_corn_can_right_left_handover_01: recon_body_corn_can_right_left_handover_01
 recon_body_apple: recon_body_apple_pick
 recon_body_shalin_bottle_1: recon_body_shalin_bottle_1
 recon_body_snack_box_pick_and_place_01: recon_body_snack_box_pick_and_place_01
 recon_body_dark_blue_book_pick_handover_place_02: recon_body_dark_blue_book_pick_handover_place_02
 recon_body_blue_trash_can_drag_007: recon_body_blue_trash_can_drag_007
+recon_body_sit_skinny_wood_chair_01: recon_body_sit_skinny_wood_chair_01
 
 # Private experiments: create experiments/registry.local.yaml (gitignored) with your entries:
 # exp41: exp41_my_experiment
