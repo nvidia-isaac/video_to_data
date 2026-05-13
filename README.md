@@ -27,6 +27,15 @@ Monorepo for **Video to Data (V2D)** — an end-to-end pipeline that converts hu
 | [`reconstruction/`](reconstruction/) | Video → depth, masks, meshes, 6D poses, human body. 18 containerized modules + multi-view pipelines. | Docker (per-module images) |
 | [`robotic_grounding/`](robotic_grounding/) | RL training on NVIDIA Isaac Lab 2.3.1 with RSL-RL (PPO); motion retargeting utilities. | Docker (`nvcr.io/nvstaging/isaac-amr`) |
 
+## Working With Coding Agents
+
+This monorepo is friendly to coding agents when tasks are scoped to one package
+and heavyweight GPU/Docker steps are called out explicitly. Start with
+[`AGENTS.md`](AGENTS.md) for repo-wide instructions and
+[`docs/agentic_readiness.md`](docs/agentic_readiness.md) for guidance on what to
+ask agents to do, what needs human confirmation, and which validation commands
+fit each package.
+
 ## Prerequisites
 
 - Docker with GPU support ([install](https://docs.docker.com/engine/install/ubuntu/))
@@ -67,7 +76,7 @@ See [video_ingestion_agent/README.md](video_ingestion_agent/README.md) for hardw
 cd reconstruction
 
 # Install host-side orchestration wrappers (lightweight, no ML deps)
-./scripts/install_pacakages.sh
+./scripts/install_packages.sh
 
 # Build per-module Docker images
 ./scripts/build_containers.sh

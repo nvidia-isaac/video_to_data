@@ -61,7 +61,8 @@ Example: `[video_ingestion] retrieval: cap relaxation depth at 4 levels`.
 
 ## Architecture conventions
 
-Documented in **`docs/pages/development.rst`** and **`CLAUDE.md`**.
+Documented in **`docs/pages/development.rst`** and the repo-level
+**`../AGENTS.md`**.
 Highlights:
 
 - LangGraph state graphs are the source of truth for ingestion +
