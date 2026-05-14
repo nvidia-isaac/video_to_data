@@ -3,11 +3,6 @@
 Builds a 4-part trajectory: hold nominal → interpolate → hold start → reference.
 """
 
-# ruff: noqa: ANN001, ANN201, ANN202, ANN204, D102, D103, D107, D417
-# Planner is still in active development and this file is likely to change
-# significantly with the new groot planner. Suppress annotation/docstring
-# lint for now; real code issues are fixed individually.
-
 from __future__ import annotations
 
 import numpy as np

@@ -16,11 +16,6 @@ Quaternions use the wxyz convention throughout, matching the on-disk motion
 schema.
 """
 
-# ruff: noqa: ANN001, ANN201, ANN202, ANN204, D102, D103, D107, D417
-# Planner is still in active development and this file is likely to change
-# significantly with the new groot planner. Suppress annotation/docstring
-# lint for now; real code issues are fixed individually.
-
 from __future__ import annotations
 
 import numpy as np
@@ -97,10 +92,12 @@ def fix_quat_wxyz(q_wxyz: np.ndarray, r_fix: Rotation) -> np.ndarray:
 
 
 def quat_conj(q: np.ndarray) -> np.ndarray:
+    """Return the conjugate of a wxyz quaternion (negate the vector part)."""
     return np.stack([q[..., 0], -q[..., 1], -q[..., 2], -q[..., 3]], axis=-1)
 
 
 def quat_mul(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
+    """Hamilton product of two wxyz quaternions, broadcast over batch dims."""
     w1, x1, y1, z1 = q1[..., 0], q1[..., 1], q1[..., 2], q1[..., 3]
     w2, x2, y2, z2 = q2[..., 0], q2[..., 1], q2[..., 2], q2[..., 3]
     return np.stack(
@@ -115,6 +112,7 @@ def quat_mul(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
 
 
 def quat_rotate(q: np.ndarray, v: np.ndarray) -> np.ndarray:
+    """Rotate vector ``v`` by wxyz quaternion ``q`` (q v q*)."""
     vq = np.concatenate([np.zeros_like(v[..., :1]), v], axis=-1)
     return quat_mul(quat_mul(q, vq), quat_conj(q))[..., 1:]
 
@@ -262,6 +260,7 @@ def compute_heading_toward_object(
         left_pos: (T, 3) left wrist positions.
         right_pos: (T, 3) right wrist positions.
         obj_pos: (T, 3) object positions, or None.
+        frame_index: Reference frame to read positions from (clipped to range).
 
     Returns:
         Heading angle in radians.

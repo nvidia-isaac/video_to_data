@@ -11,16 +11,12 @@ Usage:
         --output /path/to/planner_processed
 """
 
-# ruff: noqa: ANN001, ANN201, ANN202, ANN204, D102, D103, D107, D417
-# Planner is still in active development and this file is likely to change
-# significantly with the new groot planner. Suppress annotation/docstring
-# lint for now; real code issues are fixed individually.
-
 from __future__ import annotations
 
 import argparse
 import os
 from pathlib import Path
+from typing import Any
 
 import mujoco
 import numpy as np
@@ -138,7 +134,9 @@ def get_nominal_ee(xml_path: str) -> dict:
     }
 
 
-def _trim_motion_data_range(motion, start_frame: int, end_frame: int | None = None):
+def _trim_motion_data_range(
+    motion: Any, start_frame: int, end_frame: int | None = None
+) -> Any:
     """Keep a frame range from every frame-major motion field."""
     if start_frame <= 0 and end_frame is None:
         return motion
@@ -167,7 +165,7 @@ def _trim_motion_data_range(motion, start_frame: int, end_frame: int | None = No
 
 
 def _hand_object_contact_frame_bounds(
-    motion, threshold: float = 1e-5
+    motion: Any, threshold: float = 1e-5
 ) -> tuple[int | None, int | None]:
     """Return first/last frames with any nonzero hand-object contact point."""
     first: int | None = None
@@ -191,23 +189,25 @@ def _hand_object_contact_frame_bounds(
     return first, last
 
 
-def _first_hand_object_contact_frame(motion, threshold: float = 1e-5) -> int | None:
+def _first_hand_object_contact_frame(
+    motion: Any, threshold: float = 1e-5
+) -> int | None:
     """Return the first frame with any nonzero hand-object contact point."""
     first, _ = _hand_object_contact_frame_bounds(motion, threshold)
     return first
 
 
 def load_v2p_reference(
-    parquet_folder,
-    filters,
-    trajectory_id=0,
-    target_fps=100.0,
-    robot_type="sharpa",
-    start_frame=0,
-    start_at_first_contact=False,
-    pre_contact_frames=0,
-    end_after_last_contact_frames=-1,
-):
+    parquet_folder: str,
+    filters: list,
+    trajectory_id: int = 0,
+    target_fps: float = 100.0,
+    robot_type: str = "sharpa",
+    start_frame: int = 0,
+    start_at_first_contact: bool = False,
+    pre_contact_frames: int = 0,
+    end_after_last_contact_frames: int = -1,
+) -> dict[str, Any]:
     """Load and interpolate V2P retargeted reference data."""
     if robot_type == "sharpa":
         data_class = ManoSharpaData
@@ -326,7 +326,7 @@ G1_BODY_JOINT_NAMES = [
 ]
 
 
-def build_body_joint_mapping(model):
+def build_body_joint_mapping(model: mujoco.MjModel) -> dict[int, int]:
     """Map 29 body DOFs to combined model qpos indices."""
     mapping = {}
     for dof_idx, jname in enumerate(G1_BODY_JOINT_NAMES):
@@ -336,7 +336,7 @@ def build_body_joint_mapping(model):
     return mapping
 
 
-def build_finger_mapping(model, joint_names):
+def build_finger_mapping(model: mujoco.MjModel, joint_names: list[str]) -> list[int]:
     """Map finger joint names to model qpos indices."""
     result = []
     for jname in joint_names:
@@ -373,12 +373,12 @@ def _wrist_ee_error_from_qpos(
 
 
 def _root_fix_component_set(
-    components=(),
+    components: tuple[str, ...] | list[str] = (),
     *,
-    fix_root_pos=False,
-    fix_root_rot=False,
-    fix_root_z=False,
-    fix_root_rp=False,
+    fix_root_pos: bool = False,
+    fix_root_rot: bool = False,
+    fix_root_z: bool = False,
+    fix_root_rp: bool = False,
 ) -> set[str]:
     """Merge the generalized root component list with legacy root flags."""
     result = set(components or ())
@@ -415,17 +415,17 @@ def _root_wxyz_with_fixed_components(
 
 
 def build_full_qpos(
-    planned_qpos,
-    ref_data,
-    model,
-    T_save,
-    fix_lower_body=False,
-    fix_root_pos=False,
-    fix_root_rot=False,
-    fix_root_z=False,
-    fix_root_rp=False,
-    fix_root_components=(),
-):
+    planned_qpos: np.ndarray,
+    ref_data: dict[str, Any],
+    model: mujoco.MjModel,
+    T_save: int,
+    fix_lower_body: bool = False,
+    fix_root_pos: bool = False,
+    fix_root_rot: bool = False,
+    fix_root_z: bool = False,
+    fix_root_rp: bool = False,
+    fix_root_components: tuple[str, ...] | list[str] = (),
+) -> tuple[np.ndarray, dict[int, int], list[int], list[int]]:
     """Combine planned body + reference fingers + (optionally fixed) parts."""
     nq = model.nq
     full_qpos = np.zeros((T_save, nq), dtype=np.float32)
@@ -472,14 +472,14 @@ def build_full_qpos(
 
 
 def save_planner_parquet(
-    output_dir,
-    full_qpos,
-    ref_data,
-    model,
-    ref_raw,
-    robot_type,
-    sequence_id,
-):
+    output_dir: str,
+    full_qpos: np.ndarray,
+    ref_data: dict[str, Any],
+    model: mujoco.MjModel,
+    ref_raw: dict[str, Any],
+    robot_type: str,
+    sequence_id: str,
+) -> int:
     """Save planner output as a `motion_v1` Hive-partitioned parquet.
 
     Embeds: body qpos (from planner), EE/object/finger/contact data (from V2P).
@@ -858,7 +858,8 @@ def save_planner_parquet(
 # -- CLI -----------------------------------------------------------------------
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
+    """Build the planner CLI parser and return the parsed namespace."""
     parser = argparse.ArgumentParser(description="G1 whole-body planner")
     parser.add_argument("--robot", choices=["sharpa", "dex3"], default="sharpa")
     parser.add_argument("--v2p_parquet", required=True)
@@ -987,7 +988,8 @@ def parse_args():
     return parser.parse_args()
 
 
-def main():
+def main() -> None:
+    """Run the full planner pipeline end-to-end from the CLI args."""
     args = parse_args()
     hold_start_s = 0.0 if args.no_approach else args.hold_start_s
     interp_s = 0.0 if args.no_approach else args.interp_s
@@ -1071,7 +1073,17 @@ def main():
     vis_xml = hand_xml if os.path.exists(hand_xml) else scene_xml
     model = mujoco.MjModel.from_xml_path(vis_xml)
 
-    def _plan_one_offset(delta_yaw_offset_rad: float):
+    def _plan_one_offset(
+        delta_yaw_offset_rad: float,
+    ) -> tuple[
+        dict[str, Any],
+        tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        int,
+        float,
+    ]:
         """Run Steps 3-7 for a single heading offset and return outputs + score.
 
         Returns ``(ref_data, traj_tuple, qpos_full, mfm_ref, full_qpos,
