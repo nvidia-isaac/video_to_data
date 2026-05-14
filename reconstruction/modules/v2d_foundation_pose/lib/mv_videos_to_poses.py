@@ -484,17 +484,17 @@ def _render_tiled_debug_video(
                 border_color = (255, 0, 0)
             h, w = vis.shape[:2]
             cv2.rectangle(vis, (0, 0), (w - 1, h - 1), border_color, border_width)
+            frame_text = f"Frame {i}"
+            (tw, th), _ = cv2.getTextSize(frame_text, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)
+            cv2.putText(
+                vis, frame_text, (vis.shape[1] - tw - 10, th + 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2,
+            )
             tiles.append(vis)
 
         top = np.concatenate([tiles[0], tiles[1]], axis=1)
         bottom = np.concatenate([tiles[2], tiles[3]], axis=1)
         tiled = np.concatenate([top, bottom], axis=0)
-        frame_text = f"Frame {i}"
-        (tw, th), _ = cv2.getTextSize(frame_text, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)
-        cv2.putText(
-            tiled, frame_text, (tiled.shape[1] - tw - 10, th + 10),
-            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2,
-        )
 
         if writer is None:
             writer = get_video_writer(video_path, fps=30, crf=23)

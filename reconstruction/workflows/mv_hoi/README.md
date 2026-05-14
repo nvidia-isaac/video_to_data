@@ -10,13 +10,15 @@ OSMO workflows for the MV HOI reconstruction and calibration pipelines.
 | `build_images.sh`           | Build all `v2d_*` Docker images locally                            |
 | `push_images.sh`            | Tag + push images to `nvcr.io/nvstaging/isaac-amr` and record version |
 | `submit.py`                 | Submit workflows (single sequence or auto-scan)                    |
+| `export.py`                 | Submit batched post-QC export workflows                            |
 | `query.py`                  | Show workflow status / summaries; owns OSMO read helpers + refresh |
+| `mark_ready.py`             | Create HITL `ready_for_processing` markers                         |
 | `blacklist.py`              | Add/list/remove dataset-scoped sequence blacklist entries          |
-| `db.py`                     | SQLite schema + CRUD for versions and workflows                    |
-| `config.yaml`               | Dataset configs (swift paths, pools, QC thresholds)                |
-| `osmo/*.yaml`               | OSMO workflow definitions (`mv_calibration`, `mv_hoi_reconstruction`) |
+| `db.py`                     | SQLite schema + CRUD for versions and pipeline rows                |
+| `config.yaml`               | Dataset configs (pipelines, workflow YAMLs, paths, thresholds)     |
+| `osmo/*.yaml`               | OSMO workflow definitions                                          |
 | `processing.db`             | SQLite DB for normal runs (git-ignored)                            |
-| `processing_test.db`        | SQLite DB for `--test` runs (git-ignored)                          |
+| `pipelines_test`            | Test-mode table inside `processing.db`                              |
 
 ## Prerequisites
 
@@ -24,6 +26,23 @@ The workflow management scripts shell out to the `osmo` CLI. Ensure `osmo` is
 installed, on `PATH`, and authenticated before running `submit.py`, `query.py`,
 or commands that cancel/resubmit workflows. The scripts also expect the Swift
 credentials used by `config.yaml` to be available in the environment.
+
+Install host-side Python dependencies in the local environment that runs these
+scripts:
+
+```bash
+python3 -m pip install -r requirements.txt
+```
+
+Credential templates live under `reconstruction/scripts/`; copy them to a
+private location such as `~/bin/`, fill in real secrets, and source the private
+copies before running the corresponding scripts:
+
+```bash
+source ~/bin/setup_css_env.sh          # submit/export Swift CSS access
+source ~/bin/setup_databricks_env.sh   # export.py Kratos queries
+source ~/bin/setup_hitl_aws_env.sh     # mark_ready.py / mark_ready_cron.sh
+```
 
 ## Database
 
@@ -38,8 +57,10 @@ One row per published image set. Version is semver and strictly increasing.
 | `message`    | Optional release note                  |
 | `created_at` | Timestamp                              |
 
-### `workflows`
-One row per OSMO workflow submission.
+### `pipelines`
+One row per calibration or reconstruction pipeline submission. Existing DBs
+with legacy `workflows` / `workflows_test` tables are migrated in place by
+`init_db()`.
 
 | Column             | Notes                                                         |
 |--------------------|---------------------------------------------------------------|
@@ -48,8 +69,9 @@ One row per OSMO workflow submission.
 | `dataset`          | Key from `config.yaml` → `datasets`                           |
 | `pipeline_type`    | `mv_calibration` or `mv_hoi_reconstruction`                   |
 | `pipeline_version` | Which `pipeline_versions.version` was used                    |
-| `workflow_name`    | Locally-generated, unique                                     |
-| `osmo_workflow_id` | ID returned by `osmo workflow submit`                         |
+| `workflow_name`    | Locally-generated primary OSMO workflow name                  |
+| `osmo_workflow_id` | ID returned by primary `osmo workflow submit`                 |
+| `osmo_export_workflow_id` | Batched export workflow ID for `WAITING_EXPORT` / `PASS` rows |
 | `status`           | See state machine below                                       |
 | `details`          | Free-form context (e.g. `task_failed: eval_chamfer_object`)   |
 | `created_at`       | Submission time                                               |
@@ -68,35 +90,41 @@ Dataset-scoped sequence names that `submit.py` should ignore by default.
 ## State machine
 
 ```
-        submit
-          │
-          ▼
-     ┌──────────┐  OSMO FAILED*    ┌──────┐
-     │WAITING_WF├─────────────────▶│ FAIL │
-     └────┬─────┘                  └──────┘
-          │ OSMO COMPLETED             ▲
-          ▼                            │
-     ┌──────────┐  QC fails (manual)   │
-     │WAITING_QC├──────────────────────┘
-     └────┬─────┘
-          │ QC passes (manual)
-          ▼
-       ┌──────┐
-       │ PASS │
-       └──────┘
+       submit
+         │
+         ▼
+    ┌──────────┐  OSMO FAILED*    ┌──────┐
+    │WAITING_WF├─────────────────▶│ FAIL │
+    └────┬─────┘                  └──────┘
+         │ OSMO COMPLETED             ▲
+         ▼                            │
+    ┌──────────┐  QC fails (manual)   │
+    │WAITING_QC├──────────────────────┘
+    └────┬─────┘
+         │ Kratos completed + export submitted
+         ▼
+  ┌──────────────┐  export failed ┌──────┐
+  │WAITING_EXPORT├───────────────▶│ FAIL │
+  └──────┬───────┘                └──────┘
+         │ export completed
+         ▼
+      ┌──────┐
+      │ PASS │
+      └──────┘
 ```
 
 \* `FAIL` also used for `cancelled_for_resubmit` when a manual submit cancels
 a running workflow.
 
 `refresh_waiting(dataset, pipeline)` (defined in `query.py`) polls OSMO for
-every `WAITING_WF` row and advances it to `WAITING_QC` or `FAIL`. It runs
-automatically at the top of every `query.py` and `submit.py` invocation, so
-the DB is fresh before any read or write. OSMO status queries are run through a
-bounded thread pool because they are mostly CLI/network I/O; DB updates remain
-serial. Use `--refresh-workers` or `MV_HOI_REFRESH_WORKERS` to tune concurrency
-(default: CPU core count). Refresh progress is printed as simple counts so cron
-logs remain readable.
+every `WAITING_WF` row. Completed reconstruction rows advance to `WAITING_QC`,
+completed calibration rows advance directly to `PASS`, and failed rows advance
+to `FAIL`. It runs automatically at the top of every `query.py` and `submit.py`
+invocation, so the DB is fresh before any read or write. OSMO status queries
+are run through a bounded thread pool because they are mostly CLI/network I/O;
+DB updates remain serial. Use `--refresh-workers` or `MV_HOI_REFRESH_WORKERS`
+to tune concurrency (default: CPU core count). Refresh progress is printed as
+simple counts so cron logs remain readable.
 
 `_failure_detail` only reports root-cause `FAILED` tasks in `details`;
 `FAILED_UPSTREAM` / `FAILED_CANCELED` tasks are excluded.
@@ -104,6 +132,41 @@ logs remain readable.
 If refresh sees that a sequence's two most recent runs for the same pipeline
 both failed with identical `details`, it automatically adds a dataset-scoped
 blacklist entry using those `details` as the reason and prints a message.
+
+`export.py` handles the `WAITING_QC` → `WAITING_EXPORT` → `PASS` path. It
+queries Kratos/Databricks for completed human QC rows, writes generated OSMO
+workflow files under `osmo/generated/`, and submits at most one export workflow
+at a time with up to the configured export `batch_size`. The launcher checks
+only the oldest sequence-name batch of `WAITING_QC` rows, so not-yet-completed
+QC for older rows will hold newer rows back instead of being skipped.
+
+## Configuration
+
+`config.yaml` groups settings by real pipeline type. Each pipeline owns one or
+more OSMO workflow configs:
+
+```yaml
+pipelines:
+  mv_calibration:
+    input_path: calibration
+    output_path: calibration_output
+    max_concurrent: 30
+    workflows:
+      calibration:
+        workflow_yaml: osmo/mv_calibration.yaml
+
+  mv_hoi_reconstruction:
+    input_path: data
+    output_path: data_output
+    export_path: data_export
+    max_concurrent: 30
+    workflows:
+      reconstruction:
+        workflow_yaml: osmo/mv_hoi_reconstruction.yaml
+      export:
+        workflow_yaml: osmo/mv_hoi_export.yaml
+        batch_size: 30
+```
 
 ## Pipeline versioning
 
@@ -199,16 +262,48 @@ python blacklist.py --dataset sc_office_4exo_1 --list
 Pass `--test` to `submit.py` / `query.py` to route everything to an isolated
 test location:
 
-- DB: `processing_test.db` (instead of `processing.db`)
-- Outputs: `_test` is appended to `calibration_output_path`,
-  `data_output_path`, and `mesh_base` from `config.yaml`
+- DB table: `pipelines_test` (instead of `pipelines`)
+- Outputs: `_test` is appended to calibration output, reconstruction output,
+  reconstruction export output, and `mesh_base` from `config.yaml`
 
-Inputs (`calibration_path`, `data_path`) and HITL settings are unchanged.
+Inputs (`calibration` / `data`) and HITL settings are unchanged.
 
 ```bash
 python submit.py --dataset sc_office_4exo_1 --pipeline mv_hoi_reconstruction --test
 python query.py  --dataset sc_office_4exo_1 --pipeline mv_hoi_reconstruction --test --summary
 ```
+
+## Exporting
+
+After reconstruction rows reach `WAITING_QC`, run the export launcher:
+
+```bash
+source ~/bin/setup_css_env.sh
+source ~/bin/setup_databricks_env.sh
+python export.py --dataset sc_office_4exo_1
+```
+
+The launcher leaves rows in `WAITING_QC` until Kratos has a completed
+`<workflow_name>.json` item. It marks rows `FAIL` when human QC has more than
+five failure annotations, when merged failure coverage exceeds 30% of the
+sequence frame count, or when a failure annotation has an invalid range. Passed
+QC rows are batched into one OSMO export workflow and stamped with
+`osmo_export_workflow_id`. Configure the human-QC failure gates under the
+reconstruction pipeline's `workflows.export` config with
+`max_failure_annotations` and `max_failure_coverage`.
+
+## Marking HITL Ready
+
+After a HITL batch has been staged, create the `ready_for_processing` marker:
+
+```bash
+source ~/bin/setup_hitl_aws_env.sh
+python mark_ready.py --dataset sc_office_4exo_1 --batch batch_YYYYMMDD
+```
+
+Use `mark_ready_cron.sh` for the scheduled previous-day batch flow; it sources
+both CSS and HITL AWS credential files so it can discover the batch name and
+write the marker with the dedicated HITL S3 credentials.
 
 ## Querying
 
@@ -242,12 +337,12 @@ python query.py --dataset <d> --pipeline <p> --summary --refresh-workers 16
 Inspect the DB directly:
 
 ```bash
-sqlite3 processing.db "SELECT sequence_name, status, details FROM workflows ORDER BY created_at DESC LIMIT 20;"
+sqlite3 processing.db "SELECT sequence_name, status, details FROM pipelines ORDER BY created_at DESC LIMIT 20;"
 sqlite3 processing.db "SELECT version, message, created_at FROM pipeline_versions ORDER BY created_at;"
 ```
 
 Hand-edit a stale row:
 
 ```bash
-sqlite3 processing.db "UPDATE workflows SET status='FAIL', details='...' WHERE workflow_name='...';"
+sqlite3 processing.db "UPDATE pipelines SET status='FAIL', details='...' WHERE workflow_name='...';"
 ```

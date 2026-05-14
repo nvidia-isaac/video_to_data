@@ -23,12 +23,12 @@ import yaml
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
-from db import get_connection, get_workflow, init_db
+from db import PIPELINES_TABLE, PIPELINES_TEST_TABLE, get_connection, get_workflow, init_db
 from query import _failure_detail
 
 DB_PATH = SCRIPT_DIR / "processing.db"
 DEFAULT_LOG_PATH = SCRIPT_DIR / "logs" / "submit.log"
-TABLE = "workflows"
+TABLE = PIPELINES_TABLE
 
 
 @dataclass(frozen=True)
@@ -427,7 +427,11 @@ def main() -> None:
     parser.add_argument("--since", help="Workflow-name timestamp lower bound, inclusive")
     parser.add_argument("--until", help="Workflow-name timestamp upper bound, exclusive")
     parser.add_argument("--db-path", default=str(DB_PATH))
-    parser.add_argument("--table", choices=["workflows", "workflows_test"], default=TABLE)
+    parser.add_argument(
+        "--table",
+        choices=[PIPELINES_TABLE, PIPELINES_TEST_TABLE],
+        default=TABLE,
+    )
     parser.add_argument("--count", type=int, default=10)
     parser.add_argument("--apply", action="store_true", help="Write confirmed rows")
     args = parser.parse_args()

@@ -2,8 +2,8 @@
 
 Tables:
   pipeline_versions — semver version string with message (shared)
-  workflows         — per-sequence workflow submissions and their status
-  workflows_test    — same schema, used for test-mode submissions
+  pipelines         — per-sequence pipeline submissions and their status
+  pipelines_test    — same schema, used for test-mode submissions
   blacklisted_sequences — dataset-scoped sequence submission blacklist
 """
 
@@ -12,6 +12,28 @@ import re
 import sqlite3
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "processing.db")
+PIPELINES_TABLE = "pipelines"
+PIPELINES_TEST_TABLE = "pipelines_test"
+
+
+def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table,),
+    ).fetchone()
+    return row is not None
+
+
+def _rename_legacy_table(conn: sqlite3.Connection, old: str, new: str) -> None:
+    old_exists = _table_exists(conn, old)
+    new_exists = _table_exists(conn, new)
+    if old_exists and new_exists:
+        raise RuntimeError(
+            f"Ambiguous DB migration: both legacy table {old!r} and new table "
+            f"{new!r} exist. Resolve manually before continuing."
+        )
+    if old_exists:
+        conn.execute(f"ALTER TABLE {old} RENAME TO {new}")
 
 
 def get_connection(db_path: str = DB_PATH) -> sqlite3.Connection:
@@ -30,46 +52,6 @@ def init_db(db_path: str = DB_PATH) -> None:
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
-        CREATE TABLE IF NOT EXISTS workflows (
-            id               INTEGER PRIMARY KEY AUTOINCREMENT,
-            sequence_name    TEXT NOT NULL,
-            dataset          TEXT NOT NULL,
-            pipeline_type    TEXT NOT NULL,
-            pipeline_version TEXT,
-            workflow_name    TEXT UNIQUE NOT NULL,
-            osmo_workflow_id TEXT,
-            status           TEXT NOT NULL DEFAULT 'WAITING_WF',
-            details          TEXT,
-            created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (pipeline_version) REFERENCES pipeline_versions(version)
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_workflows_sequence
-            ON workflows(dataset, sequence_name);
-        CREATE INDEX IF NOT EXISTS idx_workflows_status
-            ON workflows(status);
-
-        CREATE TABLE IF NOT EXISTS workflows_test (
-            id               INTEGER PRIMARY KEY AUTOINCREMENT,
-            sequence_name    TEXT NOT NULL,
-            dataset          TEXT NOT NULL,
-            pipeline_type    TEXT NOT NULL,
-            pipeline_version TEXT,
-            workflow_name    TEXT UNIQUE NOT NULL,
-            osmo_workflow_id TEXT,
-            status           TEXT NOT NULL DEFAULT 'WAITING_WF',
-            details          TEXT,
-            created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (pipeline_version) REFERENCES pipeline_versions(version)
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_workflows_test_sequence
-            ON workflows_test(dataset, sequence_name);
-        CREATE INDEX IF NOT EXISTS idx_workflows_test_status
-            ON workflows_test(status);
-
         CREATE TABLE IF NOT EXISTS blacklisted_sequences (
             dataset        TEXT NOT NULL,
             sequence_name  TEXT NOT NULL,
@@ -78,6 +60,68 @@ def init_db(db_path: str = DB_PATH) -> None:
             PRIMARY KEY (dataset, sequence_name)
         );
     """)
+    _rename_legacy_table(conn, "workflows", PIPELINES_TABLE)
+    _rename_legacy_table(conn, "workflows_test", PIPELINES_TEST_TABLE)
+    conn.executescript(f"""
+        CREATE TABLE IF NOT EXISTS {PIPELINES_TABLE} (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            sequence_name    TEXT NOT NULL,
+            dataset          TEXT NOT NULL,
+            pipeline_type    TEXT NOT NULL,
+            pipeline_version TEXT,
+            workflow_name    TEXT UNIQUE NOT NULL,
+            osmo_workflow_id TEXT,
+            osmo_export_workflow_id TEXT,
+            status           TEXT NOT NULL DEFAULT 'WAITING_WF',
+            details          TEXT,
+            created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (pipeline_version) REFERENCES pipeline_versions(version)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_pipelines_sequence
+            ON {PIPELINES_TABLE}(dataset, sequence_name);
+        CREATE INDEX IF NOT EXISTS idx_pipelines_status
+            ON {PIPELINES_TABLE}(status);
+
+        CREATE TABLE IF NOT EXISTS {PIPELINES_TEST_TABLE} (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            sequence_name    TEXT NOT NULL,
+            dataset          TEXT NOT NULL,
+            pipeline_type    TEXT NOT NULL,
+            pipeline_version TEXT,
+            workflow_name    TEXT UNIQUE NOT NULL,
+            osmo_workflow_id TEXT,
+            osmo_export_workflow_id TEXT,
+            status           TEXT NOT NULL DEFAULT 'WAITING_WF',
+            details          TEXT,
+            created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (pipeline_version) REFERENCES pipeline_versions(version)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_pipelines_test_sequence
+            ON {PIPELINES_TEST_TABLE}(dataset, sequence_name);
+        CREATE INDEX IF NOT EXISTS idx_pipelines_test_status
+            ON {PIPELINES_TEST_TABLE}(status);
+    """)
+    for table in (PIPELINES_TABLE, PIPELINES_TEST_TABLE):
+        columns = {
+            row["name"] for row in conn.execute(f"PRAGMA table_info({table})")
+        }
+        if "osmo_export_workflow_id" not in columns:
+            conn.execute(
+                f"ALTER TABLE {table} ADD COLUMN osmo_export_workflow_id TEXT"
+            )
+    conn.execute(
+        f"""CREATE INDEX IF NOT EXISTS idx_pipelines_export_workflow
+           ON {PIPELINES_TABLE}(osmo_export_workflow_id)"""
+    )
+    conn.execute(
+        f"""CREATE INDEX IF NOT EXISTS idx_pipelines_test_export_workflow
+           ON {PIPELINES_TEST_TABLE}(osmo_export_workflow_id)"""
+    )
+
     columns = {
         row["name"] for row in conn.execute("PRAGMA table_info(blacklisted_sequences)")
     }
@@ -230,7 +274,7 @@ def get_blacklisted_sequences(
     return [dict(r) for r in rows]
 
 
-# ── Workflow CRUD ──────────────────────────────────────────────────────
+# ── Pipeline row CRUD ─────────────────────────────────────────────────
 
 
 def insert_workflow(
@@ -243,7 +287,7 @@ def insert_workflow(
     status: str = "WAITING_WF",
     details: str = "workflow_running",
     db_path: str = DB_PATH,
-    table: str = "workflows",
+    table: str = PIPELINES_TABLE,
 ) -> None:
     conn = get_connection(db_path)
     conn.execute(
@@ -262,8 +306,9 @@ def update_workflow(
     workflow_name: str,
     status: str | None = None,
     details: str | None = None,
+    osmo_export_workflow_id: str | None = None,
     db_path: str = DB_PATH,
-    table: str = "workflows",
+    table: str = PIPELINES_TABLE,
 ) -> None:
     conn = get_connection(db_path)
     updates = ["updated_at = CURRENT_TIMESTAMP"]
@@ -274,6 +319,9 @@ def update_workflow(
     if details is not None:
         updates.append("details = ?")
         params.append(details)
+    if osmo_export_workflow_id is not None:
+        updates.append("osmo_export_workflow_id = ?")
+        params.append(osmo_export_workflow_id)
     params.append(workflow_name)
     conn.execute(
         f"UPDATE {table} SET {', '.join(updates)} WHERE workflow_name = ?",
@@ -284,7 +332,7 @@ def update_workflow(
 
 
 def get_workflow(
-    workflow_name: str, db_path: str = DB_PATH, table: str = "workflows",
+    workflow_name: str, db_path: str = DB_PATH, table: str = PIPELINES_TABLE,
 ) -> dict | None:
     conn = get_connection(db_path)
     row = conn.execute(
@@ -299,13 +347,13 @@ def get_latest_workflow(
     dataset: str,
     pipeline_type: str,
     db_path: str = DB_PATH,
-    table: str = "workflows",
+    table: str = PIPELINES_TABLE,
 ) -> dict | None:
     conn = get_connection(db_path)
     row = conn.execute(
         f"""SELECT * FROM {table}
            WHERE sequence_name = ? AND dataset = ? AND pipeline_type = ?
-           ORDER BY created_at DESC LIMIT 1""",
+           ORDER BY created_at DESC, id DESC LIMIT 1""",
         (sequence_name, dataset, pipeline_type),
     ).fetchone()
     conn.close()
@@ -318,7 +366,7 @@ def get_recent_workflows_for_sequence(
     pipeline_type: str | None = None,
     limit: int = 2,
     db_path: str = DB_PATH,
-    table: str = "workflows",
+    table: str = PIPELINES_TABLE,
 ) -> list[dict]:
     """Return recent workflow rows for a dataset/sequence, newest first."""
     conn = get_connection(db_path)
@@ -340,7 +388,7 @@ def get_workflows_by_dataset(
     pipeline_type: str | None = None,
     status: str | list[str] | None = None,
     db_path: str = DB_PATH,
-    table: str = "workflows",
+    table: str = PIPELINES_TABLE,
 ) -> list[dict]:
     conn = get_connection(db_path)
     query = f"SELECT * FROM {table} WHERE dataset = ?"
@@ -356,7 +404,35 @@ def get_workflows_by_dataset(
         else:
             query += " AND status = ?"
             params.append(status)
-    query += " ORDER BY created_at DESC"
+    query += " ORDER BY created_at DESC, id DESC"
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_workflows_by_export_id(
+    dataset: str,
+    osmo_export_workflow_id: str,
+    pipeline_type: str | None = None,
+    status: str | list[str] | None = None,
+    db_path: str = DB_PATH,
+    table: str = PIPELINES_TABLE,
+) -> list[dict]:
+    conn = get_connection(db_path)
+    query = f"SELECT * FROM {table} WHERE dataset = ? AND osmo_export_workflow_id = ?"
+    params: list = [dataset, osmo_export_workflow_id]
+    if pipeline_type:
+        query += " AND pipeline_type = ?"
+        params.append(pipeline_type)
+    if status:
+        if isinstance(status, list):
+            placeholders = ", ".join("?" for _ in status)
+            query += f" AND status IN ({placeholders})"
+            params.extend(status)
+        else:
+            query += " AND status = ?"
+            params.append(status)
+    query += " ORDER BY created_at DESC, id DESC"
     rows = conn.execute(query, params).fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -366,7 +442,7 @@ def get_summary(
     dataset: str,
     pipeline_type: str | None = None,
     db_path: str = DB_PATH,
-    table: str = "workflows",
+    table: str = PIPELINES_TABLE,
 ) -> dict:
     conn = get_connection(db_path)
 

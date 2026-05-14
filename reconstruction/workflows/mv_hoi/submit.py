@@ -22,6 +22,8 @@ import yaml
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
 from db import (
+    PIPELINES_TABLE,
+    PIPELINES_TEST_TABLE,
     get_blacklisted_sequence,
     get_blacklisted_sequences,
     get_latest_version,
@@ -32,10 +34,22 @@ from db import (
     remove_blacklisted_sequence,
     update_workflow,
 )
-from query import DEFAULT_REFRESH_WORKERS, osmo_cancel, refresh_waiting
+from config_utils import (
+    CALIBRATION_PIPELINE,
+    CALIBRATION_WORKFLOW,
+    RECON_PIPELINE,
+    RECONSTRUCTION_WORKFLOW,
+    apply_test_mode,
+    get_pipeline_input_path,
+    get_pipeline_max_concurrent,
+    get_pipeline_output_path,
+    get_workflow_cfg,
+    load_config as _load_config,
+)
+from query import DEFAULT_REFRESH_WORKERS, osmo_cancel, refresh_workflow_states
 
 DB_PATH = os.path.join(SCRIPT_DIR, "processing.db")
-TABLE = "workflows"
+TABLE = PIPELINES_TABLE
 
 
 @dataclass(frozen=True)
@@ -64,15 +78,11 @@ _AMBIGUOUS_SUBMIT_MARKERS = (
 
 
 def _apply_test_mode(dataset_cfg: dict) -> None:
-    """In-place: append `_test` to output paths used by the workflow."""
-    dataset_cfg["calibration_output_path"] += "_test"
-    dataset_cfg["data_output_path"] += "_test"
-    dataset_cfg["mesh_base"] = dataset_cfg["mesh_base"].rstrip("/") + "_test"
+    apply_test_mode(dataset_cfg)
 
 
 def load_config() -> dict:
-    with open(os.path.join(SCRIPT_DIR, "config.yaml")) as f:
-        return yaml.safe_load(f)
+    return _load_config(SCRIPT_DIR)
 
 
 # Swift / S3 helpers
@@ -135,9 +145,9 @@ def get_hoi_metadata(client, bucket: str, seq_prefix: str) -> dict | None:
     key = f"{seq_prefix}/hoi_metadata.yaml".lstrip("/")
     try:
         resp = client.get_object(Bucket=bucket, Key=key)
-        return yaml.safe_load(resp["Body"].read())
     except Exception:
         return None
+    return yaml.safe_load(resp["Body"].read())
 
 
 def resolve_mesh_url(
@@ -248,7 +258,7 @@ def submit_sequence(
         sequence_name, dataset_name, pipeline_type, db_path=DB_PATH, table=TABLE,
     )
 
-    if latest and latest["status"] in ("WAITING_WF", "WAITING_QC", "PASS") and not force:
+    if latest and latest["status"] in ("WAITING_WF", "WAITING_QC", "WAITING_EXPORT", "PASS") and not force:
         print(f"  {sequence_name}: skipping (status={latest['status']}). Use --force to resubmit.")
         return None
 
@@ -270,20 +280,27 @@ def submit_sequence(
         return None
     workflow_name = _generate_workflow_name(pipeline_type, version)
 
-    pipeline_cfg = dataset_cfg["pipelines"][pipeline_type]
-    workflow_yaml = pipeline_cfg["workflow_yaml"]
+    workflow_key = (
+        CALIBRATION_WORKFLOW
+        if pipeline_type == CALIBRATION_PIPELINE
+        else RECONSTRUCTION_WORKFLOW
+    )
+    workflow_cfg = get_workflow_cfg(dataset_cfg, pipeline_type, workflow_key)
+    workflow_yaml = workflow_cfg["workflow_yaml"]
 
     set_vars: dict[str, str] = {
         "workflow_name": workflow_name,
     }
 
-    if pipeline_type == "mv_hoi_reconstruction":
+    if pipeline_type == RECON_PIPELINE:
+        input_path = get_pipeline_input_path(dataset_cfg, pipeline_type)
+        output_path = get_pipeline_output_path(dataset_cfg, pipeline_type)
         set_vars["rosbag_url"] = (
-            f"{swift_base}/{dataset_cfg['data_path']}/{sequence_name}/"
+            f"{swift_base}/{input_path}/{sequence_name}/"
         )
 
         # Metadata
-        seq_data_pfx = f"{base_pfx}/{dataset_cfg['data_path']}/{sequence_name}"
+        seq_data_pfx = f"{base_pfx}/{input_path}/{sequence_name}"
         meta = get_hoi_metadata(s3, bucket, seq_data_pfx)
         if meta is None:
             print(f"  {sequence_name}: no hoi_metadata.yaml, skipping")
@@ -295,14 +312,14 @@ def submit_sequence(
             print(f"  {sequence_name}: no calib_seq_name in hoi_metadata, skipping")
             return None
         calib_pfx = (
-            f"{base_pfx}/{dataset_cfg['calibration_output_path']}"
+            f"{base_pfx}/{get_pipeline_output_path(dataset_cfg, CALIBRATION_PIPELINE)}"
             f"/{calib_seq}/calibrate_extrinsics"
         )
         if not path_exists(s3, bucket, calib_pfx):
             print(f"  {sequence_name}: calibration not found for {calib_seq}, skipping")
             return None
         set_vars["extrinsics_url"] = (
-            f"{swift_base}/{dataset_cfg['calibration_output_path']}"
+            f"{swift_base}/{get_pipeline_output_path(dataset_cfg, CALIBRATION_PIPELINE)}"
             f"/{calib_seq}/calibrate_extrinsics"
         )
 
@@ -329,11 +346,11 @@ def submit_sequence(
 
         # Output base
         set_vars["swift_output_base"] = (
-            f"{swift_base}/{dataset_cfg['data_output_path']}/{sequence_name}"
+            f"{swift_base}/{output_path}/{sequence_name}"
         )
 
         # QC thresholds
-        thresholds = dataset_cfg.get("qc_thresholds", {})
+        thresholds = workflow_cfg.get("qc_thresholds", {})
         set_vars["max_chamfer_object"] = str(thresholds.get("max_chamfer_object", 30.0))
         set_vars["max_chamfer_human"] = str(thresholds.get("max_chamfer_human", 30.0))
         set_vars["min_mask_containment"] = str(thresholds.get("min_mask_containment", 0.8))
@@ -341,19 +358,21 @@ def submit_sequence(
 
         # HITL upload metadata (object_id / action_desc are read inside the
         # task from the preprocess-module hoi_metadata.yaml)
-        set_vars["hitl_s3_base"] = dataset_cfg["hitl_s3_base"]
-        batch_template = dataset_cfg.get("hitl_batch_name_template", "batch_{date}")
+        set_vars["hitl_s3_base"] = workflow_cfg["hitl_s3_base"]
+        batch_template = workflow_cfg.get("hitl_batch_name_template", "batch_{date}")
         set_vars["hitl_batch_name"] = batch_template.format(
             date=datetime.now().strftime("%Y%m%d"),
         )
-        set_vars["s3_region"] = dataset_cfg.get("s3_region", "us-west-2")
+        set_vars["s3_region"] = workflow_cfg.get("s3_region", "us-west-2")
 
-    elif pipeline_type == "mv_calibration":
+    elif pipeline_type == CALIBRATION_PIPELINE:
+        input_path = get_pipeline_input_path(dataset_cfg, pipeline_type)
+        output_path = get_pipeline_output_path(dataset_cfg, pipeline_type)
         set_vars["rosbag_url"] = (
-            f"{swift_base}/{dataset_cfg['calibration_path']}/{sequence_name}/"
+            f"{swift_base}/{input_path}/{sequence_name}/"
         )
         set_vars["swift_output_base"] = (
-            f"{swift_base}/{dataset_cfg['calibration_output_path']}/{sequence_name}"
+            f"{swift_base}/{output_path}/{sequence_name}"
         )
 
     pool = dataset_cfg["osmo_pool"]
@@ -469,7 +488,7 @@ def auto_submit(
     start_time: str | None = None, end_time: str | None = None,
 ) -> None:
     """Discover sequences from Swift and submit workflows up to concurrency limit."""
-    max_concurrent = dataset_cfg.get("max_concurrent", 10)
+    max_concurrent = get_pipeline_max_concurrent(dataset_cfg, pipeline_type)
 
     in_progress = get_workflows_by_dataset(
         dataset_name, pipeline_type=pipeline_type,
@@ -484,10 +503,7 @@ def auto_submit(
     swift_base = dataset_cfg["swift_base"]
     s3, bucket, base_pfx = get_s3_client(swift_base)
 
-    if pipeline_type == "mv_calibration":
-        scan_pfx = f"{base_pfx}/{dataset_cfg['calibration_path']}/"
-    else:
-        scan_pfx = f"{base_pfx}/{dataset_cfg['data_path']}/"
+    scan_pfx = f"{base_pfx}/{get_pipeline_input_path(dataset_cfg, pipeline_type)}/"
     sequences = list_sequences(s3, bucket, scan_pfx)
     print(f"Found {len(sequences)} sequences in {dataset_name}")
 
@@ -512,7 +528,7 @@ def auto_submit(
                     "Use --force to submit anyway."
                 )
 
-    skip_statuses = {"PASS", "WAITING_WF", "WAITING_QC"}
+    skip_statuses = {"PASS", "WAITING_WF", "WAITING_QC", "WAITING_EXPORT"}
     if not retry_failed:
         skip_statuses.add("FAIL")
 
@@ -557,7 +573,8 @@ def main() -> None:
                         help="Pipeline type (e.g. mv_calibration, mv_hoi_reconstruction)")
     parser.add_argument("--sequence", help="Single sequence (manual mode)")
     parser.add_argument("--force", action="store_true",
-                        help="Force resubmit even if blacklisted, WAITING_WF, WAITING_QC, or PASS; "
+                        help="Force resubmit even if blacklisted, WAITING_WF, WAITING_QC, "
+                             "WAITING_EXPORT, or PASS; "
                              "successful non-dry-run submits remove matching blacklist entries")
     parser.add_argument("--retry_failed", action="store_true",
                         help="In auto mode, also retry sequences whose latest run failed")
@@ -571,7 +588,7 @@ def main() -> None:
     parser.add_argument("--dry_run", action="store_true",
                         help="Build and print the osmo submit command without running it")
     parser.add_argument("--test", action="store_true",
-                        help="Use workflows_test table and append _test to output paths")
+                        help="Use pipelines_test table and append _test to output paths")
     parser.add_argument("--refresh-workers", type=int, default=DEFAULT_REFRESH_WORKERS,
                         help="Concurrent OSMO queries for WAITING_WF refresh "
                              f"(default: {DEFAULT_REFRESH_WORKERS}; env: "
@@ -580,7 +597,7 @@ def main() -> None:
 
     global TABLE
     if args.test:
-        TABLE = "workflows_test"
+        TABLE = PIPELINES_TEST_TABLE
 
     config = load_config()
     if args.dataset not in config["datasets"]:
@@ -599,8 +616,8 @@ def main() -> None:
 
     init_db(DB_PATH)
 
-    refresh_waiting(args.dataset, pipeline_type=args.pipeline, db_path=DB_PATH,
-                    table=TABLE, max_workers=args.refresh_workers)
+    refresh_workflow_states(args.dataset, pipeline_type=args.pipeline, db_path=DB_PATH,
+                            table=TABLE, max_workers=args.refresh_workers)
 
     if args.sequence:
         submit_sequence(

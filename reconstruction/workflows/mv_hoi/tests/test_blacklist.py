@@ -1,3 +1,4 @@
+import io
 import subprocess
 import sys
 import types
@@ -16,6 +17,16 @@ except ModuleNotFoundError:
 import db
 import query
 import submit
+
+
+class _BodyClient:
+    def __init__(self, body: bytes):
+        self.body = body
+        self.calls = []
+
+    def get_object(self, **kwargs):
+        self.calls.append(kwargs)
+        return {"Body": io.BytesIO(self.body)}
 
 
 def _called_process_error(
@@ -40,20 +51,36 @@ def _db_path(tmp_path: Path) -> str:
 def _dataset_cfg() -> dict:
     return {
         "swift_base": "swift://host/AUTH_account/container/root",
-        "calibration_path": "calibration",
-        "calibration_output_path": "calibration_output",
-        "data_path": "data",
-        "data_output_path": "data_output",
         "mesh_base": "swift://host/AUTH_account/container/mesh",
         "pipelines": {
-            "mv_calibration": {"workflow_yaml": "osmo/mv_calibration.yaml"},
+            "mv_calibration": {
+                "input_path": "calibration",
+                "output_path": "calibration_output",
+                "max_concurrent": 10,
+                "workflows": {
+                    "calibration": {"workflow_yaml": "osmo/mv_calibration.yaml"},
+                },
+            },
             "mv_hoi_reconstruction": {
-                "workflow_yaml": "osmo/mv_hoi_reconstruction.yaml",
+                "input_path": "data",
+                "output_path": "data_output",
+                "export_path": "data_export",
+                "max_concurrent": 10,
+                "workflows": {
+                    "reconstruction": {
+                        "workflow_yaml": "osmo/mv_hoi_reconstruction.yaml",
+                        "qc_thresholds": {},
+                        "hitl_s3_base": "s3://bucket/path",
+                    },
+                    "export": {
+                        "workflow_yaml": "osmo/mv_hoi_export.yaml",
+                        "batch_size": 30,
+                        "kratos_table": "catalog.schema.annotations",
+                    },
+                },
             },
         },
         "osmo_pool": "pool",
-        "max_concurrent": 10,
-        "hitl_s3_base": "s3://bucket/path",
     }
 
 
@@ -102,6 +129,31 @@ def test_blacklist_helpers_are_dataset_scoped_and_removable(tmp_path):
     assert not db.remove_blacklisted_sequence(
         "dataset_a", "shared_sequence", db_path=db_path,
     )
+
+
+def test_get_hoi_metadata_parses_yaml_body():
+    client = _BodyClient(
+        b"calib_seq_name: 2026-01-01_calibration\n"
+        b"object:\n"
+        b"  id: toy_car\n"
+    )
+
+    metadata = submit.get_hoi_metadata(
+        client,
+        "recordings",
+        "v2d/multiview/sc_office_4exo_1/data/seq_a",
+    )
+
+    assert metadata == {
+        "calib_seq_name": "2026-01-01_calibration",
+        "object": {"id": "toy_car"},
+    }
+    assert client.calls == [
+        {
+            "Bucket": "recordings",
+            "Key": "v2d/multiview/sc_office_4exo_1/data/seq_a/hoi_metadata.yaml",
+        }
+    ]
 
 
 def test_submit_error_classification_marks_timeouts_ambiguous():
@@ -671,7 +723,38 @@ def test_refresh_waiting_updates_multiple_workflows(monkeypatch, tmp_path):
         max_workers=2,
     )
 
-    assert db.get_workflow("wf-done", db_path=db_path)["status"] == "WAITING_QC"
+    assert db.get_workflow("wf-done", db_path=db_path)["status"] == "PASS"
     failed = db.get_workflow("wf-failed", db_path=db_path)
     assert failed["status"] == "FAIL"
     assert failed["details"] == "task_failed: solve_calibration"
+
+
+def test_refresh_waiting_keeps_reconstruction_completed_in_waiting_qc(
+    monkeypatch, tmp_path,
+):
+    db_path = _db_path(tmp_path)
+    db.insert_version("1.0.0", db_path=db_path)
+    db.insert_workflow(
+        sequence_name="sequence_done",
+        dataset="dataset_a",
+        pipeline_type="mv_hoi_reconstruction",
+        pipeline_version="1.0.0",
+        workflow_name="wf-recon-done",
+        osmo_workflow_id="osmo-recon-done",
+        status="WAITING_WF",
+        db_path=db_path,
+    )
+
+    monkeypatch.setattr(
+        query,
+        "osmo_query",
+        lambda _workflow_id: {"status": "COMPLETED", "tasks": {}},
+    )
+
+    query.refresh_waiting(
+        "dataset_a", pipeline_type="mv_hoi_reconstruction", db_path=db_path,
+    )
+
+    row = db.get_workflow("wf-recon-done", db_path=db_path)
+    assert row["status"] == "WAITING_QC"
+    assert row["details"] == "workflow_completed"

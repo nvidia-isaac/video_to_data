@@ -1,0 +1,20 @@
+# MV HOI batched export OSMO workflow template.
+#
+# export.py renders concrete per-sequence tasks into the marker below and writes the
+# generated workflow under osmo/generated/<export_name>/workflow.yaml.
+
+workflow:
+  name: {{workflow_name}}
+  resources:
+    cpu_small:
+      cpu: 8
+      gpu: 0
+      memory: 32Gi
+      storage: 100Gi
+
+  tasks:
+__TASKS__
+
+default-values:
+  workflow_name: v2d_mv_hoi_export
+  image_tag: latest

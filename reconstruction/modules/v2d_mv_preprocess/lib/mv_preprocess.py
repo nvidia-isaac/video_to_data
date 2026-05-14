@@ -23,6 +23,27 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def _read_frame_count_from_edex(camera_params_path: Path) -> int | None:
+    try:
+        with open(camera_params_path) as f:
+            edex = json.load(f)
+        header = edex[0] if isinstance(edex, list) and edex else edex
+        frame_start = int(header["frame_start"])
+        frame_end = int(header["frame_end"])
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        logger.warning(f"Could not read frame count from {camera_params_path}: {exc}")
+        return None
+
+    frame_count = frame_end - frame_start
+    if frame_count <= 0:
+        logger.warning(
+            f"Invalid frame range in {camera_params_path}: "
+            f"frame_start={frame_start}, frame_end={frame_end}"
+        )
+        return None
+    return frame_count
+
+
 def mv_preprocess(
     rig: RigConfig,
     rgb_paths: dict[int, Path],
@@ -108,6 +129,7 @@ def mv_preprocess(
     logger.info("All stereo pairs processed")
 
     if hoi_metadata_path is not None:
+        frame_count = _read_frame_count_from_edex(camera_params_path)
         cam_id_to_name = {
             cam.cam_id: cam.name
             for pair in rig.get_stereo_pairs()
@@ -124,6 +146,7 @@ def mv_preprocess(
             labeled_bbox_paths=labeled_bbox_paths or {},
             output_hoi_metadata_path=output_hoi_metadata_path,
             output_prompt_path=output_prompt_path,
+            frame_count=frame_count,
         )
 
     if extrinsics_camera_params_path is not None:
@@ -160,6 +183,7 @@ def remap_hoi_bboxes(
     labeled_bbox_paths: dict[str, Path],
     output_hoi_metadata_path: Path,
     output_prompt_path: Path | None = None,
+    frame_count: int | None = None,
 ):
     """Remap object bboxes from hoi_metadata.yaml through preprocessing pipelines.
 
@@ -174,6 +198,7 @@ def remap_hoi_bboxes(
         labeled_bbox_paths: Mapping from camera name to output JSON path.
         output_hoi_metadata_path: Where to write the copied hoi_metadata (without bbox).
         output_prompt_path: Where to write the object prompt as plain text.
+        frame_count: Optional total frame count to add to the copied metadata.
     """
     with open(hoi_metadata_path) as f:
         meta = yaml.safe_load(f)
@@ -183,57 +208,58 @@ def remap_hoi_bboxes(
 
     if not obj_bboxes:
         logger.warning("No object bboxes found in hoi_metadata.yaml, skipping remap")
-        return
+    else:
+        for cam_name, xywh in obj_bboxes.items():
+            if cam_name not in pipelines:
+                logger.warning(f"No pipeline for camera '{cam_name}', skipping bbox remap")
+                continue
 
-    for cam_name, xywh in obj_bboxes.items():
-        if cam_name not in pipelines:
-            logger.warning(f"No pipeline for camera '{cam_name}', skipping bbox remap")
-            continue
+            x, y, w, h = xywh
+            corners = np.array([[x, y], [x + w, y + h]], dtype=np.float64)
+            remapped = pipelines[cam_name].map_points(corners)
+            x0, y0 = remapped[0]
+            x1, y1 = remapped[1]
 
-        x, y, w, h = xywh
-        corners = np.array([[x, y], [x + w, y + h]], dtype=np.float64)
-        remapped = pipelines[cam_name].map_points(corners)
-        x0, y0 = remapped[0]
-        x1, y1 = remapped[1]
+            bbox = BoundingBox(x0=float(x0), y0=float(y0), x1=float(x1), y1=float(y1))
+            detection = [{"label": obj_id, "box": bbox.to_dict()}]
 
-        bbox = BoundingBox(x0=float(x0), y0=float(y0), x1=float(x1), y1=float(y1))
-        detection = [{"label": obj_id, "box": bbox.to_dict()}]
+            out_path = output_image_dirs[cam_name]
+            try:
+                source = FrameSource.from_path(out_path)
+                frame_stem = source.stems[0] if source.n_frames > 0 else "000000"
+                first_img = source[0] if source.n_frames > 0 else None
+            except (ValueError, FileNotFoundError):
+                frame_stem = "000000"
+                first_img = None
 
-        out_path = output_image_dirs[cam_name]
-        try:
-            source = FrameSource.from_path(out_path)
-            frame_stem = source.stems[0] if source.n_frames > 0 else "000000"
-            first_img = source[0] if source.n_frames > 0 else None
-        except (ValueError, FileNotFoundError):
-            frame_stem = "000000"
-            first_img = None
+            results = {frame_stem: detection}
 
-        results = {frame_stem: detection}
+            json_path = labeled_bbox_paths[cam_name]
+            json_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(json_path, "w") as f:
+                json.dump(results, f, indent=2)
+            logger.info(f"Saved remapped bbox to {json_path}")
 
-        json_path = labeled_bbox_paths[cam_name]
-        json_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(json_path, "w") as f:
-            json.dump(results, f, indent=2)
-        logger.info(f"Saved remapped bbox to {json_path}")
-
-        if first_img is not None:
-            img_bgr = cv2.cvtColor(first_img, cv2.COLOR_RGB2BGR)
-            pt1 = (int(round(x0)), int(round(y0)))
-            pt2 = (int(round(x1)), int(round(y1)))
-            cv2.rectangle(img_bgr, pt1, pt2, (0, 255, 0), 2)
-            cv2.putText(
-                img_bgr, obj_id, (pt1[0], max(pt1[1] - 6, 0)),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2,
-            )
-            vis_path = json_path.with_name(json_path.stem + "_vis.png")
-            cv2.imwrite(str(vis_path), img_bgr)
-            logger.info(f"Saved bbox visualization to {vis_path}")
-        else:
-            logger.warning(f"No frames found in {out_path}, skipping visualization")
+            if first_img is not None:
+                img_bgr = cv2.cvtColor(first_img, cv2.COLOR_RGB2BGR)
+                pt1 = (int(round(x0)), int(round(y0)))
+                pt2 = (int(round(x1)), int(round(y1)))
+                cv2.rectangle(img_bgr, pt1, pt2, (0, 255, 0), 2)
+                cv2.putText(
+                    img_bgr, obj_id, (pt1[0], max(pt1[1] - 6, 0)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2,
+                )
+                vis_path = json_path.with_name(json_path.stem + "_vis.png")
+                cv2.imwrite(str(vis_path), img_bgr)
+                logger.info(f"Saved bbox visualization to {vis_path}")
+            else:
+                logger.warning(f"No frames found in {out_path}, skipping visualization")
 
     meta_copy = copy.deepcopy(meta)
     if "object" in meta_copy and "bbox" in meta_copy["object"]:
         del meta_copy["object"]["bbox"]
+    if frame_count is not None:
+        meta_copy["frame_count"] = frame_count
 
     output_hoi_metadata_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_hoi_metadata_path, "w") as f:

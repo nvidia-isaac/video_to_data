@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 import yaml
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, SCRIPT_DIR)
+from config_utils import RECON_PIPELINE, RECONSTRUCTION_WORKFLOW, get_workflow_cfg
 
 
 def load_config() -> dict:
@@ -39,7 +41,12 @@ def main() -> None:
         sys.exit(1)
 
     dataset_cfg = config["datasets"][args.dataset]
-    base_path = dataset_cfg["hitl_s3_base"]
+    workflow_cfg = get_workflow_cfg(
+        dataset_cfg,
+        RECON_PIPELINE,
+        RECONSTRUCTION_WORKFLOW,
+    )
+    base_path = workflow_cfg["hitl_s3_base"]
     batch_path = os.path.join(base_path, args.batch) + "/"
     marker_path = os.path.join(base_path, args.batch, "markers", "ready_for_processing")
 
