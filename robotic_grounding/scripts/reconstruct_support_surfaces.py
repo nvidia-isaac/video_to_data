@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Reconstruct support surfaces from object still-poses (CLI driver).
 
-Library code lives in
-``robotic_grounding.tasks.scene_utils.support_recon``. This script just
-parses CLI args and dispatches to that module so the same logic can be
-reused from the planner orchestrator.
+Library code lives in ``robotic_grounding.retarget.support_recon``. This
+script just parses CLI args and dispatches to that module so the same
+logic can be reused from the planner orchestrator.
 
 Usage:
   1. Run retarget/loader first (e.g. taco_loader.py --save, nvhuman_to_g1.py --save)
@@ -14,11 +13,6 @@ Usage:
 import argparse
 from pathlib import Path
 
-from robotic_grounding.planner.support_recon import (
-    GROUND_Z_THRESHOLD,
-    _detect_parquet_schema,
-    reconstruct_support_for_sequence,
-)
 from robotic_grounding.retarget import HUMAN_MOTION_DATA_DIR
 from robotic_grounding.retarget.data_logger import (
     add_sequence_filter_args,
@@ -28,6 +22,11 @@ from robotic_grounding.retarget.data_logger import (
 from robotic_grounding.retarget.dataset_registry import (
     get_all_dataset_names,
     get_dataset_config,
+)
+from robotic_grounding.retarget.support_recon import (
+    GROUND_Z_THRESHOLD,
+    _detect_parquet_schema,
+    reconstruct_support_for_sequence,
 )
 
 # nvhuman_g1 is a *processed* whole-body schema, not a registered source

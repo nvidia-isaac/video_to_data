@@ -114,9 +114,6 @@ sibling `reconstructed_stage/` directory; they are not embedded in the parquet
 ```
 planner/
 ├── g1_planner.py             CLI orchestration; sole consumer of utils/
-├── support_recon.py          support-surface reconstruction with phantom-tool
-│                             trajectory-overlap filter (drops disks whose
-│                             stillness comes from resting on another body)
 ├── trajectory.py             warmup builder: hold nominal → interp → hold start
 │                             → reference
 ├── visualization.py          MuJoCo viewer with EE axes, object mesh, support
@@ -141,6 +138,11 @@ planner/
                               hand; running them at planning time means
                               regressions surface before training sees them.
 ```
+
+Support-surface reconstruction (still-frame detection → mesh-projected
+disks → USDA output, with a phantom-tool cross-body filter) lives in
+`retarget/support_recon.py` — shared with the standalone CLI
+`scripts/reconstruct_support_surfaces.py` and retargeting viz tools.
 
 The active model backend is `motionbricks/`. `MotionInferenceAgent` in
 `motionbricks/inference.py` loads weights from a self-contained `torch.package`
