@@ -7,6 +7,7 @@ from v2d.sam2.lib.datatypes import Sam2Prompts
 import os
 import argparse
 import json
+import torch
 from PIL import Image
 
 _predictor = None
@@ -26,44 +27,53 @@ def _get_predictor(weights_dir: str):
     return _predictor
 
 def video_to_masks(video_path: str, prompts_path: str, masks_dir: str, weights_dir: str):
-    """Process a video with SAM2 prompts and save masks to files."""
+    """Process a video with SAM2 prompts and save masks to files.
+
+    Runs under ``torch.autocast(bfloat16)`` because SAM2 stores its memory bank
+    in bfloat16 (``sam2_utils.py:1026,1078``) — without autocast, multi-frame
+    prompts (prompts at frame_idx > 0) hit a dtype mismatch when the cross-
+    attention reads the memory through fp32 linear layers. Pass 1 happens to
+    skirt the issue with a single ref-frame prompt; pass 2 triggers it.
+    """
     with open(prompts_path, "r") as f:
         prompts = Sam2Prompts.from_dict(json.load(f))
 
     predictor = _get_predictor(weights_dir)
-    inference_state = predictor.init_state(video_path)
-
-    for prompt in prompts.prompts:
-        box = [prompt.box.x0, prompt.box.y0, prompt.box.x1, prompt.box.y1] if prompt.box else None
-        points = [[p.x, p.y] for p in prompt.points] if prompt.points else None
-        point_labels = prompt.point_labels if prompt.point_labels else None
-        predictor.add_new_points_or_box(
-            inference_state=inference_state,
-            frame_idx=prompt.frame_index,
-            obj_id=prompt.object_id,
-            points=points,
-            labels=point_labels,
-            box=box,
-        )
 
     os.makedirs(masks_dir, exist_ok=True)
     obj_dirs = {}
 
-    for reverse in [True, False]:
-        for frame_idx, object_ids, masks in predictor.propagate_in_video(inference_state, reverse=reverse):
-            for i, obj_id in enumerate(object_ids):
-                mask_data = (masks[i, 0] > 0.0).cpu().numpy().astype(bool)
+    with torch.inference_mode(), torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+        inference_state = predictor.init_state(video_path)
 
-                if obj_id not in obj_dirs:
-                    obj_mask_dir = os.path.join(masks_dir, str(obj_id))
-                    os.makedirs(obj_mask_dir, exist_ok=True)
-                    obj_dirs[obj_id] = obj_mask_dir
-                else:
-                    obj_mask_dir = obj_dirs[obj_id]
+        for prompt in prompts.prompts:
+            box = [prompt.box.x0, prompt.box.y0, prompt.box.x1, prompt.box.y1] if prompt.box else None
+            points = [[p.x, p.y] for p in prompt.points] if prompt.points else None
+            point_labels = prompt.point_labels if prompt.point_labels else None
+            predictor.add_new_points_or_box(
+                inference_state=inference_state,
+                frame_idx=prompt.frame_index,
+                obj_id=prompt.object_id,
+                points=points,
+                labels=point_labels,
+                box=box,
+            )
 
-                mask_img = Image.fromarray((mask_data * 255).astype('uint8'), mode='L')
-                mask_path = os.path.join(obj_mask_dir, f"{frame_idx:06d}.png")
-                mask_img.save(mask_path, format='PNG')
+        for reverse in [True, False]:
+            for frame_idx, object_ids, masks in predictor.propagate_in_video(inference_state, reverse=reverse):
+                for i, obj_id in enumerate(object_ids):
+                    mask_data = (masks[i, 0] > 0.0).cpu().numpy().astype(bool)
+
+                    if obj_id not in obj_dirs:
+                        obj_mask_dir = os.path.join(masks_dir, str(obj_id))
+                        os.makedirs(obj_mask_dir, exist_ok=True)
+                        obj_dirs[obj_id] = obj_mask_dir
+                    else:
+                        obj_mask_dir = obj_dirs[obj_id]
+
+                    mask_img = Image.fromarray((mask_data * 255).astype('uint8'), mode='L')
+                    mask_path = os.path.join(obj_mask_dir, f"{frame_idx:06d}.png")
+                    mask_img.save(mask_path, format='PNG')
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process video to masks using SAM2")
