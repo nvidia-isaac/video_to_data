@@ -410,6 +410,66 @@ def _compute_height_offset(data: Any, schema: str) -> float:
     return 0.0
 
 
+# A disk emitted for body N is treated as a phantom when ANOTHER body M sits
+# inside the disk's xy circle for at least PHANTOM_TARGET_IN_DISK_FRAC of
+# frames AND within PHANTOM_Z_OVERLAP_M of the disk z — body N is resting on
+# body M rather than on a real support surface.
+PHANTOM_TARGET_IN_DISK_FRAC = 0.90
+PHANTOM_Z_OVERLAP_M = 0.10
+
+
+def _filter_phantom_supports(
+    all_disks: dict[str, list[tuple[float, float, float, float]]],
+    object_body_names: list[str],
+    object_body_position: np.ndarray,
+) -> dict[str, list[tuple[float, float, float, float]]]:
+    """Drop support disks that sit on another body's trajectory.
+
+    A disk gets emitted wherever a body is still for long enough. For
+    multi-body scenes (a tool resting on a target — brush on helmet, cup
+    tipped into bowl) the tool body is also "still" for most of the motion,
+    producing a phantom support that physically intersects the target object
+    in sim. The cross-body trajectory check here catches that case without
+    needing a naming convention like a `tool_` prefix.
+    """
+    if object_body_position.ndim != 3 or object_body_position.shape[1] < 2:
+        return all_disks  # Single-body scene; nothing to cross-check.
+
+    name_to_idx = {name: i for i, name in enumerate(object_body_names)}
+    filtered: dict[str, list[tuple[float, float, float, float]]] = {}
+    for body_name, disks in all_disks.items():
+        my_idx = name_to_idx.get(body_name)
+        if my_idx is None:
+            filtered[body_name] = disks
+            continue
+        kept: list[tuple[float, float, float, float]] = []
+        for disk in disks:
+            cx, cy, z, r = disk
+            phantom = False
+            for other_idx in range(object_body_position.shape[1]):
+                if other_idx == my_idx:
+                    continue
+                other_xyz = object_body_position[:, other_idx, :]
+                d_xy = np.linalg.norm(other_xyz[:, :2] - np.array([cx, cy]), axis=1)
+                dz = np.abs(other_xyz[:, 2] - z)
+                frac = float(((d_xy < r) & (dz < PHANTOM_Z_OVERLAP_M)).mean())
+                if frac >= PHANTOM_TARGET_IN_DISK_FRAC:
+                    print(
+                        f"    filtered phantom support on '{body_name}' "
+                        f"(center=({cx:.3f},{cy:.3f},{z:.3f}), r={r:.3f}) — "
+                        f"body '{object_body_names[other_idx]}' sits in xy "
+                        f"radius for {frac:.0%} of frames within "
+                        f"{PHANTOM_Z_OVERLAP_M} m of disk z"
+                    )
+                    phantom = True
+                    break
+            if not phantom:
+                kept.append(disk)
+        if kept:
+            filtered[body_name] = kept
+    return filtered
+
+
 def reconstruct_support_for_sequence(
     input_dir: Path,
     sequence_id: str,
@@ -510,6 +570,16 @@ def reconstruct_support_for_sequence(
             )
             if above_ground:
                 all_disks[body_name] = above_ground
+
+    # Drop disks that sit on another body's trajectory (a tool resting on
+    # the target produces a phantom support inside the target body).
+    if all_disks:
+        body_pos = np.asarray(
+            getattr(data, "object_body_position", []), dtype=np.float64
+        )
+        all_disks = _filter_phantom_supports(
+            all_disks, list(object_body_names), body_pos
+        )
 
     if not all_disks:
         print("No support disks needed (object on ground or always held).")

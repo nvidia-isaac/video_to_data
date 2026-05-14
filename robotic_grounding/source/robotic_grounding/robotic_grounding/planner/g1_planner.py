@@ -34,12 +34,23 @@ from robotic_grounding.planner.support_recon import (
     reconstruct_support_for_sequence,
 )
 from robotic_grounding.planner.trajectory import build_interp_trajectory
-from robotic_grounding.planner.transforms import (
+from robotic_grounding.planner.utils.loader import interpolate_robot_motion_data
+from robotic_grounding.planner.utils.transforms import (
     apply_local_frame_fix,
+    quat_conj,
+    quat_mul,
+    transform_contact_dir_by_part,
+    transform_contact_pos_by_part,
+    transform_primary_pos,
+    transform_primary_quat,
     transform_reference,
     xyzw_to_wxyz,
 )
-from robotic_grounding.planner.v2p_loader import interpolate_robot_motion_data
+from robotic_grounding.planner.utils.validation import (
+    assert_motion_parquet_invariants,
+    warn_missing_urdf_mesh_deps,
+    warn_reference_issues,
+)
 from robotic_grounding.planner.visualization import visualize
 from robotic_grounding.retarget.data_logger import ManoDex3Data, ManoSharpaData
 
@@ -50,6 +61,7 @@ HOLD_START_S = 5.0
 INTERP_DURATION_S = 5.0
 HOLD_END_S = 5.0
 ROOT_HEIGHT = 0.793
+ROOT_FIX_COMPONENTS = ("x", "y", "z", "roll", "pitch", "yaw")
 
 NOMINAL_JOINTS = {
     22: -0.5,  # left_shoulder_pitch
@@ -84,6 +96,29 @@ _ASSETS_DIR = Path(__file__).parent / "assets"
 # -- Helpers -------------------------------------------------------------------
 
 
+def _resolve_asset_path_for_output(path: str | None) -> str | None:
+    """Re-root stored asset paths under this checkout when possible.
+
+    Returns the original path if it can't be resolved locally; callers should
+    warn the user (a downstream consumer will fail on the missing file).
+    """
+    if not path:
+        return path
+    marker = "assets/"
+    if marker in path:
+        suffix = path.rsplit(marker, maxsplit=1)[-1]
+        local = Path(ASSET_DIR) / suffix
+        if local.exists():
+            return str(local)
+    if Path(path).exists():
+        return path
+    print(
+        f"  WARNING: asset path {path!r} could not be resolved against the "
+        "current workspace; downstream scene-spawn will fail on the missing file."
+    )
+    return path
+
+
 def get_nominal_ee(xml_path: str) -> dict:
     """FK at nominal arm pose to get wrist positions/quats."""
     model = mujoco.MjModel.from_xml_path(xml_path)
@@ -103,8 +138,75 @@ def get_nominal_ee(xml_path: str) -> dict:
     }
 
 
+def _trim_motion_data_range(motion, start_frame: int, end_frame: int | None = None):
+    """Keep a frame range from every frame-major motion field."""
+    if start_frame <= 0 and end_frame is None:
+        return motion
+    n_frames = len(motion.robot_right_wrist_position)
+    start_frame = max(0, int(start_frame))
+    end_frame = n_frames if end_frame is None else min(n_frames, int(end_frame))
+    if start_frame >= end_frame:
+        raise ValueError(
+            f"V2P trim range [{start_frame}, {end_frame}) is empty for reference "
+            f"length {n_frames}"
+        )
+    for attr, value in vars(motion).items():
+        if isinstance(value, (str, bytes)) or value is None:
+            continue
+        try:
+            value_len = len(value)
+        except TypeError:
+            continue
+        if value_len != n_frames:
+            continue
+        if isinstance(value, tuple):
+            setattr(motion, attr, value[start_frame:end_frame])
+        else:
+            setattr(motion, attr, value[start_frame:end_frame])
+    return motion
+
+
+def _hand_object_contact_frame_bounds(
+    motion, threshold: float = 1e-5
+) -> tuple[int | None, int | None]:
+    """Return first/last frames with any nonzero hand-object contact point."""
+    first: int | None = None
+    last: int | None = None
+    for side in ("left", "right"):
+        contacts = getattr(motion, f"mano_{side}_object_contact_positions", None)
+        if not contacts:
+            continue
+        arr = np.asarray(contacts, dtype=np.float32)
+        if arr.ndim < 3 or arr.shape[0] == 0:
+            continue
+        xyz = arr[..., :3]
+        active = np.abs(xyz).sum(axis=-1) > threshold
+        frame_ids = np.flatnonzero(active.any(axis=1))
+        if frame_ids.size == 0:
+            continue
+        side_first = int(frame_ids[0])
+        side_last = int(frame_ids[-1])
+        first = side_first if first is None else min(first, side_first)
+        last = side_last if last is None else max(last, side_last)
+    return first, last
+
+
+def _first_hand_object_contact_frame(motion, threshold: float = 1e-5) -> int | None:
+    """Return the first frame with any nonzero hand-object contact point."""
+    first, _ = _hand_object_contact_frame_bounds(motion, threshold)
+    return first
+
+
 def load_v2p_reference(
-    parquet_folder, filters, trajectory_id=0, target_fps=100.0, robot_type="sharpa"
+    parquet_folder,
+    filters,
+    trajectory_id=0,
+    target_fps=100.0,
+    robot_type="sharpa",
+    start_frame=0,
+    start_at_first_contact=False,
+    pre_contact_frames=0,
+    end_after_last_contact_frames=-1,
 ):
     """Load and interpolate V2P retargeted reference data."""
     if robot_type == "sharpa":
@@ -119,6 +221,38 @@ def load_v2p_reference(
         root_path=parquet_folder, filters=filters, trajectory_id=trajectory_id
     )
     motion = interpolate_robot_motion_data(motion, target_fps)
+    n_frames = len(motion.robot_right_wrist_position)
+    effective_start_frame = int(start_frame)
+    effective_end_frame = None
+    first_contact_frame = None
+    last_contact_frame = None
+    if start_at_first_contact:
+        first_contact_frame, last_contact_frame = _hand_object_contact_frame_bounds(
+            motion
+        )
+        if first_contact_frame is None:
+            print("  WARNING: no hand-object contact detected; using v2p_start_frame")
+        else:
+            contact_start = max(0, first_contact_frame - int(pre_contact_frames))
+            effective_start_frame = max(effective_start_frame, contact_start)
+    elif int(end_after_last_contact_frames) >= 0:
+        first_contact_frame, last_contact_frame = _hand_object_contact_frame_bounds(
+            motion
+        )
+    if int(end_after_last_contact_frames) >= 0:
+        if last_contact_frame is None:
+            print("  WARNING: no hand-object contact detected; not trimming V2P end")
+        else:
+            effective_end_frame = min(
+                n_frames, last_contact_frame + int(end_after_last_contact_frames) + 1
+            )
+    motion = _trim_motion_data_range(motion, effective_start_frame, effective_end_frame)
+    first_contact_frame_in_reference = None
+    if first_contact_frame is not None:
+        rel_contact = int(first_contact_frame) - int(effective_start_frame)
+        n_trimmed = len(motion.robot_right_wrist_position)
+        if 0 <= rel_contact < n_trimmed:
+            first_contact_frame_in_reference = rel_contact
 
     obj_pos_all = np.array(motion.object_body_position, dtype=np.float32)  # (T, B, 3)
     obj_quat_all = np.array(motion.object_body_wxyz, dtype=np.float32)  # (T, B, 4)
@@ -150,6 +284,11 @@ def load_v2p_reference(
         "object_name": getattr(motion, "object_name", None),
         "object_mesh_paths": getattr(motion, "object_mesh_paths", None),
         "fps": target_fps,
+        "start_frame": effective_start_frame,
+        "end_frame": effective_end_frame,
+        "first_contact_frame": first_contact_frame,
+        "first_contact_frame_in_reference": first_contact_frame_in_reference,
+        "last_contact_frame": last_contact_frame,
         "_motion_data": motion,
     }
 
@@ -233,6 +372,48 @@ def _wrist_ee_error_from_qpos(
     return float(((err_l + err_r) / 2.0).mean())
 
 
+def _root_fix_component_set(
+    components=(),
+    *,
+    fix_root_pos=False,
+    fix_root_rot=False,
+    fix_root_z=False,
+    fix_root_rp=False,
+) -> set[str]:
+    """Merge the generalized root component list with legacy root flags."""
+    result = set(components or ())
+    invalid = result.difference(ROOT_FIX_COMPONENTS)
+    if invalid:
+        raise ValueError(f"Unknown root fix component(s): {sorted(invalid)}")
+    if fix_root_pos:
+        result.update(("x", "y", "z"))
+    if fix_root_z:
+        result.add("z")
+    if fix_root_rot:
+        result.update(("roll", "pitch", "yaw"))
+    if fix_root_rp:
+        result.update(("roll", "pitch"))
+    return result
+
+
+def _root_wxyz_with_fixed_components(
+    q_xyzw: np.ndarray, fixed_components: set[str]
+) -> np.ndarray:
+    """Apply roll/pitch/yaw root clamps while preserving free components."""
+    if not fixed_components.intersection(("roll", "pitch", "yaw")):
+        return xyzw_to_wxyz(q_xyzw)
+
+    euler_xyz = Rotation.from_quat(q_xyzw).as_euler("xyz", degrees=False)
+    if "roll" in fixed_components:
+        euler_xyz[0] = 0.0
+    if "pitch" in fixed_components:
+        euler_xyz[1] = 0.0
+    if "yaw" in fixed_components:
+        euler_xyz[2] = 0.0
+    q_fixed_xyzw = Rotation.from_euler("xyz", euler_xyz).as_quat()
+    return xyzw_to_wxyz(q_fixed_xyzw).astype(np.float32)
+
+
 def build_full_qpos(
     planned_qpos,
     ref_data,
@@ -241,6 +422,9 @@ def build_full_qpos(
     fix_lower_body=False,
     fix_root_pos=False,
     fix_root_rot=False,
+    fix_root_z=False,
+    fix_root_rp=False,
+    fix_root_components=(),
 ):
     """Combine planned body + reference fingers + (optionally fixed) parts."""
     nq = model.nq
@@ -248,18 +432,26 @@ def build_full_qpos(
     body_map = build_body_joint_mapping(model)
     l_finger_map = build_finger_mapping(model, ref_data.get("left_joint_names", []))
     r_finger_map = build_finger_mapping(model, ref_data.get("right_joint_names", []))
+    fixed_root = _root_fix_component_set(
+        fix_root_components,
+        fix_root_pos=fix_root_pos,
+        fix_root_rot=fix_root_rot,
+        fix_root_z=fix_root_z,
+        fix_root_rp=fix_root_rp,
+    )
 
-    identity_wxyz = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
     for t in range(T_save):
         t_plan = min(t, planned_qpos.shape[0] - 1)
-        if fix_root_pos:
-            full_qpos[t, :3] = (0.0, 0.0, ROOT_HEIGHT)
-        else:
-            full_qpos[t, :3] = planned_qpos[t_plan, :3]
-        if fix_root_rot:
-            full_qpos[t, 3:7] = identity_wxyz
-        else:
-            full_qpos[t, 3:7] = xyzw_to_wxyz(planned_qpos[t_plan, 3:7])
+        full_qpos[t, :3] = planned_qpos[t_plan, :3]
+        if "x" in fixed_root:
+            full_qpos[t, 0] = 0.0
+        if "y" in fixed_root:
+            full_qpos[t, 1] = 0.0
+        if "z" in fixed_root:
+            full_qpos[t, 2] = ROOT_HEIGHT
+        full_qpos[t, 3:7] = _root_wxyz_with_fixed_components(
+            planned_qpos[t_plan, 3:7], fixed_root
+        )
         for dof_idx, qi in body_map.items():
             full_qpos[t, qi] = planned_qpos[t_plan, 7 + dof_idx]
         if fix_lower_body:
@@ -304,13 +496,17 @@ def save_planner_parquet(
     robot_root_position = qpos_slice[:, 0:3].tolist()
     robot_root_wxyz = qpos_slice[:, 3:7].tolist()
 
+    # robot_joint_names / robot_joint_positions cover every actuated joint
+    # (body + fingers) in MuJoCo joint order. The env's tracking_command
+    # resolves cfg.joint_names against this list by name, so fingers must be
+    # present or it raises "Motion joint reference is missing tracked robot
+    # joints". The per-side `hand_finger_joints` / `hand_finger_joint_names`
+    # lists below stay populated for callers that want the side-segregated view.
     body_qpos_idx: list[int] = []
     robot_joint_names: list[str] = []
     for i in range(model.njnt):
         name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, i)
         if not name or "free" in name.lower():
-            continue
-        if "left_hand" in name or "right_hand" in name:
             continue
         body_qpos_idx.append(int(model.jnt_qposadr[i]))
         robot_joint_names.append(name)
@@ -332,8 +528,23 @@ def save_planner_parquet(
     # Object body position / wxyz — support single- or multi-body.
     obj_body_pos = ref_data.get("object_pos_all", ref_data["object_pos"][:, None])
     obj_body_wxyz = ref_data.get("object_quat_all", ref_data["object_quat"][:, None])
-    object_body_position = np.asarray(obj_body_pos, dtype=np.float32)[:T_use].tolist()
-    object_body_wxyz = np.asarray(obj_body_wxyz, dtype=np.float32)[:T_use].tolist()
+    obj_body_pos_arr = np.asarray(obj_body_pos, dtype=np.float32)[:T_use]
+    obj_body_wxyz_arr = np.asarray(obj_body_wxyz, dtype=np.float32)[:T_use]
+    object_body_position = obj_body_pos_arr.tolist()
+    object_body_wxyz = obj_body_wxyz_arr.tolist()
+
+    # object_root_* mirrors body 0 of the planner-frame object pose.
+    # The env reads object_root_position[0] for the articulated scene init
+    # pose; deriving from body 0 keeps that init aligned with where the
+    # trajectory actually starts, regardless of whether the upstream motion
+    # carried a separately-resampled root field.
+    object_root_position: list = obj_body_pos_arr[:, 0, :].astype(np.float32).tolist()
+    object_root_axis_angle: list = (
+        Rotation.from_quat(obj_body_wxyz_arr[:, 0, :], scalar_first=True)
+        .as_rotvec()
+        .astype(np.float32)
+        .tolist()
+    )
 
     # Object metadata carried over from the upstream ManoSharpaData file.
     motion = ref_raw.get("_motion_data")
@@ -342,9 +553,8 @@ def save_planner_parquet(
     safe_object_body_names = ["object"]
     object_mesh_paths: list[str] = []
     object_urdf_paths: list[str] = []
+    object_mesh_radius: list[float] | None = None
     object_articulation: list[float] = [0.0] * T_use
-    object_root_axis_angle: list | None = None
-    object_root_position: list | None = None
     safe_object_name = object_name
     if motion is not None:
         if getattr(motion, "object_body_names", None):
@@ -352,20 +562,28 @@ def save_planner_parquet(
         if getattr(motion, "safe_object_body_names", None):
             safe_object_body_names = list(motion.safe_object_body_names)
         if getattr(motion, "object_mesh_paths", None):
-            object_mesh_paths = list(motion.object_mesh_paths)
+            object_mesh_paths = [
+                str(resolved)
+                for p in motion.object_mesh_paths
+                if (resolved := _resolve_asset_path_for_output(p))
+            ]
         if getattr(motion, "object_urdf_paths", None):
-            object_urdf_paths = list(motion.object_urdf_paths)
+            object_urdf_paths = [
+                str(resolved)
+                for p in motion.object_urdf_paths
+                if (resolved := _resolve_asset_path_for_output(p))
+            ]
+            # The URDF can resolve locally while its <mesh filename=> visual
+            # or collision dependencies don't. Surface those gaps now so the
+            # user fixes the workspace before training hits the import crash.
+            warn_missing_urdf_mesh_deps(object_urdf_paths)
+        if getattr(motion, "object_mesh_radius", None):
+            object_mesh_radius = [float(r) for r in motion.object_mesh_radius]
         if getattr(motion, "safe_object_name", None):
             safe_object_name = motion.safe_object_name
         obj_art = getattr(motion, "object_articulation", None)
         if obj_art is not None:
             object_articulation = np.asarray(obj_art, dtype=np.float32)[:T_use].tolist()
-        oraa = getattr(motion, "object_root_axis_angle", None)
-        if oraa is not None:
-            object_root_axis_angle = np.asarray(oraa, dtype=np.float32)[:T_use].tolist()
-        orp = getattr(motion, "object_root_position", None)
-        if orp is not None:
-            object_root_position = np.asarray(orp, dtype=np.float32)[:T_use].tolist()
 
     # Per-side hand groups from the V2P retargeting.
     hand_sides: list[str] = []
@@ -380,8 +598,41 @@ def save_planner_parquet(
     hand_object_contact_normals: list[list[list[list[float]]]] = []
     hand_object_contact_part_ids: list[list[list[int]]] = []
     hand_contact_link_names: list[list[str]] = []
+    hand_contact_active: list[list[float]] = []
 
     if motion is not None:
+        # Build the per-frame V2P→planner rigid transform anchored on the
+        # primary object body. transform_reference already applied this same
+        # transform to ee_pose_w / object_body_position (the planner-frame
+        # arrays in ref_data). Applying it here lands hand_frames_w and the
+        # contact arrays in the same frame, so the env can compare them
+        # against the planner-frame object pose without a frame mix.
+        raw_obj_pos_all = np.asarray(motion.object_body_position, dtype=np.float32)[
+            :T_use
+        ]
+        raw_obj_quat_all = np.asarray(motion.object_body_wxyz, dtype=np.float32)[:T_use]
+        if raw_obj_pos_all.ndim == 2:
+            raw_obj_pos_all = raw_obj_pos_all[:, None]
+            raw_obj_quat_all = raw_obj_quat_all[:, None]
+        dst_obj_pos_all = obj_body_pos_arr
+        dst_obj_quat_all = obj_body_wxyz_arr
+        # Length-align in case `_trim_motion_data_range` skipped a field whose
+        # length didn't match the wrist trim — slicing both to a common T
+        # keeps `_transform_*` invocations broadcast-safe.
+        common_T = min(
+            raw_obj_pos_all.shape[0],
+            dst_obj_pos_all.shape[0],
+        )
+        raw_obj_pos_all = raw_obj_pos_all[:common_T]
+        raw_obj_quat_all = raw_obj_quat_all[:common_T]
+        dst_obj_pos_all_aligned = dst_obj_pos_all[:common_T]
+        dst_obj_quat_all_aligned = dst_obj_quat_all[:common_T]
+        primary_r_rel = quat_mul(
+            dst_obj_quat_all_aligned[:, 0], quat_conj(raw_obj_quat_all[:, 0])
+        )
+        raw_primary_pos = raw_obj_pos_all[:, 0]
+        dst_primary_pos = dst_obj_pos_all_aligned[:, 0]
+
         for side in ("left", "right"):
             wrist_pos = getattr(motion, f"robot_{side}_wrist_position", None)
             if wrist_pos is None:
@@ -405,44 +656,152 @@ def save_planner_parquet(
             obj_normals = (
                 getattr(motion, f"mano_{side}_object_contact_normals", None) or []
             )
-            part_ids = (
+            part_ids_attr = (
                 getattr(motion, f"mano_{side}_object_contact_part_ids", None) or []
             )
 
             hand_frame_names.append(list(frame_names))
-            hand_frames_w.append(
-                np.asarray(frames, dtype=np.float32)[:T_use].tolist() if frames else []
-            )
+            # Lift hand_frames_w into the planner frame. The consumer in
+            # tracking_command._precompute_hand_keypoints_in_object_frame
+            # combines these keypoint poses with object_body_position to build
+            # the wrist/fingertip targets; passing through V2P-frame keypoints
+            # against a planner-frame object pose silently produces targets up
+            # to a metre off.
+            if frames:
+                frames_arr = np.asarray(frames, dtype=np.float32)[:common_T]
+                frame_pos = transform_primary_pos(
+                    frames_arr[..., :3],
+                    raw_primary_pos,
+                    dst_primary_pos,
+                    primary_r_rel,
+                )
+                frame_quat = transform_primary_quat(frames_arr[..., 3:], primary_r_rel)
+                hand_frames_w.append(
+                    np.concatenate([frame_pos, frame_quat], axis=-1).tolist()
+                )
+            else:
+                hand_frames_w.append([])
+
             hand_finger_joint_names.append(list(finger_joint_names))
             hand_finger_joints.append(
                 np.asarray(finger_joints, dtype=np.float32)[:T_use].tolist()
                 if finger_joints
                 else []
             )
-            # Contact positions today carry (T, N, 4) with part_id in the 4th
-            # column; strip to (T, N, 3) for the unified layout.
             hand_contact_link_names.append([])
-            hand_link_contact_positions.append(
-                np.asarray(link_contacts)[:T_use, :, :3].tolist()
-                if link_contacts
-                else []
-            )
-            hand_link_contact_normals.append(
-                np.asarray(link_normals)[:T_use, :, :3].tolist() if link_normals else []
-            )
-            hand_object_contact_positions.append(
-                np.asarray(obj_contacts)[:T_use, :, :3].tolist() if obj_contacts else []
-            )
-            hand_object_contact_normals.append(
-                np.asarray(obj_normals)[:T_use, :, :3].tolist() if obj_normals else []
-            )
+
+            # part_ids are 1-indexed object-body indices that drive the
+            # per-body contact transform. Some loaders carry them in a
+            # dedicated array (often left at source fps), others embed them
+            # in the 4th column of the contact-position arrays (already at
+            # planner fps). Probe both and nearest-neighbor upsample the
+            # dedicated array if it hasn't been interpolated.
+            part_ids_arr: np.ndarray | None = None
+            if len(part_ids_attr):
+                src = np.asarray(part_ids_attr, dtype=np.int64)
+                if src.shape[0] >= common_T:
+                    part_ids_arr = src[:common_T]
+                elif src.shape[0] > 0:
+                    src_t = np.linspace(0.0, 1.0, src.shape[0])
+                    dst_t = np.linspace(0.0, 1.0, common_T)
+                    nn_idx = np.clip(
+                        np.searchsorted(src_t, dst_t, side="right") - 1,
+                        0,
+                        src.shape[0] - 1,
+                    )
+                    part_ids_arr = src[nn_idx]
+            if part_ids_arr is None and obj_contacts:
+                oc_probe = np.asarray(obj_contacts, dtype=np.float32)
+                if oc_probe.ndim == 3 and oc_probe.shape[-1] >= 4:
+                    part_ids_arr = np.rint(oc_probe[:common_T, :, 3]).astype(np.int64)
+                    inactive = (
+                        np.linalg.norm(oc_probe[:common_T, :, :3], axis=-1) <= 1e-8
+                    )
+                    part_ids_arr = np.where(inactive, 0, part_ids_arr)
+
+            # Contacts ride the same per-body rigid transform as the object
+            # bodies they reference. Positions translate + rotate, normals
+            # rotate only.
+            if obj_contacts:
+                oc_a = np.asarray(obj_contacts, dtype=np.float32)[:common_T, :, :3]
+                oc_transformed = transform_contact_pos_by_part(
+                    oc_a,
+                    raw_obj_pos_all,
+                    dst_obj_pos_all_aligned,
+                    raw_obj_quat_all,
+                    dst_obj_quat_all_aligned,
+                    part_ids_arr,
+                )
+                hand_object_contact_positions.append(oc_transformed.tolist())
+            else:
+                hand_object_contact_positions.append([])
+
+            if obj_normals:
+                on_a = np.asarray(obj_normals, dtype=np.float32)[:common_T, :, :3]
+                on_transformed = transform_contact_dir_by_part(
+                    on_a,
+                    raw_obj_quat_all,
+                    dst_obj_quat_all_aligned,
+                    part_ids_arr,
+                )
+                hand_object_contact_normals.append(on_transformed.tolist())
+            else:
+                hand_object_contact_normals.append([])
+
+            if link_contacts:
+                lc_a = np.asarray(link_contacts, dtype=np.float32)[:common_T, :, :3]
+                lc_transformed = transform_contact_pos_by_part(
+                    lc_a,
+                    raw_obj_pos_all,
+                    dst_obj_pos_all_aligned,
+                    raw_obj_quat_all,
+                    dst_obj_quat_all_aligned,
+                    part_ids_arr,
+                )
+                hand_link_contact_positions.append(lc_transformed.tolist())
+            else:
+                hand_link_contact_positions.append([])
+
+            if link_normals:
+                ln_a = np.asarray(link_normals, dtype=np.float32)[:common_T, :, :3]
+                ln_transformed = transform_contact_dir_by_part(
+                    ln_a,
+                    raw_obj_quat_all,
+                    dst_obj_quat_all_aligned,
+                    part_ids_arr,
+                )
+                hand_link_contact_normals.append(ln_transformed.tolist())
+            else:
+                hand_link_contact_normals.append([])
+
             hand_object_contact_part_ids.append(
-                np.asarray(part_ids, dtype=np.int32)[:T_use].tolist()
-                if part_ids
-                else []
+                part_ids_arr.tolist() if part_ids_arr is not None else []
             )
 
+            # Per-frame contact-active mask: 1 when at least one contact point
+            # is recorded against the object, 0 otherwise. Derived from the
+            # already-upsampled `obj_contacts` so the mask length matches the
+            # other per-frame contact arrays. tracking_command refuses to load
+            # motion files where both sides are absent, so always emit a
+            # per-side mask (zero-filled in the worst case).
+            if obj_contacts:
+                cp = np.asarray(obj_contacts, dtype=np.float32)[:common_T, :, :3]
+                active = (
+                    (np.abs(cp).sum(axis=-1) > 1e-5).any(axis=-1).astype(np.float32)
+                )
+            else:
+                active = np.zeros((common_T,), dtype=np.float32)
+            hand_contact_active.append(active.tolist())
+
     robot_name = "g1" if robot_type == "sharpa" else "g1_dex3"
+    # ee_link_names tells the env which body the EE pose was recorded from.
+    # For dex3 the per-side wrist-position fields actually hold the palm-link
+    # pose (the free-flyer URDF root), so a `wrist_yaw_link` label would put
+    # the env's reward target on the wrong body with a ~4 cm systematic offset.
+    if robot_type == "dex3":
+        ee_link_names = ["left_hand_palm_link", "right_hand_palm_link"]
+    else:
+        ee_link_names = ["left_wrist_yaw_link", "right_wrist_yaw_link"]
     md = MotionData(
         sequence_id=sequence_id,
         robot_name=robot_name,
@@ -455,7 +814,7 @@ def save_planner_parquet(
         robot_root_position=robot_root_position,
         robot_root_wxyz=robot_root_wxyz,
         robot_joint_positions=robot_joint_positions,
-        ee_link_names=["left_wrist_yaw_link", "right_wrist_yaw_link"],
+        ee_link_names=ee_link_names,
         ee_pose_w=ee_pose_w.tolist(),
         object_name=object_name,
         safe_object_name=safe_object_name,
@@ -463,6 +822,7 @@ def save_planner_parquet(
         safe_object_body_names=safe_object_body_names,
         object_mesh_paths=object_mesh_paths,
         object_urdf_paths=object_urdf_paths,
+        object_mesh_radius=object_mesh_radius,
         object_articulation=object_articulation,
         object_root_axis_angle=object_root_axis_angle,
         object_root_position=object_root_position,
@@ -479,9 +839,19 @@ def save_planner_parquet(
         hand_object_contact_positions=hand_object_contact_positions,
         hand_object_contact_normals=hand_object_contact_normals,
         hand_object_contact_part_ids=hand_object_contact_part_ids,
+        hand_contact_active=hand_contact_active,
     )
-    partition_dir = save_motion_parquet(md, root_path=str(output_dir))
+    # Layout: `<output_dir>/planner_processed/sequence_id=…/robot_name=…/*.parquet`
+    # with the support USD as a sibling at `<output_dir>/reconstructed_stage/`.
+    # SceneConfig._discover_support_surface walks
+    # `<sequence_id_dir>.parent.parent.parent / reconstructed_stage`, so the
+    # extra `planner_processed/` layer is what lets it find the support file.
+    partition_root = Path(output_dir) / "planner_processed"
+    partition_dir = save_motion_parquet(md, root_path=str(partition_root))
     print(f"  Saved {partition_dir} ({T_use} frames)")
+    # Hard-fail before training ever sees the parquet so silent data
+    # corruption can't make it past planning.
+    assert_motion_parquet_invariants(partition_dir, robot_type=robot_type)
     return T_use
 
 
@@ -495,7 +865,52 @@ def parse_args():
     parser.add_argument("--v2p_robot_name", default="sharpa_wave")
     parser.add_argument("--v2p_sequence", default="box_grab")
     parser.add_argument("--v2p_trajectory_id", type=int, default=0)
+    parser.add_argument(
+        "--v2p_start_frame",
+        type=int,
+        default=0,
+        help=(
+            "Drop this many frames from the interpolated V2P reference before "
+            "building the planner warmup/interp trajectory. Useful for skipping "
+            "dataset-specific T-pose/approach lead-ins."
+        ),
+    )
+    parser.add_argument(
+        "--v2p_start_at_first_contact",
+        action="store_true",
+        help=(
+            "Start the reference at the first detected hand-object contact "
+            "minus --v2p_pre_contact_frames."
+        ),
+    )
+    parser.add_argument(
+        "--v2p_pre_contact_frames",
+        type=int,
+        default=10,
+        help="Number of interpolated V2P frames to keep before first contact.",
+    )
+    parser.add_argument(
+        "--v2p_end_after_last_contact_frames",
+        type=int,
+        default=-1,
+        help=(
+            "If >= 0, truncate the interpolated V2P reference after the last "
+            "detected hand-object contact plus this many frames. A value of 0 "
+            "keeps through the last contact frame."
+        ),
+    )
     parser.add_argument("--target_fps", type=float, default=150.0)
+    parser.add_argument("--hold_start_s", type=float, default=HOLD_START_S)
+    parser.add_argument("--interp_s", type=float, default=INTERP_DURATION_S)
+    parser.add_argument("--hold_end_s", type=float, default=HOLD_END_S)
+    parser.add_argument(
+        "--no_approach",
+        action="store_true",
+        help=(
+            "Disable the planner's nominal hold/interp/hold approach segment. "
+            "The generated trajectory starts directly at the V2P reference."
+        ),
+    )
     parser.add_argument(
         "--workspace_offset", type=float, nargs=3, default=[-0.10, 0.0, -0.15]
     )
@@ -514,14 +929,35 @@ def parse_args():
         ),
     )
     parser.add_argument(
+        "--fix_root",
+        nargs="+",
+        choices=ROOT_FIX_COMPONENTS,
+        default=(),
+        help=(
+            "Pin selected root components. Components are x y z roll pitch yaw; "
+            "e.g. '--fix_root z roll pitch' clamps height and roll/pitch while "
+            "leaving root XY translation and yaw free."
+        ),
+    )
+    parser.add_argument(
         "--fix_root_pos",
         action="store_true",
-        help="Pin root XYZ to (0, 0, ROOT_HEIGHT) regardless of model output.",
+        help="Legacy alias for '--fix_root x y z'.",
+    )
+    parser.add_argument(
+        "--fix_root_z",
+        action="store_true",
+        help="Legacy alias for '--fix_root z'.",
     )
     parser.add_argument(
         "--fix_root_rot",
         action="store_true",
-        help="Pin root quaternion to identity regardless of model output.",
+        help="Legacy alias for '--fix_root roll pitch yaw'.",
+    )
+    parser.add_argument(
+        "--fix_root_rp",
+        action="store_true",
+        help="Legacy alias for '--fix_root roll pitch'.",
     )
     parser.add_argument(
         "--no_smooth_qpos",
@@ -538,11 +974,24 @@ def parse_args():
             "candidate with the lowest mean wrist tracking error."
         ),
     )
+    parser.add_argument(
+        "--heading_align_frame",
+        choices=("start", "first_contact"),
+        default="start",
+        help=(
+            "Frame used for the heading-toward-object correction. 'start' "
+            "keeps the legacy behavior; 'first_contact' uses the detected "
+            "first contact frame within the trimmed reference."
+        ),
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
+    hold_start_s = 0.0 if args.no_approach else args.hold_start_s
+    interp_s = 0.0 if args.no_approach else args.interp_s
+    hold_end_s = 0.0 if args.no_approach else args.hold_end_s
 
     scene_xml = str(_ASSETS_DIR / "mujoco" / "scene_29dof.xml")
     hand_xml = str(
@@ -570,8 +1019,47 @@ def main():
         trajectory_id=args.v2p_trajectory_id,
         target_fps=args.target_fps,
         robot_type=args.robot,
+        start_frame=args.v2p_start_frame,
+        start_at_first_contact=args.v2p_start_at_first_contact,
+        pre_contact_frames=args.v2p_pre_contact_frames,
+        end_after_last_contact_frames=args.v2p_end_after_last_contact_frames,
     )
+    if ref_raw.get("first_contact_frame") is not None:
+        print(
+            "  first hand-object contact: "
+            f"frame {ref_raw['first_contact_frame']} "
+            f"(keeping {args.v2p_pre_contact_frames} pre-contact frames)"
+        )
+    if ref_raw.get("last_contact_frame") is not None:
+        print(f"  last hand-object contact: frame {ref_raw['last_contact_frame']}")
+    if ref_raw.get("start_frame", 0):
+        print(f"  dropped leading {ref_raw['start_frame']} interpolated V2P frames")
+    if ref_raw.get("end_frame") is not None:
+        print(
+            "  trimmed V2P end at interpolated frame "
+            f"{ref_raw['end_frame']} "
+            f"(keeping {args.v2p_end_after_last_contact_frames} post-contact frames)"
+        )
     print(f"  {ref_raw['left_pos'].shape[0]} frames at {ref_raw['fps']}fps")
+    # Reference-owned checks: warn if input motion or workspace assets are
+    # missing fields the planner can't produce on its own. Issues here belong
+    # to the upstream retargeting / asset pipeline, not this script.
+    warn_reference_issues(ref_raw.get("_motion_data"), ref_raw, args.robot)
+    heading_frame = 0
+    if args.heading_align_frame == "first_contact":
+        first_contact_ref = ref_raw.get("first_contact_frame_in_reference")
+        if first_contact_ref is None:
+            print(
+                "  WARNING: first-contact heading requested but no contact frame is available; using frame 0"
+            )
+        else:
+            heading_frame = int(first_contact_ref)
+            print(
+                "  heading alignment frame: first contact "
+                f"(reference frame {heading_frame})"
+            )
+    else:
+        print("  heading alignment frame: start (reference frame 0)")
 
     # Step 6: Inference (initial agent build)
     if args.ik_verify or args.ik_plan:
@@ -596,6 +1084,7 @@ def main():
             workspace_offset=tuple(args.workspace_offset),
             robot_type=args.robot,
             delta_yaw_offset=delta_yaw_offset_rad,
+            heading_frame=heading_frame,
         )
         T_raw_local = ref_data_local["left_pos"].shape[0]
         N_ref_local = (
@@ -609,9 +1098,9 @@ def main():
             ref_data_local["right_pos"],
             ref_data_local["right_quat"],
             fps=FPS,
-            hold_start_s=HOLD_START_S,
-            interp_s=INTERP_DURATION_S,
-            hold_end_s=HOLD_END_S,
+            hold_start_s=hold_start_s,
+            interp_s=interp_s,
+            hold_end_s=hold_end_s,
             n_ref=plan_n_ref_local,
         )
         traj_lp_l, traj_lq_l, traj_rp_l, traj_rq_l, seg_local = traj
@@ -673,6 +1162,9 @@ def main():
             fix_lower_body=args.fix_lower_body,
             fix_root_pos=args.fix_root_pos,
             fix_root_rot=args.fix_root_rot,
+            fix_root_z=args.fix_root_z,
+            fix_root_rp=args.fix_root_rp,
+            fix_root_components=args.fix_root,
         )
         score = _wrist_ee_error_from_qpos(full_qpos_local, ref_data_local, model)
         return (
@@ -717,7 +1209,11 @@ def main():
     if motion and hasattr(motion, "sequence_id") and motion.sequence_id:
         sequence_id = motion.sequence_id
 
-    output_dir = args.output or str(Path.cwd() / "planner_processed")
+    # `output_dir` is the dataset root; the planner writes parquet under
+    # `<output_dir>/planner_processed/…` and the support USD under
+    # `<output_dir>/reconstructed_stage/…`. SceneConfig discovers the support
+    # USD by walking up from the parquet's `sequence_id=…` dir.
+    output_dir = args.output or str(Path.cwd() / "planner_output")
     save_planner_parquet(
         output_dir,
         full_qpos,
@@ -738,7 +1234,7 @@ def main():
     support_dir.mkdir(parents=True, exist_ok=True)
     support_usda = support_dir / f"{sequence_id}_support.usda"
     reconstruct_support_for_sequence(
-        input_dir=Path(output_dir),
+        input_dir=Path(output_dir) / "planner_processed",
         sequence_id=sequence_id,
         output_override=str(support_usda),
         schema="motion_v1",
@@ -756,6 +1252,9 @@ def main():
             fix_lower_body=args.fix_lower_body,
             fix_root_pos=args.fix_root_pos,
             fix_root_rot=args.fix_root_rot,
+            fix_root_z=args.fix_root_z,
+            fix_root_rp=args.fix_root_rp,
+            fix_root_components=args.fix_root,
         )
 
         # Discover object mesh and support surface from V2P parquet
