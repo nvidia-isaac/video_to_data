@@ -7,7 +7,7 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
-"""Filter HOT3D processed sequences with excessive hand penetration.
+r"""Filter HOT3D processed sequences with excessive hand penetration.
 
 Reads from hot3d_processed/ (partitioned Parquet) and copies sequences
 with max penetration ≤ threshold to an output directory.
@@ -82,6 +82,8 @@ _MESH_PATH_REMAPS = {
 
 @dataclass
 class CollisionShape:
+    """A primitive collision shape (sphere or capsule) attached to a robot link."""
+
     link_name: str
     radius: float
     # For capsules: the shaft endpoints in the link's local frame.
@@ -90,7 +92,7 @@ class CollisionShape:
     ep2_local: np.ndarray  # (3,)
 
 
-def _rpy_to_matrix(rpy) -> np.ndarray:
+def _rpy_to_matrix(rpy: np.ndarray | list[float] | tuple[float, ...]) -> np.ndarray:
     """Roll-pitch-yaw (XYZ extrinsic) → 3×3 rotation matrix."""
     return Rotation.from_euler("xyz", rpy).as_matrix()
 
@@ -125,12 +127,12 @@ def _parse_collision_shapes(urdf_path: Path) -> dict[str, CollisionShape]:
         capsule = geom.find("capsule")
 
         if sphere is not None:
-            r = float(sphere.get("radius"))
+            r = float(sphere.get("radius") or 0.0)
             shapes[name] = CollisionShape(name, r, xyz.copy(), xyz.copy())
 
         elif capsule is not None:
-            r = float(capsule.get("radius"))
-            half = float(capsule.get("length")) / 2.0
+            r = float(capsule.get("radius") or 0.0)
+            half = float(capsule.get("length") or 0.0) / 2.0
             # Capsule axis is along local Z in the collision frame; rotate by R_col,
             # then add the origin offset.
             axis_col = R_col @ np.array([0.0, 0.0, half])
@@ -242,7 +244,9 @@ def _load_hull(mesh_path: str, cache: dict) -> tuple[trimesh.Trimesh | None, flo
 class _HandShapeCache:
     """Pre-computes per-link local-frame capsule endpoints for one hand."""
 
-    def __init__(self, shapes: dict[str, CollisionShape], frame_names: list[str]):
+    def __init__(
+        self, shapes: dict[str, CollisionShape], frame_names: list[str]
+    ) -> None:
         # Ordered list of (frame_index, CollisionShape) for links that appear
         # in both the URDF and the parquet frame list.
         self.entries: list[tuple[int, CollisionShape]] = []
@@ -252,9 +256,11 @@ class _HandShapeCache:
             if idx is not None:
                 self.entries.append((idx, shape))
 
-    def world_spheres(self, frames_t: list) -> list[tuple[np.ndarray, float]]:
-        """Return [(center_world, radius), ...] for frame t's link poses."""
-        result = []
+    def world_spheres(
+        self, frames_t: list
+    ) -> list[tuple[np.ndarray, np.ndarray, float]]:
+        """Return [(ep1_world, ep2_world, radius), ...] for frame t's link poses."""
+        result: list[tuple[np.ndarray, np.ndarray, float]] = []
         for idx, shape in self.entries:
             pose = frames_t[idx]  # [px, py, pz, qw, qx, qy, qz]
             pos = np.array(pose[:3], dtype=float)
@@ -322,7 +328,7 @@ def _max_hand_hand_penetration(
 
 
 def _check_sequence(
-    args_tuple,
+    args_tuple: tuple,
 ) -> dict:
     """Evaluate one sequence; return result dict.
 
@@ -466,6 +472,7 @@ def _find_parquet_dirs(input_dir: Path) -> list[Path]:
 
 
 def main() -> None:
+    """CLI entry point — parse args and run the penetration filter."""
     parser = argparse.ArgumentParser(
         description="Filter hot3d_processed sequences by penetration depth.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -545,7 +552,7 @@ def main() -> None:
             if d.parent.name == f"sequence_id={args.sequence_id}"
         ]
     if args.sequence_pattern:
-        import re
+        import re  # noqa: PLC0415
 
         pat = re.compile(args.sequence_pattern)
         parquet_dirs = [
@@ -579,9 +586,9 @@ def main() -> None:
 
     results = []
     if args.num_workers > 1:
-        from multiprocessing import Pool
+        from multiprocessing import Pool  # noqa: PLC0415
 
-        work_items_mp = [
+        work_items_mp: list[tuple] = [
             (
                 d,
                 right_shapes,
@@ -702,17 +709,19 @@ _RIGHT_SHAPES: dict[str, CollisionShape] | None = None
 _LEFT_SHAPES: dict[str, CollisionShape] | None = None
 
 
-def _get_shapes() -> tuple[dict, dict]:
-    global _RIGHT_SHAPES, _LEFT_SHAPES
+def _get_shapes() -> tuple[dict[str, CollisionShape], dict[str, CollisionShape]]:
+    """Lazy-load and cache the right/left collision shape dicts (process-local)."""
+    global _RIGHT_SHAPES, _LEFT_SHAPES  # noqa: PLW0603 — intentional module-level cache
     if _RIGHT_SHAPES is None:
         _RIGHT_SHAPES = _parse_collision_shapes(_URDF_RIGHT)
         _LEFT_SHAPES = _parse_collision_shapes(_URDF_LEFT)
+    assert _LEFT_SHAPES is not None  # narrowed by _RIGHT_SHAPES check above
     return _RIGHT_SHAPES, _LEFT_SHAPES
 
 
 def check(
     data: dict,
-    seq_dir=None,
+    seq_dir: Path | None = None,
     max_penetration: float = 0.02,
     stride: int = 3,
     hull_ratio_max: float = 3.0,

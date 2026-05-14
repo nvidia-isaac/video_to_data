@@ -6,7 +6,7 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
-"""Segment loaded/retargeted sequences into atomic hand-object interaction clips.
+r"""Segment loaded/retargeted sequences into atomic hand-object interaction clips.
 
 ONLY TESTED ON HOT3D so far. The code uses generic ManoSharpaData fields
 (``mano_*_tips_distance``, ``mano_*_object_contact_part_ids``, etc.) so it
@@ -61,8 +61,8 @@ _SOURCE_DIR = str(_REPO_ROOT / "source" / "robotic_grounding")
 if _SOURCE_DIR not in sys.path:
     sys.path.insert(0, _SOURCE_DIR)
 
-import numpy as np
-from robotic_grounding.retarget.data_logger import (
+import numpy as np  # noqa: E402 — sys.path setup must precede this import
+from robotic_grounding.retarget.data_logger import (  # noqa: E402
     MANO_FIELDS,
     OBJECT_FIELDS,
     SHARPA_FIELDS,
@@ -71,10 +71,10 @@ from robotic_grounding.retarget.data_logger import (
     filter_sequence_ids,
     list_sequence_ids,
 )
+from tqdm import tqdm  # noqa: E402
 
 # Defined in retarget_utils.py but importing that module pulls in torch/pinocchio.
 DEFAULT_PARTITION_COLS = ["sequence_id", "robot_name"]
-from tqdm import tqdm
 
 logging.getLogger().setLevel(logging.ERROR)
 
@@ -277,9 +277,9 @@ def _object_prefix(body_name: str) -> str:
 
 
 def _expand_to_object_siblings(body_1idx: set[int], body_names: list[str]) -> set[int]:
-    """Expand a set of 1-indexed body IDs to include all sibling bodies of the
-    same physical object (bodies sharing the same name prefix before _body_N).
+    """Expand a set of body IDs to include all siblings of the same object.
 
+    Bodies sharing the same name prefix before ``_body_N`` are siblings.
     E.g. dominant body 1 ('dumbbell_body_0') also pulls in body 2 ('dumbbell_body_1').
     """
     prefix_to_ids: dict[str, list[int]] = {}
@@ -472,6 +472,7 @@ def segment_sequence(
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for the segmentation script."""
     parser = argparse.ArgumentParser(
         description="Segment retargeted sequences into atomic hand-object interaction clips.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -537,6 +538,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """CLI entry point — segment all sequences under ``--input_dir`` to atomic clips."""
     args = parse_args()
 
     output_dir: Path = args.output_dir or (
@@ -609,6 +611,7 @@ def main() -> None:
                     root_path=str(output_dir),
                     partition_cols=DEFAULT_PARTITION_COLS,
                 )
+                assert manifest_writer is not None  # narrowed by args.dry_run branch
                 manifest_writer.writerow(row)
 
         total_segs += len(segments)
