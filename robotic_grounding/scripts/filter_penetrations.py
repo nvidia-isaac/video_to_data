@@ -109,8 +109,16 @@ def _parse_collision_shapes(urdf_path: Path) -> dict[str, CollisionShape]:
         if geom is None:
             continue
 
-        xyz = np.array(list(map(float, origin.get("xyz", "0 0 0").split()))) if origin is not None else np.zeros(3)
-        rpy = np.array(list(map(float, origin.get("rpy", "0 0 0").split()))) if origin is not None else np.zeros(3)
+        xyz = (
+            np.array(list(map(float, origin.get("xyz", "0 0 0").split())))
+            if origin is not None
+            else np.zeros(3)
+        )
+        rpy = (
+            np.array(list(map(float, origin.get("rpy", "0 0 0").split())))
+            if origin is not None
+            else np.zeros(3)
+        )
         R_col = _rpy_to_matrix(rpy)
 
         sphere = geom.find("sphere")
@@ -127,7 +135,8 @@ def _parse_collision_shapes(urdf_path: Path) -> dict[str, CollisionShape]:
             # then add the origin offset.
             axis_col = R_col @ np.array([0.0, 0.0, half])
             shapes[name] = CollisionShape(
-                name, r,
+                name,
+                r,
                 xyz + axis_col,
                 xyz - axis_col,
             )
@@ -147,8 +156,9 @@ def _quat_wxyz_to_matrix(qwxyz: list | np.ndarray) -> np.ndarray:
     return Rotation.from_quat([qx, qy, qz, qw]).as_matrix()
 
 
-def _segment_segment_distance(p1: np.ndarray, p2: np.ndarray,
-                               q1: np.ndarray, q2: np.ndarray) -> float:
+def _segment_segment_distance(
+    p1: np.ndarray, p2: np.ndarray, q1: np.ndarray, q2: np.ndarray
+) -> float:
     """Minimum distance between two line segments (p1-p2) and (q1-q2)."""
     d1 = p2 - p1
     d2 = q2 - q1
@@ -195,7 +205,7 @@ def _segment_segment_distance(p1: np.ndarray, p2: np.ndarray,
 def _remap_mesh_path(path: str) -> str:
     for prefix, replacement in _MESH_PATH_REMAPS.items():
         if path.startswith(prefix):
-            return replacement + path[len(prefix):]
+            return replacement + path[len(prefix) :]
     return path
 
 
@@ -218,7 +228,9 @@ def _load_hull(mesh_path: str, cache: dict) -> tuple[trimesh.Trimesh | None, flo
     try:
         mesh = trimesh.load(local_path, force="mesh")
         hull = mesh.convex_hull
-        ratio = hull.volume / mesh.volume if mesh.volume and mesh.volume > 1e-10 else 999.0
+        ratio = (
+            hull.volume / mesh.volume if mesh.volume and mesh.volume > 1e-10 else 999.0
+        )
         cache[key] = (hull, ratio)
         return cache[key]
     except Exception as e:
@@ -300,8 +312,7 @@ def _max_hand_hand_penetration(
         for ep1_l, ep2_l, r_l in left_caps:
             dist = _segment_segment_distance(ep1_r, ep2_r, ep1_l, ep2_l)
             pen = max(0.0, r_r + r_l - dist)
-            if pen > max_pen:
-                max_pen = pen
+            max_pen = max(max_pen, pen)
     return max_pen
 
 
@@ -318,19 +329,35 @@ def _check_sequence(
     Args:
         args_tuple: (seq_dir, right_shapes, left_shapes, max_pen, hull_ratio_max, stride, hull_cache)
     """
-    seq_dir, right_shapes, left_shapes, max_pen, hull_ratio_max, stride, hull_cache = args_tuple
+    seq_dir, right_shapes, left_shapes, max_pen, hull_ratio_max, stride, hull_cache = (
+        args_tuple
+    )
 
     seq_id = seq_dir.parent.name.replace("sequence_id=", "")
     parquet_files = list(seq_dir.glob("*.parquet"))
     if not parquet_files:
-        return {"seq_id": seq_id, "rejected": True, "reason": "no_parquet",
-                "max_ho_pen": 0.0, "max_hh_pen": 0.0, "object_name": "", "seq_dir": seq_dir}
+        return {
+            "seq_id": seq_id,
+            "rejected": True,
+            "reason": "no_parquet",
+            "max_ho_pen": 0.0,
+            "max_hh_pen": 0.0,
+            "object_name": "",
+            "seq_dir": seq_dir,
+        }
 
     try:
         data = pq.read_table(str(parquet_files[0])).to_pydict()
     except Exception as e:
-        return {"seq_id": seq_id, "rejected": True, "reason": f"read_error:{e}",
-                "max_ho_pen": 0.0, "max_hh_pen": 0.0, "object_name": "", "seq_dir": seq_dir}
+        return {
+            "seq_id": seq_id,
+            "rejected": True,
+            "reason": f"read_error:{e}",
+            "max_ho_pen": 0.0,
+            "max_hh_pen": 0.0,
+            "object_name": "",
+            "seq_dir": seq_dir,
+        }
 
     right_frames_seq = data.get("robot_right_frames", [[]])[0]
     left_frames_seq = data.get("robot_left_frames", [[]])[0]
@@ -343,8 +370,15 @@ def _check_sequence(
 
     n_frames = len(right_frames_seq)
     if n_frames == 0:
-        return {"seq_id": seq_id, "rejected": False, "reason": "ok",
-                "max_ho_pen": 0.0, "max_hh_pen": 0.0, "object_name": object_name, "seq_dir": seq_dir}
+        return {
+            "seq_id": seq_id,
+            "rejected": False,
+            "reason": "ok",
+            "max_ho_pen": 0.0,
+            "max_hh_pen": 0.0,
+            "object_name": object_name,
+            "seq_dir": seq_dir,
+        }
 
     right_cache = _HandShapeCache(right_shapes, right_frame_names)
     left_cache = _HandShapeCache(left_shapes, left_frame_names)
@@ -379,14 +413,14 @@ def _check_sequence(
                 obj_qwxyz = obj_wxyz[t][body_idx]
                 obj_R = _quat_wxyz_to_matrix(obj_qwxyz)
 
-                ho = _max_hand_object_penetration(right_caps + left_caps, hull, obj_pos, obj_R)
-                if ho > max_ho_pen:
-                    max_ho_pen = ho
+                ho = _max_hand_object_penetration(
+                    right_caps + left_caps, hull, obj_pos, obj_R
+                )
+                max_ho_pen = max(max_ho_pen, ho)
 
         # Hand-hand
         hh = _max_hand_hand_penetration(right_caps, left_caps)
-        if hh > max_hh_pen:
-            max_hh_pen = hh
+        max_hh_pen = max(max_hh_pen, hh)
 
         # Early-exit once both thresholds exceeded
         if max_ho_pen > max_pen and max_hh_pen > max_pen:
@@ -437,29 +471,56 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    parser.add_argument("--input_dir", type=Path, required=True,
-                        help="Processed parquet directory (hot3d_processed/).")
-    parser.add_argument("--output_dir", type=Path, required=True,
-                        help="Output directory for valid sequences.")
-    parser.add_argument("--max_penetration", type=float, default=0.02,
-                        help="Maximum allowed penetration in metres (default 0.02 = 2 cm).")
-    parser.add_argument("--stride", type=int, default=3,
-                        help="Check every N-th frame (default 3; use 1 for every frame).")
-    parser.add_argument("--num_workers", type=int, default=8,
-                        help="Parallel worker processes (default 8).")
-    parser.add_argument("--dry_run", action="store_true",
-                        help="Report stats without writing output.")
-    parser.add_argument("--hull_ratio_max", type=float, default=3.0,
-                        help="Skip hand-object check for objects whose convex hull volume is "
-                             "more than this multiple of the mesh volume (default 3.0).  "
-                             "Hollow / concave objects (AR glasses=26x, mugs=4.7x, bowls=4.9x) "
-                             "produce large false positives when the hand reaches inside them; "
-                             "3.0 keeps solid objects (cans=1.3x, food=1.0x) while skipping "
-                             "open containers.  Set to 0 to disable all hand-object checks.")
-    parser.add_argument("--sequence_id", type=str, default=None,
-                        help="Evaluate a single sequence.")
-    parser.add_argument("--sequence_pattern", type=str, default=None,
-                        help="Regex to filter sequences.")
+    parser.add_argument(
+        "--input_dir",
+        type=Path,
+        required=True,
+        help="Processed parquet directory (hot3d_processed/).",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=Path,
+        required=True,
+        help="Output directory for valid sequences.",
+    )
+    parser.add_argument(
+        "--max_penetration",
+        type=float,
+        default=0.02,
+        help="Maximum allowed penetration in metres (default 0.02 = 2 cm).",
+    )
+    parser.add_argument(
+        "--stride",
+        type=int,
+        default=3,
+        help="Check every N-th frame (default 3; use 1 for every frame).",
+    )
+    parser.add_argument(
+        "--num_workers",
+        type=int,
+        default=8,
+        help="Parallel worker processes (default 8).",
+    )
+    parser.add_argument(
+        "--dry_run", action="store_true", help="Report stats without writing output."
+    )
+    parser.add_argument(
+        "--hull_ratio_max",
+        type=float,
+        default=3.0,
+        help="Skip hand-object check for objects whose convex hull volume is "
+        "more than this multiple of the mesh volume (default 3.0).  "
+        "Hollow / concave objects (AR glasses=26x, mugs=4.7x, bowls=4.9x) "
+        "produce large false positives when the hand reaches inside them; "
+        "3.0 keeps solid objects (cans=1.3x, food=1.0x) while skipping "
+        "open containers.  Set to 0 to disable all hand-object checks.",
+    )
+    parser.add_argument(
+        "--sequence_id", type=str, default=None, help="Evaluate a single sequence."
+    )
+    parser.add_argument(
+        "--sequence_pattern", type=str, default=None, help="Regex to filter sequences."
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -478,33 +539,64 @@ def main() -> None:
 
     # Apply filters
     if args.sequence_id:
-        parquet_dirs = [d for d in parquet_dirs
-                        if d.parent.name == f"sequence_id={args.sequence_id}"]
+        parquet_dirs = [
+            d
+            for d in parquet_dirs
+            if d.parent.name == f"sequence_id={args.sequence_id}"
+        ]
     if args.sequence_pattern:
         import re
-        pat = re.compile(args.sequence_pattern)
-        parquet_dirs = [d for d in parquet_dirs
-                        if pat.search(d.parent.name.replace("sequence_id=", ""))]
 
-    log.info("Processing %d sequences (stride=%d, max_pen=%.3fm, hull_ratio_max=%.1f) ...",
-             len(parquet_dirs), args.stride, args.max_penetration, args.hull_ratio_max)
+        pat = re.compile(args.sequence_pattern)
+        parquet_dirs = [
+            d
+            for d in parquet_dirs
+            if pat.search(d.parent.name.replace("sequence_id=", ""))
+        ]
+
+    log.info(
+        "Processing %d sequences (stride=%d, max_pen=%.3fm, hull_ratio_max=%.1f) ...",
+        len(parquet_dirs),
+        args.stride,
+        args.max_penetration,
+        args.hull_ratio_max,
+    )
 
     hull_cache: dict = {}
 
     work_items = [
-        (d, right_shapes, left_shapes, args.max_penetration, args.hull_ratio_max, args.stride, hull_cache)
+        (
+            d,
+            right_shapes,
+            left_shapes,
+            args.max_penetration,
+            args.hull_ratio_max,
+            args.stride,
+            hull_cache,
+        )
         for d in parquet_dirs
     ]
 
     results = []
     if args.num_workers > 1:
         from multiprocessing import Pool
+
         work_items_mp = [
-            (d, right_shapes, left_shapes, args.max_penetration, args.hull_ratio_max, args.stride, {})
+            (
+                d,
+                right_shapes,
+                left_shapes,
+                args.max_penetration,
+                args.hull_ratio_max,
+                args.stride,
+                {},
+            )
             for d in parquet_dirs
         ]
         with Pool(processes=args.num_workers) as pool:
-            for i, res in enumerate(pool.imap_unordered(_check_sequence, work_items_mp, chunksize=4)):
+            for i, res in enumerate(
+                pool.imap_unordered(_check_sequence, work_items_mp, chunksize=4)
+            ):
                 results.append(res)
                 if (i + 1) % 100 == 0:
                     n_rej = sum(1 for r in results if r["rejected"])
@@ -528,8 +620,16 @@ def main() -> None:
 
     ho_pens = [r["max_ho_pen"] for r in results]
     hh_pens = [r["max_hh_pen"] for r in results]
-    log.info("Max hand-object pen: %.4f m (mean %.4f m)", max(ho_pens), sum(ho_pens)/len(ho_pens))
-    log.info("Max hand-hand   pen: %.4f m (mean %.4f m)", max(hh_pens), sum(hh_pens)/len(hh_pens))
+    log.info(
+        "Max hand-object pen: %.4f m (mean %.4f m)",
+        max(ho_pens),
+        sum(ho_pens) / len(ho_pens),
+    )
+    log.info(
+        "Max hand-hand   pen: %.4f m (mean %.4f m)",
+        max(hh_pens),
+        sum(hh_pens) / len(hh_pens),
+    )
 
     if args.dry_run:
         log.info("Dry-run: no output written.")
@@ -570,19 +670,27 @@ def _write_report(path: Path, results: list[dict]) -> None:
     with open(path, "w", newline="") as f:
         writer = csv.DictWriter(
             f,
-            fieldnames=["sequence_id", "object_name", "rejected", "reason",
-                        "max_ho_pen_cm", "max_hh_pen_cm"],
+            fieldnames=[
+                "sequence_id",
+                "object_name",
+                "rejected",
+                "reason",
+                "max_ho_pen_cm",
+                "max_hh_pen_cm",
+            ],
         )
         writer.writeheader()
         for r in sorted(results, key=lambda x: x["seq_id"]):
-            writer.writerow({
-                "sequence_id": r["seq_id"],
-                "object_name": r.get("object_name", ""),
-                "rejected": r["rejected"],
-                "reason": r["reason"],
-                "max_ho_pen_cm": f"{r['max_ho_pen']*100:.3f}",
-                "max_hh_pen_cm": f"{r['max_hh_pen']*100:.3f}",
-            })
+            writer.writerow(
+                {
+                    "sequence_id": r["seq_id"],
+                    "object_name": r.get("object_name", ""),
+                    "rejected": r["rejected"],
+                    "reason": r["reason"],
+                    "max_ho_pen_cm": f"{r['max_ho_pen']*100:.3f}",
+                    "max_hh_pen_cm": f"{r['max_hh_pen']*100:.3f}",
+                }
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -649,13 +757,13 @@ def check(
                     continue
                 obj_pos = np.array(obj_positions[t][body_idx], dtype=float)
                 obj_R = _quat_wxyz_to_matrix(obj_wxyz[t][body_idx])
-                ho = _max_hand_object_penetration(right_caps + left_caps, hull, obj_pos, obj_R)
-                if ho > max_ho_pen:
-                    max_ho_pen = ho
+                ho = _max_hand_object_penetration(
+                    right_caps + left_caps, hull, obj_pos, obj_R
+                )
+                max_ho_pen = max(max_ho_pen, ho)
 
         hh = _max_hand_hand_penetration(right_caps, left_caps)
-        if hh > max_hh_pen:
-            max_hh_pen = hh
+        max_hh_pen = max(max_hh_pen, hh)
 
         if max_ho_pen > max_penetration and max_hh_pen > max_penetration:
             break

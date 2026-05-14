@@ -63,7 +63,6 @@ if _SOURCE_DIR not in sys.path:
 
 import numpy as np
 from robotic_grounding.retarget.data_logger import (
-    BASE_FIELDS,
     MANO_FIELDS,
     OBJECT_FIELDS,
     SHARPA_FIELDS,
@@ -72,6 +71,7 @@ from robotic_grounding.retarget.data_logger import (
     filter_sequence_ids,
     list_sequence_ids,
 )
+
 # Defined in retarget_utils.py but importing that module pulls in torch/pinocchio.
 DEFAULT_PARTITION_COLS = ["sequence_id", "robot_name"]
 from tqdm import tqdm
@@ -168,9 +168,7 @@ def find_active_windows(
     return windows
 
 
-def _per_frame_dominant_body(
-    cpid_r: np.ndarray, cpid_l: np.ndarray
-) -> np.ndarray:
+def _per_frame_dominant_body(cpid_r: np.ndarray, cpid_l: np.ndarray) -> np.ndarray:
     """Return int[T] — dominant contacted body ID per frame (0 if no contact)."""
     combined = np.concatenate([cpid_r, cpid_l], axis=1)  # [T, 32]
     T = len(combined)
@@ -246,7 +244,9 @@ def classify_mode(
     return "C"
 
 
-def _remap_paths(paths: list[str] | None, old_prefix: str, new_prefix: str) -> list[str] | None:
+def _remap_paths(
+    paths: list[str] | None, old_prefix: str, new_prefix: str
+) -> list[str] | None:
     """Replace old_prefix with new_prefix in each path string."""
     if not paths:
         return paths
@@ -273,7 +273,7 @@ _CONTACT_PART_ID_FIELDS = (
 
 def _object_prefix(body_name: str) -> str:
     """Strip trailing _body_N / _Body_N suffix to get the physical-object prefix."""
-    return re.sub(r'_[Bb]ody_\d+$', '', body_name)
+    return re.sub(r"_[Bb]ody_\d+$", "", body_name)
 
 
 def _expand_to_object_siblings(body_1idx: set[int], body_names: list[str]) -> set[int]:
@@ -296,7 +296,9 @@ def _expand_to_object_siblings(body_1idx: set[int], body_names: list[str]) -> se
     return expanded
 
 
-def _filter_to_touched_bodies(d: dict, dominant_body_1idx: set[int] | None = None) -> dict:
+def _filter_to_touched_bodies(
+    d: dict, dominant_body_1idx: set[int] | None = None
+) -> dict:
     """Keep only the object bodies for this segment; remap contact IDs.
 
     dominant_body_1idx: 1-indexed body IDs determined by majority-vote in
@@ -347,10 +349,7 @@ def _filter_to_touched_bodies(d: dict, dominant_body_1idx: set[int] | None = Non
         val = d.get(field)
         if val is None:
             continue
-        d[field] = [
-            [old1_to_new1.get(v, 0) for v in frame_ids]
-            for frame_ids in val
-        ]
+        d[field] = [[old1_to_new1.get(v, 0) for v in frame_ids] for frame_ids in val]
 
     return d
 
@@ -391,8 +390,12 @@ def slice_data(
     if local_repo is not None:
         old_prefix = "/workspace/video_to_data"
         new_prefix = str(local_repo)
-        d["object_mesh_paths"] = _remap_paths(d.get("object_mesh_paths"), old_prefix, new_prefix)
-        d["object_urdf_paths"] = _remap_paths(d.get("object_urdf_paths"), old_prefix, new_prefix)
+        d["object_mesh_paths"] = _remap_paths(
+            d.get("object_mesh_paths"), old_prefix, new_prefix
+        )
+        d["object_urdf_paths"] = _remap_paths(
+            d.get("object_urdf_paths"), old_prefix, new_prefix
+        )
 
     return ManoSharpaData(**d)
 
@@ -536,7 +539,9 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    output_dir: Path = args.output_dir or (args.input_dir.parent / f"{args.input_dir.name}_segmented")
+    output_dir: Path = args.output_dir or (
+        args.input_dir.parent / f"{args.input_dir.name}_segmented"
+    )
 
     sequence_ids = list_sequence_ids(str(args.input_dir))
     sequence_ids = filter_sequence_ids(sequence_ids, args)
@@ -571,12 +576,17 @@ def main() -> None:
             filters=[("sequence_id", "=", seq_id)],
         )
 
-        segments = segment_sequence(data, args.threshold, args.gap_frames, args.min_frames)
+        segments = segment_sequence(
+            data, args.threshold, args.gap_frames, args.min_frames
+        )
 
         for seg in segments:
             seg_id = f"{seg['parent_sequence_id']}_seg{seg['segment_idx']:03d}"
             # Exclude internal keys (prefixed with _) from the manifest row.
-            row = {"segment_id": seg_id, **{k: v for k, v in seg.items() if not k.startswith("_")}}
+            row = {
+                "segment_id": seg_id,
+                **{k: v for k, v in seg.items() if not k.startswith("_")},
+            }
 
             if args.dry_run:
                 print(
@@ -586,8 +596,11 @@ def main() -> None:
                 )
             else:
                 sliced = slice_data(
-                    data, seg["start_frame"], seg["end_frame"],
-                    seg["parent_sequence_id"], seg["segment_idx"],
+                    data,
+                    seg["start_frame"],
+                    seg["end_frame"],
+                    seg["parent_sequence_id"],
+                    seg["segment_idx"],
                     local_repo=args.local_repo,
                     dominant_body_1idx=seg.get("_dominant_bodies"),
                     pad_frames=args.pad_frames,

@@ -619,7 +619,9 @@ def main() -> None:
         if is_hot3d or is_oakink2:
             args.ground_threshold = -0.02
             detected = "HOT3D" if is_hot3d else "OakInk2"
-            print(f"{detected} detected: ground_threshold set to -0.01 (keeping floor-level disks)")
+            print(
+                f"{detected} detected: ground_threshold set to -0.01 (keeping floor-level disks)"
+            )
 
     sequence_ids = list_sequence_ids(str(input_dir))
     if not sequence_ids:
