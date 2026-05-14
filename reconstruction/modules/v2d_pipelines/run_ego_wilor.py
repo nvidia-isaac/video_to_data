@@ -272,7 +272,13 @@ def run_ego_wilor(
     reregister_iou_thresh: float | None = 0.3,
     run_slam: bool = False,
     droid_slam_weights: str = "data/weights/droid_slam",
+    bg_init_stride: int = 10,
+    bg_voxel_size: float = 0.005,
+    bg_max_points: int = 40000,
     run_refinement: bool = False,
+    learn_hand_scale: bool = False,
+    lr_hand_scale: float = 1e-3,
+    w_hand_scale_prior: float = 10.0,
     refinement_render_every: int = 25,
     refinement_resume: bool = False,
     refinement_object_pose_only: bool = False,
@@ -686,6 +692,37 @@ def run_ego_wilor(
             dev            = dev,
         )
 
+    # 13b. Reconcile hand_tracks.json with canonical handedness emitted by
+    # interpolation (whole-sequence majority vote + position tiebreak). WiLoR's
+    # YOLO classifier occasionally mislabels the ref frame; without this step
+    # the bad ref-frame label would stick in hand_tracks.json and the
+    # refinement's `left_tid` / `right_tid` resolution would silently drop a
+    # track. We trust the sequence-level vote over the ref-frame seed.
+    handedness_path = f"{wilor_aligned_filled_dir}/handedness.json"
+    if os.path.exists(handedness_path):
+        with open(handedness_path) as f:
+            canonical = json.load(f)
+        with open(hand_tracks) as f:
+            ht = json.load(f)
+        changed = False
+        for t in ht.get("tracks", []):
+            tid_key = str(t["object_id"])
+            entry = canonical.get(tid_key)
+            if entry is None:
+                continue
+            new_ir = bool(entry["is_right"])
+            if bool(t["is_right"]) != new_ir:
+                print(f"  hand_tracks.json: track {tid_key} is_right "
+                      f"{t['is_right']} → {new_ir} (sequence vote: "
+                      f"R={entry['votes_right']} L={entry['votes_left']}, "
+                      f"tiebroke={entry.get('tiebroke', False)})")
+                t["is_right"] = new_ir
+                changed = True
+        if changed:
+            with open(hand_tracks, "w") as f:
+                json.dump(ht, f, indent=2)
+            print(f"  Updated {hand_tracks} with canonical handedness")
+
     # 14. Render filled aligned overlay (real + interpolated) --------------
     if not _step("Render filled aligned wilor overlay",
                  os.path.exists(wilor_aligned_filled_overlay)):
@@ -720,8 +757,28 @@ def run_ego_wilor(
 
         with open(hand_tracks) as f:
             htm = json.load(f)["tracks"]
-        left_tid: int | None  = next((t["object_id"] for t in htm if not t["is_right"]), None)
-        right_tid: int | None = next((t["object_id"] for t in htm if     t["is_right"]), None)
+        left_candidates  = [t["object_id"] for t in htm if not t["is_right"]]
+        right_candidates = [t["object_id"] for t in htm if     t["is_right"]]
+        left_tid: int | None  = left_candidates[0]  if left_candidates  else None
+        right_tid: int | None = right_candidates[0] if right_candidates else None
+        # Silent track-drop has bitten us before — surface ambiguities loudly.
+        if len(left_candidates) > 1 or len(right_candidates) > 1:
+            print("  WARNING: hand_tracks.json has duplicate-handedness tracks; "
+                  f"refinement will only refine one per side.\n"
+                  f"            left  candidates = {left_candidates}\n"
+                  f"            right candidates = {right_candidates}\n"
+                  f"            using left_tid={left_tid}, right_tid={right_tid}.\n"
+                  f"            (Inspect {wilor_aligned_filled_dir}/handedness.json "
+                  f"and consider re-running with corrected handedness.)")
+        if left_tid is None and right_tid is None:
+            raise RuntimeError(
+                f"No hand tracks found in {hand_tracks}; cannot run refinement."
+            )
+        for t in htm:
+            if t["object_id"] not in (left_tid, right_tid):
+                print(f"  WARNING: track {t['object_id']} (is_right="
+                      f"{t['is_right']}) will be DROPPED by gsplat refinement "
+                      f"(only one track per handedness is consumed).")
 
         def _maybe(d: str | None) -> str | None:
             return d if d is not None else None
@@ -763,14 +820,14 @@ def run_ego_wilor(
                 refined_right_hand_pose_dir = _maybe(right_pose_out),
                 depth_dir                   = depth_dir,
                 mano_assets_root            = mano_assets_root,
-                n_epochs                    = 64,
-                batch_size                  = 32,
+                n_epochs                    = 32*8,
+                batch_size                  = 16,
                 render_every                = refinement_render_every,
                 lr_gaussians                = 3e-2,
                 lr_hand_gaussians           = 3e-2,
                 lr_mul_delta_p              = 0.1,
                 lr_mul_quat                 = 0.5,
-                lr_mul_scale                = 3.0,
+                lr_mul_scale                = 1.0,
                 lr_mul_opacity              = 5.0,
                 lr_mul_color                = 1.0,
                 lr_mul_obj_global_scale     = 1.0,
@@ -782,11 +839,18 @@ def run_ego_wilor(
                 lr_hand_finger              = 3e-3,
                 lr_hand_trans               = 3e-3,
                 lr_betas                    = 1e-4,
+                # Optional per-track hand_scale optimization. Default off:
+                # the align_hands estimate is already a strong init and
+                # `betas` covers the same DoF. Enable when you specifically
+                # want gsplat to polish hand_scale against photometric loss.
+                learn_hand_scale            = learn_hand_scale,
+                lr_hand_scale               = lr_hand_scale,
+                w_hand_scale_prior          = w_hand_scale_prior,
                 w_photometric               = 1.0,
-                w_silhouette                = 1.0,
+                w_silhouette                = 5.0,
                 w_silhouette_hand           = 1.0,
                 w_silhouette_obj            = 1.0,
-                w_depth                     = 0.001,
+                w_depth                     = 0.1,
                 w_smooth_obj_rot            = 0.001,
                 w_smooth_obj_trans          = 0.001,
                 w_smooth_hand_rot           = 0.001,
@@ -825,7 +889,12 @@ def run_ego_wilor(
                 pose_confidence_dynamic_tau       = 0.0,
                 train_resolution_scale            = 0.5,
                 n_obj_gaussians                   = 5000,
-                bg_max_points                     = 20000,
+                bg_max_points                     = bg_max_points,
+                # Multi-frame BG init kicks in when --run_slam supplies a
+                # per-frame trajectory; without SLAM, gsplat falls back to
+                # single-frame init regardless of stride.
+                bg_init_stride                    = bg_init_stride,
+                bg_voxel_size                     = bg_voxel_size,
                 dev                         = dev,
         )
         if not _step("Gaussian-splat refinement (pass 1)",
@@ -904,6 +973,7 @@ def run_ego_wilor(
     print(f"  wilor (raw tracks)           : {wilor_tracks_dir}/")
     print(f"  wilor_overlay                : {wilor_overlay}")
     print(f"  wilor_aligned                : {wilor_aligned_dir}/  (real only)")
+    print(f"  wilor_aligned/hand_scale.json: per-track multiplicative correction")
     print(f"  wilor_aligned_overlay        : {wilor_aligned_overlay}")
     print(f"  wilor_aligned_filled         : {wilor_aligned_filled_dir}/  (real + interpolated)")
     print(f"  wilor_aligned_filled_overlay : {wilor_aligned_filled_overlay}")
@@ -965,9 +1035,30 @@ def parse_args() -> argparse.Namespace:
                         "pose field (critical for moving cameras).")
     p.add_argument("--droid_slam_weights", default="data/weights/droid_slam",
                    help="DROID-SLAM weights dir (used only with --run_slam).")
+    p.add_argument("--bg_init_stride", type=int, default=10,
+                   help="Stride for multi-frame BG point-cloud init at gsplat "
+                        "refinement. Only effective with --run_slam (needs "
+                        "per-frame poses to compose unprojections). Set to 1 "
+                        "to force the old single-frame init even with SLAM.")
+    p.add_argument("--bg_voxel_size", type=float, default=0.005,
+                   help="Voxel size (m) for dedup of the fused BG point cloud "
+                        "before random subsample. 0 disables voxel dedup.")
+    p.add_argument("--bg_max_points", type=int, default=40000,
+                   help="Cap on the BG Gaussian count after voxel dedup + "
+                        "random subsample.")
     p.add_argument("--run_refinement", action="store_true",
                    help="After alignment, jointly refine hand+object poses via "
                         "Gaussian splatting. Requires --object_prompt.")
+    p.add_argument("--learn_hand_scale", action="store_true",
+                   help="Optimize the per-track hand_scale during gsplat "
+                        "refinement (init from align_hands' median). Off by "
+                        "default; the init is already a strong estimate and "
+                        "`betas` covers the same DoF.")
+    p.add_argument("--lr_hand_scale", type=float, default=1e-3,
+                   help="LR for hand_scale when --learn_hand_scale is set.")
+    p.add_argument("--w_hand_scale_prior", type=float, default=10.0,
+                   help="Tight prior pulling learned hand_scale back to the "
+                        "align_hands estimate.")
     p.add_argument("--refinement_render_every", type=int, default=25,
                    help="Dump an overlay PNG of a reference frame every N "
                         "optimizer steps during refinement (0 disables).")
@@ -1022,7 +1113,13 @@ if __name__ == "__main__":
         reregister_iou_thresh   = args.reregister_iou_thresh,
         run_slam                = args.run_slam,
         droid_slam_weights      = args.droid_slam_weights,
+        bg_init_stride          = args.bg_init_stride,
+        bg_voxel_size           = args.bg_voxel_size,
+        bg_max_points           = args.bg_max_points,
         run_refinement                    = args.run_refinement,
+        learn_hand_scale                  = args.learn_hand_scale,
+        lr_hand_scale                     = args.lr_hand_scale,
+        w_hand_scale_prior                = args.w_hand_scale_prior,
         refinement_render_every           = args.refinement_render_every,
         refinement_resume                 = args.refinement_resume,
         refinement_object_pose_only       = args.refinement_object_pose_only,

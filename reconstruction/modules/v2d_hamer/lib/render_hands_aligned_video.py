@@ -158,6 +158,15 @@ def _build_hand_mesh(rec: dict, mano: ManoLayer) -> Tuple[np.ndarray, np.ndarray
     verts_local = out.verts[0].detach().numpy()
     if not rec["is_right"]:
         verts_local[:, 0] *= -1
+    # Apply the per-track multiplicative depth correction emitted by
+    # align_hands' post-pass (when present). cam_t already carries the
+    # additive dz shift; hand_scale rescales the mesh around its centroid
+    # so the projected silhouette grows/shrinks to match the image while
+    # the centroid pixel is preserved.
+    hand_scale = float(rec.get("hand_scale", 1.0))
+    if hand_scale != 1.0:
+        c = verts_local.mean(axis=0, keepdims=True)
+        verts_local = (verts_local - c) * hand_scale + c
     cam_t = np.array(rec["cam_t"], dtype=np.float64)
     verts_cam = verts_local + cam_t[None, :]
     faces = mano.th_faces.numpy()

@@ -260,3 +260,16 @@ def beta_prior_loss(beta: torch.Tensor, beta_init: torch.Tensor) -> torch.Tensor
     """
     d = beta - beta_init
     return (d * d).sum()
+
+
+def hand_scale_prior_loss(
+    scale: torch.Tensor, scale_init: torch.Tensor,
+) -> torch.Tensor:
+    """Squared deviation of per-track hand_scale from its initialization.
+
+    Both are scalar tensors. The init comes from align_hands' n_pixels-
+    weighted median (a strong estimator); the prior keeps the learned value
+    from drifting if photometric signal is weak (e.g. small hand silhouettes).
+    """
+    d = scale - scale_init
+    return d * d

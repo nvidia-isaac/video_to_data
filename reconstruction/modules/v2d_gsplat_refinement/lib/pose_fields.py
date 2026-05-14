@@ -106,6 +106,7 @@ class HandPoseField(nn.Module):
         track: HandPoseTrack,
         mano_assets_root: str,
         device: str | torch.device = "cuda",
+        learn_hand_scale: bool = False,
     ) -> None:
         super().__init__()
         # Lazy import so non-hand pipelines don't pay for manotorch.
@@ -123,6 +124,28 @@ class HandPoseField(nn.Module):
 
         self.is_right      = bool(track.is_right)
         self.frame_indices = list(track.frame_indices)
+
+        # Per-track multiplicative depth correction from align_hands. The
+        # MANO mesh is rescaled around its centroid (in MANO/rest frame,
+        # before adding cam_t) so the projected silhouette matches the
+        # image. cam_t carries the additive (dz) shift; together they
+        # correct both modes of depth mismatch.
+        #
+        # Stored as a Parameter so refine can optimize it when
+        # ``learn_hand_scale=True``; otherwise ``requires_grad=False`` and
+        # the parameter is excluded from optimizer param groups (functions
+        # as a fixed buffer). ``hand_scale_init`` is kept as a buffer to
+        # anchor the soft prior pulling the learned value back to the
+        # align_hands estimate.
+        scale_init = float(getattr(track, "hand_scale", 1.0) or 1.0)
+        self.hand_scale = nn.Parameter(
+            torch.tensor(scale_init, device=device, dtype=torch.float32),
+            requires_grad=bool(learn_hand_scale),
+        )
+        self.register_buffer(
+            "hand_scale_init",
+            torch.tensor(scale_init, device=device, dtype=torch.float32),
+        )
 
         # ManoLayer always produces right-hand vertices in its own frame; we
         # mirror x for left hands at output (matches v2d_hamer/align_hands.py).
@@ -202,6 +225,15 @@ class HandPoseField(nn.Module):
             M = torch.diag(mirror)
             R_per_vert = M @ R_per_vert @ M
 
+        # Multiplicative depth correction (hand_scale) — applied around the
+        # mesh centroid in MANO frame, before cam_t. Rotations untouched
+        # (uniform isotropic scale). Skipped only when scale is exactly 1
+        # AND not learnable (avoids killing gradient flow when learnable
+        # happens to start at 1.0).
+        if self.hand_scale.requires_grad or float(self.hand_scale) != 1.0:
+            c = verts.mean(dim=0, keepdim=True)                                  # (1, 3)
+            verts = (verts - c) * self.hand_scale + c
+
         verts = verts + self.cam_t[t]                                            # (N, 3)
         return verts, R_per_vert
 
@@ -247,6 +279,12 @@ class HandPoseField(nn.Module):
             # M @ R @ M for every (b, v); contract via broadcasting.
             R_per_vert = M @ R_per_vert @ M
 
+        # Multiplicative depth correction (hand_scale), per-batch-elt-centred.
+        # Skip only when fixed-at-1.0 (preserves gradient flow when learnable).
+        if self.hand_scale.requires_grad or float(self.hand_scale) != 1.0:
+            c = verts.mean(dim=1, keepdim=True)                              # (B, 1, 3)
+            verts = (verts - c) * self.hand_scale + c
+
         verts = verts + self.cam_t[t_idx].unsqueeze(1)                       # (B, 1, 3) → (B, N, 3)
         return verts, R_per_vert
 
@@ -266,4 +304,5 @@ class HandPoseField(nn.Module):
             is_right      = self.is_right,
             frame_indices = list(self.frame_indices),
             raw_records   = raw_records,
+            hand_scale    = float(self.hand_scale.detach().cpu().item()),
         )

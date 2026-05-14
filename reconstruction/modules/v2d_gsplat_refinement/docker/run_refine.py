@@ -38,6 +38,9 @@ def run_refine(
     lr_hand_finger: float | None = None,
     lr_hand_trans: float | None = None,
     lr_betas: float = 1e-3,
+    learn_hand_scale: bool = False,
+    lr_hand_scale:    float = 1e-3,
+    w_hand_scale_prior: float = 10.0,
     render_every: int = 25,
     progress_dir: str | None = None,
     debug_frame_idx: int | None = None,
@@ -69,6 +72,8 @@ def run_refine(
     lr_bg_trans: float | None = None,
     bg_max_points: int = 50000,
     background_pose_init_dir: str | None = None,
+    bg_init_stride: int   = 10,
+    bg_voxel_size:  float = 0.005,
     n_obj_gaussians: int | None = None,
     n_hand_gaussians: int | None = None,
     use_cosine_lr_schedule: bool = False,
@@ -157,6 +162,9 @@ def run_refine(
         "lr_hand_finger":        lr_hand_finger,
         "lr_hand_trans":         lr_hand_trans,
         "lr_betas":          lr_betas,
+        "learn_hand_scale":  learn_hand_scale,
+        "lr_hand_scale":     lr_hand_scale,
+        "w_hand_scale_prior": w_hand_scale_prior,
         "render_every":   render_every,
         "debug_frame_idx": debug_frame_idx,
         "w_photometric":  w_photometric,
@@ -186,6 +194,8 @@ def run_refine(
         "lr_bg_rot":           lr_bg_rot,
         "lr_bg_trans":         lr_bg_trans,
         "bg_max_points":       bg_max_points,
+        "bg_init_stride":      bg_init_stride,
+        "bg_voxel_size":       bg_voxel_size,
         "n_obj_gaussians":         n_obj_gaussians,
         "n_hand_gaussians":        n_hand_gaussians,
         "use_cosine_lr_schedule":     use_cosine_lr_schedule,
@@ -267,6 +277,9 @@ if __name__ == "__main__":
     p.add_argument("--lr_hand_finger",        type=float, default=None)
     p.add_argument("--lr_hand_trans",         type=float, default=None)
     p.add_argument("--lr_betas",        type=float, default=1e-4)
+    p.add_argument("--learn_hand_scale", action="store_true")
+    p.add_argument("--lr_hand_scale",     type=float, default=1e-3)
+    p.add_argument("--w_hand_scale_prior", type=float, default=10.0)
     p.add_argument("--render_every",    type=int,   default=0)
     p.add_argument("--progress_dir",                default=None)
     p.add_argument("--debug_frame_idx", type=int,   default=None)
@@ -301,6 +314,12 @@ if __name__ == "__main__":
                    help="Optional folder of per-frame Transform3d JSONs "
                         "(cam-to-world; DROID/COLMAP convention) used to "
                         "seed the background pose field.")
+    p.add_argument("--bg_init_stride", type=int,   default=10,
+                   help="Stride for multi-frame BG point-cloud init "
+                        "(used only with --background_pose_init_dir).")
+    p.add_argument("--bg_voxel_size", type=float, default=0.005,
+                   help="Voxel size (m) for BG point-cloud dedup before "
+                        "random subsample.")
     p.add_argument("--n_obj_gaussians",     type=int,   default=None)
     p.add_argument("--n_hand_gaussians",    type=int,   default=None)
     p.add_argument("--use_cosine_lr_schedule", action="store_true")
@@ -369,6 +388,9 @@ if __name__ == "__main__":
         lr_bg_trans                 = args.lr_bg_trans,
         lr_hand_pose                = args.lr_hand_pose,
         lr_betas                    = args.lr_betas,
+        learn_hand_scale            = args.learn_hand_scale,
+        lr_hand_scale               = args.lr_hand_scale,
+        w_hand_scale_prior          = args.w_hand_scale_prior,
         render_every                = args.render_every,
         progress_dir                = args.progress_dir,
         debug_frame_idx             = args.debug_frame_idx,
@@ -398,6 +420,8 @@ if __name__ == "__main__":
         lr_bg_pose                  = args.lr_bg_pose,
         bg_max_points               = args.bg_max_points,
         background_pose_init_dir    = args.background_pose_init_dir,
+        bg_init_stride              = args.bg_init_stride,
+        bg_voxel_size               = args.bg_voxel_size,
         n_obj_gaussians             = args.n_obj_gaussians,
         n_hand_gaussians            = args.n_hand_gaussians,
         use_cosine_lr_schedule      = args.use_cosine_lr_schedule,

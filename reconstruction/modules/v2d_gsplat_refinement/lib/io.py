@@ -143,7 +143,13 @@ class HandPoseTrack:
     frame_indices: list[int]
     raw_records:   list[dict]   -- preserved verbatim so we can round-trip
                                    non-optimized fields (intrinsics, image_size,
-                                   diagnostics, track_id) on save.
+                                   diagnostics, track_id, hand_scale) on save.
+    hand_scale:    float        -- per-track multiplicative depth correction
+                                   emitted by align_hands. cam_t carries the
+                                   additive (dz) shift; hand_scale corrects
+                                   multiplicative depth mismatch by scaling
+                                   the MANO mesh around its centroid.
+                                   Defaults to 1.0 when absent.
     """
     global_orient: torch.Tensor
     hand_pose: torch.Tensor
@@ -152,6 +158,7 @@ class HandPoseTrack:
     is_right: bool
     frame_indices: list[int]
     raw_records: list[dict]
+    hand_scale: float = 1.0
 
 
 def load_hand_poses(track_dir: str, device: str) -> HandPoseTrack:
@@ -160,6 +167,7 @@ def load_hand_poses(track_dir: str, device: str) -> HandPoseTrack:
         raise FileNotFoundError(f"No hand JSONs in {track_dir}")
     go, hp, be, ct, idxs, recs = [], [], [], [], [], []
     is_right = None
+    hand_scale: float | None = None
     for f in files:
         with open(f) as fh:
             r = json.load(fh)
@@ -167,6 +175,9 @@ def load_hand_poses(track_dir: str, device: str) -> HandPoseTrack:
             is_right = bool(r["is_right"])
         elif bool(r["is_right"]) != is_right:
             raise ValueError(f"Mixed handedness in {track_dir}")
+        # hand_scale is per-track-constant; first non-default record wins.
+        if hand_scale is None and "hand_scale" in r:
+            hand_scale = float(r["hand_scale"])
         go.append(r["mano"]["global_orient"])
         hp.append(r["mano"]["hand_pose"])
         be.append(r["mano"]["betas"])
@@ -181,6 +192,7 @@ def load_hand_poses(track_dir: str, device: str) -> HandPoseTrack:
         is_right      = bool(is_right),
         frame_indices = idxs,
         raw_records   = recs,
+        hand_scale    = float(hand_scale) if hand_scale is not None else 1.0,
     )
 
 

@@ -54,6 +54,7 @@ from .background import (
     BackgroundGaussians,
     BackgroundPoseField,
     init_background_from_depth,
+    init_background_multiframe,
 )
 from .gaussians import (
     concat_frames,
@@ -79,6 +80,7 @@ from .losses import (
     beta_prior_loss,
     delta_p_regularizer,
     depth_loss,
+    hand_scale_prior_loss,
     photometric_loss,
     pose_init_prior_loss,
     rotation_smoothness,
@@ -94,26 +96,24 @@ from .render import render_rgb_depth
 # ---------------------------------------------------------------------------
 
 
-def _seed_background_pose_field(
-    bg_pose_field,                          # BackgroundPoseField
+def _load_relative_w2c_poses(
+    poses_dir: str,
     frame_indices: list[int],
     ref_t: int,
-    poses_dir: str,
-) -> tuple[int, int]:
-    """Overwrite bg_pose_field.{axis_angle, translation} from a Transform3d dir.
+) -> dict[int, np.ndarray]:
+    """Load per-frame Transform3d JSONs and return relative world→camera SE(3).
 
-    ``poses_dir`` contains per-frame ``<frame_idx:06d>.json`` files in DROID's
-    camera-to-world convention. gsplat's "world" is the reference frame's
-    camera frame, so we rebase:
+    gsplat's "world" is the reference frame's camera frame, so we rebase the
+    DROID/COLMAP cam-to-world poses against the reference frame:
 
         T_w2c_gsplat(t) = T_cw(t)^-1 @ T_cw(ref)
 
-    Missing or unreadable frames keep the identity (zeros) init.
-    Frames whose ``Transform3d.scale`` differs from 1 are skipped — caller
-    should pass a scale-aligned trajectory.
+    Returns a dict mapping ``positional index t`` → 4×4 ``np.float64`` matrix.
+    The ref frame is always present and set to identity. Frames whose JSON
+    is missing OR whose ``Transform3d.scale`` differs from 1 are omitted from
+    the result (caller can treat them as "no SLAM info").
     """
     from v2d.common.datatypes import Transform3d
-    from .pose_fields import _quat_to_axis_angle
 
     ref_fidx = frame_indices[ref_t]
     ref_path = os.path.join(poses_dir, f"{ref_fidx:06d}.json")
@@ -124,33 +124,49 @@ def _seed_background_pose_field(
             f"the reference frame to anchor the gsplat world frame."
         )
     M_ref = Transform3d.load(ref_path).to_matrix()         # cam→world (DROID)
-    M_ref_inv = np.linalg.inv(M_ref)                       # world→cam (DROID)
 
-    device = bg_pose_field.axis_angle.device
-    aa_init = bg_pose_field.axis_angle.detach().clone()    # (T, 3) zeros
-    tr_init = bg_pose_field.translation.detach().clone()    # (T, 3) zeros
-
-    n_loaded = 0
-    n_missing = 0
+    out: dict[int, np.ndarray] = {ref_t: np.eye(4)}
     for t, fidx in enumerate(frame_indices):
         if t == ref_t:
-            n_loaded += 1
             continue
         path = os.path.join(poses_dir, f"{fidx:06d}.json")
         if not os.path.exists(path):
-            n_missing += 1
             continue
         tf = Transform3d.load(path)
         if any(abs(s - 1.0) > 1e-3 for s in tf.scale):
+            continue
+        M_cw_t = tf.to_matrix()
+        out[t] = np.linalg.inv(M_cw_t) @ M_ref
+    return out
+
+
+def _seed_background_pose_field(
+    bg_pose_field,                          # BackgroundPoseField
+    poses: dict[int, np.ndarray],
+) -> tuple[int, int]:
+    """Overwrite bg_pose_field.{axis_angle, translation} from a pre-loaded
+    dict of positional index → T_w2c_gsplat 4×4 matrix.
+
+    Missing positions keep the identity (zeros) init that BackgroundPoseField
+    starts with.
+    """
+    from .gaussians import rotmat_to_quat
+    from .pose_fields import _quat_to_axis_angle
+
+    device = bg_pose_field.axis_angle.device
+    aa_init = bg_pose_field.axis_angle.detach().clone()
+    tr_init = bg_pose_field.translation.detach().clone()
+
+    T = aa_init.shape[0]
+    n_loaded = 0
+    n_missing = 0
+    for t in range(T):
+        if t not in poses:
             n_missing += 1
             continue
-        M_cw_t = tf.to_matrix()                            # cam→world
-        # T_w2c_gsplat = T_cw(t)^-1 @ T_cw(ref)
-        M_w2c_gsplat = np.linalg.inv(M_cw_t) @ M_ref
-        R = torch.from_numpy(M_w2c_gsplat[:3, :3]).to(device, dtype=torch.float32)
-        t_vec = torch.from_numpy(M_w2c_gsplat[:3, 3]).to(device, dtype=torch.float32)
-        # rotmat → quat (w,x,y,z) → axis-angle (3,)
-        from .gaussians import rotmat_to_quat
+        M = poses[t]
+        R = torch.from_numpy(M[:3, :3]).to(device, dtype=torch.float32)
+        t_vec = torch.from_numpy(M[:3, 3]).to(device, dtype=torch.float32)
         q = rotmat_to_quat(R)
         aa = _quat_to_axis_angle(q)
         aa_init[t] = aa
@@ -211,6 +227,7 @@ class LossWeights:
     smooth_bg_rot:      float = 0.1
     smooth_bg_trans:    float = 0.1
     beta_prior:  float = 10.0      # tight; keeps β from absorbing per-frame photometric noise
+    hand_scale_prior: float = 10.0  # tight by default — align_hands' median is a good init
     # Δp regularizer also uses .sum() now: per-Gaussian gradient is no
     # longer divided by N. Default 1.0 with N≈1000 gives a comparable
     # pull to a photometric loss of ~0.1 magnitude.
@@ -330,6 +347,12 @@ def refine(
     lr_hand_finger: float | None = None,         # MANO hand_pose (15 joint axis-angles); falls back to lr_hand_pose
     lr_hand_trans: float | None = None,          # MANO cam_t; falls back to lr_hand_pose
     lr_betas: float = 1e-4,
+    # Optional optimization of per-track hand_scale (init from align_hands).
+    # When False (default), hand_scale stays fixed at the align-hands estimate
+    # and is excluded from the optimizer. Prior weight lives on LossWeights
+    # (``hand_scale_prior``), wired through the lib CLI.
+    learn_hand_scale: bool = False,
+    lr_hand_scale:    float = 1e-3,
     render_every: int = 0,
     progress_dir: str | None = None,
     debug_frame_idx: int | None = None,
@@ -357,6 +380,15 @@ def refine(
     # are ignored — pass a scale-aligned trajectory (e.g. via DROID's
     # --align_to_depth_folder).
     background_pose_init_dir: str | None = None,
+    # Multi-frame BG point-cloud init (only effective when
+    # background_pose_init_dir is also set, since we need per-frame poses to
+    # compose unprojections into a common world frame). When stride > 1, the
+    # BG anchor cloud is fused from MoGe depth at frame indices [ref, ref+s,
+    # ref+2s, ...] ∪ [ref-s, ref-2s, ...] using each frame's own SAM2
+    # foreground mask. Voxel-downsampled to bg_voxel_size before final
+    # random subsample to bg_max_points. Stride=1 or =0 → single-frame init.
+    bg_init_stride: int   = 10,
+    bg_voxel_size:  float = 0.005,
     n_obj_gaussians: int | None = None,    # None = use mesh vertex count as-is
     n_hand_gaussians: int | None = None,   # None = use 778 (full MANO verts);
                                              # smaller subsamples; >778 ignored
@@ -525,7 +557,10 @@ def refine(
 
     hand_slots: list[HandSlot] = []
     for side, ht, md, out_pose in hand_tracks:
-        pf = HandPoseField(ht, mano_assets_root, device=device).to(device)
+        pf = HandPoseField(
+            ht, mano_assets_root, device=device,
+            learn_hand_scale=learn_hand_scale,
+        ).to(device)
         # Optionally subsample the MANO vertex set to reduce hand Gaussian
         # count. Larger-than-778 not supported here (would require
         # barycentric LBS skinning).
@@ -592,21 +627,62 @@ def refine(
         print(f"Initializing background from reference frame {ref_fidx:06d} "
               f"(positional t={ref_t})...")
 
-        ref_rgb   = cache.rgb[ref_t].to(device)
-        ref_obj   = cache.obj_mask[ref_t].to(device)
-        ref_union = ref_obj.clone()
-        for hm in cache.hand_masks:
-            ref_union = torch.maximum(ref_union, hm[ref_t].to(device))
-        ref_depth = cache.depth[ref_t].to(device)            # may contain +inf
-        K_intr    = K
+        # Decide single-frame vs multi-frame init. Multi-frame requires
+        # per-frame world→camera poses (= SLAM seeding) to compose
+        # unprojections into a shared gsplat world. Without SLAM we can only
+        # trust the reference frame.
+        slam_poses: dict[int, np.ndarray] | None = None
+        if background_pose_init_dir is not None:
+            slam_poses = _load_relative_w2c_poses(
+                background_pose_init_dir, frame_indices, ref_t,
+            )
 
-        anchors, colors, init_scales = init_background_from_depth(
-            rgb         = ref_rgb,
-            depth       = ref_depth,
-            union_mask  = ref_union,
-            K           = K_intr,
-            max_points  = bg_max_points,
+        def _union_mask_at(t: int) -> torch.Tensor:
+            m = cache.obj_mask[t].to(device).clone()
+            for hm in cache.hand_masks:
+                m = torch.maximum(m, hm[t].to(device))
+            return m
+
+        K_intr = K
+        use_multiframe = (
+            slam_poses is not None
+            and bg_init_stride is not None
+            and bg_init_stride > 1
         )
+        if use_multiframe:
+            # Frames included: ref_t + every stride'th position before/after ref,
+            # intersected with frames that have a valid SLAM pose.
+            positions = sorted({ref_t} | set(range(0, len(frame_indices), bg_init_stride)))
+            positions = [t for t in positions if t in slam_poses]
+            print(f"Initializing background from {len(positions)} frames "
+                  f"(ref t={ref_t}, stride={bg_init_stride}, voxel={bg_voxel_size} m)...")
+            rgbs = [cache.rgb[t].to(device) for t in positions]
+            depths = [cache.depth[t].to(device) for t in positions]
+            masks  = [_union_mask_at(t)        for t in positions]
+            T_w2c_list = [
+                torch.from_numpy(slam_poses[t]).to(device, dtype=torch.float32)
+                for t in positions
+            ]
+            anchors, colors, init_scales = init_background_multiframe(
+                rgbs        = rgbs,
+                depths      = depths,
+                union_masks = masks,
+                T_w2c_list  = T_w2c_list,
+                K           = K_intr,
+                voxel_size  = bg_voxel_size,
+                max_points  = bg_max_points,
+            )
+        else:
+            ref_fidx = frame_indices[ref_t]
+            print(f"Initializing background from reference frame {ref_fidx:06d} "
+                  f"(positional t={ref_t})...")
+            anchors, colors, init_scales = init_background_from_depth(
+                rgb         = cache.rgb[ref_t].to(device),
+                depth       = cache.depth[ref_t].to(device),
+                union_mask  = _union_mask_at(ref_t),
+                K           = K_intr,
+                max_points  = bg_max_points,
+            )
         print(f"Background: {anchors.shape[0]} Gaussians initialized.")
 
         bg_gaussians  = BackgroundGaussians(anchors, colors, init_scales).to(device)
@@ -614,10 +690,8 @@ def refine(
             n_frames=len(frame_indices), device=device, ref_frame_t=ref_t
         ).to(device)
 
-        if background_pose_init_dir is not None:
-            n_loaded, n_missing = _seed_background_pose_field(
-                bg_pose_field, frame_indices, ref_t, background_pose_init_dir,
-            )
+        if slam_poses is not None:
+            n_loaded, n_missing = _seed_background_pose_field(bg_pose_field, slam_poses)
             print(f"Background pose seeded from {background_pose_init_dir}: "
                   f"{n_loaded} frames loaded, {n_missing} fell back to identity.")
 
@@ -660,6 +734,8 @@ def refine(
         param_groups.append({"params": [slot.pose_field.hand_pose],     "lr": lr_hand_finger})
         param_groups.append({"params": [slot.pose_field.cam_t],         "lr": lr_hand_trans})
         param_groups.append({"params": [slot.pose_field.betas],         "lr": lr_betas})
+        if learn_hand_scale:
+            param_groups.append({"params": [slot.pose_field.hand_scale], "lr": lr_hand_scale})
     if bg_gaussians is not None:
         param_groups += _gaussian_groups(bg_gaussians, lr_bg_gaussians)
         param_groups.append({"params": [bg_pose_field.axis_angle],  "lr": lr_bg_rot})
@@ -903,6 +979,11 @@ def refine(
                 not in_warmup and not freeze_hand_trans)
             # Betas only frozen during warmup; no user-level freeze knob.
             slot.pose_field.betas.requires_grad_(not in_warmup)
+            # hand_scale gated on both --learn_hand_scale (user opt-in) AND
+            # warmup. Outside warmup with the flag set, the prior loss
+            # also activates.
+            slot.pose_field.hand_scale.requires_grad_(
+                learn_hand_scale and not in_warmup)
         if bg_pose_field is not None:
             bg_pose_field.axis_angle.requires_grad_(
                 not in_warmup and not freeze_bg_rot)
@@ -1144,6 +1225,10 @@ def refine(
                 loss = loss + weights.beta_prior * beta_prior_loss(
                     slot.pose_field.betas, slot.pose_field.betas_init
                 )
+                if slot.pose_field.hand_scale.requires_grad:
+                    loss = loss + weights.hand_scale_prior * hand_scale_prior_loss(
+                        slot.pose_field.hand_scale, slot.pose_field.hand_scale_init
+                    )
 
             loss.backward()
             optimizer.step()
@@ -1845,6 +1930,17 @@ def main() -> None:
                         "this low lets fingers articulate freely.")
     p.add_argument("--w_smooth_hand_trans",  type=float, default=0.01)
     p.add_argument("--w_beta_prior",    type=float, default=10.0)
+    p.add_argument("--learn_hand_scale", action="store_true",
+                   help="Optimize the per-track hand_scale buffer (init from "
+                        "align_hands' n_pixels-weighted median). Off by "
+                        "default; the init is usually already good and "
+                        "betas covers the same DoF.")
+    p.add_argument("--lr_hand_scale",     type=float, default=1e-3,
+                   help="LR for hand_scale when --learn_hand_scale is set.")
+    p.add_argument("--w_hand_scale_prior", type=float, default=10.0,
+                   help="Tight prior pulling hand_scale back to the "
+                        "align_hands estimate (only active when "
+                        "--learn_hand_scale).")
     p.add_argument("--w_delta_p_reg",   type=float, default=100.0,
                    help="L2 penalty on Gaussian Δp (object + hand); pulls "
                         "splats back to mesh / MANO-rest anchor.")
@@ -1900,6 +1996,15 @@ def main() -> None:
                         "implied by the VO/SfM solution instead of identity, "
                         "which is the right basin for moving/egocentric "
                         "cameras.")
+    p.add_argument("--bg_init_stride", type=int, default=10,
+                   help="When background_pose_init_dir is set, fuse the BG "
+                        "point cloud from MoGe depth at every Nth frame "
+                        "(in addition to ref). 1 or 0 forces single-frame "
+                        "(ref-only) init.")
+    p.add_argument("--bg_voxel_size", type=float, default=0.005,
+                   help="Voxel size (metres) used to dedup the fused BG "
+                        "point cloud before the final random subsample. "
+                        "Smaller = denser; 0 disables voxel dedup.")
     p.add_argument("--n_obj_gaussians",     type=int,   default=None,
                    help="Resample the object mesh surface to exactly this "
                         "many Gaussians. Default uses the mesh's vertex "
@@ -2062,6 +2167,8 @@ def main() -> None:
         lr_hand_finger              = args.lr_hand_finger,
         lr_hand_trans               = args.lr_hand_trans,
         lr_betas                    = args.lr_betas,
+        learn_hand_scale            = args.learn_hand_scale,
+        lr_hand_scale               = args.lr_hand_scale,
         render_every                = args.render_every,
         progress_dir                = args.progress_dir,
         debug_frame_idx             = args.debug_frame_idx,
@@ -2080,6 +2187,8 @@ def main() -> None:
         lr_bg_trans                 = args.lr_bg_trans,
         bg_max_points               = args.bg_max_points,
         background_pose_init_dir    = args.background_pose_init_dir,
+        bg_init_stride              = args.bg_init_stride,
+        bg_voxel_size               = args.bg_voxel_size,
         n_obj_gaussians             = args.n_obj_gaussians,
         n_hand_gaussians            = args.n_hand_gaussians,
         use_cosine_lr_schedule      = args.use_cosine_lr_schedule,
@@ -2122,6 +2231,7 @@ def main() -> None:
             smooth_bg_rot      = args.w_smooth_bg_rot,
             smooth_bg_trans    = args.w_smooth_bg_trans,
             beta_prior        = args.w_beta_prior,
+            hand_scale_prior  = args.w_hand_scale_prior,
             delta_p_reg       = args.w_delta_p_reg,
             obj_scale_prior   = args.w_obj_scale_prior,
         ),

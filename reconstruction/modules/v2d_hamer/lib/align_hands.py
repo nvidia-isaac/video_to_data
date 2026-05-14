@@ -155,6 +155,75 @@ def _ray_offset(centroid: np.ndarray, dz: float) -> np.ndarray:
     return np.array([x / z * z_p - x, y / z * z_p - y, dz], dtype=np.float64)
 
 
+def _aggregate_hand_scales(output_dir: str) -> dict[str, dict]:
+    """Per-track n_pixels-weighted median of the per-frame ``diagnostics.scale``.
+
+    Mirrors ``v2d_hand_alignment/lib/align_world_results.py`` aggregation:
+    reject frames with mask area < 256 px or scale outside (0.2, 5.0), take the
+    n_pixels-weighted median of what remains. The resulting per-track scalar
+    is the multiplicative size correction the renderer applies around the
+    mesh centroid (in addition to ``cam_t`` already carrying the additive ``dz``
+    shift). With no valid frames the scale falls back to 1.0.
+
+    Each record's ``hand_scale`` field is written back into the JSON for
+    schema self-containment; ``<output_dir>/hand_scale.json`` is also written
+    as a per-track summary (handy for inspection).
+    """
+    summary: dict[str, dict] = {}
+    track_dirs = sorted(
+        d for d in glob.glob(os.path.join(output_dir, "*"))
+        if os.path.isdir(d)
+    )
+    for track_dir in track_dirs:
+        oid = os.path.basename(track_dir)
+        files = sorted(glob.glob(os.path.join(track_dir, "*.json")))
+        if not files:
+            continue
+        scales_arr: list[float] = []
+        pixels_arr: list[int]   = []
+        for path in files:
+            with open(path) as f:
+                rec = json.load(f)
+            d = rec.get("diagnostics", {})
+            scales_arr.append(float(d.get("scale", float("nan"))))
+            pixels_arr.append(int(d.get("n_pixels", 0)))
+
+        s = np.asarray(scales_arr, dtype=np.float64)
+        w = np.asarray(pixels_arr, dtype=np.float64)
+        valid = np.isfinite(s) & (w >= 256) & (s > 0.2) & (s < 5.0)
+        n_valid = int(valid.sum())
+        if n_valid == 0:
+            hs = 1.0
+        else:
+            sv = s[valid]; wv = w[valid]
+            order = np.argsort(sv)
+            sv_sorted = sv[order]; wv_cum = np.cumsum(wv[order])
+            cutoff = wv_cum[-1] / 2.0
+            idx = int(np.searchsorted(wv_cum, cutoff))
+            idx = min(idx, len(sv_sorted) - 1)
+            hs = float(sv_sorted[idx])
+
+        summary[oid] = {
+            "hand_scale":     hs,
+            "n_valid_frames": n_valid,
+            "n_total_frames": len(files),
+        }
+
+        # Patch records in place so consumers can read rec["hand_scale"]
+        # without a sibling lookup.
+        for path in files:
+            with open(path) as f:
+                rec = json.load(f)
+            if rec.get("hand_scale") != hs:
+                rec["hand_scale"] = hs
+                with open(path, "w") as f:
+                    json.dump(rec, f, indent=2)
+
+        print(f"  track {oid}: hand_scale={hs:.4f}  "
+              f"({n_valid}/{len(files)} valid frames)")
+    return summary
+
+
 def align_hands(
     hamer_dir: str,
     depth_dir: str,
@@ -197,6 +266,18 @@ def align_hands(
         )
     finally:
         renderer.delete()
+
+    # Aggregate per-track multiplicative depth correction. ``cam_t`` already
+    # carries the additive (``dz``) shift; ``hand_scale`` is the partner that
+    # corrects multiplicative depth mismatch (the dominant monocular failure
+    # mode). The renderer reads ``rec["hand_scale"]`` (or falls back to 1.0).
+    print("\nAggregating per-track hand_scale...")
+    summary = _aggregate_hand_scales(output_dir)
+    if summary:
+        scale_path = os.path.join(output_dir, "hand_scale.json")
+        with open(scale_path, "w") as f:
+            json.dump(summary, f, indent=2)
+        print(f"Saved per-track hand_scale → {scale_path}")
 
 
 def _align_loop(

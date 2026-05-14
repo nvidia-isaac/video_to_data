@@ -118,6 +118,132 @@ class BackgroundPoseField(nn.Module):
 # Initialization from a reference frame's depth + RGB.
 # ---------------------------------------------------------------------------
 
+def _unproject_frame_to_world(
+    rgb: torch.Tensor,            # (H, W, 3) in [0, 1]
+    depth: torch.Tensor,          # (H, W) metric depth, possibly +inf for invalid
+    union_mask: torch.Tensor,     # (H, W) in {0, 1} — foreground (object + hands)
+    K: torch.Tensor,              # (3, 3) intrinsics
+    T_w2c: torch.Tensor | None = None,   # (4, 4); identity == "world is this cam"
+    max_points: int | None = None,
+    scale_factor: float = 1.5,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Unproject background pixels of a single frame into the gsplat world.
+
+    Pixels outside ``union_mask`` with finite positive depth are unprojected
+    through K to camera-frame 3D points, then transformed to world via
+    ``T_w2c^{-1}`` (== ``T_c2w``). Returns ``(anchors_world, colors,
+    init_scales)``. ``init_scales = z_in_camera * scale_factor / fx`` so each
+    Gaussian covers ~one image pixel projection at the depth where it lives.
+
+    Identity ``T_w2c`` means "world == this frame's camera frame" and the
+    output is in that frame.
+    """
+    H, W, _ = rgb.shape
+    device = rgb.device
+    fx = K[0, 0]
+    fy = K[1, 1]
+    cx = K[0, 2]
+    cy = K[1, 2]
+
+    valid = (union_mask < 0.5) & torch.isfinite(depth) & (depth > 0.0)
+    valid_idx = torch.nonzero(valid, as_tuple=False)            # (M, 2) [v, u]
+    if valid_idx.shape[0] == 0:
+        return (torch.zeros(0, 3, device=device),
+                torch.zeros(0, 3, device=device),
+                torch.zeros(0,    device=device))
+
+    if max_points is not None and valid_idx.shape[0] > max_points:
+        perm = torch.randperm(valid_idx.shape[0], device=device)[:max_points]
+        valid_idx = valid_idx[perm]
+
+    v = valid_idx[:, 0].to(torch.float32)
+    u = valid_idx[:, 1].to(torch.float32)
+    z = depth[valid_idx[:, 0], valid_idx[:, 1]]
+    x = (u - cx) * z / fx
+    y = (v - cy) * z / fy
+
+    pts_cam = torch.stack([x, y, z], dim=-1)                    # (N, 3)
+    if T_w2c is not None:
+        T_c2w = torch.linalg.inv(T_w2c)
+        pts_h = torch.cat([pts_cam, torch.ones_like(pts_cam[:, :1])], dim=-1)
+        pts_world = (pts_h @ T_c2w.T)[:, :3]
+    else:
+        pts_world = pts_cam
+
+    colors  = rgb[valid_idx[:, 0], valid_idx[:, 1]]             # (N, 3)
+    init_scales = (z / fx) * scale_factor                       # (N,)
+    return pts_world, colors, init_scales
+
+
+def _voxel_dedup(
+    points: torch.Tensor,        # (N, 3) world coords
+    colors: torch.Tensor,        # (N, 3)
+    scales: torch.Tensor,        # (N,)
+    voxel_size: float,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """One point per occupied voxel. Keeps the first point that lands in each
+    voxel. Cheap and stable; quality matches voxel size, not the per-voxel
+    aggregation method.
+    """
+    if points.shape[0] == 0 or voxel_size <= 0:
+        return points, colors, scales
+    keys = torch.floor(points / voxel_size).to(torch.int64)
+    keys_np = keys.detach().cpu().numpy()
+    import numpy as np
+    _, first = np.unique(keys_np, axis=0, return_index=True)
+    first_t = torch.from_numpy(first).to(points.device)
+    return points[first_t], colors[first_t], scales[first_t]
+
+
+def init_background_multiframe(
+    rgbs:        list[torch.Tensor],   # each (H, W, 3) in [0, 1]
+    depths:      list[torch.Tensor],   # each (H, W) metric depth (+inf allowed)
+    union_masks: list[torch.Tensor],   # each (H, W) in {0, 1}
+    T_w2c_list:  list[torch.Tensor],   # each (4, 4) world→camera; gsplat world
+    K:           torch.Tensor,         # (3, 3) shared intrinsics
+    voxel_size:  float = 0.005,
+    max_points:  int   = 50000,
+    per_frame_max_points: int = 200000,
+    scale_factor: float = 1.5,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Fuse per-frame depth unprojections into a single gsplat-world cloud.
+
+    Each frame contributes its background pixels (outside its own foreground
+    mask) lifted to world via the supplied world→camera pose. Voxel dedup
+    removes near-duplicate points where multiple frames see the same surface;
+    a final random subsample caps the total Gaussian count.
+    """
+    if not rgbs:
+        raise RuntimeError("init_background_multiframe: no frames provided.")
+    parts_p: list[torch.Tensor] = []
+    parts_c: list[torch.Tensor] = []
+    parts_s: list[torch.Tensor] = []
+    for rgb, depth, mask, T_w2c in zip(rgbs, depths, union_masks, T_w2c_list):
+        p, c, s = _unproject_frame_to_world(
+            rgb=rgb, depth=depth, union_mask=mask, K=K,
+            T_w2c=T_w2c, max_points=per_frame_max_points,
+            scale_factor=scale_factor,
+        )
+        if p.shape[0] > 0:
+            parts_p.append(p); parts_c.append(c); parts_s.append(s)
+    if not parts_p:
+        raise RuntimeError(
+            "init_background_multiframe: every frame's background was empty "
+            "(foreground masks cover everything or depth is all invalid)."
+        )
+    points = torch.cat(parts_p, dim=0)
+    colors = torch.cat(parts_c, dim=0)
+    scales = torch.cat(parts_s, dim=0)
+
+    points, colors, scales = _voxel_dedup(points, colors, scales, voxel_size)
+
+    if points.shape[0] > max_points:
+        perm = torch.randperm(points.shape[0], device=points.device)[:max_points]
+        points = points[perm]; colors = colors[perm]; scales = scales[perm]
+
+    return points, colors, scales
+
+
 def init_background_from_depth(
     rgb: torch.Tensor,            # (H, W, 3) in [0, 1]
     depth: torch.Tensor,          # (H, W) metric depth, possibly +inf for invalid

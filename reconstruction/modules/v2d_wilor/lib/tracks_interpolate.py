@@ -133,7 +133,9 @@ def _interp_aligned_record(
     cam_t = ((1 - t) * c0 + t * c1).tolist()
 
     # intrinsics + image_size are sequence-constant; pick either neighbour.
-    return {
+    # hand_scale is per-track (constant across frames within a track), so we
+    # just forward it unchanged when present.
+    out = {
         "is_right":   prev["is_right"],
         "image_size": prev.get("image_size") or nxt.get("image_size"),
         "intrinsics": prev["intrinsics"],
@@ -153,6 +155,11 @@ def _interp_aligned_record(
             "scaled_focal": math.nan,
         },
     }
+    if "hand_scale" in prev:
+        out["hand_scale"] = float(prev["hand_scale"])
+    elif "hand_scale" in nxt:
+        out["hand_scale"] = float(nxt["hand_scale"])
+    return out
 
 
 def _mask_frames(masks_track_dir: str) -> set[int]:
@@ -180,6 +187,96 @@ def _track_median_betas(real: dict[int, dict]) -> list[float]:
     return np.median(arr, axis=0).tolist()
 
 
+def _wrist_u(rec: dict) -> float | None:
+    """Project the wrist's cam_t through the record's intrinsics → image u (px).
+
+    Used as a position proxy for the egocentric handedness tiebreak: a wrist
+    in the left half of the image is more likely a left hand and vice versa.
+    Returns None when intrinsics or cam_t is missing or malformed.
+    """
+    intr  = rec.get("intrinsics")
+    cam_t = rec.get("cam_t")
+    if intr is None or cam_t is None:
+        return None
+    try:
+        z = max(float(cam_t[2]), 1e-3)
+        return float(intr["fx"]) * float(cam_t[0]) / z + float(intr["cx"])
+    except (TypeError, KeyError, IndexError, ValueError):
+        return None
+
+
+def _aggregate_handedness(
+    track_real_records: dict[str, dict[int, dict]],
+) -> dict[str, dict]:
+    """Per-track canonical ``is_right`` from a uniform majority vote across
+    real records, with a position-based tiebreak when multiple tracks vote
+    the same handedness.
+
+    Returns a dict keyed by track id (string) with structure::
+
+        {tid: {"is_right":     bool,
+               "votes_right":  int,
+               "votes_left":   int,
+               "n_frames":     int,
+               "mean_wrist_u": float | None,
+               "tiebroke":     bool}}
+
+    Tiebreak (only fires when 2+ tracks share canonical handedness):
+      * "right" cluster: the track with the HIGHEST mean wrist_u keeps right;
+        all others in the cluster flip to left.
+      * "left" cluster: the track with the LOWEST mean wrist_u keeps left;
+        all others flip to right.
+    This is the standard egocentric convention (right hand on the right side
+    of the image).
+    """
+    per_track: dict[str, dict] = {}
+    for tid, real in track_real_records.items():
+        if not real:
+            per_track[tid] = {
+                "is_right": True, "votes_right": 0, "votes_left": 0,
+                "n_frames": 0, "mean_wrist_u": None, "tiebroke": False,
+            }
+            continue
+        vr = sum(1 for r in real.values() if bool(r.get("is_right")))
+        vl = len(real) - vr
+        us = [u for u in (_wrist_u(r) for r in real.values()) if u is not None]
+        mean_u = float(np.mean(us)) if us else None
+        per_track[tid] = {
+            "is_right":     vr >= vl,           # ties → right (arbitrary, tiebreak handles it)
+            "votes_right":  int(vr),
+            "votes_left":   int(vl),
+            "n_frames":     int(len(real)),
+            "mean_wrist_u": mean_u,
+            "tiebroke":     False,
+        }
+
+    # Detect clusters (multiple tracks with the same canonical handedness) and
+    # flip the "least-justifiable" claims based on mean wrist u.
+    for hd in (True, False):
+        tids = [t for t, d in per_track.items() if d["is_right"] is hd]
+        if len(tids) <= 1:
+            continue
+        side = "right" if hd else "left"
+        tids_with_u = [t for t in tids if per_track[t]["mean_wrist_u"] is not None]
+        if not tids_with_u:
+            print(f"  WARNING: {len(tids)} tracks {tids} all vote {side}-handed; "
+                  f"cannot tiebreak (no projected wrist u available).")
+            continue
+        if hd:
+            keeper = max(tids_with_u, key=lambda t: per_track[t]["mean_wrist_u"])
+        else:
+            keeper = min(tids_with_u, key=lambda t: per_track[t]["mean_wrist_u"])
+        flipped = [t for t in tids if t != keeper]
+        if flipped:
+            print(f"  WARNING: {len(tids)} tracks {tids} all vote {side}-handed; "
+                  f"tiebreaking by mean wrist u — track {keeper} keeps {side}, "
+                  f"flipping {flipped}.")
+        for t in flipped:
+            per_track[t]["is_right"] = not hd
+            per_track[t]["tiebroke"] = True
+    return per_track
+
+
 def tracks_interpolate(
     aligned_dir: str,
     masks_dir: str,
@@ -199,6 +296,22 @@ def tracks_interpolate(
 
     os.makedirs(output_dir, exist_ok=True)
 
+    # First pass: load real records per track + compute per-track canonical
+    # handedness from the entire sequence (per-frame WiLoR classifications
+    # vote; tracks_from_wilor_masks already filtered to plausible hand
+    # detections per frame). This corrects ref-frame misclassifications that
+    # would otherwise stick in hand_tracks.json + propagate to refinement.
+    track_real: dict[str, dict[int, dict]] = {}
+    for track_dir in track_dirs:
+        tid = os.path.basename(track_dir)
+        track_real[tid] = _real_frames(track_dir)
+
+    handedness = _aggregate_handedness(track_real)
+    for tid, d in handedness.items():
+        flag = "TIEBROKE" if d["tiebroke"] else ""
+        print(f"  track {tid}: votes R={d['votes_right']} L={d['votes_left']} "
+              f"→ is_right={d['is_right']}  {flag}".rstrip())
+
     summary: list[tuple[str, int, int, int]] = []
 
     for track_dir in track_dirs:
@@ -206,7 +319,8 @@ def tracks_interpolate(
         out_track = os.path.join(output_dir, tid)
         os.makedirs(out_track, exist_ok=True)
 
-        real = _real_frames(track_dir)
+        real = track_real[tid]
+        canonical_is_right = bool(handedness[tid]["is_right"])
         if not real:
             print(f"  track {tid}: no real aligned records — nothing to do")
             summary.append((tid, 0, 0, 0))
@@ -236,6 +350,11 @@ def tracks_interpolate(
                 # be defensive in case of upstream variation).
                 rec.setdefault("track_id", int(tid))
                 rec.setdefault("frame_idx", f)
+                # Canonicalize handedness to the per-track majority. Per-frame
+                # WiLoR classifications can disagree (and often the ref frame
+                # is the outlier); we honor the sequence-level vote here so
+                # downstream consumers see a single is_right per track.
+                rec["is_right"] = canonical_is_right
                 with open(out_path, "w") as fh:
                     json.dump(rec, fh, indent=2)
                 n_real += 1
@@ -253,6 +372,7 @@ def tracks_interpolate(
             rec = _interp_aligned_record(real[prev_real], real[next_real], t, betas_override)
             rec["track_id"]    = int(tid)
             rec["frame_idx"]   = f
+            rec["is_right"]    = canonical_is_right
             rec["interpolated"] = True
             rec["interpolation"] = {"prev": prev_real, "next": next_real,
                                     "weight": float(t)}
@@ -268,6 +388,11 @@ def tracks_interpolate(
     print("Summary (track_id, real, filled, skipped_gap):")
     for tid, nr, nf, ng in summary:
         print(f"  {tid}: {nr:>5} real  +{nf:>5} filled   ({ng} skipped)")
+
+    handedness_path = os.path.join(output_dir, "handedness.json")
+    with open(handedness_path, "w") as f:
+        json.dump(handedness, f, indent=2)
+    print(f"\nSaved per-track canonical handedness → {handedness_path}")
 
 
 def main() -> None:
