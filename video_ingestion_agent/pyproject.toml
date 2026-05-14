@@ -63,10 +63,14 @@ local = [
 ]
 
 # vLLM server (install in the server env, not the pipeline env)
-# Upper bound dodges the 0.20+ Qwen3-VL deepstack-tokens regression
-# (`num_tokens > deepstack_input_embeds_num_tokens`).
+# Both bounds matter for Qwen3-VL TP=8 multimodal serving:
+#   - Lower bound stays on 0.12.x: 0.13+ introduces a ~6x per-video
+#     slowdown on Qwen3-VL multimodal prefill at TP=8 (verified by A/B
+#     on identical HoT3D Aria 1080p workload, groot-h100-01).
+#   - Upper bound dodges the 0.20+ Qwen3-VL deepstack-tokens regression
+#     (`num_tokens > deepstack_input_embeds_num_tokens`).
 server = [
-    "vllm>=0.15.1,<0.20",
+    "vllm>=0.12.0,<0.13",
 ]
 
 dev = [
