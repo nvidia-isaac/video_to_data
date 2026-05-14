@@ -53,7 +53,7 @@ def _torch_package_compat() -> Iterator[None]:
     ``@dataclass``-defined types inside a torch.package'd module crash on
     unpickle without this; the patch is reverted on context exit.
     """
-    orig = _dc._is_type
+    orig = _dc._is_type  # type: ignore[attr-defined]
 
     def patched(
         annotation: Any,
@@ -66,11 +66,11 @@ def _torch_package_compat() -> Iterator[None]:
             return False
         return orig(annotation, cls, a_module, a_type, is_type_predicate)
 
-    _dc._is_type = patched
+    _dc._is_type = patched  # type: ignore[attr-defined]
     try:
         yield
     finally:
-        _dc._is_type = orig
+        _dc._is_type = orig  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +219,7 @@ def _run_chunked_lower_body_fixed(
             start_root_shared = seed_root[:nfpt].copy()
             start_pose_shared = seed_pose[:nfpt].copy()
         else:
+            assert previous_range is not None
             prev_start, _ = previous_range
             local_start = start - prev_start
             local_end = local_start + nfpt
