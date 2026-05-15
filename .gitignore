@@ -1,25 +1,9 @@
-*.venv
-data
-wandb/
-__pycache__
-**.egg-info
-CLAUDE.md
-# Ignore .claude/ wherever it appears...
-.claude/
-# ...but keep the root .claude/skills/ tracked (shared skills across packages).
-!/.claude/
-/.claude/*
-!/.claude/skills/
-!/.claude/skills/**
+# Root-only rules. Each subproject (reconstruction/, video_ingestion_agent/,
+# robotic_grounding/) has its own .gitignore for package-specific artifacts.
+**.egg-info 
+
+# Editor workspace files
 *.code-workspace
 
-# Auto-generated no-collision URDFs (created at pipeline runtime from *_rigid.urdf)
-**/*_no_collision.urdf
-
-# Local direnv overrides
+# Local direnv overrides (only meaningful at repo root)
 .envrc.local
-robotic_grounding/reconstructed_data/
-robotic_grounding/checkpoints/
-
-# Reconstruction
-reconstruction/soma_data/

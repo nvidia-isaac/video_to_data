@@ -60,3 +60,6 @@ Thumbs.db
 # Logs
 *.log
 .venv
+
+# SOMA training data (large)
+/soma_data/
