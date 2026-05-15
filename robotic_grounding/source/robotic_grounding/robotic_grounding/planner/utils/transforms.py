@@ -1,12 +1,20 @@
-"""Frame alignment transforms for Sharpa/Dex3 → G1 planner pipeline.
+"""Coordinate transforms for the G1 whole-body planner.
 
-Handles local frame correction, yaw alignment, and workspace positioning.
+Two layers coexist here:
+
+- High-level pipeline (`transform_reference` and the `apply_*` helpers) maps a
+  V2P retargeted reference into the planner workspace frame: local frame fix,
+  heading-toward-object yaw, position alignment with the nominal EE midpoint,
+  and an optional workspace offset.
+- Low-level rigid-transform primitives (`quat_*`, `transform_primary_*`,
+  `transform_contact_*_by_part`) reproduce the same per-frame rigid transform
+  for arrays the pipeline doesn't itself touch (hand keypoints, per-body
+  contact positions/normals), so downstream consumers see a single coherent
+  frame across every field of the output parquet.
+
+Quaternions use the wxyz convention throughout, matching the on-disk motion
+schema.
 """
-
-# ruff: noqa: ANN001, ANN201, ANN202, ANN204, D102, D103, D107, D417
-# Planner is still in active development and this file is likely to change
-# significantly with the new groot planner. Suppress annotation/docstring
-# lint for now; real code issues are fixed individually.
 
 from __future__ import annotations
 
@@ -41,6 +49,21 @@ _R_LOCAL_FIX_LEFT = _R_S2G_LEFT.inv()
 _R_LOCAL_FIX_RIGHT = _R_S2G_RIGHT.inv()
 
 
+# -- Quaternion conversions ---------------------------------------------------
+
+
+def xyzw_to_wxyz(q: np.ndarray) -> np.ndarray:
+    """Permute a single quaternion or quaternion array from xyzw to wxyz."""
+    q = np.asarray(q)
+    return np.concatenate([q[..., 3:4], q[..., :3]], axis=-1)
+
+
+def wxyz_to_xyzw(q: np.ndarray) -> np.ndarray:
+    """Permute a single quaternion or quaternion array from wxyz to xyzw."""
+    q = np.asarray(q)
+    return np.concatenate([q[..., 1:4], q[..., 0:1]], axis=-1)
+
+
 def fix_quat_wxyz(q_wxyz: np.ndarray, r_fix: Rotation) -> np.ndarray:
     """Post-multiply wxyz quaternion(s) by a rotation.
 
@@ -63,6 +86,144 @@ def fix_quat_wxyz(q_wxyz: np.ndarray, r_fix: Rotation) -> np.ndarray:
     out_wxyz = out_xyzw[:, [3, 0, 1, 2]]
 
     return out_wxyz[0] if squeeze else out_wxyz
+
+
+# -- Low-level rigid-transform primitives -------------------------------------
+
+
+def quat_conj(q: np.ndarray) -> np.ndarray:
+    """Return the conjugate of a wxyz quaternion (negate the vector part)."""
+    return np.stack([q[..., 0], -q[..., 1], -q[..., 2], -q[..., 3]], axis=-1)
+
+
+def quat_mul(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
+    """Hamilton product of two wxyz quaternions, broadcast over batch dims."""
+    w1, x1, y1, z1 = q1[..., 0], q1[..., 1], q1[..., 2], q1[..., 3]
+    w2, x2, y2, z2 = q2[..., 0], q2[..., 1], q2[..., 2], q2[..., 3]
+    return np.stack(
+        [
+            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
+            w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
+            w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
+            w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
+        ],
+        axis=-1,
+    )
+
+
+def quat_rotate(q: np.ndarray, v: np.ndarray) -> np.ndarray:
+    """Rotate vector ``v`` by wxyz quaternion ``q`` (q v q*)."""
+    vq = np.concatenate([np.zeros_like(v[..., :1]), v], axis=-1)
+    return quat_mul(quat_mul(q, vq), quat_conj(q))[..., 1:]
+
+
+def broadcast_time_axis(
+    arr: np.ndarray, shape_no_last: tuple[int, ...], last: int
+) -> np.ndarray:
+    """Broadcast a (T, last) array against a leading (T, *inner) target shape."""
+    expand = (1,) * (len(shape_no_last) - 1)
+    return np.broadcast_to(
+        arr.reshape(arr.shape[0], *expand, last), (*shape_no_last, last)
+    )
+
+
+def transform_primary_pos(
+    arr: np.ndarray,
+    raw_obj_pos: np.ndarray,
+    dst_obj_pos: np.ndarray,
+    r_rel: np.ndarray,
+) -> np.ndarray:
+    """Rotate positions about the primary object body's per-frame frame change.
+
+    ``arr`` has shape ``(T, ..., 3)``; the leading T axis is broadcast against
+    ``r_rel`` / ``raw_obj_pos`` / ``dst_obj_pos`` (all shape ``(T, 4)`` or
+    ``(T, 3)``).
+    """
+    arr = np.asarray(arr, dtype=np.float32)
+    r = broadcast_time_axis(r_rel, arr.shape[:-1], 4)
+    raw_p = broadcast_time_axis(raw_obj_pos, arr.shape[:-1], 3)
+    dst_p = broadcast_time_axis(dst_obj_pos, arr.shape[:-1], 3)
+    return quat_rotate(r, arr - raw_p) + dst_p
+
+
+def transform_primary_quat(arr: np.ndarray, r_rel: np.ndarray) -> np.ndarray:
+    """Rotate quaternions by the primary object body's per-frame frame change."""
+    arr = np.asarray(arr, dtype=np.float32)
+    r = broadcast_time_axis(r_rel, arr.shape[:-1], 4)
+    return quat_mul(r, arr)
+
+
+def transform_contact_pos_by_part(
+    arr: np.ndarray,
+    raw_obj_pos_all: np.ndarray,
+    dst_obj_pos_all: np.ndarray,
+    raw_obj_quat_all: np.ndarray,
+    dst_obj_quat_all: np.ndarray,
+    part_ids: np.ndarray | None,
+) -> np.ndarray:
+    """Per-body rigid transform on ``(T, N, 3)`` contact positions.
+
+    Each contact point uses its own body's pose change (rather than the
+    primary body's), which matters when the hand contacts a non-primary
+    body of a multi-body or articulated object. ``part_ids`` is 1-indexed
+    into the object's body list; entries equal to 0 are treated as
+    inactive and left untouched.
+    """
+    out = np.asarray(arr, dtype=np.float32).copy()
+    if part_ids is None:
+        return out
+    num_bodies = raw_obj_pos_all.shape[1]
+    xyz = out[..., :3]
+    for body_idx in range(num_bodies):
+        mask = part_ids == body_idx + 1
+        if not np.any(mask):
+            continue
+        t_idx, contact_idx = np.where(mask)
+        r_rel = quat_mul(
+            dst_obj_quat_all[t_idx, body_idx],
+            quat_conj(raw_obj_quat_all[t_idx, body_idx]),
+        )
+        xyz[t_idx, contact_idx] = (
+            quat_rotate(
+                r_rel, xyz[t_idx, contact_idx] - raw_obj_pos_all[t_idx, body_idx]
+            )
+            + dst_obj_pos_all[t_idx, body_idx]
+        )
+    out[..., :3] = xyz
+    return out
+
+
+def transform_contact_dir_by_part(
+    arr: np.ndarray,
+    raw_obj_quat_all: np.ndarray,
+    dst_obj_quat_all: np.ndarray,
+    part_ids: np.ndarray | None,
+) -> np.ndarray:
+    """Per-body rotation on ``(T, N, 3)`` contact normals — translation skipped.
+
+    Direction-only counterpart to :func:`transform_contact_pos_by_part`.
+    Zero-length normals (contact-inactive frames) are left untouched.
+    """
+    out = np.asarray(arr, dtype=np.float32).copy()
+    if part_ids is None:
+        return out
+    num_bodies = raw_obj_quat_all.shape[1]
+    xyz = out[..., :3]
+    for body_idx in range(num_bodies):
+        mask = (part_ids == body_idx + 1) & (np.linalg.norm(xyz, axis=-1) > 1e-8)
+        if not np.any(mask):
+            continue
+        t_idx, contact_idx = np.where(mask)
+        r_rel = quat_mul(
+            dst_obj_quat_all[t_idx, body_idx],
+            quat_conj(raw_obj_quat_all[t_idx, body_idx]),
+        )
+        xyz[t_idx, contact_idx] = quat_rotate(r_rel, xyz[t_idx, contact_idx])
+    out[..., :3] = xyz
+    return out
+
+
+# -- High-level transform pipeline --------------------------------------------
 
 
 def apply_local_frame_fix(
@@ -89,6 +250,7 @@ def compute_heading_toward_object(
     left_pos: np.ndarray,
     right_pos: np.ndarray,
     obj_pos: np.ndarray | None,
+    frame_index: int = 0,
 ) -> float:
     """Compute heading angle from wrist midpoint toward the object.
 
@@ -98,18 +260,21 @@ def compute_heading_toward_object(
         left_pos: (T, 3) left wrist positions.
         right_pos: (T, 3) right wrist positions.
         obj_pos: (T, 3) object positions, or None.
+        frame_index: Reference frame to read positions from (clipped to range).
 
     Returns:
         Heading angle in radians.
     """
-    mid = 0.5 * (left_pos[0] + right_pos[0])
+    idx = int(np.clip(frame_index, 0, len(left_pos) - 1))
+    mid = 0.5 * (left_pos[idx] + right_pos[idx])
     if obj_pos is not None and len(obj_pos) > 0:
-        fwd = obj_pos[0, :2] - mid[:2]
+        obj_idx = int(np.clip(idx, 0, len(obj_pos) - 1))
+        fwd = obj_pos[obj_idx, :2] - mid[:2]
         if np.linalg.norm(fwd) > 1e-4:
             return float(np.arctan2(fwd[1], fwd[0]))
 
     # Fallback: perpendicular to L→R vector
-    lr = right_pos[0] - left_pos[0]
+    lr = right_pos[idx] - left_pos[idx]
     return float(np.arctan2(-lr[0], lr[1]))
 
 
@@ -180,6 +345,8 @@ def transform_reference(
     nominal_ee: dict,
     workspace_offset: tuple[float, float, float] = (0.0, 0.0, 0.0),
     robot_type: str = "sharpa",
+    delta_yaw_offset: float = 0.0,
+    heading_frame: int = 0,
 ) -> dict:
     """Full transform pipeline: local frame fix → yaw → position align → offset.
 
@@ -188,6 +355,10 @@ def transform_reference(
         nominal_ee: Nominal EE dict from get_nominal_ee().
         workspace_offset: Additional (x, y, z) offset.
         robot_type: "sharpa" or "dex3".
+        delta_yaw_offset: Extra yaw rotation in radians added on top of the
+            heading-toward-object correction. Used for local search over
+            starting heading.
+        heading_frame: Reference frame used to compute heading toward object.
 
     Returns:
         Dict with transformed positions, quaternions, finger joints, and metadata
@@ -203,9 +374,10 @@ def transform_reference(
         data["left_pos"],
         data["right_pos"],
         data.get("object_pos"),
+        frame_index=heading_frame,
     )
     g1_forward = 0.0  # G1 faces +X
-    delta_yaw = g1_forward - heading_src
+    delta_yaw = g1_forward - heading_src + float(delta_yaw_offset)
     data = apply_yaw_correction(data, delta_yaw)
 
     # Step 3: position offset
@@ -240,4 +412,5 @@ def transform_reference(
 
     data["delta_yaw"] = delta_yaw
     data["offset"] = offset + ws
+    data["heading_frame"] = int(heading_frame)
     return data
