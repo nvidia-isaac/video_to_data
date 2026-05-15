@@ -45,7 +45,14 @@ import numpy as np
 import torch
 
 from .background import BackgroundGaussians, BackgroundPoseField
-from .gaussians import HandGaussians, ObjectGaussians, concat_frames
+from .gaussians import (
+    GaussianFrame,
+    HandGaussians,
+    ObjectGaussians,
+    concat_frames,
+    quat_mul,
+    rotmat_to_quat,
+)
 from .io import HandPoseTrack, ObjectPoseTrack
 from .pose_fields import HandPoseField, ObjectPoseField
 from .refine import _orbit_viewmat_cv  # already in CV convention
@@ -172,29 +179,136 @@ def _build_modules_from_ckpt(
         "hand_sides":      hand_sides,
         "bg_gaussians":    bg_gaussians,
         "bg_pose_field":   bg_pose_field,
+        "step_count":      int(ckpt.get("step_count", 0)),
     }
 
 
-def _build_per_frame_frames(modules: dict, t: int, show_obj: bool, show_hands: bool, show_bg: bool):
-    """Build the (possibly empty) list of GaussianFrames for the current view."""
+def _transform_frame_to_world(
+    frame: GaussianFrame, R_w2c: torch.Tensor, t_w2c: torch.Tensor,
+) -> GaussianFrame:
+    """Pull a GaussianFrame from current-cam coords back into gsplat world.
+
+    Object / hand gaussians always emit means in the current frame's camera
+    coords (they apply the per-frame pose internally). When rendering with a
+    static background, the world is the gsplat-world (reference-frame camera),
+    so we undo (R_w2c, t_w2c) on means and per-Gaussian quats.
+    """
+    means_world = (frame.means - t_w2c) @ R_w2c                 # = R_w2c^T (x - t)
+    q_w2c = rotmat_to_quat(R_w2c)                               # (4,) wxyz unit
+    q_c2w = torch.stack([q_w2c[0], -q_w2c[1], -q_w2c[2], -q_w2c[3]])
+    quats_world = quat_mul(q_c2w.expand_as(frame.quats), frame.quats)
+    return GaussianFrame(
+        means     = means_world,
+        quats     = quats_world,
+        scales    = frame.scales,
+        opacities = frame.opacities,
+        colors    = frame.colors,
+    )
+
+
+def _camera_frustum_segments_world(
+    R_w2c: np.ndarray, t_w2c: np.ndarray, K: np.ndarray,
+    W: int, H: int, depth: float = 0.1,
+) -> tuple[np.ndarray, np.ndarray]:
+    """World-space line segments for a pyramid frustum at the given camera pose."""
+    R_c2w = R_w2c.T
+    cam_center = -R_c2w @ t_w2c
+    fx, fy = K[0, 0], K[1, 1]
+    cx, cy = K[0, 2], K[1, 2]
+    z = depth
+    corners_cam = np.array([
+        [(0 - cx) * z / fx, (0 - cy) * z / fy, z],
+        [(W - cx) * z / fx, (0 - cy) * z / fy, z],
+        [(W - cx) * z / fx, (H - cy) * z / fy, z],
+        [(0 - cx) * z / fx, (H - cy) * z / fy, z],
+    ], dtype=np.float64)
+    corners_world = corners_cam @ R_c2w.T + cam_center
+    starts, ends = [], []
+    for c in corners_world:                                     # pyramid edges
+        starts.append(cam_center); ends.append(c)
+    for i in range(4):                                          # far-plane rect
+        starts.append(corners_world[i]); ends.append(corners_world[(i + 1) % 4])
+    return np.array(starts), np.array(ends)
+
+
+def _draw_world_segments(
+    img: np.ndarray, starts: np.ndarray, ends: np.ndarray,
+    viewmat: np.ndarray, K: np.ndarray, color: tuple[int, int, int],
+    thickness: int = 1, near: float = 0.01,
+) -> np.ndarray:
+    """Project world-space segments through (viewmat, K) and draw with cv2.line.
+
+    Each segment is clipped to z >= near in view space before projection so a
+    segment with one endpoint behind the camera still draws its visible part.
+    """
+    out = img
+    R = viewmat[:3, :3]; t = viewmat[:3, 3]
+    fx, fy = K[0, 0], K[1, 1]
+    cx, cy = K[0, 2], K[1, 2]
+    for s, e in zip(starts, ends):
+        sc = R @ s + t
+        ec = R @ e + t
+        if sc[2] < near and ec[2] < near:
+            continue
+        if sc[2] < near:
+            alpha = (near - sc[2]) / (ec[2] - sc[2])
+            sc = sc + alpha * (ec - sc)
+        elif ec[2] < near:
+            alpha = (near - ec[2]) / (sc[2] - ec[2])
+            ec = ec + alpha * (sc - ec)
+        u0 = int(round(fx * sc[0] / sc[2] + cx))
+        v0 = int(round(fy * sc[1] / sc[2] + cy))
+        u1 = int(round(fx * ec[0] / ec[2] + cx))
+        v1 = int(round(fy * ec[1] / ec[2] + cy))
+        cv2.line(out, (u0, v0), (u1, v1), color, thickness, cv2.LINE_AA)
+    return out
+
+
+def _build_per_frame_frames(
+    modules: dict, t: int, show_obj: bool, show_hands: bool, show_bg: bool,
+    static_bg: bool,
+):
+    """Build the (possibly empty) list of GaussianFrames for the current view.
+
+    When ``static_bg`` is True, the rendering world is the gsplat-world
+    (reference-frame camera) rather than the current frame's camera. The
+    background uses identity pose, and object/hand frames are pulled back into
+    world by inverting the current frame's background pose.
+    """
     frames = []
+    R_bg = t_bg = None
+    if static_bg and modules["bg_gaussians"] is not None:
+        R_bg, t_bg = modules["bg_pose_field"](t)
     if show_obj:
         R, tt = modules["obj_pose_field"](t)
-        frames.append(modules["obj_gaussians"](R, tt))
+        f = modules["obj_gaussians"](R, tt)
+        if R_bg is not None:
+            f = _transform_frame_to_world(f, R_bg, t_bg)
+        frames.append(f)
     if show_hands:
         for hpf, hg in zip(modules["hand_pose_fields"], modules["hand_gaussians"]):
             v, R = hpf.posed_verts_and_rotmats_camera(t)
-            frames.append(hg(v, R))
+            f = hg(v, R)
+            if R_bg is not None:
+                f = _transform_frame_to_world(f, R_bg, t_bg)
+            frames.append(f)
     if show_bg and modules["bg_gaussians"] is not None:
-        R, tt = modules["bg_pose_field"](t)
+        if static_bg:
+            R = torch.eye(3, dtype=torch.float32, device=modules["bg_gaussians"].anchor.device)
+            tt = torch.zeros(3, dtype=torch.float32, device=R.device)
+        else:
+            R, tt = modules["bg_pose_field"](t)
         frames.append(modules["bg_gaussians"](R, tt))
     return frames
 
 
-def _object_centroid(modules: dict, t: int) -> np.ndarray:
-    """Object centroid in the current frame's camera coords; for orbit target."""
+def _object_centroid(modules: dict, t: int, static_bg: bool) -> np.ndarray:
+    """Object centroid in the active world frame; used as orbit target."""
     R, tt = modules["obj_pose_field"](t)
     f = modules["obj_gaussians"](R, tt)
+    if static_bg and modules["bg_gaussians"] is not None:
+        R_bg, t_bg = modules["bg_pose_field"](t)
+        f = _transform_frame_to_world(f, R_bg, t_bg)
     return f.means.mean(dim=0).detach().cpu().numpy()
 
 
@@ -217,12 +331,15 @@ def _render(
     modules: dict, t: int, K: torch.Tensor, W: int, H: int,
     viewmat: np.ndarray,                       # (4,4) world→camera
     show_obj: bool, show_hands: bool, show_bg: bool,
+    static_bg: bool,
     device: torch.device,
 ) -> np.ndarray:
     """Single rasterization call → RGB uint8 (H, W, 3)."""
     from gsplat.rendering import rasterization
 
-    frames = _build_per_frame_frames(modules, t, show_obj, show_hands, show_bg)
+    frames = _build_per_frame_frames(
+        modules, t, show_obj, show_hands, show_bg, static_bg,
+    )
     if not frames:
         return np.zeros((H, W, 3), dtype=np.uint8)
     combined = concat_frames(frames)
@@ -273,7 +390,8 @@ Keyboard:
   1              toggle object
   2              toggle hands
   3              toggle background
-  0              source-camera view (identity)
+  s              toggle static-background world (frustum overlay in orbit mode)
+  0              source-camera view
   r              reset orbit (target = current obj centroid)
   h              this help
   q / ESC        quit
@@ -300,23 +418,29 @@ def visualize(
         K = K_full
     print(f"[visualize] render @ {W}×{H}")
 
+    def _load_modules(path: str) -> tuple[dict, float]:
+        mtime = os.path.getmtime(path)
+        ckpt_local = torch.load(path, map_location=device, weights_only=False)
+        return _build_modules_from_ckpt(ckpt_local, mano_assets_root, device), mtime
+
     print(f"[visualize] loading checkpoint: {checkpoint}")
-    ckpt = torch.load(checkpoint, map_location=device, weights_only=False)
-    modules = _build_modules_from_ckpt(ckpt, mano_assets_root, device)
+    modules, ckpt_mtime = _load_modules(checkpoint)
     print(f"[visualize] T = {modules['T']} frames, "
           f"object N = {modules['obj_gaussians'].num_gaussians()}, "
           f"hands = {len(modules['hand_sides'])} ({', '.join(modules['hand_sides']) or 'none'}), "
           f"bg = {'yes' if modules['bg_gaussians'] is not None else 'no'}")
 
+    has_bg = modules["bg_gaussians"] is not None
     # --- Viewer state ------------------------------------------------------
     state = {
         "t":            0,
         "show_obj":     True,
         "show_hands":   True,
-        "show_bg":      modules["bg_gaussians"] is not None,
+        "show_bg":      has_bg,
+        "static_bg":    has_bg,                 # static-world mode (default on if bg)
         "mode":         "src",                  # 'src' or 'orbit'
         # Orbit state (used only in 'orbit' mode)
-        "target":       _object_centroid(modules, 0),
+        "target":       _object_centroid(modules, 0, has_bg),
         "yaw":          0.0,
         "pitch":        0.0,
         "distance":     0.5,
@@ -330,11 +454,14 @@ def visualize(
     }
 
     def _reset_orbit_for_t(t: int) -> None:
-        state["target"] = _object_centroid(modules, t)
+        state["target"] = _object_centroid(modules, t, state["static_bg"])
         # Initial distance: enough to comfortably see the object.
         with torch.no_grad():
             R, tt = modules["obj_pose_field"](t)
             f = modules["obj_gaussians"](R, tt)
+            if state["static_bg"] and modules["bg_gaussians"] is not None:
+                R_bg, t_bg = modules["bg_pose_field"](t)
+                f = _transform_frame_to_world(f, R_bg, t_bg)
             r = (f.means - torch.from_numpy(state["target"]).to(device)).norm(dim=-1).max().item()
         state["distance"] = max(0.2, r * 3.0)
         state["yaw"] = 0.0
@@ -393,11 +520,51 @@ def visualize(
     cv2.setMouseCallback(win, on_mouse)
     print(_HELP)
 
+    # Track last successful mtime separately from the in-flight observation
+    # so a transient torch.load failure (e.g., we caught a rename mid-flight)
+    # only triggers a retry, not a state corruption.
+    last_loaded_mtime = ckpt_mtime
     while True:
+        # --- hot-reload: poll checkpoint mtime each tick. The writer side
+        # uses tmp+rename, so a successful stat → torch.load on the same path
+        # is always self-consistent; we still try/except for robustness.
+        try:
+            new_mtime = os.path.getmtime(checkpoint)
+        except OSError:
+            new_mtime = last_loaded_mtime
+        if new_mtime > last_loaded_mtime + 1e-6:
+            try:
+                new_modules, new_mtime_loaded = _load_modules(checkpoint)
+            except Exception as e:
+                print(f"[visualize] hot-reload skipped (transient): {e}")
+            else:
+                modules = new_modules
+                last_loaded_mtime = new_mtime_loaded
+                # Frame count and bg-presence can in principle change between
+                # writes; clamp t and the bg toggles so the viewer stays sane.
+                if state["t"] >= modules["T"]:
+                    state["t"] = modules["T"] - 1
+                if modules["bg_gaussians"] is None:
+                    state["show_bg"] = False
+                    state["static_bg"] = False
+                print(f"[visualize] hot-reloaded checkpoint "
+                      f"(T={modules['T']}, step="
+                      f"{modules.get('step_count', '?')})")
+
         t = state["t"]
 
+        # In static-bg mode, the src view sits at the per-frame camera pose,
+        # so viewmat = world→cam_t from the background pose field. Otherwise
+        # the world IS the current cam, so identity reproduces the source.
         if state["mode"] == "src":
-            viewmat = np.eye(4)
+            if state["static_bg"] and modules["bg_gaussians"] is not None:
+                with torch.no_grad():
+                    R_bg, t_bg = modules["bg_pose_field"](t)
+                viewmat = np.eye(4)
+                viewmat[:3, :3] = R_bg.detach().cpu().numpy()
+                viewmat[:3, 3]  = t_bg.detach().cpu().numpy()
+            else:
+                viewmat = np.eye(4)
         else:
             eye = _orbit_eye(state["target"], state["yaw"], state["pitch"], state["distance"])
             viewmat = _orbit_viewmat_cv(eye, state["target"], up=np.array([0.0, -1.0, 0.0]))
@@ -405,18 +572,40 @@ def visualize(
         img = _render(
             modules, t, K, W, H, viewmat,
             state["show_obj"], state["show_hands"], state["show_bg"],
+            state["static_bg"],
             device,
         )
         img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+
+        # Camera frustum overlay: only meaningful in orbit mode with a static
+        # world (in src mode the cam center is at the eye and degenerates;
+        # in non-static mode the cam is always at world origin).
+        if (state["static_bg"]
+                and state["mode"] == "orbit"
+                and modules["bg_gaussians"] is not None):
+            with torch.no_grad():
+                R_bg, t_bg = modules["bg_pose_field"](t)
+            K_np = K.detach().cpu().numpy()
+            starts, ends = _camera_frustum_segments_world(
+                R_w2c=R_bg.detach().cpu().numpy(),
+                t_w2c=t_bg.detach().cpu().numpy(),
+                K=K_np, W=W, H=H,
+                depth=max(0.015, 0.05 * state["distance"]),
+            )
+            img_bgr = _draw_world_segments(
+                img_bgr, starts, ends, viewmat, K_np,
+                color=(0, 220, 255), thickness=1,
+            )
         flags = (("O" if state["show_obj"]   else "_")
                  + ("H" if state["show_hands"] else "_")
-                 + ("B" if state["show_bg"]    else "_"))
+                 + ("B" if state["show_bg"]    else "_")
+                 + ("S" if state["static_bg"]  else "_"))
         info = [
-            f"frame {modules['frame_indices'][t]:06d}  ({t+1}/{modules['T']})",
+            f"frame {modules['frame_indices'][t]:06d}  ({t+1}/{modules['T']})  step {modules.get('step_count', 0)}",
             f"mode  {state['mode']}   visible {flags}"
             + (f"   yaw={state['yaw']:+.2f} pitch={state['pitch']:+.2f} d={state['distance']:.3f}"
                if state["mode"] == "orbit" else ""),
-            "[/]=frame   ,/.=10  space=play  1/2/3=obj/hands/bg  0=src  r=orbit  h=help  q=quit",
+            "[/]=frame  ,/.=10  space=play  1/2/3=obj/hands/bg  s=static  0=src  r=orbit  h=help  q=quit",
         ]
         cv2.imshow(win, _annotate(img_bgr, info))
 
@@ -454,6 +643,15 @@ def visualize(
                 print("(no background in this checkpoint)")
             else:
                 state["show_bg"] = not state["show_bg"]
+        elif k == ord("s"):
+            if modules["bg_gaussians"] is None:
+                print("(no background in this checkpoint — static mode requires bg)")
+            else:
+                state["static_bg"] = not state["static_bg"]
+                # Orbit target lived in the previous world frame; recenter so
+                # the view doesn't jump unexpectedly after the convention swap.
+                if state["mode"] == "orbit":
+                    _reset_orbit_for_t(state["t"])
         elif k == ord("0"):
             state["mode"] = "src"
         elif k == ord("r"):

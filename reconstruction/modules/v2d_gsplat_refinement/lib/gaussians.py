@@ -409,3 +409,286 @@ def init_hand_gaussians(
         device            = device,
         subsample_indices = subsample_indices,
     )
+
+
+# ---------------------------------------------------------------------------
+# Face-anchored Gaussians
+#
+# One Gaussian per mesh face. Anchor = face centroid; orientation derived from
+# the face's TBN frame (tangent = an edge, normal = face normal, bitangent =
+# N x T). Δp is parameterized in face-local (T, B, N) coordinates, so its
+# three components have physical meaning:
+#     [0] tangent slide        — along the face surface
+#     [1] bitangent slide      — along the face surface (orthogonal to T)
+#     [2] normal depth         — into the volume (negative N) or outside (+N)
+# Combined with an asymmetric per-axis regularizer (face_delta_p_regularizer in
+# losses.py), this lets Gaussians slide freely on / sink into the mesh while
+# being strongly penalized for leaking outside the surface.
+#
+# Same parameter-name conventions as ObjectGaussians / HandGaussians so the
+# trainer's parameter-group builder works unchanged.
+# ---------------------------------------------------------------------------
+
+def _faces_to_centroid_and_tbn(
+    vertices: torch.Tensor,    # (V, 3)
+    faces:    torch.Tensor,    # (F, 3) long
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Compute (centroid, TBN, mean_edge_length) for each face.
+
+    Returns:
+        centroid:        (F, 3) — face centroids.
+        TBN:             (F, 3, 3) — columns are (T, B, N), an orthonormal frame
+                         per face. T is the v0->v1 edge direction, N is the
+                         outward face normal (using v0->v1 × v0->v2),
+                         B = N × T.
+        mean_edge_length: (F,) — mean of the three edge lengths, used as a
+                         scale init for the Gaussian.
+    """
+    v0 = vertices[faces[:, 0]]                                      # (F, 3)
+    v1 = vertices[faces[:, 1]]
+    v2 = vertices[faces[:, 2]]
+    centroid = (v0 + v1 + v2) / 3.0
+    e01 = v1 - v0
+    e02 = v2 - v0
+    t = F.normalize(e01, dim=-1)
+    n_unnorm = torch.cross(e01, e02, dim=-1)
+    n = F.normalize(n_unnorm, dim=-1)
+    b = torch.cross(n, t, dim=-1)
+    TBN = torch.stack([t, b, n], dim=-1)                            # cols T,B,N
+    edge_len = (
+        e01.norm(dim=-1)
+        + (v2 - v1).norm(dim=-1)
+        + (v0 - v2).norm(dim=-1)
+    ) / 3.0
+    return centroid, TBN, edge_len
+
+
+class FaceGaussians(nn.Module):
+    """One Gaussian per mesh face, rigidly attached to the object frame.
+
+    Forward signature matches ``ObjectGaussians``: ``(R_obj, t_obj)`` returns
+    a per-frame ``GaussianFrame`` in camera-/world-frame.
+
+    Learnable params (all interpreted in face-local frame):
+      _delta_p     : (F, 3) — offset from face centroid in (T, B, N) coords.
+                     Init 0. Component 2 is the outward-normal axis; one-sided
+                     regularization on it expresses "stay inside the mesh".
+      _quat_canon  : (F, 4) — extra rotation in the face-local frame, composed
+                     onto the face's TBN. Init identity. Provides a small
+                     amount of in-plane / cross-axis freedom on top of TBN.
+      _log_scale   : (F, 3) — anisotropic axis-aligned log-scale. Init from
+                     mean edge length: (edge/2, edge/2, edge/8) — disk-shaped
+                     by default (thin along the normal axis).
+      _opacity_logit: (F,)
+      _color       : (F, 3) — per-face RGB; init as the mean of the three
+                     vertex colors.
+      _log_scale_global: scalar — same role as in ObjectGaussians; multiplies
+                     positions and per-Gaussian scales together so the visual
+                     extent tracks geometric extent.
+
+    Buffers:
+      centroid_canon: (F, 3) — face centroids in object/rest frame.
+      TBN_canon:     (F, 3, 3) — orthonormal face frame in object/rest frame.
+    """
+
+    is_face_anchored = True
+
+    def __init__(
+        self,
+        vertices: torch.Tensor,         # (V, 3) in object/rest frame
+        faces:    torch.Tensor,         # (F, 3) long
+        face_colors: torch.Tensor,      # (F, 3) in [0, 1]
+        normal_thin_factor: float = 0.25,  # init normal-axis sigma = factor*tangent
+        init_opacity: float = 0.9,
+    ) -> None:
+        super().__init__()
+        device = vertices.device
+        centroid, TBN, edge_len = _faces_to_centroid_and_tbn(vertices, faces)
+        Fn = faces.shape[0]
+
+        self.register_buffer("centroid_canon", centroid.contiguous())
+        self.register_buffer("TBN_canon",      TBN.contiguous())
+
+        self._delta_p       = nn.Parameter(torch.zeros(Fn, 3, device=device))
+        self._quat_canon    = nn.Parameter(
+            torch.tensor([1.0, 0.0, 0.0, 0.0], device=device).repeat(Fn, 1)
+        )
+        s_in_plane = (edge_len * 0.5).clamp_min(1e-4)               # (F,)
+        s_normal   = (s_in_plane * float(normal_thin_factor)).clamp_min(1e-4)
+        init_scale = torch.stack([s_in_plane, s_in_plane, s_normal], dim=-1)
+        self._log_scale     = nn.Parameter(init_scale.log())
+        self._opacity_logit = nn.Parameter(
+            torch.full((Fn,), float(_logit(init_opacity)), device=device)
+        )
+        self._color         = nn.Parameter(face_colors.contiguous().clone())
+        # Same role as in ObjectGaussians.
+        self._log_scale_global = nn.Parameter(torch.zeros((), device=device))
+
+    def num_gaussians(self) -> int:
+        return self.centroid_canon.shape[0]
+
+    def forward(
+        self,
+        R_obj: torch.Tensor,    # (3, 3) object-to-camera rotation
+        t_obj: torch.Tensor,    # (3,)   object-to-camera translation
+    ) -> GaussianFrame:
+        s_obj = self._log_scale_global.exp()                                 # ()
+        # Δp lives in face-local (T, B, N) coords; transport to canonical
+        # (object) frame by TBN_canon, then scale together with the centroid.
+        delta_canon = torch.einsum("fij,fj->fi", self.TBN_canon, self._delta_p)
+        p_canon = (self.centroid_canon + delta_canon) * s_obj                # (F, 3)
+        means = p_canon @ R_obj.T + t_obj                                    # (F, 3)
+        # Per-face world rotation: R_obj @ TBN_canon composed with _quat_canon.
+        TBN_world = torch.einsum("ij,fjk->fik", R_obj, self.TBN_canon)       # (F, 3, 3)
+        q_face_world = rotmat_to_quat(TBN_world)                             # (F, 4)
+        quats = quat_mul(q_face_world, self._quat_canon)                     # (F, 4)
+        scales    = self._log_scale.exp() * s_obj                            # (F, 3)
+        opacities = torch.sigmoid(self._opacity_logit)
+        colors    = self._color
+        return GaussianFrame(means, quats, scales, opacities, colors)
+
+    def object_scale(self) -> torch.Tensor:
+        return self._log_scale_global.exp()
+
+
+class HandFaceGaussians(nn.Module):
+    """One Gaussian per MANO face. TBN frame is recomputed each frame from
+    the deformed face vertices — exact (no LBS-weight inheritance), because
+    the three vertices' deformed positions fully determine the face's local
+    frame and centroid.
+
+    Forward signature matches ``HandGaussians``: ``(posed_verts_cam,
+    per_vertex_rotmat_cam)``. The per-vertex rotmat input is *ignored* in
+    this class (we derive the face rotation from the deformed face vertices
+    instead).
+
+    Learnable params: same names and roles as ``FaceGaussians`` (minus
+    ``_log_scale_global``, matching HandGaussians).
+    """
+
+    is_face_anchored = True
+
+    def __init__(
+        self,
+        rest_vertices: torch.Tensor,    # (V, 3) MANO rest-pose vertices
+        faces:         torch.Tensor,    # (F, 3) MANO faces (long)
+        is_right:      bool,
+        init_color:    torch.Tensor,    # (3,) skin tone
+        normal_thin_factor: float = 0.25,
+        init_opacity:  float = 0.9,
+        device: str | torch.device = "cuda",
+        subsample_face_indices: torch.Tensor | None = None,
+    ) -> None:
+        super().__init__()
+        self.is_right = bool(is_right)
+        rest_vertices = rest_vertices.to(device)
+        faces = faces.to(device, dtype=torch.long)
+        if subsample_face_indices is not None:
+            faces = faces[subsample_face_indices.to(device, dtype=torch.long)]
+        # Buffer the face indices so per-frame TBN reconstruction can look up
+        # the right vertices from posed_verts_cam.
+        self.register_buffer("_faces", faces.contiguous())
+
+        # Canonical (rest-frame) centroid + TBN + edge length, used purely for
+        # initialization (scale, color); the runtime path recomputes TBN.
+        centroid, _TBN, edge_len = _faces_to_centroid_and_tbn(rest_vertices, faces)
+        Fn = faces.shape[0]
+
+        self._delta_p       = nn.Parameter(torch.zeros(Fn, 3, device=device))
+        self._quat_canon    = nn.Parameter(
+            torch.tensor([1.0, 0.0, 0.0, 0.0], device=device).repeat(Fn, 1)
+        )
+        s_in_plane = (edge_len * 0.5).clamp_min(1e-4)
+        s_normal   = (s_in_plane * float(normal_thin_factor)).clamp_min(1e-4)
+        init_scale = torch.stack([s_in_plane, s_in_plane, s_normal], dim=-1)
+        self._log_scale     = nn.Parameter(init_scale.log())
+        self._opacity_logit = nn.Parameter(
+            torch.full((Fn,), float(_logit(init_opacity)), device=device)
+        )
+        self._color = nn.Parameter(
+            init_color.to(device).expand(Fn, 3).contiguous().clone()
+        )
+
+    def num_gaussians(self) -> int:
+        return self._faces.shape[0]
+
+    def forward(
+        self,
+        posed_verts_cam: torch.Tensor,       # (N_verts, 3)
+        per_vertex_rotmat_cam: torch.Tensor, # (N_verts, 3, 3) -- unused
+    ) -> GaussianFrame:
+        del per_vertex_rotmat_cam  # face rotation comes from vertex positions
+        v0 = posed_verts_cam[self._faces[:, 0]]
+        v1 = posed_verts_cam[self._faces[:, 1]]
+        v2 = posed_verts_cam[self._faces[:, 2]]
+        centroid = (v0 + v1 + v2) / 3.0
+        e01 = v1 - v0
+        e02 = v2 - v0
+        t = F.normalize(e01, dim=-1)
+        n_unnorm = torch.cross(e01, e02, dim=-1)
+        n = F.normalize(n_unnorm, dim=-1)
+        b = torch.cross(n, t, dim=-1)
+        TBN_world = torch.stack([t, b, n], dim=-1)                  # (F, 3, 3)
+        delta_world = torch.einsum("fij,fj->fi", TBN_world, self._delta_p)
+        means = centroid + delta_world
+        q_face_world = rotmat_to_quat(TBN_world)
+        quats = quat_mul(q_face_world, self._quat_canon)
+        return GaussianFrame(
+            means     = means,
+            quats     = quats,
+            scales    = self._log_scale.exp(),
+            opacities = torch.sigmoid(self._opacity_logit),
+            colors    = self._color,
+        )
+
+
+def init_object_face_gaussians_from_mesh(
+    vertices: torch.Tensor,        # (V, 3) object frame
+    faces:    "np.ndarray | torch.Tensor",   # (F, 3)
+    vertex_colors: torch.Tensor,   # (V, 3) in [0, 1]
+    normal_thin_factor: float = 0.25,
+) -> FaceGaussians:
+    """One Gaussian per object face. ``faces`` may be numpy or torch."""
+    import numpy as np
+    if isinstance(faces, np.ndarray):
+        faces_t = torch.from_numpy(faces.astype(np.int64)).to(vertices.device)
+    else:
+        faces_t = faces.to(vertices.device, dtype=torch.long)
+    # Face colors = mean of the three vertex colors.
+    face_colors = vertex_colors[faces_t].mean(dim=1)                # (F, 3)
+    return FaceGaussians(
+        vertices    = vertices,
+        faces       = faces_t,
+        face_colors = face_colors,
+        normal_thin_factor = normal_thin_factor,
+    )
+
+
+def init_hand_face_gaussians(
+    rest_vertices: torch.Tensor,   # (V, 3) MANO rest-pose vertices
+    faces:         "np.ndarray | torch.Tensor",  # (F, 3) MANO faces
+    is_right:      bool,
+    skin_tone: tuple[float, float, float] = (0.72, 0.55, 0.45),
+    normal_thin_factor: float = 0.25,
+    hand_scale_init: float = 1.0,
+    device: str | torch.device = "cuda",
+    subsample_face_indices: torch.Tensor | None = None,
+) -> HandFaceGaussians:
+    import numpy as np
+    if isinstance(faces, np.ndarray):
+        faces_t = torch.from_numpy(faces.astype(np.int64))
+    else:
+        faces_t = faces.to(dtype=torch.long)
+    init_color = torch.tensor(skin_tone, dtype=torch.float32)
+    # If hand_scale enlarges the mesh, the face frame's edge_len enlarges too —
+    # _faces_to_centroid_and_tbn reads scaled vertices, so pre-scale them here.
+    rest_scaled = rest_vertices * float(hand_scale_init)
+    return HandFaceGaussians(
+        rest_vertices = rest_scaled,
+        faces         = faces_t,
+        is_right      = is_right,
+        init_color    = init_color,
+        normal_thin_factor = normal_thin_factor,
+        device        = device,
+        subsample_face_indices = subsample_face_indices,
+    )

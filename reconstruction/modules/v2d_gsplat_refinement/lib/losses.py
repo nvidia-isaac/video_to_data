@@ -22,6 +22,117 @@ import torch
 import torch.nn.functional as F
 
 
+# ---------------------------------------------------------------------------
+# SSIM (Gaussian-window, masked). 11x11 σ=1.5 window, matching the 3DGS /
+# original SSIM paper. Cached per (window_size, channels, device, dtype) so
+# the window tensor is built once.
+# ---------------------------------------------------------------------------
+
+_SSIM_WINDOW_CACHE: dict = {}
+
+
+def _ssim_window(window_size: int, channels: int, device, dtype) -> torch.Tensor:
+    key = (window_size, channels, device, dtype)
+    win = _SSIM_WINDOW_CACHE.get(key)
+    if win is not None:
+        return win
+    sigma = 1.5
+    coords = torch.arange(window_size, dtype=dtype, device=device) - window_size // 2
+    g = torch.exp(-(coords ** 2) / (2.0 * sigma * sigma))
+    g = g / g.sum()
+    w2d = g[:, None] * g[None, :]                                  # (K, K)
+    win = w2d.expand(channels, 1, window_size, window_size).contiguous()
+    _SSIM_WINDOW_CACHE[key] = win
+    return win
+
+
+def _ssim_map(
+    x: torch.Tensor,           # (1, C, H, W)
+    y: torch.Tensor,           # (1, C, H, W)
+    data_range: float,
+    window_size: int = 11,
+) -> torch.Tensor:
+    """Per-pixel SSIM map, (1, C, H, W). Padding=window_size//2."""
+    C = x.shape[1]
+    pad = window_size // 2
+    win = _ssim_window(window_size, C, x.device, x.dtype)
+    mu_x = F.conv2d(x, win, padding=pad, groups=C)
+    mu_y = F.conv2d(y, win, padding=pad, groups=C)
+    mu_x2, mu_y2, mu_xy = mu_x * mu_x, mu_y * mu_y, mu_x * mu_y
+    sig_x2 = F.conv2d(x * x, win, padding=pad, groups=C) - mu_x2
+    sig_y2 = F.conv2d(y * y, win, padding=pad, groups=C) - mu_y2
+    sig_xy = F.conv2d(x * y, win, padding=pad, groups=C) - mu_xy
+    C1 = (0.01 * data_range) ** 2
+    C2 = (0.03 * data_range) ** 2
+    num = (2.0 * mu_xy + C1) * (2.0 * sig_xy + C2)
+    den = (mu_x2 + mu_y2 + C1) * (sig_x2 + sig_y2 + C2)
+    return num / den
+
+
+def photometric_ssim_loss(
+    rendered_rgb: torch.Tensor,    # (H, W, 3)
+    target_rgb: torch.Tensor,      # (H, W, 3)
+    union_mask: torch.Tensor,      # (H, W) in {0, 1}
+    window_size: int = 11,
+) -> torch.Tensor:
+    """1 − SSIM between rendered and target RGB, masked to ``union_mask``.
+
+    Standard 11x11 Gaussian-window SSIM (3DGS default). The per-pixel SSIM
+    map is computed over the full image and then masked — SSIM windows
+    straddling the mask boundary see some invalid content, but for typical
+    fg coverage this is a small artifact and matches the 3DGS reference
+    implementation. Data range fixed to 1.0 (RGB in [0, 1]).
+    """
+    x = rendered_rgb.permute(2, 0, 1).unsqueeze(0)                 # (1, 3, H, W)
+    y = target_rgb  .permute(2, 0, 1).unsqueeze(0)                 # (1, 3, H, W)
+    smap = _ssim_map(x, y, data_range=1.0, window_size=window_size)
+    per_pixel = smap.mean(dim=1).squeeze(0)                        # (H, W)
+    n = union_mask.sum().clamp_min(1.0)
+    return 1.0 - (per_pixel * union_mask).sum() / n
+
+
+def depth_ssim_loss(
+    rendered_depth: torch.Tensor,  # (H, W)
+    target_depth: torch.Tensor,    # (H, W), may contain +inf
+    union_mask: torch.Tensor,      # (H, W) in {0, 1}
+    window_size: int = 11,
+    eps: float = 1e-3,
+) -> torch.Tensor:
+    """1 − SSIM on log-depth, masked and percentile-normalized.
+
+    Depth is unbounded, so we (a) work in log space — same invariance to
+    multiplicative scaling as ``depth_gradient_loss`` — and (b) rescale to
+    roughly [0, 1] using the 5th/95th percentiles of the target's valid
+    region (detached, so the scaling itself doesn't get optimized). This
+    keeps SSIM's C1 / C2 constants (calibrated for data_range=1) in the
+    right regime regardless of scene scale.
+
+    +inf target pixels are excluded via the mask and replaced with ``eps``
+    inside log() so gradients stay finite.
+    """
+    valid = union_mask * torch.isfinite(target_depth).float()
+    if float(valid.sum()) < 10.0:
+        return rendered_depth.sum() * 0.0
+
+    dp = torch.log(rendered_depth.clamp_min(eps))
+    dt = torch.log(target_depth.nan_to_num(posinf=eps).clamp_min(eps))
+
+    with torch.no_grad():
+        dt_v = dt[valid > 0.5]
+        lo = torch.quantile(dt_v, 0.05)
+        hi = torch.quantile(dt_v, 0.95)
+        rng = (hi - lo).clamp_min(1e-3)
+    dp_n = ((dp - lo) / rng).clamp(0.0, 1.0)
+    dt_n = ((dt - lo) / rng).clamp(0.0, 1.0)
+
+    x = dp_n.unsqueeze(0).unsqueeze(0)                             # (1, 1, H, W)
+    y = dt_n.unsqueeze(0).unsqueeze(0)
+    smap = _ssim_map(x, y, data_range=1.0, window_size=window_size)
+    per_pixel = smap.squeeze(0).squeeze(0)                         # (H, W)
+    n = valid.sum().clamp_min(1.0)
+    return 1.0 - (per_pixel * valid).sum() / n
+
+
 def photometric_loss(
     rendered_rgb: torch.Tensor,    # (H, W, 3)
     target_rgb: torch.Tensor,      # (H, W, 3)
@@ -73,6 +184,44 @@ def delta_p_regularizer(delta_p: torch.Tensor) -> torch.Tensor:
     return (delta_p * delta_p).sum()
 
 
+def face_delta_p_regularizer(
+    delta_p_local: torch.Tensor,    # (F, 3) in face-local (T, B, N) coords
+    w_tangent:        float = 1.0,   # penalty on tangent + bitangent slide
+    w_normal_outward: float = 100.0, # penalty on Δp_N > 0 (leaks outside the mesh)
+    w_normal_inward:  float = 0.0,   # penalty on Δp_N < 0 (sinks into the volume)
+) -> torch.Tensor:
+    """Asymmetric sum-squared regularizer on face-anchored Gaussian offsets.
+
+    Used in place of ``delta_p_regularizer`` for ``FaceGaussians`` /
+    ``HandFaceGaussians``, whose ``_delta_p`` is in face-local (T, B, N)
+    coordinates rather than canonical world coordinates.
+
+    The three components have distinct meanings:
+      - tangent + bitangent (axes 0, 1): Δp slides the Gaussian across the
+        face, parallel to the surface. Light penalty — we want Gaussians to
+        slide freely to wherever the photometric signal is best.
+      - normal outward (axis 2, positive): Δp pushes the Gaussian out
+        through the surface, away from the mesh interior. Heavy penalty —
+        this is the "stay inside the volume" constraint.
+      - normal inward (axis 2, negative): Δp sinks the Gaussian into the
+        volume. Default zero (free) — combined with the outward penalty,
+        this lets Gaussians populate the mesh interior under photometric
+        pull while never leaking outside.
+
+    Sum reduction matches ``delta_p_regularizer`` so weight magnitudes are
+    comparable to the legacy regularizer.
+    """
+    tb_sq    = (delta_p_local[:, :2] ** 2).sum()
+    n        = delta_p_local[:, 2]
+    n_out_sq = n.clamp(min=0.0).pow(2).sum()
+    n_in_sq  = n.clamp(max=0.0).pow(2).sum()
+    return (
+        w_tangent        * tb_sq
+        + w_normal_outward * n_out_sq
+        + w_normal_inward  * n_in_sq
+    )
+
+
 def silhouette_loss(
     rendered_class_map: torch.Tensor,    # (H, W, K) per-pixel class probabilities
     target_class_map: torch.Tensor,      # (H, W, K) one-hot per-pixel class targets
@@ -119,6 +268,50 @@ def depth_loss(
     huber = torch.where(abs_diff <= huber_delta, quad, lin)
     n = valid.sum().clamp_min(1.0)
     return huber.sum() / n
+
+
+def depth_gradient_loss(
+    rendered_depth: torch.Tensor,  # (H, W)
+    target_depth: torch.Tensor,    # (H, W)
+    union_mask: torch.Tensor,      # (H, W) in {0, 1}
+    log_space: bool = True,
+    eps: float = 1e-3,
+) -> torch.Tensor:
+    """L1 between per-pixel depth gradients of ``rendered`` and ``target``.
+
+    Shape-only depth supervision: ``rendered`` only has to match the *slope*
+    of ``target``, not its absolute level. With ``log_space=True`` (default)
+    we differentiate ``log(d)`` instead of ``d`` itself, which makes the loss
+    invariant to a global multiplicative scaling of either map. That's the
+    right invariance for monocular depth like MoGe, whose dominant errors are
+    scale/offset rather than local shape.
+
+    Notation: subscript x = horizontal finite difference, y = vertical.
+    ``union_mask`` and a finite-target check gate both endpoints of each
+    difference so we never compare across an invalid pixel.
+    """
+    valid = union_mask * torch.isfinite(target_depth).float()
+    if log_space:
+        d_r = torch.log(rendered_depth.clamp_min(eps))
+        d_t = torch.log(target_depth.clamp_min(eps))
+    else:
+        d_r = rendered_depth
+        d_t = target_depth
+
+    # Horizontal differences (between cols c and c+1).
+    gx_r = d_r[:, 1:] - d_r[:, :-1]
+    gx_t = d_t[:, 1:] - d_t[:, :-1]
+    mx   = valid[:, 1:] * valid[:, :-1]
+    lx   = (gx_r - gx_t).abs() * mx
+
+    # Vertical differences (between rows r and r+1).
+    gy_r = d_r[1:, :] - d_r[:-1, :]
+    gy_t = d_t[1:, :] - d_t[:-1, :]
+    my   = valid[1:, :] * valid[:-1, :]
+    ly   = (gy_r - gy_t).abs() * my
+
+    n = (mx.sum() + my.sum()).clamp_min(1.0)
+    return (lx.sum() + ly.sum()) / n
 
 
 def temporal_smoothness(param: torch.Tensor) -> torch.Tensor:
@@ -273,3 +466,305 @@ def hand_scale_prior_loss(
     """
     d = scale - scale_init
     return d * d
+
+
+# ---------------------------------------------------------------------------
+# SuGaR-style surface-alignment regularizers.
+#
+# Pure 3D losses on the Gaussian field — no depth-image supervision is used.
+# Two pieces, following Guédon & Lepetit 2023:
+#   * scale anisotropy:    push each Gaussian toward a flat disk (one scale
+#                          much smaller than the others).
+#   * density regularizer: at sampled probes drawn along each Gaussian's
+#                          normal at ±s_min, compare the local mixture
+#                          density to the ideal thin-shell density exp(-½).
+#
+# Notes on scope: SuGaR was originally formulated for an unconstrained set
+# of free Gaussians. In our pipeline hand + object Gaussians are anchored
+# to mesh / MANO vertices and don't strictly need these losses (the anchor
+# spring already pins them to a surface). The bg Gaussians are anchored
+# to a noisy depth-unprojected point cloud and are the primary target for
+# SuGaR regularization.
+# ---------------------------------------------------------------------------
+
+
+def scale_anisotropy_loss(scales: torch.Tensor) -> torch.Tensor:
+    """Per-Gaussian flatness penalty — rewards *disk* shape only.
+
+    ``scales`` is ``(N, 3)`` (already exponentiated, not log). Sorted ascending:
+    ``s_min ≤ s_med ≤ s_max``. Loss is::
+
+        L = mean(s_min / s_med) + mean(1 − s_med / s_max)
+
+    The first term encourages a single very thin axis (``s_min`` ≪ the
+    others); the second pins the remaining two axes to be similar. Both are
+    near zero only when ``(s_min, s_med, s_max) ≈ (ε, S, S)`` — a flat disk.
+    Needle / spike shapes ``(ε, ε, S)`` keep the first term at ~1 and are
+    properly penalized (which the older ``min/max``-only form did not do).
+    """
+    if scales.shape[0] == 0:
+        return scales.sum() * 0.0
+    s_sorted, _ = torch.sort(scales, dim=-1)                       # ascending
+    s_min = s_sorted[..., 0]
+    s_med = s_sorted[..., 1]
+    s_max = s_sorted[..., 2]
+    return ((s_min / s_med.clamp_min(1e-8)).mean()
+            + (1.0 - s_med / s_max.clamp_min(1e-8)).mean())
+
+
+def sugar_sdf_losses(
+    means: torch.Tensor,         # (N, 3) Gaussian centers, world frame
+    quats: torch.Tensor,         # (N, 4) (w, x, y, z) canonical rotation
+    scales: torch.Tensor,        # (N, 3) per-axis sigmas (post-exp)
+    opacities: torch.Tensor,     # (N,)
+    depth: torch.Tensor,         # (H, W) MoGe depth in camera frame
+    K: torch.Tensor,             # (3, 3) intrinsics
+    R_w2c: torch.Tensor,         # (3, 3) world→camera rotation for this frame
+    t_w2c: torch.Tensor,         # (3,)   world→camera translation
+    union_mask: torch.Tensor,    # (H, W) {0,1} valid pixels (e.g. bg)
+    n_samples: int = 1000,
+    n_neighbors: int = 8,
+    compute_normal: bool = True,
+    samples_on_surface_weight: float = 0.2,
+    sampling_scale_factor: float = 1.5,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """SuGaR-paper density + normal regularization (Eqs. 5-10, Guédon &
+    Lepetit 2024).
+
+    Operates on a single camera frame at a time so the caller can pick which
+    frame's depth to anchor against per step. World frame = whatever frame
+    the Gaussians live in (gsplat's "world", typically the ref-frame cam).
+
+    Returns ``(sdf_loss, normal_loss)``. Both are scalars; ``normal_loss``
+    is a zero tensor (still differentiable w.r.t. ``means``) when
+    ``compute_normal=False``.
+
+    ``sdf_loss`` combines two terms (matching SuGaR's coarse-density trainer):
+      * SDF-match: ``|f̂(p) − f(p)|`` — depth-implied SDF should match the
+        Gaussian-mixture SDF. This is the Eq. 9 term.
+      * Samples-on-surface: ``|f̂(p)| / σ`` (weighted by
+        ``samples_on_surface_weight``, default 0.2 from the paper). This
+        directly pulls probe points — and therefore their anchor
+        Gaussians — toward the depth surface. Without it the SDF-match
+        term can be satisfied by Gaussians that drift away from the
+        surface together with a matching density profile.
+
+    Theory in two lines:
+      * ``f̂(p)`` = signed distance from probe ``p`` to the depth-implied
+        surface along the camera's z axis, i.e. ``z_depth(u,v) − p_cam.z``.
+      * ``f(p)`` = ``sign(f̂) · sg* · √(−2 log d(p))`` where ``d`` is the
+        K-NN Gaussian-mixture density at ``p`` and ``sg*`` is the smallest
+        scale of the closest Gaussian. (Eq. 7-8.)
+      * Sample probes from each anchor Gaussian's distribution ``N(μ, Σ)``
+        with spread ``sampling_scale_factor·s`` (Eq. 9; SuGaR uses 1.5 by
+        default). Density losses then encourage ``f`` and ``f̂`` to agree.
+      * Normal-consistency (Eq. 10): the *direction* of ``∇d`` (which is
+        parallel to ``∇f`` up to a scalar) should match the closest
+        Gaussian's smallest-scale axis ``ng*``. Computed analytically.
+    """
+    from .gaussians import quat_to_rotmat
+
+    N = means.shape[0]
+    if N == 0 or n_samples <= 0:
+        zero = means.sum() * 0.0
+        return zero, zero
+
+    # ---- 1. Pick anchors and sample probes from N(μ, Σ) ----
+    n_probes = min(int(n_samples), N)
+    probe_idx = torch.randperm(N, device=means.device)[:n_probes]
+    R_anchors = quat_to_rotmat(quats[probe_idx])    # (P, 3, 3)
+    s_anchors = scales[probe_idx].clamp_min(1e-6)   # (P, 3)
+    z = torch.randn(n_probes, 3, device=means.device)
+    # p = μ + R · diag(sampling_scale_factor · s) · z. SuGaR uses 1.5·s
+    # (sdf_sampling_scale_factor) — wider than the raw Gaussian so probes
+    # cover the off-surface region where the SDF has informative gradient.
+    local_offset = sampling_scale_factor * s_anchors * z
+    p = means[probe_idx] + torch.einsum("pij,pj->pi", R_anchors, local_offset)
+
+    # ---- 2. f̂(p): depth-implied SDF along camera z ----
+    p_cam = p @ R_w2c.T + t_w2c[None, :]                          # (P, 3)
+    fx = K[0, 0]; fy = K[1, 1]; cx = K[0, 2]; cy = K[1, 2]
+    z_c = p_cam[:, 2].clamp_min(1e-3)
+    u = fx * p_cam[:, 0] / z_c + cx
+    v = fy * p_cam[:, 1] / z_c + cy
+
+    H, W = int(depth.shape[-2]), int(depth.shape[-1])
+    iu = u.round().long().clamp(0, W - 1)
+    iv = v.round().long().clamp(0, H - 1)
+
+    z_depth = depth[iv, iu]                                       # (P,)
+    in_frame = (u >= 0) & (u < W) & (v >= 0) & (v < H)
+    valid = (
+        in_frame
+        & (union_mask[iv, iu] > 0.5)
+        & torch.isfinite(z_depth)
+        & (z_depth > 0)
+        & (p_cam[:, 2] > 0)
+    )
+    f_hat = z_depth - p_cam[:, 2]                                 # (P,)
+
+    # ---- 3. f(p): SDF from Gaussian-mixture density ----
+    k = int(min(n_neighbors, N))
+    # Chunked KNN: (P, N) cdist OOMs at P,N ~ 50k+. Same chunking pattern
+    # as density_regularizer_local — cap each chunk at ~1e8 float entries.
+    chunk = max(1, int(1e8 // max(N, 1)))
+    knn_idx_chunks: list[torch.Tensor] = []
+    for s in range(0, n_probes, chunk):
+        e = min(s + chunk, n_probes)
+        d_chunk = torch.cdist(p[s:e], means)
+        _, ki = d_chunk.topk(k, dim=-1, largest=False)
+        knn_idx_chunks.append(ki)
+    knn_idx = torch.cat(knn_idx_chunks, dim=0)                    # (P, k)
+
+    nbr_means     = means    [knn_idx]                            # (P, k, 3)
+    nbr_quats     = quats    [knn_idx]                            # (P, k, 4)
+    nbr_scales    = scales   [knn_idx].clamp_min(1e-6)            # (P, k, 3)
+    nbr_opacities = opacities[knn_idx]                            # (P, k)
+    nbr_R = quat_to_rotmat(nbr_quats.reshape(-1, 4)).reshape(n_probes, k, 3, 3)
+
+    delta       = p[:, None, :] - nbr_means                       # (P, k, 3)
+    delta_local = torch.einsum("pkji,pkj->pki", nbr_R, delta)     # R^T · delta
+    mahal_sq    = (delta_local / nbr_scales).pow(2).sum(dim=-1)   # (P, k)
+    contrib     = nbr_opacities * torch.exp(-0.5 * mahal_sq)      # (P, k)
+    d           = contrib.sum(dim=-1).clamp(1e-8, 1.0 - 1e-8)     # (P,)
+
+    closest = knn_idx[:, 0]                                       # (P,)
+    s_closest_min = scales[closest].min(dim=-1).values            # (P,)
+    f_mag = s_closest_min * torch.sqrt(-2.0 * torch.log(d))       # (P,)
+    f = torch.sign(f_hat.detach()) * f_mag                        # (P,)
+
+    valid_f = valid.to(f.dtype)
+    n_valid = valid.sum().clamp_min(1).to(f.dtype)
+    sdf_match = ((f_hat - f).abs() * valid_f).sum() / n_valid
+
+    # Samples-on-surface (SuGaR coarse-density Eq. ~9 + samples_on_surface
+    # term in their trainer): penalize the signed depth distance directly,
+    # normalized by its (detached) scale so the loss is scale-invariant.
+    # This is the term that actually pulls Gaussian centers onto the
+    # depth-implied surface — without it the SDF-match loss can be
+    # satisfied by Gaussians sitting off-surface with a matching density
+    # profile around them.
+    f_hat_valid = f_hat[valid]
+    if f_hat_valid.numel() > 1:
+        sigma = f_hat_valid.detach().abs().mean().clamp_min(1e-6)
+    else:
+        sigma = torch.ones((), device=f_hat.device, dtype=f_hat.dtype)
+    samples_on_surface = (f_hat.abs() * valid_f).sum() / n_valid / sigma
+    sdf_loss = sdf_match + samples_on_surface_weight * samples_on_surface
+
+    # ---- 4. Normal consistency (Eq. 10) ----
+    # ∇d analytically: ∂d/∂p = -Σ_k contrib_k · Σ_k⁻¹ · (p − μ_k)
+    #               = -Σ_k contrib_k · R_k · diag(1/s²) · R_k^T · (p − μ_k)
+    #               = -Σ_k contrib_k · R_k · (delta_local_k / s_k²)
+    # ∇f is parallel to ∇d up to a positive scalar; use ∇d direction.
+    if not compute_normal:
+        zero = means.sum() * 0.0
+        return sdf_loss, zero
+
+    local_inv_s2 = delta_local / nbr_scales.pow(2)                # (P, k, 3)
+    grad_world_per_k = torch.einsum("pkij,pkj->pki", nbr_R, local_inv_s2)
+    grad_d = -(contrib[..., None] * grad_world_per_k).sum(dim=1)  # (P, 3)
+    grad_norm = grad_d.norm(dim=-1, keepdim=True).clamp_min(1e-8)
+    grad_unit = grad_d / grad_norm                                # (P, 3)
+
+    # Closest Gaussian's smallest-scale axis (normal direction).
+    R_closest = quat_to_rotmat(quats[closest])                    # (P, 3, 3)
+    s_min_axis = scales[closest].argmin(dim=-1)                   # (P,)
+    n_closest = torch.gather(
+        R_closest, dim=2,
+        index=s_min_axis[:, None, None].expand(-1, 3, 1),
+    ).squeeze(-1)                                                 # (P, 3)
+    n_closest = n_closest / n_closest.norm(dim=-1, keepdim=True).clamp_min(1e-8)
+
+    # Sign-invariant alignment: 1 - <grad_unit, n>² is zero when parallel
+    # OR anti-parallel. Avoids the canonical-sign ambiguity of normals.
+    dot = (grad_unit * n_closest).sum(dim=-1)                     # (P,)
+    normal_loss = (1.0 - dot.pow(2)).mean()
+
+    return sdf_loss, normal_loss
+
+
+def density_regularizer_local(
+    means: torch.Tensor,         # (N, 3) Gaussian centers (world frame)
+    quats: torch.Tensor,         # (N, 4) (w, x, y, z) world-frame canonical rotation
+    scales: torch.Tensor,        # (N, 3) per-axis sigmas (post-exp)
+    opacities: torch.Tensor,     # (N,)
+    n_neighbors: int = 8,
+    subsample_frac: float = 0.2,
+) -> torch.Tensor:
+    """SuGaR-style density loss on the Gaussian field.
+
+    Per-step subsample: pick ``ceil(subsample_frac * N)`` Gaussians at random
+    as probe anchors. For each anchor:
+      * find its smallest-scale axis (the disk normal) by reading the column
+        of its rotation matrix that corresponds to the min(scales) index;
+      * sample 2 probe points at the center ± ``s_min`` along that normal;
+      * compute the K-nearest-neighbor mixture density at each probe,
+        using anisotropic Mahalanobis distance ``Σᵢ (R^T (p−μ))ᵢ² / sᵢ²``;
+      * compare to the ideal thin-shell density ``α · exp(-½)``.
+
+    Returns ``mean |f_actual − f_ideal|``. Loss is bounded; magnitude depends
+    on opacity scale (typically O(0.1)–O(1)). Wire as ``w_density_bg``.
+
+    No supervision from depth images. The Gaussian field is its own teacher.
+    """
+    from .gaussians import quat_to_rotmat
+
+    N = means.shape[0]
+    if N == 0 or subsample_frac <= 0:
+        return means.sum() * 0.0
+
+    n_probes = max(1, int(N * subsample_frac))
+    probe_idx = torch.randperm(N, device=means.device)[:n_probes]
+
+    p_centers = means    [probe_idx]                   # (P, 3)
+    s_probe   = scales   [probe_idx]                   # (P, 3)
+    q_probe   = quats    [probe_idx]                   # (P, 4)
+    a_probe   = opacities[probe_idx]                   # (P,)
+
+    s_min, s_min_idx = s_probe.min(dim=-1)             # (P,), (P,)
+    R = quat_to_rotmat(q_probe)                         # (P, 3, 3)
+    # The k-th column of R is the world direction of the local k-th axis.
+    normal = torch.gather(
+        R, dim=2,
+        index=s_min_idx[:, None, None].expand(-1, 3, 1),
+    ).squeeze(-1)                                      # (P, 3)
+    normal = normal / normal.norm(dim=-1, keepdim=True).clamp_min(1e-8)
+
+    probe_pos = torch.cat([
+        p_centers + normal * s_min[:, None],
+        p_centers - normal * s_min[:, None],
+    ], dim=0)                                          # (2P, 3)
+
+    # Cap the number of neighbors at N (small scenes).
+    k = int(min(n_neighbors, N))
+
+    # KNN: compute pairwise distances probes vs all means, take top-k.
+    # Memory: (2P) * N floats. Chunked when 2P*N exceeds ~1e8 entries.
+    chunk = max(1, int(1e8 // max(N, 1)))
+    knn_idx_chunks: list[torch.Tensor] = []
+    for s in range(0, probe_pos.shape[0], chunk):
+        e = min(s + chunk, probe_pos.shape[0])
+        d = torch.cdist(probe_pos[s:e], means)
+        _, ki = d.topk(k, dim=-1, largest=False)
+        knn_idx_chunks.append(ki)
+    knn_idx = torch.cat(knn_idx_chunks, dim=0)         # (2P, k)
+
+    nbr_means     = means     [knn_idx]                # (2P, k, 3)
+    nbr_quats     = quats     [knn_idx]                # (2P, k, 4)
+    nbr_scales    = scales    [knn_idx]                # (2P, k, 3)
+    nbr_opacities = opacities [knn_idx]                # (2P, k)
+
+    nbr_R = quat_to_rotmat(nbr_quats.reshape(-1, 4)).reshape(
+        probe_pos.shape[0], k, 3, 3,
+    )                                                  # (2P, k, 3, 3)
+    delta = probe_pos[:, None, :] - nbr_means          # (2P, k, 3)
+    # Local-frame delta: R^T @ (p − μ).
+    delta_local = torch.einsum("pkji,pkj->pki", nbr_R, delta)
+    mahal_sq = (delta_local / nbr_scales.clamp_min(1e-8)).pow(2).sum(dim=-1)
+    contrib = nbr_opacities * torch.exp(-0.5 * mahal_sq)
+    f_actual = contrib.sum(dim=-1)                     # (2P,)
+
+    # Ideal thin-shell density at the ±s_min probes: opacity · exp(-½).
+    f_ideal = a_probe.repeat(2) * float(torch.exp(torch.tensor(-0.5)))
+    return (f_actual - f_ideal).abs().mean()

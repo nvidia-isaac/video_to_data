@@ -249,6 +249,8 @@ class FrameCache:
         depth_dir: str | None,
         height: int,
         width: int,
+        valid_mask_threshold: float = 0.04,
+        valid_mask_erode_iters: int = 2,
     ) -> None:
         from tqdm import tqdm
 
@@ -306,6 +308,34 @@ class FrameCache:
                 else:
                     self.depth[t].fill_(float("inf"))
 
+        # Static valid-pixel mask derived from the input video itself.
+        # Detects fixed black regions (fisheye crop, vignette, dead border)
+        # by checking the per-pixel max brightness across all frames: any
+        # pixel that never exceeds ``valid_mask_threshold`` is treated as
+        # invalid and excluded from photometric / depth / SuGaR supervision.
+        # Eroded by ``valid_mask_erode_iters`` 3x3 steps to peel back the
+        # soft transition at the boundary.
+        #
+        # Single static mask (shape (H, W)), shared across all frames —
+        # the artifact is image-space-fixed, so cross-frame consistency is
+        # automatic and there's no per-frame degeneracy.
+        max_brightness = self.rgb.amax(dim=0).amax(dim=-1)               # (H, W)
+        valid = (max_brightness > float(valid_mask_threshold)).float()
+        if valid_mask_erode_iters > 0:
+            m = valid.unsqueeze(0).unsqueeze(0)
+            for _ in range(int(valid_mask_erode_iters)):
+                m = 1.0 - torch.nn.functional.max_pool2d(
+                    1.0 - m, kernel_size=3, stride=1, padding=1,
+                )
+            valid = m.squeeze(0).squeeze(0)
+        self.valid_mask = valid                                          # (H, W)
+        n_valid = int(self.valid_mask.sum().item())
+        n_total = height * width
+        print(f"  Valid-pixel mask: {n_valid}/{n_total} pixels "
+              f"({100.0 * n_valid / n_total:.1f}%) "
+              f"(threshold={valid_mask_threshold:.3f}, "
+              f"erode_iters={valid_mask_erode_iters})")
+
         # Pin memory for async H2D transfers under non_blocking=True.
         # Pinning can fail on systems with low locked-memory limits — fall
         # back silently if so; transfers still work, just slightly slower.
@@ -315,6 +345,7 @@ class FrameCache:
             self.hand_masks = [m.pin_memory() for m in self.hand_masks]
             if self.depth is not None:
                 self.depth = self.depth.pin_memory()
+            self.valid_mask = self.valid_mask.pin_memory()
         except RuntimeError:
             pass
 

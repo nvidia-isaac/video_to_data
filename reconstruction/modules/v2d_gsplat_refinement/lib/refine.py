@@ -58,7 +58,9 @@ from .background import (
 )
 from .gaussians import (
     concat_frames,
+    init_hand_face_gaussians,
     init_hand_gaussians,
+    init_object_face_gaussians_from_mesh,
     init_object_gaussians_from_mesh,
     resample_mesh_surface,
 )
@@ -79,11 +81,18 @@ from .losses import (
     balanced_photometric_loss,
     beta_prior_loss,
     delta_p_regularizer,
+    density_regularizer_local,
+    depth_gradient_loss,
     depth_loss,
+    depth_ssim_loss,
+    face_delta_p_regularizer,
+    sugar_sdf_losses,
     hand_scale_prior_loss,
     photometric_loss,
+    photometric_ssim_loss,
     pose_init_prior_loss,
     rotation_smoothness,
+    scale_anisotropy_loss,
     silhouette_loss,
     temporal_smoothness,
 )
@@ -205,6 +214,16 @@ class LossWeights:
     silhouette_obj:  float = 1.0
     silhouette_hand: float = 1.0
     depth:       float = 0.05
+    # Shape-only depth prior: L1 between log-depth gradients of rendered vs
+    # MoGe target. Scale-invariant, so it tolerates MoGe's bias and only
+    # penalizes wrong local geometry. Default off; use in addition to
+    # ``depth`` (which provides the absolute-scale anchor).
+    log_depth_grad: float = 0.0
+    # SSIM losses (1 - SSIM) on RGB and (log-)depth. Captures local
+    # structure / texture that pixel-wise L1 misses. 3DGS pairs L1+SSIM
+    # at ratio ~0.8 / 0.2 — same default here (photometric=1.0, ssim=0.2).
+    photometric_ssim: float = 0.0
+    depth_ssim:       float = 0.0
     # Smoothness terms use .sum() reduction in losses.py — gradients are
     # length-invariant, so weights here are much smaller than under the
     # old .mean() formulation. Rotation and translation are split so
@@ -228,15 +247,42 @@ class LossWeights:
     smooth_bg_trans:    float = 0.1
     beta_prior:  float = 10.0      # tight; keeps β from absorbing per-frame photometric noise
     hand_scale_prior: float = 10.0  # tight by default — align_hands' median is a good init
-    # Δp regularizer also uses .sum() now: per-Gaussian gradient is no
-    # longer divided by N. Default 1.0 with N≈1000 gives a comparable
-    # pull to a photometric loss of ~0.1 magnitude.
-    delta_p_reg: float = 1.0
+    # Δp regularizer uses .sum() — per-Gaussian gradient is no longer
+    # divided by N. Default 1.0 with N≈1000 gives a comparable pull to a
+    # photometric loss of ~0.1 magnitude. Split per category so the user
+    # can let bg breathe (e.g. set delta_p_reg_bg=1) while keeping obj/hand
+    # tightly mesh-anchored (delta_p_reg_obj=100, delta_p_reg_hand=100).
+    delta_p_reg_obj:  float = 1.0
+    delta_p_reg_hand: float = 1.0
+    delta_p_reg_bg:   float = 1.0
+    # Face-anchored regularization (used in place of delta_p_reg_{obj,hand}
+    # when the corresponding anchor mode is "face"). Δp is in face-local
+    # (T, B, N) coords. Defaults express "stay inside the volume": light
+    # surface slide, heavy outward leak, free inward sink. See
+    # losses.face_delta_p_regularizer.
+    face_delta_p_tangent_obj:         float = 1.0
+    face_delta_p_normal_outward_obj:  float = 100.0
+    face_delta_p_normal_inward_obj:   float = 0.0
+    face_delta_p_tangent_hand:        float = 1.0
+    face_delta_p_normal_outward_hand: float = 100.0
+    face_delta_p_normal_inward_hand:  float = 0.0
     # Tight Gaussian prior on log_scale_global (pulls global object scale
     # toward 1.0). Drop to ~0 if you want unrestricted scale; raise to
     # freeze it near init. Default is moderate — prior is observable enough
     # via background depth / hand size to converge without tight pinning.
     obj_scale_prior: float = 1.0
+    # SuGaR-style surface-alignment regularizers (bg only for now). All
+    # default to zero — pure drop-in. See losses.scale_anisotropy_loss /
+    # density_regularizer_local / sugar_sdf_losses.
+    scale_aniso_bg:        float = 0.0
+    density_bg:            float = 0.0     # our local proxy (no depth anchor)
+    # Paper-faithful SuGaR losses (Guédon & Lepetit 2024). Connect Gaussians
+    # to MoGe depth via the implicit-SDF formulation. ``sdf_density_bg``
+    # weights the L1 between f̂ (depth-implied SDF) and f (Gaussian-mixture
+    # SDF, Eq. 7-8); ``normal_consistency_bg`` weights the alignment of the
+    # field gradient with the closest Gaussian's normal (Eq. 10).
+    sdf_density_bg:        float = 0.0
+    normal_consistency_bg: float = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -271,6 +317,7 @@ def _restrict_hand_track(track: HandPoseTrack, keep: set[int]) -> HandPoseTrack:
         is_right      = track.is_right,
         frame_indices = [track.frame_indices[i] for i in idxs],
         raw_records   = [track.raw_records[i] for i in idxs],
+        hand_scale    = track.hand_scale,
     )
 
 
@@ -296,6 +343,67 @@ def _save_overlay_video(
             "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20",
             output_path,
         ], check=True)
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint write — atomic via tmp + rename so a live reader (the viewer's
+# hot-reload) never sees a half-written file.
+# ---------------------------------------------------------------------------
+
+def _write_refine_checkpoint(
+    *,
+    checkpoint_path: str,
+    obj_gaussians, obj_pose_field, hand_slots,
+    bg_gaussians, bg_pose_field,
+    optimizer, lr_scheduler,
+    init_obj_axis_angle: torch.Tensor,
+    init_obj_translation: torch.Tensor,
+    frame_indices: list[int],
+    step_count: int,
+    s_obj_learned: float,
+) -> None:
+    os.makedirs(
+        os.path.dirname(os.path.abspath(checkpoint_path)) or ".",
+        exist_ok=True,
+    )
+    ckpt_save = {
+        "obj_gaussians":        obj_gaussians.state_dict(),
+        "obj_pose_field":       obj_pose_field.state_dict(),
+        "hand_gaussians":       [s.gaussians.state_dict()  for s in hand_slots],
+        "hand_pose_fields":     [s.pose_field.state_dict() for s in hand_slots],
+        "hand_sides":           [s.side for s in hand_slots],
+        "optimizer":            optimizer.state_dict(),
+        "init_obj_axis_angle":  init_obj_axis_angle.detach().cpu(),
+        "init_obj_translation": init_obj_translation.detach().cpu(),
+        "step_count":           step_count,
+        "frame_indices":        list(frame_indices),
+        "s_obj_learned":        s_obj_learned,
+    }
+    if bg_gaussians is not None:
+        ckpt_save["bg_gaussians"]  = bg_gaussians.state_dict()
+        ckpt_save["bg_pose_field"] = bg_pose_field.state_dict()
+    if lr_scheduler is not None:
+        ckpt_save["lr_scheduler"]  = lr_scheduler.state_dict()
+
+    def _exp_avg_sq(p):
+        v = optimizer.state.get(p, {}).get("exp_avg_sq")
+        return v.detach().cpu() if v is not None else None
+    ckpt_save["pose_grad_state"] = {
+        "obj_axis_angle":  _exp_avg_sq(obj_pose_field.axis_angle),
+        "obj_translation": _exp_avg_sq(obj_pose_field.translation),
+        "hands": [
+            {
+                "side":           slot.side,
+                "global_orient":  _exp_avg_sq(slot.pose_field.global_orient),
+                "hand_pose":      _exp_avg_sq(slot.pose_field.hand_pose),
+                "cam_t":          _exp_avg_sq(slot.pose_field.cam_t),
+            }
+            for slot in hand_slots
+        ],
+    }
+    tmp_path = checkpoint_path + ".tmp"
+    torch.save(ckpt_save, tmp_path)
+    os.replace(tmp_path, checkpoint_path)
 
 
 # ---------------------------------------------------------------------------
@@ -370,6 +478,21 @@ def refine(
     lr_bg_rot: float | None = None,              # axis_angle; falls back to lr_bg_pose
     lr_bg_trans: float | None = None,            # translation; falls back to lr_bg_pose
     bg_max_points: int = 50000,
+    # SuGaR-style background regularization (kicks in when the corresponding
+    # LossWeights field is > 0 via the CLI; these knobs control sampling cost).
+    n_density_neighbors:       int   = 8,
+    density_subsample_frac_bg: float = 0.2,
+    # Paper-faithful SuGaR knobs.
+    n_sdf_samples_bg:    int = 1000,
+    n_sdf_neighbors_bg:  int = 8,
+    # Static valid-pixel mask derived from the input video — detects fixed
+    # black regions (fisheye crop, vignette, dead border) so they're
+    # excluded from all photometric / depth / SuGaR supervision. A pixel
+    # is invalid if its max brightness across all frames is below
+    # ``valid_mask_threshold`` (in [0,1] image scale). Erosion peels back
+    # the soft transition at the boundary. Set threshold to 0 to disable.
+    valid_mask_threshold:  float = 0.04,
+    valid_mask_erode_iters: int = 2,
     # Optional: seed the background pose field with an external VO/SfM solution
     # (e.g. DROID-SLAM). Folder of per-frame `Transform3d` JSONs encoding
     # camera-to-world SE(3) (DROID/COLMAP convention). When set, after
@@ -393,6 +516,22 @@ def refine(
     n_hand_gaussians: int | None = None,   # None = use 778 (full MANO verts);
                                              # smaller subsamples; >778 ignored
                                              # (would require barycentric LBS).
+    # Anchor mode for object / hand Gaussians: "vertex" (legacy, one Gaussian
+    # per mesh vertex) or "face" (one Gaussian per mesh face, anchored at the
+    # face centroid with orientation derived from the face's TBN frame and Δp
+    # parameterized in face-local coords). Set independently per set.
+    #
+    # In "face" mode the corresponding ``n_*_gaussians`` knob is ignored —
+    # Gaussian count equals face count (1538 for MANO, mesh face count for
+    # object). The delta-p regularizer also switches: legacy
+    # ``delta_p_reg_{obj,hand}`` is replaced by the asymmetric per-axis trio
+    # ``face_delta_p_{tangent,normal_outward,normal_inward}_{obj,hand}``.
+    object_anchor_mode: str = "vertex",      # "vertex" | "face"
+    hand_anchor_mode:   str = "vertex",      # "vertex" | "face"
+    # Per-axis thin-slab init for face Gaussians: normal-axis sigma =
+    # face_normal_thin_factor * tangent sigma. Smaller → flatter disks.
+    face_normal_thin_factor_obj:  float = 0.25,
+    face_normal_thin_factor_hand: float = 0.25,
     use_cosine_lr_schedule: bool = False,
     cosine_lr_min_ratio: float = 0.0,      # final LR / initial LR (per group)
     # Coarse-to-fine scale annealing: at training start, multiply every
@@ -444,6 +583,11 @@ def refine(
     # epoch loop.
     checkpoint_path: str | None = None,
     resume_from_checkpoint: str | None = None,
+    # If >0 and ``checkpoint_path`` is set, write the checkpoint every N
+    # optimizer steps in addition to the final write. Writes go through a
+    # ``<path>.tmp`` rename so the file is never read mid-write — safe to
+    # tail with the live viewer's hot-reload.
+    checkpoint_every: int = 0,
     ignore_optimizer_state: bool = False,    # when resuming, skip optimizer/scheduler state load
     freeze_gaussians: bool = False,          # freeze ALL Gaussian attrs (obj + hand + bg)
     random_init_obj_pose: bool = False,      # randomize obj pose after build (uniform rot, σ=0.1 trans)
@@ -531,13 +675,27 @@ def refine(
 
     # ----- learnable state --------------------------------------------------
     obj_verts, obj_colors, _obj_faces = load_object_mesh(object_mesh_path, str(device))
-    if n_obj_gaussians is not None and n_obj_gaussians != obj_verts.shape[0]:
-        print(f"Object: resampling mesh surface to {n_obj_gaussians} "
-              f"Gaussians (mesh has {obj_verts.shape[0]} verts).")
-        obj_verts, obj_colors = resample_mesh_surface(
-            obj_verts, obj_colors, _obj_faces, n_obj_gaussians,
+    if object_anchor_mode == "face":
+        if n_obj_gaussians is not None:
+            print(f"Object: anchor mode 'face' — ignoring n_obj_gaussians="
+                  f"{n_obj_gaussians} (count fixed at {_obj_faces.shape[0]} "
+                  f"faces).")
+        obj_gaussians = init_object_face_gaussians_from_mesh(
+            obj_verts, _obj_faces, obj_colors,
+            normal_thin_factor = face_normal_thin_factor_obj,
+        ).to(device)
+    elif object_anchor_mode == "vertex":
+        if n_obj_gaussians is not None and n_obj_gaussians != obj_verts.shape[0]:
+            print(f"Object: resampling mesh surface to {n_obj_gaussians} "
+                  f"Gaussians (mesh has {obj_verts.shape[0]} verts).")
+            obj_verts, obj_colors = resample_mesh_surface(
+                obj_verts, obj_colors, _obj_faces, n_obj_gaussians,
+            )
+        obj_gaussians = init_object_gaussians_from_mesh(obj_verts, obj_colors).to(device)
+    else:
+        raise ValueError(
+            f"object_anchor_mode must be 'vertex' or 'face' (got {object_anchor_mode!r})"
         )
-    obj_gaussians = init_object_gaussians_from_mesh(obj_verts, obj_colors).to(device)
     obj_pose_field = ObjectPoseField(object_track).to(device)
 
     if random_init_obj_pose:
@@ -561,25 +719,63 @@ def refine(
             ht, mano_assets_root, device=device,
             learn_hand_scale=learn_hand_scale,
         ).to(device)
-        # Optionally subsample the MANO vertex set to reduce hand Gaussian
-        # count. Larger-than-778 not supported here (would require
-        # barycentric LBS skinning).
-        sub_idx: torch.Tensor | None = None
-        if n_hand_gaussians is not None and n_hand_gaussians < pf.num_verts():
-            g = torch.Generator(device="cpu").manual_seed(seed)
-            sub_idx = torch.randperm(pf.num_verts(), generator=g)[:n_hand_gaussians]
-            print(f"Hand ({side}): subsampling MANO verts "
-                  f"{pf.num_verts()} → {n_hand_gaussians}.")
-        elif n_hand_gaussians is not None and n_hand_gaussians > pf.num_verts():
-            print(f"Hand ({side}): n_hand_gaussians={n_hand_gaussians} > "
-                  f"{pf.num_verts()} MANO verts; using all 778. "
-                  f"(Supersampling would require barycentric LBS.)")
-        hg = init_hand_gaussians(
-            n_verts           = pf.num_verts(),
-            is_right          = ht.is_right,
-            device            = device,
-            subsample_indices = sub_idx,
-        )
+        # Scale the per-Gaussian init footprint by the per-track hand_scale
+        # from align_hands. MANO native vertex spacing is ~5 mm, but
+        # hand_scale enlarges the mesh around its centroid by that factor;
+        # the Gaussian extents must match or the splat is sparse and the
+        # rendered hand appears smaller / hollow than the mesh overlay.
+        hand_scale_init = float(getattr(ht, "hand_scale", 1.0) or 1.0)
+        if hand_anchor_mode == "face":
+            if n_hand_gaussians is not None:
+                print(f"Hand ({side}): anchor mode 'face' — ignoring "
+                      f"n_hand_gaussians={n_hand_gaussians} (count fixed at "
+                      f"MANO face count).")
+            # Rest-pose MANO verts in the MANO local frame (no global_orient,
+            # no cam_t, zero pose / zero betas).
+            with torch.no_grad():
+                _zero_pose  = torch.zeros(1, 48, device=device)
+                _zero_betas = torch.zeros(1, 10, device=device)
+                _rest_out = pf.mano(_zero_pose, _zero_betas)
+                rest_verts = _rest_out.verts[0].detach().clone()    # (V, 3)
+                if not ht.is_right:
+                    # Mirror so the rest mesh used for face init matches the
+                    # mirrored convention applied at runtime.
+                    rest_verts = rest_verts * rest_verts.new_tensor([-1.0, 1.0, 1.0])
+            faces_np = pf.mano.th_faces.detach().cpu().numpy()
+            hg = init_hand_face_gaussians(
+                rest_vertices = rest_verts,
+                faces         = faces_np,
+                is_right      = ht.is_right,
+                normal_thin_factor = face_normal_thin_factor_hand,
+                hand_scale_init = hand_scale_init,
+                device          = device,
+                subsample_face_indices = None,
+            )
+        elif hand_anchor_mode == "vertex":
+            # Optionally subsample the MANO vertex set to reduce hand Gaussian
+            # count. Larger-than-778 not supported here (would require
+            # barycentric LBS skinning).
+            sub_idx: torch.Tensor | None = None
+            if n_hand_gaussians is not None and n_hand_gaussians < pf.num_verts():
+                g = torch.Generator(device="cpu").manual_seed(seed)
+                sub_idx = torch.randperm(pf.num_verts(), generator=g)[:n_hand_gaussians]
+                print(f"Hand ({side}): subsampling MANO verts "
+                      f"{pf.num_verts()} → {n_hand_gaussians}.")
+            elif n_hand_gaussians is not None and n_hand_gaussians > pf.num_verts():
+                print(f"Hand ({side}): n_hand_gaussians={n_hand_gaussians} > "
+                      f"{pf.num_verts()} MANO verts; using all 778. "
+                      f"(Supersampling would require barycentric LBS.)")
+            hg = init_hand_gaussians(
+                n_verts           = pf.num_verts(),
+                is_right          = ht.is_right,
+                init_scale        = 0.005 * hand_scale_init,
+                device            = device,
+                subsample_indices = sub_idx,
+            )
+        else:
+            raise ValueError(
+                f"hand_anchor_mode must be 'vertex' or 'face' (got {hand_anchor_mode!r})"
+            )
         hand_slots.append(HandSlot(
             side          = side,
             track         = ht,
@@ -600,7 +796,32 @@ def refine(
         depth_dir        = depth_dir,
         height           = H,
         width            = W,
+        valid_mask_threshold   = valid_mask_threshold,
+        valid_mask_erode_iters = valid_mask_erode_iters,
     )
+    # Static valid-pixel mask on device — used by bg init, the training
+    # loop's batch_union, and the SuGaR bg_pixel_mask. Single (H, W) tensor
+    # shared across all frames (the artifact is image-space-fixed, so
+    # cross-frame consistency is automatic and there's no per-frame
+    # degeneracy).
+    valid_pixel_mask = cache.valid_mask.to(device, non_blocking=True)
+
+    # Debug dump: write the mask + a blended overlay next to the output
+    # overlay video so you can eyeball what got excluded. Cheap — two PNGs
+    # written once.
+    debug_dir = os.path.dirname(os.path.abspath(overlay_path)) or "."
+    os.makedirs(debug_dir, exist_ok=True)
+    vm_np = (cache.valid_mask.cpu().numpy() * 255).astype(np.uint8)         # (H, W)
+    Image.fromarray(vm_np, mode="L").save(
+        os.path.join(debug_dir, "valid_pixel_mask.png"))
+    ref_rgb_np = (cache.rgb[0].cpu().numpy() * 255).astype(np.uint8)        # (H, W, 3)
+    blend = ref_rgb_np.astype(np.float32) * cache.valid_mask.cpu().numpy()[..., None]
+    blend += (1.0 - cache.valid_mask.cpu().numpy()[..., None]) * np.array(
+        [255, 0, 0], dtype=np.float32,
+    )
+    Image.fromarray(blend.clip(0, 255).astype(np.uint8)).save(
+        os.path.join(debug_dir, "valid_pixel_mask_overlay.png"))
+    print(f"  Valid-pixel mask dumped to {debug_dir}/valid_pixel_mask{{,_overlay}}.png")
 
     # ----- optional background Gaussians + pose field -----------------------
     bg_gaussians: BackgroundGaussians | None = None
@@ -641,6 +862,10 @@ def refine(
             m = cache.obj_mask[t].to(device).clone()
             for hm in cache.hand_masks:
                 m = torch.maximum(m, hm[t].to(device))
+            # Treat invalid (black-border) pixels as if they were foreground
+            # so init_background_from_depth excludes them from the bg point
+            # cloud — those pixels have no real depth signal.
+            m = torch.maximum(m, 1.0 - valid_pixel_mask)
             return m
 
         K_intr = K
@@ -1083,10 +1308,14 @@ def refine(
                 cache.depth[batch_ts_t.cpu()].to(device, non_blocking=True)
                 if cache.depth is not None else None
             )                                                                                    # (B, H, W) or None
-            # Union mask per batch member (vectorized).
+            # Union mask per batch member (vectorized). Gated by the static
+            # ``valid_pixel`` mask so fisheye black corners / dead-border
+            # pixels never enter photometric / depth / SuGaR supervision,
+            # even if a SAM2 mask spuriously leaked into them.
             batch_union = batch_obj_mask.clone()
             for hm in batch_hand_msks:
                 batch_union = torch.maximum(batch_union, hm)
+            batch_union = batch_union * valid_pixel_mask                # (B, H, W) * (H, W)
 
             # Poses, batched.
             R_obj_b, t_obj_b = obj_pose_field.batched_forward(batch_ts_t)                       # (B, 3, 3), (B, 3)
@@ -1153,6 +1382,19 @@ def refine(
                         use_l2=use_l2_photometric,
                     )
 
+                # SSIM photometric — captures local structure (textures /
+                # edges) that pixel-wise L1 ignores. Mask choice mirrors the
+                # L1 path: full valid-pixel image when bg Gaussians explain
+                # the whole scene, foreground-only otherwise.
+                if weights.photometric_ssim > 0:
+                    ssim_mask = (
+                        valid_pixel_mask if bg_gaussians is not None
+                        else union_mask
+                    )
+                    fl = fl + weights.photometric_ssim * photometric_ssim_loss(
+                        rgb_pred, target_rgb_t, ssim_mask,
+                    )
+
                 # Class-label silhouette target.
                 target_class = obj_mask.new_zeros((H, W, K_classes_static))
                 target_class[..., 0] = obj_mask
@@ -1167,6 +1409,20 @@ def refine(
                 if batch_depth is not None:
                     fl = fl + weights.depth * depth_loss(
                         depth_pred, batch_depth[i], union_mask)
+                    if weights.log_depth_grad > 0:
+                        # Shape-only depth prior. Gated on > 0 so the
+                        # graph stays the same shape (no inf log) when off.
+                        fl = fl + weights.log_depth_grad * depth_gradient_loss(
+                            depth_pred, batch_depth[i], union_mask,
+                            log_space=True,
+                        )
+                    if weights.depth_ssim > 0:
+                        # SSIM on log-depth — captures local depth structure
+                        # (edges, plane orientation) that pointwise depth L1
+                        # misses. Percentile-normalized internally.
+                        fl = fl + weights.depth_ssim * depth_ssim_loss(
+                            depth_pred, batch_depth[i], union_mask,
+                        )
 
                 # Confidence weighting (static × dynamic).
                 c_t = pose_confidence[t]
@@ -1180,9 +1436,21 @@ def refine(
             loss = total / float(len(batch_ts))
 
             # Sequence-wide regularizers (computed once per step, not per-frame).
-            loss = loss + weights.delta_p_reg * delta_p_regularizer(
-                obj_gaussians._delta_p
-            )
+            if getattr(obj_gaussians, "is_face_anchored", False):
+                # Face-anchored: Δp is in face-local (T, B, N) coords —
+                # asymmetric per-axis regularizer expresses "stay inside
+                # the volume" (heavy outward, free inward, light surface
+                # slide). Legacy delta_p_reg_obj weight is ignored here.
+                loss = loss + face_delta_p_regularizer(
+                    obj_gaussians._delta_p,
+                    w_tangent        = weights.face_delta_p_tangent_obj,
+                    w_normal_outward = weights.face_delta_p_normal_outward_obj,
+                    w_normal_inward  = weights.face_delta_p_normal_inward_obj,
+                )
+            else:
+                loss = loss + weights.delta_p_reg_obj * delta_p_regularizer(
+                    obj_gaussians._delta_p
+                )
             # Rotations get quat-aligned smoothness so axis-angle
             # double-cover wraps don't induce phantom large differences.
             loss = loss + (
@@ -1205,7 +1473,7 @@ def refine(
                     pose_confidence,
                 )
             if bg_gaussians is not None:
-                loss = loss + weights.delta_p_reg * delta_p_regularizer(
+                loss = loss + weights.delta_p_reg_bg * delta_p_regularizer(
                     bg_gaussians._delta_p
                 )
                 loss = loss + (
@@ -1213,9 +1481,17 @@ def refine(
                     weights.smooth_bg_trans * temporal_smoothness(bg_pose_field.translation)
                 )
             for slot in hand_slots:
-                loss = loss + weights.delta_p_reg * delta_p_regularizer(
-                    slot.gaussians._delta_p
-                )
+                if getattr(slot.gaussians, "is_face_anchored", False):
+                    loss = loss + face_delta_p_regularizer(
+                        slot.gaussians._delta_p,
+                        w_tangent        = weights.face_delta_p_tangent_hand,
+                        w_normal_outward = weights.face_delta_p_normal_outward_hand,
+                        w_normal_inward  = weights.face_delta_p_normal_inward_hand,
+                    )
+                else:
+                    loss = loss + weights.delta_p_reg_hand * delta_p_regularizer(
+                        slot.gaussians._delta_p
+                    )
                 T_h = slot.pose_field.hand_pose.shape[0]
                 loss = loss + (
                     weights.smooth_hand_rot    * rotation_smoothness(slot.pose_field.global_orient) +
@@ -1229,6 +1505,66 @@ def refine(
                     loss = loss + weights.hand_scale_prior * hand_scale_prior_loss(
                         slot.pose_field.hand_scale, slot.pose_field.hand_scale_init
                     )
+
+            # SuGaR-style background regularization (bg only). All weights
+            # default to 0. The local proxy + scale anisotropy are
+            # pose-invariant so they run once per step against the world-frame
+            # bg. The paper-faithful SDF / normal losses need depth + a
+            # camera pose, so they pick a random frame from the batch.
+            sugar_active = (
+                bg_gaussians is not None
+                and (weights.scale_aniso_bg > 0 or weights.density_bg > 0
+                     or weights.sdf_density_bg > 0
+                     or weights.normal_consistency_bg > 0)
+            )
+            if sugar_active:
+                I3 = torch.eye(3, device=device)
+                z3 = torch.zeros(3, device=device)
+                bg_world = bg_gaussians(I3, z3)        # GaussianFrame in world frame
+                if weights.scale_aniso_bg > 0:
+                    loss = loss + weights.scale_aniso_bg * scale_anisotropy_loss(bg_world.scales)
+                if weights.density_bg > 0:
+                    loss = loss + weights.density_bg * density_regularizer_local(
+                        means        = bg_world.means,
+                        quats        = bg_world.quats,
+                        scales       = bg_world.scales,
+                        opacities    = bg_world.opacities,
+                        n_neighbors  = n_density_neighbors,
+                        subsample_frac = density_subsample_frac_bg,
+                    )
+                # Paper-faithful SDF + normal-consistency loss. Tie the
+                # Gaussian field to MoGe depth: pick a random batch frame
+                # to anchor against, evaluate ``sugar_sdf_losses``.
+                if (weights.sdf_density_bg > 0 or weights.normal_consistency_bg > 0) \
+                        and batch_depth is not None:
+                    pick = int(torch.randint(0, B, (1,), device=device).item())
+                    R_bg_pick, t_bg_pick = bg_pose_field(int(batch_ts[pick]))
+                    # bg pixels (not in object mask, not in any hand mask),
+                    # additionally gated by the static valid-pixel mask so
+                    # fisheye black corners / dead-border pixels don't
+                    # pollute the SuGaR depth anchor.
+                    bg_pixel_mask = (
+                        (1.0 - batch_union[pick].clamp(0.0, 1.0))
+                        * valid_pixel_mask
+                    )
+                    sdf_loss, normal_loss = sugar_sdf_losses(
+                        means        = bg_world.means,
+                        quats        = bg_world.quats,
+                        scales       = bg_world.scales,
+                        opacities    = bg_world.opacities,
+                        depth        = batch_depth[pick],
+                        K            = K,
+                        R_w2c        = R_bg_pick,
+                        t_w2c        = t_bg_pick,
+                        union_mask   = bg_pixel_mask,
+                        n_samples    = n_sdf_samples_bg,
+                        n_neighbors  = n_sdf_neighbors_bg,
+                        compute_normal = weights.normal_consistency_bg > 0,
+                    )
+                    if weights.sdf_density_bg > 0:
+                        loss = loss + weights.sdf_density_bg * sdf_loss
+                    if weights.normal_consistency_bg > 0:
+                        loss = loss + weights.normal_consistency_bg * normal_loss
 
             loss.backward()
             optimizer.step()
@@ -1244,6 +1580,25 @@ def refine(
                     K, W, H, device,
                     obj_gaussians, obj_pose_field, hand_slots,
                     bg_gaussians=bg_gaussians, bg_pose_field=bg_pose_field,
+                )
+
+            if (checkpoint_every > 0
+                    and checkpoint_path is not None
+                    and step_count % checkpoint_every == 0):
+                _write_refine_checkpoint(
+                    checkpoint_path  = checkpoint_path,
+                    obj_gaussians    = obj_gaussians,
+                    obj_pose_field   = obj_pose_field,
+                    hand_slots       = hand_slots,
+                    bg_gaussians     = bg_gaussians,
+                    bg_pose_field    = bg_pose_field,
+                    optimizer        = optimizer,
+                    lr_scheduler     = lr_scheduler,
+                    init_obj_axis_angle  = init_obj_axis_angle,
+                    init_obj_translation = init_obj_translation,
+                    frame_indices    = frame_indices,
+                    step_count       = step_count,
+                    s_obj_learned    = float(obj_gaussians.object_scale().detach()),
                 )
 
     pbar.close()
@@ -1283,49 +1638,22 @@ def refine(
 
     # ----- optional checkpoint save ----------------------------------------
     if checkpoint_path is not None:
-        os.makedirs(
-            os.path.dirname(os.path.abspath(checkpoint_path)) or ".",
-            exist_ok=True,
+        s_obj_for_ckpt = float(obj_gaussians.object_scale().detach())
+        _write_refine_checkpoint(
+            checkpoint_path  = checkpoint_path,
+            obj_gaussians    = obj_gaussians,
+            obj_pose_field   = obj_pose_field,
+            hand_slots       = hand_slots,
+            bg_gaussians     = bg_gaussians,
+            bg_pose_field    = bg_pose_field,
+            optimizer        = optimizer,
+            lr_scheduler     = lr_scheduler,
+            init_obj_axis_angle  = init_obj_axis_angle,
+            init_obj_translation = init_obj_translation,
+            frame_indices    = frame_indices,
+            step_count       = step_count,
+            s_obj_learned    = s_obj_for_ckpt,
         )
-        ckpt_save = {
-            "obj_gaussians":        obj_gaussians.state_dict(),
-            "obj_pose_field":       obj_pose_field.state_dict(),
-            "hand_gaussians":       [s.gaussians.state_dict()  for s in hand_slots],
-            "hand_pose_fields":     [s.pose_field.state_dict() for s in hand_slots],
-            "hand_sides":           [s.side for s in hand_slots],
-            "optimizer":            optimizer.state_dict(),
-            "init_obj_axis_angle":  init_obj_axis_angle.detach().cpu(),
-            "init_obj_translation": init_obj_translation.detach().cpu(),
-            "step_count":           step_count,
-            "frame_indices":        list(frame_indices),
-            "s_obj_learned":        s_obj_learned,
-        }
-        if bg_gaussians is not None:
-            ckpt_save["bg_gaussians"]  = bg_gaussians.state_dict()
-            ckpt_save["bg_pose_field"] = bg_pose_field.state_dict()
-        if lr_scheduler is not None:
-            ckpt_save["lr_scheduler"]  = lr_scheduler.state_dict()
-        # Labeled snapshot of Adam's per-frame squared-gradient EMA on
-        # pose params. The full optimizer state is also in ``optimizer``
-        # above (by integer index), but extracting by name is much easier
-        # for downstream plotting.
-        def _exp_avg_sq(p):
-            v = optimizer.state.get(p, {}).get("exp_avg_sq")
-            return v.detach().cpu() if v is not None else None
-        ckpt_save["pose_grad_state"] = {
-            "obj_axis_angle":  _exp_avg_sq(obj_pose_field.axis_angle),
-            "obj_translation": _exp_avg_sq(obj_pose_field.translation),
-            "hands": [
-                {
-                    "side":           slot.side,
-                    "global_orient":  _exp_avg_sq(slot.pose_field.global_orient),
-                    "hand_pose":      _exp_avg_sq(slot.pose_field.hand_pose),
-                    "cam_t":          _exp_avg_sq(slot.pose_field.cam_t),
-                }
-                for slot in hand_slots
-            ],
-        }
-        torch.save(ckpt_save, checkpoint_path)
         print(f"Wrote checkpoint → {checkpoint_path}")
 
     # Final overlay video — streamed render + ffmpeg encode in one pass.
@@ -1915,6 +2243,21 @@ def main() -> None:
                         "Drop below 1.0 (e.g. 0.3) when SAM2 hand masks "
                         "are noisier than the object mask.")
     p.add_argument("--w_depth",         type=float, default=0.05)
+    p.add_argument("--w_log_depth_grad", type=float, default=0.0,
+                   help="L1 on the gradient of log(depth) — scale-invariant "
+                        "shape prior that complements --w_depth. Tolerates "
+                        "MoGe's scale/offset bias by only penalizing wrong "
+                        "local geometry. Try ~0.1× of w_depth as a start.")
+    p.add_argument("--w_photometric_ssim", type=float, default=0.0,
+                   help="SSIM photometric loss weight (1 - SSIM, 11x11 "
+                        "Gaussian window). Captures local texture/edge "
+                        "structure that pixel-wise L1 misses. 3DGS default "
+                        "pairs at ~0.2 (with w_photometric=1.0).")
+    p.add_argument("--w_depth_ssim", type=float, default=0.0,
+                   help="SSIM depth loss weight (1 - SSIM on log-depth, "
+                        "percentile-normalized). Captures local depth "
+                        "structure (edges, plane orientation) that "
+                        "pointwise depth L1 misses. Try ~0.1.")
     p.add_argument("--w_smooth_obj_rot",    type=float, default=0.01,
                    help="Smoothness weight for object rotation (axis-angle, "
                         "in quat space). Set to 0 to disable rotation "
@@ -1942,12 +2285,105 @@ def main() -> None:
                         "align_hands estimate (only active when "
                         "--learn_hand_scale).")
     p.add_argument("--w_delta_p_reg",   type=float, default=100.0,
-                   help="L2 penalty on Gaussian Δp (object + hand); pulls "
-                        "splats back to mesh / MANO-rest anchor.")
+                   help="Fallback L2 penalty on Gaussian Δp. Applied to "
+                        "object + hand + bg unless overridden by "
+                        "--w_delta_p_reg_{obj,hand,bg}.")
+    p.add_argument("--w_delta_p_reg_obj",  type=float, default=None,
+                   help="Override Δp penalty for object Gaussians "
+                        "(falls back to --w_delta_p_reg when unset).")
+    p.add_argument("--w_delta_p_reg_hand", type=float, default=None,
+                   help="Override Δp penalty for hand Gaussians "
+                        "(falls back to --w_delta_p_reg when unset).")
+    p.add_argument("--w_delta_p_reg_bg",   type=float, default=None,
+                   help="Override Δp penalty for background Gaussians "
+                        "(falls back to --w_delta_p_reg when unset). "
+                        "Lower this (e.g. 1.0–10.0) to let bg breathe.")
+    # ---- Face-anchored Gaussian options --------------------------------------
+    p.add_argument("--object_anchor_mode", choices=["vertex", "face"],
+                   default="vertex",
+                   help="How object Gaussians are anchored to the mesh. "
+                        "'vertex' (legacy): one Gaussian per mesh vertex with "
+                        "free Δp. 'face': one Gaussian per mesh face, anchored "
+                        "at the centroid with orientation from the face TBN "
+                        "frame and Δp in face-local (T, B, N) coords. "
+                        "In 'face' mode the asymmetric per-axis regularizer "
+                        "(--w_face_delta_p_*_obj) replaces --w_delta_p_reg_obj, "
+                        "and --n_obj_gaussians is ignored.")
+    p.add_argument("--hand_anchor_mode", choices=["vertex", "face"],
+                   default="vertex",
+                   help="Same as --object_anchor_mode, for hand Gaussians. "
+                        "'face' mode uses one Gaussian per MANO face (1538). "
+                        "Per-frame TBN is recomputed from the deformed face "
+                        "vertices — no LBS weight inheritance approximation. "
+                        "--n_hand_gaussians is ignored in this mode.")
+    p.add_argument("--face_normal_thin_factor_obj", type=float, default=0.25,
+                   help="Init thinness of object face Gaussians along the "
+                        "face normal: normal sigma = factor * tangent sigma. "
+                        "Default 0.25 gives a disk shape; lower values flatter.")
+    p.add_argument("--face_normal_thin_factor_hand", type=float, default=0.25,
+                   help="Init thinness of hand face Gaussians (see above).")
+    p.add_argument("--w_face_delta_p_tangent_obj", type=float, default=1.0,
+                   help="Object face-anchor Δp penalty along tangent + "
+                        "bitangent (surface slide). Light by default.")
+    p.add_argument("--w_face_delta_p_normal_outward_obj", type=float, default=100.0,
+                   help="Object face-anchor Δp penalty along outward normal "
+                        "(Δp_N > 0). Heavy by default — this is the "
+                        "'stay inside the mesh volume' constraint.")
+    p.add_argument("--w_face_delta_p_normal_inward_obj", type=float, default=0.0,
+                   help="Object face-anchor Δp penalty along inward normal "
+                        "(Δp_N < 0). Free by default — Gaussians may sink "
+                        "into the volume under photometric pull.")
+    p.add_argument("--w_face_delta_p_tangent_hand", type=float, default=1.0,
+                   help="Hand face-anchor Δp penalty along tangent + bitangent.")
+    p.add_argument("--w_face_delta_p_normal_outward_hand", type=float, default=100.0,
+                   help="Hand face-anchor Δp penalty along outward normal.")
+    p.add_argument("--w_face_delta_p_normal_inward_hand", type=float, default=0.0,
+                   help="Hand face-anchor Δp penalty along inward normal.")
     p.add_argument("--w_obj_scale_prior", type=float, default=1.0,
                    help="Tight Gaussian prior on log(global object scale). "
                         "Pulls scale toward 1.0; raise to freeze, lower to "
                         "let scale move freely.")
+    # SuGaR-style background surface alignment (bg only). 0 = disabled.
+    p.add_argument("--w_scale_aniso_bg", type=float, default=0.0,
+                   help="Background Gaussian flatness penalty "
+                        "(mean min/max scale). Push toward thin-disk shape. "
+                        "0 disables.")
+    p.add_argument("--w_density_bg", type=float, default=0.0,
+                   help="SuGaR density regularizer for background. Probes "
+                        "Gaussian field density at +/- s_min along each "
+                        "anchor's normal and pulls toward thin-shell ideal. "
+                        "0 disables.")
+    p.add_argument("--w_sdf_density_bg", type=float, default=0.0,
+                   help="Paper-faithful SuGaR SDF loss for bg (Eq. 7-8). "
+                        "Anchors Gaussians to MoGe depth via |f̂(p) − f(p)|. "
+                        "0 disables. Typical range 0.01-0.5.")
+    p.add_argument("--w_normal_consistency_bg", type=float, default=0.0,
+                   help="Paper-faithful SuGaR normal-consistency loss for bg "
+                        "(Eq. 10). Aligns the implicit field's gradient with "
+                        "the closest Gaussian's smallest-scale axis. 0 "
+                        "disables. Typical range 0.01-0.5.")
+    p.add_argument("--n_sdf_samples_bg", type=int, default=1000,
+                   help="Number of probe points per step for the SuGaR SDF "
+                        "loss (paper samples ~10K; we default to 1K for "
+                        "tractability).")
+    p.add_argument("--n_sdf_neighbors_bg", type=int, default=8,
+                   help="K for the SDF loss's KNN mixture sum.")
+    p.add_argument("--valid_mask_threshold", type=float, default=0.04,
+                   help="Max-brightness threshold (in [0,1] image scale) for "
+                        "the static valid-pixel mask derived from the input "
+                        "video. Pixels whose max brightness across all frames "
+                        "is below this are treated as fixed dead/black "
+                        "regions (fisheye crop, vignette) and excluded from "
+                        "photometric / depth / SuGaR supervision. 0 disables.")
+    p.add_argument("--valid_mask_erode_iters", type=int, default=2,
+                   help="3x3 erosion passes on the valid-pixel mask, to peel "
+                        "back the soft boundary transition.")
+    p.add_argument("--n_density_neighbors", type=int, default=8,
+                   help="K for the density-regularizer's KNN mixture sum.")
+    p.add_argument("--density_subsample_frac_bg", type=float, default=0.2,
+                   help="Fraction of bg Gaussians sampled as probe anchors "
+                        "each step. 1.0 = all (slow on large scenes); 0.2 "
+                        "is the default cost/quality balance.")
     p.add_argument("--mask_background_to_black", action="store_true",
                    help="Zero target's background and compute photometric "
                         "L1 over all pixels. Penalizes Gaussian leaks "
@@ -2099,6 +2535,11 @@ def main() -> None:
                    help="If set, save a .pt with full state (Gaussians + "
                         "poses + optimizer + LR scheduler + step counter) "
                         "at the end of training.")
+    p.add_argument("--checkpoint_every", type=int, default=0,
+                   help="If >0 and --checkpoint_path is set, also write the "
+                        "checkpoint every N optimizer steps. Atomic via "
+                        "tmp+rename so the viewer's hot-reload never reads "
+                        "a half-written file.")
     p.add_argument("--resume_from_checkpoint", default=None,
                    help="If set, load a previously-saved checkpoint before "
                         "the training loop. Module sizes must match (same "
@@ -2189,8 +2630,18 @@ def main() -> None:
         background_pose_init_dir    = args.background_pose_init_dir,
         bg_init_stride              = args.bg_init_stride,
         bg_voxel_size               = args.bg_voxel_size,
+        n_density_neighbors         = args.n_density_neighbors,
+        density_subsample_frac_bg   = args.density_subsample_frac_bg,
+        n_sdf_samples_bg            = args.n_sdf_samples_bg,
+        n_sdf_neighbors_bg          = args.n_sdf_neighbors_bg,
+        valid_mask_threshold        = args.valid_mask_threshold,
+        valid_mask_erode_iters      = args.valid_mask_erode_iters,
         n_obj_gaussians             = args.n_obj_gaussians,
         n_hand_gaussians            = args.n_hand_gaussians,
+        object_anchor_mode          = args.object_anchor_mode,
+        hand_anchor_mode            = args.hand_anchor_mode,
+        face_normal_thin_factor_obj  = args.face_normal_thin_factor_obj,
+        face_normal_thin_factor_hand = args.face_normal_thin_factor_hand,
         use_cosine_lr_schedule      = args.use_cosine_lr_schedule,
         cosine_lr_min_ratio         = args.cosine_lr_min_ratio,
         coarse_init_scale_factor    = args.coarse_init_scale_factor,
@@ -2210,6 +2661,7 @@ def main() -> None:
         train_resolution_scale            = args.train_resolution_scale,
         multiview_include_background      = args.multiview_include_background,
         checkpoint_path                   = args.checkpoint_path,
+        checkpoint_every                  = args.checkpoint_every,
         resume_from_checkpoint            = args.resume_from_checkpoint,
         ignore_optimizer_state            = args.ignore_optimizer_state,
         freeze_gaussians                  = args.freeze_gaussians,
@@ -2223,6 +2675,9 @@ def main() -> None:
             silhouette_obj    = args.w_silhouette_obj,
             silhouette_hand   = args.w_silhouette_hand,
             depth             = args.w_depth,
+            log_depth_grad    = args.w_log_depth_grad,
+            photometric_ssim  = args.w_photometric_ssim,
+            depth_ssim        = args.w_depth_ssim,
             smooth_obj_rot     = args.w_smooth_obj_rot,
             smooth_obj_trans   = args.w_smooth_obj_trans,
             smooth_hand_rot    = args.w_smooth_hand_rot,
@@ -2232,8 +2687,20 @@ def main() -> None:
             smooth_bg_trans    = args.w_smooth_bg_trans,
             beta_prior        = args.w_beta_prior,
             hand_scale_prior  = args.w_hand_scale_prior,
-            delta_p_reg       = args.w_delta_p_reg,
+            delta_p_reg_obj   = (args.w_delta_p_reg_obj  if args.w_delta_p_reg_obj  is not None else args.w_delta_p_reg),
+            delta_p_reg_hand  = (args.w_delta_p_reg_hand if args.w_delta_p_reg_hand is not None else args.w_delta_p_reg),
+            delta_p_reg_bg    = (args.w_delta_p_reg_bg   if args.w_delta_p_reg_bg   is not None else args.w_delta_p_reg),
+            face_delta_p_tangent_obj         = args.w_face_delta_p_tangent_obj,
+            face_delta_p_normal_outward_obj  = args.w_face_delta_p_normal_outward_obj,
+            face_delta_p_normal_inward_obj   = args.w_face_delta_p_normal_inward_obj,
+            face_delta_p_tangent_hand        = args.w_face_delta_p_tangent_hand,
+            face_delta_p_normal_outward_hand = args.w_face_delta_p_normal_outward_hand,
+            face_delta_p_normal_inward_hand  = args.w_face_delta_p_normal_inward_hand,
             obj_scale_prior   = args.w_obj_scale_prior,
+            scale_aniso_bg        = args.w_scale_aniso_bg,
+            density_bg            = args.w_density_bg,
+            sdf_density_bg        = args.w_sdf_density_bg,
+            normal_consistency_bg = args.w_normal_consistency_bg,
         ),
         device                      = args.device,
         seed                        = args.seed,

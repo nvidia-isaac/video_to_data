@@ -282,8 +282,16 @@ def tracks_interpolate(
     masks_dir: str,
     output_dir: str,
     betas: str = "fixed",
-    max_gap_frames: int = 15,
+    max_gap_frames: int = 100000,
+    extrapolate: bool = True,
 ) -> None:
+    """Fill per-track aligned records to cover every SAM2-masked frame.
+
+    ``extrapolate=True`` (default) clamps to the nearest real record for
+    frames outside ``[first_real, last_real]``; ``False`` restricts the
+    output to that bracket. ``max_gap_frames`` caps interior gap size
+    (default effectively unlimited).
+    """
     if betas not in ("fixed", "interp"):
         raise ValueError(f"--betas must be 'fixed' or 'interp', got {betas!r}")
 
@@ -312,7 +320,7 @@ def tracks_interpolate(
         print(f"  track {tid}: votes R={d['votes_right']} L={d['votes_left']} "
               f"→ is_right={d['is_right']}  {flag}".rstrip())
 
-    summary: list[tuple[str, int, int, int]] = []
+    summary: list[tuple[str, int, int, int, int]] = []
 
     for track_dir in track_dirs:
         tid = os.path.basename(track_dir)
@@ -331,12 +339,15 @@ def tracks_interpolate(
         mask_track_dir = os.path.join(masks_dir, tid)
         candidate_frames = _mask_frames(mask_track_dir) if os.path.isdir(mask_track_dir) else set(real.keys())
         candidate_frames |= set(real.keys())
-        candidate_frames = {f for f in candidate_frames if first_real <= f <= last_real}
+        if not extrapolate:
+            candidate_frames = {f for f in candidate_frames
+                                if first_real <= f <= last_real}
 
         betas_override = _track_median_betas(real) if betas == "fixed" else None
 
         n_real = 0
         n_filled = 0
+        n_extrap = 0
         n_gap_too_large = 0
 
         for f in sorted(candidate_frames):
@@ -362,7 +373,25 @@ def tracks_interpolate(
 
             prev_real = max((r for r in sorted_real_idx if r < f), default=None)
             next_real = min((r for r in sorted_real_idx if r > f), default=None)
+            if prev_real is None and next_real is None:
+                continue
             if prev_real is None or next_real is None:
+                # Extrapolation: clamp to the nearest real record. cam_t and
+                # MANO pose are held constant — better than nothing for
+                # downstream consumers that need every-frame coverage.
+                nearest = prev_real if prev_real is not None else next_real
+                rec = dict(real[nearest])
+                if betas_override is not None:
+                    rec["mano"] = {**rec["mano"], "betas": list(betas_override)}
+                rec["track_id"]     = int(tid)
+                rec["frame_idx"]    = f
+                rec["is_right"]     = canonical_is_right
+                rec["interpolated"] = True
+                rec["interpolation"] = {"prev": int(nearest), "next": int(nearest),
+                                        "weight": 0.0}
+                with open(out_path, "w") as fh:
+                    json.dump(rec, fh, indent=2)
+                n_extrap += 1
                 continue
             gap = next_real - prev_real
             if gap > max_gap_frames:
@@ -380,14 +409,14 @@ def tracks_interpolate(
                 json.dump(rec, fh, indent=2)
             n_filled += 1
 
-        summary.append((tid, n_real, n_filled, n_gap_too_large))
+        summary.append((tid, n_real, n_filled, n_extrap, n_gap_too_large))
         print(f"  track {tid}: real={n_real}, filled={n_filled}, "
-              f"skipped (gap>{max_gap_frames})={n_gap_too_large}")
+              f"extrapolated={n_extrap}, skipped (gap>{max_gap_frames})={n_gap_too_large}")
 
     print()
-    print("Summary (track_id, real, filled, skipped_gap):")
-    for tid, nr, nf, ng in summary:
-        print(f"  {tid}: {nr:>5} real  +{nf:>5} filled   ({ng} skipped)")
+    print("Summary (track_id, real, filled, extrapolated, skipped_gap):")
+    for tid, nr, nf, nx, ng in summary:
+        print(f"  {tid}: {nr:>5} real  +{nf:>5} filled  +{nx:>5} extrap   ({ng} skipped)")
 
     handedness_path = os.path.join(output_dir, "handedness.json")
     with open(handedness_path, "w") as f:
@@ -403,9 +432,14 @@ def main() -> None:
     parser.add_argument("--betas",          default="fixed", choices=("fixed", "interp"),
                         help="Shape (betas) policy: 'fixed' = median per track, "
                              "'interp' = per-frame linear (default: fixed).")
-    parser.add_argument("--max_gap_frames", type=int, default=15,
+    parser.add_argument("--max_gap_frames", type=int, default=100000,
                         help="Skip filling when the bracket of real "
-                             "detections is wider than this many frames.")
+                             "detections is wider than this many frames. "
+                             "Default effectively unlimited.")
+    parser.add_argument("--no_extrapolate", action="store_true",
+                        help="Disable clamp-extrapolation outside "
+                             "[first_real, last_real]. With this set, frames "
+                             "before/after the bracket are not filled.")
     args = parser.parse_args()
     tracks_interpolate(
         aligned_dir    = args.aligned_dir,
@@ -413,6 +447,7 @@ def main() -> None:
         output_dir     = args.output_dir,
         betas          = args.betas,
         max_gap_frames = args.max_gap_frames,
+        extrapolate    = not args.no_extrapolate,
     )
 
 

@@ -49,6 +49,9 @@ def run_refine(
     w_silhouette_obj: float = 1.0,
     w_silhouette_hand: float = 1.0,
     w_depth: float = 0.05,
+    w_log_depth_grad: float = 0.0,
+    w_photometric_ssim: float = 0.0,
+    w_depth_ssim: float = 0.0,
     w_smooth_obj_rot: float = 0.01,
     w_smooth_obj_trans: float = 0.01,
     w_smooth_hand_rot: float = 0.01,
@@ -56,6 +59,9 @@ def run_refine(
     w_smooth_hand_trans: float = 0.01,
     w_beta_prior: float = 1.0,
     w_delta_p_reg: float = 100.0,
+    w_delta_p_reg_obj:  float | None = None,
+    w_delta_p_reg_hand: float | None = None,
+    w_delta_p_reg_bg:   float | None = None,
     w_obj_scale_prior: float = 1.0,
     mask_background_to_black: bool = False,
     balance_photometric_by_mask: bool = False,
@@ -74,8 +80,28 @@ def run_refine(
     background_pose_init_dir: str | None = None,
     bg_init_stride: int   = 10,
     bg_voxel_size:  float = 0.005,
+    w_scale_aniso_bg: float = 0.0,
+    w_density_bg:     float = 0.0,
+    n_density_neighbors: int = 8,
+    density_subsample_frac_bg: float = 0.2,
+    w_sdf_density_bg:        float = 0.0,
+    w_normal_consistency_bg: float = 0.0,
+    n_sdf_samples_bg:        int   = 1000,
+    n_sdf_neighbors_bg:      int   = 8,
+    valid_mask_threshold:    float = 0.04,
+    valid_mask_erode_iters:  int   = 2,
     n_obj_gaussians: int | None = None,
     n_hand_gaussians: int | None = None,
+    object_anchor_mode: str = "vertex",
+    hand_anchor_mode:   str = "vertex",
+    face_normal_thin_factor_obj:  float = 0.25,
+    face_normal_thin_factor_hand: float = 0.25,
+    w_face_delta_p_tangent_obj:        float = 1.0,
+    w_face_delta_p_normal_outward_obj: float = 100.0,
+    w_face_delta_p_normal_inward_obj:  float = 0.0,
+    w_face_delta_p_tangent_hand:        float = 1.0,
+    w_face_delta_p_normal_outward_hand: float = 100.0,
+    w_face_delta_p_normal_inward_hand:  float = 0.0,
     use_cosine_lr_schedule: bool = False,
     cosine_lr_min_ratio: float = 0.0,
     coarse_init_scale_factor: float = 1.0,
@@ -95,6 +121,7 @@ def run_refine(
     train_resolution_scale: float = 1.0,
     multiview_include_background: bool = False,
     checkpoint_path: str | None = None,
+    checkpoint_every: int = 0,
     resume_from_checkpoint: str | None = None,
     ignore_optimizer_state: bool = False,
     freeze_gaussians: bool = False,
@@ -171,14 +198,20 @@ def run_refine(
         "w_silhouette":      w_silhouette,
         "w_silhouette_obj":  w_silhouette_obj,
         "w_silhouette_hand": w_silhouette_hand,
-        "w_depth":        w_depth,
+        "w_depth":           w_depth,
+        "w_log_depth_grad":  w_log_depth_grad,
+        "w_photometric_ssim": w_photometric_ssim,
+        "w_depth_ssim":       w_depth_ssim,
         "w_smooth_obj_rot":    w_smooth_obj_rot,
         "w_smooth_obj_trans":  w_smooth_obj_trans,
         "w_smooth_hand_rot":    w_smooth_hand_rot,
         "w_smooth_hand_finger": w_smooth_hand_finger,
         "w_smooth_hand_trans":  w_smooth_hand_trans,
         "w_beta_prior":        w_beta_prior,
-        "w_delta_p_reg":     w_delta_p_reg,
+        "w_delta_p_reg":      w_delta_p_reg,
+        "w_delta_p_reg_obj":  w_delta_p_reg_obj,
+        "w_delta_p_reg_hand": w_delta_p_reg_hand,
+        "w_delta_p_reg_bg":   w_delta_p_reg_bg,
         "w_obj_scale_prior": w_obj_scale_prior,
         "mask_background_to_black":    mask_background_to_black,
         "balance_photometric_by_mask": balance_photometric_by_mask,
@@ -196,8 +229,28 @@ def run_refine(
         "bg_max_points":       bg_max_points,
         "bg_init_stride":      bg_init_stride,
         "bg_voxel_size":       bg_voxel_size,
+        "w_scale_aniso_bg":         w_scale_aniso_bg,
+        "w_density_bg":             w_density_bg,
+        "n_density_neighbors":      n_density_neighbors,
+        "density_subsample_frac_bg": density_subsample_frac_bg,
+        "w_sdf_density_bg":         w_sdf_density_bg,
+        "w_normal_consistency_bg":  w_normal_consistency_bg,
+        "n_sdf_samples_bg":         n_sdf_samples_bg,
+        "n_sdf_neighbors_bg":       n_sdf_neighbors_bg,
+        "valid_mask_threshold":     valid_mask_threshold,
+        "valid_mask_erode_iters":   valid_mask_erode_iters,
         "n_obj_gaussians":         n_obj_gaussians,
         "n_hand_gaussians":        n_hand_gaussians,
+        "object_anchor_mode":          object_anchor_mode,
+        "hand_anchor_mode":            hand_anchor_mode,
+        "face_normal_thin_factor_obj":  face_normal_thin_factor_obj,
+        "face_normal_thin_factor_hand": face_normal_thin_factor_hand,
+        "w_face_delta_p_tangent_obj":         w_face_delta_p_tangent_obj,
+        "w_face_delta_p_normal_outward_obj":  w_face_delta_p_normal_outward_obj,
+        "w_face_delta_p_normal_inward_obj":   w_face_delta_p_normal_inward_obj,
+        "w_face_delta_p_tangent_hand":        w_face_delta_p_tangent_hand,
+        "w_face_delta_p_normal_outward_hand": w_face_delta_p_normal_outward_hand,
+        "w_face_delta_p_normal_inward_hand":  w_face_delta_p_normal_inward_hand,
         "use_cosine_lr_schedule":     use_cosine_lr_schedule,
         "cosine_lr_min_ratio":        cosine_lr_min_ratio,
         "coarse_init_scale_factor":   coarse_init_scale_factor,
@@ -224,6 +277,7 @@ def run_refine(
         "freeze_bg_trans":     freeze_bg_trans,
         "w_smooth_bg_rot":     w_smooth_bg_rot,
         "w_smooth_bg_trans":   w_smooth_bg_trans,
+        "checkpoint_every":    checkpoint_every,
         "seed":           seed,
     }
 
@@ -287,14 +341,24 @@ if __name__ == "__main__":
     p.add_argument("--w_silhouette",      type=float, default=0.5)
     p.add_argument("--w_silhouette_obj",  type=float, default=1.0)
     p.add_argument("--w_silhouette_hand", type=float, default=1.0)
-    p.add_argument("--w_depth",         type=float, default=0.05)
+    p.add_argument("--w_depth",          type=float, default=0.05)
+    p.add_argument("--w_log_depth_grad", type=float, default=0.0)
+    p.add_argument("--w_photometric_ssim", type=float, default=0.0,
+                   help="SSIM photometric loss weight (1 - SSIM, 11x11 "
+                        "Gaussian window). 3DGS pairs at ~0.2 with L1=1.0.")
+    p.add_argument("--w_depth_ssim",       type=float, default=0.0,
+                   help="SSIM depth loss weight (1 - SSIM on log-depth, "
+                        "percentile-normalized). Try ~0.1.")
     p.add_argument("--w_smooth_obj_rot",    type=float, default=0.01)
     p.add_argument("--w_smooth_obj_trans",  type=float, default=0.01)
     p.add_argument("--w_smooth_hand_rot",    type=float, default=0.01)
     p.add_argument("--w_smooth_hand_finger", type=float, default=0.001)
     p.add_argument("--w_smooth_hand_trans",  type=float, default=0.01)
     p.add_argument("--w_beta_prior",    type=float, default=10.0)
-    p.add_argument("--w_delta_p_reg",   type=float, default=100.0)
+    p.add_argument("--w_delta_p_reg",      type=float, default=100.0)
+    p.add_argument("--w_delta_p_reg_obj",  type=float, default=None)
+    p.add_argument("--w_delta_p_reg_hand", type=float, default=None)
+    p.add_argument("--w_delta_p_reg_bg",   type=float, default=None)
     p.add_argument("--w_obj_scale_prior", type=float, default=1.0)
     p.add_argument("--mask_background_to_black", action="store_true")
     p.add_argument("--balance_photometric_by_mask", action="store_true")
@@ -320,8 +384,43 @@ if __name__ == "__main__":
     p.add_argument("--bg_voxel_size", type=float, default=0.005,
                    help="Voxel size (m) for BG point-cloud dedup before "
                         "random subsample.")
+    p.add_argument("--w_scale_aniso_bg", type=float, default=0.0)
+    p.add_argument("--w_density_bg",     type=float, default=0.0)
+    p.add_argument("--n_density_neighbors", type=int, default=8)
+    p.add_argument("--density_subsample_frac_bg", type=float, default=0.2)
+    p.add_argument("--w_sdf_density_bg",        type=float, default=0.0)
+    p.add_argument("--w_normal_consistency_bg", type=float, default=0.0)
+    p.add_argument("--n_sdf_samples_bg",        type=int,   default=1000)
+    p.add_argument("--n_sdf_neighbors_bg",      type=int,   default=8)
+    p.add_argument("--valid_mask_threshold",    type=float, default=0.04,
+                   help="Max-brightness threshold (in [0,1] image scale) for "
+                        "the static valid-pixel mask derived from the input "
+                        "video. Pixels whose max brightness across all frames "
+                        "is below this are treated as fixed dead/black "
+                        "regions (fisheye crop, vignette) and excluded from "
+                        "photometric / depth / SuGaR supervision. Set to 0 "
+                        "to disable.")
+    p.add_argument("--valid_mask_erode_iters",  type=int,   default=2,
+                   help="Number of 3x3 erosion passes on the valid-pixel "
+                        "mask to peel back the soft boundary transition.")
     p.add_argument("--n_obj_gaussians",     type=int,   default=None)
     p.add_argument("--n_hand_gaussians",    type=int,   default=None)
+    p.add_argument("--object_anchor_mode", choices=["vertex", "face"],
+                   default="vertex",
+                   help="Anchor mode for object Gaussians. 'face' switches to "
+                        "one Gaussian per mesh face with Δp in face-local "
+                        "(T, B, N) coords. See lib CLI for details.")
+    p.add_argument("--hand_anchor_mode", choices=["vertex", "face"],
+                   default="vertex",
+                   help="Anchor mode for hand Gaussians (same options).")
+    p.add_argument("--face_normal_thin_factor_obj",  type=float, default=0.25)
+    p.add_argument("--face_normal_thin_factor_hand", type=float, default=0.25)
+    p.add_argument("--w_face_delta_p_tangent_obj",        type=float, default=1.0)
+    p.add_argument("--w_face_delta_p_normal_outward_obj", type=float, default=100.0)
+    p.add_argument("--w_face_delta_p_normal_inward_obj",  type=float, default=0.0)
+    p.add_argument("--w_face_delta_p_tangent_hand",        type=float, default=1.0)
+    p.add_argument("--w_face_delta_p_normal_outward_hand", type=float, default=100.0)
+    p.add_argument("--w_face_delta_p_normal_inward_hand",  type=float, default=0.0)
     p.add_argument("--use_cosine_lr_schedule", action="store_true")
     p.add_argument("--cosine_lr_min_ratio", type=float, default=0.0)
     p.add_argument("--coarse_init_scale_factor", type=float, default=1.0)
@@ -399,6 +498,9 @@ if __name__ == "__main__":
         w_silhouette_obj            = args.w_silhouette_obj,
         w_silhouette_hand           = args.w_silhouette_hand,
         w_depth                     = args.w_depth,
+        w_log_depth_grad            = args.w_log_depth_grad,
+        w_photometric_ssim          = args.w_photometric_ssim,
+        w_depth_ssim                = args.w_depth_ssim,
         w_smooth_obj_rot            = args.w_smooth_obj_rot,
         w_smooth_obj_trans          = args.w_smooth_obj_trans,
         w_smooth_hand_rot           = args.w_smooth_hand_rot,
@@ -406,6 +508,9 @@ if __name__ == "__main__":
         w_smooth_hand_trans         = args.w_smooth_hand_trans,
         w_beta_prior                = args.w_beta_prior,
         w_delta_p_reg               = args.w_delta_p_reg,
+        w_delta_p_reg_obj           = args.w_delta_p_reg_obj,
+        w_delta_p_reg_hand          = args.w_delta_p_reg_hand,
+        w_delta_p_reg_bg            = args.w_delta_p_reg_bg,
         w_obj_scale_prior           = args.w_obj_scale_prior,
         mask_background_to_black    = args.mask_background_to_black,
         balance_photometric_by_mask = args.balance_photometric_by_mask,
@@ -422,8 +527,28 @@ if __name__ == "__main__":
         background_pose_init_dir    = args.background_pose_init_dir,
         bg_init_stride              = args.bg_init_stride,
         bg_voxel_size               = args.bg_voxel_size,
+        w_scale_aniso_bg            = args.w_scale_aniso_bg,
+        w_density_bg                = args.w_density_bg,
+        n_density_neighbors         = args.n_density_neighbors,
+        density_subsample_frac_bg   = args.density_subsample_frac_bg,
+        w_sdf_density_bg            = args.w_sdf_density_bg,
+        w_normal_consistency_bg     = args.w_normal_consistency_bg,
+        n_sdf_samples_bg            = args.n_sdf_samples_bg,
+        n_sdf_neighbors_bg          = args.n_sdf_neighbors_bg,
+        valid_mask_threshold        = args.valid_mask_threshold,
+        valid_mask_erode_iters      = args.valid_mask_erode_iters,
         n_obj_gaussians             = args.n_obj_gaussians,
         n_hand_gaussians            = args.n_hand_gaussians,
+        object_anchor_mode           = args.object_anchor_mode,
+        hand_anchor_mode             = args.hand_anchor_mode,
+        face_normal_thin_factor_obj  = args.face_normal_thin_factor_obj,
+        face_normal_thin_factor_hand = args.face_normal_thin_factor_hand,
+        w_face_delta_p_tangent_obj         = args.w_face_delta_p_tangent_obj,
+        w_face_delta_p_normal_outward_obj  = args.w_face_delta_p_normal_outward_obj,
+        w_face_delta_p_normal_inward_obj   = args.w_face_delta_p_normal_inward_obj,
+        w_face_delta_p_tangent_hand        = args.w_face_delta_p_tangent_hand,
+        w_face_delta_p_normal_outward_hand = args.w_face_delta_p_normal_outward_hand,
+        w_face_delta_p_normal_inward_hand  = args.w_face_delta_p_normal_inward_hand,
         use_cosine_lr_schedule      = args.use_cosine_lr_schedule,
         cosine_lr_min_ratio         = args.cosine_lr_min_ratio,
         coarse_init_scale_factor    = args.coarse_init_scale_factor,
