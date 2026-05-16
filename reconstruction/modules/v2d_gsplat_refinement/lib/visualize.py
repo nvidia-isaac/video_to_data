@@ -15,6 +15,7 @@ shows them in a free-orbit camera. Controls:
       1                  toggle object visibility
       2                  toggle hands visibility
       3                  toggle background visibility
+      w                  toggle MANO wireframe overlay (per-hand color)
       0                  reset to source-camera view (identity, frame intrinsics)
       r                  reset orbit (target = current object centroid)
       h                  print help to stdout
@@ -46,15 +47,18 @@ import torch
 
 from .background import BackgroundGaussians, BackgroundPoseField
 from .gaussians import (
+    FaceGaussians,
     GaussianFrame,
+    HandFaceGaussians,
     HandGaussians,
     ObjectGaussians,
+    WristAttachedGaussians,
     concat_frames,
     quat_mul,
     rotmat_to_quat,
 )
 from .io import HandPoseTrack, ObjectPoseTrack
-from .pose_fields import HandPoseField, ObjectPoseField
+from .pose_fields import HandPoseField, IntrinsicsField, ObjectPoseField
 from .refine import _orbit_viewmat_cv  # already in CV convention
 
 
@@ -90,15 +94,37 @@ def _build_modules_from_ckpt(
     T = len(frame_indices)
 
     # --- Object pose + Gaussians ---------------------------------------
-    obj_state    = ckpt["obj_gaussians"]
-    obj_n        = obj_state["anchor"].shape[0]
-    placeholder_anchor = torch.zeros(obj_n, 3, dtype=torch.float32, device=device)
-    placeholder_color  = torch.full((obj_n, 3), 0.5, dtype=torch.float32, device=device)
-    obj_gaussians = ObjectGaussians(
-        anchor_positions = placeholder_anchor,
-        init_color       = placeholder_color,
-        init_scale       = 0.01,
-    ).to(device)
+    # Detect anchor mode from state-dict keys: vertex-anchored has an
+    # "anchor" buffer; face-anchored has "centroid_canon" + "TBN_canon".
+    obj_state = ckpt["obj_gaussians"]
+    if "centroid_canon" in obj_state:
+        # Face-anchored object. Construct with a placeholder valid triangle
+        # mesh of the right face count; load_state_dict overwrites buffers.
+        obj_n = obj_state["centroid_canon"].shape[0]
+        placeholder_verts = torch.tensor(
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            dtype=torch.float32, device=device,
+        )
+        placeholder_faces = torch.zeros(obj_n, 3, dtype=torch.long, device=device)
+        placeholder_faces[:, 1] = 1
+        placeholder_faces[:, 2] = 2
+        placeholder_face_colors = torch.full(
+            (obj_n, 3), 0.5, dtype=torch.float32, device=device,
+        )
+        obj_gaussians = FaceGaussians(
+            vertices    = placeholder_verts,
+            faces       = placeholder_faces,
+            face_colors = placeholder_face_colors,
+        ).to(device)
+    else:
+        obj_n = obj_state["anchor"].shape[0]
+        placeholder_anchor = torch.zeros(obj_n, 3, dtype=torch.float32, device=device)
+        placeholder_color  = torch.full((obj_n, 3), 0.5, dtype=torch.float32, device=device)
+        obj_gaussians = ObjectGaussians(
+            anchor_positions = placeholder_anchor,
+            init_color       = placeholder_color,
+            init_scale       = 0.01,
+        ).to(device)
     obj_gaussians.load_state_dict(obj_state)
     obj_gaussians.eval()
 
@@ -116,7 +142,7 @@ def _build_modules_from_ckpt(
     hand_sides:      list[str]         = list(ckpt.get("hand_sides", []))
     hand_pose_dicts: list[dict]        = list(ckpt.get("hand_pose_fields", []))
     hand_gauss_dicts: list[dict]       = list(ckpt.get("hand_gaussians", []))
-    hand_gaussians_list: list[HandGaussians]  = []
+    hand_gaussians_list: list = []
     hand_pose_fields_list: list[HandPoseField] = []
     for side, hp_state, hg_state in zip(hand_sides, hand_pose_dicts, hand_gauss_dicts):
         # Pose field — dummy track of correct T then load.
@@ -134,19 +160,41 @@ def _build_modules_from_ckpt(
         hpf.eval()
         hand_pose_fields_list.append(hpf)
 
-        # Gaussians — detect optional subsample.
-        n_gauss = hg_state["_log_scale"].shape[0]
-        subsample = hg_state.get("_subsample_idx", None)
-        hg = HandGaussians(
-            n_verts           = 778,
-            is_right          = (side == "right"),
-            init_scale        = 0.005,
-            init_color        = torch.tensor([0.6, 0.45, 0.35], dtype=torch.float32, device=device),
-            device            = device,
-            subsample_indices = subsample if subsample is not None else None,
-        ).to(device)
-        # If subsample_indices was None at construct time but state has more
-        # than 778 (shouldn't happen) we just trust load_state_dict to error.
+        # Detect anchor mode: face-anchored hands have a "_faces" buffer.
+        if "_faces" in hg_state:
+            n_faces = hg_state["_faces"].shape[0]
+            # Placeholder rest mesh: non-degenerate triangle replicated for
+            # n_faces so the constructor's TBN math doesn't NaN. State-dict
+            # load then overwrites _faces / _log_scale / _delta_p / etc.
+            placeholder_verts = torch.tensor(
+                [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                dtype=torch.float32, device=device,
+            )
+            placeholder_faces = torch.zeros(n_faces, 3, dtype=torch.long, device=device)
+            placeholder_faces[:, 1] = 1
+            placeholder_faces[:, 2] = 2
+            hg = HandFaceGaussians(
+                rest_vertices = placeholder_verts,
+                faces         = placeholder_faces,
+                is_right      = (side == "right"),
+                init_color    = torch.tensor(
+                    [0.6, 0.45, 0.35], dtype=torch.float32, device=device,
+                ),
+                device        = device,
+            ).to(device)
+        else:
+            subsample = hg_state.get("_subsample_idx", None)
+            hg = HandGaussians(
+                n_verts           = 778,
+                is_right          = (side == "right"),
+                init_scale        = 0.005,
+                init_color        = torch.tensor([0.6, 0.45, 0.35], dtype=torch.float32, device=device),
+                device            = device,
+                subsample_indices = subsample if subsample is not None else None,
+            ).to(device)
+        # If shapes mismatch (e.g. checkpoint from a different anchor mode
+        # than expected), load_state_dict will raise — surfaces the issue
+        # cleanly rather than silently corrupting state.
         hg.load_state_dict(hg_state)
         hg.eval()
         hand_gaussians_list.append(hg)
@@ -169,6 +217,52 @@ def _build_modules_from_ckpt(
         bg_pose_field.load_state_dict(ckpt["bg_pose_field"])
         bg_pose_field.eval()
 
+    # Learnable intrinsics (optional). Build with a placeholder K — the
+    # state-dict load overwrites all four params + their init buffers, so
+    # the placeholder values never leak through.
+    intrinsics_field = None
+    if "intrinsics_field" in ckpt:
+        placeholder_K = torch.eye(3, dtype=torch.float32, device=device)
+        intrinsics_field = IntrinsicsField(
+            placeholder_K, learn_focal=False, learn_principal_point=False,
+        ).to(device)
+        intrinsics_field.load_state_dict(ckpt["intrinsics_field"])
+        intrinsics_field.eval()
+
+    # Wrist-attached Gaussians (optional, per-hand). Detect via checkpoint
+    # "wrist_gaussians" key; entries may be None for hands without them.
+    wrist_gaussians_list: list[WristAttachedGaussians | None] = []
+    ckpt_wrist = ckpt.get("wrist_gaussians")
+    for slot_idx in range(len(hand_pose_fields_list)):
+        wg_state = None
+        if ckpt_wrist is not None and slot_idx < len(ckpt_wrist):
+            wg_state = ckpt_wrist[slot_idx]
+        if wg_state is None:
+            wrist_gaussians_list.append(None)
+            continue
+        n_wg = wg_state["anchor"].shape[0]
+        wrist_gaussians_list.append(WristAttachedGaussians(
+            anchor_positions = torch.zeros(n_wg, 3, dtype=torch.float32, device=device),
+            init_color       = torch.full((n_wg, 3), 0.5, dtype=torch.float32, device=device),
+            init_scale       = 0.03,
+        ).to(device))
+        wrist_gaussians_list[-1].load_state_dict(wg_state)
+        wrist_gaussians_list[-1].eval()
+
+    # Cache per-hand unique MANO edge list (for wireframe overlay).
+    # Build once at load: faces are static, so the edge set is too.
+    hand_edges_list: list[torch.Tensor] = []
+    for hpf in hand_pose_fields_list:
+        faces = hpf.mano.th_faces.to(device=device, dtype=torch.long)    # (F, 3)
+        edges = torch.cat([
+            faces[:, [0, 1]],
+            faces[:, [1, 2]],
+            faces[:, [2, 0]],
+        ], dim=0)                                                         # (3F, 2)
+        edges, _ = torch.sort(edges, dim=1)                               # undirected
+        edges = torch.unique(edges, dim=0)                                # dedupe
+        hand_edges_list.append(edges)
+
     return {
         "frame_indices":   frame_indices,
         "T":               T,
@@ -176,7 +270,10 @@ def _build_modules_from_ckpt(
         "obj_pose_field":  obj_pose_field,
         "hand_gaussians":  hand_gaussians_list,
         "hand_pose_fields": hand_pose_fields_list,
+        "hand_edges":      hand_edges_list,
         "hand_sides":      hand_sides,
+        "wrist_gaussians": wrist_gaussians_list,
+        "intrinsics_field": intrinsics_field,
         "bg_gaussians":    bg_gaussians,
         "bg_pose_field":   bg_pose_field,
         "step_count":      int(ckpt.get("step_count", 0)),
@@ -264,6 +361,113 @@ def _draw_world_segments(
     return out
 
 
+def _draw_world_segments_batched(
+    img: np.ndarray,
+    starts_world: np.ndarray,   # (E, 3)
+    ends_world:   np.ndarray,   # (E, 3)
+    viewmat: np.ndarray,        # (4, 4) world→cam
+    K: np.ndarray,              # (3, 3)
+    color: tuple[int, int, int],
+    thickness: int = 1,
+    near: float = 0.01,
+) -> np.ndarray:
+    """Vectorized projection + per-edge cv2.line draw.
+
+    Same semantics as ``_draw_world_segments`` but with all matrix math
+    done in numpy batches. Worth the rewrite when E is large (MANO has
+    ~2300 edges; the per-segment Python loop in the legacy helper would
+    cost ~50–200 ms per frame).
+    """
+    if starts_world.shape[0] == 0:
+        return img
+    R = viewmat[:3, :3]; t = viewmat[:3, 3]
+    fx, fy = K[0, 0], K[1, 1]
+    cx, cy = K[0, 2], K[1, 2]
+    sc = starts_world @ R.T + t                                       # (E, 3)
+    ec = ends_world   @ R.T + t                                       # (E, 3)
+
+    keep = ~((sc[:, 2] < near) & (ec[:, 2] < near))
+    sc = sc[keep]; ec = ec[keep]
+    if sc.shape[0] == 0:
+        return img
+
+    # Clip endpoints that fall behind the near plane.
+    s_behind = sc[:, 2] < near
+    if s_behind.any():
+        denom = (ec[s_behind, 2] - sc[s_behind, 2])
+        alpha = ((near - sc[s_behind, 2]) / np.where(np.abs(denom) > 1e-6, denom, 1e-6))[:, None]
+        sc[s_behind] = sc[s_behind] + alpha * (ec[s_behind] - sc[s_behind])
+    e_behind = ec[:, 2] < near
+    if e_behind.any():
+        denom = (sc[e_behind, 2] - ec[e_behind, 2])
+        alpha = ((near - ec[e_behind, 2]) / np.where(np.abs(denom) > 1e-6, denom, 1e-6))[:, None]
+        ec[e_behind] = ec[e_behind] + alpha * (sc[e_behind] - ec[e_behind])
+
+    u0 = np.rint(fx * sc[:, 0] / sc[:, 2] + cx).astype(np.int32)
+    v0 = np.rint(fy * sc[:, 1] / sc[:, 2] + cy).astype(np.int32)
+    u1 = np.rint(fx * ec[:, 0] / ec[:, 2] + cx).astype(np.int32)
+    v1 = np.rint(fy * ec[:, 1] / ec[:, 2] + cy).astype(np.int32)
+
+    for x0, y0, x1, y1 in zip(u0.tolist(), v0.tolist(), u1.tolist(), v1.tolist()):
+        cv2.line(img, (x0, y0), (x1, y1), color, thickness, cv2.LINE_AA)
+    return img
+
+
+# Per-hand-slot wireframe colors (BGR). Cycles for >2 hands.
+_HAND_WIREFRAME_COLORS = [
+    (80, 220, 80),     # 0: green
+    (220, 120, 80),    # 1: orange-ish
+    (80, 220, 220),    # 2: yellow
+    (220, 80, 220),    # 3: magenta
+]
+
+
+def _draw_hand_wireframes(
+    img_bgr: np.ndarray,
+    modules: dict,
+    t: int,
+    viewmat: np.ndarray,        # (4, 4) world→cam in current view
+    K_np: np.ndarray,           # (3, 3)
+    static_bg: bool,
+    device: torch.device,
+    thickness: int = 1,
+) -> np.ndarray:
+    """Overlay each hand's MANO mesh as wireframe lines on ``img_bgr``.
+
+    Verts come straight from ``posed_verts_and_rotmats_camera`` (per-frame
+    LBS + cam_t). When ``static_bg`` is on, they're transported into the
+    gsplat-world frame so the view matches the rendered Gaussians.
+    """
+    with torch.no_grad():
+        if static_bg and modules["bg_gaussians"] is not None:
+            R_bg, t_bg = modules["bg_pose_field"](t)
+            R_bg_np = R_bg.detach().cpu().numpy()
+            t_bg_np = t_bg.detach().cpu().numpy()
+        else:
+            R_bg_np = None
+            t_bg_np = None
+
+        for i, (hpf, edges) in enumerate(
+            zip(modules["hand_pose_fields"], modules["hand_edges"])
+        ):
+            v_cam, _ = hpf.posed_verts_and_rotmats_camera(t)              # (N, 3)
+            v_cam_np = v_cam.detach().cpu().numpy()
+            if R_bg_np is not None:
+                # cam → world: v_world = R_bg.T @ (v_cam - t_bg).
+                v_world_np = (v_cam_np - t_bg_np) @ R_bg_np
+            else:
+                v_world_np = v_cam_np
+            edges_np = edges.detach().cpu().numpy()
+            starts = v_world_np[edges_np[:, 0]]
+            ends   = v_world_np[edges_np[:, 1]]
+            color = _HAND_WIREFRAME_COLORS[i % len(_HAND_WIREFRAME_COLORS)]
+            img_bgr = _draw_world_segments_batched(
+                img_bgr, starts, ends, viewmat, K_np,
+                color=color, thickness=thickness,
+            )
+    return img_bgr
+
+
 def _build_per_frame_frames(
     modules: dict, t: int, show_obj: bool, show_hands: bool, show_bg: bool,
     static_bg: bool,
@@ -286,12 +490,23 @@ def _build_per_frame_frames(
             f = _transform_frame_to_world(f, R_bg, t_bg)
         frames.append(f)
     if show_hands:
-        for hpf, hg in zip(modules["hand_pose_fields"], modules["hand_gaussians"]):
+        for hpf, hg, wg in zip(
+            modules["hand_pose_fields"],
+            modules["hand_gaussians"],
+            modules.get("wrist_gaussians") or [None] * len(modules["hand_pose_fields"]),
+        ):
             v, R = hpf.posed_verts_and_rotmats_camera(t)
             f = hg(v, R)
             if R_bg is not None:
                 f = _transform_frame_to_world(f, R_bg, t_bg)
             frames.append(f)
+            # Wrist-attached arm Gaussians: ride along with hand visibility.
+            if wg is not None:
+                Rw, tw = hpf.wrist_pose_camera(t)
+                fw = wg(Rw, tw)
+                if R_bg is not None:
+                    fw = _transform_frame_to_world(fw, R_bg, t_bg)
+                frames.append(fw)
     if show_bg and modules["bg_gaussians"] is not None:
         if static_bg:
             R = torch.eye(3, dtype=torch.float32, device=modules["bg_gaussians"].anchor.device)
@@ -390,6 +605,7 @@ Keyboard:
   1              toggle object
   2              toggle hands
   3              toggle background
+  w              toggle MANO wireframe overlay
   s              toggle static-background world (frustum overlay in orbit mode)
   0              source-camera view
   r              reset orbit (target = current obj centroid)
@@ -430,14 +646,42 @@ def visualize(
           f"hands = {len(modules['hand_sides'])} ({', '.join(modules['hand_sides']) or 'none'}), "
           f"bg = {'yes' if modules['bg_gaussians'] is not None else 'no'}")
 
+    # If the checkpoint carries refined intrinsics, override the JSON's K.
+    # The field's fx_init buffer equals JSON.fx × train_resolution_scale —
+    # we recover that scale to express the refined K at native resolution,
+    # then the existing _scale_K path scales to the visualizer's W/H.
+    if modules.get("intrinsics_field") is not None:
+        field = modules["intrinsics_field"]
+        train_scale = float(field.fx_init.detach().cpu() / K_full[0, 0])
+        if abs(train_scale) < 1e-6:
+            print("[visualize] WARNING: intrinsics_field has fx_init~0; "
+                  "skipping refined-K override.")
+        else:
+            K_trained = field.K().detach().cpu()                    # at training res
+            K_refined_native = K_trained.clone()
+            K_refined_native[0, 0] /= train_scale; K_refined_native[0, 2] /= train_scale
+            K_refined_native[1, 1] /= train_scale; K_refined_native[1, 2] /= train_scale
+            df = (K_refined_native - K_full).abs().max().item()
+            print(f"[visualize] using refined intrinsics from checkpoint "
+                  f"(max Δ vs JSON: {df:.3f} px; train_resolution_scale ≈ "
+                  f"{train_scale:.3f}).")
+            K_full = K_refined_native
+            # Re-apply the visualizer's resolution scaling now that K_full
+            # has been refreshed.
+            if (W, H) != (W_full, H_full):
+                K = _scale_K(K_full, (W_full, H_full), (W, H))
+            else:
+                K = K_full
+
     has_bg = modules["bg_gaussians"] is not None
     # --- Viewer state ------------------------------------------------------
     state = {
         "t":            0,
-        "show_obj":     True,
-        "show_hands":   True,
-        "show_bg":      has_bg,
-        "static_bg":    has_bg,                 # static-world mode (default on if bg)
+        "show_obj":       True,
+        "show_hands":     True,
+        "show_bg":        has_bg,
+        "show_wireframe": False,
+        "static_bg":      has_bg,                 # static-world mode (default on if bg)
         "mode":         "src",                  # 'src' or 'orbit'
         # Orbit state (used only in 'orbit' mode)
         "target":       _object_centroid(modules, 0, has_bg),
@@ -577,6 +821,17 @@ def visualize(
         )
         img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
+        # MANO wireframe overlay (under the frustum so it doesn't get hidden).
+        # Tied to hand visibility — hiding the Gaussians hides the wireframe too.
+        if (state["show_wireframe"]
+                and state["show_hands"]
+                and modules["hand_pose_fields"]):
+            K_np = K.detach().cpu().numpy()
+            img_bgr = _draw_hand_wireframes(
+                img_bgr, modules, t, viewmat, K_np,
+                state["static_bg"], device,
+            )
+
         # Camera frustum overlay: only meaningful in orbit mode with a static
         # world (in src mode the cam center is at the eye and degenerates;
         # in non-static mode the cam is always at world origin).
@@ -596,16 +851,17 @@ def visualize(
                 img_bgr, starts, ends, viewmat, K_np,
                 color=(0, 220, 255), thickness=1,
             )
-        flags = (("O" if state["show_obj"]   else "_")
-                 + ("H" if state["show_hands"] else "_")
-                 + ("B" if state["show_bg"]    else "_")
-                 + ("S" if state["static_bg"]  else "_"))
+        flags = (("O" if state["show_obj"]       else "_")
+                 + ("H" if state["show_hands"]     else "_")
+                 + ("B" if state["show_bg"]        else "_")
+                 + ("W" if state["show_wireframe"] else "_")
+                 + ("S" if state["static_bg"]      else "_"))
         info = [
             f"frame {modules['frame_indices'][t]:06d}  ({t+1}/{modules['T']})  step {modules.get('step_count', 0)}",
             f"mode  {state['mode']}   visible {flags}"
             + (f"   yaw={state['yaw']:+.2f} pitch={state['pitch']:+.2f} d={state['distance']:.3f}"
                if state["mode"] == "orbit" else ""),
-            "[/]=frame  ,/.=10  space=play  1/2/3=obj/hands/bg  s=static  0=src  r=orbit  h=help  q=quit",
+            "[/]=frame  ,/.=10  space=play  1/2/3=obj/hands/bg  w=wireframe  s=static  0=src  r=orbit  h=help  q=quit",
         ]
         cv2.imshow(win, _annotate(img_bgr, info))
 
@@ -643,6 +899,11 @@ def visualize(
                 print("(no background in this checkpoint)")
             else:
                 state["show_bg"] = not state["show_bg"]
+        elif k == ord("w"):
+            if not modules["hand_pose_fields"]:
+                print("(no hands in this checkpoint)")
+            else:
+                state["show_wireframe"] = not state["show_wireframe"]
         elif k == ord("s"):
             if modules["bg_gaussians"] is None:
                 print("(no background in this checkpoint — static mode requires bg)")

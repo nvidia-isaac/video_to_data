@@ -62,6 +62,7 @@ from .gaussians import (
     init_hand_gaussians,
     init_object_face_gaussians_from_mesh,
     init_object_gaussians_from_mesh,
+    init_wrist_attached_gaussians,
     resample_mesh_surface,
 )
 from .io import (
@@ -84,19 +85,24 @@ from .losses import (
     density_regularizer_local,
     depth_gradient_loss,
     depth_loss,
+    depth_ordering_loss,
     depth_ssim_loss,
+    depth_variance_loss,
     face_delta_p_regularizer,
+    intrinsics_prior_loss,
+    opacity_binary_loss,
     sugar_sdf_losses,
     hand_scale_prior_loss,
     photometric_loss,
     photometric_ssim_loss,
     pose_init_prior_loss,
+    quat_smoothness,
     rotation_smoothness,
     scale_anisotropy_loss,
     silhouette_loss,
     temporal_smoothness,
 )
-from .pose_fields import HandPoseField, ObjectPoseField
+from .pose_fields import HandPoseField, IntrinsicsField, ObjectPoseField
 from .render import render_rgb_depth
 
 
@@ -201,6 +207,9 @@ class HandSlot:
     gaussians: object           # HandGaussians (avoid circular import in type)
     mask_dir: str
     output_pose_dir: str | None
+    # Optional WristAttachedGaussians: free 3D Gaussians rigidly attached
+    # to the wrist 6DOF pose, for arm geometry. None when disabled.
+    wrist_gaussians: object | None = None
 
 
 @dataclass
@@ -266,6 +275,30 @@ class LossWeights:
     face_delta_p_tangent_hand:        float = 1.0
     face_delta_p_normal_outward_hand: float = 100.0
     face_delta_p_normal_inward_hand:  float = 0.0
+    # Opacity binarization (α(1−α) summed, per set). Pushes each Gaussian
+    # toward fully opaque or fully transparent — invisible Gaussians "drop
+    # out" rather than persisting as semi-transparent fog. Default 0
+    # (disabled). Sum reduction matches delta_p_regularizer.
+    opacity_binary_obj:  float = 0.0
+    opacity_binary_hand: float = 0.0
+    opacity_binary_bg:   float = 0.0
+    # Depth-variance distortion loss (gsplat 3DGS has no native distloss;
+    # this is the depth-variance proxy to Mip-NeRF 360's distortion term).
+    # Single weight; loss is the mean per-pixel variance, masked to the
+    # union-of-foreground (or to the full image when bg Gaussians are on).
+    # Default 0 (disabled). Units: [depth²].
+    depth_variance: float = 0.0
+    # Foreground / background penetration loss. Penalizes
+    # relu(depth_fg − depth_bg) at foreground-mask pixels, so hand /
+    # object Gaussians stay in front of the background. Active only when
+    # both ``with_background=True`` AND this weight > 0 (renders bg-only
+    # and fg-only depth as extra passes — see ``depth_ordering_margin``
+    # for slack). Default 0. Units: [depth].
+    depth_ordering: float = 0.0
+    # Slack (meters) in the depth-ordering inequality:
+    # require depth_fg ≤ depth_bg − margin.  Positive margin enforces a
+    # gap, zero allows touching.
+    depth_ordering_margin: float = 0.0
     # Tight Gaussian prior on log_scale_global (pulls global object scale
     # toward 1.0). Drop to ~0 if you want unrestricted scale; raise to
     # freeze it near init. Default is moderate — prior is observable enough
@@ -355,6 +388,7 @@ def _write_refine_checkpoint(
     checkpoint_path: str,
     obj_gaussians, obj_pose_field, hand_slots,
     bg_gaussians, bg_pose_field,
+    intrinsics_field,
     optimizer, lr_scheduler,
     init_obj_axis_angle: torch.Tensor,
     init_obj_translation: torch.Tensor,
@@ -372,6 +406,13 @@ def _write_refine_checkpoint(
         "hand_gaussians":       [s.gaussians.state_dict()  for s in hand_slots],
         "hand_pose_fields":     [s.pose_field.state_dict() for s in hand_slots],
         "hand_sides":           [s.side for s in hand_slots],
+        "intrinsics_field":     intrinsics_field.state_dict(),
+        # Wrist-attached "arm" Gaussians per hand: None entries for hands
+        # that don't have them. Visualizer/resume rebuild from these.
+        "wrist_gaussians": [
+            (s.wrist_gaussians.state_dict() if s.wrist_gaussians is not None else None)
+            for s in hand_slots
+        ],
         "optimizer":            optimizer.state_dict(),
         "init_obj_axis_angle":  init_obj_axis_angle.detach().cpu(),
         "init_obj_translation": init_obj_translation.detach().cpu(),
@@ -532,6 +573,52 @@ def refine(
     # face_normal_thin_factor * tangent sigma. Smaller → flatter disks.
     face_normal_thin_factor_obj:  float = 0.25,
     face_normal_thin_factor_hand: float = 0.25,
+    # Hand Gaussian color init: when True (default), overwrite each hand
+    # Gaussian's color with the mean RGB inside its SAM2 mask at the
+    # reference frame (bg_ref_frame → debug_frame_idx → 0). Falls back to
+    # the default skin tone if the ref-frame mask is empty.
+    init_hand_color_from_mask: bool = True,
+    # When True, compute object/hand rotation+translation smoothness in
+    # *world frame* rather than camera frame, using bg_pose_field to invert
+    # the per-frame camera motion. This separates "the camera moved" from
+    # "the object moved" — without it, smoothness fights a moving camera.
+    # Only effective when bg_pose_field is constructed (--with_background).
+    # Hand finger articulation (hand_pose 15-joint) is intrinsic to the
+    # hand and is *not* re-expressed in world frame — its smoothness term
+    # stays unchanged.
+    smooth_obj_in_world:  bool = False,
+    smooth_hand_in_world: bool = False,
+    # Wrist-attached "arm" Gaussians per hand. 0 disables. When > 0,
+    # constructs a set of free 3D Gaussians rigidly attached to each
+    # hand's wrist 6DOF pose, initialized at the wrist origin with the
+    # specified scale. Δp is loosely regularized so they can drift to
+    # fill the arm volume. No silhouette supervision (zero class labels).
+    n_wrist_gaussians:    int   = 0,
+    wrist_init_scale:     float = 0.03,        # ~3 cm — arm-sized blobs
+    wrist_init_radius:    float = 0.0,         # uniform-in-ball spread; 0 = all at origin
+    lr_wrist_gaussians:   float | None = None,  # defaults to lr_hand_gaussians
+    w_delta_p_reg_wrist:  float = 0.01,        # light by default — let them drift
+    # Learnable camera intrinsics. Both default off.
+    #   learn_focal: refine fx, fy. CAUTION — degenerate with global scene
+    #     scale when there's no depth supervision (doubling fx ≡ halving
+    #     every Gaussian's z photometrically). Only safe with --w_depth > 0.
+    #   learn_principal_point: refine cx, cy. Lower-risk — it's a 2D
+    #     image-plane shift, not coupled to z. Safe to enable even without
+    #     depth supervision.
+    learn_focal:           bool  = False,
+    learn_principal_point: bool  = False,
+    lr_intrinsics:         float = 1e-4,
+    w_intrinsics_prior:    float = 1e3,        # tight by default — K shouldn't wander far
+    # Rotation outlier median-snap. Periodically detect frames whose
+    # rotation is far from the quat-aligned median of a temporal window
+    # and replace them with the median (resetting Adam moments at that
+    # frame). 0 disables. Recommended pairing: enable after the first
+    # epoch when initial flips have stabilized.
+    snap_rotation_outliers_every: int   = 0,           # measured in optimizer steps; 0 disables
+    snap_rotation_threshold:      float = 1.0,         # quat-distance threshold (~85°)
+    snap_rotation_window:         int   = 3,           # half-window (full window = 2*w + 1)
+    snap_rotation_targets:        str   = "obj,hand_wrist",  # comma-sep subset of {obj, hand_wrist, hand_finger}
+    snap_rotation_verbose:        bool  = False,
     use_cosine_lr_schedule: bool = False,
     cosine_lr_min_ratio: float = 0.0,      # final LR / initial LR (per group)
     # Coarse-to-fine scale annealing: at training start, multiply every
@@ -604,6 +691,8 @@ def refine(
         lr_hand_gaussians = lr_gaussians
     if lr_bg_gaussians is None:
         lr_bg_gaussians = lr_gaussians
+    if lr_wrist_gaussians is None:
+        lr_wrist_gaussians = lr_hand_gaussians
     # Resolve per-DOF pose LR overrides; default to the lumped legacy LR.
     if lr_object_rot is None:           lr_object_rot          = lr_object_pose
     if lr_object_trans is None:         lr_object_trans        = lr_object_pose
@@ -625,19 +714,42 @@ def refine(
     device = torch.device(device)
 
     # ----- intrinsics, frames, masks ----------------------------------------
-    K, W, H = load_intrinsics(intrinsics_path, str(device))
+    K_init, W, H = load_intrinsics(intrinsics_path, str(device))
     if train_resolution_scale != 1.0:
         s = float(train_resolution_scale)
-        K = K.clone()
-        K[0, 0] *= s   # fx
-        K[1, 1] *= s   # fy
-        K[0, 2] *= s   # cx
-        K[1, 2] *= s   # cy
+        K_init = K_init.clone()
+        K_init[0, 0] *= s   # fx
+        K_init[1, 1] *= s   # fy
+        K_init[0, 2] *= s   # cx
+        K_init[1, 2] *= s   # cy
         W_scaled = max(1, int(round(W * s)))
         H_scaled = max(1, int(round(H * s)))
         print(f"Training resolution: {W}x{H} → {W_scaled}x{H_scaled} "
               f"(scale={s:.3f}); render time ≈ {s*s:.3f}× of native.")
         W, H = W_scaled, H_scaled
+    # Learnable intrinsics field. ``K`` below is a property-style getter
+    # that assembles a fresh (3,3) tensor on each call — when neither
+    # learn_* flag is set, all four params have requires_grad=False so
+    # this is equivalent to a constant tensor with negligible overhead.
+    intrinsics_field = IntrinsicsField(
+        K_init,
+        learn_focal           = learn_focal,
+        learn_principal_point = learn_principal_point,
+    ).to(device)
+    if learn_focal or learn_principal_point:
+        flags = []
+        if learn_focal:           flags.append("focal (fx, fy)")
+        if learn_principal_point: flags.append("principal point (cx, cy)")
+        print(f"Learning intrinsics: {' + '.join(flags)}.")
+        if learn_focal and depth_dir is None:
+            print("  WARNING: --learn_focal without depth supervision is "
+                  "degenerate with global scene scale; expect drift unless "
+                  "--w_intrinsics_prior is tight.")
+    # Default K (no grad) for one-time / outside-training-loop uses. The
+    # training loop overwrites this per step with a fresh gradient-bearing
+    # assembly. Detach so the "outer" K doesn't carry stale grads when
+    # learning is on but the consumer doesn't need gradient.
+    K = intrinsics_field.K().detach()
 
     object_track = load_object_poses(object_poses_dir, str(device))
     hand_tracks: list[tuple[str, HandPoseTrack, str, str | None]] = []
@@ -776,6 +888,21 @@ def refine(
             raise ValueError(
                 f"hand_anchor_mode must be 'vertex' or 'face' (got {hand_anchor_mode!r})"
             )
+        # Optional wrist-attached "arm" Gaussians. Initialized at the wrist
+        # origin (or in a small ball of init_radius) with large per-Gaussian
+        # scale; Δp is loosely regularized so they drift to fill the arm.
+        wrist_g = None
+        if n_wrist_gaussians > 0:
+            wrist_g = init_wrist_attached_gaussians(
+                n            = int(n_wrist_gaussians),
+                init_scale   = float(wrist_init_scale) * hand_scale_init,
+                init_radius  = float(wrist_init_radius),
+                device       = device,
+                seed         = seed + (1 if ht.is_right else 2),
+            )
+            print(f"Hand ({side}): added {n_wrist_gaussians} wrist-attached "
+                  f"Gaussians (init_scale={wrist_init_scale * hand_scale_init:.3f}, "
+                  f"radius={wrist_init_radius:.3f}).")
         hand_slots.append(HandSlot(
             side          = side,
             track         = ht,
@@ -783,6 +910,7 @@ def refine(
             gaussians     = hg,
             mask_dir      = md,
             output_pose_dir = out_pose,
+            wrist_gaussians = wrist_g,
         ))
 
     # ----- preload supervision into a CPU cache -----------------------------
@@ -822,6 +950,49 @@ def refine(
     Image.fromarray(blend.clip(0, 255).astype(np.uint8)).save(
         os.path.join(debug_dir, "valid_pixel_mask_overlay.png"))
     print(f"  Valid-pixel mask dumped to {debug_dir}/valid_pixel_mask{{,_overlay}}.png")
+
+    # ----- hand Gaussian color init from reference-frame mask --------------
+    if init_hand_color_from_mask and hand_slots:
+        # Same ref-frame precedence as the bg init below: explicit
+        # bg_ref_frame → debug_frame_idx → first frame.
+        if bg_ref_frame is not None:
+            try:
+                _color_ref_t = frame_indices.index(int(bg_ref_frame))
+            except ValueError:
+                _color_ref_t = 0
+        elif debug_frame_idx is not None:
+            try:
+                _color_ref_t = frame_indices.index(int(debug_frame_idx))
+            except ValueError:
+                _color_ref_t = 0
+        else:
+            _color_ref_t = 0
+        _ref_rgb = cache.rgb[_color_ref_t].to(device)                  # (H, W, 3) in [0,1]
+        for slot_i, slot in enumerate(hand_slots):
+            mask = cache.hand_masks[slot_i][_color_ref_t].to(device)   # (H, W) in {0,1}
+            mass = float(mask.sum())
+            if mass < 1.0:
+                print(f"Hand ({slot.side}): ref-frame mask empty — keeping "
+                      f"default skin-tone init color.")
+                continue
+            mean_rgb = (_ref_rgb * mask.unsqueeze(-1)).sum(dim=(0, 1)) / mass    # (3,)
+            mean_rgb = mean_rgb.clamp(0.0, 1.0)
+            with torch.no_grad():
+                slot.gaussians._color.data.copy_(
+                    mean_rgb.to(slot.gaussians._color)
+                    .expand_as(slot.gaussians._color)
+                )
+                # Wrist (arm) Gaussians: also start with the hand's skin color.
+                # Photometric will pull them toward the actual arm color once
+                # they drift into the arm region.
+                if slot.wrist_gaussians is not None:
+                    slot.wrist_gaussians._color.data.copy_(
+                        mean_rgb.to(slot.wrist_gaussians._color)
+                        .expand_as(slot.wrist_gaussians._color)
+                    )
+            print(f"Hand ({slot.side}): init color from frame "
+                  f"{frame_indices[_color_ref_t]:06d} mask mean = "
+                  f"({mean_rgb[0]:.3f}, {mean_rgb[1]:.3f}, {mean_rgb[2]:.3f}).")
 
     # ----- optional background Gaussians + pose field -----------------------
     bg_gaussians: BackgroundGaussians | None = None
@@ -955,6 +1126,8 @@ def refine(
         # over the object's because the hand covers fewer pixels in image and
         # gradient signal per-Gaussian is correspondingly diluted.
         param_groups += _gaussian_groups(slot.gaussians, lr_hand_gaussians)
+        if slot.wrist_gaussians is not None:
+            param_groups += _gaussian_groups(slot.wrist_gaussians, lr_wrist_gaussians)
         param_groups.append({"params": [slot.pose_field.global_orient], "lr": lr_hand_global_orient})
         param_groups.append({"params": [slot.pose_field.hand_pose],     "lr": lr_hand_finger})
         param_groups.append({"params": [slot.pose_field.cam_t],         "lr": lr_hand_trans})
@@ -965,6 +1138,16 @@ def refine(
         param_groups += _gaussian_groups(bg_gaussians, lr_bg_gaussians)
         param_groups.append({"params": [bg_pose_field.axis_angle],  "lr": lr_bg_rot})
         param_groups.append({"params": [bg_pose_field.translation], "lr": lr_bg_trans})
+    # Learnable intrinsics. Skip the param group entirely when no component
+    # is learnable — keeps the optimizer state clean and avoids a no-op group.
+    if intrinsics_field.has_learnable():
+        intr_params = [
+            p for p in (
+                intrinsics_field.fx, intrinsics_field.fy,
+                intrinsics_field.cx, intrinsics_field.cy,
+            ) if p.requires_grad
+        ]
+        param_groups.append({"params": intr_params, "lr": lr_intrinsics})
     optimizer = torch.optim.Adam(param_groups)
 
     # Optional cosine LR schedule. LambdaLR multiplies each param group's
@@ -991,6 +1174,22 @@ def refine(
         dtype=torch.float32, device=device,
     )
 
+    # Parse the rotation-snap target list once at startup.
+    _snap_targets = {
+        s.strip().lower()
+        for s in (snap_rotation_targets or "").split(",")
+        if s.strip()
+    }
+    _snap_unknown = _snap_targets - {"obj", "hand_wrist", "hand_finger"}
+    if _snap_unknown:
+        raise ValueError(
+            f"snap_rotation_targets contains unknown entries: {sorted(_snap_unknown)}. "
+            f"Valid: obj, hand_wrist, hand_finger.")
+    if snap_rotation_outliers_every > 0 and _snap_targets:
+        print(f"Rotation outlier median-snap: every {snap_rotation_outliers_every} "
+              f"steps, targets {sorted(_snap_targets)}, "
+              f"threshold {snap_rotation_threshold:.2f}, window ±{snap_rotation_window}.")
+
     # ----- pre-allocate static class-label tensor --------------------------
     # The per-Gaussian one-hot labels depend only on Gaussian counts, not
     # on per-frame state, so we build them once and reuse every step.
@@ -1000,14 +1199,26 @@ def refine(
     obj_n_static = obj_gaussians.num_gaussians()
     hand_n_static = [s.gaussians.num_gaussians() for s in hand_slots]
     bg_n_static  = bg_gaussians.num_gaussians() if bg_gaussians is not None else 0
+    wrist_n_static = [
+        (s.wrist_gaussians.num_gaussians() if s.wrist_gaussians is not None else 0)
+        for s in hand_slots
+    ]
     _label_chunks: list[torch.Tensor] = []
     obj_label = torch.zeros(obj_n_static, K_classes_static, device=device)
     obj_label[:, 0] = 1.0
     _label_chunks.append(obj_label)
+    # Concat order matches the per-frame render: obj + hands + wrist + bg.
     for i, n in enumerate(hand_n_static):
         h_label = torch.zeros(n, K_classes_static, device=device)
         h_label[:, i + 1] = 1.0
         _label_chunks.append(h_label)
+    # Wrist-attached "arm" Gaussians: zero-class — silhouette loss treats
+    # them as "no target", so they only get photometric supervision. If a
+    # wrist Gaussian sits in front of a hand pixel it occludes the hand's
+    # class probability, which the silhouette loss correctly penalizes.
+    for n_w in wrist_n_static:
+        if n_w > 0:
+            _label_chunks.append(torch.zeros(n_w, K_classes_static, device=device))
     if bg_n_static > 0:
         _label_chunks.append(torch.zeros(bg_n_static, K_classes_static, device=device))
     labels_static = torch.cat(_label_chunks, dim=0).contiguous()             # (sum_N, K)
@@ -1135,6 +1346,17 @@ def refine(
                                 ckpt["hand_pose_fields"]):
             slot.gaussians.load_state_dict(hg)
             slot.pose_field.load_state_dict(hp)
+        # Learnable intrinsics — older checkpoints won't have this key.
+        if "intrinsics_field" in ckpt:
+            intrinsics_field.load_state_dict(ckpt["intrinsics_field"])
+        # Wrist-attached Gaussians: only load when both checkpoint and slot
+        # have them. Older checkpoints (pre-wrist) carry no "wrist_gaussians"
+        # key — gracefully skip.
+        ckpt_wrist = ckpt.get("wrist_gaussians")
+        if ckpt_wrist is not None:
+            for slot, wg_state in zip(hand_slots, ckpt_wrist):
+                if slot.wrist_gaussians is not None and wg_state is not None:
+                    slot.wrist_gaussians.load_state_dict(wg_state)
         if bg_gaussians is not None and ckpt.get("bg_gaussians") is not None:
             bg_gaussians.load_state_dict(ckpt["bg_gaussians"])
             bg_pose_field.load_state_dict(ckpt["bg_pose_field"])
@@ -1162,6 +1384,7 @@ def refine(
             K, W, H, device,
             obj_gaussians, obj_pose_field, hand_slots,
             bg_gaussians=bg_gaussians, bg_pose_field=bg_pose_field,
+            labels_static=labels_static,
         )
 
     # Pose-param requires_grad is toggled per-epoch by two independent
@@ -1317,12 +1540,23 @@ def refine(
                 batch_union = torch.maximum(batch_union, hm)
             batch_union = batch_union * valid_pixel_mask                # (B, H, W) * (H, W)
 
+            # Fresh intrinsics K per step. When neither learn_focal nor
+            # learn_principal_point is set, this returns a tensor with
+            # requires_grad=False, so no autograd cost.
+            K = intrinsics_field.K()
+
             # Poses, batched.
             R_obj_b, t_obj_b = obj_pose_field.batched_forward(batch_ts_t)                       # (B, 3, 3), (B, 3)
             hand_batched: list[tuple[torch.Tensor, torch.Tensor]] = []
+            wrist_batched: list[tuple[torch.Tensor, torch.Tensor] | None] = []
             for slot in hand_slots:
                 hv, hr = slot.pose_field.batched_posed_verts_and_rotmats_camera(batch_ts_t)
                 hand_batched.append((hv, hr))                                                    # (B, V, 3), (B, V, 3, 3)
+                if slot.wrist_gaussians is not None:
+                    Rw, tw = slot.pose_field.batched_wrist_pose_camera(batch_ts_t)               # (B, 3, 3), (B, 3)
+                    wrist_batched.append((Rw, tw))
+                else:
+                    wrist_batched.append(None)
             if bg_gaussians is not None:
                 R_bg_b, t_bg_b = bg_pose_field.batched_forward(batch_ts_t)                      # (B, 3, 3), (B, 3)
 
@@ -1339,11 +1573,18 @@ def refine(
                     slot.gaussians(hv[i], hr[i])
                     for slot, (hv, hr) in zip(hand_slots, hand_batched)
                 ]
+                # Wrist-attached arm Gaussians (one per slot, may be None).
+                # Concat order must match labels_static: obj + hands + wrist + bg.
+                wrist_frames = []
+                for slot, wb in zip(hand_slots, wrist_batched):
+                    if slot.wrist_gaussians is not None and wb is not None:
+                        Rw, tw = wb
+                        wrist_frames.append(slot.wrist_gaussians(Rw[i], tw[i]))
                 bg_frame = None
                 if bg_gaussians is not None:
                     bg_frame = bg_gaussians(R_bg_b[i], t_bg_b[i])
 
-                all_frames = [obj_frame] + hand_frames
+                all_frames = [obj_frame] + hand_frames + wrist_frames
                 if bg_frame is not None:
                     all_frames.append(bg_frame)
                 combined = concat_frames(all_frames)
@@ -1354,8 +1595,12 @@ def refine(
 
                 # Class labels are static (depend only on Gaussian counts);
                 # built once at startup as ``labels_static``.
-                rgb_pred, depth_pred, _, class_pred = render_rgb_depth(
-                    combined, K, W, H, extra_features=labels_static)
+                _compute_dvar = weights.depth_variance > 0.0
+                rgb_pred, depth_pred, _, class_pred, depth_var_pred = render_rgb_depth(
+                    combined, K, W, H,
+                    extra_features=labels_static,
+                    compute_depth_variance=_compute_dvar,
+                )
 
                 # Photometric:
                 #   - balance_photometric_by_mask: per-entity inverse-area
@@ -1424,6 +1669,35 @@ def refine(
                             depth_pred, batch_depth[i], union_mask,
                         )
 
+                # Depth-variance distortion (Mip-NeRF 360 distloss proxy).
+                # Mask choice mirrors the depth loss: foreground-only by
+                # default, full image when bg Gaussians explain the scene.
+                if depth_var_pred is not None:
+                    _dvar_mask = (
+                        valid_pixel_mask if bg_gaussians is not None
+                        else union_mask
+                    )
+                    fl = fl + weights.depth_variance * depth_variance_loss(
+                        depth_var_pred, _dvar_mask,
+                    )
+
+                # FG/BG penetration: foreground Gaussians should sit in
+                # front of the background at every foreground pixel. Only
+                # active when bg exists and weight > 0; pays two extra
+                # render passes (fg-only and bg-only depth). Without this
+                # term, a misregistered hand or object can sink behind the
+                # bg cloud and the photometric loss won't see it.
+                if (bg_frame is not None
+                        and weights.depth_ordering > 0
+                        and union_mask.sum() > 0):
+                    fg_combined = concat_frames([obj_frame] + hand_frames)
+                    _, depth_fg, _, _, _ = render_rgb_depth(fg_combined, K, W, H)
+                    _, depth_bg, _, _, _ = render_rgb_depth(bg_frame,   K, W, H)
+                    fl = fl + weights.depth_ordering * depth_ordering_loss(
+                        depth_fg, depth_bg, union_mask,
+                        margin=weights.depth_ordering_margin,
+                    )
+
                 # Confidence weighting (static × dynamic).
                 c_t = pose_confidence[t]
                 if pose_confidence_dyn is not None:
@@ -1451,16 +1725,50 @@ def refine(
                 loss = loss + weights.delta_p_reg_obj * delta_p_regularizer(
                     obj_gaussians._delta_p
                 )
+            if weights.opacity_binary_obj > 0.0:
+                loss = loss + weights.opacity_binary_obj * opacity_binary_loss(
+                    torch.sigmoid(obj_gaussians._opacity_logit)
+                )
             # Rotations get quat-aligned smoothness so axis-angle
             # double-cover wraps don't induce phantom large differences.
-            loss = loss + (
-                weights.smooth_obj_rot   * rotation_smoothness(obj_pose_field.axis_angle) +
-                weights.smooth_obj_trans * temporal_smoothness(obj_pose_field.translation)
-            )
+            # With smooth_obj_in_world + bg pose field, the smoothness is
+            # measured in *world frame* — the obj→cam pose is composed
+            # with bg's world→cam to express obj→world, so a moving camera
+            # doesn't drag the regularizer.
+            if smooth_obj_in_world and bg_pose_field is not None:
+                from .gaussians import axis_angle_to_quat, quat_mul, quat_to_rotmat
+                q_bg     = axis_angle_to_quat(bg_pose_field.axis_angle)             # (T, 4)
+                q_bg_inv = torch.cat([q_bg[..., :1], -q_bg[..., 1:]], dim=-1)       # conjugate
+                q_oc     = axis_angle_to_quat(obj_pose_field.axis_angle)            # (T, 4)
+                q_ow     = quat_mul(q_bg_inv, q_oc)                                 # obj→world quat
+                R_bg_T   = quat_to_rotmat(q_bg).transpose(-1, -2)                   # cam→world rot
+                t_ow     = torch.einsum(
+                    "tij,tj->ti", R_bg_T,
+                    obj_pose_field.translation - bg_pose_field.translation,
+                )
+                loss = loss + (
+                    weights.smooth_obj_rot   * quat_smoothness(q_ow) +
+                    weights.smooth_obj_trans * temporal_smoothness(t_ow)
+                )
+            else:
+                loss = loss + (
+                    weights.smooth_obj_rot   * rotation_smoothness(obj_pose_field.axis_angle) +
+                    weights.smooth_obj_trans * temporal_smoothness(obj_pose_field.translation)
+                )
             # Tight prior on global object scale (log = 0 → s = 1).
             loss = loss + weights.obj_scale_prior * (
                 obj_gaussians._log_scale_global ** 2
             )
+            # Intrinsics prior — only fires when any component is learnable.
+            # Without this, fx is degenerate with global scene scale on
+            # no-depth runs and will wander.
+            if intrinsics_field.has_learnable():
+                loss = loss + w_intrinsics_prior * intrinsics_prior_loss(
+                    intrinsics_field.fx, intrinsics_field.fy,
+                    intrinsics_field.cx, intrinsics_field.cy,
+                    intrinsics_field.fx_init, intrinsics_field.fy_init,
+                    intrinsics_field.cx_init, intrinsics_field.cy_init,
+                )
             # Per-frame pose-init prior weighted by confidence: pulls
             # high-confidence frames toward FoundationPose's input pose,
             # leaves low-confidence frames free.
@@ -1476,6 +1784,10 @@ def refine(
                 loss = loss + weights.delta_p_reg_bg * delta_p_regularizer(
                     bg_gaussians._delta_p
                 )
+                if weights.opacity_binary_bg > 0.0:
+                    loss = loss + weights.opacity_binary_bg * opacity_binary_loss(
+                        torch.sigmoid(bg_gaussians._opacity_logit)
+                    )
                 loss = loss + (
                     weights.smooth_bg_rot   * rotation_smoothness(bg_pose_field.axis_angle) +
                     weights.smooth_bg_trans * temporal_smoothness(bg_pose_field.translation)
@@ -1492,12 +1804,47 @@ def refine(
                     loss = loss + weights.delta_p_reg_hand * delta_p_regularizer(
                         slot.gaussians._delta_p
                     )
+                if weights.opacity_binary_hand > 0.0:
+                    loss = loss + weights.opacity_binary_hand * opacity_binary_loss(
+                        torch.sigmoid(slot.gaussians._opacity_logit)
+                    )
+                # Wrist-attached "arm" Gaussians: very loose Δp regularizer
+                # (they need to drift far from the wrist origin to fill the
+                # arm volume) and opacity binarization reuses the hand weight.
+                if slot.wrist_gaussians is not None:
+                    loss = loss + w_delta_p_reg_wrist * delta_p_regularizer(
+                        slot.wrist_gaussians._delta_p
+                    )
+                    if weights.opacity_binary_hand > 0.0:
+                        loss = loss + weights.opacity_binary_hand * opacity_binary_loss(
+                            torch.sigmoid(slot.wrist_gaussians._opacity_logit)
+                        )
                 T_h = slot.pose_field.hand_pose.shape[0]
-                loss = loss + (
-                    weights.smooth_hand_rot    * rotation_smoothness(slot.pose_field.global_orient) +
-                    weights.smooth_hand_finger * rotation_smoothness(slot.pose_field.hand_pose.view(T_h, 15, 3)) +
-                    weights.smooth_hand_trans  * temporal_smoothness(slot.pose_field.cam_t)
-                )
+                # Finger articulation is intrinsic to the hand, so its
+                # smoothness stays in cam frame regardless of the world-frame
+                # toggle. Only wrist rotation + translation are re-expressed.
+                if smooth_hand_in_world and bg_pose_field is not None:
+                    from .gaussians import axis_angle_to_quat, quat_mul, quat_to_rotmat
+                    q_bg     = axis_angle_to_quat(bg_pose_field.axis_angle)
+                    q_bg_inv = torch.cat([q_bg[..., :1], -q_bg[..., 1:]], dim=-1)
+                    q_hc     = axis_angle_to_quat(slot.pose_field.global_orient)
+                    q_hw     = quat_mul(q_bg_inv, q_hc)
+                    R_bg_T   = quat_to_rotmat(q_bg).transpose(-1, -2)
+                    t_hw     = torch.einsum(
+                        "tij,tj->ti", R_bg_T,
+                        slot.pose_field.cam_t - bg_pose_field.translation,
+                    )
+                    loss = loss + (
+                        weights.smooth_hand_rot    * quat_smoothness(q_hw) +
+                        weights.smooth_hand_finger * rotation_smoothness(slot.pose_field.hand_pose.view(T_h, 15, 3)) +
+                        weights.smooth_hand_trans  * temporal_smoothness(t_hw)
+                    )
+                else:
+                    loss = loss + (
+                        weights.smooth_hand_rot    * rotation_smoothness(slot.pose_field.global_orient) +
+                        weights.smooth_hand_finger * rotation_smoothness(slot.pose_field.hand_pose.view(T_h, 15, 3)) +
+                        weights.smooth_hand_trans  * temporal_smoothness(slot.pose_field.cam_t)
+                    )
                 loss = loss + weights.beta_prior * beta_prior_loss(
                     slot.pose_field.betas, slot.pose_field.betas_init
                 )
@@ -1574,12 +1921,46 @@ def refine(
             pbar.update(1)
             pbar.set_postfix(loss=f"{float(loss):.4f}", epoch=epoch)
 
+            # Rotation outlier median-snap. Runs after optimizer.step() so
+            # the Adam-moment reset has its intended effect on the next
+            # step. Disabled when ``snap_rotation_outliers_every == 0``.
+            if (snap_rotation_outliers_every > 0
+                    and _snap_targets
+                    and step_count % snap_rotation_outliers_every == 0):
+                with torch.no_grad():
+                    if "obj" in _snap_targets:
+                        _snap_rotation_outliers(
+                            obj_pose_field.axis_angle, optimizer,
+                            window=snap_rotation_window,
+                            threshold=snap_rotation_threshold,
+                            verbose=snap_rotation_verbose,
+                            label="obj",
+                        )
+                    for slot in hand_slots:
+                        if "hand_wrist" in _snap_targets:
+                            _snap_rotation_outliers(
+                                slot.pose_field.global_orient, optimizer,
+                                window=snap_rotation_window,
+                                threshold=snap_rotation_threshold,
+                                verbose=snap_rotation_verbose,
+                                label=f"hand-{slot.side}-wrist",
+                            )
+                        if "hand_finger" in _snap_targets:
+                            _snap_rotation_outliers(
+                                slot.pose_field.hand_pose, optimizer,
+                                window=snap_rotation_window,
+                                threshold=snap_rotation_threshold,
+                                verbose=snap_rotation_verbose,
+                                label=f"hand-{slot.side}-finger",
+                            )
+
             if render_every > 0 and step_count % render_every == 0:
                 _dump_progress_frame(
                     progress_dir, step_count, debug_frame_t, cache,
                     K, W, H, device,
                     obj_gaussians, obj_pose_field, hand_slots,
                     bg_gaussians=bg_gaussians, bg_pose_field=bg_pose_field,
+                    labels_static=labels_static,
                 )
 
             if (checkpoint_every > 0
@@ -1592,6 +1973,7 @@ def refine(
                     hand_slots       = hand_slots,
                     bg_gaussians     = bg_gaussians,
                     bg_pose_field    = bg_pose_field,
+                    intrinsics_field = intrinsics_field,
                     optimizer        = optimizer,
                     lr_scheduler     = lr_scheduler,
                     init_obj_axis_angle  = init_obj_axis_angle,
@@ -1678,6 +2060,16 @@ def _find_frame_path(frames_dir: str, fidx: int) -> str:
     raise FileNotFoundError(f"Frame {fidx:06d} not found in {frames_dir}")
 
 
+_SEG_PALETTE = torch.tensor([
+    [1.00, 0.00, 0.00],     # class 0 (object)        → red
+    [0.00, 1.00, 0.00],     # class 1 (hand 0)        → green
+    [0.20, 0.40, 1.00],     # class 2 (hand 1)        → blue
+    [1.00, 1.00, 0.00],     # class 3 (extra hand)    → yellow
+    [1.00, 0.00, 1.00],     # class 4                 → magenta
+    [0.00, 1.00, 1.00],     # class 5                 → cyan
+], dtype=torch.float32)
+
+
 def _dump_progress_frame(
     progress_dir: str,
     step: int,
@@ -1686,57 +2078,229 @@ def _dump_progress_frame(
     K, W: int, H: int, device,
     obj_gaussians, obj_pose_field, hand_slots,
     bg_gaussians=None, bg_pose_field=None,
+    labels_static: torch.Tensor | None = None,
 ) -> None:
-    """Render a single reference frame's overlay and save it as a PNG.
+    """Render a single reference frame's overlay, segmentation, and depth.
 
-    Cheap: one combined gsplat rasterization, no per-set passes, no disk
-    decoding (RGB is read straight from the in-memory cache).
+    Cheap: one combined gsplat rasterization (with class labels packed as
+    extra features when ``labels_static`` is provided), so RGB + seg + depth
+    all come from the same pass. PNG outputs land in:
+
+        progress_dir/{step:06d}.png          - RGB overlay (legacy)
+        progress_dir/seg/{step:06d}.png      - per-class color-coded mask
+        progress_dir/depth/{step:06d}.png    - grayscale depth, percentile-normalized
     """
+    seg_dir   = os.path.join(progress_dir, "seg")
+    depth_dir = os.path.join(progress_dir, "depth")
+    os.makedirs(seg_dir,   exist_ok=True)
+    os.makedirs(depth_dir, exist_ok=True)
+
     with torch.no_grad():
         rgb = cache.rgb[t].to(device, non_blocking=True)
         R_obj, t_obj = obj_pose_field(t)
         obj_frame    = obj_gaussians(R_obj, t_obj)
         hand_frames  = []
+        wrist_frames = []
         for s in hand_slots:
             v, R = s.pose_field.posed_verts_and_rotmats_camera(t)
             hand_frames.append(s.gaussians(v, R))
-        all_frames = [obj_frame] + hand_frames
+            if s.wrist_gaussians is not None:
+                Rw, tw = s.pose_field.wrist_pose_camera(t)
+                wrist_frames.append(s.wrist_gaussians(Rw, tw))
+        all_frames = [obj_frame] + hand_frames + wrist_frames
         if bg_gaussians is not None:
             R_bg, t_bg = bg_pose_field(t)
             all_frames.append(bg_gaussians(R_bg, t_bg))
-        combined     = concat_frames(all_frames)
-        rgb_pred, _, alpha, _ = render_rgb_depth(combined, K, W, H)
-        # When background is rendered, alpha covers the whole image — show
-        # the rendered scene directly. Otherwise overlay foreground onto image.
+        combined = concat_frames(all_frames)
+        rgb_pred, depth_pred, alpha, class_pred, _ = render_rgb_depth(
+            combined, K, W, H, extra_features=labels_static,
+        )
+        # ---- RGB overlay (legacy path) ----------------------------------
         if bg_gaussians is not None:
             mix = rgb_pred
         else:
             mix = rgb * (1.0 - alpha.unsqueeze(-1)) + rgb_pred * alpha.unsqueeze(-1)
-        arr = (mix.clamp(0, 1) * 255).to(torch.uint8).cpu().numpy()
-    Image.fromarray(arr).save(os.path.join(progress_dir, f"{step:06d}.png"))
+        rgb_arr = (mix.clamp(0, 1) * 255).to(torch.uint8).cpu().numpy()
+
+        # ---- Segmentation -----------------------------------------------
+        # class_pred is (H, W, K) of compositd class probabilities. Pick a
+        # palette color per channel and blend by channel weight so the
+        # output also looks reasonable on pixels with multi-class overlap.
+        if class_pred is not None and class_pred.shape[-1] > 0:
+            K_classes = int(class_pred.shape[-1])
+            palette = _SEG_PALETTE[:K_classes].to(device=device, dtype=class_pred.dtype)
+            if palette.shape[0] < K_classes:
+                # Extend with light gray for any classes beyond the palette.
+                pad = torch.full(
+                    (K_classes - palette.shape[0], 3), 0.5,
+                    dtype=palette.dtype, device=device,
+                )
+                palette = torch.cat([palette, pad], dim=0)
+            seg_rgb = class_pred @ palette                                  # (H, W, 3)
+            seg_arr = (seg_rgb.clamp(0, 1) * 255).to(torch.uint8).cpu().numpy()
+        else:
+            seg_arr = np.zeros((H, W, 3), dtype=np.uint8)
+
+        # ---- Depth (percentile-normalized grayscale) --------------------
+        d = depth_pred
+        valid = (d > 0) & torch.isfinite(d)
+        if valid.any():
+            d_valid = d[valid]
+            lo = torch.quantile(d_valid, 0.05)
+            hi = torch.quantile(d_valid, 0.95)
+            rng = (hi - lo).clamp_min(1e-6)
+            d_norm = ((d - lo) / rng).clamp(0.0, 1.0)
+            d_norm = torch.where(valid, d_norm, torch.zeros_like(d_norm))
+        else:
+            d_norm = torch.zeros_like(d)
+        depth_arr = (d_norm * 255).to(torch.uint8).cpu().numpy()
+
+    Image.fromarray(rgb_arr).save(os.path.join(progress_dir, f"{step:06d}.png"))
+    Image.fromarray(seg_arr).save(os.path.join(seg_dir,      f"{step:06d}.png"))
+    Image.fromarray(depth_arr, mode="L").save(
+        os.path.join(depth_dir, f"{step:06d}.png"))
 
 
 def _stitch_progress_video(progress_dir: str, fps: float = 30.0) -> None:
-    """Stitch progress PNGs into ``progress_dir/../progress.mp4``."""
-    pngs = sorted(os.listdir(progress_dir))
-    pngs = [p for p in pngs if p.endswith(".png")]
-    if not pngs:
-        return
-    out_path = os.path.join(os.path.dirname(progress_dir.rstrip("/")) or ".",
-                            "progress.mp4")
-    # ffmpeg's -pattern_type glob handles non-contiguous step numbers cleanly.
-    try:
-        subprocess.run([
-            "ffmpeg", "-y", "-loglevel", "error",
-            "-r", str(fps),
-            "-pattern_type", "glob",
-            "-i", os.path.join(progress_dir, "*.png"),
-            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20",
-            out_path,
-        ], check=True)
-        print(f"Wrote progress video → {out_path}")
-    except subprocess.CalledProcessError:
-        print(f"Warning: failed to stitch progress video from {progress_dir}")
+    """Stitch progress PNG sets into companion mp4s.
+
+    Inputs (any may be absent):
+        progress_dir/*.png             → progress_dir/../progress.mp4
+        progress_dir/seg/*.png         → progress_dir/../progress_seg.mp4
+        progress_dir/depth/*.png       → progress_dir/../progress_depth.mp4
+    """
+    parent = os.path.dirname(progress_dir.rstrip("/")) or "."
+    targets = [
+        (progress_dir,                       "progress.mp4"),
+        (os.path.join(progress_dir, "seg"),   "progress_seg.mp4"),
+        (os.path.join(progress_dir, "depth"), "progress_depth.mp4"),
+    ]
+    for src_dir, name in targets:
+        if not os.path.isdir(src_dir):
+            continue
+        pngs = [p for p in os.listdir(src_dir) if p.endswith(".png")]
+        if not pngs:
+            continue
+        out_path = os.path.join(parent, name)
+        # ffmpeg's -pattern_type glob handles non-contiguous step numbers cleanly.
+        try:
+            subprocess.run([
+                "ffmpeg", "-y", "-loglevel", "error",
+                "-r", str(fps),
+                "-pattern_type", "glob",
+                "-i", os.path.join(src_dir, "*.png"),
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20",
+                out_path,
+            ], check=True)
+            print(f"Wrote progress video → {out_path}")
+        except subprocess.CalledProcessError:
+            print(f"Warning: failed to stitch progress video from {src_dir}")
+
+
+def _snap_rotation_outliers(
+    axis_angle: torch.nn.Parameter,    # (T, ..., 3)
+    optimizer: "torch.optim.Optimizer | None",
+    window: int = 3,
+    threshold: float = 1.0,
+    verbose: bool = False,
+    label: str = "",
+) -> int:
+    """Detect-and-replace outlier rotations with the temporal median.
+
+    For each (frame, joint) cell whose quat-distance from the quat-aligned
+    median of a (2*window+1)-frame window exceeds ``threshold``, overwrite
+    the cell's axis-angle with the median and reset Adam moments for that
+    cell so the optimizer doesn't immediately fight the snap with stale
+    momentum.
+
+    Operates in-place on the parameter and the optimizer state. Returns
+    the count of (frame, joint) cells snapped.
+
+    ``axis_angle`` can be (T, 3) — single rotation per frame, e.g. obj
+    axis_angle / hand global_orient — or (T, K, 3) / (T, K*3) — multiple
+    independent rotations per frame, e.g. hand_pose's 15 joints. Each
+    joint is processed independently so a single fingerstipping out
+    doesn't drag the whole hand_pose with it.
+
+    Threshold of 1.0 in quat-distance corresponds to ~85° rotation, well
+    above any plausible single-frame motion (~5°→0.04, fast 30°→0.26).
+    """
+    from .gaussians import axis_angle_to_quat
+    from .pose_fields import _quat_to_axis_angle
+
+    shape = axis_angle.shape
+    T = int(shape[0])
+    if T < 2:
+        return 0
+
+    # Normalize shape to (T, K, 3) where K = number of independent
+    # rotations per frame. (T, 3) → K=1; (T, 15, 3) → K=15; (T, 45) → K=15.
+    if len(shape) == 2 and shape[-1] == 3:
+        aa = axis_angle.detach().reshape(T, 1, 3)
+    elif len(shape) == 2 and shape[-1] % 3 == 0:
+        aa = axis_angle.detach().reshape(T, shape[-1] // 3, 3)
+    elif len(shape) == 3 and shape[-1] == 3:
+        aa = axis_angle.detach().reshape(T, shape[1], 3)
+    else:
+        raise ValueError(
+            f"_snap_rotation_outliers: unsupported axis_angle shape {tuple(shape)}; "
+            f"expected (T, 3), (T, K, 3), or (T, K*3)."
+        )
+    K = aa.shape[1]
+
+    # Convert all to quats up front (T, K, 4).
+    q_all = axis_angle_to_quat(aa)
+    new_aa = aa.clone()
+    snapped: list[tuple[int, int]] = []
+    for t in range(T):
+        lo = max(0, t - window)
+        hi = min(T, t + window + 1)
+        if hi - lo < 2:
+            continue
+        for k in range(K):
+            q_t = q_all[t, k]                                     # (4,)
+            q_win = q_all[lo:hi, k]                               # (W, 4)
+            # Sign-align all window quats with q_t (handles ±q double cover).
+            dot = (q_win * q_t).sum(dim=-1, keepdim=True)
+            q_aligned = torch.where(dot < 0, -q_win, q_win)
+            # Per-component median, then re-normalize. (Median isn't strictly
+            # a quat operation but is robust to one outlier and produces a
+            # near-unit quat when the window is mostly consistent.)
+            q_med = q_aligned.median(dim=0).values                # (4,)
+            q_med = q_med / q_med.norm().clamp_min(1e-8)
+            d = (q_t - q_med).norm()
+            if float(d) > threshold:
+                aa_med = _quat_to_axis_angle(q_med)
+                new_aa[t, k] = aa_med
+                snapped.append((t, k))
+
+    if not snapped:
+        return 0
+
+    with torch.no_grad():
+        axis_angle.copy_(new_aa.reshape(shape))
+        if optimizer is not None:
+            state = optimizer.state.get(axis_angle, {})
+            ea = state.get("exp_avg")
+            es = state.get("exp_avg_sq")
+            if ea is not None and es is not None:
+                ea_view = ea.reshape(T, K, 3)
+                es_view = es.reshape(T, K, 3)
+                for t, k in snapped:
+                    ea_view[t, k].zero_()
+                    es_view[t, k].zero_()
+    if verbose:
+        # Aggregate: list unique frame indices, joint count per frame.
+        per_frame: dict[int, int] = {}
+        for t, _ in snapped:
+            per_frame[t] = per_frame.get(t, 0) + 1
+        details = ", ".join(
+            f"t={t}({per_frame[t]})" if K > 1 else f"t={t}"
+            for t in sorted(per_frame)
+        )
+        print(f"[snap{':'+label if label else ''}] snapped {len(snapped)} "
+              f"cells over {len(per_frame)} frames: {details}")
+    return len(snapped)
 
 
 def _generate_rotation_candidates(
@@ -1930,15 +2494,19 @@ def _render_overlay_sequence(
             R_obj, t_obj = obj_pose_field(t)
             obj_frame    = obj_gaussians(R_obj, t_obj)
             hand_frames  = []
+            wrist_frames = []
             for s in hand_slots:
                 v, R = s.pose_field.posed_verts_and_rotmats_camera(t)
                 hand_frames.append(s.gaussians(v, R))
-            all_frames = [obj_frame] + hand_frames
+                if s.wrist_gaussians is not None:
+                    Rw, tw = s.pose_field.wrist_pose_camera(t)
+                    wrist_frames.append(s.wrist_gaussians(Rw, tw))
+            all_frames = [obj_frame] + hand_frames + wrist_frames
             if bg_gaussians is not None:
                 R_bg, t_bg = bg_pose_field(t)
                 all_frames.append(bg_gaussians(R_bg, t_bg))
             combined     = concat_frames(all_frames)
-            rgb_pred, _, alpha, _ = render_rgb_depth(combined, K, W, H)
+            rgb_pred, _, alpha, _, _ = render_rgb_depth(combined, K, W, H)
             if bg_gaussians is not None:
                 mix = rgb_pred
             else:
@@ -2046,10 +2614,14 @@ def _render_overlay_video_streaming(
                 R_obj, t_obj = obj_pose_field(t)
                 obj_frame    = obj_gaussians(R_obj, t_obj)
                 hand_frames  = []
+                wrist_frames = []
                 for s in hand_slots:
                     v, R = s.pose_field.posed_verts_and_rotmats_camera(t)
                     hand_frames.append(s.gaussians(v, R))
-                all_frames = [obj_frame] + hand_frames
+                    if s.wrist_gaussians is not None:
+                        Rw, tw = s.pose_field.wrist_pose_camera(t)
+                        wrist_frames.append(s.wrist_gaussians(Rw, tw))
+                all_frames = [obj_frame] + hand_frames + wrist_frames
                 if include_background and bg_gaussians is not None:
                     R_bg, t_bg = bg_pose_field(t)
                     all_frames.append(bg_gaussians(R_bg, t_bg))
@@ -2339,6 +2911,42 @@ def main() -> None:
                    help="Hand face-anchor Δp penalty along outward normal.")
     p.add_argument("--w_face_delta_p_normal_inward_hand", type=float, default=0.0,
                    help="Hand face-anchor Δp penalty along inward normal.")
+    # ---- Opacity binarization ------------------------------------------------
+    p.add_argument("--w_opacity_binary",      type=float, default=0.0,
+                   help="Fallback weight for the α(1-α) opacity binarization "
+                        "penalty. Applied to object + hand + bg unless overridden "
+                        "by --w_opacity_binary_{obj,hand,bg}. 0 disables. "
+                        "Pushes each Gaussian's opacity toward 0 or 1; "
+                        "low-opacity Gaussians effectively drop out.")
+    p.add_argument("--w_opacity_binary_obj",  type=float, default=None,
+                   help="Override opacity binarization weight for object Gaussians "
+                        "(falls back to --w_opacity_binary).")
+    p.add_argument("--w_opacity_binary_hand", type=float, default=None,
+                   help="Override opacity binarization weight for hand Gaussians "
+                        "(falls back to --w_opacity_binary).")
+    p.add_argument("--w_opacity_binary_bg",   type=float, default=None,
+                   help="Override opacity binarization weight for background "
+                        "Gaussians (falls back to --w_opacity_binary).")
+    p.add_argument("--w_depth_variance",      type=float, default=0.0,
+                   help="Depth-variance distortion loss weight (Mip-NeRF 360 "
+                        "distloss proxy). Penalizes the alpha-weighted "
+                        "variance of depth at each pixel, killing floaters "
+                        "and compacting the surface along the view ray. "
+                        "Units are [depth²] — for ~0.1 m scenes, variance "
+                        "is ~0.01, so weight ~1.0 is comparable to other "
+                        "regularizers. 0 disables.")
+    p.add_argument("--w_depth_ordering",      type=float, default=0.0,
+                   help="Foreground/background depth-ordering penetration "
+                        "weight. Penalizes relu(depth_fg - depth_bg) at "
+                        "foreground-mask pixels — discourages hand/object "
+                        "Gaussians from sinking behind the background. "
+                        "Active only when --with_background is set and "
+                        "weight > 0 (pays two extra render passes per "
+                        "frame). Units: [depth]. 0 disables.")
+    p.add_argument("--depth_ordering_margin", type=float, default=0.0,
+                   help="Slack (m) in the depth-ordering inequality: "
+                        "require depth_fg ≤ depth_bg - margin. Positive "
+                        "margin enforces a gap, zero allows touching.")
     p.add_argument("--w_obj_scale_prior", type=float, default=1.0,
                    help="Tight Gaussian prior on log(global object scale). "
                         "Pulls scale toward 1.0; raise to freeze, lower to "
@@ -2563,6 +3171,91 @@ def main() -> None:
     p.add_argument("--random_init_obj_pose_trans_std", type=float, default=0.1,
                    help="Stddev (m) of the per-frame translation noise "
                         "added when --random_init_obj_pose is set.")
+    p.add_argument("--no_init_hand_color_from_mask",
+                   dest="init_hand_color_from_mask",
+                   action="store_false",
+                   help="Disable per-hand Gaussian color init from the "
+                        "reference-frame SAM2 mask mean. By default the hand "
+                        "color is set to the average RGB inside the hand "
+                        "mask at the ref frame (bg_ref_frame → debug_frame_idx "
+                        "→ 0). Disable to use the fixed default skin tone.")
+    p.set_defaults(init_hand_color_from_mask=True)
+    p.add_argument("--smooth_obj_in_world",  action="store_true",
+                   help="Measure object pose smoothness in world frame "
+                        "(composed via bg_pose_field) rather than camera "
+                        "frame. Requires --with_background. Recommended "
+                        "for moving-camera scenes — separates 'the object "
+                        "moved' from 'the camera moved'.")
+    p.add_argument("--smooth_hand_in_world", action="store_true",
+                   help="Measure hand global_orient + cam_t smoothness in "
+                        "world frame. Finger (hand_pose) smoothness stays "
+                        "in cam frame either way (it's joint-relative). "
+                        "Requires --with_background.")
+    p.add_argument("--n_wrist_gaussians",    type=int,   default=0,
+                   help="Per-hand count of free Gaussians rigidly attached "
+                        "to the MANO wrist 6DOF pose, used to model the "
+                        "arm without distorting MANO. 0 disables. ")
+    p.add_argument("--wrist_init_scale",     type=float, default=0.03,
+                   help="Initial per-Gaussian scale (m) for wrist-attached "
+                        "Gaussians. Large by default (~3 cm) — these are "
+                        "arm-sized blobs.")
+    p.add_argument("--wrist_init_radius",    type=float, default=0.0,
+                   help="Init scatter radius (m) around the wrist origin. "
+                        "0 puts every Gaussian at the wrist; >0 samples "
+                        "uniformly in a ball of that radius.")
+    p.add_argument("--lr_wrist_gaussians",   type=float, default=None,
+                   help="LR for wrist-attached Gaussians (falls back to "
+                        "--lr_hand_gaussians).")
+    p.add_argument("--w_delta_p_reg_wrist",  type=float, default=0.01,
+                   help="Δp penalty for wrist-attached Gaussians. Light "
+                        "(0.01) by default — they need to drift far from "
+                        "the wrist origin to fill the arm volume.")
+    p.add_argument("--learn_focal", action="store_true",
+                   help="Refine fx, fy of the camera intrinsics. CAUTION: "
+                        "without depth supervision (--w_depth > 0 and "
+                        "--depth_dir set), fx is degenerate with global "
+                        "scene scale and will drift. Pair with a tight "
+                        "--w_intrinsics_prior, or only enable when depth "
+                        "supervision is on.")
+    p.add_argument("--learn_principal_point", action="store_true",
+                   help="Refine cx, cy of the camera intrinsics. Safer "
+                        "than --learn_focal — it's a 2D image-plane shift, "
+                        "not coupled to z. Use to absorb sub-pixel "
+                        "calibration drift.")
+    p.add_argument("--lr_intrinsics",      type=float, default=1e-4,
+                   help="LR for the four intrinsics scalars when "
+                        "--learn_focal or --learn_principal_point is set. "
+                        "Default 1e-4 keeps motion slow relative to poses.")
+    p.add_argument("--w_intrinsics_prior", type=float, default=1e3,
+                   help="L2 anchor of (fx, fy, cx, cy) to their JSON "
+                        "init values. Tight (1e3) by default — K shouldn't "
+                        "wander far. Lower (e.g. 1.0) if you want more "
+                        "freedom.")
+    p.add_argument("--snap_rotation_outliers_every", type=int, default=0,
+                   help="Periodicity (in optimizer steps) of the rotation "
+                        "outlier median-snap pass. 0 disables. Detects "
+                        "frames whose rotation is far from the local median "
+                        "and replaces them; resets Adam moments at the "
+                        "snapped frame. Useful for popping single-frame "
+                        "wrist flips that the smoothness loss spreads into "
+                        "smeared multi-frame rotations.")
+    p.add_argument("--snap_rotation_threshold", type=float, default=1.0,
+                   help="Quat-distance threshold above which a frame is "
+                        "considered an outlier. 1.0 ≈ 85° rotation; "
+                        "well above normal frame-to-frame motion (~0.04 "
+                        "per 5°). Lower for more aggressive snapping.")
+    p.add_argument("--snap_rotation_window", type=int, default=3,
+                   help="Half-window for median (full window = 2*w + 1 = 7 "
+                        "frames by default).")
+    p.add_argument("--snap_rotation_targets", type=str,
+                   default="obj,hand_wrist",
+                   help="Comma-sep subset of {obj, hand_wrist, hand_finger} "
+                        "to apply the snap to. Defaults to object axis_angle "
+                        "+ hand global_orient. Add 'hand_finger' to also "
+                        "snap individual finger joints (15 per hand, each "
+                        "treated independently).")
+    p.add_argument("--snap_rotation_verbose", action="store_true",
+                   help="Print which frames got snapped at each pass.")
     p.add_argument("--freeze_bg_rot",       action="store_true",
                    help="Hold background rotation at identity.")
     p.add_argument("--freeze_bg_trans",     action="store_true",
@@ -2642,6 +3335,23 @@ def main() -> None:
         hand_anchor_mode            = args.hand_anchor_mode,
         face_normal_thin_factor_obj  = args.face_normal_thin_factor_obj,
         face_normal_thin_factor_hand = args.face_normal_thin_factor_hand,
+        init_hand_color_from_mask    = args.init_hand_color_from_mask,
+        smooth_obj_in_world          = args.smooth_obj_in_world,
+        smooth_hand_in_world         = args.smooth_hand_in_world,
+        n_wrist_gaussians            = args.n_wrist_gaussians,
+        wrist_init_scale             = args.wrist_init_scale,
+        wrist_init_radius            = args.wrist_init_radius,
+        lr_wrist_gaussians           = args.lr_wrist_gaussians,
+        w_delta_p_reg_wrist          = args.w_delta_p_reg_wrist,
+        learn_focal                  = args.learn_focal,
+        learn_principal_point        = args.learn_principal_point,
+        lr_intrinsics                = args.lr_intrinsics,
+        w_intrinsics_prior           = args.w_intrinsics_prior,
+        snap_rotation_outliers_every = args.snap_rotation_outliers_every,
+        snap_rotation_threshold      = args.snap_rotation_threshold,
+        snap_rotation_window         = args.snap_rotation_window,
+        snap_rotation_targets        = args.snap_rotation_targets,
+        snap_rotation_verbose        = args.snap_rotation_verbose,
         use_cosine_lr_schedule      = args.use_cosine_lr_schedule,
         cosine_lr_min_ratio         = args.cosine_lr_min_ratio,
         coarse_init_scale_factor    = args.coarse_init_scale_factor,
@@ -2696,6 +3406,12 @@ def main() -> None:
             face_delta_p_tangent_hand        = args.w_face_delta_p_tangent_hand,
             face_delta_p_normal_outward_hand = args.w_face_delta_p_normal_outward_hand,
             face_delta_p_normal_inward_hand  = args.w_face_delta_p_normal_inward_hand,
+            opacity_binary_obj  = (args.w_opacity_binary_obj  if args.w_opacity_binary_obj  is not None else args.w_opacity_binary),
+            opacity_binary_hand = (args.w_opacity_binary_hand if args.w_opacity_binary_hand is not None else args.w_opacity_binary),
+            opacity_binary_bg   = (args.w_opacity_binary_bg   if args.w_opacity_binary_bg   is not None else args.w_opacity_binary),
+            depth_variance         = args.w_depth_variance,
+            depth_ordering         = args.w_depth_ordering,
+            depth_ordering_margin  = args.depth_ordering_margin,
             obj_scale_prior   = args.w_obj_scale_prior,
             scale_aniso_bg        = args.w_scale_aniso_bg,
             density_bg            = args.w_density_bg,

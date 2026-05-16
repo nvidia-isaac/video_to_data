@@ -184,6 +184,68 @@ def delta_p_regularizer(delta_p: torch.Tensor) -> torch.Tensor:
     return (delta_p * delta_p).sum()
 
 
+def depth_ordering_loss(
+    depth_fg:   torch.Tensor,    # (H, W) E[d] from foreground-only render
+    depth_bg:   torch.Tensor,    # (H, W) E[d] from background-only render
+    fg_mask:    torch.Tensor,    # (H, W) {0,1} foreground pixels
+    margin:     float = 0.0,     # require depth_fg ≤ depth_bg - margin
+) -> torch.Tensor:
+    """Penetration penalty: foreground Gaussians should be in front of the
+    background at foreground-mask pixels.
+
+    Per-pixel loss = max(0, depth_fg - depth_bg + margin), masked to the
+    foreground mask and averaged. Fires only when the optimizer pushes
+    hand or object Gaussians *behind* the background — exactly the
+    penetration mode for that pair. Background pixels (where fg_mask=0)
+    contribute zero. Units: [depth].
+
+    Differentiable through both depth maps and the mask is constant
+    (gradient flows back into the Gaussian centers).
+    """
+    diff = (depth_fg - depth_bg + float(margin)).clamp(min=0.0)         # (H, W)
+    n = fg_mask.sum().clamp_min(1.0)
+    return (diff * fg_mask).sum() / n
+
+
+def depth_variance_loss(
+    depth_var: torch.Tensor,      # (H, W) per-pixel E[d²] − E[d]², ≥ 0
+    mask: torch.Tensor | None = None,    # (H, W) {0,1} or None for all pixels
+) -> torch.Tensor:
+    """Mean per-pixel alpha-weighted depth variance — depth-variance proxy
+    for Mip-NeRF 360 distortion loss.
+
+    Penalizes the spread of compositing weights along the view ray: when a
+    pixel sums contributions from Gaussians at different depths, the
+    variance grows. Minimizing it concentrates per-pixel mass at one
+    depth, killing "floater" Gaussians and producing a thin-shell surface.
+
+    Units are [depth²]. If your scene scale is ~0.1 m, variance scales
+    are ~0.01, so a weight of ~1.0 gives a loss term of similar magnitude
+    to other regularizers; tune from there.
+    """
+    if mask is None:
+        return depth_var.mean()
+    n = mask.sum().clamp_min(1.0)
+    return (depth_var * mask).sum() / n
+
+
+def opacity_binary_loss(opacities: torch.Tensor) -> torch.Tensor:
+    """Sum of α(1 − α) — pushes each Gaussian's opacity toward 0 or 1.
+
+    The product is zero at α = 0 and α = 1, peaks at 0.25 when α = 0.5, and
+    is smooth everywhere (gradient pushes away from 0.5 toward the nearer
+    extreme). Sum reduction matches ``delta_p_regularizer``: per-Gaussian
+    pressure doesn't get diluted by 1/N, so weights here are comparable to
+    the other sequence-wide regularizers.
+
+    Pairs well with face-anchored Gaussians: low-opacity (invisible)
+    Gaussians "drop out" rather than stay as semi-transparent fog, which
+    tightens the rendered silhouette and lets the optimizer commit to which
+    faces actually contribute to the surface.
+    """
+    return (opacities * (1.0 - opacities)).sum()
+
+
 def face_delta_p_regularizer(
     delta_p_local: torch.Tensor,    # (F, 3) in face-local (T, B, N) coords
     w_tangent:        float = 1.0,   # penalty on tangent + bitangent slide
@@ -332,6 +394,26 @@ def temporal_smoothness(param: torch.Tensor) -> torch.Tensor:
     return (d * d).sum()
 
 
+def quat_smoothness(q: torch.Tensor) -> torch.Tensor:
+    """Sum-squared first-difference of unit quaternions with sign alignment.
+
+    Same semantics as ``rotation_smoothness`` but takes quats directly
+    (T, ..., 4) — useful when the quat has been composed in quat space
+    (e.g. world-frame pose = q_bg⁻¹ ⊗ q_cam) and converting to axis-angle
+    would hit the wrap singularity at θ=π.
+
+    Sign alignment uses the standard q ≡ −q double-cover: flip the sign
+    of any consecutive quat whose dot product with the previous is < 0.
+    """
+    if q.shape[0] < 2:
+        return q.new_zeros(())
+    q = q / q.norm(dim=-1, keepdim=True).clamp_min(1e-8)
+    dot = (q[1:] * q[:-1]).sum(dim=-1, keepdim=True)
+    q_aligned = torch.where(dot < 0, -q[1:], q[1:])
+    d = q_aligned - q[:-1]
+    return (d * d).sum()
+
+
 def rotation_smoothness(axis_angle: torch.Tensor) -> torch.Tensor:
     """Sum-squared first-difference of axis-angle rotations, measured in
     quaternion space with double-cover sign alignment.
@@ -453,6 +535,24 @@ def beta_prior_loss(beta: torch.Tensor, beta_init: torch.Tensor) -> torch.Tensor
     """
     d = beta - beta_init
     return (d * d).sum()
+
+
+def intrinsics_prior_loss(
+    fx: torch.Tensor, fy: torch.Tensor, cx: torch.Tensor, cy: torch.Tensor,
+    fx_init: torch.Tensor, fy_init: torch.Tensor,
+    cx_init: torch.Tensor, cy_init: torch.Tensor,
+) -> torch.Tensor:
+    """Sum-squared deviation of intrinsics from their calibrated init.
+
+    Anchors fx/fy/cx/cy to the input JSON values. Without this, fx is
+    degenerate with global scene scale on no-depth runs and will wander.
+    Tight default weight (~1e3) keeps K close to init while still letting
+    it absorb small calibration drift.
+    """
+    return ((fx - fx_init) ** 2
+          + (fy - fy_init) ** 2
+          + (cx - cx_init) ** 2
+          + (cy - cy_init) ** 2)
 
 
 def hand_scale_prior_loss(

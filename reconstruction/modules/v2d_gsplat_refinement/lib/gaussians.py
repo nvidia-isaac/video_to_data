@@ -412,6 +412,115 @@ def init_hand_gaussians(
 
 
 # ---------------------------------------------------------------------------
+# Wrist-attached Gaussians: rigidly attached to a hand's wrist 6DOF pose.
+#
+# Same parameterization as ObjectGaussians (anchor + Δp + per-Gaussian quat
+# + anisotropic scale + opacity + color), but per-frame transform comes from
+# the hand's wrist (HandPoseField.batched_wrist_pose_camera), not an
+# independent pose field. Used for arm geometry that we don't want to
+# distort MANO to represent.
+#
+# Class labels are all-zero in the trainer's labels_static tensor — these
+# Gaussians get no silhouette supervision (no arm mask), only photometric.
+# ---------------------------------------------------------------------------
+
+class WristAttachedGaussians(nn.Module):
+    """Free 3D Gaussians attached to a hand wrist's rigid 6DOF pose.
+
+    Learnable params (canonical wrist-local frame):
+      _delta_p      : (N, 3)   -- offset from anchor, init 0. Loosely
+                                  regularized so Gaussians can drift to fill
+                                  the arm volume far from the wrist.
+      _quat_canon   : (N, 4)
+      _log_scale    : (N, 3)
+      _opacity_logit: (N,)
+      _color        : (N, 3)
+
+    No ``_log_scale_global`` — there's no exported scale field for these.
+    """
+
+    def __init__(
+        self,
+        anchor_positions: torch.Tensor,    # (N, 3) in wrist-local frame
+        init_color: torch.Tensor,          # (N, 3) in [0, 1]
+        init_scale: float,                 # large by default (~3 cm) — these
+                                            # are arm-sized blobs at init.
+        init_opacity: float = 0.5,         # mid-opacity so opacity_binary can
+                                            # drive each to either extreme.
+    ) -> None:
+        super().__init__()
+        N = anchor_positions.shape[0]
+        device = anchor_positions.device
+
+        self.register_buffer("anchor", anchor_positions.contiguous())
+        self._delta_p       = nn.Parameter(torch.zeros(N, 3, device=device))
+        self._quat_canon    = nn.Parameter(
+            torch.tensor([1.0, 0.0, 0.0, 0.0], device=device).repeat(N, 1)
+        )
+        self._log_scale     = nn.Parameter(
+            torch.full((N, 3), float(torch.log(torch.tensor(init_scale))),
+                       device=device)
+        )
+        self._opacity_logit = nn.Parameter(
+            torch.full((N,), float(_logit(init_opacity)), device=device)
+        )
+        self._color         = nn.Parameter(init_color.contiguous().clone())
+
+    def num_gaussians(self) -> int:
+        return self.anchor.shape[0]
+
+    def forward(
+        self,
+        R_wrist: torch.Tensor,    # (3, 3) wrist-to-camera rotation
+        t_wrist: torch.Tensor,    # (3,)   wrist-to-camera translation
+    ) -> GaussianFrame:
+        """Rigidly transform canonical Gaussians by the wrist pose."""
+        p_local = self.anchor + self._delta_p                       # (N, 3)
+        means   = p_local @ R_wrist.T + t_wrist                     # (N, 3)
+        q_wrist = _rotmat_to_quat(R_wrist).expand_as(self._quat_canon)
+        quats   = quat_mul(q_wrist, self._quat_canon)
+        return GaussianFrame(
+            means     = means,
+            quats     = quats,
+            scales    = self._log_scale.exp(),
+            opacities = torch.sigmoid(self._opacity_logit),
+            colors    = self._color,
+        )
+
+
+def init_wrist_attached_gaussians(
+    n: int,
+    init_scale: float = 0.03,                                       # ~3 cm
+    init_radius: float = 0.0,                                        # 0 → all at origin
+    skin_tone: tuple[float, float, float] = (0.72, 0.55, 0.45),
+    device: str | torch.device = "cuda",
+    seed: int = 0,
+) -> WristAttachedGaussians:
+    """Sprinkle ``n`` Gaussians clustered at the wrist origin.
+
+    ``init_radius=0`` → all anchors exactly at (0, 0, 0) in wrist-local frame.
+    ``init_radius>0`` → anchors sampled uniformly in a ball of that radius
+    (useful if you want some initial spatial spread; otherwise the optimizer
+    has to break the perfect overlap via gradient noise).
+    """
+    g = torch.Generator(device="cpu").manual_seed(seed)
+    if init_radius > 0:
+        # Uniform-in-ball sampling.
+        v = torch.randn(n, 3, generator=g)
+        v = v / v.norm(dim=-1, keepdim=True).clamp_min(1e-8)
+        r = torch.rand(n, 1, generator=g) ** (1.0 / 3.0)
+        anchors = (v * r * float(init_radius)).to(device)
+    else:
+        anchors = torch.zeros(n, 3, device=device)
+    init_color = torch.tensor(skin_tone, dtype=torch.float32).expand(n, 3).contiguous()
+    return WristAttachedGaussians(
+        anchor_positions = anchors,
+        init_color       = init_color.to(device),
+        init_scale       = init_scale,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Face-anchored Gaussians
 #
 # One Gaussian per mesh face. Anchor = face centroid; orientation derived from

@@ -28,8 +28,17 @@ from .io import HandPoseTrack, ObjectPoseTrack
 # ---------------------------------------------------------------------------
 
 def _quat_to_axis_angle(q: torch.Tensor) -> torch.Tensor:
-    """(..., 4) (w, x, y, z) → (..., 3) axis-angle."""
+    """(..., 4) (w, x, y, z) → (..., 3) axis-angle (canonical, |angle| ≤ π).
+
+    Canonicalize first: the double-cover ``q ≡ −q`` represents the same
+    rotation, but ``2·acos(w)`` only returns the short-way form when
+    ``w ≥ 0``. Flip the sign of any quat with negative w so the resulting
+    axis-angle magnitude stays in [0, π] rather than the "long way around"
+    [π, 2π] band.
+    """
     q = q / q.norm(dim=-1, keepdim=True).clamp_min(1e-8)
+    # Canonical hemisphere: w ≥ 0.
+    q = torch.where(q[..., :1] < 0, -q, q)
     w = q[..., 0].clamp(-1.0, 1.0)
     angle = 2.0 * torch.acos(w)
     s = torch.sqrt((1.0 - w * w).clamp_min(1e-12))
@@ -86,6 +95,73 @@ class ObjectPoseField(nn.Module):
 # ---------------------------------------------------------------------------
 # Hand pose field (wraps manotorch.ManoLayer)
 # ---------------------------------------------------------------------------
+
+class IntrinsicsField(nn.Module):
+    """Learnable camera intrinsics (fx, fy, cx, cy).
+
+    Stores each component as a scalar ``nn.Parameter`` and exposes a
+    ``K()`` method that assembles the (3, 3) intrinsics matrix on demand
+    so downstream renderers see a fresh tensor with current values.
+
+    Per-component ``register_buffer`` copies of the init values anchor the
+    L2 prior — without it, the focal length can drift along the
+    focal/depth degeneracy (doubling fx is photometrically equivalent to
+    halving every scene-z, when depth supervision is absent).
+
+    Each parameter independently controls its ``requires_grad`` via the
+    ``learn_focal`` / ``learn_principal_point`` constructor flags, so the
+    optimizer can refine principal point alone (safer) while keeping
+    focal length pinned to the calibrated input.
+    """
+
+    def __init__(
+        self,
+        K: torch.Tensor,                         # (3, 3) input intrinsics
+        learn_focal: bool = False,
+        learn_principal_point: bool = False,
+    ) -> None:
+        super().__init__()
+        device = K.device
+        # Parameters: split per-component so each is independently learnable.
+        self.fx = nn.Parameter(
+            K[0, 0].detach().clone().to(device, dtype=torch.float32),
+            requires_grad=bool(learn_focal),
+        )
+        self.fy = nn.Parameter(
+            K[1, 1].detach().clone().to(device, dtype=torch.float32),
+            requires_grad=bool(learn_focal),
+        )
+        self.cx = nn.Parameter(
+            K[0, 2].detach().clone().to(device, dtype=torch.float32),
+            requires_grad=bool(learn_principal_point),
+        )
+        self.cy = nn.Parameter(
+            K[1, 2].detach().clone().to(device, dtype=torch.float32),
+            requires_grad=bool(learn_principal_point),
+        )
+        # Init buffers — fixed reference for the prior loss.
+        self.register_buffer("fx_init", self.fx.detach().clone())
+        self.register_buffer("fy_init", self.fy.detach().clone())
+        self.register_buffer("cx_init", self.cx.detach().clone())
+        self.register_buffer("cy_init", self.cy.detach().clone())
+
+    def K(self) -> torch.Tensor:
+        """Assemble the (3, 3) intrinsics tensor from the four scalars.
+
+        Differentiable w.r.t. fx / fy / cx / cy. Constructed fresh each
+        call so downstream consumers always see current values.
+        """
+        zero = self.fx.new_zeros(())
+        one  = self.fx.new_ones(())
+        return torch.stack([
+            torch.stack([self.fx,  zero,    self.cx]),
+            torch.stack([zero,    self.fy,  self.cy]),
+            torch.stack([zero,    zero,    one]),
+        ], dim=0)
+
+    def has_learnable(self) -> bool:
+        return any(p.requires_grad for p in (self.fx, self.fy, self.cx, self.cy))
+
 
 class HandPoseField(nn.Module):
     """Per-frame MANO global_orient + hand_pose + cam_t for a single hand,
@@ -287,6 +363,65 @@ class HandPoseField(nn.Module):
 
         verts = verts + self.cam_t[t_idx].unsqueeze(1)                       # (B, 1, 3) → (B, N, 3)
         return verts, R_per_vert
+
+    def wrist_pose_camera(
+        self, t: int
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Single-frame wrapper around ``batched_wrist_pose_camera``."""
+        t_idx = torch.as_tensor([int(t)], device=self.cam_t.device, dtype=torch.long)
+        R, tt = self.batched_wrist_pose_camera(t_idx)
+        return R[0], tt[0]
+
+    def batched_wrist_pose_camera(
+        self, t_idx: torch.Tensor       # (B,) long
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return per-frame wrist (joint 0) cam-frame pose.
+
+        Returns ((B, 3, 3), (B, 3)) — rotation and translation of the wrist
+        joint in camera frame. Includes left/right mirror conjugation and
+        the centroid-based hand_scale + cam_t offsets used by the vertex
+        path, so the wrist transform is consistent with the rendered hand.
+
+        The wrist orientation is MANO joint 0's absolute rotation (which
+        equals the root rotation, ``global_orient``, up to mirror). The
+        wrist position is MANO joint 0's absolute translation after the
+        same centroid-scale + cam_t transforms applied to vertices.
+
+        Used by ``WristAttachedGaussians`` to attach rigid arm Gaussians
+        to the hand without distorting MANO.
+        """
+        B = int(t_idx.shape[0])
+        pose_aa_b = torch.cat(
+            [self.global_orient[t_idx], self.hand_pose[t_idx]], dim=-1
+        )                                                                    # (B, 48)
+        betas_b = self.betas.unsqueeze(0).expand(B, -1)                      # (B, 10)
+        out = self.mano(pose_aa_b, betas_b)
+        verts = out.verts                                                    # (B, N, 3)
+
+        if hasattr(out, "transforms_abs"):
+            R_wrist = out.transforms_abs[:, 0, :3, :3]                       # (B, 3, 3)
+            t_wrist = out.transforms_abs[:, 0, :3, 3]                        # (B, 3)
+        else:
+            R_wrist = torch.eye(3, device=verts.device).expand(B, 3, 3).contiguous()
+            # Fallback: joint 0 ≈ origin in MANO local frame.
+            t_wrist = torch.zeros(B, 3, device=verts.device)
+
+        if not self.is_right:
+            mirror = verts.new_tensor([-1.0, 1.0, 1.0])
+            verts   = verts * mirror
+            t_wrist = t_wrist * mirror
+            M = torch.diag(mirror)
+            R_wrist = M @ R_wrist @ M
+
+        # Apply centroid-based hand_scale to the wrist translation (same
+        # transform applied to verts). hand_scale is uniform → no effect on
+        # rotation.
+        if self.hand_scale.requires_grad or float(self.hand_scale) != 1.0:
+            c = verts.mean(dim=1)                                            # (B, 3)
+            t_wrist = (t_wrist - c) * self.hand_scale + c
+
+        t_wrist = t_wrist + self.cam_t[t_idx]                                # (B, 3)
+        return R_wrist, t_wrist
 
     def export_track(self, raw_records: list[dict]) -> HandPoseTrack:
         """Return the optimized state as a HandPoseTrack for I/O.

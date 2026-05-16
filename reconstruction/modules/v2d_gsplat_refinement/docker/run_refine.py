@@ -96,12 +96,36 @@ def run_refine(
     hand_anchor_mode:   str = "vertex",
     face_normal_thin_factor_obj:  float = 0.25,
     face_normal_thin_factor_hand: float = 0.25,
+    init_hand_color_from_mask: bool = True,
+    smooth_obj_in_world:       bool = False,
+    smooth_hand_in_world:      bool = False,
+    n_wrist_gaussians:         int = 0,
+    wrist_init_scale:          float = 0.03,
+    wrist_init_radius:         float = 0.0,
+    lr_wrist_gaussians:        float | None = None,
+    w_delta_p_reg_wrist:       float = 0.01,
+    learn_focal:               bool = False,
+    learn_principal_point:     bool = False,
+    lr_intrinsics:             float = 1e-4,
+    w_intrinsics_prior:        float = 1e3,
+    snap_rotation_outliers_every: int   = 0,
+    snap_rotation_threshold:      float = 1.0,
+    snap_rotation_window:         int   = 3,
+    snap_rotation_targets:        str   = "obj,hand_wrist",
+    snap_rotation_verbose:        bool  = False,
     w_face_delta_p_tangent_obj:        float = 1.0,
     w_face_delta_p_normal_outward_obj: float = 100.0,
     w_face_delta_p_normal_inward_obj:  float = 0.0,
     w_face_delta_p_tangent_hand:        float = 1.0,
     w_face_delta_p_normal_outward_hand: float = 100.0,
     w_face_delta_p_normal_inward_hand:  float = 0.0,
+    w_opacity_binary:      float = 0.0,
+    w_opacity_binary_obj:  float | None = None,
+    w_opacity_binary_hand: float | None = None,
+    w_opacity_binary_bg:   float | None = None,
+    w_depth_variance:      float = 0.0,
+    w_depth_ordering:      float = 0.0,
+    depth_ordering_margin: float = 0.0,
     use_cosine_lr_schedule: bool = False,
     cosine_lr_min_ratio: float = 0.0,
     coarse_init_scale_factor: float = 1.0,
@@ -245,12 +269,40 @@ def run_refine(
         "hand_anchor_mode":            hand_anchor_mode,
         "face_normal_thin_factor_obj":  face_normal_thin_factor_obj,
         "face_normal_thin_factor_hand": face_normal_thin_factor_hand,
+        # Lib accepts only the negated form (--no_init_hand_color_from_mask)
+        # because the lib default is True. Flip the polarity so the
+        # container emits nothing in the default case and emits the flag
+        # only when the user opts out.
+        "no_init_hand_color_from_mask": not init_hand_color_from_mask,
+        "smooth_obj_in_world":         smooth_obj_in_world,
+        "smooth_hand_in_world":        smooth_hand_in_world,
+        "n_wrist_gaussians":           n_wrist_gaussians,
+        "wrist_init_scale":            wrist_init_scale,
+        "wrist_init_radius":           wrist_init_radius,
+        "lr_wrist_gaussians":          lr_wrist_gaussians,
+        "w_delta_p_reg_wrist":         w_delta_p_reg_wrist,
+        "learn_focal":                 learn_focal,
+        "learn_principal_point":       learn_principal_point,
+        "lr_intrinsics":               lr_intrinsics,
+        "w_intrinsics_prior":          w_intrinsics_prior,
+        "snap_rotation_outliers_every": snap_rotation_outliers_every,
+        "snap_rotation_threshold":      snap_rotation_threshold,
+        "snap_rotation_window":         snap_rotation_window,
+        "snap_rotation_targets":        snap_rotation_targets,
+        "snap_rotation_verbose":        snap_rotation_verbose,
         "w_face_delta_p_tangent_obj":         w_face_delta_p_tangent_obj,
         "w_face_delta_p_normal_outward_obj":  w_face_delta_p_normal_outward_obj,
         "w_face_delta_p_normal_inward_obj":   w_face_delta_p_normal_inward_obj,
         "w_face_delta_p_tangent_hand":        w_face_delta_p_tangent_hand,
         "w_face_delta_p_normal_outward_hand": w_face_delta_p_normal_outward_hand,
         "w_face_delta_p_normal_inward_hand":  w_face_delta_p_normal_inward_hand,
+        "w_opacity_binary":      w_opacity_binary,
+        "w_opacity_binary_obj":  w_opacity_binary_obj,
+        "w_opacity_binary_hand": w_opacity_binary_hand,
+        "w_opacity_binary_bg":   w_opacity_binary_bg,
+        "w_depth_variance":      w_depth_variance,
+        "w_depth_ordering":      w_depth_ordering,
+        "depth_ordering_margin": depth_ordering_margin,
         "use_cosine_lr_schedule":     use_cosine_lr_schedule,
         "cosine_lr_min_ratio":        cosine_lr_min_ratio,
         "coarse_init_scale_factor":   coarse_init_scale_factor,
@@ -415,12 +467,66 @@ if __name__ == "__main__":
                    help="Anchor mode for hand Gaussians (same options).")
     p.add_argument("--face_normal_thin_factor_obj",  type=float, default=0.25)
     p.add_argument("--face_normal_thin_factor_hand", type=float, default=0.25)
+    p.add_argument("--no_init_hand_color_from_mask",
+                   dest="init_hand_color_from_mask",
+                   action="store_false",
+                   help="Disable per-hand Gaussian color init from the SAM2 "
+                        "mask mean at the reference frame. Default is on.")
+    p.set_defaults(init_hand_color_from_mask=True)
+    p.add_argument("--smooth_obj_in_world",  action="store_true",
+                   help="Measure object pose smoothness in world frame "
+                        "(via bg_pose_field). Requires --with_background.")
+    p.add_argument("--smooth_hand_in_world", action="store_true",
+                   help="Measure hand wrist (global_orient + cam_t) "
+                        "smoothness in world frame. Finger smoothness "
+                        "stays in cam frame. Requires --with_background.")
+    p.add_argument("--n_wrist_gaussians",   type=int,   default=0,
+                   help="Per-hand count of wrist-attached arm Gaussians "
+                        "(rigidly attached to MANO wrist; not skinned). "
+                        "0 disables.")
+    p.add_argument("--wrist_init_scale",    type=float, default=0.03)
+    p.add_argument("--wrist_init_radius",   type=float, default=0.0)
+    p.add_argument("--lr_wrist_gaussians",  type=float, default=None)
+    p.add_argument("--w_delta_p_reg_wrist", type=float, default=0.01)
+    p.add_argument("--learn_focal",           action="store_true",
+                   help="Refine fx, fy. Caution: degenerate with scene "
+                        "scale without depth supervision.")
+    p.add_argument("--learn_principal_point", action="store_true",
+                   help="Refine cx, cy. Safer than --learn_focal.")
+    p.add_argument("--lr_intrinsics",      type=float, default=1e-4)
+    p.add_argument("--w_intrinsics_prior", type=float, default=1e3)
+    p.add_argument("--snap_rotation_outliers_every", type=int,   default=0,
+                   help="Periodicity (in optimizer steps) of the rotation "
+                        "outlier median-snap pass. 0 disables.")
+    p.add_argument("--snap_rotation_threshold",      type=float, default=1.0)
+    p.add_argument("--snap_rotation_window",         type=int,   default=3)
+    p.add_argument("--snap_rotation_targets",        type=str,
+                   default="obj,hand_wrist",
+                   help="Comma-sep subset of {obj, hand_wrist, hand_finger}.")
+    p.add_argument("--snap_rotation_verbose",        action="store_true")
     p.add_argument("--w_face_delta_p_tangent_obj",        type=float, default=1.0)
     p.add_argument("--w_face_delta_p_normal_outward_obj", type=float, default=100.0)
     p.add_argument("--w_face_delta_p_normal_inward_obj",  type=float, default=0.0)
     p.add_argument("--w_face_delta_p_tangent_hand",        type=float, default=1.0)
     p.add_argument("--w_face_delta_p_normal_outward_hand", type=float, default=100.0)
     p.add_argument("--w_face_delta_p_normal_inward_hand",  type=float, default=0.0)
+    p.add_argument("--w_opacity_binary",      type=float, default=0.0,
+                   help="α(1-α) opacity binarization weight (fallback for "
+                        "obj/hand/bg unless overridden). 0 disables.")
+    p.add_argument("--w_opacity_binary_obj",  type=float, default=None)
+    p.add_argument("--w_opacity_binary_hand", type=float, default=None)
+    p.add_argument("--w_opacity_binary_bg",   type=float, default=None)
+    p.add_argument("--w_depth_variance",      type=float, default=0.0,
+                   help="Depth-variance distortion proxy weight "
+                        "(Mip-NeRF 360 distloss approximation). 0 disables.")
+    p.add_argument("--w_depth_ordering",      type=float, default=0.0,
+                   help="FG/BG depth-ordering penetration weight: penalize "
+                        "fg Gaussians sitting behind the bg at fg-mask "
+                        "pixels. Requires --with_background. Units: [depth]. "
+                        "0 disables.")
+    p.add_argument("--depth_ordering_margin", type=float, default=0.0,
+                   help="Slack (m) in the depth-ordering inequality. Positive "
+                        "margin enforces a gap, zero allows touching.")
     p.add_argument("--use_cosine_lr_schedule", action="store_true")
     p.add_argument("--cosine_lr_min_ratio", type=float, default=0.0)
     p.add_argument("--coarse_init_scale_factor", type=float, default=1.0)
@@ -543,12 +649,36 @@ if __name__ == "__main__":
         hand_anchor_mode             = args.hand_anchor_mode,
         face_normal_thin_factor_obj  = args.face_normal_thin_factor_obj,
         face_normal_thin_factor_hand = args.face_normal_thin_factor_hand,
+        init_hand_color_from_mask    = args.init_hand_color_from_mask,
+        smooth_obj_in_world          = args.smooth_obj_in_world,
+        smooth_hand_in_world         = args.smooth_hand_in_world,
+        n_wrist_gaussians            = args.n_wrist_gaussians,
+        wrist_init_scale             = args.wrist_init_scale,
+        wrist_init_radius            = args.wrist_init_radius,
+        lr_wrist_gaussians           = args.lr_wrist_gaussians,
+        w_delta_p_reg_wrist          = args.w_delta_p_reg_wrist,
+        learn_focal                  = args.learn_focal,
+        learn_principal_point        = args.learn_principal_point,
+        lr_intrinsics                = args.lr_intrinsics,
+        w_intrinsics_prior           = args.w_intrinsics_prior,
+        snap_rotation_outliers_every = args.snap_rotation_outliers_every,
+        snap_rotation_threshold      = args.snap_rotation_threshold,
+        snap_rotation_window         = args.snap_rotation_window,
+        snap_rotation_targets        = args.snap_rotation_targets,
+        snap_rotation_verbose        = args.snap_rotation_verbose,
         w_face_delta_p_tangent_obj         = args.w_face_delta_p_tangent_obj,
         w_face_delta_p_normal_outward_obj  = args.w_face_delta_p_normal_outward_obj,
         w_face_delta_p_normal_inward_obj   = args.w_face_delta_p_normal_inward_obj,
         w_face_delta_p_tangent_hand        = args.w_face_delta_p_tangent_hand,
         w_face_delta_p_normal_outward_hand = args.w_face_delta_p_normal_outward_hand,
         w_face_delta_p_normal_inward_hand  = args.w_face_delta_p_normal_inward_hand,
+        w_opacity_binary      = args.w_opacity_binary,
+        w_opacity_binary_obj  = args.w_opacity_binary_obj,
+        w_opacity_binary_hand = args.w_opacity_binary_hand,
+        w_opacity_binary_bg   = args.w_opacity_binary_bg,
+        w_depth_variance      = args.w_depth_variance,
+        w_depth_ordering      = args.w_depth_ordering,
+        depth_ordering_margin = args.depth_ordering_margin,
         use_cosine_lr_schedule      = args.use_cosine_lr_schedule,
         cosine_lr_min_ratio         = args.cosine_lr_min_ratio,
         coarse_init_scale_factor    = args.coarse_init_scale_factor,
