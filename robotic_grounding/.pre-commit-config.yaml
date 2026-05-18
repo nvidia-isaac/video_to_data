@@ -9,7 +9,10 @@
 default_stages: [pre-commit]
 default_install_hook_types: [pre-commit, pre-push]
 
-# Hook paths are evaluated from the git root, not this nested config directory.
+# Hook paths are evaluated from the git root, not from this file's location.
+# Pre-commit always runs hooks with cwd = git root and passes git-root-relative
+# paths to them, so excludes and `--config` flags need the `robotic_grounding/`
+# prefix even though the file lives inside that package.
 exclude: |
   (?x)^(
     robotic_grounding/workflow/.*\.yaml

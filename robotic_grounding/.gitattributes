@@ -42,3 +42,8 @@ source/robotic_grounding/robotic_grounding/assets/human_motion_data/hot3d_loaded
 source/robotic_grounding/robotic_grounding/assets/human_motion_data/hot3d_processed/** filter=lfs diff=lfs merge=lfs -text
 source/robotic_grounding/robotic_grounding/assets/meshes/hot3d/** filter=lfs diff=lfs merge=lfs -text
 source/robotic_grounding/robotic_grounding/assets/meshes/hot3d/instance.json !filter !diff !merge text
+# Migrated from root .gitattributes (taco support + Isaac Lab .pkg)
+source/robotic_grounding/robotic_grounding/assets/human_motion_data/taco/taco_loaded/sequence_id=taco_empty__kettle__plate_20231031_060/**/*.parquet filter=lfs diff=lfs merge=lfs -text
+source/robotic_grounding/robotic_grounding/assets/human_motion_data/taco/taco_processed/sequence_id=taco_empty__kettle__plate_20231031_060/**/*.parquet filter=lfs diff=lfs merge=lfs -text
+source/robotic_grounding/robotic_grounding/assets/human_motion_data/taco/reconstructed_stage/taco_empty__kettle__plate_20231031_060_support.usda filter=lfs diff=lfs merge=lfs -text
+*.pkg filter=lfs diff=lfs merge=lfs -text
