@@ -445,6 +445,45 @@ def waiting_qc_candidate_for_sequence(
     return []
 
 
+def _normalize_time_arg(s: str) -> str:
+    """Normalize a user time arg to `YYYY-MM-DD_HH-MM-SS`.
+
+    This mirrors submit.py: bare dates expand to midnight, and are used with
+    inclusive start / exclusive end filtering.
+    """
+    if len(s) == 10:
+        return s + "_00-00-00"
+    if len(s) == 19:
+        return s
+    raise ValueError(
+        f"Time must be YYYY-MM-DD or YYYY-MM-DD_HH-MM-SS: {s!r}"
+    )
+
+
+def _filter_workflows_by_time(
+    workflows: list[dict],
+    start_time: str | None,
+    end_time: str | None,
+) -> list[dict]:
+    """Keep workflows whose sequence timestamp prefix is in [start, end)."""
+    if not start_time and not end_time:
+        return workflows
+    lo = _normalize_time_arg(start_time) if start_time else None
+    hi = _normalize_time_arg(end_time) if end_time else None
+    kept: list[dict] = []
+    for workflow in workflows:
+        sequence = workflow["sequence_name"]
+        prefix = sequence[:19]
+        if len(prefix) < 19 or prefix[4] != "-" or prefix[10] != "_":
+            continue
+        if lo and prefix < lo:
+            continue
+        if hi and prefix >= hi:
+            continue
+        kept.append(workflow)
+    return kept
+
+
 def task_suffix(sequence_name: str) -> str:
     export_task, _ = export_task_names(sequence_name)
     return export_task.removeprefix("export_")
@@ -721,6 +760,8 @@ def run_export(
     refresh_workers: int = DEFAULT_REFRESH_WORKERS,
     sequence: str | None = None,
     ignore_qc_fail: bool = False,
+    start_time: str | None = None,
+    end_time: str | None = None,
 ) -> None:
     refresh_workflow_states(
         dataset_name,
@@ -759,6 +800,10 @@ def run_export(
             table=table,
             include_qc_fail=ignore_qc_fail,
         )
+        if start_time or end_time:
+            candidates = _filter_workflows_by_time(candidates, start_time, end_time)
+            bounds = f"[{start_time or '-inf'}, {end_time or '+inf'}]"
+            print(f"Filtered to {len(candidates)} export candidate(s) in time range {bounds}")
     if not candidates:
         if not sequence:
             print("No WAITING_QC reconstruction rows ready for Kratos export checks.")
@@ -819,6 +864,13 @@ def main() -> None:
                         help="Export only this exact sequence if its latest row is WAITING_QC")
     parser.add_argument("--ignore-qc-fail", action="store_true",
                         help="Recheck latest FAIL rows whose details start with qc_fail:")
+    parser.add_argument("--start_time",
+                        help="Batch mode: only include sequences with timestamp >= this "
+                             "(YYYY-MM-DD or YYYY-MM-DD_HH-MM-SS, inclusive)")
+    parser.add_argument("--end_time",
+                        help="Batch mode: only include sequences with timestamp < this "
+                             "(YYYY-MM-DD or YYYY-MM-DD_HH-MM-SS, exclusive; "
+                             "a bare date excludes that entire day)")
     parser.add_argument("--dry_run", action="store_true",
                         help="Generate workflow files and print submit command without running OSMO")
     parser.add_argument("--test", action="store_true",
@@ -856,6 +908,8 @@ def main() -> None:
         refresh_workers=args.refresh_workers,
         sequence=args.sequence,
         ignore_qc_fail=args.ignore_qc_fail,
+        start_time=args.start_time,
+        end_time=args.end_time,
     )
 
 

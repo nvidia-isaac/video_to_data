@@ -395,6 +395,29 @@ def test_waiting_qc_candidates_use_latest_row_per_sequence(tmp_path):
     assert [row["workflow_name"] for row in candidates] == ["wf_older", "wf_later"]
 
 
+def test_filter_workflows_by_time_uses_sequence_prefix_and_exclusive_end():
+    workflows = [
+        _workflow("2026-04-21_23-59-59_before", "wf_before"),
+        _workflow("2026-04-22_00-00-00_start", "wf_start"),
+        _workflow("2026-04-23_12-34-56_middle", "wf_middle"),
+        _workflow("2026-04-24_23-59-59_end_day", "wf_end_day"),
+        _workflow("2026-04-25_00-00-00_after", "wf_after"),
+        _workflow("not_a_timestamp", "wf_invalid"),
+    ]
+
+    kept = mv_export._filter_workflows_by_time(
+        workflows,
+        start_time="2026-04-22",
+        end_time="2026-04-25",
+    )
+
+    assert [row["workflow_name"] for row in kept] == [
+        "wf_start",
+        "wf_middle",
+        "wf_end_day",
+    ]
+
+
 def test_prepare_exports_marks_failed_qc_rows_and_keeps_valid_rows(tmp_path):
     db_path = _db_path(tmp_path)
     for workflow_name, sequence in (("wf_bad", "seq_bad"), ("wf_ok", "seq_ok")):
@@ -591,6 +614,42 @@ def test_run_export_checks_only_oldest_waiting_qc_batch(monkeypatch):
     )
 
     assert queried_items == ["wf_old.json", "wf_mid.json"]
+
+
+def test_run_export_filters_by_sequence_time_before_batching(monkeypatch):
+    queried_items = []
+    candidates = [
+        _workflow("2026-04-21_23-59-59_before", "wf_before"),
+        _workflow("2026-04-22_00-00-00_start", "wf_start"),
+        _workflow("2026-04-23_12-00-00_middle", "wf_middle"),
+    ]
+
+    monkeypatch.setattr(mv_export, "refresh_workflow_states", lambda *args, **kwargs: None)
+    monkeypatch.setattr(mv_export, "waiting_export_rows", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        mv_export,
+        "waiting_qc_candidates",
+        lambda *args, **kwargs: candidates,
+    )
+
+    def _query_completed(_table, item_names):
+        queried_items.extend(item_names)
+        return {}
+
+    monkeypatch.setattr(
+        mv_export,
+        "query_completed_kratos_annotations",
+        _query_completed,
+    )
+
+    mv_export.run_export(
+        "dataset_a",
+        _export_dataset_cfg(batch_size=1),
+        start_time="2026-04-22",
+        end_time="2026-04-24",
+    )
+
+    assert queried_items == ["wf_start.json"]
 
 
 def test_run_export_sequence_mode_queries_only_selected_sequence(monkeypatch, tmp_path):

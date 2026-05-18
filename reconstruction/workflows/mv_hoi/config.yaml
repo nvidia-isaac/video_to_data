@@ -6,7 +6,7 @@ datasets:
       mv_calibration:
         input_path: calibration
         output_path: calibration_output
-        max_concurrent: 30
+        max_concurrent: 20
         workflows:
           calibration:
             workflow_yaml: osmo/mv_calibration.yaml
@@ -14,7 +14,7 @@ datasets:
         input_path: data
         output_path: data_output
         export_path: data_export
-        max_concurrent: 30
+        max_concurrent: 40
         workflows:
           reconstruction:
             workflow_yaml: osmo/mv_hoi_reconstruction.yaml
@@ -27,8 +27,8 @@ datasets:
             hitl_batch_name_template: "batch_{date}"
           export:
             workflow_yaml: osmo/mv_hoi_export.yaml
-            batch_size: 13
+            batch_size: 30
             kratos_table: llmdf_admin.project_285164_annotations
-            max_failure_annotations: 2
-            max_failure_coverage: 0.30
+            max_failure_annotations: 6
+            max_failure_coverage: 0.5
     osmo_pool: isaac-dev-h100-01
