@@ -12,6 +12,7 @@ Usage:
 """
 
 import argparse
+import hashlib
 import json
 import mimetypes
 import re
@@ -51,6 +52,7 @@ def discover_datasets() -> list[dict]:  # type: ignore[type-arg]
     datasets = []
     # bundle_key -> canonical vc path; identical builds share one browser-cache entry
     canonical_vc: dict = {}
+    seen_names: dict[str, int] = {}  # tab name → suffix counter for dedupe
 
     # ── standard layout: DATA_DIR/{dataset_dir}/*/recordings ─────────────────
     # Handles both v2d_{name}_retarget* and retargeted_{name}_* naming schemes.
@@ -99,6 +101,7 @@ def discover_datasets() -> list[dict]:  # type: ignore[type-arg]
                 "recordings": recordings,
             }
         )
+        seen_names[name] = seen_names.get(name, 0) + 1
 
     # ── --html-dir mounts: each dir has recordings/ directly inside ───────────
     for prefix, html_dir in sorted(_LIVE_MOUNTS.items()):
@@ -109,8 +112,25 @@ def discover_datasets() -> list[dict]:  # type: ignore[type-arg]
         if not viser_files:
             continue
 
-        m = re.match(r"v2d_(.+?)_retarget", html_dir.name)
-        name = m.group(1) if m else html_dir.name
+        # Walk up parents so ".../v2d_oakink2_retarget_.../html_ours" yields
+        # "oakink2 (html_ours)" and a sibling "html_baseline" gets its own tab.
+        name = None
+        for ancestor in [html_dir, *html_dir.parents]:
+            m = re.match(r"v2d_(.+?)_retarget", ancestor.name) or re.match(
+                r"retargeted_(.+?)_", ancestor.name
+            )
+            if m:
+                base = m.group(1)
+                name = base if ancestor == html_dir else f"{base} ({html_dir.name})"
+                break
+        if name is None:
+            name = html_dir.name
+
+        # If the same name already appeared (e.g. two different v2d_oakink2_*
+        # parents each with html_ours), append the parent dir to disambiguate.
+        if name in seen_names:
+            name = f"{name} [{html_dir.parent.name}]"
+        seen_names[name] = seen_names.get(name, 0) + 1
 
         rec_rel = f"{prefix}/recordings"
         viser_client_dir = html_dir / "viser-client"
@@ -706,7 +726,8 @@ def main() -> None:
         default=[],
         metavar="DIR",
         help="Extra html output dir (has recordings/ directly inside). "
-        "Can be repeated. E.g. the --html_dir passed to vis_retargeted.py.",
+        "Pass multiple times to add a sidebar tab per dir, "
+        "e.g. --html-dir .../html_ours --html-dir .../html_baseline.",
     )
     args = parser.parse_args()
 
@@ -718,7 +739,17 @@ def main() -> None:
         p = raw.expanduser().resolve()
         if not p.is_dir():
             raise SystemExit(f"ERROR: --html-dir does not exist: {p}")
-        _LIVE_MOUNTS[f"_live/{p.name}"] = p
+        # Pick a unique mount slug so two paths ending in the same leaf
+        # (e.g. ".../A/html_ours" and ".../B/html_ours") don't clobber each other.
+        for slug in (
+            p.name,
+            f"{p.parent.name}_{p.name}",
+            hashlib.md5(str(p).encode(), usedforsecurity=False).hexdigest()[:8],
+        ):
+            prefix = f"_live/{slug}"
+            if prefix not in _LIVE_MOUNTS:
+                _LIVE_MOUNTS[prefix] = p
+                break
 
     datasets = discover_datasets()
     total = sum(d["count"] for d in datasets)

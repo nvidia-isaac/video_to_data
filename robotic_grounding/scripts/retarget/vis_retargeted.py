@@ -448,12 +448,18 @@ def visualize_one_trajectory(
                     print(f"  [mp4] skip object {obj_name}: {e}")
         # Auto-fit the camera to the trajectory: use object positions + robot
         # wrist positions across every frame so the subject stays in frame.
+        # Filter outliers (e.g., hidden hands placed at z=-100) by excluding
+        # points more than 5 m from the median before calling fit_camera.
         frame_points = [
             np.asarray(logger_data.object_body_position).reshape(-1, 3),
-            np.asarray(logger_data.robot_right_wrist_position),
-            np.asarray(logger_data.robot_left_wrist_position),
+            np.asarray(logger_data.robot_right_wrist_position).reshape(-1, 3),
+            np.asarray(logger_data.robot_left_wrist_position).reshape(-1, 3),
         ]
-        video_renderer.fit_camera(np.concatenate(frame_points, axis=0))
+        all_pts = np.concatenate(frame_points, axis=0)
+        if len(all_pts) > 0:
+            median = np.median(all_pts, axis=0)
+            inliers = all_pts[np.linalg.norm(all_pts - median, axis=1) < 5.0]
+            video_renderer.fit_camera(inliers if len(inliers) > 0 else all_pts)
 
     for frame_id in range(H):
         # Right hand

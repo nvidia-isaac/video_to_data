@@ -24,6 +24,13 @@
 #   visualize   - retargeted Parquet -> offline Viser + MANO-only MP4s (pyrender)
 #   video       - retargeted Parquet -> Isaac Lab MP4s with robot hands (dummy_agent)
 #
+# HOT3D-only behavior:
+#   Stage 1.6 (right after load) splits ~90-second HOT3D sequences into
+#   atomic hand-object interaction clips. All subsequent stages (URDFs,
+#   retarget, visualize, video, quality filter) then operate on segments.
+#   Penetration filtering happens transparently in Stage 6 via the auto-
+#   discovered hand_penetration data_quality_check.
+#
 # Usage:
 #   # Full pipeline
 #   python scripts/run_osmo.py --experiment-name retarget-taco \
@@ -77,7 +84,7 @@ workflow:
     # `v2d_{{dataset}}_retarget` history clean — flip back when running the
     # full dataset.
     - dataset:
-        name: v2d_{{dataset}}_retarget_exp_full
+        name: v2d_{{dataset}}_retarget_exp_full{{dataset_suffix}}
     files:
     - path: /tmp/entry.sh
       contents: |-
@@ -145,6 +152,46 @@ workflow:
           wait_shards "${PIDS[@]}"
           echo "=== Copying loaded data to output ==="
           cp -r ${LOADED_DIR} ${OUTPUT}/{{dataset}}_loaded
+        fi
+
+        # Stage 1.6 (HOT3D only): segment long loaded sequences into atomic
+        # hand-object interaction clips bounded by contact events. The
+        # segmenter only consumes loader-stage fields (mano_*_tips_distance,
+        # mano_*_object_contact_part_ids), so it can run BEFORE retarget;
+        # every downstream stage (URDFs, retarget, visualize, dummy_agent,
+        # quality filter) then operates on atomic segments instead of the
+        # original ~90-second sequences. Penetration filtering is handled
+        # transparently in Stage 6 — ``hand_penetration.py`` is auto-discovered
+        # by ``data_assessor.py`` and wraps ``filter_penetrations.py``.
+        if [ "{{dataset}}" = "hot3d" ] && \
+           { [ "${STAGES}" = "all" ] || [ "${STAGES}" = "load" ]; }; then
+          echo "=== Stage 1.6: HOT3D segmentation ==="
+          SEGMENTED_LOADED_DIR=${LOADED_DIR}_segmented
+          rm -rf "${SEGMENTED_LOADED_DIR}"
+          eval python scripts/segment_to_atomic.py \
+            --input_dir ${LOADED_DIR} \
+            --output_dir ${SEGMENTED_LOADED_DIR} \
+            ${FILTER_ARGS}
+          seg_count=$(ls -1d ${SEGMENTED_LOADED_DIR}/sequence_id=* 2>/dev/null | wc -l)
+          full_count=$(ls -1d ${LOADED_DIR}/sequence_id=* 2>/dev/null | wc -l)
+          echo "=== Stage 1.6: ${seg_count} segments from ${full_count} full sequences ==="
+          # Publish the segmented loaded dir alongside the original full
+          # loaded dir so downstream consumers can pick either granularity.
+          cp -r ${SEGMENTED_LOADED_DIR} ${OUTPUT}/{{dataset}}_loaded_segmented
+          # Subsequent stages (URDFs, retarget, …) read from ${LOADED_DIR};
+          # point that variable at the segmented dir so they see atomic clips.
+          LOADED_DIR=${SEGMENTED_LOADED_DIR}
+          # Drop --max_sequences so downstream stages process ALL segments
+          # (Stage 1's limit already constrained the inputs; segments are
+          # the real downstream units now). Sequence-id/pattern filters are
+          # preserved by re-deriving FILTER_ARGS from the templated vars.
+          FILTER_ARGS=""
+          if [ -n "{{sequence_pattern}}" ] && [ "{{sequence_pattern}}" != ".*" ]; then
+            FILTER_ARGS="${FILTER_ARGS} --sequence_pattern '{{sequence_pattern}}'"
+          fi
+          if [ -n "{{sequence_id}}" ]; then
+            FILTER_ARGS="${FILTER_ARGS} --sequence_id {{sequence_id}}"
+          fi
         fi
 
         # Stage 1.5: Generate rigid URDFs (one-shot — not per-sequence)
@@ -370,6 +417,11 @@ default-values:
   sequence_pattern: ".*"
   sequence_id: ""
   max_sequences: ""
+  # Optional suffix appended to the OSMO dataset name. Default empty → publishes
+  # to v2d_{dataset}_retarget_exp_full (production). For experiments / smoke
+  # tests, pass --set dataset_suffix=_test_new (or similar) so the run lands in
+  # a separate dataset and doesn't bloat the production version history.
+  dataset_suffix: ""
   # Sharding: each stage fans out into SHARDS parallel processes, each pinned
   # to CUDA_VISIBLE_DEVICES=<shard_id>.  Defaults to 8 to match the
   # 8×L40 per-task resource request above.

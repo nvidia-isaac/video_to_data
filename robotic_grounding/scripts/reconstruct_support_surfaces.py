@@ -93,6 +93,20 @@ def main() -> None:
         )
         return
 
+    # HOT3D and OakInk2 objects often rest at floor level (z ≤ 0.05 m). Don't
+    # filter those disks out — the sim ground plane can coexist with a support
+    # surface there.  Only applies when the user hasn't explicitly overridden
+    # --ground_threshold.
+    if args.ground_threshold == GROUND_Z_THRESHOLD:
+        is_hot3d = args.dataset == "hot3d" or "hot3d" in str(input_dir).lower()
+        is_oakink2 = args.dataset == "oakink2" or "oakink2" in str(input_dir).lower()
+        if is_hot3d or is_oakink2:
+            args.ground_threshold = -0.02
+            detected = "HOT3D" if is_hot3d else "OakInk2"
+            print(
+                f"{detected} detected: ground_threshold set to -0.01 (keeping floor-level disks)"
+            )
+
     sequence_ids = list_sequence_ids(str(input_dir))
     if not sequence_ids:
         print(f"No sequences in {input_dir}")

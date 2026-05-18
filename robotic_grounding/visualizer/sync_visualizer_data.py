@@ -92,12 +92,22 @@ def _rich_color(name: str) -> str:
 def _osmo_dataset(name: str) -> str:
     if name == "arctic":
         return "isaac/retargeted_arctic_exp_full"
+    elif name == "hot3d":
+        return "isaac/v2d_hot3d_retarget_exp_full"
+    elif name == "oakink2":
+        return "isaac/v2d_oakink2_retarget_exp_full"
+
     return f"isaac/v2d_{name}_retarget_exp_200"
 
 
 def _local_dir(name: str) -> Path:
     if name == "arctic":
         return LOCAL_DATASETS_DIR / "retargeted_arctic_exp_full"
+    elif name == "hot3d":
+        return LOCAL_DATASETS_DIR / "v2d_hot3d_retarget_exp_full"
+    elif name == "oakink2":
+        return LOCAL_DATASETS_DIR / "v2d_oakink2_retarget_exp_full"
+
     return LOCAL_DATASETS_DIR / f"v2d_{name}_retarget_exp_200"
 
 
