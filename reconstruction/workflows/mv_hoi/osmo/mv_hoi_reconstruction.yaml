@@ -521,6 +521,9 @@ workflow:
       contents: |-
         depth_path_template: "${depth_dir}/{cam_name}/depth.h5"
         mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}.h5"
+        camera_workers: 4
+        profile: true
+        progress_interval: 0.1
 
   # Chamfer evaluation – human
   - name: eval_chamfer_human
@@ -557,6 +560,9 @@ workflow:
       contents: |-
         depth_path_template: "${depth_dir}/{cam_name}/depth.h5"
         mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}.h5"
+        camera_workers: 4
+        profile: true
+        progress_interval: 0.1
 
   # Render HOI overlay videos
   - name: render_hoi_overlay
@@ -597,6 +603,9 @@ workflow:
     - path: /tmp/render_overlay_config.yaml
       contents: |-
         rgb_path_template: "${rgb_dir}/{cam_name}.h5"
+        render_workers: 4
+        profile: true
+        progress_interval: 0.1
 
   # Final QC gate – aggregate chamfer + mask-containment checks
   - name: check_accuracy

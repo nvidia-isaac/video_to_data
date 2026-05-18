@@ -9,7 +9,7 @@ import trimesh
 from v2d.common.datatypes import CameraIntrinsics
 from v2d.mv.rig import RigConfig
 
-from v2d.mv.postprocess.lib.mv_eval_chamfer import mv_eval_chamfer
+from v2d.mv.postprocess.lib.mv_eval_chamfer import mv_eval_chamfer_rigid_object
 
 
 def mv_eval_chamfer_object_from_config(cfg):
@@ -21,14 +21,6 @@ def mv_eval_chamfer_object_from_config(cfg):
     faces = np.array(canonical_mesh.faces)
 
     poses = np.load(cfg.object_pose_path)  # (N, 4, 4)
-    n_frames = poses.shape[0]
-
-    canonical_hom = np.concatenate(
-        [canonical_verts, np.ones((canonical_verts.shape[0], 1))], axis=1,
-    )  # (V, 4)
-    mesh_verts = np.stack([
-        (canonical_hom @ poses[i].T)[:, :3] for i in range(n_frames)
-    ])  # (N, V, 3)
 
     cam_names: list[str] = []
     cam_intrinsics: list[np.ndarray] = []
@@ -56,14 +48,15 @@ def mv_eval_chamfer_object_from_config(cfg):
     debug = cfg.get("debug", 0)
     vis_dir = Path(cfg.vis_path) if cfg.get("vis_path") else None
 
-    return mv_eval_chamfer(
+    return mv_eval_chamfer_rigid_object(
         cam_names=cam_names,
         cam_intrinsics=cam_intrinsics,
         cam_extrinsics=cam_extrinsics,
         depth_dirs=depth_dirs,
         mask_dirs=mask_dirs,
+        canonical_verts=canonical_verts,
         faces=faces,
-        mesh_verts=mesh_verts,
+        poses=poses,
         output_path=output_path,
         eval_image_size=eval_image_size,
         anomaly_median_mm=float(cfg.get("anomaly_median_mm", 30.0)),
@@ -72,6 +65,9 @@ def mv_eval_chamfer_object_from_config(cfg):
         vis_dir=vis_dir,
         tile_shape=tuple(cfg.get("tile_shape", [2, 2])),
         tile_image_size=tuple(cfg.get("tile_image_size", [768, 576])),
+        camera_workers=int(cfg.get("camera_workers", 1)),
+        profile=bool(cfg.get("profile", False)),
+        progress_interval=float(cfg.get("progress_interval", 0.1)),
     )
 
 

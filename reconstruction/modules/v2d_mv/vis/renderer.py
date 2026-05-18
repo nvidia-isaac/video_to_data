@@ -72,6 +72,48 @@ class Renderer:
         self._camera_node = None
         self._cached_K: np.ndarray | None = None
         self._mesh_nodes: list[pyrender.Node] = []
+        self._persistent_mesh_nodes: dict[int, pyrender.Node] = {}
+        self._next_persistent_mesh_handle = 1
+
+    def add_persistent_mesh(
+        self,
+        mesh: trimesh.Trimesh,
+        pose: np.ndarray | None = None,
+    ) -> int:
+        """Add a scene-stateful mesh that persists across render calls.
+
+        Persistent meshes are useful for static geometry whose pose changes
+        per frame. Callers own their lifecycle and should remove or clear them
+        when they no longer belong in the scene.
+        """
+        pr_mesh = pyrender.Mesh.from_trimesh(mesh)
+        node = self._scene.add(pr_mesh, pose=np.eye(4) if pose is None else pose)
+        handle = self._next_persistent_mesh_handle
+        self._next_persistent_mesh_handle += 1
+        self._persistent_mesh_nodes[handle] = node
+        return handle
+
+    def set_persistent_mesh_pose(self, handle: int, pose: np.ndarray) -> None:
+        """Update the pose for a persistent mesh handle."""
+        try:
+            node = self._persistent_mesh_nodes[handle]
+        except KeyError as exc:
+            raise KeyError(f"Unknown persistent mesh handle: {handle}") from exc
+        self._scene.set_pose(node, pose)
+
+    def remove_persistent_mesh(self, handle: int) -> None:
+        """Remove one persistent mesh from the scene."""
+        try:
+            node = self._persistent_mesh_nodes.pop(handle)
+        except KeyError as exc:
+            raise KeyError(f"Unknown persistent mesh handle: {handle}") from exc
+        self._scene.remove_node(node)
+
+    def clear_persistent_meshes(self) -> None:
+        """Remove all persistent meshes from the scene."""
+        for node in self._persistent_mesh_nodes.values():
+            self._scene.remove_node(node)
+        self._persistent_mesh_nodes.clear()
 
     def _ensure_camera(self, K: np.ndarray) -> None:
         if self._cached_K is not None and np.array_equal(K, self._cached_K):
@@ -158,6 +200,7 @@ class Renderer:
     def close(self):
         """Release the OpenGL context and GPU resources."""
         if self._renderer is not None:
+            self.clear_persistent_meshes()
             self._renderer.delete()
             self._renderer = None
 

@@ -14,3 +14,6 @@ mhr_mesh_mv_path: "${human_pose_dir}/mhr_mesh_mv.pt"
 
 tile_shape: [2, 2]
 tile_image_size: [768, 576]
+render_workers: 4
+profile: false
+progress_interval: 0.1

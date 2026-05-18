@@ -23,3 +23,6 @@ anomaly_outlier_pct: 10.0
 debug: 1
 tile_shape: [2, 2]
 tile_image_size: [768, 576]
+camera_workers: 4
+profile: false
+progress_interval: 0.1

@@ -62,6 +62,9 @@ def mv_eval_chamfer_human_from_config(cfg):
         vis_dir=vis_dir,
         tile_shape=tuple(cfg.get("tile_shape", [2, 2])),
         tile_image_size=tuple(cfg.get("tile_image_size", [768, 576])),
+        camera_workers=int(cfg.get("camera_workers", 1)),
+        profile=bool(cfg.get("profile", False)),
+        progress_interval=float(cfg.get("progress_interval", 0.1)),
     )
 
 
