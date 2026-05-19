@@ -147,7 +147,23 @@ def _frame_records(aligned_dir: str) -> dict[int, list[dict]]:
     return out
 
 
-def _build_hand_mesh(rec: dict, mano: ManoLayer) -> Tuple[np.ndarray, np.ndarray]:
+def _rec_cam_t(rec: dict, use_pre_dz_cam_t: bool) -> np.ndarray:
+    """``cam_t`` for the record. With ``use_pre_dz_cam_t``, read the pre-dz
+    value saved in ``diagnostics`` by ``align_hands`` (i.e. the cam_t after
+    intrinsics rescaling but *before* the per-frame depth shift). This makes
+    a single renderer/track-format double-duty: the same aligned tracks can
+    be projected with or without depth alignment for visual comparison.
+    """
+    if use_pre_dz_cam_t:
+        return np.array(rec["diagnostics"]["cam_t_pre_dz"], dtype=np.float64)
+    return np.array(rec["cam_t"], dtype=np.float64)
+
+
+def _build_hand_mesh(
+    rec: dict,
+    mano: ManoLayer,
+    use_pre_dz_cam_t: bool = False,
+) -> Tuple[np.ndarray, np.ndarray]:
     """Hand verts in CV cam space + faces."""
     pose_aa = np.concatenate([
         np.array(rec["mano"]["global_orient"], dtype=np.float32),
@@ -162,12 +178,13 @@ def _build_hand_mesh(rec: dict, mano: ManoLayer) -> Tuple[np.ndarray, np.ndarray
     # align_hands' post-pass (when present). cam_t already carries the
     # additive dz shift; hand_scale rescales the mesh around its centroid
     # so the projected silhouette grows/shrinks to match the image while
-    # the centroid pixel is preserved.
-    hand_scale = float(rec.get("hand_scale", 1.0))
+    # the centroid pixel is preserved. With ``use_pre_dz_cam_t`` we are
+    # explicitly rendering the un-aligned hand, so hand_scale is forced to 1.
+    hand_scale = 1.0 if use_pre_dz_cam_t else float(rec.get("hand_scale", 1.0))
     if hand_scale != 1.0:
         c = verts_local.mean(axis=0, keepdims=True)
         verts_local = (verts_local - c) * hand_scale + c
-    cam_t = np.array(rec["cam_t"], dtype=np.float64)
+    cam_t = _rec_cam_t(rec, use_pre_dz_cam_t)
     verts_cam = verts_local + cam_t[None, :]
     faces = mano.th_faces.numpy()
     if not rec["is_right"]:
@@ -236,6 +253,7 @@ def render_hands_aligned_video(
     object_scale: float = 1.0,
     fps: float = 30.0,
     alpha: float = 0.55,
+    use_pre_dz_cam_t: bool = False,
 ) -> None:
     frame_files = sorted(
         glob.glob(os.path.join(frames_dir, "*.png")) +
@@ -273,7 +291,10 @@ def render_hands_aligned_video(
     cx = float(first["intrinsics"]["cx"])
     cy = float(first["intrinsics"]["cy"])
     # Far plane covers the actual cam_t.z range with margin.
-    z_max = max(rec["cam_t"][2] for recs in records.values() for rec in recs)
+    z_max = max(
+        _rec_cam_t(rec, use_pre_dz_cam_t)[2]
+        for recs in records.values() for rec in recs
+    )
     zfar = max(20.0, float(z_max) * 1.5)
 
     # src-cam: scaled intrinsics for the half-res panel, principal point shifts
@@ -302,7 +323,7 @@ def render_hands_aligned_video(
             # Per-frame hand meshes (cam space).
             hand_meshes_cv = []
             for rec in recs:
-                v_cv, f_ = _build_hand_mesh(rec, mano)
+                v_cv, f_ = _build_hand_mesh(rec, mano, use_pre_dz_cam_t)
                 color = _TRACK_COLORS[(rec["track_id"] - 1) % len(_TRACK_COLORS)]
                 hand_meshes_cv.append((v_cv, f_, color, rec))
 
@@ -419,6 +440,11 @@ def main() -> None:
                              "refinement step.")
     parser.add_argument("--fps",   type=float, default=30.0)
     parser.add_argument("--alpha", type=float, default=0.55)
+    parser.add_argument("--use_pre_dz_cam_t", action="store_true",
+                        help="Project the un-aligned hand (cam_t from "
+                             "diagnostics.cam_t_pre_dz, hand_scale=1) so the "
+                             "same aligned-track dir can drive both aligned "
+                             "and unaligned renders.")
     args = parser.parse_args()
     render_hands_aligned_video(
         frames_dir       = args.frames_dir,
@@ -430,6 +456,7 @@ def main() -> None:
         object_scale     = args.object_scale,
         fps              = args.fps,
         alpha            = args.alpha,
+        use_pre_dz_cam_t = args.use_pre_dz_cam_t,
     )
 
 
