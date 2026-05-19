@@ -96,7 +96,10 @@ from v2d.foundation_pose.docker.run_render_poses import run_render_poses
 from v2d.foundation_pose.docker.run_video_to_poses import run_video_to_poses
 from v2d.grounding_dino.docker.run_image_to_object_bboxes import run_image_to_object_bboxes
 from v2d.hand_alignment.docker.run_align_world_results import run_align_world_results
+from v2d.hand_alignment.docker.run_dynhamr_to_hamer_tracks import run_dynhamr_to_hamer_tracks
 from v2d.hand_alignment.docker.run_render_dynhamr_video import run_render_dynhamr_video
+from v2d.hamer.docker.run_align_hands import run_align_hands
+from v2d.hamer.docker.run_render_hands_aligned_video import run_render_hands_aligned_video
 from v2d.moge.docker.run_video_to_depth import run_video_to_depth as run_moge_depth
 from v2d.sam2.docker.run_video_to_masks import run_video_to_masks
 from v2d.sam3d.docker.run_image_to_mesh import run_image_to_mesh
@@ -149,11 +152,20 @@ def parse_args() -> argparse.Namespace:
                         "alignment. Both depth sources are always computed. (default: moge)")
     p.add_argument("--reference_frame", type=int, default=0,
                    help="Frame used for DINO detection, SAM3D, and FP registration (default: 0).")
-    p.add_argument("--smooth_sigma",    type=float, default=5.0,
+    p.add_argument("--smooth_sigma",    type=float, default=0.0,
                    help="Gaussian sigma (frames) for hand translation smoothing (default: 5.0).")
     p.add_argument("--reregister_iou_thresh", type=float, default=0.3,
                    help="IoU threshold below which FoundationPose re-registers from scratch. "
                         "Set to 0 to disable. (default: 0.3)")
+    p.add_argument("--alignment_method", choices=["hamer", "world_results"],
+                   default="hamer",
+                   help="How to depth-align the DynHaMR hand. 'hamer' (default) "
+                        "converts the npz into per-frame v2d_hamer-style tracks "
+                        "in DynHaMR's cam frame and runs v2d_hamer.align_hands, "
+                        "bypassing ViPE's world frame entirely (robust to bad "
+                        "ViPE intrinsics / camera poses). 'world_results' uses "
+                        "the legacy align_world_results path (sensitive to bad "
+                        "ViPE world estimates).")
     p.add_argument("--dev", action="store_true",
                    help="Mount local module source into containers (live-edit mode).")
     return p.parse_args()
@@ -316,10 +328,15 @@ def run_v2d_ego_e2e(
     reference_frame: int = 0,
     smooth_sigma: float = 5.0,
     reregister_iou_thresh: float | None = 0.3,
+    alignment_method: str = "hamer",
     dev: bool = False,
 ) -> None:
     if depth_source not in ("moge", "vipe"):
         raise ValueError(f"depth_source must be 'moge' or 'vipe', got {depth_source!r}")
+    if alignment_method not in ("hamer", "world_results"):
+        raise ValueError(
+            f"alignment_method must be 'hamer' or 'world_results', "
+            f"got {alignment_method!r}")
 
     video_path   = os.path.abspath(video_path)
     output_dir   = os.path.abspath(output_dir)
@@ -363,6 +380,10 @@ def run_v2d_ego_e2e(
     world_aligned           = f"{output_dir}/world_results_aligned_{ds}.npz"
     render_aligned          = f"{output_dir}/render_aligned_{ds}.mp4"
     render_unaligned        = f"{output_dir}/render_unaligned_{ds}.mp4"
+    # v2d_hamer-style alignment artifacts (default path).
+    hamer_tracks_dir        = f"{output_dir}/dynhamr_as_hamer_tracks_{ds}"
+    hamer_aligned_dir       = f"{output_dir}/hamer_aligned_from_dynhamr_{ds}"
+    hamer_aligned_sentinel  = f"{hamer_aligned_dir}/hand_scale.json"
 
     ref_rgb   = f"{frames_dir}/{reference_frame:06d}.png"
     ref_depth = f"{active_depth_dir}/{reference_frame:06d}.png"
@@ -603,46 +624,86 @@ def run_v2d_ego_e2e(
         )
 
     # -----------------------------------------------------------------------
-    # Step 11: Hand/object depth alignment
-    # Uses: active_depth_dir, active_intrinsics
+    # Step 11 + 12 (default): v2d_hamer-style alignment.
     # -----------------------------------------------------------------------
-    if not _step(f"Hand/object depth alignment ({ds})", os.path.exists(world_aligned)):
-        run_align_world_results(
-            input_hand_data  = world_results_npz,
-            depth_dir        = active_depth_dir,
-            depth_intrinsics = active_intrinsics,
-            mano_model_dir   = mano_weights,
-            output_hand_data = world_aligned,
-            object_masks_dir = f"{masks_dir}/{OBJECT_ID}",
-            object_poses_dir = poses_smooth_dir,
-            smooth_sigma     = smooth_sigma,
-            dev              = dev,
-        )
+    # Re-express DynHaMR's per-frame hand state in DynHaMR's per-frame
+    # camera coordinates (dropping the ViPE world / inter-frame extrinsics
+    # entirely), then run v2d_hamer.align_hands — the same alignment used
+    # by the WiLoR / HaMeR pipelines. This is robust to bad ViPE intrinsic
+    # and camera-pose estimates because nothing in the alignment math
+    # touches `cam_R, cam_t` per-frame: each frame is an independent cam-
+    # frame hand detection.
+    if alignment_method == "hamer":
+        if not _step(f"DynHaMR → v2d_hamer-style tracks ({ds})",
+                     os.path.isdir(hamer_tracks_dir)
+                     and any(os.scandir(hamer_tracks_dir))):
+            run_dynhamr_to_hamer_tracks(
+                input_npz       = world_results_npz,
+                output_dir      = hamer_tracks_dir,
+                intrinsics_path = active_intrinsics,
+                dev             = dev,
+            )
+        if not _step(f"HaMeR-style depth alignment ({ds})",
+                     os.path.exists(hamer_aligned_sentinel)):
+            run_align_hands(
+                hamer_dir        = hamer_tracks_dir,
+                depth_dir        = active_depth_dir,
+                intrinsics_path  = active_intrinsics,
+                mano_assets_root = mano_weights,
+                output_dir       = hamer_aligned_dir,
+                object_masks_dir = f"{masks_dir}/{OBJECT_ID}",
+                dev              = dev,
+            )
+        if not _step(f"Render aligned (hamer, {ds})",
+                     os.path.exists(render_aligned)):
+            run_render_hands_aligned_video(
+                aligned_dir      = hamer_aligned_dir,
+                frames_dir       = frames_dir,
+                mano_assets_root = mano_weights,
+                output_path      = render_aligned,
+                object_mesh_path = mesh_scaled,
+                object_poses_dir = poses_smooth_dir,
+                dev              = dev,
+            )
+    else:
+        # Legacy: world_results-based alignment (uses ViPE world frame).
+        # Kept for comparison / fallback; sensitive to bad ViPE poses.
+        if not _step(f"Hand/object depth alignment ({ds})",
+                     os.path.exists(world_aligned)):
+            run_align_world_results(
+                input_hand_data  = world_results_npz,
+                depth_dir        = active_depth_dir,
+                depth_intrinsics = active_intrinsics,
+                mano_model_dir   = mano_weights,
+                output_hand_data = world_aligned,
+                object_masks_dir = f"{masks_dir}/{OBJECT_ID}",
+                object_poses_dir = poses_smooth_dir,
+                smooth_sigma     = smooth_sigma,
+                dev              = dev,
+            )
+        if not _step(f"Render aligned (trans_aligned, {ds})",
+                     os.path.exists(render_aligned)):
+            run_render_dynhamr_video(
+                world_results_path = world_aligned,
+                frames_folder      = frames_dir,
+                mano_assets_root   = mano_weights,
+                output_path        = render_aligned,
+                use_trans_aligned  = True,
+                object_mesh_path   = mesh_scaled,
+                object_poses_dir   = poses_smooth_dir,
+                intrinsics_path    = active_intrinsics,
+                dev                = dev,
+            )
 
     # -----------------------------------------------------------------------
-    # Step 12: Render aligned result (trans_aligned) — 2×2 grid video
-    # -----------------------------------------------------------------------
-    if not _step(f"Render aligned (trans_aligned, {ds})", os.path.exists(render_aligned)):
-        run_render_dynhamr_video(
-            world_results_path = world_aligned,
-            frames_folder      = frames_dir,
-            mano_assets_root   = mano_weights,
-            output_path        = render_aligned,
-            use_trans_aligned  = True,
-            object_mesh_path   = mesh_scaled,
-            object_poses_dir   = poses_smooth_dir,
-            intrinsics_path    = active_intrinsics,
-            dev                = dev,
-        )
-
-    # -----------------------------------------------------------------------
-    # Step 13: Render unaligned result (trans) for comparison
-    # Raw DynHaMR `trans` was optimized under ViPE intrinsics, so we must
-    # project it through ViPE intrinsics regardless of --depth_source.
+    # Step 13: Render unaligned result (raw DynHaMR `trans`) for comparison.
+    # Raw DynHaMR `trans` was optimized under ViPE intrinsics, so we project
+    # it through ViPE intrinsics regardless of --depth_source. Reads from
+    # the raw world_results.npz directly (no dependency on alignment).
     # -----------------------------------------------------------------------
     if not _step(f"Render unaligned (trans, {ds})", os.path.exists(render_unaligned)):
         run_render_dynhamr_video(
-            world_results_path = world_aligned,
+            world_results_path = world_results_npz,
             frames_folder      = frames_dir,
             mano_assets_root   = mano_weights,
             output_path        = render_unaligned,
@@ -686,5 +747,6 @@ if __name__ == "__main__":
         reference_frame             = args.reference_frame,
         smooth_sigma                = args.smooth_sigma,
         reregister_iou_thresh       = args.reregister_iou_thresh,
+        alignment_method            = args.alignment_method,
         dev                         = args.dev,
     )

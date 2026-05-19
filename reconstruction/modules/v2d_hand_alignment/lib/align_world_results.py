@@ -81,34 +81,42 @@ def align_world_results(
     # ------------------------------------------------------------------
     # Per-hand per-frame depth offset → trans_aligned + per-frame scales
     # ------------------------------------------------------------------
-    # One render pass per (hand, frame) yields both the offset (used for
-    # trans_aligned) and the per-frame depth-vs-render scale (aggregated into
-    # a single global hand_scale below).
-    print("\nComputing per-frame depth alignment (offset + scale)...")
-    trans_aligned = trans.copy()
-    offsets       = np.full((B, T), np.nan)
-    scales        = np.full((B, T), np.nan)
-    pixels        = np.zeros((B, T), dtype=np.int64)
+    # Three-pass design:
+    #
+    #   Pass 1: compute cam-frame ``offset_reprojected`` per (hand, frame).
+    #           No alignment applied yet — we just collect the corrections.
+    #   Pass 2: smooth ``offset_cam`` IN CAM FRAME across time.  This is
+    #           critical: smoothing in world frame mixes cam-frame components
+    #           as the camera rotates between frames, so even a "smooth"
+    #           world-frame trajectory ends up jittery in the cam frame
+    #           where rendering happens. Smoothing in cam frame guarantees
+    #           the per-frame cam-frame correction is itself smooth.
+    #   Pass 3: rotate each smoothed offset by R.T (with left-hand mirror)
+    #           and add to ``trans`` to produce ``trans_aligned``.  DynHaMR's
+    #           ``trans`` carries inverse-camera-motion baked in (image
+    #           stability); only the depth correction comes from alignment.
+    #
+    # For left hands the renderer mirrors v_world.x AFTER adding trans
+    # (render_dynhamr_video.py: ``v_world[:, :, 0] = -v_world[:, :, 0]``),
+    # so the cam-to-world mapping picks up an extra mirror M = diag(-1, 1, 1):
+    #   v_cam = cam_R · M · (verts_local + trans) + cam_t   # left
+    #   ⇒ delta_world = M · cam_R.T · delta_cam
+    print("\nPass 1: per-frame depth alignment (cam-frame offsets + scale)...")
+    offset_cam = np.full((B, T, 3), np.nan, dtype=np.float64)
+    offsets    = np.full((B, T), np.nan)
+    scales     = np.full((B, T), np.nan)
+    pixels     = np.zeros((B, T), dtype=np.int64)
 
     for h in range(B):
         side = 1 if is_right_track[h] else 0
-        # The renderer mirrors v_world.x AFTER adding trans for the left hand
-        # (render_dynhamr_video.py: `v_world[:, :, 0] = -v_world[:, :, 0]`),
-        # so for left hands we must mirror the world-space delta to keep the
-        # cam-space shift equal to delta_cam.  Derivation:
-        #   v_cam = cam_R · M · (verts_local + trans) + cam_t      # left
-        #   ⇒ delta_world = M · cam_R.T · delta_cam,   M = diag(-1, 1, 1)
         for f in tqdm(range(T), desc=f"  hand {h} ({'right' if is_right_track[h] else 'left'})",
                       unit="frame", ncols=80):
             try:
                 a = alignment.compute_alignment(side, f)
-                delta_world = cam_R[h, f].T @ a["offset_reprojected"]
-                if side == 0:
-                    delta_world[0] = -delta_world[0]
-                trans_aligned[h, f] += delta_world
-                offsets[h, f] = a["offset_reprojected"][2]
-                scales[h, f]  = a["scale"]
-                pixels[h, f]  = a["n_pixels"]
+                offset_cam[h, f] = a["offset_reprojected"]
+                offsets[h, f]    = a["offset_reprojected"][2]
+                scales[h, f]     = a["scale"]
+                pixels[h, f]     = a["n_pixels"]
             except Exception as e:
                 tqdm.write(f"  hand {h} frame {f}: alignment failed ({e})")
 
@@ -132,33 +140,143 @@ def align_world_results(
         s_sorted = s_vals[order]
         w_cum    = np.cumsum(w_vals[order])
         cutoff   = w_cum[-1] / 2.0
-        hand_scale = float(s_sorted[int(np.searchsorted(w_cum, cutoff))])
-        print(f"\nGlobal hand_scale = {hand_scale:.4f}  "
+        hand_scale_depth = float(s_sorted[int(np.searchsorted(w_cum, cutoff))])
+        print(f"\nDepth-only hand_scale = {hand_scale_depth:.4f}  "
               f"(weighted median over {int(valid.sum())}/{B*T} frames)")
     else:
-        hand_scale = 1.0
-        print("\nGlobal hand_scale = 1.0  (no valid frames; alignment will not rescale)")
+        hand_scale_depth = 1.0
+        print("\nDepth-only hand_scale = 1.0  (no valid frames; alignment will not rescale)")
 
     # ------------------------------------------------------------------
-    # Optional temporal smoothing of trans_aligned
+    # Compensate for ViPE↔depth-source intrinsics mismatch.
     # ------------------------------------------------------------------
-    if smooth_sigma > 0.0:
-        print(f"\nSmoothing trans_aligned with sigma={smooth_sigma} frames...")
-        frames = np.arange(T)
-        for h in range(B):
-            valid = np.isfinite(offsets[h])
-            if valid.sum() < 2:
-                print(f"  hand {h}: too few valid frames, skipping smoothing")
-                continue
-            filled = trans_aligned[h].copy()
-            for dim in range(3):
-                filled[:, dim] = np.interp(frames, frames[valid], trans_aligned[h, valid, dim])
-            smoothed = np.stack([
-                gaussian_filter1d(filled[:, dim], sigma=smooth_sigma) for dim in range(3)
-            ], axis=-1)
-            shift = np.linalg.norm(smoothed[valid] - trans_aligned[h, valid], axis=-1)
-            print(f"  hand {h}: max_shift={shift.max():.4f}  mean_shift={shift.mean():.4f}")
-            trans_aligned[h] = smoothed
+    # The depth-only scale (di/dr) gives a mesh whose physical extent is
+    # consistent with the depth values, but the *projected* size depends
+    # on which fx we render under:
+    #
+    #   silhouette_under_vipe = mano * fx_vipe / dr            (unaligned)
+    #   silhouette_under_moge = mano * (di/dr) * fx_moge / di
+    #                         = mano * fx_moge / dr             (aligned)
+    #   ratio = fx_moge / fx_vipe
+    #
+    # Aligned renderer uses MoGe intrinsics (depth-source), so when
+    # fx_moge != fx_vipe the silhouette shrinks/grows by that ratio.
+    # Pre-multiply hand_scale by fx_vipe/fx_moge so the rendered silhouette
+    # under MoGe intrins matches the image (which the unaligned render
+    # under ViPE intrins already does).
+    fx_vipe = float(wr["intrins"][0])
+    fy_vipe = float(wr["intrins"][1])
+    _depth_intr = alignment.get_depth_intrinsics()    # [fx, fy, cx, cy]
+    fx_moge = float(_depth_intr[0])
+    fy_moge = float(_depth_intr[1])
+    # Geometric mean of the per-axis ratios — robust to fx/fy asymmetry.
+    fx_ratio = float(np.sqrt((fx_vipe / fx_moge) * (fy_vipe / fy_moge)))
+    hand_scale = hand_scale_depth * fx_ratio
+    print(f"  fx ratio (ViPE / MoGe) = {fx_ratio:.4f}  "
+          f"(fx_vipe={fx_vipe:.1f}  fx_moge={fx_moge:.1f})")
+    print(f"  hand_scale (with fx correction) = {hand_scale:.4f}")
+    if abs(fx_ratio - 1.0) > 0.05:
+        print(f"  NOTE: |fx_ratio - 1| > 0.05; aligned silhouette would be "
+              f"{1.0 / fx_ratio:.2f}× off without this correction.")
+
+    # ------------------------------------------------------------------
+    # Pass 2: per-frame depth alignment in *metric* cam frame.
+    # ------------------------------------------------------------------
+    # Mirrors v2d_hamer/lib/align_hands.py: render the mesh at the metric-
+    # rescaled cam pose under the *real* (MoGe) intrinsics, get a small
+    # per-frame dz_metric, apply via a ray-offset in cam frame.
+    #
+    # The systemic ~fx_vipe/fx_moge mismatch is fully absorbed into the
+    # global α scaling (uniform across frames). What remains per-frame
+    # is small (cm-scale) noise from MoGe's per-frame depth jitter — this
+    # is what we *want* to align against per-frame, the same regime
+    # v2d_hamer operates in (where alignment works well).
+    print(f"\nPass 2: per-frame metric alignment "
+          f"(α = {hand_scale_depth:.4f}, render under MoGe intrins)...")
+    alpha = float(hand_scale_depth)
+    offset_cam_metric = np.full((B, T, 3), np.nan, dtype=np.float64)
+
+    for h in range(B):
+        side = 1 if is_right_track[h] else 0
+        for f in tqdm(range(T),
+                      desc=f"  pass 2 hand {h} ({'right' if is_right_track[h] else 'left'})",
+                      unit="frame", ncols=80):
+            try:
+                # 1. Mesh in DynHaMR cam frame, rescaled to metric.
+                mesh = alignment.get_mesh(side, f)
+                mesh.vertices = mesh.vertices.astype(np.float64) * alpha   # → metric cam frame
+
+                # 2. Render under MoGe intrins.
+                depth_image = alignment.get_depth_image(f)
+                occ_mask    = alignment.get_occlusion_mask(f)
+                h_img, w_img = depth_image.shape
+                _, rendered = alignment.render_mesh(mesh, (w_img, h_img), _depth_intr)
+
+                hand_mask = rendered > 0
+                if occ_mask is not None:
+                    hand_mask &= ~occ_mask
+                n_pixels = int(hand_mask.sum())
+                if n_pixels < 100:
+                    continue
+
+                # 3. Small per-frame dz: both di and rendered are metric now.
+                di = depth_image[hand_mask]
+                dr = rendered[hand_mask]
+                dz = float(np.median(di - dr))            # cm-scale, not metres
+
+                # 4. Ray-offset in cam frame so centroid pixel is preserved
+                #    while depth gets nudged by dz.
+                cz = float(np.mean(mesh.vertices[:, 2]))
+                cx = float(np.mean(mesh.vertices[:, 0]))
+                cy = float(np.mean(mesh.vertices[:, 1]))
+                if cz < 1e-6:
+                    continue
+                z_p = cz + dz
+                offset_cam_metric[h, f] = np.array(
+                    [cx * (z_p / cz - 1.0), cy * (z_p / cz - 1.0), dz],
+                    dtype=np.float64,
+                )
+            except Exception as e:
+                tqdm.write(f"  hand {h} frame {f}: metric alignment failed ({e})")
+
+    # Report per-hand dz_metric stats so it's clear how big the per-frame
+    # corrections are after the uniform α has done its job.
+    for h in range(B):
+        side = 'right' if is_right_track[h] else 'left'
+        dz_vals = offset_cam_metric[h, :, 2]
+        finite  = np.isfinite(dz_vals)
+        if finite.any():
+            n_v = int(finite.sum())
+            print(f"  hand {h} ({side}): per-frame dz_metric — "
+                  f"{n_v}/{T} valid, "
+                  f"median={float(np.nanmedian(dz_vals)):+.4f}  "
+                  f"|max|={float(np.nanmax(np.abs(dz_vals))):.4f}")
+
+    # ------------------------------------------------------------------
+    # Pass 3: compose trans_aligned = uniform-α base + per-frame metric offset.
+    # ------------------------------------------------------------------
+    print("\nPass 3: composing trans_aligned = α·(trans − cam_center) + cam_center "
+          "+ R.T·offset_cam_metric")
+    trans_aligned = trans.copy()
+    for h in range(B):
+        side = 1 if is_right_track[h] else 0
+        for f in range(T):
+            # Step A: uniform α scaling (in DynHaMR world → metric).
+            cam_center_f = -cam_R[h, f].T @ cam_t[h, f]
+            if side == 0:
+                cam_center_f = cam_center_f.copy()
+                cam_center_f[0] = -cam_center_f[0]
+            ta = alpha * (trans[h, f] - cam_center_f) + cam_center_f
+
+            # Step B: small per-frame metric offset (cm-scale).
+            oc = offset_cam_metric[h, f]
+            if np.isfinite(oc[0]):
+                delta_world = cam_R[h, f].T @ oc
+                if side == 0:
+                    delta_world[0] = -delta_world[0]
+                ta = ta + delta_world
+
+            trans_aligned[h, f] = ta
 
     # ------------------------------------------------------------------
     # Object poses in camera and world frame
