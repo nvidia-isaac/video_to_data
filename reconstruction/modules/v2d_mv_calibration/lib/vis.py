@@ -9,7 +9,7 @@ import numpy as np
 from tqdm import tqdm
 
 from v2d.mv.rig import CameraParam
-from v2d.mv.math.numpy_fn import se3_inv
+from v2d.mv.math.numpy_fn import distort_polynomial, reproject, se3_inv
 
 
 logger = logging.getLogger(__name__)
@@ -93,13 +93,14 @@ def visualize_camera_and_target_poses(
 
 def visualize_reprojected_points(
     output_dir: Path,
-    image_files: list[Path],
+    frame_source,
     target_xyz: np.ndarray,
     per_cam_features: list[np.ndarray | None],
     est_camera_param: CameraParam,
     opt_camera_param: CameraParam,
     est_target_poses: np.ndarray,
     opt_target_poses: np.ndarray,
+    frame_indices: list[int] | None = None,
     radius: int = 1,
     shift: int = 4,
 ):
@@ -107,59 +108,57 @@ def visualize_reprojected_points(
 
     Args:
         output_dir: Directory to write annotated images.
-        image_files: List of image file paths.
+        frame_source: FrameSource for reading images.
         target_xyz: (P, 3) target 3D points.
-        per_cam_features: Per-frame detected features (or None).
+        per_cam_features: Per-correspondence detected features (or None).
         est_camera_param: Estimated (pre-BA) camera params.
         opt_camera_param: Optimized (post-BA) camera params.
         est_target_poses: (N, 4, 4) estimated target poses.
         opt_target_poses: (N, 4, 4) optimized target poses.
+        frame_indices: Original frame indices for each correspondence
+            entry. When provided, only those frames are visualized and
+            per_cam_features/poses are indexed by correspondence order.
+            When None, falls back to sequential indexing (legacy behavior).
     """
-    from v2d.mv.math.numpy_fn import se3_inv as np_se3_inv
-
-    def _reproject_np(xyz, K, T, distort_fn=None):
-        rot, trans = T[:3, :3], T[:3, 3]
-        xyz_cam = xyz @ rot.T + trans
-        xy = xyz_cam[:, :2] / xyz_cam[:, 2:3]
-        if distort_fn is not None:
-            xy = distort_fn(xy)
-        return xy @ K[:2, :2].T + K[:2, 2]
-
-    def _distort_polynomial_np(xy, coeffs):
-        x, y = xy[..., 0], xy[..., 1]
-        r2 = x**2 + y**2
-        k1, k2, p1, p2, k3, k4, k5, k6 = np.split(coeffs, 8, axis=-1)
-        kr = (1.0 + ((k3 * r2 + k2) * r2 + k1) * r2) / (1.0 + ((k6 * r2 + k5) * r2 + k4) * r2)
-        xd = x * kr + p1 * (2.0 * x * y) + p2 * (r2 + 2.0 * x**2)
-        yd = y * kr + p1 * (r2 + 2.0 * y**2) + p2 * (2.0 * x * y)
-        return np.stack([xd, yd], axis=-1)
-
-    import imageio.v3 as iio
-
     K, D = est_camera_param.K, est_camera_param.D
-    distort_fn = partial(_distort_polynomial_np, coeffs=D) if len(D) > 0 else None
-    est_T_cam_world = np_se3_inv(est_camera_param.T)
-    opt_T_cam_world = np_se3_inv(opt_camera_param.T)
+    distort_fn = partial(distort_polynomial, coeffs=D) if len(D) > 0 else None
+    est_T_cam_world = se3_inv(est_camera_param.T)
+    opt_T_cam_world = se3_inv(opt_camera_param.T)
     shift_factor = 1 << shift
     r = radius * shift_factor
 
+    n_corr = len(est_target_poses)
+    if frame_indices is None:
+        frame_indices = list(range(n_corr))
+
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    for t in tqdm(range(len(image_files)), desc="Drawing reprojections"):
-        img = iio.imread(image_files[t], plugin="pillow")
+    for corr_idx, img_idx in tqdm(
+        enumerate(frame_indices), total=len(frame_indices),
+        desc="Drawing reprojections",
+    ):
+        if img_idx >= frame_source.n_frames:
+            logger.warning("Frame index %d out of range (%d frames), skipping", img_idx, frame_source.n_frames)
+            continue
+
+        img = frame_source[img_idx]
         if img.ndim == 2:
             img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
         elif img.shape[2] == 3:
             img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
-        uv_est = _reproject_np(target_xyz, K, est_T_cam_world @ est_target_poses[t], distort_fn)
-        uv_opt = _reproject_np(target_xyz, K, opt_T_cam_world @ opt_target_poses[t], distort_fn)
+        uv_est = reproject(
+            target_xyz, K, est_T_cam_world @ est_target_poses[corr_idx], distort_fn,
+        )
+        uv_opt = reproject(
+            target_xyz, K, opt_T_cam_world @ opt_target_poses[corr_idx], distort_fn,
+        )
 
         cv2.putText(img, "Features", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
         cv2.putText(img, "Estimated", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 255), 2)
         cv2.putText(img, "Optimized", (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
-        feat = per_cam_features[t] if t < len(per_cam_features) else None
+        feat = per_cam_features[corr_idx] if corr_idx < len(per_cam_features) else None
         if feat is not None:
             for pt in feat:
                 p = (pt * shift_factor + 0.5).astype(int)
@@ -171,6 +170,6 @@ def visualize_reprojected_points(
             p = (pt * shift_factor + 0.5).astype(int)
             cv2.circle(img, p.tolist(), r, (0, 255, 0), -1, shift=shift)
 
-        cv2.imwrite(str(output_dir / f"reproj_{t:06d}.png"), img)
+        cv2.imwrite(str(output_dir / f"reproj_{img_idx:06d}.png"), img)
 
     logger.info(f"Reprojection visualizations saved to {output_dir}")

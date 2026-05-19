@@ -29,7 +29,7 @@ Design notes:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import pyarrow as pa
@@ -380,6 +380,124 @@ class MotionData:
     # Kept so the training loader preserves the legacy `file_joint_names`
     # semantic (alias of `robot_joint_names` for joint reordering).
     file_joint_names: list[str] | None = None
+
+    # ------------------------------------------------------------------
+    # Time-axis subsetting
+    # ------------------------------------------------------------------
+
+    # Field names whose first axis is the time axis T. Used by `trim()` so
+    # the schema stays the single source of truth for time-axis layout.
+    # Not annotated → class attribute only, not a dataclass field.
+    _TIME_AXIS_TENSOR_FIELDS = (
+        "robot_root_position",
+        "robot_root_wxyz",
+        "robot_joint_positions",
+        "ee_pose_w",
+        "ee_pos_w",
+        "ee_quat_w",
+        "object_articulation",
+        "object_root_axis_angle",
+        "object_root_position",
+        "object_body_position",
+        "object_body_wxyz",
+        "object_pos_w",
+        "object_quat_w",
+        "left_wrist_position",
+        "left_wrist_wxyz",
+        "right_wrist_position",
+        "right_wrist_wxyz",
+        "left_finger_joints",
+        "right_finger_joints",
+        "left_hand_frames",
+        "right_hand_frames",
+        "left_link_contact_positions",
+        "left_object_contact_positions",
+        "right_link_contact_positions",
+        "right_object_contact_positions",
+        "left_link_contact_normals",
+        "left_object_contact_normals",
+        "right_link_contact_normals",
+        "right_object_contact_normals",
+        "left_object_contact_part_ids",
+        "right_object_contact_part_ids",
+        "left_hand_contact_active",
+        "right_hand_contact_active",
+        "ik_error_per_frame",
+        "ik_num_iterations",
+        "frame_task_errors",
+    )
+
+    # List-of-tensor fields where each element is `(T, ...)` and should be
+    # sliced per-element.
+    _TIME_AXIS_TENSOR_LIST_FIELDS = (
+        "hand_frames_w",
+        "hand_finger_joints",
+        "hand_link_contact_positions",
+        "hand_link_contact_normals",
+        "hand_object_contact_positions",
+        "hand_object_contact_normals",
+        "hand_object_contact_part_ids",
+        "hand_contact_active",
+    )
+
+    def num_frames(self) -> int:
+        """Return motion length T inferred from a required time-axis field."""
+        ref = self.robot_root_position
+        if ref is None:
+            return 0
+        return int(ref.shape[0])
+
+    def trim(self, start_frame: int = 0, end_frame: int | None = None) -> "MotionData":
+        """Return a copy of this MotionData restricted to ``[start, end)`` frames.
+
+        Slices every time-axis tensor (and per-element of every time-axis tensor
+        list) along axis 0. Non-tensor metadata is shared with the source.
+
+        Args:
+            start_frame: First frame to keep (inclusive). Must be ``>= 0``.
+            end_frame: One past the last frame to keep. ``None`` means the
+                end of the sequence.
+
+        Returns:
+            A new ``MotionData`` whose time-axis fields contain frames
+            ``[start_frame, end_frame)`` of the original.
+
+        Raises:
+            ValueError: If the range is empty or out of bounds.
+        """
+        total = self.num_frames()
+        if total == 0:
+            # Nothing to trim; return self to avoid masking a missing-field bug
+            # behind a silent no-op clone.
+            if start_frame == 0 and end_frame in (None, 0):
+                return self
+            raise ValueError(
+                f"Cannot trim MotionData with no time-axis tensors: requested "
+                f"[{start_frame}, {end_frame})."
+            )
+
+        end = total if end_frame is None else end_frame
+        if start_frame < 0 or end > total or start_frame >= end:
+            raise ValueError(
+                f"Invalid trim range [{start_frame}, {end}) for motion of length "
+                f"{total}. Require 0 <= start_frame < end_frame <= num_frames."
+            )
+
+        if start_frame == 0 and end == total:
+            return self
+
+        updates: dict[str, Any] = {}
+        for name in self._TIME_AXIS_TENSOR_FIELDS:
+            value = getattr(self, name)
+            if value is None:
+                continue
+            updates[name] = value[start_frame:end]
+        for name in self._TIME_AXIS_TENSOR_LIST_FIELDS:
+            value = getattr(self, name)
+            if not value:
+                continue
+            updates[name] = [None if v is None else v[start_frame:end] for v in value]
+        return replace(self, **updates)
 
 
 # ---------------------------------------------------------------------------

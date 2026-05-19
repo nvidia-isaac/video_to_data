@@ -17,10 +17,8 @@ def mv_eval_chamfer_human_from_config(cfg):
     rig = RigConfig(cfg.rig_config, camera_params_path=cfg.camera_params_path)
 
     mhr_mesh = torch.load(cfg.mhr_mesh_mv_path, weights_only=False)
-    pred_vertices = mhr_mesh["pred_vertices"].cpu().numpy()
+    mesh_verts = mhr_mesh["pred_vertices"].cpu().numpy()
     faces = mhr_mesh["faces"].cpu().numpy()
-    pred_cam_t = mhr_mesh["pred_cam_t"].cpu().numpy()
-    mesh_verts = pred_vertices + pred_cam_t[:, None, :]
 
     cam_names: list[str] = []
     cam_intrinsics: list[np.ndarray] = []
@@ -80,14 +78,13 @@ if __name__ == "__main__":
                         help="Directory for metrics JSON and heatmap videos")
     parser.add_argument("--depth_dir", type=str, required=True)
     parser.add_argument("--mask_dir", type=str, required=True)
-    parser.add_argument(
-        "--config_path",
-        type=str,
-        default=str(Path(__file__).parent / "mv_eval_chamfer_human.yaml"),
-    )
+    parser.add_argument("--config_path", type=str, default=None,
+                        help="Optional override config (merged on top of defaults)")
     args = parser.parse_args()
 
-    cfg = OmegaConf.load(args.config_path)
+    cfg = OmegaConf.load(Path(__file__).parent / "mv_eval_chamfer_human.yaml")
+    if args.config_path:
+        cfg = OmegaConf.merge(cfg, OmegaConf.load(args.config_path))
     overrides = {
         "camera_params_path": args.camera_params_path,
         "human_pose_dir": args.human_pose_dir,

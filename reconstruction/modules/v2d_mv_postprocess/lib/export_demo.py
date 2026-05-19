@@ -1,0 +1,250 @@
+"""Demonstrate loading and visualizing the exported flat training data.
+
+Loads calibration, meshes, poses, params, depth, masks from the flat layout
+produced by export_sequence.py and renders HOI overlays as a sanity check.
+
+Usage:
+    python -m v2d.mv.postprocess.lib.export_demo \
+        --seq_dir /local/path/to/sequence \
+        --output_dir /local/path/to/output
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+import cv2
+import numpy as np
+import pyglet
+pyglet.options["headless"] = True
+import torch
+import trimesh
+import yaml
+from tqdm import tqdm
+
+from v2d.common.datatypes import DepthImage
+from v2d.mv.rig import RigConfig
+from v2d.common.video import FrameSource, get_video_writer, tile_videos
+from v2d.mv.vis.renderer import Renderer
+
+LEFT_CAMERAS = [
+    "front_stereo_camera_left",
+    "back_stereo_camera_left",
+    "left_stereo_camera_left",
+    "right_stereo_camera_left",
+]
+
+HUMAN_MESH_COLOR = np.array([102, 230, 179], dtype=np.uint8)
+
+
+def export_demo(seq_dir: Path, output_dir: Path) -> None:
+    """Load exported data and render HOI overlay as a sanity check."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    print("=" * 60)
+    print("Export Demo: loading data from flat layout")
+    print(f"  seq_dir:    {seq_dir}")
+    print(f"  output_dir: {output_dir}")
+    print("=" * 60)
+
+    # --- Load calibration ---
+    edex_path = seq_dir / "edex"
+    rig = RigConfig("stereo-4", camera_params_path=edex_path)
+    print(f"\nCalibration loaded from {edex_path}")
+
+    # --- Load object mesh ---
+    object_mesh_path = seq_dir / "object_mesh" / "output_aligned.glb"
+    if not object_mesh_path.exists():
+        raise FileNotFoundError(f"{object_mesh_path} not found")
+    object_mesh = trimesh.load(str(object_mesh_path), process=False, force="mesh")
+    print(f"Object mesh: {object_mesh_path} ({len(object_mesh.vertices)} verts, {len(object_mesh.faces)} faces)")
+
+    # --- Check for symmetry annotation ---
+    sym_path = seq_dir / "object_mesh" / "output_symmetry.json"
+    print(f"Symmetry annotation: {sym_path}" if sym_path.exists() else "Symmetry annotation: not found")
+
+    # --- Load object poses ---
+    poses_path = seq_dir / "poses.npy"
+    object_poses = np.load(str(poses_path))
+    print(f"Object poses: {poses_path} shape={object_poses.shape}")
+
+    # --- Load human mesh ---
+    mhr_mesh_path = seq_dir / "mhr_mesh_mv.pt"
+    mhr_mesh = torch.load(str(mhr_mesh_path), weights_only=False, map_location="cpu")
+    human_vertices = mhr_mesh["pred_vertices"].cpu().numpy()
+    human_faces = mhr_mesh["faces"].cpu().numpy()
+    print(f"Human mesh: vertices={human_vertices.shape} faces={human_faces.shape}")
+
+    # --- Load human params ---
+    mhr_params_path = seq_dir / "mhr_params_mv.pt"
+    mhr_params = torch.load(str(mhr_params_path), weights_only=False, map_location="cpu")
+    print(f"Human params keys: {list(mhr_params.keys())}")
+    for k, v in mhr_params.items():
+        if hasattr(v, "shape"):
+            print(f"  {k}: shape={v.shape} dtype={v.dtype}")
+
+    # --- Load SOMA params ---
+    soma_path = seq_dir / "soma_params.npz"
+    if soma_path.exists():
+        soma = np.load(str(soma_path))
+        print(f"SOMA params keys: {list(soma.keys())}")
+        for k in soma.keys():
+            print(f"  {k}: shape={soma[k].shape} dtype={soma[k].dtype}")
+    else:
+        print("SOMA params: not found (skipping)")
+
+    # --- Load ground plane ---
+    gp_path = seq_dir / "ground_plane.json"
+    if gp_path.exists():
+        with open(gp_path) as f:
+            ground_plane = json.load(f)
+        print(f"Ground plane: normal={ground_plane.get('normal')}, offset={ground_plane.get('offset')}")
+    else:
+        print("Ground plane: not found (skipping)")
+
+    # --- Load HOI metadata ---
+    meta_path = seq_dir / "hoi_metadata.yaml"
+    if meta_path.exists():
+        with open(meta_path) as f:
+            hoi_meta = yaml.safe_load(f)
+        obj_id = hoi_meta.get("object", {}).get("id", "unknown")
+        prompt = hoi_meta.get("object", {}).get("prompt", "")
+        print(f"HOI metadata: object_id={obj_id}, prompt='{prompt}'")
+    else:
+        print("HOI metadata: not found")
+
+    # --- Per-camera data check and rendering ---
+    print("\n--- Per-camera data ---")
+    overlay_paths: list[Path] = []
+    cam_names: list[str] = []
+    human_colors = np.tile(HUMAN_MESH_COLOR, (human_vertices.shape[1], 1))
+
+    for cam_name in LEFT_CAMERAS:
+        cam = rig.get_camera_by_name(cam_name)
+        if cam is None:
+            print(f"  {cam_name}: not found in rig, skipping")
+            continue
+
+        image_h5 = seq_dir / "images" / f"{cam_name}.h5"
+        image_dir = seq_dir / "images" / cam_name
+        image_src_path = image_h5 if image_h5.exists() else image_dir
+        if not image_src_path.exists():
+            print(f"  {cam_name}: no images, skipping")
+            continue
+
+        source = FrameSource.from_path(image_src_path)
+        n_rgb = source.n_frames
+        print(f"\n  {cam_name}:")
+        print(f"    RGB frames: {n_rgb}  resolution: {source.image_size}")
+
+        # Depth sample
+        depth_path = seq_dir / "depth" / cam_name
+        depth_h5 = seq_dir / "depth" / f"{cam_name}.h5"
+        depth_src_path = depth_h5 if depth_h5.exists() else depth_path
+        if depth_src_path.exists():
+            depth_source = FrameSource.from_path(depth_src_path)
+            n_depth = depth_source.n_frames
+            if n_depth > 0:
+                sample_depth = DepthImage.from_array(depth_source[0])
+                print(f"    Depth frames: {n_depth}  sample shape={sample_depth.depth.shape} "
+                      f"min={sample_depth.depth.min():.3f} max={sample_depth.depth.max():.3f}")
+            else:
+                print(f"    Depth frames: 0")
+        else:
+            print(f"    Depth: not found")
+
+        # Masks
+        obj_mask_dir = seq_dir / "object_masks" / cam_name
+        obj_mask_h5 = seq_dir / "object_masks" / f"{cam_name}.h5"
+        human_mask_dir = seq_dir / "human_masks" / cam_name
+        human_mask_h5 = seq_dir / "human_masks" / f"{cam_name}.h5"
+        n_obj_masks = FrameSource.from_path(obj_mask_h5 if obj_mask_h5.exists() else obj_mask_dir).n_frames if (obj_mask_h5.exists() or obj_mask_dir.exists()) else 0
+        n_human_masks = FrameSource.from_path(human_mask_h5 if human_mask_h5.exists() else human_mask_dir).n_frames if (human_mask_h5.exists() or human_mask_dir.exists()) else 0
+        print(f"    Object masks: {n_obj_masks}")
+        print(f"    Human masks:  {n_human_masks}")
+
+        if n_rgb != n_obj_masks:
+            print(f"    WARNING: RGB/object mask count mismatch ({n_rgb} vs {n_obj_masks})")
+        if n_rgb != n_human_masks:
+            print(f"    WARNING: RGB/human mask count mismatch ({n_rgb} vs {n_human_masks})")
+
+        # Render HOI overlay
+        n_frames = min(n_rgb, len(object_poses), len(human_vertices))
+        overlay_path = output_dir / f"{cam_name}_hoi_overlay.mp4"
+        print(f"    Rendering overlay ({n_frames} frames) -> {overlay_path}")
+
+        writer = get_video_writer(overlay_path, fps=30, crf=23)
+        with Renderer(image_size=source.image_size) as renderer:
+            for i, image in enumerate(tqdm(
+                source.iter_frames(), total=source.n_frames,
+                desc=f"    {cam_name}", leave=False,
+            )):
+                if i >= n_frames:
+                    break
+
+                obj_mesh_i = object_mesh.copy()
+                obj_mesh_i.apply_transform(object_poses[i])
+
+                human_mesh_i = trimesh.Trimesh(
+                    vertices=human_vertices[i],
+                    faces=human_faces,
+                    vertex_colors=human_colors,
+                    process=False,
+                )
+
+                rendered = renderer.render_overlay(
+                    meshes=[obj_mesh_i, human_mesh_i],
+                    K=cam.param.K,
+                    T=cam.param.T,
+                    image=image,
+                ) * 255.0
+
+                frame_text = f"Frame {i}"
+                (tw, th), _ = cv2.getTextSize(frame_text, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)
+                cv2.putText(
+                    rendered, frame_text,
+                    (rendered.shape[1] - tw - 10, th + 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2,
+                )
+                writer.write_frame(rendered.astype(np.uint8))
+        writer.close()
+        overlay_paths.append(overlay_path)
+        cam_names.append(cam_name)
+
+    # Tile overlays
+    if len(overlay_paths) >= 2:
+        tiled_path = output_dir / "tiled_demo.mp4"
+        print(f"\nTiling {len(overlay_paths)} overlays -> {tiled_path}")
+        tile_videos(
+            sources=[FrameSource.from_path(p) for p in overlay_paths],
+            output_path=tiled_path,
+            tile_shape=(2, 2),
+            video_names=cam_names,
+        )
+        print(f"Saved tiled demo to {tiled_path}")
+
+    # --- Summary ---
+    print("\n" + "=" * 60)
+    print("Data Summary:")
+    print(f"  Cameras:          {len(cam_names)} ({', '.join(cam_names)})")
+    print(f"  Object mesh:      {object_mesh_path}")
+    print(f"  Object poses:     {object_poses.shape}")
+    print(f"  Human vertices:   {human_vertices.shape}")
+    print(f"  Human faces:      {human_faces.shape}")
+    print(f"  Human param keys: {list(mhr_params.keys())}")
+    if soma_path.exists():
+        print(f"  SOMA param keys:  {list(np.load(str(soma_path)).keys())}")
+    print("=" * 60)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Demo: load and visualize exported training data")
+    parser.add_argument("--seq_dir", type=str, required=True,
+                        help="Path to the exported sequence directory")
+    parser.add_argument("--output_dir", type=str, required=True,
+                        help="Path to write demo output (overlay videos)")
+    args = parser.parse_args()
+
+    export_demo(seq_dir=Path(args.seq_dir), output_dir=Path(args.output_dir))

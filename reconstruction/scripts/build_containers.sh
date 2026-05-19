@@ -22,5 +22,7 @@ echo "Building v2d_hoi_object_reconstruction..."
 python modules/v2d_hoi_object_reconstruction/docker/build.py
 echo "Building v2d_ego_hand_reconstruction..."
 python modules/v2d_ego_hand_reconstruction/docker/build.py
+echo "Building v2d_hand_alignment..."
+python modules/v2d_hand_alignment/docker/build.py
 
 echo "All containers built successfully."

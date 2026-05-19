@@ -1,16 +1,9 @@
-*.venv
-data
-wandb/
-__pycache__
-**.egg-info
-CLAUDE.md
-.claude/
+# Root-only rules. Each subproject (reconstruction/, video_ingestion_agent/,
+# robotic_grounding/) has its own .gitignore for package-specific artifacts.
+**.egg-info 
+
+# Editor workspace files
 *.code-workspace
 
-# Auto-generated no-collision URDFs (created at pipeline runtime from *_rigid.urdf)
-**/*_no_collision.urdf
-
-# Local direnv overrides
+# Local direnv overrides (only meaningful at repo root)
 .envrc.local
-robotic_grounding/reconstructed_data/
-robotic_grounding/checkpoints/

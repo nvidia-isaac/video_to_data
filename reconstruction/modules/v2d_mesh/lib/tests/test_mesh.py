@@ -2,6 +2,7 @@ import tempfile
 import os
 import numpy as np
 import trimesh
+from PIL import Image as PILImage
 
 from v2d.common.datatypes import BoundingBox3d, Image
 from v2d.mesh.lib.mesh import Mesh
@@ -60,6 +61,20 @@ def test_no_vertex_colors_by_default():
     assert tm_back is not None
 
 
+def test_from_trimesh_captures_pbr_base_color_texture():
+    tm = trimesh.creation.box()
+    uv = np.zeros((len(tm.vertices), 2), dtype=np.float64)
+    image = PILImage.new('RGBA', (2, 2), (255, 0, 0, 255))
+    material = trimesh.visual.material.PBRMaterial(baseColorTexture=image)
+    tm.visual = trimesh.visual.TextureVisuals(uv=uv, material=material)
+
+    mesh = Mesh.from_trimesh(tm)
+
+    assert mesh.uv is not None
+    assert mesh.texture is not None
+    assert mesh.texture.shape == (2, 2, 4)
+
+
 # ---------------------------------------------------------------------------
 # Save / load round-trip
 # ---------------------------------------------------------------------------
@@ -101,6 +116,36 @@ def test_load_merges_multi_geometry_scene():
         scene.export(path)
         loaded = Mesh.load(path)
         assert len(loaded.faces) > 0
+    finally:
+        os.unlink(path)
+
+
+def test_load_applies_scene_graph_transform():
+    scene = trimesh.Scene()
+    transform = np.eye(4)
+    transform[:3, 3] = [1.0, 2.0, 3.0]
+    scene.add_geometry(trimesh.creation.box(), geom_name='box', transform=transform)
+    with tempfile.NamedTemporaryFile(suffix='.glb', delete=False) as f:
+        path = f.name
+    try:
+        scene.export(path)
+        loaded = Mesh.load(path)
+        np.testing.assert_allclose(loaded.vertices.mean(axis=0), [1.0, 2.0, 3.0])
+    finally:
+        os.unlink(path)
+
+
+def test_load_force_mesh_applies_scene_graph_transform():
+    scene = trimesh.Scene()
+    transform = np.eye(4)
+    transform[:3, 3] = [1.0, 2.0, 3.0]
+    scene.add_geometry(trimesh.creation.box(), geom_name='box', transform=transform)
+    with tempfile.NamedTemporaryFile(suffix='.glb', delete=False) as f:
+        path = f.name
+    try:
+        scene.export(path)
+        loaded = Mesh.load(path, force_mesh=True)
+        np.testing.assert_allclose(loaded.vertices.mean(axis=0), [1.0, 2.0, 3.0])
     finally:
         os.unlink(path)
 

@@ -54,7 +54,9 @@ rerunning IK.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 import numpy as np
@@ -97,32 +99,78 @@ class FirstPassResult:
     ankle_frame_xyz: np.ndarray  # (T, 2, 3) -- index 0 = left, 1 = right
 
 
-@dataclass
+@dataclass(frozen=True)
 class ReferencePlane:
-    """Horizontal reference plane at ``z = constant``.
+    """Plane defined by a unit normal and a signed offset.
 
-    The plane's normal points along +Z (up), so ``signed_distance`` is
-    positive for points above the plane (e.g. a foot that is floating).
-    This is horizontal-only on purpose: arbitrary-plane support would add
-    a ``normal`` field and adjust ``signed_distance`` / how callers project
-    offsets back to world space. Deferred until a real use case shows up.
+    Plane equation: ``normal . p + offset = 0`` (``p`` in robot world frame).
+    For a horizontal plane at ``z = z0``, ``normal = (0, 0, 1)`` and
+    ``offset = -z0`` so the legacy ``ReferencePlane(z=0.0)`` becomes
+    ``ReferencePlane.horizontal(z=0.0)``.
+
+    The plane is oriented so ``normal[2] > 0`` in robot frame; a transformed
+    plane whose vertical component is below ``1e-6`` raises because a
+    near-vertical "ground" plane is unusable for foot anchoring.
 
     Attributes:
-        z: Plane height along the world Z axis. Default ``0.0`` matches the
-            retarget pipeline's convention of ground = Z = 0.
+        normal: Unit-normal triple. Stored as a tuple so the dataclass stays
+            hashable; normalized at construction.
+        offset: Signed offset such that ``n . p + offset = 0`` lies on the
+            plane.
     """
 
-    z: float = 0.0
+    normal: tuple[float, float, float] = (0.0, 0.0, 1.0)
+    offset: float = 0.0
+
+    def __post_init__(self) -> None:
+        """Normalize ``normal`` (preserving direction) and validate vertical."""
+        n = np.asarray(self.normal, dtype=np.float64)
+        norm = float(np.linalg.norm(n))
+        if norm < 1e-12:
+            raise ValueError(f"ReferencePlane normal has zero length: {self.normal}")
+        n = n / norm
+        if abs(float(n[2])) < 1e-6:
+            raise ValueError(
+                "ReferencePlane normal is near-horizontal "
+                f"(normal_z={float(n[2]):+.3e}); cannot ground feet on a vertical "
+                "plane. Reorient the plane before constructing it."
+            )
+        if float(n[2]) < 0.0:
+            n = -n
+            object.__setattr__(self, "offset", -float(self.offset))
+        object.__setattr__(self, "normal", (float(n[0]), float(n[1]), float(n[2])))
+
+    @classmethod
+    def horizontal(cls, z: float = 0.0) -> "ReferencePlane":
+        """Return a horizontal plane at world Z = ``z`` (normal = +Z)."""
+        return cls(normal=(0.0, 0.0, 1.0), offset=-float(z))
+
+    @property
+    def normal_z(self) -> float:
+        """Vertical component of the (already-oriented) unit normal."""
+        return float(self.normal[2])
 
     def signed_distance(self, points: np.ndarray) -> np.ndarray:
-        """Signed distance along +Z from ``points`` ``(..., 3)`` to the plane.
+        """Signed distance ``n . p + offset`` for points ``(..., 3)``.
 
-        Positive = above the plane (must-stay-above convention).
+        Positive = above the plane along the unit normal (must-stay-above
+        convention).
         """
         arr = np.asarray(points, dtype=np.float64)
         if arr.ndim == 0 or arr.shape[-1] != 3:
             raise ValueError(f"points last axis must be 3; got shape {arr.shape}")
-        return arr[..., 2] - self.z
+        n = np.asarray(self.normal, dtype=np.float64)
+        return np.einsum("...i,i->...", arr, n) + float(self.offset)
+
+    def vertical_offset_to_plane(self, points: np.ndarray) -> np.ndarray:
+        """Signed Z shift that drives each point's signed-distance to zero.
+
+        For a horizontal plane this is just ``-signed_distance``. For a
+        tilted plane with vertical component ``n_z``, vertical shift
+        ``dz`` reduces signed distance by ``n_z * dz``, so the shift that
+        zeros the distance is ``dz = -signed_distance / n_z``.
+        """
+        return -self.signed_distance(points) / self.normal_z
 
 
 @dataclass
@@ -271,10 +319,11 @@ def compute_plane_alignment_offsets(
     if K == 0:
         return np.zeros(T, dtype=np.float64)
 
-    # Per-frame raw offset: shift along +Z so the lowest contact sits on
-    # the plane.
-    d = plane.signed_distance(arr)  # (T, K)
-    raw = -d.min(axis=1)  # (T,)
+    # Per-frame raw offset: vertical shift that drives the lowest contact
+    # point's signed distance to zero (``dz = -signed_distance / normal_z``;
+    # for a horizontal plane this collapses to the legacy ``-signed_distance``).
+    dz = plane.vertical_offset_to_plane(arr)  # (T, K)
+    raw = dz.max(axis=1)  # (T,)  -- lift by the largest correction needed
 
     # Rolling median smoothing.
     win = max(1, int(cfg.median_window))
@@ -831,3 +880,100 @@ def _blend_boundary(
             B = corr_body_wxyz.shape[1]
             for b in range(B):
                 corr_body_wxyz[t, b] = _slerp_wxyz(l_bwxyz[b], r_bwxyz[b], w)
+
+
+# ---------------------------------------------------------------------------
+# Module 5: ground_plane.json loader (reconstruction-side static plane)
+# ---------------------------------------------------------------------------
+
+
+def _transform_plane_under_rigid(
+    plane: np.ndarray, rotation: np.ndarray, translation: np.ndarray
+) -> np.ndarray:
+    """Transform a plane ``(a, b, c, d)`` under ``x_new = R x_old + t``.
+
+    Plane equation transforms as ``n_new = R @ n_old`` and
+    ``d_new = d_old - n_new^T @ t`` so points satisfying ``n_old.p_old + d = 0``
+    in the source frame still satisfy ``n_new.p_new + d_new = 0`` after the
+    rigid mapping.
+    """
+    n_old = np.asarray(plane[:3], dtype=np.float64)
+    d_old = float(plane[3])
+    R_arr = np.asarray(rotation, dtype=np.float64)
+    t_arr = np.asarray(translation, dtype=np.float64).reshape(3)
+    n_new = R_arr @ n_old
+    d_new = d_old - float(n_new @ t_arr)
+    return np.concatenate([n_new, [d_new]])
+
+
+def load_ground_plane_robot_frame(
+    path: Path | str,
+    *,
+    cv_to_source: np.ndarray,
+    first_frame_anchor: np.ndarray,
+    source_to_robot: np.ndarray,
+) -> ReferencePlane | None:
+    """Load ``ground_plane.json`` and transform it into the robot frame.
+
+    The reconstruction stores the plane in OpenCV camera coordinates
+    (X=right, Y=down, Z=forward). The retargeter then composes three
+    transforms before the robot world frame is reached:
+
+    1. ``cv_to_source`` — homogeneous (4x4) flip from CV to the source
+       skeleton's world frame (see ``_convert_object_poses_cv_to_soma``).
+    2. ``first_frame_anchor`` — homogeneous (4x4) anchor that places the
+       source skeleton's frame-0 pelvis at the origin (see
+       ``SOMA._first_frame_transform``).
+    3. ``source_to_robot`` — 3x3 rotation that swaps source axes into
+       robot axes (``config.r_world`` in the new SOMA pipeline).
+
+    The plane is transformed under each rigid mapping and finally returned
+    as a :class:`ReferencePlane` in robot frame, or ``None`` when the JSON
+    file is absent so the caller can fall back to the legacy heuristics.
+
+    Args:
+        path: Path to ``ground_plane.json``.
+        cv_to_source: ``(4, 4)`` homogeneous transform from CV to source frame.
+        first_frame_anchor: ``(4, 4)`` homogeneous transform that anchors the
+            source skeleton on its frame-0 pelvis.
+        source_to_robot: ``(3, 3)`` rotation from source world to robot world.
+
+    Returns:
+        :class:`ReferencePlane` in robot frame, or ``None`` if the JSON does
+        not exist on disk. Raises :class:`ValueError` for malformed payloads.
+    """
+    path = Path(path)
+    if not path.is_file():
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if "plane" not in payload or len(payload["plane"]) != 4:
+        raise ValueError(f"{path}: expected a 4-element 'plane' list (ax+by+cz+d=0)")
+    plane = np.asarray(payload["plane"], dtype=np.float64)
+
+    # 1. CV -> source frame (rigid).
+    cv_to_source_arr = np.asarray(cv_to_source, dtype=np.float64)
+    if cv_to_source_arr.shape != (4, 4):
+        raise ValueError(f"cv_to_source must be (4, 4); got {cv_to_source_arr.shape}")
+    plane = _transform_plane_under_rigid(
+        plane, cv_to_source_arr[:3, :3], cv_to_source_arr[:3, 3]
+    )
+
+    # 2. First-frame anchor (rigid).
+    anchor_arr = np.asarray(first_frame_anchor, dtype=np.float64)
+    if anchor_arr.shape != (4, 4):
+        raise ValueError(f"first_frame_anchor must be (4, 4); got {anchor_arr.shape}")
+    plane = _transform_plane_under_rigid(plane, anchor_arr[:3, :3], anchor_arr[:3, 3])
+
+    # 3. Source -> robot rotation (no translation).
+    src_to_robot_arr = np.asarray(source_to_robot, dtype=np.float64)
+    if src_to_robot_arr.shape != (3, 3):
+        raise ValueError(
+            f"source_to_robot must be (3, 3); got {src_to_robot_arr.shape}"
+        )
+    plane = _transform_plane_under_rigid(
+        plane, src_to_robot_arr, np.zeros(3, dtype=np.float64)
+    )
+
+    n = plane[:3]
+    d = float(plane[3])
+    return ReferencePlane(normal=(float(n[0]), float(n[1]), float(n[2])), offset=d)

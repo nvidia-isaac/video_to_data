@@ -5,7 +5,6 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from PIL import Image as PILImage
 from tqdm import tqdm
 
 import matplotlib
@@ -14,8 +13,8 @@ import matplotlib.cm as cm
 
 import trimesh
 
-from v2d.common.datatypes import DepthImage, Mask
-from v2d.mv.io.video import FrameSource, get_video_writer, tile_videos
+from v2d.common.datatypes import DepthImage
+from v2d.common.video import FrameSource, get_video_writer, tile_videos
 from v2d.mv.math.numpy_fn import depth_to_xyz, visible_vertices, xyz_to_uv
 from v2d.mv.vis.renderer import Renderer
 
@@ -139,23 +138,26 @@ def mv_eval_chamfer(
 
     n_frames = mesh_verts.shape[0]
 
+    per_camera_sources: list[tuple[FrameSource, FrameSource]] = []
+    for cam_idx, cam_name in enumerate(cam_names):
+        depth_source = FrameSource.from_path(depth_dirs[cam_idx])
+        mask_source = FrameSource.from_path(mask_dirs[cam_idx])
+        if depth_source.n_frames != n_frames or mask_source.n_frames != n_frames:
+            raise ValueError(
+                f"camera {cam_name}: frame count mismatch "
+                f"(depth={depth_source.n_frames}, mask={mask_source.n_frames}, expected={n_frames})"
+            )
+        per_camera_sources.append((depth_source, mask_source))
+
     per_camera: dict[str, dict] = {}
     all_frame_dists: list[float] = []
 
     for cam_idx, cam_name in enumerate(cam_names):
         K = cam_intrinsics[cam_idx]
         T = cam_extrinsics[cam_idx]
-        d_dir = depth_dirs[cam_idx]
-        m_dir = mask_dirs[cam_idx]
+        depth_source, mask_source = per_camera_sources[cam_idx]
 
-        depth_paths = sorted(d_dir.glob("*.png"))
-        mask_paths = sorted(m_dir.glob("*.png"))
-        n_available = min(len(depth_paths), len(mask_paths), n_frames)
-        if n_available == 0:
-            print(f"  {cam_name}: no depth/mask frames found, skipping")
-            continue
-
-        first_depth = DepthImage.from_pil_image(PILImage.open(depth_paths[0])).depth
+        first_depth = DepthImage.from_array(depth_source[0]).depth
         H_orig, W_orig = first_depth.shape[:2]
 
         if eval_image_size is not None:
@@ -173,10 +175,20 @@ def mv_eval_chamfer(
         if debug > 0 and vis_dir:
             vis_dir.mkdir(parents=True, exist_ok=True)
             writer = get_video_writer(vis_dir / f"{cam_name}.mp4", fps=30, crf=23)
+
+        def _write_placeholder(frame_idx: int, reason: str) -> None:
+            if writer is None:
+                return
+            canvas = np.zeros((H_eval, W_eval, 3), dtype=np.uint8)
+            label = f"Frame {frame_idx}: {reason}"
+            cv2.putText(canvas, label, (10, H_eval - 20),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            writer.write_frame(cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB))
+
         with Renderer(image_size=(W_eval, H_eval)) as renderer:
-            for i in tqdm(range(n_available), desc=f"Chamfer {cam_name}"):
-                depth = DepthImage.from_pil_image(PILImage.open(depth_paths[i])).depth
-                mask_raw = Mask.from_pil_image(PILImage.open(mask_paths[i])).mask
+            for i in tqdm(range(n_frames), desc=f"Chamfer {cam_name}"):
+                depth = DepthImage.from_array(depth_source[i]).depth
+                mask_raw = mask_source[i].astype(np.float32) / 255.0
 
                 if eval_image_size is not None:
                     depth = cv2.resize(depth, (W_eval, H_eval), interpolation=cv2.INTER_LINEAR)
@@ -190,6 +202,7 @@ def mv_eval_chamfer(
 
                 pts_world = depth_to_xyz(depth, K_eval, T, mask=mask)
                 if pts_world.shape[0] < 10:
+                    _write_placeholder(i, "no valid depth points")
                     continue
 
                 verts_np = mesh_verts[i]
@@ -208,6 +221,7 @@ def mv_eval_chamfer(
                 vis_verts = verts_np[vis]
 
                 if vis_verts.shape[0] < 10:
+                    _write_placeholder(i, "no visible vertices")
                     continue
 
                 tree = cKDTree(pts_world)
@@ -253,19 +267,6 @@ def mv_eval_chamfer(
                   f"median={per_camera[cam_name]['median_mm']:.1f}mm  "
                   f"({len(cam_dists)} frames)")
 
-    if debug > 0 and vis_dir and len(cam_names) > 1:
-        vis_paths = [vis_dir / f"{name}.mp4" for name in cam_names if (vis_dir / f"{name}.mp4").exists()]
-        if len(vis_paths) > 1:
-            tiled_path = vis_dir / "tiled_chamfer.mp4"
-            print(f"Tiling {len(vis_paths)} chamfer videos into {tiled_path}...")
-            tile_videos(
-                sources=[FrameSource(video_path=p) for p in vis_paths],
-                output_path=tiled_path,
-                tile_shape=tile_shape,
-                output_image_size=tile_image_size,
-                video_names=[p.stem for p in vis_paths],
-            )
-
     combined = {}
     if all_frame_dists:
         arr = np.array(all_frame_dists)
@@ -282,4 +283,21 @@ def mv_eval_chamfer(
     with open(output_path, "w") as f:
         json.dump(metrics, f, indent=2)
     print(f"\nSaved metrics to {output_path}")
+
+    if debug > 0 and vis_dir and len(cam_names) > 1:
+        vis_paths = [vis_dir / f"{name}.mp4" for name in cam_names if (vis_dir / f"{name}.mp4").exists()]
+        if len(vis_paths) > 1:
+            tiled_path = vis_dir / "tiled_chamfer.mp4"
+            print(f"Tiling {len(vis_paths)} chamfer videos into {tiled_path}...")
+            try:
+                tile_videos(
+                    sources=[FrameSource.from_path(p) for p in vis_paths],
+                    output_path=tiled_path,
+                    tile_shape=tile_shape,
+                    output_image_size=tile_image_size,
+                    video_names=[p.stem for p in vis_paths],
+                )
+            except Exception as e:
+                print(f"WARNING: tile_videos failed: {e}. Skipping tiled viz.")
+
     return metrics

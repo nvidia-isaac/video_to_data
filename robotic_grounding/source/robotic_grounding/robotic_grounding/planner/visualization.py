@@ -4,11 +4,6 @@ Shows planned body motion with target/achieved EE axes, object trajectory,
 and optional finger animation.
 """
 
-# ruff: noqa: ANN001, ANN201, ANN202, ANN204, D102, D103, D107, D417
-# Planner is still in active development and this file is likely to change
-# significantly with the new groot planner. Suppress annotation/docstring
-# lint for now; real code issues are fixed individually.
-
 from __future__ import annotations
 
 import os
@@ -23,7 +18,7 @@ from scipy.spatial.transform import Rotation
 
 
 def add_axes(
-    scn,
+    scn: mujoco.MjvScene,
     pos: np.ndarray,
     quat_wxyz: np.ndarray,
     length: float = 0.08,
@@ -66,8 +61,11 @@ def add_axes(
 
 
 def _inject_scene_objects(
-    xml_path, object_mesh_paths=None, support_usda_path=None, support_transform=None
-):
+    xml_path: str,
+    object_mesh_paths: list[str] | None = None,
+    support_usda_path: str | None = None,
+    support_transform: dict | None = None,
+) -> str:
     """Inject object meshes and support surface into MuJoCo XML.
 
     Args:
@@ -105,6 +103,8 @@ def _inject_scene_objects(
             compiler.set("meshdir", os.path.abspath(os.path.join(xml_dir, meshdir)))
 
     worldbody = root.find("worldbody")
+    if worldbody is None:
+        worldbody = ET.SubElement(root, "worldbody")
 
     # Inject one visual-only free body per object mesh
     if object_mesh_paths:
@@ -114,15 +114,26 @@ def _inject_scene_objects(
         for i, mesh_path in enumerate(object_mesh_paths):
             if os.path.exists(mesh_path):
                 mesh_name = f"object_mesh_{i}"
+                # Match support_recon.py: TACO `_cm.obj` meshes are in
+                # centimetres; ARCTIC meshes are already in metres.
+                scale_value = 0.01 if mesh_path.endswith("_cm.obj") else 1.0
+                scale = f"{scale_value} {scale_value} {scale_value}"
                 ET.SubElement(
                     asset,
                     "mesh",
                     name=mesh_name,
                     file=mesh_path,
-                    scale="0.001 0.001 0.001",
+                    scale=scale,
                 )
                 body_name = f"object_vis_{i}"
                 obj_body = ET.SubElement(worldbody, "body", name=body_name, pos="0 0 0")
+                ET.SubElement(
+                    obj_body,
+                    "inertial",
+                    pos="0 0 0",
+                    mass="0.001",
+                    diaginertia="0.000001 0.000001 0.000001",
+                )
                 ET.SubElement(obj_body, "freejoint", name=f"{body_name}_joint")
                 ET.SubElement(
                     obj_body,
@@ -210,8 +221,9 @@ def visualize(
         object_quat: Optional (T_ref, 4) object quaternions (wxyz).
         fps: Playback frame rate.
         ref_start: Frame index where reference data begins.
-        object_mesh_path: Path to object .obj mesh for visual overlay.
+        object_mesh_paths: List of per-body object .obj mesh paths for visual overlay.
         support_usda_path: Path to support surface USDA file.
+        support_transform: Optional dict carrying yaw/offset to apply to the support primitive translates.
     """
     # Inject scene objects into XML if provided
     if object_mesh_paths or support_usda_path:
@@ -248,7 +260,7 @@ def visualize(
     T_play = min(qpos_traj.shape[0], len(traj_lp))
     paused = False
 
-    def key_callback(key):
+    def key_callback(key: int) -> None:
         nonlocal paused
         if key == 32:  # spacebar
             paused = not paused
@@ -268,9 +280,10 @@ def visualize(
             # Set body qpos
             data.qpos[: qpos_traj.shape[1]] = qpos_traj[frame]
 
-            # Update object body positions
-            if obj_vis_jnt_adrs and object_pos is not None and frame >= ref_start:
-                obj_idx = min(frame - ref_start, object_pos.shape[0] - 1)
+            # Update object body positions. Hold the first object pose during
+            # warmup/interp so the scene is visible before the reference starts.
+            if obj_vis_jnt_adrs and object_pos is not None:
+                obj_idx = min(max(frame - ref_start, 0), object_pos.shape[0] - 1)
                 for i, jnt_adr in enumerate(obj_vis_jnt_adrs):
                     if object_pos.ndim == 3 and i < object_pos.shape[1]:
                         data.qpos[jnt_adr : jnt_adr + 3] = object_pos[obj_idx, i]
@@ -340,7 +353,9 @@ def visualize(
             frame += 1
 
 
-def _build_finger_map(model, joint_names: list[str] | None) -> list[int]:
+def _build_finger_map(
+    model: mujoco.MjModel, joint_names: list[str] | None
+) -> list[int]:
     """Map finger joint names to model qpos indices."""
     if not joint_names:
         return []
@@ -354,7 +369,13 @@ def _build_finger_map(model, joint_names: list[str] | None) -> list[int]:
     return result
 
 
-def _set_fingers(data, model, finger_map, finger_joints, f_idx):
+def _set_fingers(
+    data: mujoco.MjData,
+    model: mujoco.MjModel,
+    finger_map: list[int],
+    finger_joints: np.ndarray | None,
+    f_idx: int,
+) -> None:
     """Set finger joint positions from reference data."""
     if finger_joints is None or not finger_map:
         return

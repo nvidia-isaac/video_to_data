@@ -11,9 +11,14 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Install ceres-solver for pyceres
+# Install ceres-solver for pyceres (heavy; keep before leaf package copies)
 RUN pip install pyceres
 
-COPY . /workspace
+COPY v2d_common /workspace/v2d_common
+RUN pip install -e "/workspace/v2d_common[io]"
 
-RUN pip install -e /workspace/v2d_common -e /workspace/v2d_mv -e /workspace/v2d_mv_calibration/lib
+COPY v2d_mv /workspace/v2d_mv
+RUN pip install -e "/workspace/v2d_mv[math]"
+
+COPY v2d_mv_calibration/lib /workspace/v2d_mv_calibration/lib
+RUN pip install -e /workspace/v2d_mv_calibration/lib

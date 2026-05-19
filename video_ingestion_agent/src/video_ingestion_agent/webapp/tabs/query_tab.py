@@ -153,6 +153,31 @@ def create_query_tab(services: dict[str, Any], config: AppConfig) -> dict[str, A
             elem_classes=["rt-clips-grid"],
         )
 
+        # --- Reconstruct from a query result ---
+        # Always visible so users can see the option exists; the button is
+        # disabled until a query returns clips. Clicking jumps to the
+        # Reconstruct tab with the picked clip pre-loaded.
+        gr.Markdown(
+            "After search, pick a result clip below and click **Reconstruct →** "
+            "to run the per-segment 3D reconstruction chain on it.",
+            elem_classes=["rt-reconstruct-hint"],
+        )
+        with gr.Row(elem_classes=["rt-reconstruct-row"]):
+            reconstruct_picker = gr.Dropdown(
+                label="Pick a clip to reconstruct",
+                choices=[],
+                value=None,
+                interactive=True,
+                scale=4,
+            )
+            reconstruct_btn = gr.Button(
+                "Reconstruct →",
+                variant="primary",
+                scale=1,
+                min_width=160,
+                interactive=False,
+            )
+
         # --- Working Memory (collapsed) ---
         with gr.Accordion("Working Memory", open=False, elem_classes=["rt-wm-accordion"]):
             working_memory_display = gr.Textbox(
@@ -192,6 +217,17 @@ def create_query_tab(services: dict[str, Any], config: AppConfig) -> dict[str, A
 
     # ─── run_query (streaming) ──────────────────────────────────────────
 
+    def _reconstruct_choices(clips: list[dict]) -> list[tuple[str, str]]:
+        """Format query-result clips as (label, index) Dropdown choices."""
+        out: list[tuple[str, str]] = []
+        for i, c in enumerate(clips):
+            action = c.get("action", "?")
+            obj = c.get("object", "?")
+            start = float(c.get("start_t", c.get("start_time", 0)))
+            end = float(c.get("end_t", c.get("end_time", 0)))
+            out.append((f"Clip {i + 1}: {action} ({obj}) — {start:.1f}–{end:.1f}s", str(i)))
+        return out
+
     def _empty_yield(pipeline_html, answer, db_st, wm):
         return (
             pipeline_html,
@@ -200,6 +236,8 @@ def create_query_tab(services: dict[str, Any], config: AppConfig) -> dict[str, A
             wm,
             _render_clip_cards([]),
             None,
+            gr.update(choices=[], value=None),  # reconstruct_picker
+            gr.update(interactive=False),  # reconstruct_btn
         )
 
     def run_query(query: str, db_dir: str):
@@ -275,6 +313,8 @@ def create_query_tab(services: dict[str, Any], config: AppConfig) -> dict[str, A
                         else "Processing…",
                         _render_clip_cards([]),
                         None,
+                        gr.update(choices=[], value=None),
+                        gr.update(interactive=False),
                     )
 
             if result is None:
@@ -312,6 +352,7 @@ def create_query_tab(services: dict[str, Any], config: AppConfig) -> dict[str, A
                 for node_id in visualizer.node_order:
                     visualizer.complete_node(node_id)
 
+                choices = _reconstruct_choices(result.clips)
                 yield (
                     visualizer.to_html(),
                     f"{answer}\n\n**{len(result.clips)} clips** extracted in {result.elapsed_time:.1f}s",
@@ -319,6 +360,11 @@ def create_query_tab(services: dict[str, Any], config: AppConfig) -> dict[str, A
                     working_memory,
                     _render_clip_cards(result.clips, extracted_paths),
                     result,
+                    gr.update(
+                        choices=choices,
+                        value=choices[0][1] if choices else None,
+                    ),
+                    gr.update(interactive=bool(choices)),
                 )
             else:
                 visualizer.error_node("task_decomposer", result.error_message or "Unknown error")
@@ -351,6 +397,8 @@ def create_query_tab(services: dict[str, Any], config: AppConfig) -> dict[str, A
             "",
             _render_clip_cards([]),
             None,
+            gr.update(choices=[], value=None),
+            gr.update(interactive=False),
         )
 
     # ─── helpers ────────────────────────────────────────────────────────
@@ -373,6 +421,8 @@ def create_query_tab(services: dict[str, Any], config: AppConfig) -> dict[str, A
         working_memory_display,
         clips_grid,
         query_result_state,
+        reconstruct_picker,
+        reconstruct_btn,
     ]
 
     search_btn.click(
@@ -402,5 +452,8 @@ def create_query_tab(services: dict[str, Any], config: AppConfig) -> dict[str, A
     components["query_input"] = query_input
     components["search_btn"] = search_btn
     components["db_dropdown"] = db_dropdown
+    components["query_result_state"] = query_result_state
+    components["reconstruct_picker"] = reconstruct_picker
+    components["reconstruct_btn"] = reconstruct_btn
 
     return components

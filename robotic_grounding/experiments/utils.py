@@ -70,6 +70,9 @@ def build_train_command(
     headless: bool = True,
     video: bool = True,
     eval_video_only: bool = False,
+    video_length: int | None = None,
+    video_interval: int | None = None,
+    eval_episodes_per_save: int = 0,
     task: str = "Sharpa-V2P-v0",
     logger: str | None = None,
     log_project_name: str | None = None,
@@ -92,6 +95,12 @@ def build_train_command(
     cmd = [c for c in cmd if c]  # drop empty
     if eval_video_only:
         cmd.append("--eval_video_only")
+    if video_length is not None:
+        cmd.extend(["--video_length", str(video_length)])
+    if video_interval is not None:
+        cmd.extend(["--video_interval", str(video_interval)])
+    if eval_episodes_per_save > 0:
+        cmd.extend(["--eval_episodes_per_save", str(eval_episodes_per_save)])
     if resume_from:
         cmd.extend(["--resume", "--checkpoint", resume_from])
     if seed is not None:
@@ -102,6 +111,58 @@ def build_train_command(
         cmd.extend(["--num_envs", str(num_envs)])
     if max_iterations is not None:
         cmd.extend(["--max_iterations", str(max_iterations)])
+    if logger:
+        cmd.extend(["--logger", logger])
+    if log_project_name:
+        cmd.extend(["--log_project_name", log_project_name])
+    cmd.extend(overrides_to_cli(overrides))
+    return cmd
+
+
+def build_eval_command(
+    overrides: dict[str, Any],
+    *,
+    checkpoint: str | None = None,
+    seed: int | None = None,
+    motion_file: str | None = None,
+    num_envs: int | None = None,
+    video: bool = False,
+    video_length: int | None = None,
+    eval_episodes: int | None = None,
+    task: str = "Sharpa-V2P-v0",
+    logger: str | None = None,
+    log_project_name: str | None = None,
+    use_primitive_urdfs: bool = False,
+    real_time: bool = False,
+) -> list[str]:
+    """Build eval.py command as list of args.
+
+    Mirrors build_train_command but only forwards flags eval.py understands.
+    Hydra-style train_overrides are forwarded verbatim so configs can scope
+    e.g. motion_start_frame / motion_end_frame uniformly across train + eval.
+    """
+    cmd = [
+        "python",
+        "scripts/rsl_rl/eval.py",
+        "--video" if video else "",
+        "--use_primitive_urdfs" if use_primitive_urdfs else "",
+        "--real-time" if real_time else "",
+        "--task",
+        task,
+    ]
+    cmd = [c for c in cmd if c]
+    if checkpoint:
+        cmd.extend(["--checkpoint", checkpoint])
+    if seed is not None:
+        cmd.extend(["--seed", str(seed)])
+    if motion_file is not None:
+        cmd.extend(["--motion_file", motion_file])
+    if num_envs is not None:
+        cmd.extend(["--num_envs", str(num_envs)])
+    if video_length is not None:
+        cmd.extend(["--video_length", str(video_length)])
+    if eval_episodes is not None:
+        cmd.extend(["--eval_episodes", str(eval_episodes)])
     if logger:
         cmd.extend(["--logger", logger])
     if log_project_name:
@@ -122,11 +183,15 @@ def make_entry_script(
     use_timestamp: bool = True,
     video: bool = True,
     eval_video_only: bool = False,
+    video_length: int | None = None,
+    video_interval: int | None = None,
+    eval_episodes_per_save: int = 0,
     task: str = "Sharpa-V2P-v0",
     logger: str = "wandb",
     log_project_name: str = "v2p_hands",
     zero_actor: bool = False,
     use_primitive_urdfs: bool = False,
+    urdfs_src_path: str | None = None,
 ) -> str:
     """Generate /tmp/entry.sh content for OSMO."""
     # Pass run_name (suffix only) to train; train.py adds its own timestamp to avoid duplication.
@@ -134,6 +199,14 @@ def make_entry_script(
         "set -ex",
         "",
     ]
+    if urdfs_src_path:
+        lines += [
+            # Generate all TACO rigid URDFs + visual STL meshes from *_cm.obj files in
+            # the image. Produces workspace assets/urdfs/taco/ + assets/meshes/taco/ with
+            # correct relative mesh paths — no OSMO cp needed.
+            "python scripts/generate_rigid_urdfs.py --dataset taco",
+            "",
+        ]
     cmd = build_train_command(
         run_name,
         overrides,
@@ -144,6 +217,9 @@ def make_entry_script(
         max_iterations=max_iterations,
         video=video,
         eval_video_only=eval_video_only,
+        video_length=video_length,
+        video_interval=video_interval,
+        eval_episodes_per_save=eval_episodes_per_save,
         task=task,
         logger=logger,
         log_project_name=log_project_name,

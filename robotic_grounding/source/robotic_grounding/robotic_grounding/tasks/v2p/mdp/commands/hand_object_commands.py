@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import collections
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Tuple
 
@@ -33,6 +34,7 @@ from robotic_grounding.tasks.v2p.mdp.utils import (
     sample_wrench_space_basis_scaled,
 )
 from robotic_grounding.tasks.v2p.mdp.utils_jit import (
+    contact_wrench_support_reward_jit,
     refresh_jit,
     resample_compute_tensors_jit,
     wrench_preprocess_jit,
@@ -115,7 +117,7 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         self._precompute_contact_positions_normals_in_object_frame()
         self._precompute_hand_keypoints_in_object_frame()
         self._precompute_contact_wrench_support_values()
-        if ENABLE_ADDITIONAL_METRICS:
+        if self.cfg.enable_additional_metrics:
             self._precompute_bbox_corner_vecs()
         self._set_contact_vis_impl(getattr(self.cfg, "debug_vis", False))
         self._init_metrics(cfg)
@@ -972,7 +974,7 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             * torch.ones(self.num_envs, device=self.device)
         )
 
-        if ENABLE_ADDITIONAL_METRICS:
+        if self.cfg.enable_additional_metrics:
             # Contact wrench level metrics (left/right separate)
             for side in ["right", "left"]:
                 self.metrics[f"contact_wrench_command_support_mean_{side}"] = (
@@ -1018,6 +1020,12 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             )
             self._prev_voc_scale = float(
                 cfg.initial_virtual_object_control_curriculum_scale
+            )
+            # Rolling step-level buffer for contact_wrench_support_reward CV (W=200).
+            # Initialized to 1.0 (high = not plateaued) until the buffer fills.
+            self._cws_reward_step_buf: collections.deque = collections.deque(maxlen=200)
+            self.metrics["contact_wrench_support_reward_cv"] = torch.ones(
+                self.num_envs, device=self.device
             )
 
     ######################################################################
@@ -1915,13 +1923,12 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         #     self.object_body_wxyz_command_e,
         # ).mean(dim=-1)
 
-        # self.metrics["virtual_object_controller_scale_factor"] = (
-        #     self.virtual_object_controller_scale_factor
-        #     * torch.ones(self.num_envs, device=self.device)
-        # )
-        pass
+        # Log the per-env VOC scale actually applied to the object controller.
+        self.metrics["virtual_object_controller_scale_factor"] = (
+            self.virtual_object_controller_scale_factor_per_env.squeeze(-1)
+        )
 
-        if not ENABLE_ADDITIONAL_METRICS:
+        if not self.cfg.enable_additional_metrics:
             return
 
         voc_scale_now = float(self.virtual_object_controller_scale_factor)
@@ -2119,6 +2126,41 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             & (self.metrics["left_hand_wrist_position_error"] < _WRIST_GOOD_THRESHOLD)
         ).float()
 
+        # ------------------------------------------------------------------ #
+        # Contact wrench support reward CV (W=200 steps)
+        # Scale-invariant plateau indicator: CV = std/mean over the rolling
+        # buffer. Low CV (≲0.07) means the reward has plateaued; high CV means
+        # it is still actively changing. Used as a curriculum decay gate.
+        # ------------------------------------------------------------------ #
+        cws_step_val = (
+            contact_wrench_support_reward_jit(
+                right_cmd_active=self.right_wrench_cmd_active,
+                right_cur_active=self.right_wrench_cur_active,
+                left_cmd_active=self.left_wrench_cmd_active,
+                left_cur_active=self.left_wrench_cur_active,
+                right_cmd_active_per_body=self.right_wrench_cmd_active_per_body,
+                left_cmd_active_per_body=self.left_wrench_cmd_active_per_body,
+                right_cmd_supports=self.right_hand_contact_wrench_supports_command,
+                right_cur_supports=self.right_hand_contact_wrench_supports,
+                left_cmd_supports=self.left_hand_contact_wrench_supports_command,
+                left_cur_supports=self.left_hand_contact_wrench_supports,
+                tolerance=0.1,
+                var=0.1,
+            )
+            .mean()
+            .item()
+        )
+        self._cws_reward_step_buf.append(cws_step_val)
+        if len(self._cws_reward_step_buf) >= 10:
+            buf = torch.tensor(
+                list(self._cws_reward_step_buf),
+                dtype=torch.float32,
+                device=self.device,
+            )
+            mean_abs = buf.mean().abs().clamp(min=1e-6)
+            cv = buf.std() / mean_abs
+            self.metrics["contact_wrench_support_reward_cv"] = cv.expand(self.num_envs)
+
     def _resample_command(self, env_ids: Sequence[int]) -> None:
         """Resample the command."""
         n = len(env_ids)
@@ -2134,6 +2176,26 @@ class DualHandsObjectTrackingCommand(CommandTerm):
 
         if self.cfg.always_reset_to_first_frame:
             self.timestep_counter[env_ids] = 0
+        elif (
+            self.cfg.reset_to_first_frame_prob > 0.0
+            and float(self.virtual_object_controller_scale_factor) < 0.1
+        ):
+            # Close the train/eval gap: once the VOC curriculum has nearly decayed
+            # (scale < 0.1), randomly reset some envs to tc=0 with the configured
+            # probability.  Eval always starts from tc=0; without this the policy
+            # never sees trajectory-start episodes during training and can reward-hack
+            # by learning to hold-in-place from mid-trajectory positions.
+            first_frame_mask = (
+                torch.rand(n, device=self.device) < self.cfg.reset_to_first_frame_prob
+            )
+            first_frame_local_ids = first_frame_mask.nonzero(as_tuple=False).squeeze(-1)
+            if first_frame_local_ids.numel() > 0:
+                env_ids_t = (
+                    env_ids
+                    if isinstance(env_ids, torch.Tensor)
+                    else torch.tensor(env_ids, device=self.device)
+                )
+                self.timestep_counter[env_ids_t[first_frame_local_ids]] = 0
 
         # Cache the per-env timestep indices and env-origin offsets once.
         tc = self.timestep_counter[env_ids]
@@ -2258,11 +2320,20 @@ class DualHandsObjectTrackingCommand(CommandTerm):
                 .clamp(min=0.0)
                 .view(self.num_envs, 1)
             )
-        elif self.cfg.virtual_object_control_decay_mode in ("step", "fixed_schedule"):
+        elif self.cfg.virtual_object_control_decay_mode in (
+            "step",
+            "fixed_schedule",
+            "custom_schedule",
+        ):
             self.virtual_object_controller_scale_factor_per_env[
                 self.steps_since_last_reset
                 >= self.cfg.virtual_object_control_decay_steps
             ] = self.virtual_object_controller_scale_factor
+        else:
+            raise ValueError(
+                f"Unknown virtual_object_control_decay_mode: {self.cfg.virtual_object_control_decay_mode!r}. "
+                "Expected one of: 'linear', 'step', 'fixed_schedule', 'custom_schedule'."
+            )
 
         # If still in the reset phase, don't step the timestep counter
         # Note: This will make each episode length vary, which might cause the episode rewards to be variant.

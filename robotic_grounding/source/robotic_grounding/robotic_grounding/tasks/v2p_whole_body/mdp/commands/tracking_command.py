@@ -55,6 +55,7 @@ class TrackingCommand(CommandTerm):
         self._init_scene_references(cfg, env)
         self._load_and_process_motion(cfg)
         self._init_buffers(cfg)
+        self._init_metrics()
         self._init_hand_data(cfg)
         self._init_contact_data()
         self._precompute_hand_keypoints_in_object_frame()
@@ -245,6 +246,35 @@ class TrackingCommand(CommandTerm):
             [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]],
             dtype=torch.float32,
             device=self.device,
+        )
+
+    def _init_metrics(self) -> None:
+        """Allocate per-env tracking metric buffers."""
+        self.metrics["anchor_position_error"] = torch.zeros(
+            self.num_envs, device=self.device
+        )
+        self.metrics["anchor_wxyz_error"] = torch.zeros(
+            self.num_envs, device=self.device
+        )
+        self.metrics["joint_pos_error"] = torch.zeros(self.num_envs, device=self.device)
+        for side in ("left", "right"):
+            self.metrics[f"{side}_hand_wrist_position_error"] = torch.zeros(
+                self.num_envs, device=self.device
+            )
+            self.metrics[f"{side}_hand_wrist_wxyz_error"] = torch.zeros(
+                self.num_envs, device=self.device
+            )
+            self.metrics[f"{side}_hand_finger_joints_error"] = torch.zeros(
+                self.num_envs, device=self.device
+            )
+        self.metrics["object_body_position_error"] = torch.zeros(
+            self.num_envs, device=self.device
+        )
+        self.metrics["object_body_wxyz_error"] = torch.zeros(
+            self.num_envs, device=self.device
+        )
+        self.metrics["virtual_object_controller_scale_factor"] = torch.zeros(
+            self.num_envs, device=self.device
         )
 
     def _init_hand_data(self, cfg: TrackingCommandCfg) -> None:
@@ -1149,7 +1179,70 @@ class TrackingCommand(CommandTerm):
 
     def _update_metrics(self) -> None:
         """Track per-step errors for logging."""
-        pass  # TODO: port metric tracking
+        self.metrics["anchor_position_error"] = torch.norm(
+            self.robot_anchor_pos_w - self.command_anchor_pos_w, dim=-1
+        )
+        self.metrics["anchor_wxyz_error"] = math_utils.quat_error_magnitude(
+            self.robot_anchor_quat_w, self.command_anchor_quat_w
+        )
+        self.metrics["joint_pos_error"] = torch.norm(
+            self.robot_joint_pos - self.command_joint_pos, dim=-1
+        )
+
+        self.metrics["object_body_position_error"] = torch.norm(
+            self.object_position_e - self.object_body_position_command_e,
+            dim=-1,
+        ).mean(dim=-1)
+        self.metrics["object_body_wxyz_error"] = math_utils.quat_error_magnitude(
+            self.object_orientation_e,
+            self.object_body_wxyz_command_e,
+        ).mean(dim=-1)
+
+        wrist_metrics = (
+            (
+                "left",
+                self._left_wrist_body_id,
+                self.left_hand_wrist_position_e,
+                self.left_hand_wrist_pose_command_e,
+            ),
+            (
+                "right",
+                self._right_wrist_body_id,
+                self.right_hand_wrist_position_e,
+                self.right_hand_wrist_pose_command_e,
+            ),
+        )
+        for (
+            side,
+            wrist_body_id,
+            wrist_position_e,
+            wrist_pose_command_e,
+        ) in wrist_metrics:
+            self.metrics[f"{side}_hand_wrist_position_error"] = torch.norm(
+                wrist_position_e - wrist_pose_command_e[:, :3],
+                dim=-1,
+            )
+            if wrist_body_id is not None:
+                self.metrics[f"{side}_hand_wrist_wxyz_error"] = (
+                    math_utils.quat_error_magnitude(
+                        self.robot.data.body_quat_w[:, wrist_body_id],
+                        wrist_pose_command_e[:, 3:],
+                    )
+                )
+            else:
+                self.metrics[f"{side}_hand_wrist_wxyz_error"].zero_()
+
+        self.metrics["left_hand_finger_joints_error"] = torch.norm(
+            self.left_hand_finger_joint_pos - self.left_hand_finger_joint_pos_command,
+            dim=-1,
+        )
+        self.metrics["right_hand_finger_joints_error"] = torch.norm(
+            self.right_hand_finger_joint_pos - self.right_hand_finger_joint_pos_command,
+            dim=-1,
+        )
+        self.metrics["virtual_object_controller_scale_factor"] = (
+            self.virtual_object_controller_scale_factor_per_env.squeeze(-1)
+        )
 
     def _set_debug_vis_impl(self, debug_vis: bool = True) -> None:
         """Enable/disable debug visualization of tracking targets."""

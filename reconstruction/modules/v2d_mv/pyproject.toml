@@ -14,12 +14,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-io = [
-    "opencv-python",
-    "imageio[pyav]",
-    "av",
-    "tqdm",
-]
 math = [
     "torch",
     "scipy",
@@ -32,11 +26,10 @@ vis = [
     "wis3d",
 ]
 [tool.setuptools]
-packages = ["v2d.mv", "v2d.mv.cli", "v2d.mv.io", "v2d.mv.math", "v2d.mv.rig", "v2d.mv.vis"]
+packages = ["v2d.mv", "v2d.mv.cli", "v2d.mv.math", "v2d.mv.rig", "v2d.mv.vis"]
 
 [tool.setuptools.package-dir]
 "v2d.mv" = "."
-"v2d.mv.io" = "io"
 "v2d.mv.math" = "math"
 "v2d.mv.cli" = "cli"
 "v2d.mv.rig" = "rig"

@@ -466,6 +466,23 @@ class CurriculumCfg:
             "reward_baseline_retention": {
                 "contact_wrench_support_reward": 0.0,
             },
+            # custom_schedule mode: explicit VOC levels + paired reward weight changes.
+            # Each list has one entry per decay event. Empty = custom_schedule disabled.
+            "custom_voc_schedule": [],
+            "custom_reward_schedules": {
+                "object_keypoints_tracking_exp": [],
+                "hand_keypoints_tracking_exp": [],
+                "hand_joint_pos_tracking_exp": [],
+            },
+            # Force decay after this many env steps of being gate-eligible without firing.
+            # 0 = disabled. Only active in custom_schedule mode.
+            "max_eligible_wait_env_steps": 0,
+            # 0.0 = disabled; set > 0 to require metric <= threshold before decay.
+            "metric_upper_thresholds": {
+                "contact_wrench_support_reward_cv": 0.0,
+            },
+            # If True, metric_upper_thresholds gate only applies before the first decay.
+            "metric_upper_thresholds_initial_only": False,
         },
     )
 

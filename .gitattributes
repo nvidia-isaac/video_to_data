@@ -1,4 +1,7 @@
-# Common binary types tracked with LFS
+# Universal LFS rules (used by 2+ packages). Package-specific path rules
+# live in each subproject's own .gitattributes.
+
+# 3D mesh formats
 *.obj filter=lfs diff=lfs merge=lfs -text
 *.stl filter=lfs diff=lfs merge=lfs -text
 *.STL filter=lfs diff=lfs merge=lfs -text
@@ -13,7 +16,7 @@
 *.h5 filter=lfs diff=lfs merge=lfs -text
 *.hdf5 filter=lfs diff=lfs merge=lfs -text
 *.parquet filter=lfs diff=lfs merge=lfs -text
-# NumPy/Pickle data
+# NumPy / Pickle data
 *.npy filter=lfs diff=lfs merge=lfs -text
 *.npz filter=lfs diff=lfs merge=lfs -text
 *.pkl filter=lfs diff=lfs merge=lfs -text
@@ -22,11 +25,3 @@
 *.onnx filter=lfs diff=lfs merge=lfs -text
 *.pt filter=lfs diff=lfs merge=lfs -text
 *.safetensors filter=lfs diff=lfs merge=lfs -text
-robotic_grounding/source/robotic_grounding/robotic_grounding/assets/human_motion_data/arctic/** filter=lfs diff=lfs merge=lfs -text
-robotic_grounding/source/robotic_grounding/robotic_grounding/assets/meshes/oakink2/object_raw/** filter=lfs diff=lfs merge=lfs -text
-robotic_grounding/source/robotic_grounding/robotic_grounding/assets/meshes/oakink2/object_repair/** filter=lfs diff=lfs merge=lfs -text
-robotic_grounding/source/robotic_grounding/robotic_grounding/assets/meshes/hot3d/** filter=lfs diff=lfs merge=lfs -text
-robotic_grounding/source/robotic_grounding/robotic_grounding/assets/human_motion_data/taco/taco_loaded/sequence_id=taco_empty__kettle__plate_20231031_060/**/*.parquet filter=lfs diff=lfs merge=lfs -text
-robotic_grounding/source/robotic_grounding/robotic_grounding/assets/human_motion_data/taco/taco_processed/sequence_id=taco_empty__kettle__plate_20231031_060/**/*.parquet filter=lfs diff=lfs merge=lfs -text
-robotic_grounding/source/robotic_grounding/robotic_grounding/assets/human_motion_data/taco/reconstructed_stage/taco_empty__kettle__plate_20231031_060_support.usda filter=lfs diff=lfs merge=lfs -text
-*.pkg filter=lfs diff=lfs merge=lfs -text

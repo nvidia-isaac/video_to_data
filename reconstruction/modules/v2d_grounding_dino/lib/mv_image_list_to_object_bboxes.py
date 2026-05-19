@@ -11,7 +11,9 @@ from tqdm import tqdm
 
 from v2d.mv.rig import RigConfig
 
-from .image_list_to_object_bboxes import IMAGE_EXTENSIONS, _detect, _get_model
+from v2d.common.video import FrameSource
+
+from .image_list_to_object_bboxes import _detect, _get_model
 from .vis import visualize_image_list_bboxes
 
 
@@ -30,17 +32,15 @@ def mv_image_list_to_object_bboxes_from_config(cfg):
 
     for cam_id in cfg.cameras:
         cam = rig.get_camera(cam_id)
-        image_dir = Path(cfg.image_path_template.format(cam_name=cam.name))
+        image_path = Path(cfg.rgb_path_template.format(cam_name=cam.name))
         output_path = Path(cfg.output_path_template.format(cam_name=cam.name))
 
-        image_files = sorted(
-            p for p in image_dir.iterdir() if p.suffix.lower() in IMAGE_EXTENSIONS
-        )[frames_slice]
+        source = FrameSource.from_path(image_path, frames_slice=frames_slice)
 
         results = {}
-        for image_path in tqdm(image_files, desc=f"Grounding DINO [{cam.name}]"):
-            detections = _detect(model, str(image_path), prompt, box_threshold, text_threshold)
-            results[image_path.stem] = detections
+        for i in tqdm(range(source.n_frames), desc=f"Grounding DINO [{cam.name}]"):
+            detections = _detect(model, source[i], prompt, box_threshold, text_threshold)
+            results[source.stems[i]] = detections
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w") as f:
@@ -50,7 +50,7 @@ def mv_image_list_to_object_bboxes_from_config(cfg):
 
         if debug > 0:
             debug_dir = output_path.parent / f"{cam.name}_vis"
-            visualize_image_list_bboxes(str(image_dir), results, str(debug_dir))
+            visualize_image_list_bboxes(str(image_path), results, str(debug_dir))
 
 
 if __name__ == "__main__":
@@ -61,25 +61,24 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Multi-view Grounding DINO object detection"
     )
-    parser.add_argument("--image_dir", type=str, required=True,
-                        help="Root directory containing per-camera image folders")
+    parser.add_argument("--rgb_dir", type=str, required=True,
+                        help="Root directory containing per-camera input frames")
     parser.add_argument("--prompt_path", type=str, required=True,
                         help="Path to plain-text file containing the object prompt")
     parser.add_argument("--output_dir", type=str, required=True,
                         help="Output directory for per-camera bbox JSONs")
     parser.add_argument("--model_dir", type=str, required=True,
                         help="Directory with Grounding DINO weights")
-    parser.add_argument(
-        "--config_path",
-        type=str,
-        default=str(Path(__file__).parent / "mv_image_list_to_object_bboxes.yaml"),
-    )
+    parser.add_argument("--config_path", type=str, default=None,
+                        help="Optional override config (merged on top of defaults)")
     parser.add_argument("--debug", type=int, default=None, help="Debug level override")
     args = parser.parse_args()
 
-    cfg = OmegaConf.load(args.config_path)
+    cfg = OmegaConf.load(Path(__file__).parent / "mv_image_list_to_object_bboxes.yaml")
+    if args.config_path:
+        cfg = OmegaConf.merge(cfg, OmegaConf.load(args.config_path))
     overrides = {
-        "image_dir": args.image_dir,
+        "rgb_dir": args.rgb_dir,
         "prompt_path": args.prompt_path,
         "output_dir": args.output_dir,
         "model_dir": args.model_dir,

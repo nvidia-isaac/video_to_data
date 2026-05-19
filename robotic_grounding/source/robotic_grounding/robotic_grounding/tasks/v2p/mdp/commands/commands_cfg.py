@@ -85,7 +85,7 @@ class DualHandsObjectTrackingCommandCfg(CommandTermCfg):
     resampling_time_range: tuple[float, float] = (1e6, 1e6)
     """No resampling based on time."""
 
-    debug_vis: bool = True
+    debug_vis: bool = False
     """Whether to visualize the debug markers."""
 
     right_robot_name: str = "right_robot"
@@ -141,6 +141,17 @@ class DualHandsObjectTrackingCommandCfg(CommandTermCfg):
     always_reset_to_first_frame: bool = False
     """Whether to always reset to the first frame of the motion data."""
 
+    reset_to_first_frame_prob: float = 0.0
+    """Probability of resetting to the first trajectory frame (tc=0) instead of a random frame.
+
+    Only applied when ``always_reset_to_first_frame`` is False AND the global VOC scale is
+    below 0.1 (i.e. the curriculum has nearly or fully decayed).  This closes the train/eval
+    distribution gap: eval always starts from tc=0, but without this flag training never
+    sees tc=0 starts once the curriculum is active, allowing the policy to reward-hack by
+    learning to hold-in-place from mid-trajectory positions while failing from the start.
+    Recommended value: 0.1–0.2.  Has no effect during the VOC-assisted curriculum phase.
+    """
+
     initial_virtual_object_control_curriculum_scale: float = 1.0
     """Initial virtual object control curriculum scale."""
 
@@ -167,6 +178,13 @@ class DualHandsObjectTrackingCommandCfg(CommandTermCfg):
 
     friction_coefficients: float = 0.1
     """Friction coefficient for the wrench space support function."""
+
+    enable_additional_metrics: bool = False
+    """Whether to log additional diagnostic metrics (contact wrench CV, coverage, etc.).
+
+    Enables contact_wrench_support_reward_cv and related W&B metrics.
+    Off by default to avoid compute overhead in production runs.
+    """
 
     ###################################################
     # Visualizer markers

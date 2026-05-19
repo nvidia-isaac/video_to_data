@@ -2,6 +2,7 @@ import gymnasium as gym
 
 from . import (
     agents,
+    sharpa_v2p_auto_curr_env_cfg,
     sharpa_v2p_direct_env_cfg,
     sharpa_v2p_env_cfg,
     sharpa_v2p_tracking_env_cfg,
@@ -17,6 +18,16 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": sharpa_v2p_env_cfg.SharpaV2PEnvCfg,
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:SharpaV2PPPORunnerCfg",
+    },
+)
+
+gym.register(
+    id="Sharpa-V2P-AutoCurr-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": sharpa_v2p_auto_curr_env_cfg.SharpaV2PAutoCurrEnvCfg,
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:SharpaV2PPPORunnerCfg",
     },
 )

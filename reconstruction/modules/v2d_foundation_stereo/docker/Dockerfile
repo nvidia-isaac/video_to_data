@@ -11,4 +11,4 @@ RUN pip install opencv-python-headless numpy Pillow "cuda-python==12.6.*"
 
 COPY . /workspace
 
-RUN pip install -e /workspace/v2d_common -e /workspace/v2d_mv -e /workspace/v2d_foundation_stereo/lib
+RUN pip install -e "/workspace/v2d_common[io]" -e /workspace/v2d_mv -e /workspace/v2d_foundation_stereo/lib

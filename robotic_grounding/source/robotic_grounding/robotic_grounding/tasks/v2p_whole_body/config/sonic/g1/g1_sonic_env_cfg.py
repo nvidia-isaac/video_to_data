@@ -1,5 +1,6 @@
 import isaaclab.envs.mdp as il_mdp
 from isaaclab.envs.mdp import observations
+from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.managers import RewardTermCfg as RewTerm
@@ -20,6 +21,9 @@ from robotic_grounding.tasks.v2p_whole_body.mdp.actions import (
     SONICActionCfg,
     SONICActionType,
 )
+from robotic_grounding.tasks.v2p_whole_body.mdp.curriculum import (
+    WholeBodyFixedTimestepVOCCurriculum,
+)
 from robotic_grounding.tasks.v2p_whole_body.mdp.rewards import (
     contact_rewards,
     tracking_rewards,
@@ -31,6 +35,7 @@ from robotic_grounding.tasks.v2p_whole_body.mdp.terminations import (
     ee_quat_error,
     object_pos_error,
     object_quat_error,
+    timestep_termination,
 )
 
 POLICY_DIR = f"{POLICY_ASSET_DIR}/sonic"
@@ -311,7 +316,11 @@ class G1SonicRewardsCfg:
 class G1SonicTerminationsCfg:
     """Shared termination config."""
 
-    timeout = DoneTerm(func=il_mdp.time_out, time_out=True)
+    timeout = DoneTerm(
+        func=timestep_termination,
+        params={"command_name": "motion"},
+        time_out=True,
+    )
     anchor_pos_error = DoneTerm(
         func=anchor_pos_error,
         params={"command_name": "motion", "threshold": 0.70},
@@ -388,7 +397,11 @@ class G1SonicReconBodyRewardsCfg(G1SonicRewardsCfg):
     motion_joint_pos_error_exp = RewTerm(
         func=tracking_rewards.motion_joint_pos_error_exp,
         weight=5.0,
-        params={"command_name": "motion", "std": 1.0},
+        params={
+            "command_name": "motion",
+            "std": 1.0,
+            "joint_names": G1_SONIC_JOINT_NAMES,
+        },
     )
     motion_object_position_error_exp = RewTerm(
         func=tracking_rewards.motion_object_position_error_exp,
@@ -419,10 +432,42 @@ class G1SonicReconBodyRewardsCfg(G1SonicRewardsCfg):
 
 
 @configclass
+class G1SonicReconBodyVOCCurriculumCfg:
+    """Fixed-timestep curriculum that decays the VOC target scale over PPO updates.
+
+    The schedule is expressed in PPO update indices and converted to env steps
+    via ``num_steps_per_env``. Reward weights are intentionally not scheduled
+    here; see ``WholeBodyFixedTimestepVOCCurriculum`` for the rationale.
+    """
+
+    voc_curriculum = CurrTerm(
+        func=WholeBodyFixedTimestepVOCCurriculum,
+        params={
+            "command_name": "motion",
+            # Match num_steps_per_env in agents/rsl_rl_ppo_cfg.py::G1SonicRslRlPpoCfg.
+            "num_steps_per_env": 24,
+            # PPO update indices (not seconds, not raw env steps).
+            "timestep_schedule": [0, 2000, 4000, 6000, 8000, 10000, 12000],
+            # VOC target scale per stage; final stage drives VOC fully off.
+            "virtual_object_control_scale_factor": [
+                1.0,
+                0.75,
+                0.5,
+                0.25,
+                0.1,
+                0.05,
+                0.0,
+            ],
+        },
+    )
+
+
+@configclass
 class G1SonicReconBodyEnvCfg(G1SonicEnvCfg):
     """Body-accurate reference env (MHR pipeline)."""
 
     rewards: G1SonicReconBodyRewardsCfg = G1SonicReconBodyRewardsCfg()
+    curriculum: G1SonicReconBodyVOCCurriculumCfg = G1SonicReconBodyVOCCurriculumCfg()
 
     def __post_init__(self) -> None:
         """Set residual scales for body-accurate tracking."""

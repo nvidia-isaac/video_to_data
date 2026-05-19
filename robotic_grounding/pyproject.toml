@@ -190,6 +190,7 @@ isaaclab = { version = "==2.2.0", extras = ["isaacsim", "all"] }
 nvidia-cudnn-cu12 = { version = "*", index = "https://pypi.org/simple" }
 viser = { version = ">=0.2.11,<0.3" }
 pre-commit = { version = ">=4.3.0,<5" }
+py-soma-x = "*"
 
 [tool.pixi.tasks]
 install-hooks = "pre-commit install"

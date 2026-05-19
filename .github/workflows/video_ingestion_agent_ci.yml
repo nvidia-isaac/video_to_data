@@ -118,9 +118,11 @@ jobs:
           source .venv/bin/activate
           # [local] for torch/transformers/timm needed by visual-extractor tests;
           # [dev] for pytest + ruff; [benchmark] for sentence-transformers/wandb
-          # needed by benchmark-adjacent tests. [server] (vLLM) is intentionally
-          # omitted — vLLM is GPU-only and not exercised by unit tests.
-          uv pip install -e ".[local,dev,benchmark]"
+          # needed by benchmark-adjacent tests; [webapp] for gradio, which is
+          # transitively imported by tests/test_reconstruction_service.py via
+          # webapp/__init__.py. [server] (vLLM) is intentionally omitted —
+          # vLLM is GPU-only and not exercised by unit tests.
+          uv pip install -e ".[local,dev,benchmark,webapp]"
 
       - name: Show installed package versions
         run: |

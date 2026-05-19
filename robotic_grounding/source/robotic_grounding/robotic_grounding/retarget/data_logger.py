@@ -247,6 +247,81 @@ SHARPA_FIELDS: list[FieldSpec] = [
     ("robot_left_num_optimization_iterations", pa.list_(pa.int32()), list[int], True),
 ]
 
+DEX3_NUM_FINGER_JOINTS = 7
+DEX3_MANO_NUM_FRAMES = 23
+DEX3_NUM_FRAME_TASKS = 4
+DEX3_MANO_FIELDS: list[FieldSpec] = [
+    ("right_robot_finger_joint_names", pa.list_(pa.string()), list[str], False),
+    ("right_robot_frame_names", pa.list_(pa.string()), list[str], False),
+    ("right_robot_frame_task_names", pa.list_(pa.string()), list[str], False),
+    ("left_robot_finger_joint_names", pa.list_(pa.string()), list[str], False),
+    ("left_robot_frame_names", pa.list_(pa.string()), list[str], False),
+    ("left_robot_frame_task_names", pa.list_(pa.string()), list[str], False),
+    # Time series
+    (
+        "robot_right_wrist_position",
+        pa.list_(pa.list_(pa.float32(), 3)),
+        list[list[float]],
+        True,
+    ),
+    (
+        "robot_right_wrist_wxyz",
+        pa.list_(pa.list_(pa.float32(), 4)),
+        list[list[float]],
+        True,
+    ),
+    (
+        "robot_right_finger_joints",
+        pa.list_(pa.list_(pa.float32(), DEX3_NUM_FINGER_JOINTS)),
+        list[list[float]],
+        True,
+    ),
+    (
+        "robot_right_frames",
+        pa.list_(pa.list_(pa.list_(pa.float32(), 7), DEX3_MANO_NUM_FRAMES)),
+        list[list[list[float]]],
+        True,
+    ),
+    (
+        "robot_right_frame_task_errors",
+        pa.list_(pa.list_(pa.float32(), DEX3_NUM_FRAME_TASKS)),
+        list[list[float]],
+        True,
+    ),
+    ("robot_right_num_optimization_iterations", pa.list_(pa.int32()), list[int], True),
+    (
+        "robot_left_wrist_position",
+        pa.list_(pa.list_(pa.float32(), 3)),
+        list[list[float]],
+        True,
+    ),
+    (
+        "robot_left_wrist_wxyz",
+        pa.list_(pa.list_(pa.float32(), 4)),
+        list[list[float]],
+        True,
+    ),
+    (
+        "robot_left_finger_joints",
+        pa.list_(pa.list_(pa.float32(), DEX3_NUM_FINGER_JOINTS)),
+        list[list[float]],
+        True,
+    ),
+    (
+        "robot_left_frames",
+        pa.list_(pa.list_(pa.list_(pa.float32(), 7), DEX3_MANO_NUM_FRAMES)),
+        list[list[list[float]]],
+        True,
+    ),
+    (
+        "robot_left_frame_task_errors",
+        pa.list_(pa.list_(pa.float32(), DEX3_NUM_FRAME_TASKS)),
+        list[list[float]],
+        True,
+    ),
+    ("robot_left_num_optimization_iterations", pa.list_(pa.int32()), list[int], True),
+]
+
 #############################################################
 # Object fields
 #############################################################
@@ -515,4 +590,9 @@ def filter_sequence_ids(sequence_ids: list[str], args: argparse.Namespace) -> li
 ManoSharpaData = create_data_logger_class(
     "ManoSharpaData",
     BASE_FIELDS + MANO_FIELDS + SHARPA_FIELDS + OBJECT_FIELDS,
+)
+
+ManoDex3Data = create_data_logger_class(
+    "ManoDex3Data",
+    BASE_FIELDS + MANO_FIELDS + DEX3_MANO_FIELDS + OBJECT_FIELDS,
 )

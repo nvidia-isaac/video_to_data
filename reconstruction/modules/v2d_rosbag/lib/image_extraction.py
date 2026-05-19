@@ -164,10 +164,12 @@ def _producer(
 
 def _consumer(thread_id: int, frame_queue: queue.Queue, shutdown_event: threading.Event) -> None:
     """Consume frames from the queue and write them to disk."""
-    while not shutdown_event.is_set():
+    while True:
         try:
             images_base_path, topic, frame_idx, frame = frame_queue.get(timeout=1)
         except queue.Empty:
+            if shutdown_event.is_set():
+                return
             continue
         image_path = _image_path(images_base_path, topic, frame_idx)
         frame.to_image().save(str(image_path))
@@ -213,11 +215,51 @@ def image_extract_from_rosbag(
         timestamps_df = producer_future.result()
 
     logger.info(f"Image extraction took {time.time() - start:.1f}s.")
+    raw_counts = {
+        topic: int((timestamps_df[topic] >= 0).sum())
+        for topic in timestamps_df.columns
+    }
+    raw_logs = "\n".join(f"\t- {topic}: {count}" for topic, count in raw_counts.items())
+    logger.info("Raw extracted frame count per topic:\n" + raw_logs)
 
     # Synchronize
     synced_df = _synchronize_images(timestamps_df, config.output_path / "images", config.sync_threshold_ns)
     num_frames = _extract_frame_metadata(synced_df, config)
+    synced_counts = {
+        topic: len(list(_image_path(config.output_path / "images", topic, 0).parent.glob("*.png")))
+        for topic in synced_df.columns
+    }
+    synced_logs = "\n".join(f"\t- {topic}: {count}" for topic, count in synced_counts.items())
+    logger.info("Synced on-disk frame count per topic:\n" + synced_logs)
     logger.info(f"Number of synced frames: {num_frames}")
+
+    # Pack synchronized PNGs into per-camera HDF5 files
+    if config.pack_h5:
+        from concurrent.futures import ProcessPoolExecutor
+        from v2d.common.video import pack_directory_to_h5
+
+        images_base = config.output_path / "images"
+        pack_args = []
+        for topic in synced_df.columns:
+            cam_dir = _image_path(images_base, topic, 0).parent
+            cam_name = topic.lstrip("/")
+            h5_path = images_base / f"{cam_name}.h5"
+            pack_args.append((cam_dir, h5_path, config.remove_pngs_after_pack))
+
+        pack_workers = min(len(pack_args), num_workers)
+        logger.info(f"Packing {len(pack_args)} cameras to HDF5 with {pack_workers} workers...")
+        with ProcessPoolExecutor(max_workers=pack_workers) as executor:
+            futures = {
+                executor.submit(
+                    pack_directory_to_h5, cam_dir, h5_path, remove_pngs, False,
+                ): cam_dir.name
+                for cam_dir, h5_path, remove_pngs in pack_args
+            }
+            for f in futures:
+                f.result()
+                logger.info(f"  Packed {futures[f]}")
+        logger.info("HDF5 packing complete")
+
     return num_frames
 
 

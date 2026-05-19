@@ -196,6 +196,7 @@ import isaaclab_tasks  # noqa: F401
 import robotic_grounding.tasks  # noqa: F401
 from robotic_grounding.tasks.scene_utils import SceneConfig, apply_scene_config
 from robotic_grounding.tasks.v2p_whole_body.utils import WandbVideoUploader
+from viewer_utils import autoframe_viewer
 
 from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import hydra_task_config
@@ -234,12 +235,14 @@ def main(
         apply_scene_config(
             env_cfg, scene_config, use_primitive_urdfs=args_cli.use_primitive_urdfs
         )
+        autoframe_viewer(env_cfg, scene_config.motion_file)
     elif args_cli.scene_config is not None:
         env_cfg.scene_config_path = args_cli.scene_config
         scene_config = SceneConfig.from_yaml(args_cli.scene_config)
         apply_scene_config(
             env_cfg, scene_config, use_primitive_urdfs=args_cli.use_primitive_urdfs
         )
+        autoframe_viewer(env_cfg, scene_config.motion_file)
 
     # set max iterations
     agent_cfg.max_iterations = (
@@ -406,7 +409,8 @@ def main(
     dump_yaml(os.path.join(log_dir, "params", "env.yaml"), env_cfg)
     dump_yaml(os.path.join(log_dir, "params", "agent.yaml"), agent_cfg)
 
-    # setup eval callback: after each checkpoint save, run inference episodes and log stats
+    # setup eval callback: run inference episodes at startup, before every VOC
+    # decay, and at most every 1000 training iterations as a fallback.
     if args_cli.eval_episodes_per_save > 0:
         _eval_cb = EvalCallback(
             runner=runner,
@@ -414,20 +418,31 @@ def main(
             eval_episodes=args_cli.eval_episodes_per_save,
             log_video=args_cli.video,
         )
-        _orig_save = runner.save
 
-        def _save_with_eval(path: str, *a, **kw):
-            _orig_save(path, *a, **kw)
-            try:
-                _eval_cb(path)
-            except Exception as exc:
-                print(f"[eval] WARNING: eval callback raised an exception: {exc}")
+        # Tell the curriculum to defer each VOC decay until after eval.
+        _eval_cb._isaac_env.pre_decay_eval_enabled = True
+        _eval_cb._isaac_env.pre_decay_eval_pending = False
 
-        runner.save = _save_with_eval
+        # Hook runner.log (called every iteration, after rollout+update) to fire eval
+        # when a pre-decay eval is pending OR every 1000 iters as a fallback.
+        _orig_log = runner.log
+        _last_eval_iter: list[int] = [0]
+
+        def _monitored_log(locs, width=80, pad=35):
+            it = locs.get("it", 0)
+            pre_decay = getattr(_eval_cb._isaac_env, "pre_decay_eval_pending", False)
+            should_eval = pre_decay or (it - _last_eval_iter[0] >= 1000)
+            if should_eval:
+                try:
+                    _eval_cb(f"model_{it}.pt")
+                except Exception as exc:
+                    print(f"[eval] WARNING: eval callback raised an exception: {exc}")
+                _last_eval_iter[0] = it
+            _orig_log(locs, width=width, pad=pad)
+
+        runner.log = _monitored_log
 
         # Fire one eval immediately at startup (after wandb is initialised).
-        # _prepare_logging_writer is idempotent; calling it here lets the eval
-        # log before the first save_interval checkpoint.
         _orig_learn = runner.learn
 
         def _learn_with_startup_eval(num_learning_iterations, **kw):

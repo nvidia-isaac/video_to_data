@@ -8,7 +8,7 @@ _LIB_CONFIG = Path(__file__).parent.parent / "lib" / "mv_image_list_to_depth.yam
 
 def run_mv_image_list_to_depth(
     camera_params_path: str,
-    image_dir: str,
+    rgb_dir: str,
     output_dir: str,
     model_dir: str,
     scale: float | None = None,
@@ -17,7 +17,7 @@ def run_mv_image_list_to_depth(
 ) -> None:
     inputs = {
         "camera_params_path": camera_params_path,
-        "image_dir": image_dir,
+        "rgb_dir": rgb_dir,
         "config_path": config_path,
     }
     outputs = {
@@ -50,7 +50,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--camera_params_path", type=str, required=True,
                         help="Path to EDEX file with camera calibration")
-    parser.add_argument("--image_dir", type=str, required=True,
+    parser.add_argument("--rgb_dir", type=str, required=True,
                         help="Root directory containing per-camera image folders")
     parser.add_argument("--output_dir", type=str, required=True,
                         help="Output directory for depth and intrinsics")
@@ -65,7 +65,7 @@ if __name__ == "__main__":
 
     run_mv_image_list_to_depth(
         camera_params_path=args.camera_params_path,
-        image_dir=args.image_dir,
+        rgb_dir=args.rgb_dir,
         output_dir=args.output_dir,
         model_dir=args.model_dir,
         scale=args.scale,

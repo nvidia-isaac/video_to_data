@@ -204,6 +204,95 @@ NVHUMAN_JOINTS_ORDER = [
 ]
 
 #############################################################
+# SOMA parameters (NVlabs SOMA-X, MHR identity)
+#############################################################
+
+# Ordered SOMA rig joint names exported by ``save_soma_npz``. Identical to
+# NVHUMAN_JOINTS_ORDER except that the eight forearm/arm/leg/shin "twist"
+# pseudo joints are not part of the SOMA rig. Index positions are stable for
+# any SOMA-X export because ``save_soma_npz`` writes joint_names verbatim
+# from ``soma.rig_data["joint_names"]``.
+SOMA_JOINTS_ORDER = [
+    "Hips",  # 0
+    "Spine1",  # 1
+    "Spine2",  # 2
+    "Chest",  # 3
+    "Neck1",  # 4
+    "Neck2",  # 5
+    "Head",  # 6
+    "HeadEnd",  # 7
+    "Jaw",  # 8
+    "LeftEye",  # 9
+    "RightEye",  # 10
+    "LeftShoulder",  # 11
+    "LeftArm",  # 12
+    "LeftForeArm",  # 13
+    "LeftHand",  # 14
+    "LeftHandThumb1",  # 15
+    "LeftHandThumb2",  # 16
+    "LeftHandThumb3",  # 17
+    "LeftHandThumbEnd",  # 18
+    "LeftHandIndex1",  # 19
+    "LeftHandIndex2",  # 20
+    "LeftHandIndex3",  # 21
+    "LeftHandIndex4",  # 22
+    "LeftHandIndexEnd",  # 23
+    "LeftHandMiddle1",  # 24
+    "LeftHandMiddle2",  # 25
+    "LeftHandMiddle3",  # 26
+    "LeftHandMiddle4",  # 27
+    "LeftHandMiddleEnd",  # 28
+    "LeftHandRing1",  # 29
+    "LeftHandRing2",  # 30
+    "LeftHandRing3",  # 31
+    "LeftHandRing4",  # 32
+    "LeftHandRingEnd",  # 33
+    "LeftHandPinky1",  # 34
+    "LeftHandPinky2",  # 35
+    "LeftHandPinky3",  # 36
+    "LeftHandPinky4",  # 37
+    "LeftHandPinkyEnd",  # 38
+    "RightShoulder",  # 39
+    "RightArm",  # 40
+    "RightForeArm",  # 41
+    "RightHand",  # 42
+    "RightHandThumb1",  # 43
+    "RightHandThumb2",  # 44
+    "RightHandThumb3",  # 45
+    "RightHandThumbEnd",  # 46
+    "RightHandIndex1",  # 47
+    "RightHandIndex2",  # 48
+    "RightHandIndex3",  # 49
+    "RightHandIndex4",  # 50
+    "RightHandIndexEnd",  # 51
+    "RightHandMiddle1",  # 52
+    "RightHandMiddle2",  # 53
+    "RightHandMiddle3",  # 54
+    "RightHandMiddle4",  # 55
+    "RightHandMiddleEnd",  # 56
+    "RightHandRing1",  # 57
+    "RightHandRing2",  # 58
+    "RightHandRing3",  # 59
+    "RightHandRing4",  # 60
+    "RightHandRingEnd",  # 61
+    "RightHandPinky1",  # 62
+    "RightHandPinky2",  # 63
+    "RightHandPinky3",  # 64
+    "RightHandPinky4",  # 65
+    "RightHandPinkyEnd",  # 66
+    "LeftLeg",  # 67
+    "LeftShin",  # 68
+    "LeftFoot",  # 69
+    "LeftToeBase",  # 70
+    "LeftToeEnd",  # 71
+    "RightLeg",  # 72
+    "RightShin",  # 73
+    "RightFoot",  # 74
+    "RightToeBase",  # 75
+    "RightToeEnd",  # 76
+]
+
+#############################################################
 # IK parameters for Sharpa hand
 #############################################################
 
@@ -261,6 +350,14 @@ DEX3_TO_NVHUMAN_MAPPING = {
     ".*_thumb_tip": (".*HandThumbEnd", 1.0, 0.0),
     ".*_index_tip": (".*HandIndexEnd", 1.0, 0.0),
     ".*_middle_tip": (".*HandRingEnd", 1.0, 0.0),  # Map ring finger to middle
+}
+
+DEX3_TO_MANO_MAPPING = {
+    # Dex3 .* hand sites: (target MANO joint, position cost, orientation cost)
+    ".*_hand_palm_link": ("wrist", 1.0, 0.1),
+    ".*_thumb_tip": ("thumb4", 1.0, 0.0),
+    ".*_index_tip": ("index4", 1.0, 0.0),
+    ".*_middle_tip": ("middle4", 1.0, 0.0),
 }
 
 # NVHuman convention: X=left, Y=up, Z=forward

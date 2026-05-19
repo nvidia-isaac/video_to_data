@@ -1,0 +1,24 @@
+camera_params_path: ???
+depth_dir: ???
+rgb_dir: ???
+output_dir: ???
+mask_dir: null
+
+rig_config: stereo-4
+cameras: [0, 2, 4, 6]
+mask_obj_id: 0
+
+depth_path_template: "${depth_dir}/{cam_name}/depth"
+rgb_path_template: "${rgb_dir}/{cam_name}"
+mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}"
+output_path: "${output_dir}"
+
+frame_start: 0
+frame_step: 1
+frame_stop: 1
+
+max_depth: 5.0
+image_scale: 0.5
+voxel_size: 0.005
+statistical_outlier_neighbors: 20
+statistical_outlier_std: 2.0

@@ -39,6 +39,8 @@ class Config(pydantic.BaseModel):
     output_height: int | None = None
     output_format: str | None = None
     ros_distribution: str = "humble"
+    pack_h5: bool = False
+    remove_pngs_after_pack: bool = False
 
     @pydantic.model_validator(mode="after")
     def check_fields(self):

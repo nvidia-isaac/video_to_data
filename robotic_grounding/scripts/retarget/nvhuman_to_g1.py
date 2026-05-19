@@ -790,7 +790,7 @@ def main() -> None:
         # sits ``G1_ANKLE_ROLL_OFFSET`` above the foot sole in the URDF).
         # The plane module is intentionally agnostic to ankle/sole semantics;
         # it just wants world-frame contact points.
-        plane = ReferencePlane(z=0.0)
+        plane = ReferencePlane.horizontal(z=0.0)
         sole_xyz = first_pass.ankle_frame_xyz.copy()
         sole_xyz[..., 2] -= G1_ANKLE_ROLL_OFFSET
         robot_delta_z = compute_plane_alignment_offsets(

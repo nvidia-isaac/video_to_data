@@ -46,7 +46,11 @@ class Mesh:
         if isinstance(visual, trimesh.visual.TextureVisuals):
             try:
                 if visual.uv is not None and visual.material is not None:
-                    img = visual.material.image
+                    mat = visual.material
+                    img = (
+                        getattr(mat, 'baseColorTexture', None)
+                        or getattr(mat, 'image', None)
+                    )
                     if img is not None:
                         uv = np.array(visual.uv, dtype=np.float64)
                         texture = np.array(img.convert('RGBA'), dtype=np.uint8)
@@ -76,27 +80,31 @@ class Mesh:
         self.to_trimesh().export(path)
 
     @staticmethod
-    def load(path: str) -> 'Mesh':
-        """Load a mesh from file. Multi-geometry scenes are merged into one mesh.
+    def load(path: str, *, force_mesh: bool = False) -> 'Mesh':
+        """Load a mesh from file.
 
-        Scene graph transforms (e.g. from GLB node hierarchies) are applied
-        before merging so that all vertices end up in world/root space.
-        For multi-geometry scenes, UV textures are baked to vertex colors before
-        concatenation as merging UV atlases across geometries is not supported.
-        Single-geometry scenes preserve UV textures.
+        By default this uses the historical manual scene merge path: scene
+        graph transforms are applied, multi-geometry scenes are merged, and
+        multi-geometry textures are baked to vertex colors before merging.
+        Pass ``force_mesh=True`` to use trimesh's ``force="mesh"`` coercion
+        path, which is useful for GLBs whose scene/texture handling works
+        better through trimesh's native flattening.
         """
-        loaded = trimesh.load(path)
-        if isinstance(loaded, trimesh.Scene):
-            meshes = loaded.dump(concatenate=False)
-            if len(meshes) == 1:
-                tm = meshes[0]
-            else:
-                baked = []
-                for m in meshes:
-                    if isinstance(m.visual, trimesh.visual.TextureVisuals):
-                        m.visual = m.visual.to_color()
-                    baked.append(m)
-                tm = trimesh.util.concatenate(baked)
+        if force_mesh:
+            tm = trimesh.load(path, process=False, force='mesh')
         else:
-            tm = loaded
+            loaded = trimesh.load(path)
+            if isinstance(loaded, trimesh.Scene):
+                meshes = loaded.dump(concatenate=False)
+                if len(meshes) == 1:
+                    tm = meshes[0]
+                else:
+                    baked = []
+                    for m in meshes:
+                        if isinstance(m.visual, trimesh.visual.TextureVisuals):
+                            m.visual = m.visual.to_color()
+                        baked.append(m)
+                    tm = trimesh.util.concatenate(baked)
+            else:
+                tm = loaded
         return Mesh.from_trimesh(tm)

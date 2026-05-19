@@ -1,5 +1,7 @@
 import torch
 from isaaclab.envs import ManagerBasedEnv
+from isaaclab.managers import ManagerTermBase
+from isaaclab.managers.manager_term_cfg import RewardTermCfg
 from isaaclab.utils.math import quat_error_magnitude
 
 from robotic_grounding.tasks.v2p.mdp.utils import chamfer_distance
@@ -114,25 +116,67 @@ def motion_ee_orientation_error_exp(
     return torch.exp(-error / std**2)
 
 
-def motion_joint_pos_error_exp(
-    env: ManagerBasedEnv, command_name: str, std: float
-) -> torch.Tensor:
-    """
-    Reward for tracking the joint positions using exponential kernel.
+class motion_joint_pos_error_exp(ManagerTermBase):  # noqa: N801
+    """Reward for tracking joint positions using an exponential kernel."""
 
-    Args:
-        env: The environment object.
-        command_name: Name of the tracking command term.
-        std: Standard deviation of the exponential kernel.
+    def __init__(self, cfg: RewardTermCfg, env: ManagerBasedEnv) -> None:
+        """Resolve optional joint filters once when the reward term is created."""
+        super().__init__(cfg, env)
 
-    Returns:
-        Reward tensor of shape (num_envs,).
-    """
-    command = env.command_manager.get_term(command_name)
-    error = torch.sum(
-        torch.square(command.command_joint_pos - command.robot_joint_pos), dim=-1
-    )
-    return torch.exp(-error / std**2)
+        self._command = env.command_manager.get_term(cfg.params["command_name"])
+        joint_names: list[str] | None = cfg.params.get("joint_names")
+        self._joint_ids: torch.Tensor | None = None
+
+        if joint_names is not None:
+            _, resolved_joint_names = self._command.robot.find_joints(joint_names)
+            tracked_joint_name_to_idx = {
+                name: idx for idx, name in enumerate(self._command._tracked_joint_names)
+            }
+            missing_joint_names = [
+                name
+                for name in resolved_joint_names
+                if name not in tracked_joint_name_to_idx
+            ]
+            if missing_joint_names:
+                raise ValueError(
+                    "Reward joint_names must be included in the tracking command joints. "
+                    f"Missing joints: {missing_joint_names}"
+                )
+            self._joint_ids = torch.tensor(
+                [tracked_joint_name_to_idx[name] for name in resolved_joint_names],
+                device=env.device,
+                dtype=torch.long,
+            )
+
+    def __call__(
+        self,
+        env: ManagerBasedEnv,
+        command_name: str,
+        std: float,
+        joint_names: list[str] | None = None,
+    ) -> torch.Tensor:
+        """
+        Compute joint position tracking reward.
+
+        Args:
+            env: The environment object.
+            command_name: Name of the tracking command term.
+            std: Standard deviation of the exponential kernel.
+            joint_names: Optional list of joint names or name patterns to track. If not
+                provided, all joints tracked by the command are used.
+
+        Returns:
+            Reward tensor of shape (num_envs,).
+        """
+        del env, command_name, joint_names
+        command_joint_pos = self._command.command_joint_pos
+        robot_joint_pos = self._command.robot_joint_pos
+        if self._joint_ids is not None:
+            command_joint_pos = command_joint_pos[:, self._joint_ids]
+            robot_joint_pos = robot_joint_pos[:, self._joint_ids]
+
+        error = torch.sum(torch.square(command_joint_pos - robot_joint_pos), dim=-1)
+        return torch.exp(-error / std**2)
 
 
 def motion_object_position_error_exp(

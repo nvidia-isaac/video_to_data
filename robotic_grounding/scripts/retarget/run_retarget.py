@@ -7,14 +7,18 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
-"""Generic retarget (IK) entry point.
+r"""Generic retarget (IK) entry point.
 
 Dispatches to the correct dataset-specific retarget script using the
 dataset registry. Replaces the per-dataset if-elif blocks in retarget.yaml.
 
 Usage::
 
-    python scripts/retarget/run_retarget.py --dataset taco --input_dir /data/loaded --output_dir /data/processed --device cuda:0 --save
+    python scripts/retarget/run_retarget.py --dataset taco --robot sharpa_wave \
+        --input_dir /data/loaded --output_dir /data/processed --device cuda:0 --save
+
+    # Same dataset, different robot (per-robot retargeter):
+    python scripts/retarget/run_retarget.py --dataset arctic --robot dex3 ...
 """
 
 from __future__ import annotations
@@ -53,7 +57,8 @@ def main() -> None:
     if "--dataset" not in sys.argv:
         print("Error: --dataset is required", file=sys.stderr)
         print(
-            "Usage: python scripts/retarget/run_retarget.py --dataset <name> [retarget args...]",
+            "Usage: python scripts/retarget/run_retarget.py --dataset <name> "
+            "[--robot <robot>] [retarget args...]",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -66,6 +71,15 @@ def main() -> None:
     dataset_name = sys.argv[idx + 1]
     remaining_argv = sys.argv[:idx] + sys.argv[idx + 2 :]
 
+    robot_name = "sharpa_wave"
+    if "--robot" in remaining_argv:
+        ridx = remaining_argv.index("--robot")
+        if ridx + 1 >= len(remaining_argv):
+            print("Error: --robot requires a value", file=sys.stderr)
+            sys.exit(1)
+        robot_name = remaining_argv[ridx + 1]
+        remaining_argv = remaining_argv[:ridx] + remaining_argv[ridx + 2 :]
+
     # Import registry
     source_dir = str(REPO_ROOT / "source" / "robotic_grounding")
     if source_dir not in sys.path:
@@ -76,14 +90,16 @@ def main() -> None:
     )
 
     config = get_dataset_config(dataset_name)
-    if not config.retarget_script:
+    if robot_name not in config.retarget_scripts:
+        available = ", ".join(sorted(config.retarget_scripts)) or "<none>"
         print(
-            f"Error: dataset '{dataset_name}' has no retarget_script configured",
+            f"Error: dataset '{dataset_name}' has no retargeter for robot "
+            f"'{robot_name}'. Available: {available}",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    module = _load_module_from_path(config.retarget_script)
+    module = _load_module_from_path(config.retarget_scripts[robot_name])
 
     sys.argv = remaining_argv
     args = module.parse_args()

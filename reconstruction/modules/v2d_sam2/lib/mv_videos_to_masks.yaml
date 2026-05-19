@@ -1,13 +1,12 @@
 bbox_dir: ???
-image_dir: null
-video_dir: null
+rgb_dir: ???
 output_dir: ???
 weights_dir: ???
 
 rig_config: stereo-4
 cameras: [0, 2, 4, 6]
 
-image_path_template: "${image_dir}/{cam_name}"
-video_path_template: "${video_dir}/{cam_name}.mp4"
+rgb_path_template: "${rgb_dir}/{cam_name}"
 bbox_path_template: "${bbox_dir}/{cam_name}_bbox_track.pt"
 mask_path_template: "${output_dir}/{cam_name}"
+mask_extension: ""   # set to ".h5" to write one HDF5 file per (cam, obj_id) instead of a PNG directory

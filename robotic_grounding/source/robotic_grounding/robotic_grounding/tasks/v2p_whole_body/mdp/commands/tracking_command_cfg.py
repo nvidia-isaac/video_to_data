@@ -33,6 +33,17 @@ class TrackingCommandCfg(CommandTermCfg):
     motion_file: str = ""
     """Path to the `motion_v1` parquet file or Hive-partitioned directory."""
 
+    motion_start_frame: int = 0
+    """First frame of the source motion to use (inclusive). 0 = beginning."""
+
+    motion_end_frame: int = -1
+    """One past the last frame to use. ``-1`` means end of sequence.
+
+    Stored as int (not ``int | None``) because Isaac Lab's
+    ``update_class_from_dict`` infers the expected override type from the
+    current value, so a ``None`` default would reject int Hydra overrides.
+    """
+
     # Offsets applied to loaded trajectories
     object_pos_offset: list[float] = [0.0, 0.0, 0.0]
     """Offset applied to object position trajectory."""
@@ -138,4 +149,17 @@ class TrackingCommandCfg(CommandTermCfg):
     pose_visualizer_cfg.markers["frame"].scale = (0.15, 0.15, 0.15)
 
     resampling_time_range: tuple[float, float] = (1e6, 1e6)
-    """No time-based resampling."""
+    """Disable Isaac Lab's mid-episode command resampling.
+
+    The base ``CommandManager`` decrements a per-env ``time_left`` by ``dt``
+    each step and calls ``_resample`` whenever ``time_left <= 0``. For
+    trajectory tracking we never want a mid-episode resample: episode
+    termination (timeout or tracking-error) already drives a reset through
+    ``command_manager.reset(env_ids)``, and the reset event picks a fresh
+    frame in ``[0, num_timesteps)`` of the (trimmed) motion.
+
+    Setting both bounds to ``1e6`` means each call to ``_resample`` writes
+    ``time_left = 1e6`` (≈ 11 days of sim time), so the time-based path
+    cannot re-fire during any realistic ``episode_length_s``. Do not lower
+    this without also overriding ``compute()``.
+    """

@@ -36,7 +36,8 @@ source scripts/setup_css_env.sh
 
 **Option B — direnv (automatic, recommended)**
 
-[direnv](https://direnv.net/) auto-loads credentials whenever you `cd` into the repo.
+[direnv](https://direnv.net/) auto-loads credentials whenever you `cd` into
+`robotic_grounding/`.
 
 Install:
 ```bash
@@ -45,19 +46,21 @@ sudo apt-get install direnv        # Ubuntu/Debian
 eval "$(direnv hook bash)"
 ```
 
-Create a **gitignored** `.envrc.local` in the **repo root** (`video_to_data/.envrc.local`):
+Create a **gitignored** `.envrc.local` inside this package
+(`robotic_grounding/.envrc.local`):
 ```bash
-# .envrc.local
+# robotic_grounding/.envrc.local
 export CSS_ACCESS_KEY="<your-access-key-id>"
 export CSS_SECRET_KEY="<your-secret-key>"
 ```
 
 Allow direnv to load it (one-time, per clone):
 ```bash
-direnv allow
+cd robotic_grounding && direnv allow
 ```
 
-Credentials are then injected automatically on every `cd` into the repo.
+Credentials are then injected automatically on every `cd` into
+`robotic_grounding/`.
 
 ## Docker Usage
 

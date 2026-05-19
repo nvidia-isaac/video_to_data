@@ -1,7 +1,7 @@
 import argparse
 from pathlib import Path
 
-from v2d.mv.io.video import FrameSource, tile_videos
+from v2d.common.video import FrameSource, tile_videos
 
 
 if __name__ == "__main__":
@@ -37,11 +37,7 @@ if __name__ == "__main__":
 
     frame_sources = []
     for s in sources:
-        p = Path(s)
-        if p.is_dir():
-            frame_sources.append(FrameSource(image_dir=p))
-        else:
-            frame_sources.append(FrameSource(video_path=p))
+        frame_sources.append(FrameSource.from_path(Path(s)))
 
     tile_videos(
         sources=frame_sources,

@@ -23,11 +23,17 @@ RUN pip install pytorch-lightning pyrender opencv-python yacs scikit-image einop
 RUN FORCE_CUDA=1 TORCH_CUDA_ARCH_LIST="8.0 8.6 8.9 9.0" \
     pip install "git+https://github.com/facebookresearch/pytorch3d.git@v0.7.9"
 
-COPY . /workspace
+RUN pip install py-soma-x
 
-RUN pip install -e /workspace/v2d_common \
-                -e "/workspace/v2d_mv[io,math,vis]" \
-                -e /workspace/v2d_sam3d_body/lib
+# Install v2d packages (cached unless pyproject.toml or v2d/ source changes)
+COPY v2d_common /workspace/v2d_common
+RUN pip install -e "/workspace/v2d_common[io]"
+
+COPY v2d_mv /workspace/v2d_mv
+RUN pip install -e "/workspace/v2d_mv[math,vis]"
+
+COPY v2d_sam3d_body /workspace/v2d_sam3d_body
+RUN pip install -e /workspace/v2d_sam3d_body/lib
 
 # sam_3d_body and tools are accessed via PYTHONPATH (legacy package structure)
 ENV PYTHONPATH=/workspace/v2d_sam3d_body/lib

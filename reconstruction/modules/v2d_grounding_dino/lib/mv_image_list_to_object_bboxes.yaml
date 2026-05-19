@@ -1,12 +1,12 @@
 rig_config: stereo-4
 cameras: [0, 2, 4, 6]
 
-image_dir: ???
+rgb_dir: ???
 prompt_path: ???
 output_dir: ???
 model_dir: ???
 
-image_path_template: "${image_dir}/{cam_name}"
+rgb_path_template: "${rgb_dir}/{cam_name}"
 output_path_template: "${output_dir}/{cam_name}.json"
 
 start: 0

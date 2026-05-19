@@ -12,6 +12,7 @@ def run_mv_visualize_wis3d(
     object_pose_dir: str,
     human_pose_dir: str,
     output_dir: str,
+    ground_plane_dir: str | None = None,
     config_path: str = str(_LIB_CONFIG),
     dev: bool = False,
 ) -> None:
@@ -22,6 +23,8 @@ def run_mv_visualize_wis3d(
         "human_pose_dir": human_pose_dir,
         "config_path": config_path,
     }
+    if ground_plane_dir is not None:
+        inputs["ground_plane_dir"] = ground_plane_dir
     outputs = {"output_dir": output_dir}
 
     run_in_container(
@@ -45,6 +48,7 @@ if __name__ == "__main__":
     parser.add_argument("--object_pose_dir", type=str, required=True)
     parser.add_argument("--human_pose_dir", type=str, required=True)
     parser.add_argument("--output_dir", type=str, required=True)
+    parser.add_argument("--ground_plane_dir", type=str, default=None)
     parser.add_argument("--config_path", type=str, default=str(_LIB_CONFIG))
     parser.add_argument("--dev", action="store_true")
     args = parser.parse_args()
@@ -55,6 +59,7 @@ if __name__ == "__main__":
         object_pose_dir=args.object_pose_dir,
         human_pose_dir=args.human_pose_dir,
         output_dir=args.output_dir,
+        ground_plane_dir=args.ground_plane_dir,
         config_path=args.config_path,
         dev=args.dev,
     )
