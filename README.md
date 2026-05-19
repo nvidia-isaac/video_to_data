@@ -5,19 +5,18 @@ Monorepo for **Video to Data (V2D)** — an end-to-end pipeline that converts hu
 ## End-to-End Workflow
 
 ```
- ┌───────────────┐   ┌──────────────────────┐   ┌──────────────────────┐   ┌────────────────────────────┐
- │ Human demo    │ → │ 1. Video Ingestion   │ → │ 2. Reconstruction    │ → │ 3. Robotic Grounding       │
- │ video / rosbag│   │    Agent             │   │ depth · masks ·      │   │ retargeting → Isaac Lab    │
- │               │   │ action segments ·    │   │ meshes · 6D pose ·   │   │ RL training (RSL-RL PPO)   │
- │               │   │ entity graph ·       │   │ SMPL body            │   │                            │
- │               │   │ visual embeddings    │   │                      │   │                            │
- └───────────────┘   └──────────────────────┘   └──────────────────────┘   └────────────────────────────┘
-                       video_ingestion_agent/      reconstruction/             robotic_grounding/
+ ┌───────────────┐   ┌──────────────────────┐   ┌──────────────────────┐
+ │ Human demo    │ → │ 1. Video Ingestion   │ → │ 2. Reconstruction    │
+ │ video / rosbag│   │    Agent             │   │ depth · masks ·      │
+ │               │   │ action segments ·    │   │ meshes · 6D pose ·   │
+ │               │   │ entity graph ·       │   │ SMPL body            │
+ │               │   │ visual embeddings    │   │                      │
+ └───────────────┘   └──────────────────────┘   └──────────────────────┘
+                       video_ingestion_agent/      reconstruction/
 ```
 
 1. **Video Ingestion Agent** — a LangGraph-driven agentic workflow that segments demonstration videos into temporally-bounded action clips, extracts an entity-relation scene graph, and stores per-frame SigLIP-2 embeddings. The result is a queryable action database (`graph.db` + `vector.db`) that lets downstream stages select which clips to process via natural-language retrieval, instead of brute-forcing the full video.
 2. **Reconstruction** — containerized vision modules turn the selected RGB (or stereo) clips into per-frame depth, object masks, textured meshes, 6-DoF object poses, and SMPL human body parameters. Multi-view pipelines (`run_mv_hoi_reconstruction`, `run_mv_calibration`) orchestrate the full reconstruction from a rosbag.
-3. **Robotic Grounding** — human motion (e.g. Arctic) is retargeted onto the target robot embodiment (Sharpa), then the reconstructed scene and retargeted motion drive Isaac Lab environments trained with RSL-RL PPO to produce deployable policies.
 
 ## Packages
 
@@ -25,14 +24,12 @@ Monorepo for **Video to Data (V2D)** — an end-to-end pipeline that converts hu
 |---|---|---|
 | [`video_ingestion_agent/`](video_ingestion_agent/) | Video → action segments + entity scene graph + frame embeddings. LangGraph pipeline (segment → verify/refine → entity graph → embeddings) plus an EGAgent-style natural-language retrieval agent and an optional Gradio UI. | Python venv + vLLM server |
 | [`reconstruction/`](reconstruction/) | Video → depth, masks, meshes, 6D poses, human body. 18 containerized modules + multi-view pipelines. | Docker (per-module images) |
-| [`robotic_grounding/`](robotic_grounding/) | RL training on NVIDIA Isaac Lab 2.3.1 with RSL-RL (PPO); motion retargeting utilities. | Docker (`nvcr.io/nvstaging/isaac-amr`) |
 
 ## Prerequisites
 
 - Docker with GPU support ([install](https://docs.docker.com/engine/install/ubuntu/))
 - [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
 - Python 3.10+
-- NVIDIA driver 580.126.09 / CUDA 13.0 recommended (for `robotic_grounding`)
 
 ## Quickstart
 
@@ -92,30 +89,6 @@ python -m v2d.pipelines.run_mv_hoi_reconstruction \
 ```
 
 See [reconstruction/README.md](reconstruction/README.md) for the complete module reference, including [Grounding DINO](reconstruction/README.md#v2d_grounding_dino), [SAM2](reconstruction/README.md#v2d_sam2), [FoundationPose](reconstruction/README.md#v2d_foundation_pose), [SAM3D-Body](reconstruction/README.md#v2d_sam3d_body), and others.
-
-### Robotic Grounding (data → RL policy)
-
-```bash
-cd robotic_grounding
-
-# One-time host setup (git-lfs, pre-commit)
-bash workflow/setup_deps.sh
-
-# Build + enter the Isaac Lab container
-./workflow/run.sh build  [version]
-./workflow/run.sh start  [version] [gpu_id]
-
-# Inside the container — train a policy
-python scripts/rsl_rl/train.py --task Sharpa-V2P-v0
-```
-
-See [robotic_grounding/README.md](robotic_grounding/README.md) for retargeting, debug environments, and task definitions.
-
-### Visualizer (retargeting gallery)
-
-Browse retargeted sequences as 3D animations at **http://10.111.83.14:8080/**
-
-See [robotic_grounding/README.md#visualizer](robotic_grounding/README.md#visualizer) for setup instructions.
 
 ## Design Philosophy
 

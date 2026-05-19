@@ -5,8 +5,7 @@
 """
 Ground-truth loader for HOT3D contact-segmentation benchmark.
 
-The HOT3D ground truth is produced by
-``robotic_grounding/scripts/build_v2p_ground_truth.py`` and stored as one
+The HOT3D ground truth is pre-generated externally and stored as one
 JSONL file with one row per per-object manipulation event. Schema:
 
     {"clip_id": "P0001_4bf4e21a__obj0_ev0000",

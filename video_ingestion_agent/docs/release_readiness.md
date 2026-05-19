@@ -283,7 +283,7 @@ not part of the blocker pass.
   reuse rather than adding subfolder duplicates.
 - **GitHub Actions workflow.** The monorepo already follows a
   `<package>_pipeline_ci.yml` convention
-  (`reconstruction_pipeline_ci.yml`, `robotic_grounding_ci.yml`).
+  (`reconstruction_pipeline_ci.yml`).
   Add `video_ingestion_agent_pipeline_ci.yml` running pre-commit +
   Sphinx build, scoped to `video_ingestion_agent/**` paths. The
   current `.gitlab-ci.yml` inside the subfolder can be removed once

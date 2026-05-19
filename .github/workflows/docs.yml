@@ -56,7 +56,7 @@ jobs:
     timeout-minutes: 20
     # sphinx-multiversion runs `git worktree add` for each version, which
     # materializes the full repo at that SHA and triggers Git LFS smudging
-    # on sibling-package assets (parquet / pkl / npz under robotic_grounding/).
+    # on sibling-package assets (parquet / pkl / npz under reconstruction/).
     # We never need those file contents to build docs -- skipping smudging
     # keeps them as LFS pointer files in the worktree.
     env:
