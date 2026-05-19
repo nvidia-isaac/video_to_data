@@ -157,6 +157,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--reregister_iou_thresh", type=float, default=0.3,
                    help="IoU threshold below which FoundationPose re-registers from scratch. "
                         "Set to 0 to disable. (default: 0.3)")
+    p.add_argument("--seed", type=int, default=0,
+                   help="Random seed for SAM3D mesh generation. Pinning this "
+                        "(default 0) makes the SAM3D-produced mesh "
+                        "deterministic across runs. Set to a negative number "
+                        "to disable seeding (each run produces a fresh mesh).")
     p.add_argument("--alignment_method", choices=["hamer", "world_results"],
                    default="hamer",
                    help="How to depth-align the DynHaMR hand. 'hamer' (default) "
@@ -329,6 +334,7 @@ def run_v2d_ego_e2e(
     smooth_sigma: float = 5.0,
     reregister_iou_thresh: float | None = 0.3,
     alignment_method: str = "hamer",
+    seed: int = 0,
     dev: bool = False,
 ) -> None:
     if depth_source not in ("moge", "vipe"):
@@ -537,6 +543,7 @@ def run_v2d_ego_e2e(
             depth_path            = ref_depth,
             depth_intrinsics_path = active_intrinsics,
             depth_mask_path       = ref_mask,
+            seed                  = (seed if seed >= 0 else None),
             dev                   = dev,
         )
 
@@ -748,5 +755,6 @@ if __name__ == "__main__":
         smooth_sigma                = args.smooth_sigma,
         reregister_iou_thresh       = args.reregister_iou_thresh,
         alignment_method            = args.alignment_method,
+        seed                        = args.seed,
         dev                         = args.dev,
     )
