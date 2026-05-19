@@ -7,9 +7,10 @@ from v2d.sam2.lib.datatypes import Sam2Prompts
 import argparse
 import json
 import os
+from pathlib import Path
 
 import numpy as np
-from pathlib import Path
+import torch
 
 from v2d.common.video import FrameWriter
 
@@ -41,32 +42,40 @@ def video_to_masks(
     Per object id, the writer location is `<masks_dir>/<obj_id><mask_extension>`.
     Default `mask_extension=""` writes a PNG directory; `".h5"` writes a single
     HDF5 file (auto-detected by `FrameWriter.from_path` via the suffix).
+
+    Runs under ``torch.autocast(bfloat16)`` because SAM2 stores its memory bank
+    in bfloat16 (``sam2_utils.py:1026,1078``) — without autocast, multi-frame
+    prompts (prompts at frame_idx > 0) hit a dtype mismatch when the cross-
+    attention reads the memory through fp32 linear layers. Pass 1 happens to
+    skirt the issue with a single ref-frame prompt; pass 2 triggers it.
     """
     with open(prompts_path, "r") as f:
         prompts = Sam2Prompts.from_dict(json.load(f))
 
     predictor = _get_predictor(weights_dir)
-    inference_state = predictor.init_state(video_path)
-
-    for prompt in prompts.prompts:
-        box = [prompt.box.x0, prompt.box.y0, prompt.box.x1, prompt.box.y1] if prompt.box else None
-        points = [[p.x, p.y] for p in prompt.points] if prompt.points else None
-        point_labels = prompt.point_labels if prompt.point_labels else None
-        predictor.add_new_points_or_box(
-            inference_state=inference_state,
-            frame_idx=prompt.frame_index,
-            obj_id=prompt.object_id,
-            points=points,
-            labels=point_labels,
-            box=box,
-        )
 
     obj_frames: dict[int, dict[int, np.ndarray]] = {}
-    for reverse in [True, False]:
-        for frame_idx, object_ids, masks in predictor.propagate_in_video(inference_state, reverse=reverse):
-            for i, obj_id in enumerate(object_ids):
-                mask_data = (masks[i, 0] > 0.0).cpu().numpy().astype(np.uint8) * 255
-                obj_frames.setdefault(obj_id, {})[frame_idx] = mask_data
+    with torch.inference_mode(), torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+        inference_state = predictor.init_state(video_path)
+
+        for prompt in prompts.prompts:
+            box = [prompt.box.x0, prompt.box.y0, prompt.box.x1, prompt.box.y1] if prompt.box else None
+            points = [[p.x, p.y] for p in prompt.points] if prompt.points else None
+            point_labels = prompt.point_labels if prompt.point_labels else None
+            predictor.add_new_points_or_box(
+                inference_state=inference_state,
+                frame_idx=prompt.frame_index,
+                obj_id=prompt.object_id,
+                points=points,
+                labels=point_labels,
+                box=box,
+            )
+
+        for reverse in [True, False]:
+            for frame_idx, object_ids, masks in predictor.propagate_in_video(inference_state, reverse=reverse):
+                for i, obj_id in enumerate(object_ids):
+                    mask_data = (masks[i, 0] > 0.0).cpu().numpy().astype(np.uint8) * 255
+                    obj_frames.setdefault(obj_id, {})[frame_idx] = mask_data
 
     masks_path = Path(masks_dir)
 

@@ -16,10 +16,15 @@ pip install -e modules/v2d_sam2/docker \
   -e modules/v2d_foundation_pose/docker \
   -e modules/v2d_foundation_stereo/docker \
   -e modules/v2d_grounding_dino/docker \
+  -e modules/v2d_mediapipe/docker \
+  -e modules/v2d_hamer/docker \
+  -e modules/v2d_wilor/docker \
+  -e modules/v2d_droid_slam/docker \
   -e modules/v2d_cusfm/docker \
   -e modules/v2d_bundlesdf/docker \
   -e modules/v2d_hoi_object_reconstruction/docker \
   -e modules/v2d_ego_hand_reconstruction/docker \
+  -e modules/v2d_gsplat_refinement/docker \
   -e modules/v2d_pipelines
 
 echo "Done. Run 'python -m v2d.pipelines.run_example_pipeline' or build containers with ./build_containers.sh"

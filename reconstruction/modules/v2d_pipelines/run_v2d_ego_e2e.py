@@ -2,7 +2,8 @@
 End-to-end ego hand + object reconstruction pipeline from a single video.
 
 Given an MP4 and a text prompt describing the held object, this script runs:
-  1.  Ego hand reconstruction (ViPE + Dyn-HaMR)  [runs first — no prior deps]
+  0.  AnyCalib undistortion              [optional, --undistort]
+  1.  Ego hand reconstruction (ViPE + Dyn-HaMR)
   2.  Convert DynHaMR EXR depth → depth_vipe/ + intrinsics_vipe.json
   3.  Frame extraction
   4.  MoGe monocular depth + intrinsics
@@ -14,12 +15,23 @@ Given an MP4 and a text prompt describing the held object, this script runs:
   10. EKF smoothing of object poses    (uses --depth_source intrinsics)
   11. Hand/object depth alignment      (uses --depth_source depth + intrinsics)
 
+Step 0 (--undistort) calibrates the input video with AnyCalib, undistorts
+it to a pinhole stream, and rebinds video_path to the undistorted MP4 for
+all downstream steps. Recommended for fisheye / wide-angle footage so
+ViPE, MoGe, FoundationPose, and the renderers all see a consistent
+pinhole camera model.
+
 The --depth_source flag (moge | vipe) selects which depth map and intrinsics
 are fed to SAM3D, FoundationPose, EKF, and the hand-alignment step.
 Both depth sources are always computed so results can be compared.
 
 Output directory layout:
   <output_dir>/
+  ├── anycalib/                    # [if --undistort] AnyCalib outputs:
+  │   ├── intrinsics.json          #   estimated intrinsics of input video
+  │   ├── distortion.json          #   estimated distortion params
+  │   ├── undistorted.mp4          #   undistorted (pinhole) video
+  │   └── undistorted_intrinsics.json
   ├── frames/                      # Extracted video frames
   ├── depth/                       # MoGe depth PNGs
   ├── depth_vipe/                  # DynHaMR depth PNGs (converted from EXR)
@@ -45,9 +57,13 @@ Output directory layout:
   ├── poses_{ds}/                  # Raw FoundationPose per-frame JSONs
   ├── poses_smoothed_{ds}/         # EKF-smoothed per-frame pose JSONs
   ├── poses_smoothed_render_{ds}/  # FoundationPose overlay video
-  ├── world_results_aligned_{ds}.npz  # Final depth-aligned hand + object poses
-  ├── render_aligned_{ds}.mp4      # 2×2 grid render using trans_aligned
-  └── render_unaligned_{ds}.mp4    # 2×2 grid render using trans (for comparison)
+  ├── dynhamr_as_hamer_tracks_{ds}/    # Per-frame DynHaMR poses re-expressed as
+  │                                    #   v2d_hamer-style detections (cam frame)
+  ├── hamer_aligned_from_dynhamr_{ds}/ # Per-frame depth-aligned hand records
+  │                                    #   (cam_t, intrinsics, hand_scale,
+  │                                    #   diagnostics.cam_t_pre_dz)
+  ├── render_aligned_{ds}.mp4      # 2×2 grid render of depth-aligned hands
+  └── render_unaligned_{ds}.mp4    # Same renderer, projects diagnostics.cam_t_pre_dz
 
 Usage:
     python modules/v2d_pipelines/run_v2d_ego_e2e.py \\
@@ -74,6 +90,7 @@ import zipfile
 import numpy as np
 import trimesh
 
+from v2d.anycalib.docker.run_video_to_calibration import run_video_to_calibration
 from v2d.common.datatypes import BoundingBox, Sam2Prompt, Sam2Prompts
 from v2d.common.utils import extract_images
 from v2d.depth.lib.stabilize_intrinsics import stabilize_intrinsics
@@ -82,8 +99,9 @@ from v2d.foundation_pose.docker.run_estimate_mesh_scale import run_estimate_mesh
 from v2d.foundation_pose.docker.run_render_poses import run_render_poses
 from v2d.foundation_pose.docker.run_video_to_poses import run_video_to_poses
 from v2d.grounding_dino.docker.run_image_to_object_bboxes import run_image_to_object_bboxes
-from v2d.hand_alignment.docker.run_align_world_results import run_align_world_results
-from v2d.hand_alignment.docker.run_render_dynhamr_video import run_render_dynhamr_video
+from v2d.hand_alignment.docker.run_dynhamr_to_hamer_tracks import run_dynhamr_to_hamer_tracks
+from v2d.hamer.docker.run_align_hands import run_align_hands
+from v2d.hamer.docker.run_render_hands_aligned_video import run_render_hands_aligned_video
 from v2d.moge.docker.run_video_to_depth import run_video_to_depth as run_moge_depth
 from v2d.sam2.docker.run_video_to_masks import run_video_to_masks
 from v2d.sam3d.docker.run_image_to_mesh import run_image_to_mesh
@@ -122,18 +140,28 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--mano_weights", default=None,
                    help="MANO model directory for hand alignment. "
                         "(default: --hand_reconstruction_weights)")
+    p.add_argument("--anycalib_weights", default="data/weights/anycalib",
+                   help="AnyCalib weights directory (used only with --undistort). "
+                        "(default: data/weights/anycalib)")
 
     # Optional tuning
+    p.add_argument("--undistort", action="store_true",
+                   help="Run AnyCalib first to estimate intrinsics + distortion and "
+                        "undistort the video before all other steps. Recommended for "
+                        "fisheye / wide-angle footage.")
     p.add_argument("--depth_source", choices=["moge", "vipe"], default="moge",
                    help="Depth source for SAM3D, scale estimation, FP tracking, and hand "
                         "alignment. Both depth sources are always computed. (default: moge)")
     p.add_argument("--reference_frame", type=int, default=0,
                    help="Frame used for DINO detection, SAM3D, and FP registration (default: 0).")
-    p.add_argument("--smooth_sigma",    type=float, default=5.0,
-                   help="Gaussian sigma (frames) for hand translation smoothing (default: 5.0).")
     p.add_argument("--reregister_iou_thresh", type=float, default=0.3,
                    help="IoU threshold below which FoundationPose re-registers from scratch. "
                         "Set to 0 to disable. (default: 0.3)")
+    p.add_argument("--seed", type=int, default=0,
+                   help="Random seed for SAM3D mesh generation. Pinning this "
+                        "(default 0) makes the SAM3D-produced mesh "
+                        "deterministic across runs. Set to a negative number "
+                        "to disable seeding (each run produces a fresh mesh).")
     p.add_argument("--dev", action="store_true",
                    help="Mount local module source into containers (live-edit mode).")
     return p.parse_args()
@@ -290,10 +318,12 @@ def run_v2d_ego_e2e(
     foundation_pose_weights: str,
     hand_reconstruction_weights: str,
     mano_weights: str | None = None,
+    anycalib_weights: str = "data/weights/anycalib",
+    undistort: bool = False,
     depth_source: str = "moge",
     reference_frame: int = 0,
-    smooth_sigma: float = 5.0,
     reregister_iou_thresh: float | None = 0.3,
+    seed: int = 0,
     dev: bool = False,
 ) -> None:
     if depth_source not in ("moge", "vipe"):
@@ -338,9 +368,12 @@ def run_v2d_ego_e2e(
     poses_dir               = f"{output_dir}/poses_{ds}"
     poses_smooth_dir        = f"{output_dir}/poses_smoothed_{ds}"
     poses_smooth_render_dir = f"{output_dir}/poses_smoothed_render_{ds}"
-    world_aligned           = f"{output_dir}/world_results_aligned_{ds}.npz"
     render_aligned          = f"{output_dir}/render_aligned_{ds}.mp4"
     render_unaligned        = f"{output_dir}/render_unaligned_{ds}.mp4"
+    # v2d_hamer-style alignment artifacts.
+    hamer_tracks_dir        = f"{output_dir}/dynhamr_as_hamer_tracks_{ds}"
+    hamer_aligned_dir       = f"{output_dir}/hamer_aligned_from_dynhamr_{ds}"
+    hamer_aligned_sentinel  = f"{hamer_aligned_dir}/hand_scale.json"
 
     ref_rgb   = f"{frames_dir}/{reference_frame:06d}.png"
     ref_depth = f"{active_depth_dir}/{reference_frame:06d}.png"
@@ -351,7 +384,35 @@ def run_v2d_ego_e2e(
     print(f"  prompt       : {prompt!r}")
     print(f"  output       : {output_dir}")
     print(f"  depth_source : {depth_source}")
+    print(f"  undistort    : {undistort}")
     print(f"{'='*60}\n")
+
+    # -----------------------------------------------------------------------
+    # Step 0: AnyCalib undistortion (optional)
+    # When enabled, calibrate the input video, undistort it, and rebind
+    # video_path so all downstream steps operate on the pinhole stream.
+    # -----------------------------------------------------------------------
+    if undistort:
+        anycalib_dir          = f"{output_dir}/anycalib"
+        anycalib_intrinsics   = f"{anycalib_dir}/intrinsics.json"
+        anycalib_distortion   = f"{anycalib_dir}/distortion.json"
+        undistorted_video     = f"{anycalib_dir}/undistorted.mp4"
+        undistorted_intr_json = f"{anycalib_dir}/undistorted_intrinsics.json"
+
+        os.makedirs(anycalib_dir, exist_ok=True)
+        if not _step("AnyCalib undistortion", os.path.exists(undistorted_video)):
+            run_video_to_calibration(
+                video_path                  = video_path,
+                intrinsics_path             = anycalib_intrinsics,
+                distortion_path             = anycalib_distortion,
+                weights_path                = anycalib_weights,
+                undistorted_video_path      = undistorted_video,
+                undistorted_intrinsics_path = undistorted_intr_json,
+                dev                         = dev,
+            )
+
+        video_path = undistorted_video
+        print(f"  → using undistorted video: {video_path}")
 
     # -----------------------------------------------------------------------
     # Step 1: Ego hand reconstruction (ViPE + Dyn-HaMR)
@@ -389,14 +450,22 @@ def run_v2d_ego_e2e(
 
     # -----------------------------------------------------------------------
     # Step 4: MoGe depth + intrinsics
+    # When --undistort is on, hand AnyCalib's intrinsics to MoGe as a
+    # focal-length prior (only fov_x is consumed; cx/cy are still recomputed
+    # by MoGe at image center, and the saved per-frame intrinsics come from
+    # MoGe so they stay geometrically consistent with its depth tensor).
     # -----------------------------------------------------------------------
+    moge_input_intrinsics = (
+        f"{output_dir}/anycalib/undistorted_intrinsics.json" if undistort else None
+    )
     if not _step("MoGe depth + intrinsics", _has_files(depth_dir)):
         run_moge_depth(
-            video_path        = video_path,
-            depth_folder      = depth_dir,
-            intrinsics_folder = intrinsics_dir,
-            weights_path      = moge_weights,
-            dev               = dev,
+            video_path            = video_path,
+            depth_folder          = depth_dir,
+            intrinsics_folder     = intrinsics_dir,
+            weights_path          = moge_weights,
+            input_intrinsics_path = moge_input_intrinsics,
+            dev                   = dev,
         )
 
     if not _step("Stabilise intrinsics", os.path.exists(intrinsics_stable)):
@@ -458,6 +527,7 @@ def run_v2d_ego_e2e(
             depth_path            = ref_depth,
             depth_intrinsics_path = active_intrinsics,
             depth_mask_path       = ref_mask,
+            seed                  = (seed if seed >= 0 else None),
             dev                   = dev,
         )
 
@@ -545,59 +615,75 @@ def run_v2d_ego_e2e(
         )
 
     # -----------------------------------------------------------------------
-    # Step 11: Hand/object depth alignment
-    # Uses: active_depth_dir, active_intrinsics
+    # Step 11: Convert DynHaMR npz → v2d_hamer-style per-frame tracks.
+    # Re-expresses each hand pose in DynHaMR's per-frame camera coordinates,
+    # dropping the ViPE world / inter-frame extrinsics entirely. The output
+    # mirrors what HaMeR/WiLoR produce, so v2d_hamer.align_hands can consume
+    # it directly — and the alignment is robust to bad ViPE intrinsics /
+    # camera-pose estimates because nothing in the alignment math touches
+    # `cam_R, cam_t` per-frame.
     # -----------------------------------------------------------------------
-    if not _step(f"Hand/object depth alignment ({ds})", os.path.exists(world_aligned)):
-        run_align_world_results(
-            input_hand_data  = world_results_npz,
+    if not _step(f"DynHaMR → v2d_hamer-style tracks ({ds})",
+                 os.path.isdir(hamer_tracks_dir)
+                 and any(os.scandir(hamer_tracks_dir))):
+        run_dynhamr_to_hamer_tracks(
+            input_npz       = world_results_npz,
+            output_dir      = hamer_tracks_dir,
+            intrinsics_path = active_intrinsics,
+            dev             = dev,
+        )
+
+    # -----------------------------------------------------------------------
+    # Step 12: Per-frame depth alignment with v2d_hamer.align_hands.
+    # -----------------------------------------------------------------------
+    if not _step(f"HaMeR-style depth alignment ({ds})",
+                 os.path.exists(hamer_aligned_sentinel)):
+        run_align_hands(
+            hamer_dir        = hamer_tracks_dir,
             depth_dir        = active_depth_dir,
-            depth_intrinsics = active_intrinsics,
-            mano_model_dir   = mano_weights,
-            output_hand_data = world_aligned,
+            intrinsics_path  = active_intrinsics,
+            mano_assets_root = mano_weights,
+            output_dir       = hamer_aligned_dir,
             object_masks_dir = f"{masks_dir}/{OBJECT_ID}",
-            object_poses_dir = poses_smooth_dir,
-            smooth_sigma     = smooth_sigma,
             dev              = dev,
         )
 
     # -----------------------------------------------------------------------
-    # Step 12: Render aligned result (trans_aligned) — 2×2 grid video
+    # Step 13a: Render aligned hand + object (depth-shifted cam_t).
     # -----------------------------------------------------------------------
-    if not _step(f"Render aligned (trans_aligned, {ds})", os.path.exists(render_aligned)):
-        run_render_dynhamr_video(
-            world_results_path = world_aligned,
-            frames_folder      = frames_dir,
-            mano_assets_root   = mano_weights,
-            output_path        = render_aligned,
-            use_trans_aligned  = True,
-            object_mesh_path   = mesh_scaled,
-            object_poses_dir   = poses_smooth_dir,
-            intrinsics_path    = active_intrinsics,
-            dev                = dev,
+    if not _step(f"Render aligned ({ds})", os.path.exists(render_aligned)):
+        run_render_hands_aligned_video(
+            aligned_dir      = hamer_aligned_dir,
+            frames_dir       = frames_dir,
+            mano_assets_root = mano_weights,
+            output_path      = render_aligned,
+            object_mesh_path = mesh_scaled,
+            object_poses_dir = poses_smooth_dir,
+            dev              = dev,
         )
 
     # -----------------------------------------------------------------------
-    # Step 13: Render unaligned result (trans) for comparison
-    # Raw DynHaMR `trans` was optimized under ViPE intrinsics, so we must
-    # project it through ViPE intrinsics regardless of --depth_source.
+    # Step 13b: Render un-aligned hand + object for visual comparison.
+    # Same renderer, same aligned tracks, same intrinsics — but reads
+    # ``diagnostics.cam_t_pre_dz`` (the rescaled cam_t before depth shift)
+    # and forces hand_scale=1. Lets us see what the per-frame depth
+    # alignment actually shifts.
     # -----------------------------------------------------------------------
-    if not _step(f"Render unaligned (trans, {ds})", os.path.exists(render_unaligned)):
-        run_render_dynhamr_video(
-            world_results_path = world_aligned,
-            frames_folder      = frames_dir,
-            mano_assets_root   = mano_weights,
-            output_path        = render_unaligned,
-            use_trans_aligned  = False,
-            object_mesh_path   = mesh_scaled,
-            object_poses_dir   = poses_smooth_dir,
-            intrinsics_path    = intrinsics_vipe,
-            dev                = dev,
+    if not _step(f"Render unaligned ({ds})", os.path.exists(render_unaligned)):
+        run_render_hands_aligned_video(
+            aligned_dir      = hamer_aligned_dir,
+            frames_dir       = frames_dir,
+            mano_assets_root = mano_weights,
+            output_path      = render_unaligned,
+            object_mesh_path = mesh_scaled,
+            object_poses_dir = poses_smooth_dir,
+            use_pre_dz_cam_t = True,
+            dev              = dev,
         )
 
     print(f"\n{'='*60}")
     print(f"  Done!  (depth_source={depth_source})")
-    print(f"  Aligned hand + object: {world_aligned}")
+    print(f"  Aligned hand tracks:   {hamer_aligned_dir}/")
     print(f"  Scaled mesh:           {mesh_scaled}")
     print(f"  Smoothed poses:        {poses_smooth_dir}/")
     print(f"  Render (aligned):      {render_aligned}")
@@ -622,9 +708,11 @@ if __name__ == "__main__":
         foundation_pose_weights     = args.foundation_pose_weights,
         hand_reconstruction_weights = args.hand_reconstruction_weights,
         mano_weights                = args.mano_weights,
+        anycalib_weights            = args.anycalib_weights,
+        undistort                   = args.undistort,
         depth_source                = args.depth_source,
         reference_frame             = args.reference_frame,
-        smooth_sigma                = args.smooth_sigma,
         reregister_iou_thresh       = args.reregister_iou_thresh,
+        seed                        = args.seed,
         dev                         = args.dev,
     )
