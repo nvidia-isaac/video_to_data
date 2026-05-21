@@ -619,6 +619,14 @@ def refine(
     snap_rotation_window:         int   = 3,           # half-window (full window = 2*w + 1)
     snap_rotation_targets:        str   = "obj,hand_wrist",  # comma-sep subset of {obj, hand_wrist, hand_finger}
     snap_rotation_verbose:        bool  = False,
+    # Causal snap mode: use past+self window only, sweep forward from
+    # anchor_frame, propagate snaps in-place. Catches sustained wrong flips
+    # that the symmetric window can't recover from (once the bad pose has
+    # filled the window, it becomes its own median). Trades robustness to
+    # sticky flips for being more aggressive against fast real motion.
+    snap_rotation_causal:         bool  = False,
+    snap_rotation_anchor_frame:   int   = 0,
+
     use_cosine_lr_schedule: bool = False,
     cosine_lr_min_ratio: float = 0.0,      # final LR / initial LR (per group)
     # Coarse-to-fine scale annealing: at training start, multiply every
@@ -1935,6 +1943,8 @@ def refine(
                             threshold=snap_rotation_threshold,
                             verbose=snap_rotation_verbose,
                             label="obj",
+                            causal=snap_rotation_causal,
+                            anchor_frame=snap_rotation_anchor_frame,
                         )
                     for slot in hand_slots:
                         if "hand_wrist" in _snap_targets:
@@ -1944,6 +1954,8 @@ def refine(
                                 threshold=snap_rotation_threshold,
                                 verbose=snap_rotation_verbose,
                                 label=f"hand-{slot.side}-wrist",
+                                causal=snap_rotation_causal,
+                                anchor_frame=snap_rotation_anchor_frame,
                             )
                         if "hand_finger" in _snap_targets:
                             _snap_rotation_outliers(
@@ -1952,6 +1964,8 @@ def refine(
                                 threshold=snap_rotation_threshold,
                                 verbose=snap_rotation_verbose,
                                 label=f"hand-{slot.side}-finger",
+                                causal=snap_rotation_causal,
+                                anchor_frame=snap_rotation_anchor_frame,
                             )
 
             if render_every > 0 and step_count % render_every == 0:
@@ -2028,6 +2042,7 @@ def refine(
             hand_slots       = hand_slots,
             bg_gaussians     = bg_gaussians,
             bg_pose_field    = bg_pose_field,
+            intrinsics_field = intrinsics_field,
             optimizer        = optimizer,
             lr_scheduler     = lr_scheduler,
             init_obj_axis_angle  = init_obj_axis_angle,
@@ -2204,14 +2219,33 @@ def _snap_rotation_outliers(
     threshold: float = 1.0,
     verbose: bool = False,
     label: str = "",
+    causal: bool = False,
+    anchor_frame: int = 0,
 ) -> int:
     """Detect-and-replace outlier rotations with the temporal median.
 
     For each (frame, joint) cell whose quat-distance from the quat-aligned
-    median of a (2*window+1)-frame window exceeds ``threshold``, overwrite
-    the cell's axis-angle with the median and reset Adam moments for that
-    cell so the optimizer doesn't immediately fight the snap with stale
-    momentum.
+    median of its window exceeds ``threshold``, overwrite the cell's
+    axis-angle with the median and reset Adam moments for that cell so
+    the optimizer doesn't immediately fight the snap with stale momentum.
+
+    Two window modes:
+
+    * **Symmetric (default).** Window for frame ``t`` is
+      ``[t-window, t+window+1]``. Once a wrong flip has persisted long
+      enough that the window past the flip is all-flipped, the flipped
+      pose looks consistent with its own median and never gets snapped
+      back — the bad pose "sticks." This mode is best when flips are
+      truly isolated single-frame outliers.
+
+    * **Causal (``causal=True``).** Window is ``[max(anchor_frame, t-window), t+1]``
+      — past frames plus self only, never crossing the anchor frame.
+      Sweeps forward from ``anchor_frame + 1`` and writes each snap back
+      into the working quat buffer before processing the next frame, so
+      corrections propagate one frame at a time. Catches sustained wrong
+      flips (the entire post-flip region looks like outliers vs. the
+      pre-flip past), at the cost of being more aggressive against fast
+      real motion — pair with a slightly looser ``threshold``.
 
     Operates in-place on the parameter and the optimizer state. Returns
     the count of (frame, joint) cells snapped.
@@ -2248,13 +2282,27 @@ def _snap_rotation_outliers(
         )
     K = aa.shape[1]
 
-    # Convert all to quats up front (T, K, 4).
-    q_all = axis_angle_to_quat(aa)
+    # Convert all to quats up front (T, K, 4). In causal mode this buffer
+    # is updated in place so subsequent frames see already-snapped past.
+    q_all = axis_angle_to_quat(aa).clone()
     new_aa = aa.clone()
     snapped: list[tuple[int, int]] = []
-    for t in range(T):
-        lo = max(0, t - window)
-        hi = min(T, t + window + 1)
+
+    if causal:
+        anchor = int(max(0, min(T - 1, anchor_frame)))
+        frame_iter = range(anchor + 1, T)
+    else:
+        frame_iter = range(T)
+
+    for t in frame_iter:
+        if causal:
+            # Past + self only; never look across the anchor frame, which
+            # is treated as ground truth and the chain of trust starts there.
+            lo = max(anchor, t - window)
+            hi = t + 1
+        else:
+            lo = max(0, t - window)
+            hi = min(T, t + window + 1)
         if hi - lo < 2:
             continue
         for k in range(K):
@@ -2273,6 +2321,10 @@ def _snap_rotation_outliers(
                 aa_med = _quat_to_axis_angle(q_med)
                 new_aa[t, k] = aa_med
                 snapped.append((t, k))
+                if causal:
+                    # Propagate: subsequent frames should compare against
+                    # the snapped value, not the original.
+                    q_all[t, k] = q_med
 
     if not snapped:
         return 0
@@ -3256,6 +3308,18 @@ def main() -> None:
                         "treated independently).")
     p.add_argument("--snap_rotation_verbose", action="store_true",
                    help="Print which frames got snapped at each pass.")
+    p.add_argument("--snap_rotation_causal", action="store_true",
+                   help="Use past+self window only, sweep forward from "
+                        "--snap_rotation_anchor_frame, propagate snaps in "
+                        "place. Catches sustained wrong flips that the "
+                        "symmetric window can't recover from once the bad "
+                        "pose has filled the window. Pair with a slightly "
+                        "looser threshold (e.g. 1.2) when motion is fast.")
+    p.add_argument("--snap_rotation_anchor_frame", type=int, default=0,
+                   help="Anchor frame for causal mode. The anchor is never "
+                        "snapped and the window never crosses it — treated "
+                        "as ground truth and the chain of trust starts here. "
+                        "(default: 0)")
     p.add_argument("--freeze_bg_rot",       action="store_true",
                    help="Hold background rotation at identity.")
     p.add_argument("--freeze_bg_trans",     action="store_true",
@@ -3352,6 +3416,8 @@ def main() -> None:
         snap_rotation_window         = args.snap_rotation_window,
         snap_rotation_targets        = args.snap_rotation_targets,
         snap_rotation_verbose        = args.snap_rotation_verbose,
+        snap_rotation_causal         = args.snap_rotation_causal,
+        snap_rotation_anchor_frame   = args.snap_rotation_anchor_frame,
         use_cosine_lr_schedule      = args.use_cosine_lr_schedule,
         cosine_lr_min_ratio         = args.cosine_lr_min_ratio,
         coarse_init_scale_factor    = args.coarse_init_scale_factor,

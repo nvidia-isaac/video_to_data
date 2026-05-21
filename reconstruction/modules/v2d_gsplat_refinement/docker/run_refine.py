@@ -113,6 +113,8 @@ def run_refine(
     snap_rotation_window:         int   = 3,
     snap_rotation_targets:        str   = "obj,hand_wrist",
     snap_rotation_verbose:        bool  = False,
+    snap_rotation_causal:         bool  = False,
+    snap_rotation_anchor_frame:   int   = 0,
     w_face_delta_p_tangent_obj:        float = 1.0,
     w_face_delta_p_normal_outward_obj: float = 100.0,
     w_face_delta_p_normal_inward_obj:  float = 0.0,
@@ -290,6 +292,8 @@ def run_refine(
         "snap_rotation_window":         snap_rotation_window,
         "snap_rotation_targets":        snap_rotation_targets,
         "snap_rotation_verbose":        snap_rotation_verbose,
+        "snap_rotation_causal":         snap_rotation_causal,
+        "snap_rotation_anchor_frame":   snap_rotation_anchor_frame,
         "w_face_delta_p_tangent_obj":         w_face_delta_p_tangent_obj,
         "w_face_delta_p_normal_outward_obj":  w_face_delta_p_normal_outward_obj,
         "w_face_delta_p_normal_inward_obj":   w_face_delta_p_normal_inward_obj,
@@ -504,6 +508,13 @@ if __name__ == "__main__":
                    default="obj,hand_wrist",
                    help="Comma-sep subset of {obj, hand_wrist, hand_finger}.")
     p.add_argument("--snap_rotation_verbose",        action="store_true")
+    p.add_argument("--snap_rotation_causal",         action="store_true",
+                   help="Causal snap: past+self window only, sweep forward "
+                        "from --snap_rotation_anchor_frame, propagate snaps "
+                        "in place. Catches sustained wrong flips.")
+    p.add_argument("--snap_rotation_anchor_frame",   type=int,   default=0,
+                   help="Anchor frame for causal mode (never snapped; chain "
+                        "of trust starts here). Default 0.")
     p.add_argument("--w_face_delta_p_tangent_obj",        type=float, default=1.0)
     p.add_argument("--w_face_delta_p_normal_outward_obj", type=float, default=100.0)
     p.add_argument("--w_face_delta_p_normal_inward_obj",  type=float, default=0.0)
@@ -666,6 +677,8 @@ if __name__ == "__main__":
         snap_rotation_window         = args.snap_rotation_window,
         snap_rotation_targets        = args.snap_rotation_targets,
         snap_rotation_verbose        = args.snap_rotation_verbose,
+        snap_rotation_causal         = args.snap_rotation_causal,
+        snap_rotation_anchor_frame   = args.snap_rotation_anchor_frame,
         w_face_delta_p_tangent_obj         = args.w_face_delta_p_tangent_obj,
         w_face_delta_p_normal_outward_obj  = args.w_face_delta_p_normal_outward_obj,
         w_face_delta_p_normal_inward_obj   = args.w_face_delta_p_normal_inward_obj,

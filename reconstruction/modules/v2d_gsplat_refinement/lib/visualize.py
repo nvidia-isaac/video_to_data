@@ -343,6 +343,11 @@ def _draw_world_segments(
     fx, fy = K[0, 0], K[1, 1]
     cx, cy = K[0, 2], K[1, 2]
     for s, e in zip(starts, ends):
+        # Defensive: a NaN-poisoned pose (e.g. a bg-pose-field frame that
+        # diverged during training and got saved to the checkpoint) would
+        # otherwise crash int(round(NaN)) below. Skip the segment instead.
+        if not (np.all(np.isfinite(s)) and np.all(np.isfinite(e))):
+            continue
         sc = R @ s + t
         ec = R @ e + t
         if sc[2] < near and ec[2] < near:
@@ -353,6 +358,8 @@ def _draw_world_segments(
         elif ec[2] < near:
             alpha = (near - ec[2]) / (sc[2] - ec[2])
             ec = ec + alpha * (sc - ec)
+        if not (np.all(np.isfinite(sc)) and np.all(np.isfinite(ec))):
+            continue
         u0 = int(round(fx * sc[0] / sc[2] + cx))
         v0 = int(round(fy * sc[1] / sc[2] + cy))
         u1 = int(round(fx * ec[0] / ec[2] + cx))
@@ -385,6 +392,13 @@ def _draw_world_segments_batched(
     cx, cy = K[0, 2], K[1, 2]
     sc = starts_world @ R.T + t                                       # (E, 3)
     ec = ends_world   @ R.T + t                                       # (E, 3)
+
+    # Defensive: skip segments with non-finite endpoints (e.g. a NaN-
+    # poisoned bg pose from a diverged training step).
+    finite = (np.isfinite(sc).all(axis=1) & np.isfinite(ec).all(axis=1))
+    sc = sc[finite]; ec = ec[finite]
+    if sc.shape[0] == 0:
+        return img
 
     keep = ~((sc[:, 2] < near) & (ec[:, 2] < near))
     sc = sc[keep]; ec = ec[keep]
@@ -840,17 +854,28 @@ def visualize(
                 and modules["bg_gaussians"] is not None):
             with torch.no_grad():
                 R_bg, t_bg = modules["bg_pose_field"](t)
-            K_np = K.detach().cpu().numpy()
-            starts, ends = _camera_frustum_segments_world(
-                R_w2c=R_bg.detach().cpu().numpy(),
-                t_w2c=t_bg.detach().cpu().numpy(),
-                K=K_np, W=W, H=H,
-                depth=max(0.015, 0.05 * state["distance"]),
-            )
-            img_bgr = _draw_world_segments(
-                img_bgr, starts, ends, viewmat, K_np,
-                color=(0, 220, 255), thickness=1,
-            )
+            R_bg_np = R_bg.detach().cpu().numpy()
+            t_bg_np = t_bg.detach().cpu().numpy()
+            if not (np.all(np.isfinite(R_bg_np))
+                    and np.all(np.isfinite(t_bg_np))):
+                # Warn once per frame so the user can locate divergent
+                # checkpoint state; skip the overlay this iteration.
+                if state.get("nan_bg_warned_frame") != t:
+                    print(f"[visualize] WARNING: bg_pose_field has NaN at "
+                          f"frame {t}; skipping frustum overlay. Your "
+                          f"checkpoint has a diverged pose at this frame.")
+                    state["nan_bg_warned_frame"] = t
+            else:
+                K_np = K.detach().cpu().numpy()
+                starts, ends = _camera_frustum_segments_world(
+                    R_w2c=R_bg_np, t_w2c=t_bg_np,
+                    K=K_np, W=W, H=H,
+                    depth=max(0.015, 0.05 * state["distance"]),
+                )
+                img_bgr = _draw_world_segments(
+                    img_bgr, starts, ends, viewmat, K_np,
+                    color=(0, 220, 255), thickness=1,
+                )
         flags = (("O" if state["show_obj"]       else "_")
                  + ("H" if state["show_hands"]     else "_")
                  + ("B" if state["show_bg"]        else "_")
