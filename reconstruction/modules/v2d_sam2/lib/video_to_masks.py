@@ -11,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from PIL import Image
 
 from v2d.common.video import FrameWriter
 
@@ -59,6 +60,17 @@ def video_to_masks(
         inference_state = predictor.init_state(video_path)
 
         for prompt in prompts.prompts:
+            if prompt.mask_path is not None:
+                # Per-frame mask prompt — uint8 PNG (>0 = foreground). SAM2's
+                # add_new_mask resizes internally to the model's image size.
+                mask_np = np.asarray(Image.open(prompt.mask_path)) > 0
+                predictor.add_new_mask(
+                    inference_state=inference_state,
+                    frame_idx=prompt.frame_index,
+                    obj_id=prompt.object_id,
+                    mask=mask_np,
+                )
+                continue
             box = [prompt.box.x0, prompt.box.y0, prompt.box.x1, prompt.box.y1] if prompt.box else None
             points = [[p.x, p.y] for p in prompt.points] if prompt.points else None
             point_labels = prompt.point_labels if prompt.point_labels else None
