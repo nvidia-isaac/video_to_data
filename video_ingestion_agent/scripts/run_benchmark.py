@@ -192,6 +192,7 @@ def _launch_parallel_benchmark(
         else:
             try:
                 import torch
+
                 devices = [str(i) for i in range(torch.cuda.device_count())]
             except Exception:
                 devices = ["0"]
@@ -318,12 +319,12 @@ def main():
         "--official-c2-map",
         action="store_true",
         help="Opt out of the default class-blind (standalone) mAP path and "
-             "use EPIC-K's official C2-Action-Detection ANETdetection class "
-             "for class-aware mAP@tIoU. Required for leaderboard submission. "
-             "Default behavior runs the standalone path so EPIC-K mAP is "
-             "directly comparable to HoT3D's eval (which is class-blind by "
-             "design). Reports `metadata.standalone_map_only: true|false` "
-             "in eval_results.json so the chosen path is recorded.",
+        "use EPIC-K's official C2-Action-Detection ANETdetection class "
+        "for class-aware mAP@tIoU. Required for leaderboard submission. "
+        "Default behavior runs the standalone path so EPIC-K mAP is "
+        "directly comparable to HoT3D's eval (which is class-blind by "
+        "design). Reports `metadata.standalone_map_only: true|false` "
+        "in eval_results.json so the chosen path is recorded.",
     )
 
     args = parser.parse_args()
