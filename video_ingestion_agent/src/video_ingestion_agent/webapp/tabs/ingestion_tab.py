@@ -354,8 +354,11 @@ def create_ingestion_tab(services: dict[str, Any], config: AppConfig) -> dict[st
             if now - last_poll > 2.0:
                 last_poll = now
 
-                # Read structured progress
-                done_videos, failed_videos, total_clips = _read_worker_progress()
+                # `_read_worker_progress()` returns deltas — accumulate, don't assign.
+                d_done, d_failed, d_clips = _read_worker_progress()
+                done_videos += d_done
+                failed_videos += d_failed
+                total_clips += d_clips
 
                 elapsed = now - t_start
                 desc = (
@@ -382,8 +385,11 @@ def create_ingestion_tab(services: dict[str, Any], config: AppConfig) -> dict[st
             if not line:
                 time.sleep(0.5)
 
-        # Final read of progress files
-        done_videos, failed_videos, total_clips = _read_worker_progress()
+        # Final delta read — accumulate the same way the poll loop does.
+        d_done, d_failed, d_clips = _read_worker_progress()
+        done_videos += d_done
+        failed_videos += d_failed
+        total_clips += d_clips
         elapsed = time.time() - t_start
 
         progress(1.0, desc="Batch ingestion complete")
