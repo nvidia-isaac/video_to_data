@@ -190,23 +190,28 @@ def create_database_tab(services: dict[str, Any], config: AppConfig) -> dict[str
     # Event handlers
     def load_database(db_dir: str):
         """Load database and return statistics and filter options."""
-        db_path = resolve_graph_db_path(db_dir)
-
-        if not db_path:
-            return (
-                gr.update(visible=True, value={"error": f"No graph.db found in {db_dir}"}),
-                gr.update(value=[], headers=["id", "video_path", "duration", "fps"]),
-                gr.update(choices=["(All)"]),
-                gr.update(choices=["(All)"]),
-                "*No data loaded.*",
-                gr.update(value=[]),
-                None,
-                None,
-                gr.update(),
-                gr.update(),
-            )
-
+        # Wrap everything — including resolve_graph_db_path — so any exception
+        # (Path() errors on weird input, OSError/PermissionError on unreadable
+        # parents, etc.) still resolves the Gradio outputs and exits the
+        # loading spinner. Toasts surface the failure to the user.
         try:
+            db_path = resolve_graph_db_path(db_dir)
+
+            if not db_path:
+                gr.Warning(f"No graph.db found in: {db_dir}")
+                return (
+                    gr.update(visible=True, value={"error": f"No graph.db found in {db_dir}"}),
+                    gr.update(value=[], headers=["id", "video_path", "duration", "fps"]),
+                    gr.update(choices=["(All)"]),
+                    gr.update(choices=["(All)"]),
+                    "*No data loaded.*",
+                    gr.update(value=[]),
+                    None,
+                    None,
+                    gr.update(),
+                    gr.update(),
+                )
+
             from ..services import DatabaseService
 
             service = DatabaseService(db_path)
@@ -253,7 +258,8 @@ def create_database_tab(services: dict[str, Any], config: AppConfig) -> dict[str
             )
 
         except Exception as e:
-            logger.error(f"Failed to load database: {e}")
+            logger.exception("Failed to load database")
+            gr.Warning(f"Failed to load database: {e}")
             return (
                 gr.update(visible=True, value={"error": str(e)}),
                 gr.update(value=[], headers=["id", "video_path", "duration", "fps"]),
