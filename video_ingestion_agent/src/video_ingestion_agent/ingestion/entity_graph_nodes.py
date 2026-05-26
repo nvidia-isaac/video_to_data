@@ -272,8 +272,15 @@ def database_write_node(state: PipelineState) -> dict[str, Any]:
     frame_data = []
     for frame, (frame_id, embedding) in zip(frames, embeddings, strict=False):
         segment_id = (frame.metadata or {}).get("segment_id")
+        # Namespace frame_id with video_id_str. video_processor.py emits
+        # `frame_<frame_index>` IDs that are NOT video-unique, so in a
+        # multi-video ingest the vector.db UNIQUE(frame_id) constraint
+        # causes INSERT OR REPLACE to silently overwrite cross-video
+        # entries — only the last writer for each `frame_<idx>` slot
+        # survived (~150 rows total instead of 30k+).
+        unique_frame_id = f"{video_id_str}/{frame_id}"
         frame_data.append(
-            (frame_id, video_id_str, frame.timestamp, embedding, frame.metadata, segment_id)
+            (unique_frame_id, video_id_str, frame.timestamp, embedding, frame.metadata, segment_id)
         )
 
     if frame_data:
