@@ -173,6 +173,27 @@ def create_app(config: AppConfig = None) -> gr.Blocks:
                 ],
             )
 
+        # When reconstruction isn't wired (no `reconstruction:` block in the
+        # webapp config, or the service raised during init), the button above
+        # would otherwise have no .click() handler and click silently. Attach
+        # a fallback that surfaces a toast so the user knows why.
+        elif "reconstruct_btn" in query_components:
+
+            def _reconstruct_unavailable():
+                gr.Warning(
+                    "Reconstruction is not configured. Launch the webapp with "
+                    "`--config configs/webapp.yaml` and install the sibling "
+                    "`reconstruction/` package "
+                    "(see reconstruction_interface/ego_e2e/README.md)."
+                )
+                return gr.update()  # tabs: no-op
+
+            query_components["reconstruct_btn"].click(
+                fn=_reconstruct_unavailable,
+                inputs=[],
+                outputs=[tabs],
+            )
+
     return app
 
 
