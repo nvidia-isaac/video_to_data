@@ -135,8 +135,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--foundation_pose_weights", default="data/weights/foundation_pose",
                    help="FoundationPose weights directory. (default: data/weights/foundation_pose)")
     p.add_argument("--hand_reconstruction_weights", default="data/weights/hand",
-                   help="Ego hand reconstruction weights directory containing MANO_RIGHT.pkl "
-                        "and BMC/. (default: data/weights/hand)")
+                   help="Ego hand reconstruction weights directory containing "
+                        "models/MANO_RIGHT.pkl and BMC/ (manotorch layout; shared "
+                        "with v2d_hamer). (default: data/weights/hand)")
     p.add_argument("--mano_weights", default=None,
                    help="MANO model directory for hand alignment. "
                         "(default: --hand_reconstruction_weights)")
