@@ -135,21 +135,19 @@ def _launch_parallel_benchmark(
     benchmark_dir: Path,
     config_path: Path,
     num_gpus: int,
-) -> None:
+) -> list[int]:
     """
     Launch N subprocess workers to process video shards in parallel.
 
-    With the "local" VLM backend, each worker gets a dedicated GPU via
-    CUDA_VISIBLE_DEVICES. With the "vllm" backend, the vLLM server owns
-    all GPUs and workers are lightweight HTTP clients -- CUDA_VISIBLE_DEVICES
-    is left unset so workers can share GPUs for the embedding model (SigLIP).
+    Each worker is pinned to a distinct GPU via CUDA_VISIBLE_DEVICES,
+    regardless of VLM backend. With the vLLM backend the VLM server uses
+    all GPUs (TP) and lives in a separate process; pinning the worker
+    only affects which GPU the worker's SigLIP-2 embedding model loads
+    on. Without pinning, all workers default to cuda:0 and OOM on the
+    shared GPU. Mirrors run_batch_ingestion.py._env_for_worker.
+
+    Returns the list of worker IDs that exited non-zero (empty on success).
     """
-    # Detect backend from config
-    from video_ingestion_agent.ingestion.config import load_config as _load_config
-
-    cfg = _load_config(str(config_path))
-    use_vllm = cfg.models.vlm_backend == "vllm"
-
     shards = shard_videos_lpt(all_videos, num_gpus)
 
     # Build the base command to forward to each worker
@@ -172,22 +170,37 @@ def _launch_parallel_benchmark(
     if args.videos_dir:
         base_cmd.extend(["--videos-dir", str(args.videos_dir)])
 
-    if use_vllm:
-        logger.info(
-            f"Using vLLM backend -- launching {num_gpus} workers as HTTP clients "
-            f"(VLM served by vLLM, GPUs shared for SigLIP embedding)"
-        )
+    logger.info(
+        f"Launching {num_gpus} workers with per-worker GPU pinning via "
+        f"CUDA_VISIBLE_DEVICES (avoids SigLIP-2 OOM on shared cuda:0)"
+    )
 
-    def _shard_args(_wid: int, shard: list[Path]) -> list[str]:
-        return ["--video-ids"] + [video_id_from_path(v) for v in shard]
+    def _shard_args(wid: int, shard: list[Path]) -> list[str]:
+        return ["--worker-id", str(wid), "--video-ids"] + [video_id_from_path(v) for v in shard]
 
     def _env_for_worker(wid: int) -> dict[str, str]:
+        """Pin worker wid to one GPU via CUDA_VISIBLE_DEVICES.
+
+        Mirrors run_batch_ingestion.py:_env_for_worker. Honors any
+        upstream CUDA_VISIBLE_DEVICES (e.g. from the OSMO container)
+        so we cycle within the allowed device set.
+        """
         env = os.environ.copy()
-        if not use_vllm:
-            env["CUDA_VISIBLE_DEVICES"] = str(wid)
+        visible = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+        if visible:
+            devices = [d.strip() for d in visible.split(",") if d.strip()]
+        else:
+            try:
+                import torch
+
+                devices = [str(i) for i in range(torch.cuda.device_count())]
+            except Exception:
+                devices = ["0"]
+        if devices:
+            env["CUDA_VISIBLE_DEVICES"] = devices[wid % len(devices)]
         return env
 
-    run_parallel_workers(
+    return run_parallel_workers(
         shards=shards,
         base_cmd=base_cmd,
         shard_to_args=_shard_args,
@@ -279,6 +292,10 @@ def main():
         "Skip aggregation, adapter, evaluation, and report. "
         "Used internally by parallel worker subprocesses.",
     )
+    # Internal: identifies the worker shard so progress files don't collide
+    # across subprocesses. Set by the parent at spawn time; end users never
+    # pass it.
+    parser.add_argument("--worker-id", type=int, default=0, help=argparse.SUPPRESS)
     parser.add_argument(
         "--wandb-project",
         type=str,
@@ -297,6 +314,17 @@ def main():
         type=str,
         default="nvidia-isaac",
         help="W&B entity (team/org). Defaults to 'nvidia-isaac'.",
+    )
+    parser.add_argument(
+        "--official-c2-map",
+        action="store_true",
+        help="Opt out of the default class-blind (standalone) mAP path and "
+        "use EPIC-K's official C2-Action-Detection ANETdetection class "
+        "for class-aware mAP@tIoU. Required for leaderboard submission. "
+        "Default behavior runs the standalone path so EPIC-K mAP is "
+        "directly comparable to HoT3D's eval (which is class-blind by "
+        "design). Reports `metadata.standalone_map_only: true|false` "
+        "in eval_results.json so the chosen path is recorded.",
     )
 
     args = parser.parse_args()
@@ -390,9 +418,48 @@ def main():
                 json.dump(meta, f, indent=2)
 
             start_time = time.time()
-            _launch_parallel_benchmark(args, all_videos, benchmark_dir, config_path, args.num_gpus)
+            failed_workers = _launch_parallel_benchmark(
+                args, all_videos, benchmark_dir, config_path, args.num_gpus
+            )
             total_elapsed = time.time() - start_time
             logger.info(f"\nAll parallel workers finished in {total_elapsed:.1f}s")
+
+            # Aggregate per-worker progress files into a single results summary.
+            # Each worker appends one line per video to progress_worker_<id>.jsonl
+            # (see process_videos in sharding.py).
+            all_progress: list[dict] = []
+            for prog_file in sorted(benchmark_dir.glob("progress_worker_*.jsonl")):
+                with open(prog_file) as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            all_progress.append(json.loads(line))
+
+            successful = sum(1 for r in all_progress if r["status"] == "success")
+            failed = sum(1 for r in all_progress if r["status"] == "error")
+            results_summary = {
+                "total_elapsed_s": total_elapsed,
+                "total_videos": len(all_videos),
+                "successful": successful,
+                "failed": failed,
+                "per_video": {r["video_id"]: r for r in all_progress},
+            }
+            results_path = benchmark_dir / "benchmark_results.json"
+            with open(results_path, "w") as f:
+                json.dump(results_summary, f, indent=2)
+            logger.info(
+                f"  Aggregated results: {successful}/{len(all_videos)} succeeded "
+                f"(written to {results_path})"
+            )
+
+            # Propagate worker failures so eval/W&B doesn't silently run on a
+            # partial set.
+            if failed_workers:
+                logger.error(
+                    f"{len(failed_workers)} worker(s) failed (IDs: {failed_workers}). "
+                    f"See worker_gpu_<id>.log under {benchmark_dir} for details."
+                )
+                sys.exit(1)
 
         else:
             # ==============================================================
@@ -436,6 +503,7 @@ def main():
                 output_dir=benchmark_dir,
                 config=config,
                 per_video_subdir="",
+                worker_id=args.worker_id,
             )
 
             # Save results summary
@@ -452,16 +520,20 @@ def main():
                 "per_video": per_video,
             }
 
-            results_path = benchmark_dir / "benchmark_results.json"
-            with open(results_path, "w") as f:
-                json.dump(results_summary, f, indent=2)
-
+            # Workers launched under --ingest-only must NOT write the root
+            # benchmark_results.json -- they'd collide with each other on the
+            # same path. The parent aggregates per-worker progress_worker_<id>.jsonl
+            # files into the canonical results file after all workers finish.
             logger.info(f"\n{'=' * 60}")
             logger.info("Video Processing Complete!")
             logger.info(f"  Total time: {total_elapsed:.1f}s")
             logger.info(f"  Successful: {successful}/{len(all_videos)}")
             logger.info(f"  Failed: {failed}/{len(all_videos)}")
-            logger.info(f"  Results: {results_path}")
+            if not args.ingest_only:
+                results_path = benchmark_dir / "benchmark_results.json"
+                with open(results_path, "w") as f:
+                    json.dump(results_summary, f, indent=2)
+                logger.info(f"  Results: {results_path}")
             logger.info("=" * 60)
     else:
         logger.info("No videos to process.")
@@ -557,6 +629,7 @@ def main():
             annotations_dir=annotations_dir,
             skip_bertscore=args.skip_bertscore,
             skip_semantic=False,
+            standalone_map_only=not args.official_c2_map,
         )
 
         eval_path = benchmark_dir / "eval_results.json"

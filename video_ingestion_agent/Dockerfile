@@ -72,7 +72,7 @@ COPY src/ src/
 # deepstack regression); torch is pulled with bundled CUDA libs matching
 # the system CUDA above.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --extra server --extra benchmark --extra webapp
+    uv sync --frozen --extra local --extra server --extra benchmark --extra webapp
 
 # Make the project venv the default Python on PATH so subsequent
 # `python` / `pip` invocations resolve to the locked environment.
