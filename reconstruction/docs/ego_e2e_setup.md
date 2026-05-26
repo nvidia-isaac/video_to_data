@@ -11,25 +11,27 @@ All commands run from `reconstruction/`.
 
 ## 1. Install host packages
 
+Install just the packages this pipeline needs:
+
 ```bash
-pip install -e modules/v2d_pipelines
+./scripts/install_ego_e2e_packages.sh
+```
+
+Or install every host package in the repo:
+
+```bash
 ./scripts/install_packages.sh
 ```
 
 ## 2. Build Docker images
 
+Build just the containers this pipeline needs:
+
 ```bash
-# All containers used by the pipeline:
-python -m v2d.moge.docker.build
-python -m v2d.grounding_dino.docker.build
-python -m v2d.sam2.docker.build
-python -m v2d.sam3d.docker.build
-python -m v2d.foundation_pose.docker.build
-python modules/v2d_ego_hand_reconstruction/docker/build.py
-python modules/v2d_hand_alignment/docker/build.py
+./scripts/build_ego_e2e_containers.sh
 ```
 
-Or build everything at once:
+Or build every container in the repo:
 
 ```bash
 ./scripts/build_containers.sh
@@ -53,11 +55,13 @@ environment or log in with `huggingface-cli login` beforehand.
 Download `MANO_RIGHT.pkl` from https://mano.is.tue.mpg.de/ and generate BMC data
 following https://github.com/MengHao666/Hand-BMC-pytorch (run up to `python calculate_bmc.py`).
 
-Place both in the weights directory:
+Place both in the weights directory. The layout follows the manotorch
+convention so the same directory works for both DynHaMR and v2d_hamer:
 
 ```
 data/weights/hand/
-├── MANO_RIGHT.pkl
+├── models/
+│   └── MANO_RIGHT.pkl
 └── BMC/
     └── *.npy
 ```
