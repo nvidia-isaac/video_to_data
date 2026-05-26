@@ -312,12 +312,25 @@ def _sql_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+class KratosAnnotations(dict):
+    """Completed annotation rows plus per-item Kratos status diagnostics."""
+
+    def __init__(
+        self,
+        *args,
+        statuses: dict[str, str] | None = None,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.statuses = statuses or {}
+
+
 def query_completed_kratos_annotations(
     kratos_table: str,
     item_names: list[str],
 ) -> dict[str, list[dict]]:
     if not item_names:
-        return {}
+        return KratosAnnotations()
     if not _VALID_TABLE_RE.match(kratos_table):
         raise ValueError(f"Invalid Databricks table name: {kratos_table!r}")
 
@@ -343,10 +356,9 @@ def query_completed_kratos_annotations(
         SELECT item_name, item_status, `table` AS table_json
         FROM {kratos_table}
         WHERE item_name IN ({names})
-        AND item_status LIKE 'Completed%'
     """
 
-    result: dict[str, list[dict]] = {}
+    result = KratosAnnotations()
     with sql.connect(
         server_hostname=host,
         http_path=http_path,
@@ -356,8 +368,13 @@ def query_completed_kratos_annotations(
             cursor.execute(query)
             for row in cursor.fetchall():
                 item_name = _row_get(row, "item_name", 0)
+                item_status = str(_row_get(row, "item_status", 1) or "")
+                result.statuses.setdefault(item_name, item_status)
+                if not item_status.startswith("Completed"):
+                    continue
                 if item_name in result:
                     continue
+                result.statuses[item_name] = item_status
                 table_json = _row_get(row, "table_json", 2)
                 table = json.loads(table_json)
                 result[item_name] = table.get("rows") or []
@@ -634,6 +651,37 @@ def _mark_fail_if_changed(
     )
 
 
+def _kratos_not_completed_detail(
+    item_name: str,
+    kratos_status_by_item: dict[str, str],
+) -> str:
+    status = kratos_status_by_item.get(item_name)
+    if status is None:
+        return "no Kratos row"
+    return f"Kratos status={status!r}"
+
+
+def _not_completed_kratos_message(
+    workflow: dict,
+    kratos_status_by_item: dict[str, str],
+) -> str:
+    sequence = workflow["sequence_name"]
+    item_name = f"{workflow['workflow_name']}.json"
+    return (
+        f"  {sequence} ({item_name}): "
+        f"{_kratos_not_completed_detail(item_name, kratos_status_by_item)}; "
+        "staying WAITING_QC"
+    )
+
+
+def _print_not_completed_kratos_rows(
+    workflows: list[dict],
+    kratos_status_by_item: dict[str, str],
+) -> None:
+    for workflow in workflows:
+        print(_not_completed_kratos_message(workflow, kratos_status_by_item))
+
+
 def prepare_exports(
     candidates: list[dict],
     annotations_by_item: dict[str, list[dict]],
@@ -643,23 +691,36 @@ def prepare_exports(
     table: str = PIPELINES_TABLE,
     dry_run: bool = False,
     limit: int | None = None,
+    kratos_status_by_item: dict[str, str] | None = None,
 ) -> list[PreparedExport]:
     accepted: list[PreparedExport] = []
     swift_base = dataset_cfg["swift_base"]
     max_failure_annotations, max_failure_coverage = export_qc_thresholds(dataset_cfg)
+    kratos_status_by_item = kratos_status_by_item or {}
+    reject_counts = {
+        "kratos_not_completed": 0,
+        "missing_frame_count": 0,
+        "invalid_annotation": 0,
+        "qc_fail": 0,
+    }
+    checked = 0
 
     for workflow in candidates:
         if limit is not None and len(accepted) >= limit:
             break
+        checked += 1
         sequence = workflow["sequence_name"]
         item_name = f"{workflow['workflow_name']}.json"
         annotations = annotations_by_item.get(item_name)
         if annotations is None:
+            reject_counts["kratos_not_completed"] += 1
+            print(_not_completed_kratos_message(workflow, kratos_status_by_item))
             continue
 
         frame_count = frame_count_lookup(sequence)
         if frame_count is None:
-            print(f"  {sequence}: no frame_count found; leaving WAITING_QC")
+            reject_counts["missing_frame_count"] += 1
+            print(f"  {sequence}: no frame_count found; staying WAITING_QC")
             continue
 
         failure_segments, invalid_reason = normalize_failure_annotations(
@@ -667,6 +728,7 @@ def prepare_exports(
             frame_count,
         )
         if invalid_reason:
+            reject_counts["invalid_annotation"] += 1
             if not dry_run:
                 _mark_fail_if_changed(workflow, invalid_reason, db_path, table)
             print(f"  {sequence}: {invalid_reason}")
@@ -679,6 +741,7 @@ def prepare_exports(
             max_failure_coverage=max_failure_coverage,
         )
         if failure_reason:
+            reject_counts["qc_fail"] += 1
             if not dry_run:
                 _mark_fail_if_changed(workflow, failure_reason, db_path, table)
             print(f"  {sequence}: {failure_reason}")
@@ -701,6 +764,17 @@ def prepare_exports(
                 ),
                 task_suffix=suffix,
             )
+        )
+    if candidates:
+        rejected = sum(reject_counts.values())
+        print(
+            "Export QC summary: "
+            f"accepted={len(accepted)}, rejected_or_waiting={rejected}, "
+            f"checked={checked}, "
+            f"kratos_not_completed={reject_counts['kratos_not_completed']}, "
+            f"missing_frame_count={reject_counts['missing_frame_count']}, "
+            f"invalid_annotation={reject_counts['invalid_annotation']}, "
+            f"qc_fail={reject_counts['qc_fail']}"
         )
     return accepted
 
@@ -812,9 +886,19 @@ def run_export(
     export_cfg = get_workflow_cfg(dataset_cfg, RECON_PIPELINE, EXPORT_WORKFLOW)
     batch_size = int(export_cfg.get("batch_size", DEFAULT_BATCH_SIZE))
     kratos_table = export_cfg["kratos_table"]
-    batch_candidates = candidates if sequence else candidates[:batch_size]
+    batch_candidates = candidates
+    if not sequence:
+        print(
+            f"Checking {len(batch_candidates)} WAITING_QC candidate(s) "
+            f"oldest-first to fill up to {batch_size} export(s)"
+        )
     item_names = [f"{workflow['workflow_name']}.json" for workflow in batch_candidates]
     annotations_by_item = query_completed_kratos_annotations(kratos_table, item_names)
+    kratos_status_by_item = getattr(annotations_by_item, "statuses", {})
+    print(
+        f"Found completed Kratos rows for {len(annotations_by_item)} "
+        f"of {len(item_names)} candidate item(s)"
+    )
     if not annotations_by_item:
         if sequence:
             print(
@@ -822,7 +906,8 @@ def run_export(
                 f"({item_names[0]})."
             )
         else:
-            print("No completed Kratos rows found for oldest WAITING_QC batch.")
+            print("No completed Kratos rows found for checked WAITING_QC candidates.")
+        _print_not_completed_kratos_rows(batch_candidates, kratos_status_by_item)
         return
 
     s3, bucket, base_prefix = get_s3_client(dataset_cfg["swift_base"])
@@ -838,6 +923,8 @@ def run_export(
         db_path=db_path,
         table=table,
         dry_run=dry_run,
+        limit=None if sequence else batch_size,
+        kratos_status_by_item=kratos_status_by_item,
     )
 
     if not prepared:

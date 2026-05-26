@@ -27,7 +27,7 @@ datasets:
             hitl_batch_name_template: "batch_{date}"
           export:
             workflow_yaml: osmo/mv_hoi_export.yaml
-            batch_size: 30
+            batch_size: 40
             kratos_table: llmdf_admin.project_285164_annotations
             max_failure_annotations: 6
             max_failure_coverage: 0.5

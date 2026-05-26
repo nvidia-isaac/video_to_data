@@ -500,6 +500,61 @@ def test_prepare_exports_uses_configured_failure_annotation_limit(tmp_path):
     assert [item.workflow["workflow_name"] for item in prepared] == ["wf_ok"]
 
 
+def test_prepare_exports_prints_missing_kratos_rejection(capsys):
+    candidates = [
+        _workflow("seq_missing", "wf_missing"),
+        _workflow("seq_ok", "wf_ok"),
+    ]
+    annotations = {
+        "wf_ok.json": [
+            {
+                "id": "ok",
+                "start_frame": 1,
+                "end_frame": 2,
+                "failure_category": "bad_pose",
+            }
+        ]
+    }
+
+    prepared = mv_export.prepare_exports(
+        candidates,
+        annotations,
+        _export_dataset_cfg(),
+        lambda _sequence: 100,
+        dry_run=True,
+    )
+
+    output = capsys.readouterr().out
+    assert [item.workflow["workflow_name"] for item in prepared] == ["wf_ok"]
+    assert (
+        "seq_missing (wf_missing.json): no Kratos row; staying WAITING_QC"
+    ) in output
+    assert "Export QC summary: accepted=1, rejected_or_waiting=1" in output
+    assert "kratos_not_completed=1" in output
+
+
+def test_prepare_exports_prints_actual_kratos_status(capsys):
+    candidates = [
+        _workflow("seq_pending", "wf_pending"),
+    ]
+
+    prepared = mv_export.prepare_exports(
+        candidates,
+        {},
+        _export_dataset_cfg(),
+        lambda _sequence: 100,
+        dry_run=True,
+        kratos_status_by_item={"wf_pending.json": "Pending review"},
+    )
+
+    output = capsys.readouterr().out
+    assert prepared == []
+    assert (
+        "seq_pending (wf_pending.json): Kratos status='Pending review'; "
+        "staying WAITING_QC"
+    ) in output
+
+
 def test_prepare_exports_respects_batch_limit():
     candidates = [
         _workflow(f"seq_{i}", f"wf_{i}")
@@ -582,7 +637,7 @@ def test_submit_batch_uses_unsuffixed_name_and_stores_osmo_id(monkeypatch, tmp_p
     assert row["osmo_export_workflow_id"] == "v2d_mv_hoi_export_20260513_163035-1"
 
 
-def test_run_export_checks_only_oldest_waiting_qc_batch(monkeypatch):
+def test_run_export_queries_waiting_qc_candidates_oldest_first(monkeypatch):
     queried_items = []
     candidates = [
         _workflow("2026-02-01_old", "wf_old"),
@@ -613,7 +668,7 @@ def test_run_export_checks_only_oldest_waiting_qc_batch(monkeypatch):
         _export_dataset_cfg(batch_size=2),
     )
 
-    assert queried_items == ["wf_old.json", "wf_mid.json"]
+    assert queried_items == ["wf_old.json", "wf_mid.json", "wf_new.json"]
 
 
 def test_run_export_filters_by_sequence_time_before_batching(monkeypatch):
@@ -649,7 +704,7 @@ def test_run_export_filters_by_sequence_time_before_batching(monkeypatch):
         end_time="2026-04-24",
     )
 
-    assert queried_items == ["wf_start.json"]
+    assert queried_items == ["wf_start.json", "wf_middle.json"]
 
 
 def test_run_export_sequence_mode_queries_only_selected_sequence(monkeypatch, tmp_path):
@@ -929,11 +984,13 @@ def test_run_export_sequence_mode_ignores_non_waiting_qc_latest_row(monkeypatch,
 def test_run_export_batch_mode_rechecks_qc_fail_and_respects_batch_size(
     monkeypatch,
     tmp_path,
+    capsys,
 ):
     db_path = _db_path(tmp_path)
     rows = [
         ("2026-01_wait", "wf_wait", "WAITING_QC", ""),
         ("2026-02_qc_fail", "wf_qc_fail", "FAIL", "qc_fail: failure_annotations>2 (3)"),
+        ("2026-03_wait", "wf_wait_2", "WAITING_QC", ""),
         ("2026-03_invalid", "wf_invalid", "FAIL", "invalid_failure_annotation: bad"),
         ("2026-04_other_fail", "wf_other_fail", "FAIL", "task_failed: reconstruction"),
     ]
@@ -966,7 +1023,13 @@ def test_run_export_batch_mode_rechecks_qc_fail_and_respects_batch_size(
         ignore_qc_fail=True,
     )
 
-    assert queried_items == ["wf_wait.json", "wf_qc_fail.json"]
+    output = capsys.readouterr().out
+    assert queried_items == ["wf_wait.json", "wf_qc_fail.json", "wf_wait_2.json"]
+    assert (
+        "Checking 3 WAITING_QC candidate(s) oldest-first to fill up to "
+        "2 export(s)"
+    ) in output
+    assert "Found completed Kratos rows for 0 of 3 candidate item(s)" in output
 
 
 def test_prepare_exports_leaves_same_qc_fail_details_unchanged(monkeypatch):
@@ -1021,6 +1084,47 @@ def test_run_export_prints_sequences_selected_for_batch(monkeypatch, capsys):
     assert "Exporting 2 sequence(s):" in output
     assert "  seq_a" in output
     assert "  seq_b" in output
+
+
+def test_run_export_fills_batch_past_non_completed_kratos_rows(monkeypatch):
+    candidates = [
+        _workflow("seq_pending", "wf_pending"),
+        _workflow("seq_a", "wf_a"),
+        _workflow("seq_b", "wf_b"),
+        _workflow("seq_c", "wf_c"),
+    ]
+    queried_items = []
+    submitted_sequences = []
+
+    monkeypatch.setattr(mv_export, "refresh_workflow_states", lambda *args, **kwargs: None)
+    monkeypatch.setattr(mv_export, "waiting_export_rows", lambda *args, **kwargs: [])
+    monkeypatch.setattr(mv_export, "waiting_qc_candidates", lambda *args, **kwargs: candidates)
+    _stub_export_io(monkeypatch)
+
+    def _query_completed(_table, item_names):
+        queried_items.extend(item_names)
+        return {
+            "wf_a.json": [],
+            "wf_b.json": [],
+            "wf_c.json": [],
+        }
+
+    def _submit_batch(items, *args, **kwargs):
+        submitted_sequences.extend(item.workflow["sequence_name"] for item in items)
+        return "export_id"
+
+    monkeypatch.setattr(mv_export, "query_completed_kratos_annotations", _query_completed)
+    monkeypatch.setattr(mv_export, "submit_batch", _submit_batch)
+
+    mv_export.run_export("dataset_a", _export_dataset_cfg(batch_size=2))
+
+    assert queried_items == [
+        "wf_pending.json",
+        "wf_a.json",
+        "wf_b.json",
+        "wf_c.json",
+    ]
+    assert submitted_sequences == ["seq_a", "seq_b"]
 
 
 def test_refresh_waiting_exports_maps_task_statuses(monkeypatch, tmp_path):

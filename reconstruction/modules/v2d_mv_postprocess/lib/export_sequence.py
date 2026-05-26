@@ -47,6 +47,18 @@ LEFT_CAMERAS = [
     "right_stereo_camera_left",
 ]
 
+_CAMERA_REQUIRED_OUTPUTS = {
+    "images",
+    "videos",
+    "depth",
+    "object_masks",
+    "human_masks",
+}
+
+
+class MissingRequiredExportDataError(FileNotFoundError):
+    """Raised when a required export input is missing or incomplete."""
+
 
 def _get_s3_client():
     if not ACCESS_KEY or not SECRET_KEY:
@@ -105,26 +117,35 @@ def _download_file(
     dest: Path,
     dry_run: bool = False,
     missing_ok: bool = False,
-) -> bool:
-    """Download a single file, skipping if already exists with same size. Returns True if downloaded."""
+) -> tuple[bool, bool]:
+    """Download one file.
+
+    Returns (downloaded, source_present). Already-existing destinations count as
+    present but not downloaded.
+    """
     try:
         head = client.head_object(Bucket=bucket, Key=key)
         remote_size = head["ContentLength"]
     except client.exceptions.ClientError:
         if not missing_ok:
             print(f"  WARNING: key not found: {key}")
-        return False
+        return False, False
+
+    if remote_size <= 0:
+        if not missing_ok:
+            print(f"  WARNING: key is empty: {key}")
+        return False, False
 
     if dest.exists() and dest.stat().st_size == remote_size:
-        return False
+        return False, True
 
     if dry_run:
         print(f"  [dry-run] would download: {key}")
-        return True
+        return True, True
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     client.download_file(bucket, key, str(dest))
-    return True
+    return True, True
 
 
 def _download_prefix(
@@ -137,7 +158,7 @@ def _download_prefix(
     dry_run: bool = False,
     label: str = "",
     max_workers: int = DEFAULT_DOWNLOAD_WORKERS,
-) -> tuple[int, int]:
+) -> tuple[int, int, list[str]]:
     """Download all objects under css_prefix into local_dir.
 
     Uses a thread pool for parallel downloads. Each thread gets its own
@@ -149,7 +170,7 @@ def _download_prefix(
         label: Human-readable label for progress bar.
         max_workers: Number of parallel download threads.
 
-    Returns (downloaded_count, skipped_count).
+    Returns (downloaded_count, skipped_count, output_relative_paths).
     """
     objects = _list_objects(client, bucket, css_prefix)
     folder_prefix = css_prefix.rstrip("/") + "/"
@@ -166,10 +187,13 @@ def _download_prefix(
             rel = remap_fn(rel)
             if rel is None:
                 continue
+        if obj["Size"] <= 0:
+            continue
         work_items.append((obj["Key"], obj["Size"], local_dir / rel))
 
     downloaded = 0
     skipped = 0
+    rel_paths = [str(dest.relative_to(local_dir)) for _, _, dest in work_items]
     desc = f"  {label}" if label else "  downloading"
 
     # Separate into skip vs actual download
@@ -183,7 +207,7 @@ def _download_prefix(
     if dry_run:
         for key, dest in to_download:
             downloaded += 1
-        return len(to_download), skipped
+        return len(to_download), skipped, rel_paths
 
     # Thread-local boto3 clients
     _local = threading.local()
@@ -207,22 +231,38 @@ def _download_prefix(
             pbar.update(1)
     pbar.close()
 
-    return downloaded, skipped
+    return downloaded, skipped, rel_paths
 
 
-def _copy_file(src: Path, dest: Path, dry_run: bool = False, missing_ok: bool = False) -> bool:
-    """Copy a single local file, skipping if already exists with same size. Returns True if copied."""
-    if not src.exists():
+def _copy_file(
+    src: Path,
+    dest: Path,
+    dry_run: bool = False,
+    missing_ok: bool = False,
+) -> tuple[bool, bool]:
+    """Copy one file.
+
+    Returns (copied, source_present). Already-existing destinations count as
+    present but not copied.
+    """
+    if not src.is_file():
         if not missing_ok:
             print(f"  WARNING: source not found: {src}")
-        return False
+        return False, False
+
+    src_size = src.stat().st_size
+    if src_size <= 0:
+        if not missing_ok:
+            print(f"  WARNING: source is empty: {src}")
+        return False, False
+
     if dest.exists() and dest.stat().st_size == src.stat().st_size:
-        return False
+        return False, True
     if dry_run:
-        return True
+        return True, True
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dest)
-    return True
+    return True, True
 
 
 def _copy_prefix(
@@ -232,13 +272,15 @@ def _copy_prefix(
     filter_fn=None,
     dry_run: bool = False,
     label: str = "",
-) -> tuple[int, int]:
+) -> tuple[int, int, list[str]]:
     """Copy files from a local source directory with the same filter/remap logic."""
     if not src_dir.exists():
         print(f"  WARNING: source dir not found: {src_dir}")
-        return 0, 0
+        return 0, 0, []
 
-    all_files = sorted(f for f in src_dir.rglob("*") if f.is_file())
+    all_files = sorted(
+        f for f in src_dir.rglob("*") if f.is_file() and f.stat().st_size > 0
+    )
 
     candidates: list[tuple[Path, Path]] = []
     for f in all_files:
@@ -253,6 +295,7 @@ def _copy_prefix(
 
     downloaded = 0
     skipped = 0
+    rel_paths = [str(dest.relative_to(local_dir)) for _, dest in candidates]
     desc = f"  {label}" if label else "  copying"
 
     for src, dest in tqdm(candidates, desc=desc, unit="file"):
@@ -266,7 +309,7 @@ def _copy_prefix(
         shutil.copy2(src, dest)
         downloaded += 1
 
-    return downloaded, skipped
+    return downloaded, skipped, rel_paths
 
 
 def _is_left_camera_path(rel: str) -> bool:
@@ -369,6 +412,64 @@ def _matches_path_glob(rel: str, glob_pat: str) -> bool:
     return all(fnmatch.fnmatchcase(rp, pp) for rp, pp in zip(r, p))
 
 
+def _camera_from_export_rel(rel: str) -> str | None:
+    first = rel.split("/", 1)[0]
+    stem = Path(first).stem
+    for cam in LEFT_CAMERAS:
+        if first == cam or stem == cam or stem.startswith(f"{cam}_"):
+            return cam
+    return None
+
+
+def _camera_counts(rel_paths: list[str]) -> dict[str, int]:
+    counts = {cam: 0 for cam in LEFT_CAMERAS}
+    for rel in rel_paths:
+        cam = _camera_from_export_rel(rel)
+        if cam is not None:
+            counts[cam] += 1
+    return counts
+
+
+def _record_required_group(
+    missing: list[str],
+    out_sub: str,
+    source_label: str,
+    rel_paths: list[str],
+) -> None:
+    if not rel_paths:
+        missing.append(f"{out_sub}: no files found under {source_label}")
+        return
+
+    if out_sub not in _CAMERA_REQUIRED_OUTPUTS:
+        return
+
+    counts = _camera_counts(rel_paths)
+    missing_cameras = [cam for cam in LEFT_CAMERAS if counts[cam] == 0]
+    if missing_cameras:
+        missing.append(
+            f"{out_sub}: missing cameras {', '.join(missing_cameras)} "
+            f"under {source_label}"
+        )
+        return
+
+    unique_counts = sorted(set(counts.values()))
+    if len(unique_counts) > 1:
+        counts_text = ", ".join(f"{cam}={counts[cam]}" for cam in LEFT_CAMERAS)
+        missing.append(
+            f"{out_sub}: uneven camera file counts under {source_label} "
+            f"({counts_text})"
+        )
+
+
+def _raise_if_missing_required(missing: list[str]) -> None:
+    if not missing:
+        return
+    details = "\n".join(f"  - {item}" for item in missing)
+    raise MissingRequiredExportDataError(
+        "Missing required export data; refusing partial export:\n" + details
+    )
+
+
 def _find_h5_files_local(
     src_dir: Path,
     filter_fn=None,
@@ -425,6 +526,7 @@ def export_sequence(
 
     total_copied = 0
     total_skipped = 0
+    missing_required: list[str] = []
 
     def _report(label: str, dl: int, sk: int):
         nonlocal total_copied, total_skipped
@@ -442,12 +544,28 @@ def export_sequence(
     print()
 
     if is_local:
-        _export_local(Path(source_dir), output, dry_run, _report, data_map)
+        _export_local(
+            Path(source_dir),
+            output,
+            dry_run,
+            _report,
+            data_map,
+            missing_required,
+        )
     else:
-        _export_remote(swift_output_base, output, dry_run, max_workers, _report, data_map)
+        _export_remote(
+            swift_output_base,
+            output,
+            dry_run,
+            max_workers,
+            _report,
+            data_map,
+            missing_required,
+        )
 
     verb = "copied" if is_local else "downloaded"
     print(f"\nTotal: {verb}={total_copied} skipped={total_skipped}")
+    _raise_if_missing_required(missing_required)
 
 
 def _export_local(
@@ -456,43 +574,63 @@ def _export_local(
     dry_run: bool,
     report,
     data_map: list,
+    missing_required: list[str],
 ) -> None:
     """Copy from a local directory (e.g. OSMO-mounted inputs)."""
     for css_sub, out_sub, entry_type, filter_fn, remap_fn, h5_layout in data_map:
         src_path = source / css_sub
         if entry_type == "file":
-            did = _copy_file(src_path, output / out_sub, dry_run)
-            report(out_sub, int(did), int(not did))
+            did, present = _copy_file(src_path, output / out_sub, dry_run)
+            if not present:
+                missing_required.append(f"{out_sub}: missing source file {src_path}")
+            report(out_sub, int(did), int(present and not did))
         elif entry_type == "optional_file":
-            did = _copy_file(src_path, output / out_sub, dry_run, missing_ok=True)
-            if did or src_path.exists():
-                report(out_sub, int(did), int(not did))
+            did, present = _copy_file(
+                src_path,
+                output / out_sub,
+                dry_run,
+                missing_ok=True,
+            )
+            if did or present:
+                report(out_sub, int(did), int(present and not did))
         elif entry_type == "h5_or_dir":
             h5_files = _find_h5_files_local(src_path, filter_fn, h5_layout)
             if h5_files:
                 dl_total, sk_total = 0, 0
+                rel_paths: list[str] = []
                 for h5_src, h5_name in h5_files:
-                    did = _copy_file(h5_src, output / out_sub / h5_name, dry_run)
+                    did, present = _copy_file(
+                        h5_src,
+                        output / out_sub / h5_name,
+                        dry_run,
+                    )
+                    if not present:
+                        missing_required.append(f"{out_sub}: missing source file {h5_src}")
+                        continue
+                    rel_paths.append(h5_name)
                     if did:
                         dl_total += 1
                     else:
                         sk_total += 1
+                _record_required_group(missing_required, out_sub, str(src_path), rel_paths)
                 report(out_sub, dl_total, sk_total)
             else:
                 print(f"Copying {out_sub} (dir)...")
-                dl, sk = _copy_prefix(
+                dl, sk, rel_paths = _copy_prefix(
                     src_path, output / out_sub,
                     remap_fn=remap_fn, filter_fn=filter_fn,
                     dry_run=dry_run, label=out_sub,
                 )
+                _record_required_group(missing_required, out_sub, str(src_path), rel_paths)
                 report(out_sub, dl, sk)
         else:
             print(f"Copying {out_sub}...")
-            dl, sk = _copy_prefix(
+            dl, sk, rel_paths = _copy_prefix(
                 src_path, output / out_sub,
                 remap_fn=remap_fn, filter_fn=filter_fn,
                 dry_run=dry_run, label=out_sub,
             )
+            _record_required_group(missing_required, out_sub, str(src_path), rel_paths)
             report(out_sub, dl, sk)
 
 
@@ -510,6 +648,8 @@ def _has_h5_remote(
     results: list[tuple[str, str]] = []
     for obj in objects:
         key = obj["Key"]
+        if obj.get("Size", 0) <= 0:
+            continue
         if not key.startswith(base):
             continue
         rel_str = key[len(base):]
@@ -531,6 +671,7 @@ def _export_remote(
     max_workers: int,
     report,
     data_map: list,
+    missing_required: list[str],
 ) -> None:
     """Download from CSS via boto3."""
     client = _get_s3_client()
@@ -539,44 +680,91 @@ def _export_remote(
     for css_sub, out_sub, entry_type, filter_fn, remap_fn, h5_layout in data_map:
         if entry_type == "file":
             key = f"{base_prefix}/{css_sub}"
-            did = _download_file(client, bucket, key, output / out_sub, dry_run)
-            report(out_sub, int(did), int(not did))
+            did, present = _download_file(
+                client,
+                bucket,
+                key,
+                output / out_sub,
+                dry_run,
+            )
+            if not present:
+                missing_required.append(f"{out_sub}: missing key s3://{bucket}/{key}")
+            report(out_sub, int(did), int(present and not did))
         elif entry_type == "optional_file":
             key = f"{base_prefix}/{css_sub}"
-            did = _download_file(client, bucket, key, output / out_sub, dry_run, missing_ok=True)
-            if did or (output / out_sub).exists():
-                report(out_sub, int(did), int(not did))
+            did, present = _download_file(
+                client,
+                bucket,
+                key,
+                output / out_sub,
+                dry_run,
+                missing_ok=True,
+            )
+            if did or present:
+                report(out_sub, int(did), int(present and not did))
         elif entry_type == "h5_or_dir":
             css_prefix = f"{base_prefix}/{css_sub}"
             h5_keys = _has_h5_remote(client, bucket, css_prefix, filter_fn, h5_layout)
             if h5_keys:
                 dl_total, sk_total = 0, 0
+                rel_paths: list[str] = []
                 for key, h5_name in h5_keys:
-                    did = _download_file(client, bucket, key, output / out_sub / h5_name, dry_run)
+                    did, present = _download_file(
+                        client,
+                        bucket,
+                        key,
+                        output / out_sub / h5_name,
+                        dry_run,
+                    )
+                    if not present:
+                        missing_required.append(
+                            f"{out_sub}: missing key s3://{bucket}/{key}"
+                        )
+                        continue
+                    rel_paths.append(h5_name)
                     if did:
                         dl_total += 1
                     else:
                         sk_total += 1
+                _record_required_group(
+                    missing_required,
+                    out_sub,
+                    f"s3://{bucket}/{css_prefix}",
+                    rel_paths,
+                )
                 report(out_sub, dl_total, sk_total)
             else:
                 print(f"Downloading {out_sub} (dir)...")
-                dl, sk = _download_prefix(
+                dl, sk, rel_paths = _download_prefix(
                     client, bucket, css_prefix,
                     output / out_sub,
                     filter_fn=filter_fn, remap_fn=remap_fn,
                     dry_run=dry_run, label=out_sub,
                     max_workers=max_workers,
                 )
+                _record_required_group(
+                    missing_required,
+                    out_sub,
+                    f"s3://{bucket}/{css_prefix}",
+                    rel_paths,
+                )
                 report(out_sub, dl, sk)
         else:
             print(f"Downloading {out_sub}...")
-            dl, sk = _download_prefix(
+            css_prefix = f"{base_prefix}/{css_sub}"
+            dl, sk, rel_paths = _download_prefix(
                 client, bucket,
-                f"{base_prefix}/{css_sub}",
+                css_prefix,
                 output / out_sub,
                 filter_fn=filter_fn, remap_fn=remap_fn,
                 dry_run=dry_run, label=out_sub,
                 max_workers=max_workers,
+            )
+            _record_required_group(
+                missing_required,
+                out_sub,
+                f"s3://{bucket}/{css_prefix}",
+                rel_paths,
             )
             report(out_sub, dl, sk)
 
