@@ -8,7 +8,10 @@ version = "0.1.0"
 description = "Example pipelines composing v2d Docker modules"
 requires-python = ">=3.10"
 dependencies = [
+    "numpy",
     "opencv-python",
+    "trimesh",
+    "OpenEXR",
 ]
 # Other runtime dependencies are local packages installed via scripts/install_packages.sh
 
