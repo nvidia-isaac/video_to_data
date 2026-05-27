@@ -1,6 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Orchestrates the reconstruction chain via subprocess.
 
 One chain: invoke `reconstruction_interface/ego_e2e/run_ego_e2e.py` once per

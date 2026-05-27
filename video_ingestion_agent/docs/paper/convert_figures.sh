@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 # Convert SVG figures from docs/images/ to PDF for LaTeX inclusion.
 # Requires one of: inkscape, rsvg-convert, or cairosvg (Python).
 set -euo pipefail
