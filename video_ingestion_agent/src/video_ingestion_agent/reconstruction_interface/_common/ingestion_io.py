@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Read `video_ingestion_agent` output surfaces as a list of `IngestedSegment`s.
 
 Two equivalent sources:

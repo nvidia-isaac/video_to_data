@@ -1,0 +1,259 @@
+# Third-Party Notices
+
+This file enumerates the direct dependencies of `video_ingestion_agent`
+and the license terms under which their upstream projects make them
+available. Transitive dependencies inherit their license terms from
+these direct parents.
+
+Versions reflect the resolved set in `uv.lock` at the time this file
+was generated; license identifiers and copyright attributions reflect
+each project's upstream LICENSE file. For the authoritative license
+terms of any individual package, consult the upstream project URL.
+
+---
+
+Copyright NumPy Developers - BSD-3-Clause License
+Attribution Statements: NVIDIA actively chooses the BSD-3-Clause license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/BSD-3-Clause.html)
+Package: numpy 2.2.6
+Project URL: https://numpy.org/
+
+Copyright OpenCV team and contributors - Apache-2.0 License
+Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: opencv-python 4.13.0.92
+Project URL: https://github.com/opencv/opencv-python
+
+Copyright Jeffrey A. Clark and contributors - MIT-CMU License
+Attribution Statements: NVIDIA actively chooses the MIT-CMU license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT-CMU.html)
+Package: pillow 12.2.0
+Project URL: https://python-pillow.org/
+
+Copyright LangChain, Inc. - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: langgraph 1.1.10
+Project URL: https://github.com/langchain-ai/langgraph
+
+Copyright LangChain, Inc. - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: langchain-core 1.3.2
+Project URL: https://github.com/langchain-ai/langchain
+
+Copyright Kenneth Reitz and contributors - Apache-2.0 License
+Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: requests 2.33.1
+Project URL: https://requests.readthedocs.io/
+
+Copyright OpenAI - Apache-2.0 License
+Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: openai 2.34.0
+Project URL: https://github.com/openai/openai-python
+
+Copyright Mike Bayer and SQLAlchemy contributors - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: sqlalchemy 2.0.49
+Project URL: https://www.sqlalchemy.org/
+
+Copyright Samuel Colvin and other contributors - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: pydantic 2.13.3
+Project URL: https://docs.pydantic.dev/
+
+Copyright tqdm developers - MIT AND MPL-2.0 License
+Attribution Statements: NVIDIA actively chooses the MIT AND MPL-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: tqdm 4.67.3
+Project URL: https://tqdm.github.io/
+
+Copyright Kirill Simonov and PyYAML contributors - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: pyyaml 6.0.3
+Project URL: https://pyyaml.org/
+
+Copyright Will McGugan - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: rich 15.0.0
+Project URL: https://github.com/Textualize/rich
+
+Copyright Meta Platforms, Inc. and PyTorch contributors - BSD-3-Clause License
+Attribution Statements: NVIDIA actively chooses the BSD-3-Clause license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/BSD-3-Clause.html)
+Package: torch 2.9.0
+Project URL: https://pytorch.org/
+
+Copyright The HuggingFace Team - Apache-2.0 License
+Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: transformers 4.57.6
+Project URL: https://github.com/huggingface/transformers
+
+Copyright The HuggingFace Team - Apache-2.0 License
+Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: accelerate 1.13.0
+Project URL: https://github.com/huggingface/accelerate
+
+Copyright Ross Wightman - Apache-2.0 License
+Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: timm 1.0.26
+Project URL: https://github.com/huggingface/pytorch-image-models
+
+Copyright Tim Dettmers and contributors - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: bitsandbytes 0.49.2
+Project URL: https://github.com/bitsandbytes-foundation/bitsandbytes
+
+Copyright vLLM Team - Apache-2.0 License
+Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: vllm 0.12.0
+Project URL: https://github.com/vllm-project/vllm
+
+Copyright Holger Krekel and pytest contributors - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: pytest 9.0.3
+Project URL: https://pytest.org/
+
+Copyright pytest-cov contributors - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: pytest-cov 7.1.0
+Project URL: https://github.com/pytest-dev/pytest-cov
+
+Copyright Astral Software, Inc. - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: ruff 0.15.12
+Project URL: https://github.com/astral-sh/ruff
+
+Copyright Jukka Lehtosalo and mypy contributors - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: mypy 1.20.2
+Project URL: https://www.mypy-lang.org/
+
+Copyright pre-commit contributors - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: pre-commit 4.6.0
+Project URL: https://pre-commit.com/
+
+Copyright Georg Brandl and the Sphinx team - BSD-2-Clause License
+Attribution Statements: NVIDIA actively chooses the BSD-2-Clause license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/BSD-2-Clause.html)
+Package: sphinx 8.2.3
+Project URL: https://www.sphinx-doc.org/
+
+Copyright NVIDIA Corporation - Apache-2.0 License
+Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: nvidia-sphinx-theme 0.0.9.post1
+Project URL: https://github.com/nvidia/nvidia-sphinx-theme
+
+Copyright Holger Mauermann and contributors - BSD-2-Clause License
+Attribution Statements: NVIDIA actively chooses the BSD-2-Clause license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/BSD-2-Clause.html)
+Package: sphinx-multiversion 0.2.4
+Project URL: https://holzhaus.github.io/sphinx-multiversion/
+
+Copyright Sphinx-copybutton contributors - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: sphinx_copybutton 0.5.2
+Project URL: https://github.com/executablebooks/sphinx-copybutton
+
+Copyright Executable Books Project - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: sphinx_tabs 3.5.0
+Project URL: https://github.com/executablebooks/sphinx-tabs
+
+Copyright Executable Books Project - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: sphinx_design 0.7.0
+Project URL: https://github.com/executablebooks/sphinx-design
+
+Copyright Mark Hall and contributors - BSD-2-Clause License
+Attribution Statements: NVIDIA actively chooses the BSD-2-Clause license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/BSD-2-Clause.html)
+Package: sphinxcontrib-mermaid 2.0.1
+Project URL: https://github.com/mgaitan/sphinxcontrib-mermaid
+
+Copyright Jonathan Stoppani and contributors - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: sphinx-autobuild 2025.8.25
+Project URL: https://github.com/sphinx-doc/sphinx-autobuild
+
+Copyright John D. Hunter, Matplotlib Development Team - PSF-2.0 License
+Attribution Statements: NVIDIA actively chooses the PSF-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/PSF-2.0.html)
+Package: matplotlib 3.10.9
+Project URL: https://matplotlib.org/
+
+Copyright Michael Waskom and the seaborn developers - BSD-3-Clause License
+Attribution Statements: NVIDIA actively chooses the BSD-3-Clause license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/BSD-3-Clause.html)
+Package: seaborn 0.13.2
+Project URL: https://seaborn.pydata.org/
+
+Copyright Plotly Technologies Inc. - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: plotly 6.7.0
+Project URL: https://plotly.com/python/
+
+Copyright NetworkX Developers - BSD-3-Clause License
+Attribution Statements: NVIDIA actively chooses the BSD-3-Clause license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/BSD-3-Clause.html)
+Package: networkx 3.6.1
+Project URL: https://networkx.org/
+
+Copyright The Gradio team - Apache-2.0 License
+Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: gradio 6.14.0
+Project URL: https://www.gradio.app/
+
+Copyright Nils Reimers and contributors - Apache-2.0 License
+Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: sentence-transformers 5.4.1
+Project URL: https://www.sbert.net/
+
+Copyright Tianyi Zhang and contributors - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: bert-score 0.3.13
+Project URL: https://github.com/Tiiiger/bert_score
+
+Copyright AQR Capital Management, LLC, Lambda Foundry, Inc. and PyData Development Team - BSD-3-Clause License
+Attribution Statements: NVIDIA actively chooses the BSD-3-Clause license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/BSD-3-Clause.html)
+Package: pandas 2.3.3
+Project URL: https://pandas.pydata.org/
+
+Copyright Gael Varoquaux and Joblib contributors - BSD-3-Clause License
+Attribution Statements: NVIDIA actively chooses the BSD-3-Clause license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/BSD-3-Clause.html)
+Package: joblib 1.5.3
+Project URL: https://joblib.readthedocs.io/
+
+Copyright Weights & Biases, Inc. - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: wandb 0.26.1
+Project URL: https://wandb.ai/

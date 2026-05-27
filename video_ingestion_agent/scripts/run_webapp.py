@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Launch the Video Ingestion Agent web application.
 
 This script is a launcher for the Gradio webapp defined in

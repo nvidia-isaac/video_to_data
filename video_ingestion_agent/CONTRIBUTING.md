@@ -59,6 +59,30 @@ Optional body explaining the *why*.
 
 Example: `[video_ingestion] retrieval: cap relaxation depth at 4 levels`.
 
+## Sign-off (Developer Certificate of Origin)
+
+This project follows the [Developer Certificate of Origin
+(DCO)](https://developercertificate.org/). Every commit you submit must
+include a `Signed-off-by:` trailer asserting that you have the right to
+contribute the change under this project's license terms.
+
+Add the trailer automatically with `git commit -s`:
+
+```bash
+git commit -s -m "[video_ingestion] my change"
+```
+
+This appends a line like the following to your commit message:
+
+```
+Signed-off-by: Your Name <you@example.com>
+```
+
+Use the name and email associated with your `git config user.name` /
+`git config user.email`. Commits without a `Signed-off-by:` trailer will
+not be accepted; if you forget, amend the commit (or use `git rebase
+--signoff`) and force-push to your branch before requesting review.
+
 ## Architecture conventions
 
 Documented in **`docs/pages/development.rst`** and **`CLAUDE.md`**.

@@ -147,7 +147,18 @@ Full documentation builds from `docs/` with Sphinx — install
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE).
+Dual-licensed under [CC-BY-4.0 AND Apache-2.0](LICENSE): source code
+under Apache-2.0, documentation and mixed-content files under
+CC-BY-4.0. Third-party dependency notices are in [NOTICE](NOTICE).
+
+## Contributing
+
+We welcome contributions. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
+PR workflow and style guide. **Every commit must be signed off via
+`git commit -s`** under the
+[Developer Certificate of Origin](https://developercertificate.org/) —
+see the [Sign-off section](CONTRIBUTING.md#sign-off-developer-certificate-of-origin)
+for details.
 
 ## Citation
 
