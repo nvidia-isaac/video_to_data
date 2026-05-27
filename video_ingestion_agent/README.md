@@ -157,7 +157,7 @@ We welcome contributions. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
 PR workflow and style guide. **Every commit must be signed off via
 `git commit -s`** under the
 [Developer Certificate of Origin](https://developercertificate.org/) —
-see the [Sign-off section](CONTRIBUTING.md#sign-off-developer-certificate-of-origin)
+see the [Signing Your Work section](CONTRIBUTING.md#signing-your-work)
 for details.
 
 ## Citation

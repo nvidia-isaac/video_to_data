@@ -14,7 +14,7 @@ Thanks for opening a PR! A few things to check before you submit:
 ## Checklist
 
 - [ ] All commits are signed off (`git commit -s`) per
-      [CONTRIBUTING.md](../video_ingestion_agent/CONTRIBUTING.md#sign-off-developer-certificate-of-origin)
+      [CONTRIBUTING.md](../video_ingestion_agent/CONTRIBUTING.md#signing-your-work)
       ([Developer Certificate of Origin](https://developercertificate.org/)).
 - [ ] `pre-commit run --all-files` passes locally.
 - [ ] Tests added or updated, and `pytest` passes locally.
