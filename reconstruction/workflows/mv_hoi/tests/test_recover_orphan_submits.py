@@ -66,6 +66,30 @@ def test_parse_submit_log_extracts_candidate(tmp_path):
     ]
 
 
+def test_parse_submit_log_extracts_microsecond_timestamp_candidate(tmp_path):
+    log_path = tmp_path / "submit.log"
+    workflow_name = "v2d_mv_hoi_reconstruction_1-4-14_20260508_002505_123456"
+    log_path.write_text(
+        "  Submitting mv_hoi_reconstruction for seq_a (1.4.14)...\n"
+        "  CMD: osmo workflow submit workflow.yaml --set "
+        f'workflow_name="{workflow_name}" '
+        'rosbag_url="swift://example/seq_a/" --pool isaac-dev-h100-01\n',
+    )
+
+    assert recover._workflow_timestamp(workflow_name).strftime(
+        "%Y-%m-%dT%H:%M:%S"
+    ) == "2026-05-08T00:25:05"
+
+    candidates = recover.parse_submit_log(
+        log_path,
+        pipeline_type="mv_hoi_reconstruction",
+        since=recover._parse_time_arg("2026-05-08T00:25:05"),
+        until=recover._parse_time_arg("2026-05-08T00:25:06"),
+    )
+
+    assert [candidate.workflow_name for candidate in candidates] == [workflow_name]
+
+
 def test_completed_recovery_uses_normal_completed_details(monkeypatch, tmp_path):
     db_path = _db_path(tmp_path)
     candidate = _candidate()

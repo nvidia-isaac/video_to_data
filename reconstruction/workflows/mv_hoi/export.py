@@ -58,6 +58,8 @@ MAX_FAILURE_COVERAGE = 0.30
 DEFAULT_BATCH_SIZE = 30
 GENERATED_DIR = SCRIPT_DIR / "osmo" / "generated"
 EXPORT_IMAGE = "nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}"
+DEFAULT_KRATOS_STATUS_TABLE = "llmdf_admin.item_status_transition_metrics"
+DEFAULT_KRATOS_PROJECT_ID = 285164
 
 _VALID_TABLE_RE = re.compile(r"^[A-Za-z0-9_.]+$")
 _AMBIGUOUS_SUBMIT_MARKERS = (
@@ -106,7 +108,7 @@ def get_s3_client(swift_url: str):
     if not access_key or not secret_key:
         print(
             "Error: Set CSS_ACCESS_KEY and CSS_SECRET_KEY environment variables.\n"
-            "  source reconstruction/scripts/setup_css_env.sh",
+            "  source ~/secrets/setup_css_env.sh",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -312,6 +314,35 @@ def _sql_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+def _cursor_column_names(cursor: Any) -> list[str]:
+    names = []
+    for column in getattr(cursor, "description", None) or []:
+        name = (
+            column[0]
+            if isinstance(column, (tuple, list))
+            else getattr(column, "name", "")
+        )
+        names.append(str(name))
+    return names
+
+
+def _row_mapping(row: Any, columns: list[str]) -> dict[str, Any]:
+    if isinstance(row, dict):
+        return dict(row)
+    if hasattr(row, "asDict"):
+        return row.asDict()
+    if hasattr(row, "_asdict"):
+        return dict(row._asdict())
+    return {column: row[index] for index, column in enumerate(columns)}
+
+
+def _metric_status_to(row: dict[str, Any]) -> str:
+    value = row.get("status_to")
+    if value:
+        return str(value)
+    raise RuntimeError("Could not find status_to in Kratos status metrics row.")
+
+
 class KratosAnnotations(dict):
     """Completed annotation rows plus per-item Kratos status diagnostics."""
 
@@ -328,18 +359,23 @@ class KratosAnnotations(dict):
 def query_completed_kratos_annotations(
     kratos_table: str,
     item_names: list[str],
+    kratos_status_table: str = DEFAULT_KRATOS_STATUS_TABLE,
+    kratos_project_id: int = DEFAULT_KRATOS_PROJECT_ID,
 ) -> dict[str, list[dict]]:
+    """Return annotation rows for items whose latest Kratos status is Completed."""
     if not item_names:
         return KratosAnnotations()
     if not _VALID_TABLE_RE.match(kratos_table):
         raise ValueError(f"Invalid Databricks table name: {kratos_table!r}")
+    if not _VALID_TABLE_RE.match(kratos_status_table):
+        raise ValueError(f"Invalid Databricks table name: {kratos_status_table!r}")
 
     try:
         from databricks import sql
     except ModuleNotFoundError as exc:
         raise RuntimeError(
             "databricks-sql-connector is required. Install it and source "
-            "reconstruction/scripts/setup_databricks_env.sh."
+            "~/secrets/setup_databricks_env.sh."
         ) from exc
 
     host = os.environ.get("DATABRICKS_SERVER_HOSTNAME")
@@ -352,32 +388,67 @@ def query_completed_kratos_annotations(
         )
 
     names = ", ".join(_sql_literal(name) for name in item_names)
-    query = f"""
-        SELECT item_name, item_status, `table` AS table_json
+    status_query = f"""
+        SELECT *
+        FROM (
+            SELECT *,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY item_name
+                       ORDER BY event_datetime DESC
+                   ) AS status_rank
+            FROM {kratos_status_table}
+            WHERE date_partition = (
+                SELECT MAX(date_partition)
+                FROM {kratos_status_table}
+            )
+            AND project_id = {int(kratos_project_id)}
+            AND item_name IN ({names})
+        ) latest_status
+        WHERE status_rank = 1
+        ORDER BY item_name
+    """
+    annotations_query = f"""
+        SELECT item_name, `table` AS table_json
         FROM {kratos_table}
         WHERE item_name IN ({names})
     """
 
     result = KratosAnnotations()
+    annotation_rows_by_item: dict[str, list[dict]] = {}
     with sql.connect(
         server_hostname=host,
         http_path=http_path,
         access_token=token,
     ) as connection:
         with connection.cursor() as cursor:
-            cursor.execute(query)
+            cursor.execute(status_query)
+            columns = _cursor_column_names(cursor)
+            for row in cursor.fetchall():
+                metric = _row_mapping(row, columns)
+                item_name = str(metric.get("item_name") or "")
+                if not item_name:
+                    continue
+                result.statuses[item_name] = _metric_status_to(metric)
+
+            cursor.execute(annotations_query)
             for row in cursor.fetchall():
                 item_name = _row_get(row, "item_name", 0)
-                item_status = str(_row_get(row, "item_status", 1) or "")
-                result.statuses.setdefault(item_name, item_status)
-                if not item_status.startswith("Completed"):
+                if item_name in annotation_rows_by_item:
                     continue
-                if item_name in result:
-                    continue
-                result.statuses[item_name] = item_status
-                table_json = _row_get(row, "table_json", 2)
+                table_json = _row_get(row, "table_json", 1)
                 table = json.loads(table_json)
-                result[item_name] = table.get("rows") or []
+                annotation_rows_by_item[item_name] = table.get("rows") or []
+
+    for item_name in item_names:
+        item_status = result.statuses.get(item_name, "")
+        if not item_status.startswith("Completed"):
+            continue
+        if item_name not in annotation_rows_by_item:
+            result.statuses[item_name] = (
+                f"{item_status}; no annotation row in {kratos_table}"
+            )
+            continue
+        result[item_name] = annotation_rows_by_item[item_name]
     return result
 
 
@@ -508,7 +579,7 @@ def task_suffix(sequence_name: str) -> str:
 
 def generate_export_id(now: datetime | None = None) -> str:
     now = now or datetime.now()
-    return f"v2d_mv_hoi_export_{now.strftime('%Y%m%d_%H%M%S')}"
+    return f"v2d_mv_hoi_export_{now.strftime('%Y%m%d_%H%M%S_%f')}"
 
 
 def osmo_export_workflow_id(export_name: str) -> str:
@@ -886,6 +957,11 @@ def run_export(
     export_cfg = get_workflow_cfg(dataset_cfg, RECON_PIPELINE, EXPORT_WORKFLOW)
     batch_size = int(export_cfg.get("batch_size", DEFAULT_BATCH_SIZE))
     kratos_table = export_cfg["kratos_table"]
+    kratos_status_kwargs = {}
+    if "kratos_status_table" in export_cfg:
+        kratos_status_kwargs["kratos_status_table"] = export_cfg["kratos_status_table"]
+    if "kratos_project_id" in export_cfg:
+        kratos_status_kwargs["kratos_project_id"] = export_cfg["kratos_project_id"]
     batch_candidates = candidates
     if not sequence:
         print(
@@ -893,7 +969,11 @@ def run_export(
             f"oldest-first to fill up to {batch_size} export(s)"
         )
     item_names = [f"{workflow['workflow_name']}.json" for workflow in batch_candidates]
-    annotations_by_item = query_completed_kratos_annotations(kratos_table, item_names)
+    annotations_by_item = query_completed_kratos_annotations(
+        kratos_table,
+        item_names,
+        **kratos_status_kwargs,
+    )
     kratos_status_by_item = getattr(annotations_by_item, "statuses", {})
     print(
         f"Found completed Kratos rows for {len(annotations_by_item)} "

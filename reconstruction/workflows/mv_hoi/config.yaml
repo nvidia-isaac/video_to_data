@@ -29,6 +29,8 @@ datasets:
             workflow_yaml: osmo/mv_hoi_export.yaml
             batch_size: 40
             kratos_table: llmdf_admin.project_285164_annotations
+            kratos_status_table: llmdf_admin.item_status_transition_metrics
+            kratos_project_id: 285164
             max_failure_annotations: 6
             max_failure_coverage: 0.5
     osmo_pool: isaac-dev-h100-01

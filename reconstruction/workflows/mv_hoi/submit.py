@@ -56,6 +56,7 @@ TABLE = PIPELINES_TABLE
 class SubmitResult:
     workflow_name: str
     ambiguous: bool = False
+    prereq_skipped: bool = False
 
 
 class AmbiguousSubmitError(RuntimeError):
@@ -110,7 +111,7 @@ def get_s3_client(swift_url: str):
     if not access_key or not secret_key:
         print(
             "Error: Set CSS_ACCESS_KEY and CSS_SECRET_KEY environment variables.\n"
-            "  source reconstruction/scripts/setup_css_env.sh",
+            "  source ~/secrets/setup_css_env.sh",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -220,9 +221,66 @@ def osmo_submit(
 # Core logic
 
 def _generate_workflow_name(pipeline_type: str, version: str) -> str:
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     ver = version.replace(".", "-")
     return f"v2d_{pipeline_type}_{ver}_{ts}"
+
+
+def _skipped_detail(reason: str) -> str:
+    return f"skipped: {reason}"
+
+
+def _record_prereq_skip(
+    sequence_name: str,
+    dataset_name: str,
+    pipeline_type: str,
+    version: str,
+    workflow_name: str,
+    reason: str,
+    latest: dict | None,
+    *,
+    dry_run: bool = False,
+    log: bool = True,
+) -> None:
+    details = _skipped_detail(reason)
+    if latest and latest["status"] == "SKIPPED" and latest.get("details") == details:
+        return
+    if dry_run:
+        if log:
+            print(f"  [dry-run] would insert SKIPPED workflow {workflow_name}")
+        return
+    insert_workflow(
+        sequence_name=sequence_name,
+        dataset=dataset_name,
+        pipeline_type=pipeline_type,
+        pipeline_version=version,
+        workflow_name=workflow_name,
+        status="SKIPPED",
+        details=details,
+        db_path=DB_PATH,
+        table=TABLE,
+    )
+
+
+def _handle_prereq_skip(
+    sequence_name: str,
+    dataset_name: str,
+    pipeline_type: str,
+    version: str,
+    workflow_name: str,
+    reason: str,
+    latest: dict | None,
+    *,
+    dry_run: bool = False,
+    log: bool = True,
+) -> SubmitResult:
+    if log:
+        print(f"  {sequence_name}: {reason}, skipping")
+    _record_prereq_skip(
+        sequence_name, dataset_name, pipeline_type, version,
+        workflow_name, reason, latest, dry_run=dry_run, log=log,
+    )
+    return SubmitResult(workflow_name, prereq_skipped=True)
 
 
 def _blacklist_skip_message(sequence_name: str, dataset_name: str, reason: str | None) -> str:
@@ -241,6 +299,7 @@ def submit_sequence(
     *,
     force: bool = False,
     dry_run: bool = False,
+    log_prereq_skips: bool = True,
 ) -> SubmitResult | None:
     """Build --set vars, submit OSMO workflow, record in DB. Return workflow name."""
     blacklist_entry = get_blacklisted_sequence(
@@ -303,21 +362,30 @@ def submit_sequence(
         seq_data_pfx = f"{base_pfx}/{input_path}/{sequence_name}"
         meta = get_hoi_metadata(s3, bucket, seq_data_pfx)
         if meta is None:
-            print(f"  {sequence_name}: no hoi_metadata.yaml, skipping")
-            return None
+            reason = "no hoi_metadata.yaml"
+            return _handle_prereq_skip(
+                sequence_name, dataset_name, pipeline_type, version, workflow_name,
+                reason, latest, dry_run=dry_run, log=log_prereq_skips,
+            )
 
         # Extrinsics via calib_seq_name
         calib_seq = meta.get("calib_seq_name")
         if not calib_seq:
-            print(f"  {sequence_name}: no calib_seq_name in hoi_metadata, skipping")
-            return None
+            reason = "no calib_seq_name in hoi_metadata"
+            return _handle_prereq_skip(
+                sequence_name, dataset_name, pipeline_type, version, workflow_name,
+                reason, latest, dry_run=dry_run, log=log_prereq_skips,
+            )
         calib_pfx = (
             f"{base_pfx}/{get_pipeline_output_path(dataset_cfg, CALIBRATION_PIPELINE)}"
             f"/{calib_seq}/calibrate_extrinsics"
         )
         if not path_exists(s3, bucket, calib_pfx):
-            print(f"  {sequence_name}: calibration not found for {calib_seq}, skipping")
-            return None
+            reason = f"calibration not found for {calib_seq}"
+            return _handle_prereq_skip(
+                sequence_name, dataset_name, pipeline_type, version, workflow_name,
+                reason, latest, dry_run=dry_run, log=log_prereq_skips,
+            )
         set_vars["extrinsics_url"] = (
             f"{swift_base}/{get_pipeline_output_path(dataset_cfg, CALIBRATION_PIPELINE)}"
             f"/{calib_seq}/calibrate_extrinsics"
@@ -330,8 +398,11 @@ def submit_sequence(
             or meta.get("object_name")
         )
         if not object_id:
-            print(f"  {sequence_name}: no object_id in hoi_metadata, skipping")
-            return None
+            reason = "no object_id in hoi_metadata"
+            return _handle_prereq_skip(
+                sequence_name, dataset_name, pipeline_type, version, workflow_name,
+                reason, latest, dry_run=dry_run, log=log_prereq_skips,
+            )
 
         _, mesh_bucket, mesh_pfx = _parse_swift_url(
             dataset_cfg["mesh_base"]
@@ -340,8 +411,11 @@ def submit_sequence(
             s3, mesh_bucket, mesh_pfx, object_id, dataset_cfg["mesh_base"],
         )
         if not mesh_url:
-            print(f"  {sequence_name}: no mesh for object {object_id}, skipping")
-            return None
+            reason = f"no mesh for object {object_id}"
+            return _handle_prereq_skip(
+                sequence_name, dataset_name, pipeline_type, version, workflow_name,
+                reason, latest, dry_run=dry_run, log=log_prereq_skips,
+            )
         set_vars["mesh_url"] = mesh_url
 
         # Output base
@@ -533,6 +607,7 @@ def auto_submit(
         skip_statuses.add("FAIL")
 
     skipped = 0
+    skipped_prereq = 0
     submitted = 0
     for seq in sequences:
         if submitted >= available:
@@ -546,9 +621,12 @@ def auto_submit(
             continue
         wf = submit_sequence(
             seq, dataset_name, dataset_cfg, pipeline_type,
-            force=force, dry_run=dry_run,
+            force=force, dry_run=dry_run, log_prereq_skips=False,
         )
         if wf:
+            if isinstance(wf, SubmitResult) and wf.prereq_skipped:
+                skipped_prereq += 1
+                continue
             submitted += 1
             if isinstance(wf, SubmitResult) and wf.ambiguous:
                 print(
@@ -560,6 +638,11 @@ def auto_submit(
     if skipped:
         print(f"Skipped {skipped} sequence(s) with status in {sorted(skip_statuses)}. "
               "Use --force to resubmit.")
+    if skipped_prereq:
+        print(
+            f"Skipped {skipped_prereq} sequence(s) due to unmet prerequisites "
+            "(recorded as SKIPPED)."
+        )
 
     print(f"\nSubmitted {submitted} new workflow(s)")
 

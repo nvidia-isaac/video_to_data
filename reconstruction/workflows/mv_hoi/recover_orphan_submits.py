@@ -63,7 +63,7 @@ _SUBMIT_RE = re.compile(
     r"Submitting\s+(?P<pipeline>\S+)\s+for\s+"
     r"(?P<sequence>\S+)\s+\((?P<version>[^)]+)\)\.\.\."
 )
-_WORKFLOW_TS_RE = re.compile(r"_(?P<stamp>\d{8}_\d{6})$")
+_WORKFLOW_TS_RE = re.compile(r"_(?P<stamp>\d{8}_\d{6})(?:_\d{6})?$")
 
 
 def load_config() -> dict:

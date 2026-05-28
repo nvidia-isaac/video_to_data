@@ -1,5 +1,7 @@
 import sqlite3
 import sys
+import types
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -182,6 +184,96 @@ def test_init_db_refuses_ambiguous_legacy_and_new_tables(tmp_path):
 
     with pytest.raises(RuntimeError, match="Ambiguous DB migration"):
         db.init_db(db_path)
+
+
+def test_generate_export_id_includes_microseconds():
+    export_id = mv_export.generate_export_id(
+        datetime(2026, 5, 26, 15, 30, 12, 123456)
+    )
+
+    assert export_id == "v2d_mv_hoi_export_20260526_153012_123456"
+
+
+def test_query_completed_kratos_annotations_uses_status_metrics_source_of_truth(
+    monkeypatch,
+):
+    executed_queries = []
+
+    class _Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, query):
+            executed_queries.append(query)
+            if "item_status_transition_metrics" in query:
+                self.description = [
+                    ("item_name",),
+                    ("status_to",),
+                    ("event_datetime",),
+                ]
+                self._rows = [
+                    {
+                        "item_name": "wf_qc.json",
+                        "status_to": "QC_Complete",
+                        "event_datetime": "2026-05-14T10:01:00",
+                    },
+                    {
+                        "item_name": "wf_done.json",
+                        "status_to": "Completed",
+                        "event_datetime": "2026-05-14T10:01:00",
+                    },
+                ]
+            else:
+                self.description = [("item_name",), ("table_json",)]
+                self._rows = [
+                    {
+                        "item_name": "wf_qc.json",
+                        "table_json": '{"rows": [{"id": "qc"}]}',
+                    },
+                    {
+                        "item_name": "wf_done.json",
+                        "table_json": '{"rows": [{"id": "done"}]}',
+                    },
+                ]
+
+        def fetchall(self):
+            return self._rows
+
+    class _Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def cursor(self):
+            return _Cursor()
+
+    sql_module = types.SimpleNamespace(connect=lambda **_kwargs: _Connection())
+    monkeypatch.setitem(sys.modules, "databricks", types.SimpleNamespace(sql=sql_module))
+    monkeypatch.setenv("DATABRICKS_SERVER_HOSTNAME", "host")
+    monkeypatch.setenv("DATABRICKS_HTTP_PATH", "path")
+    monkeypatch.setenv("DATABRICKS_TOKEN", "token")
+
+    result = mv_export.query_completed_kratos_annotations(
+        "catalog.schema.annotations",
+        ["wf_qc.json", "wf_done.json"],
+    )
+
+    assert "wf_qc.json" not in result
+    assert result["wf_done.json"] == [{"id": "done"}]
+    assert result.statuses["wf_qc.json"] == "QC_Complete"
+    assert result.statuses["wf_done.json"] == "Completed"
+    assert "llmdf_admin.item_status_transition_metrics" in executed_queries[0]
+    assert "SELECT MAX(date_partition)" in executed_queries[0]
+    assert "project_id = 285164" in executed_queries[0]
+    assert "PARTITION BY item_name" in executed_queries[0]
+    assert "ORDER BY event_datetime DESC" in executed_queries[0]
+    assert "WHERE status_rank = 1" in executed_queries[0]
+    assert "catalog.schema.annotations" in executed_queries[1]
 
 
 def test_normalize_failure_annotations_filters_and_converts_to_half_open():

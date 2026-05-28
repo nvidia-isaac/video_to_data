@@ -8,7 +8,7 @@ size.
 Prerequisites:
   - boto3: pip install boto3
   - CSS credentials configured via environment variables:
-      source reconstruction/scripts/setup_css_env.sh
+      source ~/secrets/setup_css_env.sh
 
 Usage:
   # Download a folder
@@ -59,7 +59,7 @@ def _get_s3_client():
     if not ACCESS_KEY or not SECRET_KEY:
         print(
             "Error: Set CSS_ACCESS_KEY and CSS_SECRET_KEY environment variables.\n"
-            "  source reconstruction/scripts/setup_css_env.sh",
+            "  source ~/secrets/setup_css_env.sh",
             file=sys.stderr,
         )
         sys.exit(1)

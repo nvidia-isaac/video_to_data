@@ -441,11 +441,14 @@ def show_summary(
     scope = "latest per sequence" if latest_only else "all rows"
     print(f"=== Summary for {dataset} ({pipeline_label}, {scope}) ===")
     print(f"Total pipeline rows: {total}")
-    for status in ("WAITING_WF", "WAITING_QC", "WAITING_EXPORT", "PASS", "FAIL"):
+    ordered_statuses = (
+        "WAITING_WF", "WAITING_QC", "WAITING_EXPORT", "PASS", "FAIL", "SKIPPED",
+    )
+    for status in ordered_statuses:
         count = summary["counts"].get(status, 0)
         print(f"  {status}: {count}")
     for status, count in sorted(summary["counts"].items()):
-        if status not in ("WAITING_WF", "WAITING_QC", "WAITING_EXPORT", "PASS", "FAIL"):
+        if status not in ordered_statuses:
             print(f"  {status}: {count}")
 
     if summary["failure_reasons"]:

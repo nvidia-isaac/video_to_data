@@ -35,13 +35,14 @@ python3 -m pip install -r requirements.txt
 ```
 
 Credential templates live under `reconstruction/scripts/`; copy them to a
-private location such as `~/bin/`, fill in real secrets, and source the private
+private location such as `~/secrets/`, fill in real secrets, and source the private
 copies before running the corresponding scripts:
 
 ```bash
-source ~/bin/setup_css_env.sh          # submit/export Swift CSS access
-source ~/bin/setup_databricks_env.sh   # export.py Kratos queries
-source ~/bin/setup_hitl_aws_env.sh     # mark_ready.py / mark_ready_cron.sh
+source ~/secrets/setup_css_env.sh          # submit/export Swift CSS access
+source ~/secrets/setup_databricks_env.sh   # export.py Kratos queries
+source ~/secrets/setup_hitl_aws_env.sh     # mark_ready.py / mark_ready_cron.sh
+source ~/secrets/setup_mv_hoi_status_publish_env.sh  # Google Sheets status publishing
 ```
 
 ## Database
@@ -278,26 +279,30 @@ python query.py  --dataset sc_office_4exo_1 --pipeline mv_hoi_reconstruction --t
 After reconstruction rows reach `WAITING_QC`, run the export launcher:
 
 ```bash
-source ~/bin/setup_css_env.sh
-source ~/bin/setup_databricks_env.sh
+source ~/secrets/setup_css_env.sh
+source ~/secrets/setup_databricks_env.sh
 python export.py --dataset sc_office_4exo_1
 ```
 
-The launcher leaves rows in `WAITING_QC` until Kratos has a completed
-`<workflow_name>.json` item. It marks rows `FAIL` when human QC has more than
-five failure annotations, when merged failure coverage exceeds 30% of the
-sequence frame count, or when a failure annotation has an invalid range. Passed
-QC rows are batched into one OSMO export workflow and stamped with
-`osmo_export_workflow_id`. Configure the human-QC failure gates under the
-reconstruction pipeline's `workflows.export` config with
-`max_failure_annotations` and `max_failure_coverage`.
+The launcher leaves rows in `WAITING_QC` until the latest
+`llmdf_admin.item_status_transition_metrics` partition has a latest
+`status_to` beginning with `Completed` for the project and
+`<workflow_name>.json` item, then reads human-QC annotation rows from the
+project annotation table. It marks rows `FAIL` when human QC has more than five
+failure annotations, when merged failure coverage exceeds 30% of the sequence
+frame count, or when a failure annotation has an invalid range. Passed QC rows
+are batched into one OSMO export workflow and stamped with
+`osmo_export_workflow_id`. Configure the Kratos tables, project ID, and
+human-QC failure gates under the reconstruction pipeline's `workflows.export`
+config with `kratos_table`, `kratos_status_table`, `kratos_project_id`,
+`max_failure_annotations`, and `max_failure_coverage`.
 
 ## Marking HITL Ready
 
 After a HITL batch has been staged, create the `ready_for_processing` marker:
 
 ```bash
-source ~/bin/setup_hitl_aws_env.sh
+source ~/secrets/setup_hitl_aws_env.sh
 python mark_ready.py --dataset sc_office_4exo_1 --batch batch_YYYYMMDD
 ```
 
@@ -331,6 +336,36 @@ python query.py --dataset <d> --pipeline <p> --summary --refresh-workers 16
 ```
 
 `--latest` composes with both `--summary` and the default list view.
+
+## Publishing Status To Google Sheets
+
+After creating a Google service account key and sharing the target spreadsheet
+with the service account email as Editor, configure the publisher env:
+
+```bash
+cp ../../scripts/setup_mv_hoi_status_publish_env.sh ~/secrets/
+$EDITOR ~/secrets/setup_mv_hoi_status_publish_env.sh
+source ~/secrets/setup_css_env.sh
+source ~/secrets/setup_mv_hoi_status_publish_env.sh
+```
+
+Preview what would be published without contacting Google Sheets:
+
+```bash
+python publish_status.py --dataset sc_office_4exo_1 --all-pipelines --dry-run
+```
+
+Publish latest per-sequence status rows and a summary tab:
+
+```bash
+python publish_status.py --dataset sc_office_4exo_1 --all-pipelines
+```
+
+Use `publish_status_cron.sh` for scheduled hourly updates. It sources CSS and
+Google Sheets publisher credentials from `~/secrets/`, refreshes workflow state,
+and rewrites separate worksheet pairs for calibration and reconstruction:
+`calibration_status`, `calibration_summary`, `reconstruction_status`, and
+`reconstruction_summary`.
 
 ## Common maintenance
 

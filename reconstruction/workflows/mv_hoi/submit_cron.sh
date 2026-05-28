@@ -12,7 +12,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 WORKDIR="$(cd -- "$SCRIPT_DIR/../.." && pwd -P)"
 LOGDIR="$WORKDIR/workflows/mv_hoi/logs"
 LOCKFILE="/tmp/mv_hoi_submit.lock"
-CSS_ENV="${CSS_ENV:-$HOME/bin/setup_css_env.sh}"
+CSS_ENV="${CSS_ENV:-$HOME/secrets/setup_css_env.sh}"
 
 mkdir -p "$LOGDIR"
 
