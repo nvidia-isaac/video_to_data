@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Per-track per-frame WiLoR reconstruction driven by SAM2 hand masks.
 
 Mirrors ``v2d.hamer.lib.masks_to_hands`` so the two backends are A/B-swappable

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Multi-view Grounding DINO: detect objects across cameras using a text prompt.
 
 Reads the object prompt from a plain-text file and runs detection on a subset

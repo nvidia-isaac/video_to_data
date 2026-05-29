@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Download Foundation Stereo ONNX model from NVIDIA NGC.
 
 The TensorRT engine is compiled at runtime (GPU-architecture-specific).

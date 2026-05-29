@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Build Docker images for ego hand reconstruction (ViPE + Dyn-HaMR).
 
 Delegates to the vendored shell scripts so build flags stay in sync with

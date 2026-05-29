@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Submit OSMO workflows for MV calibration and HOI reconstruction.
 
 Auto mode — scan Swift for new sequences and submit up to max_concurrent:

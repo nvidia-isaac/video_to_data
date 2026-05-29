@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Download HaMeR demo data + checkpoint.
 
 Downloads ``hamer_demo_data.tar.gz`` from the original HaMeR project page

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Stage HITL intake files (tiled overlay video + SuperAnnotate JSON).
 
 Runs after ``check_accuracy`` passes — task dependencies in the workflow

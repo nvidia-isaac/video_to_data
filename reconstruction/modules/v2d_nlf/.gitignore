@@ -1,6 +1,0 @@
-data/
-*.pt
-*.pth
-*.torchscript
-*.mp4
-__pycache__/

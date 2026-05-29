@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Export per-track MANO hand meshes and joint trajectories from Dyn-HaMR results.
 
 Delegates to the vendored ``run_mesh_generation.sh`` so mesh export logic stays
