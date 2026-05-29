@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Export Foundation Stereo ONNX model to a TensorRT engine.
 
 The engine filename is versioned by TensorRT version + GPU SM to allow caching

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Symmetry-aware pose canonicalization for multi-view FoundationPose.
 
 Loads BOP-style symmetry annotations produced by hoi-tools' compute_symmetry

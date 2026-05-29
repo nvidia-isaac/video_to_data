@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Render aligned MANO meshes (+ optional object) onto the source video.
 
 Consumes the JSONs written by ``align_hands.py`` (real intrinsics,

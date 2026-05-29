@@ -98,4 +98,20 @@ See [reconstruction/README.md](reconstruction/README.md) for the complete module
 
 ## Contributing
 
-See the contributing guide in [reconstruction/README.md](reconstruction/README.md#contributing) for adding new reconstruction modules. Each new module must expose a Docker image, a `run_download_weights` entry point (if weights are required), a `run_shell` entry point, and a typed API surface consistent with `v2d_common`.
+We welcome contributions. All contributions require a Developer Certificate of Origin (DCO) sign-off: commit with `git commit -s` so your commit carries a `Signed-off-by` trailer. Contributions without a sign-off cannot be accepted. See the per-package contributing guides for the full DCO text and workflow:
+
+- Reconstruction: [reconstruction/CONTRIBUTING.md](reconstruction/CONTRIBUTING.md) (and module conventions in [reconstruction/README.md](reconstruction/README.md#contributing))
+- Video Ingestion Agent: [video_ingestion_agent/CONTRIBUTING.md](video_ingestion_agent/CONTRIBUTING.md)
+
+Each new reconstruction module must expose a Docker image, a `run_download_weights` entry point (if weights are required), a `run_shell` entry point, and a typed API surface consistent with `v2d_common`.
+
+## License
+
+This project is dual-licensed: source code under **Apache-2.0** and documentation/skill files under **CC-BY-4.0**, per the top-level [`LICENSE`](LICENSE). NVIDIA-authored files carry SPDX headers (`SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0`).
+
+Some bundled third-party components are covered by their own licenses, **not** this project's terms, and retain their own `LICENSE` files in-tree:
+
+- `reconstruction/modules/v2d_foundation_pose/lib/FoundationPose/` — **NVIDIA Source Code License** (non-commercial: research/evaluation only).
+- `reconstruction/modules/v2d_sam3d_body/lib/sam_3d_body/` — Meta **SAM License** (commercial use permitted, with acceptable-use restrictions).
+
+Third-party dependency attributions are listed in [`reconstruction/NOTICE`](reconstruction/NOTICE) and [`video_ingestion_agent/NOTICE`](video_ingestion_agent/NOTICE).

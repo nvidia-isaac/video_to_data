@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 # Configuration for NVIDIA Hawk stereo camera
 # Resolution: 1920x1200, fx=fy=852.41, cx=946.45, cy=556.80, baseline=0.1496m
 #
