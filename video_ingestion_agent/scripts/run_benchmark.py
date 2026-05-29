@@ -504,6 +504,7 @@ def main():
                 config=config,
                 per_video_subdir="",
                 worker_id=args.worker_id,
+                resume=args.resume,
             )
 
             # Save results summary

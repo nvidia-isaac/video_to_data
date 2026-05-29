@@ -273,6 +273,7 @@ def main():
         graph_db_path=graph_db_path,
         vector_db_path=vector_db_path,
         worker_id=worker_id,
+        resume=args.resume,
     )
 
     # ---- Summary ----
