@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Select representative frames for SAM3D reconstruction.
 
 Uses CuSFM camera trajectory to pick one frame per azimuthal angle bin,

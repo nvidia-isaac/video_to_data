@@ -1,0 +1,370 @@
+# Third-Party Notices
+
+This file enumerates the direct dependencies of `reconstruction`
+and the license terms under which their upstream projects make them
+available. Transitive dependencies inherit their license terms from
+these direct parents.
+
+Unlike a single-package component, `reconstruction` is a collection of
+independently containerized modules under `modules/v2d_*/`, each with its
+own `lib/pyproject.toml` and install. There is therefore no single
+`uv.lock`: the versions below reflect each module's `pyproject.toml` /
+install at release time and may be approximate. The SPDX license
+identifier and copyright holder are the authoritative parts of each
+entry; for the precise license terms and exact pinned version of any
+individual package, consult the upstream project URL and the relevant
+module's `pyproject.toml`.
+
+---
+
+## Direct PyPI dependencies
+
+Copyright Javier Tirado-Garín and contributors - Apache-2.0 License
+Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: anycalib (version per module pyproject.toml)
+Project URL: https://github.com/javrtg/AnyCalib
+
+Copyright The PyAV authors - BSD-3-Clause License
+Attribution Statements: NVIDIA actively chooses the BSD-3-Clause license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/BSD-3-Clause.html)
+Package: av (version per module pyproject.toml)
+Project URL: https://github.com/PyAV-Org/PyAV
+
+Copyright Amazon.com, Inc. or its affiliates - Apache-2.0 License
+Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: boto3 (version per module pyproject.toml)
+Project URL: https://github.com/boto/boto3
+
+Copyright The Decord / DMLC contributors - Apache-2.0 License
+Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: decord (version per module pyproject.toml)
+Project URL: https://github.com/dmlc/decord
+
+Copyright ByteDance Ltd. and/or its affiliates - Apache-2.0 License
+Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: depth-anything-3 (version per module pyproject.toml)
+Project URL: https://github.com/ByteDance-Seed/Depth-Anything-3
+
+Copyright The PyVista Developers - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: fast-simplification (version per module pyproject.toml)
+Project URL: https://github.com/pyvista/fast-simplification
+
+Copyright Pallets - BSD-3-Clause License
+Attribution Statements: NVIDIA actively chooses the BSD-3-Clause license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/BSD-3-Clause.html)
+Package: flask (version per module pyproject.toml)
+Project URL: https://github.com/pallets/flask
+
+Copyright Kentaro Wada - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: gdown (version per module pyproject.toml)
+Project URL: https://github.com/wkentaro/gdown
+
+Copyright Andrew Collette and contributors - BSD-3-Clause License
+Attribution Statements: NVIDIA actively chooses the BSD-3-Clause license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/BSD-3-Clause.html)
+Package: h5py (version per module pyproject.toml)
+Project URL: https://www.h5py.org/
+
+Copyright The HuggingFace Team - Apache-2.0 License
+Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: huggingface-hub (version per module pyproject.toml)
+Project URL: https://github.com/huggingface/huggingface_hub
+
+Copyright Meta Platforms, Inc. and affiliates - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: hydra-core (version per module pyproject.toml)
+Project URL: https://github.com/facebookresearch/hydra
+
+Copyright ImageIO contributors - BSD-2-Clause License
+Attribution Statements: NVIDIA actively chooses the BSD-2-Clause license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/BSD-2-Clause.html)
+Package: imageio (version per module pyproject.toml)
+Project URL: https://github.com/imageio/imageio
+
+Copyright imageio contributors - BSD-2-Clause License
+Attribution Statements: NVIDIA actively chooses the BSD-2-Clause license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/BSD-2-Clause.html)
+Package: imageio-ffmpeg (version per module pyproject.toml)
+Project URL: https://github.com/imageio/imageio-ffmpeg
+
+Copyright Delgan (Loïc Dutrieux) and contributors - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: loguru (version per module pyproject.toml)
+Project URL: https://github.com/Delgan/loguru
+
+Copyright John D. Hunter, Matplotlib Development Team - PSF-2.0 License
+Attribution Statements: NVIDIA actively chooses the PSF-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/PSF-2.0.html)
+Package: matplotlib (version per module pyproject.toml)
+Project URL: https://matplotlib.org/
+
+Copyright The MediaPipe Authors (Google LLC) - Apache-2.0 License
+Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: mediapipe (version per module pyproject.toml)
+Project URL: https://github.com/google-ai-edge/mediapipe
+
+Copyright Microsoft Corporation - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: moge (version per module pyproject.toml)
+Project URL: https://github.com/microsoft/MoGe
+
+Copyright NumPy Developers - BSD-3-Clause License
+Attribution Statements: NVIDIA actively chooses the BSD-3-Clause license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/BSD-3-Clause.html)
+Package: numpy (version per module pyproject.toml)
+Project URL: https://numpy.org/
+
+Copyright Omry Yadan and contributors - BSD-3-Clause License
+Attribution Statements: NVIDIA actively chooses the BSD-3-Clause license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/BSD-3-Clause.html)
+Package: omegaconf (version per module pyproject.toml)
+Project URL: https://github.com/omry/omegaconf
+
+Copyright www.open3d.org / Open3D contributors - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: open3d (version per module pyproject.toml)
+Project URL: https://www.open3d.org/
+
+Copyright OpenCV team and contributors - Apache-2.0 License
+Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: opencv-python (version per module pyproject.toml)
+Project URL: https://github.com/opencv/opencv-python
+
+Copyright Contributors to the OpenEXR Project / Academy Software Foundation - BSD-3-Clause License
+Attribution Statements: NVIDIA actively chooses the BSD-3-Clause license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/BSD-3-Clause.html)
+Package: openexr (version per module pyproject.toml)
+Project URL: https://github.com/AcademySoftwareFoundation/openexr
+
+Copyright AQR Capital Management, LLC, Lambda Foundry, Inc. and PyData Development Team - BSD-3-Clause License
+Attribution Statements: NVIDIA actively chooses the BSD-3-Clause license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/BSD-3-Clause.html)
+Package: pandas (version per module pyproject.toml)
+Project URL: https://pandas.pydata.org/
+
+Copyright Jeffrey A. Clark and contributors - MIT-CMU License
+Attribution Statements: NVIDIA actively chooses the MIT-CMU license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT-CMU.html)
+Package: pillow (version per module pyproject.toml)
+Project URL: https://python-pillow.org/
+
+Copyright Philipp Lindenberger, Paul-Edouard Sarlin, Shaohui Liu and contributors - Apache-2.0 License
+Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: pyceres (version per module pyproject.toml)
+Project URL: https://github.com/cvg/pyceres
+
+Copyright Samuel Colvin and other contributors - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: pydantic (version per module pyproject.toml)
+Project URL: https://docs.pydantic.dev/
+
+Copyright pyglet contributors - BSD-3-Clause License
+Attribution Statements: NVIDIA actively chooses the BSD-3-Clause license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/BSD-3-Clause.html)
+Package: pyglet (version per module pyproject.toml)
+Project URL: https://github.com/pyglet/pyglet
+
+Copyright Mike C. Fletcher and contributors - BSD-3-Clause License
+Attribution Statements: NVIDIA actively chooses the BSD-3-Clause license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/BSD-3-Clause.html)
+Package: pyopengl (version per module pyproject.toml)
+Project URL: https://pyopengl.sourceforge.net/
+
+Copyright Matthew Matl - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: pyrender (version per module pyproject.toml)
+Project URL: https://github.com/mmatl/pyrender
+
+Copyright Alexander Fabisch and contributors - BSD-3-Clause License
+Attribution Statements: NVIDIA actively chooses the BSD-3-Clause license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/BSD-3-Clause.html)
+Package: pytransform3d (version per module pyproject.toml)
+Project URL: https://github.com/dfki-ric/pytransform3d
+
+Copyright Kirill Simonov and PyYAML contributors - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: pyyaml (version per module pyproject.toml)
+Project URL: https://pyyaml.org/
+
+Copyright Rerun.io (Rerun Technologies AB) - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: rerun-sdk (version per module pyproject.toml)
+Project URL: https://github.com/rerun-io/rerun
+
+Copyright Ternaris - Apache-2.0 License
+Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: rosbags (version per module pyproject.toml)
+Project URL: https://gitlab.com/ternaris/rosbags
+
+Copyright Meta Platforms, Inc. and affiliates - Apache-2.0 License
+Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: sam-2 (version per module pyproject.toml)
+Project URL: https://github.com/facebookresearch/sam2
+
+Copyright The scikit-learn developers - BSD-3-Clause License
+Attribution Statements: NVIDIA actively chooses the BSD-3-Clause license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/BSD-3-Clause.html)
+Package: scikit-learn (version per module pyproject.toml)
+Project URL: https://scikit-learn.org/
+
+Copyright SciPy Developers - BSD-3-Clause License
+Attribution Statements: NVIDIA actively chooses the BSD-3-Clause license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/BSD-3-Clause.html)
+Package: scipy (version per module pyproject.toml)
+Project URL: https://scipy.org/
+
+Copyright Michael Waskom and the seaborn developers - BSD-3-Clause License
+Attribution Statements: NVIDIA actively chooses the BSD-3-Clause license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/BSD-3-Clause.html)
+Package: seaborn (version per module pyproject.toml)
+Project URL: https://seaborn.pydata.org/
+
+Copyright Ross Wightman - Apache-2.0 License
+Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: timm (version per module pyproject.toml)
+Project URL: https://github.com/huggingface/pytorch-image-models
+
+Copyright Meta Platforms, Inc. and PyTorch contributors - BSD-3-Clause License
+Attribution Statements: NVIDIA actively chooses the BSD-3-Clause license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/BSD-3-Clause.html)
+Package: torch (version per module pyproject.toml)
+Project URL: https://pytorch.org/
+
+Copyright tqdm developers - MIT AND MPL-2.0 License
+Attribution Statements: NVIDIA actively chooses the MIT AND MPL-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: tqdm (version per module pyproject.toml)
+Project URL: https://tqdm.github.io/
+
+Copyright Michael Dawson-Haggerty and contributors - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: trimesh (version per module pyproject.toml)
+Project URL: https://github.com/mikedh/trimesh
+
+Copyright Luigi Piccinelli (ETH Zurich) - CC-BY-NC-4.0 License
+Attribution Statements: NVIDIA actively chooses the CC-BY-NC-4.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/CC-BY-NC-4.0.html)
+Package: unidepth (version per module pyproject.toml)
+Project URL: https://github.com/lpiccinelli-eth/UniDepth
+
+Copyright ZJU3DV (State Key Lab of CAD&CG, Zhejiang University) - Apache-2.0 License
+Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: wis3d (version per module pyproject.toml)
+Project URL: https://github.com/zju3dv/Wis3D
+
+## Vendored / bundled upstream model code
+
+Copyright NVIDIA Corporation & affiliates - NVIDIA Source Code License (Non-Commercial)
+Attribution Statements: NVIDIA actively chooses the NVIDIA Source Code License (Non-Commercial) to apply to files with this copyright and license.
+License Text(https://github.com/NVlabs/FoundationPose/blob/master/LICENSE)
+Package: FoundationPose (vendored source)
+Project URL: https://github.com/NVlabs/FoundationPose
+
+Copyright Meta Platforms, Inc. and affiliates - Apache-2.0 License
+Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: SAM 2 / Segment Anything 2 (vendored source)
+Project URL: https://github.com/facebookresearch/sam2
+
+Copyright Meta Platforms, Inc. and affiliates - SAM License
+Attribution Statements: NVIDIA actively chooses the SAM License to apply to files with this copyright and license.
+License Text(https://github.com/facebookresearch/sam-3d-body/blob/main/LICENSE)
+Package: SAM3D-Body / sam_3d_body (vendored source)
+Project URL: https://github.com/facebookresearch/sam-3d-body
+
+Copyright Microsoft Corporation - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: MoGe (vendored source)
+Project URL: https://github.com/microsoft/MoGe
+
+Copyright Luigi Piccinelli (ETH Zurich) - CC-BY-NC-4.0 License
+Attribution Statements: NVIDIA actively chooses the CC-BY-NC-4.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/CC-BY-NC-4.0.html)
+Package: UniDepth (vendored source)
+Project URL: https://github.com/lpiccinelli-eth/UniDepth
+
+Copyright Georgios Pavlakos and contributors - MIT License
+Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: HaMeR (vendored source)
+Project URL: https://github.com/geopavlakos/hamer
+
+Copyright Rolandos Alexandros Potamias and contributors - CC-BY-NC-ND-4.0 License
+Attribution Statements: NVIDIA actively chooses the CC-BY-NC-ND-4.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/CC-BY-NC-ND-4.0.html)
+Package: WiLoR (vendored source)
+Project URL: https://github.com/rolpotamias/WiLoR
+
+Copyright Princeton Vision & Learning Lab - BSD-3-Clause License
+Attribution Statements: NVIDIA actively chooses the BSD-3-Clause license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/BSD-3-Clause.html)
+Package: DROID-SLAM (vendored source)
+Project URL: https://github.com/princeton-vl/DROID-SLAM
+
+Copyright Meta Platforms, Inc. and affiliates - Apache-2.0 License
+Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: Detectron2 / ViTDet (vendored source)
+Project URL: https://github.com/facebookresearch/detectron2
+
+Copyright IDEA Research - Apache-2.0 License
+Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: GroundingDINO (vendored source)
+Project URL: https://github.com/IDEA-Research/GroundingDINO
+
+Copyright LiheYoung (Lihe Yang) and contributors - Apache-2.0 License
+Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: Depth-Anything (vendored source)
+Project URL: https://github.com/LiheYoung/Depth-Anything
+
+Copyright István Sárándi and contributors - CC-BY-NC-SA-4.0 License
+Attribution Statements: NVIDIA actively chooses the CC-BY-NC-SA-4.0 license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/CC-BY-NC-SA-4.0.html)
+Package: NLF / Neural Localizer Fields (vendored source)
+Project URL: https://github.com/isarandi/nlf
+
+Copyright Gül Varol and contributors - GPL-3.0-only License
+Attribution Statements: NVIDIA actively chooses the GPL-3.0-only license to apply to files with this copyright and license.
+License Text(http://spdx.org/licenses/GPL-3.0-only.html)
+Package: smplpytorch (vendored source)
+Project URL: https://github.com/gulvarol/smplpytorch
+
+Copyright NVIDIA Corporation & affiliates - NVIDIA Source Code License (Non-Commercial)
+Attribution Statements: NVIDIA actively chooses the NVIDIA Source Code License (Non-Commercial) to apply to files with this copyright and license.
+License Text(https://github.com/NVlabs/BundleSDF/blob/master/LICENSE)
+Package: BundleSDF (vendored source)
+Project URL: https://github.com/NVlabs/BundleSDF
+
+Copyright NVIDIA Corporation & affiliates - NVIDIA Source Code License (Non-Commercial)
+Attribution Statements: NVIDIA actively chooses the NVIDIA Source Code License (Non-Commercial) to apply to files with this copyright and license.
+License Text(https://github.com/NVlabs/FoundationStereo/blob/master/LICENSE)
+Package: FoundationStereo (vendored source)
+Project URL: https://github.com/NVlabs/FoundationStereo

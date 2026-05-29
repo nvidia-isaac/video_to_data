@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Demonstrate loading and visualizing the exported flat training data.
 
 Loads calibration, meshes, poses, params, depth, masks from the flat layout

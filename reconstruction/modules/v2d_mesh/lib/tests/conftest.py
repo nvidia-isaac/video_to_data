@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 # Must be set before any pyrender/OpenGL/pyglet import.
 import os
 os.environ.setdefault('PYOPENGL_PLATFORM', 'egl')

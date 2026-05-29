@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 # Install all lightweight packages: docker orchestration + v2d_pipelines.
 # Run from reconstruction/ or repo root.
 set -e

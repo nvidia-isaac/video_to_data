@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 # Build all v2d Docker images.
 # Run from reconstruction/ or repo root. Requires Docker and (optionally) NVIDIA Container Toolkit.
 set -e
