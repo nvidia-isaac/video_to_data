@@ -221,6 +221,7 @@ def process_videos(
     vector_db_path: Path | None = None,
     worker_id: int = 0,
     per_video_subdir: str = "per_video",
+    resume: bool = False,
 ) -> list[dict[str, Any]]:
     """Process a list of videos sequentially through the ingestion pipeline.
 
@@ -237,6 +238,12 @@ def process_videos(
         per_video_subdir: Subdirectory under *output_dir* for per-video
             run dirs.  Use ``""`` to place run dirs directly under
             *output_dir* (as the benchmark does).
+        resume: If False (default), truncate the per-worker progress
+            JSONL at run start. Without this, re-running into a non-empty
+            output_dir leaves stale entries that downstream readers (the
+            webapp Ingest tab) sum into the current run's totals. If
+            True, the file is preserved and new entries append, matching
+            ``summary_worker_*.json``'s per-session contract.
 
     Returns:
         List of per-video result dicts with keys ``video``, ``status``,
@@ -244,6 +251,13 @@ def process_videos(
     """
     # Lazy import to keep this module light at import time
     from video_ingestion_agent.ingestion import run_pipeline
+
+    # Truncate progress file at start of a non-resume run so that re-running
+    # into a populated output_dir doesn't cause readers to sum stale entries
+    # from the prior run into the current run's totals.
+    progress_path = output_dir / f"progress_worker_{worker_id}.jsonl"
+    if not resume:
+        progress_path.unlink(missing_ok=True)
 
     results: list[dict[str, Any]] = []
     total = len(videos)
@@ -296,8 +310,7 @@ def process_videos(
         }
         results.append(result)
 
-        # Append progress incrementally
-        progress_path = output_dir / f"progress_worker_{worker_id}.jsonl"
+        # Append progress incrementally (file already prepared at run start).
         with open(progress_path, "a") as f:
             f.write(json.dumps(result) + "\n")
 
