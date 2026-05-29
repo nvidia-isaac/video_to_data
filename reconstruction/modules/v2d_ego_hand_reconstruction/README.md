@@ -27,9 +27,16 @@ Build both Docker images (ViPE + Dyn-HaMR):
 python -m v2d_ego_hand_reconstruction.docker.build
 ```
 
-Place required data in your output directory before running (see `vendor/doc/quickstart.md`):
-- `MANO_RIGHT.pkl` from <https://mano.is.tue.mpg.de/>
-- `BMC/*.npy` from the Hand-BMC-pytorch repo
+Place required data in your weights directory before running (see `vendor/doc/quickstart.md`).
+The layout follows the manotorch convention so the same directory is shared with `v2d_hamer`:
+
+```
+<weights_dir>/
+├── models/
+│   └── MANO_RIGHT.pkl     # from https://mano.is.tue.mpg.de/
+└── BMC/
+    └── *.npy              # from the Hand-BMC-pytorch repo
+```
 
 ## Usage
 
