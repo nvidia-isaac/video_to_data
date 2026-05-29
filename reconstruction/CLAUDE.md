@@ -207,7 +207,6 @@ from v2d.mv.calibration.docker.run_calibrate_extrinsics import run_calibrate_ext
 | `v2d_droid_slam` | Monocular SLAM (Princeton DROID-SLAM): video / image list → per-frame camera poses + optional keyframe depth + PLY. Accepts single or per-frame intrinsics; optional metric-depth folder for scale alignment |
 | `v2d_foundation_stereo` | Stereo depth estimation from left/right image pairs. MV: `run_mv_image_list_to_depth` |
 | `v2d_foundation_pose` | 6D pose tracking + mesh alignment/simplification. MV: `run_mv_videos_to_poses` (shared-weight multi-view tracker) |
-| `v2d_nlf` | SMPL body model estimation (Neural Layered Fields) |
 | `v2d_cusfm` | Structure-from-motion: stereo image list → camera poses |
 | `v2d_bundlesdf` | SDF learning + texture baking from pre-computed poses, depth, and masks |
 | `v2d_pipelines` | End-to-end pipelines: `run_mv_hoi_reconstruction`, `run_mv_calibration` (no Docker) |

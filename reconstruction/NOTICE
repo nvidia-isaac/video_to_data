@@ -280,9 +280,9 @@ Project URL: https://github.com/zju3dv/Wis3D
 ## Vendored / bundled upstream model code
 
 Copyright NVIDIA Corporation & affiliates - NVIDIA Source Code License (Non-Commercial)
-Attribution Statements: NVIDIA actively chooses the NVIDIA Source Code License (Non-Commercial) to apply to files with this copyright and license.
-License Text(https://github.com/NVlabs/FoundationPose/blob/master/LICENSE)
-Package: FoundationPose (vendored source)
+Attribution Statements: This component IS redistributed in source form under modules/v2d_foundation_pose/lib/FoundationPose/, which retains its own LICENSE file. It is NOT covered by this project's Apache-2.0 / CC-BY-4.0 terms: the NVIDIA Source Code License restricts use to non-commercial (research or evaluation) purposes only, except that NVIDIA and its affiliates may use it commercially. Downstream users must comply with that LICENSE for this subtree.
+License Text(https://github.com/NVlabs/FoundationPose/blob/main/LICENSE.txt)
+Package: FoundationPose (vendored source — separately licensed, see subtree LICENSE)
 Project URL: https://github.com/NVlabs/FoundationPose
 
 Copyright Meta Platforms, Inc. and affiliates - Apache-2.0 License
@@ -292,9 +292,9 @@ Package: SAM 2 / Segment Anything 2 (vendored source)
 Project URL: https://github.com/facebookresearch/sam2
 
 Copyright Meta Platforms, Inc. and affiliates - SAM License
-Attribution Statements: NVIDIA actively chooses the SAM License to apply to files with this copyright and license.
+Attribution Statements: Redistributed in source form under modules/v2d_sam3d_body/lib/sam_3d_body/, retaining its Meta copyright headers. The SAM License is a permissive license (commercial use permitted) with acceptable-use restrictions; it is not an SPDX-listed identifier. The upstream SAM License text should be bundled alongside this subtree.
 License Text(https://github.com/facebookresearch/sam-3d-body/blob/main/LICENSE)
-Package: SAM3D-Body / sam_3d_body (vendored source)
+Package: SAM3D-Body / sam_3d_body (vendored source — separately licensed under the SAM License)
 Project URL: https://github.com/facebookresearch/sam-3d-body
 
 Copyright Microsoft Corporation - MIT License
@@ -345,26 +345,14 @@ License Text(http://spdx.org/licenses/Apache-2.0.html)
 Package: Depth-Anything (vendored source)
 Project URL: https://github.com/LiheYoung/Depth-Anything
 
-Copyright István Sárándi and contributors - CC-BY-NC-SA-4.0 License
-Attribution Statements: NVIDIA actively chooses the CC-BY-NC-SA-4.0 license to apply to files with this copyright and license.
-License Text(http://spdx.org/licenses/CC-BY-NC-SA-4.0.html)
-Package: NLF / Neural Localizer Fields (vendored source)
-Project URL: https://github.com/isarandi/nlf
-
-Copyright Gül Varol and contributors - GPL-3.0-only License
-Attribution Statements: NVIDIA actively chooses the GPL-3.0-only license to apply to files with this copyright and license.
-License Text(http://spdx.org/licenses/GPL-3.0-only.html)
-Package: smplpytorch (vendored source)
-Project URL: https://github.com/gulvarol/smplpytorch
-
 Copyright NVIDIA Corporation & affiliates - NVIDIA Source Code License (Non-Commercial)
-Attribution Statements: NVIDIA actively chooses the NVIDIA Source Code License (Non-Commercial) to apply to files with this copyright and license.
+Attribution Statements: The upstream model code is obtained at container-build time (not redistributed in this source tree); listed here for completeness as a non-commercial dependency.
 License Text(https://github.com/NVlabs/BundleSDF/blob/master/LICENSE)
-Package: BundleSDF (vendored source)
+Package: BundleSDF (fetched at build)
 Project URL: https://github.com/NVlabs/BundleSDF
 
 Copyright NVIDIA Corporation & affiliates - NVIDIA Source Code License (Non-Commercial)
-Attribution Statements: NVIDIA actively chooses the NVIDIA Source Code License (Non-Commercial) to apply to files with this copyright and license.
+Attribution Statements: The upstream model code is obtained at container-build time (not redistributed in this source tree); listed here for completeness as a non-commercial dependency.
 License Text(https://github.com/NVlabs/FoundationStereo/blob/master/LICENSE)
-Package: FoundationStereo (vendored source)
+Package: FoundationStereo (fetched at build)
 Project URL: https://github.com/NVlabs/FoundationStereo

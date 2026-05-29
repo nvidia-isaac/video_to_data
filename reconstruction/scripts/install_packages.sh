@@ -34,7 +34,6 @@ pip install -e modules/v2d_common \
   -e modules/v2d_mv_calibration/docker \
   -e modules/v2d_mv_postprocess/docker \
   -e modules/v2d_mv_preprocess/docker \
-  -e modules/v2d_nlf/docker \
   -e modules/v2d_rosbag/docker \
   -e modules/v2d_sam2/docker \
   -e modules/v2d_sam3d/docker \
