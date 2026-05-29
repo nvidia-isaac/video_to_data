@@ -66,15 +66,34 @@ data/weights/hand/
     └── *.npy
 ```
 
-## 5. Run the pipeline
+## 5. Get the sample video
+
+A ready-to-run sample, `assets/airplane.mp4` (~25 MB), ships with the repo via
+[Git LFS](https://git-lfs.com/). If you cloned with Git LFS installed it is already
+present. Otherwise install LFS and pull it:
+
+```bash
+git lfs install                                              # one-time, enables LFS filters
+git lfs pull --include reconstruction/assets/airplane.mp4    # paths are repo-root relative
+```
+
+Confirm it materialized — it should be ~25 MB, not a ~130-byte pointer file:
+
+```bash
+ls -lh assets/airplane.mp4
+```
+
+## 6. Run the pipeline
 
 ```bash
 python modules/v2d_pipelines/run_v2d_ego_e2e.py \
-    --video_path  data/my_video.mp4 \
-    --prompt      "blue cup" \
-    --output_dir  data/outputs/my_video \
+    --video_path  assets/airplane.mp4 \
+    --prompt      "airplane" \
+    --output_dir  data/outputs/airplane \
     --depth_source moge
 ```
+
+Substitute your own `--video_path` / `--prompt` to run on a different clip.
 
 All weight paths default to `data/weights/<model>` relative to cwd so no extra flags are needed
 if you followed the layout above.
