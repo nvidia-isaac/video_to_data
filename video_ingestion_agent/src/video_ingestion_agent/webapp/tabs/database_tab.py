@@ -53,7 +53,15 @@ def create_database_tab(services: dict[str, Any], config: AppConfig) -> dict[str
             refresh_db_btn = gr.Button("↻", size="sm", scale=0, min_width=40)
             load_db_btn = gr.Button("Load Database", variant="primary", scale=1)
 
-        stats_display = gr.JSON(label="Database Statistics", visible=False)
+        # Rendered from the start (visible=True) on purpose. A gr.JSON created
+        # hidden and flipped visible *inside* the load_database event mounts
+        # only after Gradio has already dispatched that event's terminal
+        # loading status for it, so its queue progress overlay
+        # ("processing | …s") never clears — the spinner spins forever on both
+        # the success and the no-graph.db paths even though the value is written.
+        # Keeping the component always-mounted lets the value update and the
+        # spinner reset apply normally.
+        stats_display = gr.JSON(label="Database Statistics", value=None, visible=True)
 
         # ── Filters group ──
         with gr.Group():
