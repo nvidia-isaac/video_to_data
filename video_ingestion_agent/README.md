@@ -128,7 +128,7 @@ For batch ingestion across many videos and GPUs:
 
 ```bash
 python scripts/run_batch_ingestion.py --input-dir <videos> \
-    -c configs/ingestion.yaml --output-dir runs/batch --num-shards 8 --resume
+    -c configs/batch_ingestion.yaml --output-dir runs/batch --num-shards 8 --resume
 ```
 
 ## Documentation
