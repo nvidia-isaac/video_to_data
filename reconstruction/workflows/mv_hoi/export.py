@@ -28,10 +28,12 @@ sys.path.insert(0, str(SCRIPT_DIR))
 from db import (
     PIPELINES_TABLE,
     PIPELINES_TEST_TABLE,
+    get_blacklisted_sequence,
     get_latest_workflow,
     get_workflows_by_dataset,
     init_db,
     update_workflow,
+    upsert_blacklisted_sequence,
 )
 from config_utils import (
     EXPORT_WORKFLOW,
@@ -722,6 +724,27 @@ def _mark_fail_if_changed(
     )
 
 
+def _blacklist_qc_failure_if_needed(
+    workflow: dict,
+    details: str,
+    db_path: str,
+) -> None:
+    existing = get_blacklisted_sequence(
+        workflow["dataset"], workflow["sequence_name"], db_path=db_path,
+    )
+    if existing:
+        return
+    upsert_blacklisted_sequence(
+        workflow["dataset"],
+        workflow["sequence_name"],
+        reason=details,
+        db_path=db_path,
+    )
+    print(
+        f"  {workflow['sequence_name']}: blacklisted after human QC failure"
+    )
+
+
 def _kratos_not_completed_detail(
     item_name: str,
     kratos_status_by_item: dict[str, str],
@@ -815,6 +838,9 @@ def prepare_exports(
             reject_counts["qc_fail"] += 1
             if not dry_run:
                 _mark_fail_if_changed(workflow, failure_reason, db_path, table)
+                _blacklist_qc_failure_if_needed(
+                    workflow, failure_reason, db_path,
+                )
             print(f"  {sequence}: {failure_reason}")
             continue
 

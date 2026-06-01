@@ -554,6 +554,114 @@ def test_prepare_exports_marks_failed_qc_rows_and_keeps_valid_rows(tmp_path):
 
     assert [item.workflow["workflow_name"] for item in prepared] == ["wf_ok"]
     assert db.get_workflow("wf_bad", db_path=db_path)["status"] == "FAIL"
+    assert db.get_blacklisted_sequence(
+        "dataset_a", "seq_bad", db_path=db_path,
+    )["reason"] == "qc_fail: failure_annotations>5 (6)"
+    assert db.get_blacklisted_sequence(
+        "dataset_a", "seq_ok", db_path=db_path,
+    ) is None
+
+
+def test_prepare_exports_preserves_existing_blacklist_reason(tmp_path):
+    db_path = _db_path(tmp_path)
+    db.insert_workflow(
+        sequence_name="seq_bad",
+        dataset="dataset_a",
+        pipeline_type=query.RECON_PIPELINE,
+        pipeline_version="1.0.0",
+        workflow_name="wf_bad",
+        status="WAITING_QC",
+        db_path=db_path,
+    )
+    db.upsert_blacklisted_sequence(
+        "dataset_a", "seq_bad", reason="operator hold", db_path=db_path,
+    )
+
+    candidates = mv_export.waiting_qc_candidates("dataset_a", db_path=db_path)
+    annotations = {
+        "wf_bad.json": [
+            {
+                "id": str(i),
+                "start_frame": i + 1,
+                "end_frame": i + 1,
+                "failure_category": "bad_pose",
+            }
+            for i in range(6)
+        ]
+    }
+
+    prepared = mv_export.prepare_exports(
+        candidates,
+        annotations,
+        _export_dataset_cfg(),
+        lambda _sequence: 100,
+        db_path=db_path,
+    )
+
+    assert prepared == []
+    assert db.get_workflow("wf_bad", db_path=db_path)["status"] == "FAIL"
+    assert db.get_blacklisted_sequence(
+        "dataset_a", "seq_bad", db_path=db_path,
+    )["reason"] == "operator hold"
+
+
+def test_prepare_exports_does_not_blacklist_non_qc_blockers(tmp_path):
+    db_path = _db_path(tmp_path)
+    for workflow_name, sequence in (
+        ("wf_missing_frame_count", "seq_missing_frame_count"),
+        ("wf_invalid_annotation", "seq_invalid_annotation"),
+    ):
+        db.insert_workflow(
+            sequence_name=sequence,
+            dataset="dataset_a",
+            pipeline_type=query.RECON_PIPELINE,
+            pipeline_version="1.0.0",
+            workflow_name=workflow_name,
+            status="WAITING_QC",
+            db_path=db_path,
+        )
+
+    candidates = mv_export.waiting_qc_candidates("dataset_a", db_path=db_path)
+    annotations = {
+        "wf_missing_frame_count.json": [
+            {
+                "id": "missing",
+                "start_frame": 1,
+                "end_frame": 1,
+                "failure_category": "bad_pose",
+            }
+        ],
+        "wf_invalid_annotation.json": [
+            {
+                "id": "invalid",
+                "start_frame": 0,
+                "end_frame": 1,
+                "failure_category": "bad_pose",
+            }
+        ],
+    }
+
+    prepared = mv_export.prepare_exports(
+        candidates,
+        annotations,
+        _export_dataset_cfg(),
+        lambda sequence: None if sequence == "seq_missing_frame_count" else 100,
+        db_path=db_path,
+    )
+
+    assert prepared == []
+    assert db.get_workflow(
+        "wf_missing_frame_count", db_path=db_path,
+    )["status"] == "WAITING_QC"
+    assert db.get_workflow(
+        "wf_invalid_annotation", db_path=db_path,
+    )["status"] == "FAIL"
+    assert db.get_blacklisted_sequence(
+        "dataset_a", "seq_missing_frame_count", db_path=db_path,
+    ) is None
+    assert db.get_blacklisted_sequence(
+        "dataset_a", "seq_invalid_annotation", db_path=db_path,
+    ) is None
 
 
 def test_prepare_exports_uses_configured_failure_annotation_limit(tmp_path):
@@ -1124,7 +1232,8 @@ def test_run_export_batch_mode_rechecks_qc_fail_and_respects_batch_size(
     assert "Found completed Kratos rows for 0 of 3 candidate item(s)" in output
 
 
-def test_prepare_exports_leaves_same_qc_fail_details_unchanged(monkeypatch):
+def test_prepare_exports_leaves_same_qc_fail_details_unchanged(monkeypatch, tmp_path):
+    db_path = _db_path(tmp_path)
     workflow = _workflow("seq_fail", "wf_fail", status="FAIL")
     workflow["details"] = "qc_fail: failure_annotations>5 (6)"
     annotations = {
@@ -1149,6 +1258,7 @@ def test_prepare_exports_leaves_same_qc_fail_details_unchanged(monkeypatch):
         annotations,
         _export_dataset_cfg(),
         lambda _sequence: 100,
+        db_path=db_path,
     )
 
     assert prepared == []
