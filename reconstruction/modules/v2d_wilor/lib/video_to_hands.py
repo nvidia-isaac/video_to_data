@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
+# SPDX-License-Identifier: Apache-2.0
 """WiLoR over a video: per-frame JSON list in <output_dir>/<frame:06d>.json.
 
 The video is decoded with ffmpeg (cheaper + more robust than imageio across

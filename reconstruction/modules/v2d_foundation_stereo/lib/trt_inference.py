@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
+# SPDX-License-Identifier: Apache-2.0
 """TensorRT-based Foundation Stereo inference for stereo depth estimation.
 
 Adapted from real2sim's tensorrt_inference_base.py, stereo_inference_base.py,

@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
+# SPDX-License-Identifier: Apache-2.0
 """WiLoR-driven hand pipeline: detect per frame → SAM2 → IoU match → per-track JSONs.
 
 Differs from ``run_hand_masks.py`` in two ways:

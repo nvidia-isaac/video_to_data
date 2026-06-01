@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
+# SPDX-License-Identifier: Apache-2.0
 """Align raw monocular depth to an object mesh via FP-guided affine grid search.
 
 Searches over (scale, shift) in D_aligned = scale * D_raw + shift and returns
