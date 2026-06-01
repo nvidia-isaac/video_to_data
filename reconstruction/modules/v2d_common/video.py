@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Frame I/O utilities: FrameSource (read), FrameWriter (write), and video helpers.
 
 Moved here from ``v2d.mv.io.video`` so that all modules can use frame I/O

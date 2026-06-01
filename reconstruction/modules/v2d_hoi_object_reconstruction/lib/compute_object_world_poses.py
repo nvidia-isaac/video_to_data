@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """
 Compute object-to-world transforms by composing:
   T_world_from_obj = T_world_from_cam  @  T_cam_from_obj

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Align a folder of raw depth images to a metric reference depth via ICP + affine solve.
 
 For each frame in depth_folder, finds (scale, shift) such that

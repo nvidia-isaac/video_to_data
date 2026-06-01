@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Interactive OpenCV viewer for a v2d_gsplat_refinement checkpoint.
 
 Reconstructs the trained Gaussian sets + pose fields from a checkpoint and

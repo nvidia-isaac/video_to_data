@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Foundation Stereo: process a synchronized stereo image directory pair to depth maps.
 
 Takes two directories of images with matching filenames (left_dir and right_dir),

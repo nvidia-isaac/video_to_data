@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """I/O for the gsplat-refinement optimizer.
 
 All loaders return torch tensors on a target device so the optimizer can

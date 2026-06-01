@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Shared utilities for multiview depth fusion: backproject, merge, downsample, clean."""
 from __future__ import annotations
 

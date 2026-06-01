@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Losses for joint hand+object Gaussian refinement.
 
 Photometric:    L1 between rendered RGB and image RGB, masked to the union

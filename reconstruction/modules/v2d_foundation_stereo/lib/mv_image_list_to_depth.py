@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Multi-view stereo depth estimation using Foundation Stereo TRT.
 
 Iterates over stereo pairs from a rig config, reads calibration from EDEX,

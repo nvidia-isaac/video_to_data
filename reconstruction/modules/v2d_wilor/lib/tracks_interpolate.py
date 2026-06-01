@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Gap-fill per-track aligned hand records by interpolating between real frames.
 
 Consumes the output of hamer's ``align_hands`` (real-only, post-alignment):

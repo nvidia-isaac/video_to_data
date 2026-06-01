@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Refine SAM2 hand masks by intersecting with a dilated MANO silhouette.
 
 For each (hand track, frame) where we have both a wilor pose record and a

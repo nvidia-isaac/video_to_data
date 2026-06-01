@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Gap-fill per-track *pre-align* wilor records by interpolating between real frames.
 
 Consumes the camera-frame wilor schema written by ``tracks_from_wilor_masks``:

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Export MHR parameters from v2d sam3d_body to SOMA format.
 
 Reads the multi-view MHR output (.pt files) and uses SOMA-X's PoseInversion
