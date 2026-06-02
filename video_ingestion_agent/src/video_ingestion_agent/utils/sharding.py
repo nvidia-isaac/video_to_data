@@ -326,6 +326,52 @@ def process_videos(
     return results
 
 
+def aggregate_worker_progress(output_dir: Path) -> dict[str, dict[str, Any]]:
+    """Aggregate per-worker progress JSONL into one record per video.
+
+    Reads every ``progress_worker_*.jsonl`` under *output_dir* and returns a
+    mapping ``video_id -> latest record`` (the last line written for a given
+    video wins). The ``worker_id`` parsed from each filename is added to the
+    record.
+
+    Deduping by ``video_id`` makes the result robust to three things a naive
+    line-summing reader gets wrong:
+
+    * stale records left in the file by a prior run into the same dir,
+    * the file being truncated and recreated mid-run on a non-resume launch
+      (a concurrent poller, e.g. the webapp Ingest tab, otherwise double-counts
+      records across the rewrite and reports more videos than were processed),
+    * orphan ``progress_worker_N.jsonl`` files from a prior run that used more
+      shards than the current one.
+
+    Callers should count distinct videos from this mapping rather than summing
+    raw JSONL lines.
+    """
+    counted: dict[str, dict[str, Any]] = {}
+    for pf in sorted(output_dir.glob("progress_worker_*.jsonl")):
+        try:
+            wid = int(pf.stem.split("_")[-1])
+        except ValueError:
+            continue
+        try:
+            lines = pf.read_text().splitlines()
+        except OSError:
+            continue
+        for jline in lines:
+            jline = jline.strip()
+            if not jline:
+                continue
+            try:
+                rec = json.loads(jline)
+            except json.JSONDecodeError:
+                continue
+            vid = rec.get("video_id") or Path(rec.get("video", "")).stem
+            if not vid:
+                continue
+            counted[vid] = {**rec, "worker_id": wid}
+    return counted
+
+
 # ---------------------------------------------------------------------------
 # Parallel Worker Orchestration
 # ---------------------------------------------------------------------------
