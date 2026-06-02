@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Video ingestion tab for uploading and processing videos."""
 
-import json
 import logging
 import subprocess
 import sys
@@ -12,6 +11,7 @@ from typing import Any
 
 import gradio as gr
 
+from video_ingestion_agent.utils.sharding import aggregate_worker_progress
 from video_ingestion_agent.webapp.config import AppConfig
 
 logger = logging.getLogger(__name__)
@@ -289,48 +289,45 @@ def create_ingestion_tab(services: dict[str, Any], config: AppConfig) -> dict[st
         # Poll subprocess stdout and worker progress JSONL files.
         # Detailed per-worker logs are viewed separately via the Worker Logs
         # accordion (dropdown + refresh).
-        progress_lines_read: dict[int, int] = {}  # worker_id -> jsonl lines consumed
+        # video_ids already emitted to the log panel, so each video is logged
+        # once even though counts are recomputed from scratch every poll.
+        logged_video_ids: set[str] = set()
         t_start = time.time()
 
         def _read_worker_progress() -> tuple[int, int, int]:
-            """Read all progress_worker_*.jsonl files and aggregate counts."""
+            """Recompute absolute aggregate counts from all progress files.
+
+            Returns ``(success, failed, total_clips)`` deduped by ``video_id``,
+            recomputed from the full files each call. This is idempotent and
+            robust to the backend truncating/recreating a progress file
+            mid-run -- unlike a stateful line-offset reader, which double-counts
+            records across such a rewrite and reports more videos than were
+            processed. The caller assigns the result; it must not accumulate.
+            """
+            records = aggregate_worker_progress(output_path)
             success = 0
             failed = 0
             total_clips = 0
-            for pf in output_path.glob("progress_worker_*.jsonl"):
-                try:
-                    wid = int(pf.stem.split("_")[-1])
-                except ValueError:
-                    continue
-                start_line = progress_lines_read.get(wid, 0)
-                try:
-                    with open(pf) as f:
-                        all_lines = f.readlines()
-                except Exception:
-                    continue
-                for jline in all_lines[start_line:]:
-                    jline = jline.strip()
-                    if not jline:
-                        continue
-                    try:
-                        rec = json.loads(jline)
-                    except json.JSONDecodeError:
-                        continue
-                    vid_name = Path(rec.get("video", "")).name
-                    status = rec.get("status", "unknown")
+            for vid, rec in records.items():
+                status = rec.get("status", "unknown")
+                clips = rec.get("n_clips", 0)
+                if status == "success":
+                    success += 1
+                    total_clips += clips
+                else:
+                    failed += 1
+                if vid not in logged_video_ids:
+                    logged_video_ids.add(vid)
+                    wid = rec.get("worker_id", 0)
+                    vid_name = Path(rec.get("video", "")).name or vid
                     elapsed_s = rec.get("elapsed_s", 0)
-                    clips = rec.get("n_clips", 0)
                     if status == "success":
-                        success += 1
-                        total_clips += clips
                         logs.append(
                             f"  [Worker {wid}] {vid_name}: {clips} clips ({elapsed_s:.1f}s)"
                         )
                     else:
-                        failed += 1
                         err = rec.get("error", "")
                         logs.append(f"  [Worker {wid}] {vid_name}: FAILED - {err}")
-                progress_lines_read[wid] = len(all_lines)
             return success, failed, total_clips
 
         # Stream subprocess output + progress summaries
@@ -353,11 +350,8 @@ def create_ingestion_tab(services: dict[str, Any], config: AppConfig) -> dict[st
             if now - last_poll > 2.0:
                 last_poll = now
 
-                # `_read_worker_progress()` returns deltas — accumulate, don't assign.
-                d_done, d_failed, d_clips = _read_worker_progress()
-                done_videos += d_done
-                failed_videos += d_failed
-                total_clips += d_clips
+                # Absolute totals, deduped by video_id — assign, don't accumulate.
+                done_videos, failed_videos, total_clips = _read_worker_progress()
 
                 elapsed = now - t_start
                 desc = (
@@ -384,11 +378,8 @@ def create_ingestion_tab(services: dict[str, Any], config: AppConfig) -> dict[st
             if not line:
                 time.sleep(0.5)
 
-        # Final delta read — accumulate the same way the poll loop does.
-        d_done, d_failed, d_clips = _read_worker_progress()
-        done_videos += d_done
-        failed_videos += d_failed
-        total_clips += d_clips
+        # Final read — absolute totals, same as the poll loop.
+        done_videos, failed_videos, total_clips = _read_worker_progress()
         elapsed = time.time() - t_start
 
         progress(1.0, desc="Batch ingestion complete")
