@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
+# SPDX-License-Identifier: Apache-2.0
 from v2d.mesh.docker.run_mesh_render_depth import run_mesh_render_depth
 from v2d.mesh.docker.run_mesh_render_image import run_mesh_render_image
 from v2d.mesh.docker.run_mesh_render_mask import run_mesh_render_mask

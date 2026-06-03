@@ -277,82 +277,103 @@ License Text(http://spdx.org/licenses/Apache-2.0.html)
 Package: wis3d (version per module pyproject.toml)
 Project URL: https://github.com/zju3dv/Wis3D
 
-## Vendored / bundled upstream model code
+## Bundled upstream code redistributed in this source tree
+
+The following upstream code is committed in this repository and is therefore
+redistributed as part of the source release. Each retains its own upstream
+copyright headers and (where present) its own LICENSE file in-tree, and is NOT
+relicensed under this project's Apache-2.0 / CC-BY-4.0 terms.
 
 Copyright NVIDIA Corporation & affiliates - NVIDIA Source Code License (Non-Commercial)
-Attribution Statements: This component IS redistributed in source form under modules/v2d_foundation_pose/lib/FoundationPose/, which retains its own LICENSE file. It is NOT covered by this project's Apache-2.0 / CC-BY-4.0 terms: the NVIDIA Source Code License restricts use to non-commercial (research or evaluation) purposes only, except that NVIDIA and its affiliates may use it commercially. Downstream users must comply with that LICENSE for this subtree.
+Attribution Statements: NVIDIA-authored. Redistributed in source form under modules/v2d_foundation_pose/lib/FoundationPose/, which retains its own LICENSE file. The NVIDIA Source Code License limits use to non-commercial (research/evaluation) purposes, except that NVIDIA and its affiliates may use it commercially. As NVIDIA's own IP, NVIDIA elects to redistribute it under this license; it is not covered by, and not relicensed under, this project's Apache-2.0/CC-BY-4.0 terms.
 License Text(https://github.com/NVlabs/FoundationPose/blob/main/LICENSE.txt)
-Package: FoundationPose (vendored source — separately licensed, see subtree LICENSE)
+Package: FoundationPose (redistributed in-tree — separately licensed, see subtree LICENSE)
 Project URL: https://github.com/NVlabs/FoundationPose
 
-Copyright Meta Platforms, Inc. and affiliates - Apache-2.0 License
-Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
-License Text(http://spdx.org/licenses/Apache-2.0.html)
-Package: SAM 2 / Segment Anything 2 (vendored source)
-Project URL: https://github.com/facebookresearch/sam2
-
 Copyright Meta Platforms, Inc. and affiliates - SAM License
-Attribution Statements: Redistributed in source form under modules/v2d_sam3d_body/lib/sam_3d_body/, retaining its Meta copyright headers. The SAM License is a permissive license (commercial use permitted) with acceptable-use restrictions; it is not an SPDX-listed identifier. The upstream SAM License text should be bundled alongside this subtree.
+Attribution Statements: Redistributed in source form under modules/v2d_sam3d_body/lib/sam_3d_body/, retaining its Meta copyright headers, with the upstream SAM License text bundled in that subtree (modules/v2d_sam3d_body/lib/sam_3d_body/LICENSE). The SAM License permits commercial use, subject to acceptable-use restrictions; it is a Meta custom license, not an SPDX identifier. Not covered by this project's Apache-2.0/CC-BY-4.0 terms.
 License Text(https://github.com/facebookresearch/sam-3d-body/blob/main/LICENSE)
-Package: SAM3D-Body / sam_3d_body (vendored source — separately licensed under the SAM License)
+Package: SAM3D-Body / sam_3d_body (redistributed in-tree — separately licensed under the SAM License)
 Project URL: https://github.com/facebookresearch/sam-3d-body
 
-Copyright Microsoft Corporation - MIT License
-Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
-License Text(http://spdx.org/licenses/MIT.html)
-Package: MoGe (vendored source)
-Project URL: https://github.com/microsoft/MoGe
-
-Copyright Luigi Piccinelli (ETH Zurich) - CC-BY-NC-4.0 License
-Attribution Statements: NVIDIA actively chooses the CC-BY-NC-4.0 license to apply to files with this copyright and license.
-License Text(http://spdx.org/licenses/CC-BY-NC-4.0.html)
-Package: UniDepth (vendored source)
-Project URL: https://github.com/lpiccinelli-eth/UniDepth
-
-Copyright Georgios Pavlakos and contributors - MIT License
-Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
-License Text(http://spdx.org/licenses/MIT.html)
-Package: HaMeR (vendored source)
-Project URL: https://github.com/geopavlakos/hamer
-
-Copyright Rolandos Alexandros Potamias and contributors - CC-BY-NC-ND-4.0 License
-Attribution Statements: NVIDIA actively chooses the CC-BY-NC-ND-4.0 license to apply to files with this copyright and license.
-License Text(http://spdx.org/licenses/CC-BY-NC-ND-4.0.html)
-Package: WiLoR (vendored source)
-Project URL: https://github.com/rolpotamias/WiLoR
-
-Copyright Princeton Vision & Learning Lab - BSD-3-Clause License
-Attribution Statements: NVIDIA actively chooses the BSD-3-Clause license to apply to files with this copyright and license.
-License Text(http://spdx.org/licenses/BSD-3-Clause.html)
-Package: DROID-SLAM (vendored source)
-Project URL: https://github.com/princeton-vl/DROID-SLAM
-
 Copyright Meta Platforms, Inc. and affiliates - Apache-2.0 License
-Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
+Attribution Statements: A small number of permissively-licensed upstream support files are also committed in-tree under their original Apache-2.0 license, retaining their headers: Detectron2 model-config files (modules/v2d_detectron2/lib/cascade_mask_rcnn_vitdet_*.py, build_detector.py) and a SAM2 utility (modules/v2d_sam2/lib/sam2_utils.py).
 License Text(http://spdx.org/licenses/Apache-2.0.html)
-Package: Detectron2 / ViTDet (vendored source)
+Package: Detectron2 / SAM2 support files (redistributed in-tree, permissive Apache-2.0)
 Project URL: https://github.com/facebookresearch/detectron2
 
-Copyright IDEA Research - Apache-2.0 License
-Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
-License Text(http://spdx.org/licenses/Apache-2.0.html)
-Package: GroundingDINO (vendored source)
-Project URL: https://github.com/IDEA-Research/GroundingDINO
+## Upstream models fetched at build/download time (NOT redistributed in this tree)
 
-Copyright LiheYoung (Lihe Yang) and contributors - Apache-2.0 License
-Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
-License Text(http://spdx.org/licenses/Apache-2.0.html)
-Package: Depth-Anything (vendored source)
-Project URL: https://github.com/LiheYoung/Depth-Anything
+The following models are NOT redistributed in this repository. Only thin
+NVIDIA-authored wrapper modules are committed under each module's lib/; the
+upstream model code and/or weights are obtained directly from the project URL
+at container-build time (pip / git) or via each module's weight-download step.
+Their license terms govern what the user obtains from upstream, not this source
+distribution. They are listed for completeness, including non-commercial terms
+that downstream users should be aware of.
+
+Copyright Luigi Piccinelli (ETH Zurich) - CC-BY-NC-4.0 License
+Attribution Statements: Fetched from the project URL; not redistributed in this source tree. Non-commercial license — applies to the upstream model the user obtains.
+License Text(http://spdx.org/licenses/CC-BY-NC-4.0.html)
+Package: UniDepth (fetched at build)
+Project URL: https://github.com/lpiccinelli-eth/UniDepth
+
+Copyright Rolandos Alexandros Potamias and contributors - CC-BY-NC-ND-4.0 License
+Attribution Statements: Fetched from the project URL; not redistributed in this source tree. Non-commercial, no-derivatives license — applies to the upstream model the user obtains.
+License Text(http://spdx.org/licenses/CC-BY-NC-ND-4.0.html)
+Package: WiLoR (fetched at build)
+Project URL: https://github.com/rolpotamias/WiLoR
 
 Copyright NVIDIA Corporation & affiliates - NVIDIA Source Code License (Non-Commercial)
-Attribution Statements: The upstream model code is obtained at container-build time (not redistributed in this source tree); listed here for completeness as a non-commercial dependency.
+Attribution Statements: NVIDIA-authored. Fetched from the project URL; not redistributed in this source tree. Non-commercial license (NVIDIA and affiliates may use commercially).
 License Text(https://github.com/NVlabs/BundleSDF/blob/master/LICENSE)
 Package: BundleSDF (fetched at build)
 Project URL: https://github.com/NVlabs/BundleSDF
 
 Copyright NVIDIA Corporation & affiliates - NVIDIA Source Code License (Non-Commercial)
-Attribution Statements: The upstream model code is obtained at container-build time (not redistributed in this source tree); listed here for completeness as a non-commercial dependency.
+Attribution Statements: NVIDIA-authored. Fetched from the project URL; not redistributed in this source tree. Non-commercial license (NVIDIA and affiliates may use commercially).
 License Text(https://github.com/NVlabs/FoundationStereo/blob/master/LICENSE)
 Package: FoundationStereo (fetched at build)
 Project URL: https://github.com/NVlabs/FoundationStereo
+
+Copyright Microsoft Corporation - MIT License
+Attribution Statements: Fetched from the project URL; not redistributed in this source tree.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: MoGe (fetched at build)
+Project URL: https://github.com/microsoft/MoGe
+
+Copyright Meta Platforms, Inc. and affiliates - Apache-2.0 License
+Attribution Statements: Fetched from the project URL; not redistributed in this source tree.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: SAM 2 / Segment Anything 2 (fetched at build)
+Project URL: https://github.com/facebookresearch/sam2
+
+Copyright IDEA Research - Apache-2.0 License
+Attribution Statements: Fetched from the project URL; not redistributed in this source tree.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: GroundingDINO (fetched at build)
+Project URL: https://github.com/IDEA-Research/GroundingDINO
+
+Copyright Princeton Vision & Learning Lab - BSD-3-Clause License
+Attribution Statements: Fetched from the project URL; not redistributed in this source tree.
+License Text(http://spdx.org/licenses/BSD-3-Clause.html)
+Package: DROID-SLAM (fetched at build)
+Project URL: https://github.com/princeton-vl/DROID-SLAM
+
+Copyright Meta Platforms, Inc. and affiliates - Apache-2.0 License
+Attribution Statements: Fetched from the project URL; not redistributed in this source tree. (A few model-config support files are committed in-tree — see the redistributed section above.)
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: Detectron2 / ViTDet (fetched at build)
+Project URL: https://github.com/facebookresearch/detectron2
+
+Copyright LiheYoung (Lihe Yang) and contributors - Apache-2.0 License
+Attribution Statements: Fetched from the project URL; not redistributed in this source tree.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: Depth-Anything (fetched at build)
+Project URL: https://github.com/LiheYoung/Depth-Anything
+
+Copyright Georgios Pavlakos and contributors - MIT License
+Attribution Statements: Fetched from the project URL; not redistributed in this source tree.
+License Text(http://spdx.org/licenses/MIT.html)
+Package: HaMeR (fetched at build)
+Project URL: https://github.com/geopavlakos/hamer

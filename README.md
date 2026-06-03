@@ -107,7 +107,7 @@ Each new reconstruction module must expose a Docker image, a `run_download_weigh
 
 ## License
 
-This project is dual-licensed: source code under **Apache-2.0** and documentation/skill files under **CC-BY-4.0**, per the top-level [`LICENSE`](LICENSE). NVIDIA-authored files carry SPDX headers (`SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0`).
+This project is dual-licensed: source code under **Apache-2.0** and documentation/skill files under **CC-BY-4.0**, per the top-level [`LICENSE`](LICENSE). NVIDIA-authored code files carry an `SPDX-License-Identifier: Apache-2.0` header; mixed documentation/skill content is covered by the CC-BY-4.0 AND Apache-2.0 dual terms from the top-level `LICENSE` and does not carry a per-file header.
 
 Some bundled third-party components are covered by their own licenses, **not** this project's terms, and retain their own `LICENSE` files in-tree:
 

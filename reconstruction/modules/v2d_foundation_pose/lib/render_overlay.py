@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
+# SPDX-License-Identifier: Apache-2.0
 """
 Render mesh overlay on video frames using per-frame object-to-camera poses.
 

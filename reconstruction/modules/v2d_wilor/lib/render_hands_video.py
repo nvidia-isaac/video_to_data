@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
+# SPDX-License-Identifier: Apache-2.0
 """Verification: render projected MANO meshes onto the source video.
 
 Accepts either the per-frame layout produced by ``video_to_hands`` /

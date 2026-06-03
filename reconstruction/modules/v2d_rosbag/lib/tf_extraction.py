@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
+# SPDX-License-Identifier: Apache-2.0
 """Extract static and temporal transforms from a ROS bag's /tf and /tf_static topics."""
 
 import collections

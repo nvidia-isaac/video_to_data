@@ -1,6 +1,6 @@
 #!/bin/bash
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
+# SPDX-License-Identifier: Apache-2.0
 # Install only the host-side packages required by the ego e2e pipeline
 # (modules/v2d_pipelines/run_v2d_ego_e2e.py).
 #

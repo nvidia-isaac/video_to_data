@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
+# SPDX-License-Identifier: Apache-2.0
 """
 Depth Anything 3 video to depth processing function.
 Can be called directly from command line or imported as a function.

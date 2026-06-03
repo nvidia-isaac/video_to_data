@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
+# SPDX-License-Identifier: Apache-2.0
 """Convert a DynHaMR ``world_results.npz`` to per-frame v2d_hamer-style tracks.
 
 Each frame's hand state is re-expressed in DynHaMR's *per-frame camera*
