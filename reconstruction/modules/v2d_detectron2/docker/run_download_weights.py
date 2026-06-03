@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 import os
 import subprocess
 from v2d.detectron2.docker._config import IMAGE_NAME, MODULES_DIR

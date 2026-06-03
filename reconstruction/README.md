@@ -52,7 +52,6 @@ run_video_to_depth(
 | **v2d_grounding_dino** | `run_image_to_object_bboxes`, `run_image_list_to_object_bboxes`, `run_video_to_object_bboxes`, `run_mv_image_list_to_object_bboxes`, `run_download_weights`, `run_shell` | Text-guided object detection (single + multi-view) | `python -m v2d.grounding_dino.docker.build` | `python -m v2d.grounding_dino.docker.run_<tool> --args` |
 | **v2d_foundation_stereo** | `run_image_to_depth`, `run_image_list_to_depth`, `run_mv_image_list_to_depth`, `run_export_engine`, `run_download_weights`, `run_shell` | Stereo depth (single + multi-view) | `python -m v2d.foundation_stereo.docker.build` | `python -m v2d.foundation_stereo.docker.run_<tool> --args` |
 | **v2d_foundation_pose** | `run_video_to_poses`, `run_mv_videos_to_poses`, `run_render_overlay`, `run_estimate_scale`, `run_align_mesh_scale`, `run_transform_mesh`, `run_simplify_mesh`, `run_download_weights`, `run_shell` | 6D pose tracking (single + multi-view), mesh ops | `python -m v2d.foundation_pose.docker.build` | `python -m v2d.foundation_pose.docker.run_<tool> --args` |
-| **v2d_nlf** | `run_video_to_smpl`, `run_render_smpl_overlay`, `run_render_smpl_depth`, `run_align_depth_to_smpl`, `run_align_nlf_to_depth`, `run_download_weights`, `run_shell` | Video → SMPL body model | `python -m v2d.nlf.docker.build` | `python -m v2d.nlf.docker.run_<tool> --args` |
 | **v2d_hoi_object_reconstruction** | `run_reconstruction`, `run_fp_tracking` | End-to-end textured mesh reconstruction from hand-object interaction video (two-stage scan) | `python v2d_hoi_object_reconstruction/docker/build.py` | `python v2d_hoi_object_reconstruction/docker/run_reconstruction.py --args` |
 | **v2d_ego_hand_reconstruction** | `run_reconstruction` | 4D hand reconstruction from egocentric video (ViPE + Dyn-HaMR) | `python v2d_ego_hand_reconstruction/docker/build.py` | `python v2d_ego_hand_reconstruction/docker/run_reconstruction.py --args` |
 | **v2d_cusfm** | `run_image_list_to_sfm` | Structure-from-motion: stereo image list → camera poses | `python v2d_cusfm/docker/build.py` | `python v2d_cusfm/docker/run_image_list_to_sfm.py --input_dir ... --output_dir ...` |
@@ -104,7 +103,6 @@ pip install -e modules/v2d_sam3d_body/docker
 pip install -e modules/v2d_moge/docker
 pip install -e modules/v2d_sam2/docker
 pip install -e modules/v2d_foundation_pose/docker
-pip install -e modules/v2d_nlf/docker
 pip install -e modules/v2d_detectron2/docker
 # ... and/or: v2d_unidepth, v2d_grounding_dino, v2d_foundation_stereo
 ```
@@ -114,7 +112,7 @@ Or install all docker packages at once (including the example pipeline):
 ```bash
 # From reconstruction/ - install all docker packages + v2d_pipelines in one command
 pip install -e modules/v2d_sam2/docker -e modules/v2d_sam3d/docker -e modules/v2d_sam3d_body/docker \
-  -e modules/v2d_unidepth/docker -e modules/v2d_moge/docker -e modules/v2d_nlf/docker \
+  -e modules/v2d_unidepth/docker -e modules/v2d_moge/docker \
   -e modules/v2d_foundation_pose/docker -e modules/v2d_foundation_stereo/docker \
   -e modules/v2d_grounding_dino/docker -e modules/v2d_cusfm/docker -e modules/v2d_bundlesdf/docker \
   -e modules/v2d_hoi_object_reconstruction/docker -e modules/v2d_ego_hand_reconstruction/docker \
@@ -303,25 +301,6 @@ Stereo depth estimation from left/right image pairs.
 **Build:** `python -m v2d.foundation_pose.docker.build`  
 **Execute (single):** `python -m v2d.foundation_pose.docker.run_video_to_poses --video_path ... --depth_folder ... --masks_folder ... --camera_intrinsics_path ... --mesh_path ... --poses_dir ... --weights_dir ...`  
 **Execute (multi-view):** `python -m v2d.foundation_pose.docker.run_mv_videos_to_poses --camera_params_path ... --image_dir ... --depth_dir ... --mask_dir ... --mesh_path ... --weights_dir ... --output_dir ...`
-
----
-
-### v2d_nlf
-
-Neural layered field: video to SMPL body parameters.
-
-| Tool | Function | Description |
-|------|----------|-------------|
-| `run_video_to_smpl` | `run_video_to_smpl(video_path, masks_dir, intrinsics_path, gender, output_path, weights_dir, model_type="smplh", chunk_size=32, dev=False)` | Extract SMPL body parameters from video |
-| `run_render_smpl_overlay` | `run_render_smpl_overlay(video_path, smpl_params_path, intrinsics_path, output_dir, weights_dir, dev=False)` | Render SMPL body overlay on video |
-| `run_render_smpl_depth` | `run_render_smpl_depth(smpl_params_path, intrinsics_path, output_depth_folder, output_mask_folder, weights_dir, dev=False)` | Render SMPL as depth and mask maps |
-| `run_align_depth_to_smpl` | `run_align_depth_to_smpl(depth_folder, smpl_depth_folder, output_depth_folder, masks_folder, smpl_masks_folder=None, dev=False)` | Align scene depth to SMPL depth |
-| `run_align_nlf_to_depth` | `run_align_nlf_to_depth(smpl_results_path, depth_folder, masks_dir, intrinsics_path, output_path, weights_dir, dev=False)` | Align NLF/SMPL results to depth |
-| `run_download_weights` | `run_download(output_dir, dev=False)` | Download NLF and SMPL weights |
-| `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
-
-**Build:** `python -m v2d.nlf.docker.build`  
-**Execute:** `python -m v2d.nlf.docker.run_video_to_smpl --video_path ... --masks_dir ... --intrinsics_path ... --gender male --output_path ... --weights_dir ...`
 
 ---
 
@@ -661,7 +640,7 @@ Example pipeline usage (install `v2d-pipelines` and docker packages; see Setup a
 ```bash
 # From reconstruction/ - install all in one command
 pip install -e modules/v2d_sam2/docker -e modules/v2d_sam3d/docker -e modules/v2d_sam3d_body/docker \
-  -e modules/v2d_unidepth/docker -e modules/v2d_moge/docker -e modules/v2d_nlf/docker \
+  -e modules/v2d_unidepth/docker -e modules/v2d_moge/docker \
   -e modules/v2d_foundation_pose/docker -e modules/v2d_foundation_stereo/docker \
   -e modules/v2d_grounding_dino/docker -e modules/v2d_cusfm/docker -e modules/v2d_bundlesdf/docker \
   -e modules/v2d_hoi_object_reconstruction/docker -e modules/v2d_ego_hand_reconstruction/docker \

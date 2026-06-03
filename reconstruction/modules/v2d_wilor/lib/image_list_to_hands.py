@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """WiLoR over a folder of images: per-image JSON list in <output_dir>/<stem>.json.
 
 If ``--bboxes_dir`` is supplied, each image's corresponding ``<stem>.json``

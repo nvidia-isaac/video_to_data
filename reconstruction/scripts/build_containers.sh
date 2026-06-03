@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 # Build all v2d Docker images.
 # Run from reconstruction/ or repo root. Requires Docker and (optionally) NVIDIA Container Toolkit.
 set -e
@@ -6,7 +8,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
-MODULES=(unidepth moge anycalib sam2 sam3d grounding_dino mediapipe hamer wilor droid_slam foundation_stereo foundation_pose nlf gsplat_refinement)
+MODULES=(unidepth moge anycalib sam2 sam3d grounding_dino mediapipe hamer wilor droid_slam foundation_stereo foundation_pose gsplat_refinement)
 
 for module in "${MODULES[@]}"; do
   echo "Building v2d_${module}..."

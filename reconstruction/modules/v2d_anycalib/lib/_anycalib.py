@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """AnyCalib model loader + thin inference helper.
 
 AnyCalib (Tirado-Garín & Civera, 2024) is a learned single-view camera

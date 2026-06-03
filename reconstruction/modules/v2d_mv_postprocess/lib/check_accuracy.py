@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Aggregate accuracy checks.
 
 Reads chamfer-distance metrics from ``eval_chamfer_object`` and

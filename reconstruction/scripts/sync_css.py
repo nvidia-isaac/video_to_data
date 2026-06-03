@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Download or upload files/folders to CSS (NVIDIA PDX storage).
 
 Operates on swift:// URLs or bucket-relative paths used by the reconstruction

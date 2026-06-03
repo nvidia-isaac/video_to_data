@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """MediaPipe HandLandmarker (Tasks API): bbox + handedness from a single image.
 
 Uses the newer ``mediapipe.tasks.vision.HandLandmarker`` model, which is more

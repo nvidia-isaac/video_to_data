@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 # Show local modifications to vendored content vs upstream IsaacTeleop.
 # Usage: ./diff.sh            (summary of changed files)
 #        ./diff.sh --full     (full unified diff)

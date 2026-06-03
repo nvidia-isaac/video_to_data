@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Temporal depth alignment via ICP on scene point clouds.
 
 Aligns raw monocular depth for each frame to a metric reference depth by

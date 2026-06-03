@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 datasets:
   sc_office_4exo_1:
     swift_base: swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/multiview/sc_office_4exo_1

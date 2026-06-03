@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """
 Web-based annotation tool for SAM2 prompts.
 Allows interactive annotation of objects using points and boxes.
