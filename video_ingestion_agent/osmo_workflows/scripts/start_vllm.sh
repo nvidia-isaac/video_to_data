@@ -18,6 +18,12 @@ cd /workspace/video_ingestion_agent
 
 VLLM_CONFIG="${VLLM_CONFIG:-configs/ingestion.yaml}"
 
+# Cosmos3 image ships vLLM in a dedicated venv (vllm-cosmos3); use it when
+# present. No-op on the default (Qwen) image.
+if [ -z "${VLLM_BIN:-}" ] && [ -x /opt/cosmos-venv/bin/vllm ]; then
+    export VLLM_BIN=/opt/cosmos-venv/bin/vllm
+fi
+
 python3 scripts/serve.py -c "${VLLM_CONFIG}" &
 SERVE_PID=$!
 

@@ -1,0 +1,70 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Dockerfile for Video Ingestion Agent — Cosmos3 Reasoner variant.
+#
+# Serving the Cosmos3 Reasoner needs vllm-cosmos3, which pulls transformers 5.x
+# — incompatible with the pipeline's pinned transformers 4.57. So we build TWO
+# isolated venvs and bridge them over the local OpenAI HTTP API:
+#   /workspace/video_ingestion_agent/.venv  ← pipeline (default Python on PATH)
+#   /opt/cosmos-venv                         ← vLLM server (reached via VLLM_BIN)
+#
+# Validated: python 3.13 / torch 2.11.0+cu130 / vllm 0.21.0 / vllm-cosmos3 0.1.0.
+# Weights are NOT bundled (downloaded at runtime via HF_TOKEN).
+#
+# Build: docker build -f Dockerfile.cosmos -t video_ingestion_agent:cosmos3 .
+# For a CUDA 12.8 node (unvalidated): --build-arg CUDA_VERSION=12.8.1
+#   --build-arg TORCH_BACKEND=cu128 --build-arg VLLM_VERSION=0.19.1
+
+ARG CUDA_VERSION=13.0.1
+ARG BASE_IMAGE=nvidia/cuda:${CUDA_VERSION}-cudnn-devel-ubuntu24.04
+FROM ${BASE_IMAGE}
+
+# Same deps as the default Dockerfile, plus ninja-build: vllm-cosmos3 shells out
+# to `ninja` for kernel JIT at engine init, else EngineCore dies with
+# `FileNotFoundError: 'ninja'` during model load.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3 python3-venv python3-pip python3-dev python-is-python3 \
+        build-essential ninja-build \
+        ffmpeg \
+        ca-certificates curl git \
+        libgl1 libglib2.0-0 libxcb1 libsm6 libxext6 libxrender1 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Triton needs ptxas to JIT vLLM's CUDA kernels.
+ENV TRITON_PTXAS_PATH=/usr/local/cuda/bin/ptxas
+
+# uv for fast, lock-aware installs.
+RUN pip install --no-cache-dir --break-system-packages uv
+
+WORKDIR /workspace/video_ingestion_agent
+
+# 1. Pipeline venv (.venv): no `--extra server` — pipeline talks to vLLM over
+#    HTTP and must not pull a vLLM that drags in transformers 5.x.
+COPY pyproject.toml uv.lock README.md ./
+COPY src/ src/
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --extra local --extra benchmark --extra webapp
+
+# 2. Cosmos vLLM server venv (/opt/cosmos-venv): separate py3.13 + cu130 wheels
+#    + vllm-cosmos3 (git), kept out of the project lockfile.
+ARG VLLM_VERSION=0.21.0
+ARG TORCH_BACKEND=cu130
+ARG VLLM_COSMOS3_GIT=git+https://github.com/NVIDIA/cosmos-framework.git#subdirectory=packages/vllm-cosmos3
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv venv /opt/cosmos-venv --python 3.13 --seed --managed-python && \
+    VIRTUAL_ENV=/opt/cosmos-venv uv pip install --torch-backend=${TORCH_BACKEND} \
+        "vllm==${VLLM_VERSION}" \
+        "vllm-cosmos3 @ ${VLLM_COSMOS3_GIT}" \
+        openai
+
+# Pipeline venv is the default on PATH (run_batch_ingestion.py, etc.).
+# scripts/serve.py launches the server via VLLM_BIN, which start_vllm.sh sets to
+# /opt/cosmos-venv/bin/vllm when it detects this image.
+ENV VIRTUAL_ENV="/workspace/video_ingestion_agent/.venv"
+ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
+
+# Remaining project files (scripts, configs, osmo_workflows, ...).
+# .venv/ is in .dockerignore so the COPY won't clobber the synced env.
+COPY . /workspace/video_ingestion_agent/

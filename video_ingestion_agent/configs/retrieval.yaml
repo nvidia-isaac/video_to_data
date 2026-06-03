@@ -4,8 +4,8 @@
 # Agent Configuration for Video Retrieval
 
 models:
-  # LLM for agent reasoning
-  llm_model: "Qwen/Qwen3-VL-8B-Instruct"
+  # LLM for agent reasoning (serve.py adds --hf-overrides for "cosmos3" names)
+  llm_model: "nvidia/Cosmos3-Nano"
   llm_backend: "vllm"  # "local" or "api"
 
   # Embedding model for semantic frame search

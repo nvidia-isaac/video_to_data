@@ -238,6 +238,65 @@ reachable, it raises a ``ConnectionError`` with instructions for starting the se
      - File path mode needs shared filesystem
 
 
+Cosmos3-Nano (Reasoner)
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``nvidia/Cosmos3-Nano`` is an Omni (Mixture-of-Transformers) model. For this
+pipeline we serve **only its Reasoner (VLM) tower** — the diffusion *generator*
+tower is never loaded, so the footprint is ~8B-tier. It runs through the
+``vllm`` backend; switching to it is a one-line config change:
+
+.. code-block:: yaml
+
+   models:
+     vlm_model: "nvidia/Cosmos3-Nano"
+     vlm_backend: "vllm"
+
+``scripts/serve.py`` detects the ``cosmos3`` model name and automatically starts
+the server with ``--hf-overrides '{"architectures":
+["Cosmos3ReasonerForConditionalGeneration"]}'`` (plus ``--mm-encoder-tp-mode
+data --async-scheduling``), so only the Reasoner tower is loaded.
+
+.. important::
+
+   **Do not install Cosmos3 into your pipeline environment.** The server needs
+   the ``vllm-cosmos3`` plugin, which pulls ``vllm`` 0.21.x and a *transformers
+   5.x* fork that is incompatible with the pipeline's pinned ``transformers``
+   4.57. Use the prebuilt Cosmos3 image instead — it packages the vLLM server in
+   an isolated venv internally, so from your side it is still **one image, one
+   command**:
+
+   .. code-block:: bash
+
+      # Build once
+      docker build -f Dockerfile.cosmos -t video_ingestion_agent:cosmos3 .
+
+      # Run: server + pipeline, single container
+      docker run --rm --gpus all --network=host --ipc=host \
+        -v ~/.cache/huggingface:/root/.cache/huggingface \
+        -v /path/to/videos:/path/to/videos:ro \
+        -e HF_HUB_OFFLINE=1 \
+        video_ingestion_agent:cosmos3 \
+        bash -c 'python scripts/serve.py -c configs/ingestion.yaml && \
+                 python scripts/run_ingestion.py /path/to/videos/clip.mp4 \
+                   -c configs/ingestion.yaml -o runs/cosmos'
+
+   The image bridges its two internal venvs over the local HTTP API; OSMO's
+   ``start_vllm.sh`` wires this up automatically via ``VLLM_BIN``. ``--ipc=host``
+   gives vLLM enough shared memory, and mounting the HF cache avoids
+   re-downloading the ~33 GB checkpoint.
+
+**Validated combo:** CUDA 13 / torch 2.11+cu130 / vLLM 0.21.0 / vllm-cosmos3
+0.1.0 / Python 3.13. For a CUDA 12.8 node, rebuild with ``--build-arg
+TORCH_BACKEND=cu128 --build-arg VLLM_VERSION=0.19.1`` (per the model card, not
+validated here).
+
+**When to use:**
+
+- Physical-AI / robotics reasoning where Cosmos3 outperforms a generic VLM
+- A drop-in alternative to Qwen3-VL via the ``vllm`` backend (no code changes)
+
+
 api — NVIDIA Inference API
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 

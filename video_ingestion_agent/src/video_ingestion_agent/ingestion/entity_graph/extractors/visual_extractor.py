@@ -210,7 +210,8 @@ class VisualExtractor:
                 caption = vlm_model._model.generate_from_frames(
                     frames=images,
                     prompt=self.vlm_prompt,
-                    max_new_tokens=512,
+                    # Headroom for a <think> trace before the caption (reasoning models).
+                    max_new_tokens=2048,
                     temperature=0.0,
                 )
             else:
@@ -226,7 +227,8 @@ class VisualExtractor:
                 ]
                 caption = vlm_model.generate_text(
                     conversation=conversation,
-                    max_new_tokens=512,
+                    # Headroom for a <think> trace before the caption (reasoning models).
+                    max_new_tokens=2048,
                     temperature=0.0,
                 )
 
