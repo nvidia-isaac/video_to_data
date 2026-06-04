@@ -100,12 +100,9 @@ def start_server(
 
     is_cosmos3 = "cosmos3" in model_name.lower()
 
-    # VLLM_BIN lets a dedicated cosmos venv (vllm-cosmos3) serve; default: PATH.
-    vllm_bin = os.environ.get("VLLM_BIN", "vllm")
-
     # Build command
     cmd = [
-        vllm_bin,
+        "vllm",
         "serve",
         model_name,
         "--port",

@@ -290,6 +290,9 @@ class VisualExtractor:
                 # Extract embeddings
                 with torch.no_grad():
                     outputs = self.embedding_model.get_image_features(**inputs)
+                    # transformers >=5 returns a ModelOutput, not a tensor
+                    if hasattr(outputs, "pooler_output"):
+                        outputs = outputs.pooler_output
                     # Normalize embeddings
                     batch_embeddings = outputs / outputs.norm(dim=-1, keepdim=True)
                     batch_embeddings = batch_embeddings.cpu().numpy()
@@ -328,6 +331,9 @@ class VisualExtractor:
 
         with torch.no_grad():
             outputs = self.embedding_model.get_image_features(**inputs)
+            # transformers >=5 returns a ModelOutput, not a tensor
+            if hasattr(outputs, "pooler_output"):
+                outputs = outputs.pooler_output
             embedding = outputs / outputs.norm(dim=-1, keepdim=True)
             embedding = embedding.cpu().numpy()[0]
 

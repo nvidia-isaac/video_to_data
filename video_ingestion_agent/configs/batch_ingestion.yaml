@@ -9,9 +9,7 @@
 # Model Configuration
 # ============================================================
 models:
-  # Cosmos3-Nano: vLLM loads only the Reasoner (VLM) tower; serve.py adds
-  # --hf-overrides for "cosmos3" names (cosmos vLLM venv reached via VLLM_BIN).
-  vlm_model: "nvidia/Cosmos3-Nano"
+  vlm_model: "Qwen/Qwen3-VL-8B-Instruct" # or "nvidia/Cosmos3-Nano"
   vlm_backend: "vllm"  # "local", "api", or "vllm"
   vlm_fps: 4             # Frame sampling rate for VLM
 
