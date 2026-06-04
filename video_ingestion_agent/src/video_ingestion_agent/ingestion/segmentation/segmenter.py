@@ -313,20 +313,19 @@ class HybridSegmenter:
 
             logger.error(traceback.format_exc())
 
-            # Fallback: return entire chunk as single segment
-            clip_id = f"{Path(video_path).stem}_clip_{global_clip_idx + 1:04d}"
-            return [
-                ClipContext(
-                    clip_id=clip_id,
-                    video_path=video_path,
-                    start_t=chunk_start,
-                    end_t=chunk_end,
-                    object="unknown",
-                    action="manipulation",
-                    description="Video segment (segmentation failed)",
-                    metadata={"fps": fps, "confidence": 0.3},
-                )
-            ]
+            # Drop this chunk's contribution instead of fabricating a segment.
+            # Previously this returned a synthetic "manipulation" clip spanning
+            # the whole chunk, which injected fake action_segments + frame
+            # embeddings into the (shared) databases that downstream retrieval
+            # then treated as real. A failed chunk must yield no segments, never
+            # a placeholder. The API backend already retries with backoff before
+            # an exception reaches here, so this path means the chunk is
+            # genuinely unrecoverable, not a transient blip.
+            logger.warning(
+                f"  Dropping chunk [{chunk_start:.1f}s-{chunk_end:.1f}s]: "
+                f"no segments produced due to error"
+            )
+            return []
 
         finally:
             # Clean up temp chunk

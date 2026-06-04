@@ -985,3 +985,52 @@ class TestValidClipsFilter:
         verifications = [self._make_verification("a", False)]
         state = {"clips": clips, "verifications": verifications}
         assert _valid_clips(state) == []
+
+
+# ========================================================================
+# 15. Segmenter failure handling (no fabricated placeholder segments)
+# ========================================================================
+
+
+class TestSegmenterFailureHandling:
+    """A failed chunk must drop its contribution, not fabricate a segment.
+
+    Regression: a backend error (e.g. a 401 after retries are exhausted) used
+    to return a synthetic "manipulation" clip spanning the whole chunk. That
+    placeholder polluted the shared databases with fake action_segments and
+    frame embeddings that downstream retrieval treated as real, while the run
+    still exited 0 and rendered a normal-looking success report.
+    """
+
+    def test_segment_chunk_failure_returns_empty(self):
+        from unittest.mock import MagicMock
+
+        from video_ingestion_agent.ingestion.config import PipelineConfig
+        from video_ingestion_agent.ingestion.segmentation.segmenter import HybridSegmenter
+
+        config = PipelineConfig()
+        segmenter = HybridSegmenter(config)
+
+        # Inject a model that fails the way the API backend surfaces a 401
+        # once its internal retry/backoff loop is exhausted. Seeding the
+        # private cache makes _get_model() return it without touching the
+        # ModelManager (no GPU / network).
+        failing_model = MagicMock()
+        failing_model.generate_from_video.side_effect = RuntimeError(
+            "API request failed after 5 attempts: 401 Client Error: Unauthorized"
+        )
+        segmenter._model = failing_model
+
+        # chunk_end == video_duration -> no temp-chunk extraction, so the path
+        # reaches the VLM call directly without needing a real file or ffmpeg.
+        clips = segmenter._segment_chunk(
+            video_path="/nonexistent/video.mp4",
+            chunk_start=0.0,
+            chunk_end=10.0,
+            video_duration=10.0,
+            fps=30.0,
+            global_clip_idx=0,
+        )
+
+        assert clips == []
+        failing_model.generate_from_video.assert_called_once()
