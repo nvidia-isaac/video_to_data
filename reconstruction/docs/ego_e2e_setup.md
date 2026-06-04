@@ -50,6 +50,13 @@ python -m v2d.foundation_pose.docker.run_download_weights --output_dir data/weig
 **SAM3D requires a Hugging Face token** for gated model access. Either set `HF_TOKEN` in your
 environment or log in with `huggingface-cli login` beforehand.
 
+**AnyCalib (optional)** — only needed if you run with `--undistort` (Step 0) to calibrate and
+undistort fisheye / wide-angle footage. Skip this download otherwise:
+
+```bash
+python -m v2d.anycalib.docker.run_download_weights --output_dir data/weights/anycalib
+```
+
 ## 4. Prepare MANO weights (for DynHaMR + hand alignment)
 
 Download `MANO_RIGHT.pkl` from https://mano.is.tue.mpg.de/ and generate BMC data
@@ -102,6 +109,8 @@ if you followed the layout above.
 
 | Flag | Default | Description |
 |------|---------|-------------|
+| `--undistort` | off | Run AnyCalib first (Step 0) to estimate intrinsics + distortion and undistort the video before all other steps. Recommended for fisheye / wide-angle footage. Requires the AnyCalib weights from Step 3. |
+| `--anycalib_weights` | `data/weights/anycalib` | AnyCalib weights directory (used only with `--undistort`) |
 | `--depth_source` | `moge` | Depth for FP tracking: `moge` or `vipe` (DynHaMR) |
 | `--reference_frame` | `0` | Frame used for DINO, SAM3D, and FP registration |
 | `--reregister_iou_thresh` | `0.3` | IoU threshold for FP re-registration; `0` to disable |
