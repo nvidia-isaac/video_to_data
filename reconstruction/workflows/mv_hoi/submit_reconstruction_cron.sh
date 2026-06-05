@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Crontab:
 # CRON_TZ=America/Los_Angeles
-# 0 */1 * * * /path/to/video_to_data/reconstruction/workflows/mv_hoi/submit_cron.sh
+# 0 * * * * /path/to/video_to_data/reconstruction/workflows/mv_hoi/submit_cron.sh
 
 export PATH=/usr/local/bin:/usr/bin:/bin
 : "${HOME:?HOME must be set for private credential env files}"
