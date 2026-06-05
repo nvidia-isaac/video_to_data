@@ -9,7 +9,9 @@ import imageio.v3 as iio
 import numpy as np
 from pytorch3d.transforms import (
     matrix_to_rotation_6d,
+    matrix_to_quaternion,
     rotation_6d_to_matrix,
+    quaternion_to_matrix,
     matrix_to_euler_angles,
     euler_angles_to_matrix,
 )
@@ -52,6 +54,27 @@ KEYPOINT_WEIGHTS[5:15] = (70.0 / 5) / 10  # shoulders, elbows, hips, knees, ankl
 KEYPOINT_WEIGHTS[15:21] = (70.0 / 5) / 6  # big toes, small toes, heels
 KEYPOINT_WEIGHTS[21:63] = (70.0 / 5) / 42  # thumbs, index, middle, ring, pinky
 KEYPOINT_WEIGHTS[63:70] = (70.0 / 5) / 7  # wrist, olecranon, cubital fossa, acromion, neck
+
+INIT_FALLBACK_SCORE_RATIO = 1.5
+INIT_FALLBACK_SCORE_MARGIN = 0.02
+INIT_MEDOID_SWITCH_RATIO = 0.85
+INIT_MEDOID_SWITCH_MARGIN = 0.02
+INIT_MEDOID_SWITCH_PATIENCE = 10
+INIT_CONSENSUS_GM_SCALE = 0.5
+INIT_CONSENSUS_KEYPOINT_IDXS = torch.tensor(
+    list(range(5, 21)) + list(range(63, 70)),
+    dtype=torch.long,
+)
+ROOT_ROT_TRANSFORM_MODES = (
+    "row_active",
+    "column_active",
+    "row_passive",
+    "column_passive",
+    "row_active_raw",
+    "column_active_raw",
+    "row_passive_raw",
+    "column_passive_raw",
+)
 
 
 class MHRLayer(torch.nn.Module):
@@ -102,48 +125,144 @@ class MHRLayer(torch.nn.Module):
         }
 
 
-def transform_mhr_params(mhr_params: dict, T_target_from_src: torch.Tensor):
+def transform_points_camera_to_world(points_cam: torch.Tensor, T_world_from_cam: torch.Tensor) -> torch.Tensor:
+    """Transform OpenCV-camera-frame points into world coordinates."""
+    T_world_from_cam = T_world_from_cam.to(device=points_cam.device, dtype=points_cam.dtype)
+    R_w = T_world_from_cam[:3, :3]
+    t_w = T_world_from_cam[:3, 3]
+    return points_cam @ R_w.T + t_w
+
+
+def _compose_root_rotation(
+    R_c: torch.Tensor,
+    R_w: torch.Tensor,
+    R_w_conj: torch.Tensor,
+    root_rot_mode: str,
+) -> torch.Tensor:
+    R_xform = R_w if root_rot_mode.endswith("_raw") else R_w_conj
+    base_mode = root_rot_mode.removesuffix("_raw")
+    if base_mode == "row_active":
+        return R_c @ R_xform.T
+    if base_mode == "column_active":
+        return R_xform @ R_c
+    if base_mode == "row_passive":
+        return R_c @ R_xform
+    if base_mode == "column_passive":
+        return R_xform.T @ R_c
+    raise ValueError(f"Unknown MHR root rotation transform mode: {root_rot_mode}")
+
+
+def transform_mhr_params(
+    mhr_params: dict,
+    T_target_from_src: torch.Tensor,
+    root_rot_mode: str = "row_active",
+):
     """Transform MHR params from source camera frame to target frame.
 
     Handles the MHR-native (RH Y-up) ↔ OpenCV (RH Y-down) flip via F = diag(1,-1,-1).
     Transforms both global_rot and global_trans.
     """
+    T_target_from_src = T_target_from_src.to(
+        device=mhr_params["global_rot"].device,
+        dtype=mhr_params["global_rot"].dtype,
+    )
     R_w = T_target_from_src[:3, :3]
     t_w = T_target_from_src[:3, 3]
-    F = torch.diag(torch.tensor([1.0, -1.0, -1.0], device=R_w.device))
+    F = torch.diag(torch.tensor([1.0, -1.0, -1.0], device=R_w.device, dtype=R_w.dtype))
     R_w_conj = F @ R_w @ F
     R_c = euler_angles_to_matrix(mhr_params["global_rot"], "ZYX")
-    mhr_params["global_rot"] = matrix_to_euler_angles(R_w_conj @ R_c, "ZYX")
+    mhr_params["global_rot"] = matrix_to_euler_angles(
+        _compose_root_rotation(R_c, R_w, R_w_conj, root_rot_mode),
+        "ZYX",
+    )
     mhr_params["global_trans"] = (mhr_params["global_trans"] @ R_w_conj.T) + (F @ t_w)
     return mhr_params
 
 
-def average_quaternions(quats: torch.Tensor) -> torch.Tensor:
-    """Average quaternions across dim 0 with hemisphere alignment.
+def average_quaternions(quats: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+    """Average quaternions across dim 0 using the Markley method.
 
     Args:
         quats: (C, ..., 4) quaternions to average over the first dim.
+        eps: Minimum norm for numerical stability.
     Returns:
         Averaged unit quaternion with shape (..., 4).
     """
-    signs = torch.sign((quats * quats[:1]).sum(dim=-1, keepdim=True))
-    quats = quats * signs
-    avg = quats.mean(dim=0)
-    return avg / avg.norm(dim=-1, keepdim=True)
+    quats = quats / quats.norm(dim=-1, keepdim=True).clamp_min(eps)
+    quat_outer = quats.unsqueeze(-1) * quats.unsqueeze(-2)
+    accum = quat_outer.mean(dim=0)
+    _, eigvecs = torch.linalg.eigh(accum)
+    avg = eigvecs[..., -1]
+    avg = torch.where(avg[..., :1] < 0, -avg, avg)
+    return avg / avg.norm(dim=-1, keepdim=True).clamp_min(eps)
 
 
-def average_euler_angles(euler_angles: torch.Tensor) -> torch.Tensor:
-    """Average ZYX Euler angles across dim 0 via 6D rotation representation.
+def average_rotations(rotmats: torch.Tensor) -> torch.Tensor:
+    """Average SO(3) matrices across dim 0 with a sign-invariant quaternion mean.
 
     Args:
-        euler_angles: (C, ..., 3) ZYX Euler angles to average over the first dim.
+        rotmats: (C, ..., 3, 3) rotation matrices to average over cameras.
+    Returns:
+        Averaged rotation matrices with shape (..., 3, 3).
+    """
+    return quaternion_to_matrix(average_quaternions(matrix_to_quaternion(rotmats)))
+
+
+def average_euler_angles(euler_angles: torch.Tensor, convention: str) -> torch.Tensor:
+    """Average Euler angles across dim 0 on SO(3).
+
+    Args:
+        euler_angles: (C, ..., 3) Euler angles to average over the first dim.
+        convention: Euler convention accepted by PyTorch3D transforms.
     Returns:
         Averaged Euler angles with shape (..., 3).
     """
-    rotmats = euler_angles_to_matrix(euler_angles, "ZYX")
-    rot6d = matrix_to_rotation_6d(rotmats)
-    avg_6d = rot6d.mean(dim=0)
-    return matrix_to_euler_angles(rotation_6d_to_matrix(avg_6d), "ZYX")
+    rotmats = euler_angles_to_matrix(euler_angles, convention)
+    return matrix_to_euler_angles(average_rotations(rotmats), convention)
+
+
+def average_body_pose_params(body_pose_params: torch.Tensor) -> torch.Tensor:
+    """Average MHR body pose params across cameras.
+
+    MHR body pose mixes 3-DOF XYZ Euler joints, 1-DOF angles, and translation-like
+    parameters.  The 3-DOF joints need SO(3) averaging; the lower-dimensional
+    terms keep the existing continuous sin/cos averaging behavior.
+    """
+    device = body_pose_params.device
+    all_param_3dof_rot_idxs = mhr_utils._BODY_3DOF_ROT_IDXS.to(device)
+    all_param_3dof_rot_idxs_flat = mhr_utils._BODY_3DOF_ROT_IDXS_FLAT.to(device)
+    all_param_1dof_rot_idxs = mhr_utils._BODY_1DOF_ROT_IDXS.to(device)
+    all_param_1dof_trans_idxs = mhr_utils._BODY_1DOF_TRANS_IDXS.to(device)
+
+    body_params_3dofs = body_pose_params[..., all_param_3dof_rot_idxs_flat]
+    body_params_3dofs = body_params_3dofs.unflatten(-1, (len(all_param_3dof_rot_idxs), 3))
+    body_rot_3dofs = euler_angles_to_matrix(body_params_3dofs, "XYZ")
+    body_params_3dofs_avg = matrix_to_euler_angles(
+        average_rotations(body_rot_3dofs),
+        "XYZ",
+    ).flatten(-2, -1)
+
+    body_params_1dofs = body_pose_params[..., all_param_1dof_rot_idxs]
+    body_params_1dofs_sincos = torch.stack(
+        [body_params_1dofs.sin(), body_params_1dofs.cos()],
+        dim=-1,
+    ).mean(dim=0)
+    body_params_1dofs_avg = torch.atan2(
+        body_params_1dofs_sincos[..., 0],
+        body_params_1dofs_sincos[..., 1],
+    )
+
+    body_params_trans_avg = body_pose_params[..., all_param_1dof_trans_idxs].mean(dim=0)
+
+    body_pose_params_avg = torch.zeros(
+        body_pose_params.shape[1:],
+        dtype=body_pose_params.dtype,
+        device=device,
+    )
+    body_pose_params_avg[..., all_param_3dof_rot_idxs_flat] = body_params_3dofs_avg
+    body_pose_params_avg[..., all_param_1dof_rot_idxs] = body_params_1dofs_avg
+    body_pose_params_avg[..., all_param_1dof_trans_idxs] = body_params_trans_avg
+    return body_pose_params_avg
 
 
 def extract_mhr_inputs(mhr_outputs: dict):
@@ -175,13 +294,12 @@ def average_mhr_inputs(mhr_inputs_all: list[dict]) -> dict:
     def _stack(key):
         return torch.stack([inp[key] for inp in mhr_inputs_all])  # (C, N, ...)
 
-    # Global rotation: average in 6D rotation space to avoid Euler discontinuities
-    global_rot = average_euler_angles(_stack("global_rot"))  # (N, 3)
+    # Global rotation: average on SO(3) to avoid Euler and 6D arithmetic singularities
+    global_rot = average_euler_angles(_stack("global_rot"), "ZYX")  # (N, 3)
 
-    # Body pose: convert to continuous repr, average, convert back
+    # Body pose: average 3-DOF rotations on SO(3); keep sin/cos means for 1-DOF terms
     body_params_stacked = _stack("body_pose_params")  # (C, N, 133)
-    body_cont = mhr_utils.compact_model_params_to_cont_body(body_params_stacked)  # (C, N, 260)
-    body_pose_params = mhr_utils.compact_cont_to_model_params_body(body_cont.mean(dim=0))  # (N, 133)
+    body_pose_params = average_body_pose_params(body_params_stacked)  # (N, 133)
 
     # Hand pose: already in continuous space (sin/cos pairs), safe to average directly
     hand_pose_params = _stack("hand_pose_params").mean(dim=0)
@@ -335,6 +453,274 @@ def reprojection_error(
     error = error * keypoint_weights.to(error.device)[None, None, :]
     error = error * weights
     return error.sum() / total_weight
+
+
+def predict_mhr_keypoints_3d(
+    mhr_layer: MHRLayer,
+    mhr_inputs: dict,
+    chunk_size: int = 64,
+) -> torch.Tensor:
+    """Run MHR in chunks and return predicted 3D keypoints."""
+    n_frames = mhr_inputs["global_rot"].shape[0]
+    keypoints = []
+    with torch.no_grad():
+        for start in range(0, n_frames, chunk_size):
+            end = min(start + chunk_size, n_frames)
+            chunk_mhr = {
+                k: v[start:end] if v.shape[0] == n_frames else v
+                for k, v in mhr_inputs.items()
+            }
+            chunk_out = mhr_layer(chunk_mhr, keypoints_only=True)
+            keypoints.append(chunk_out["pred_keypoints_3d"])
+    return torch.cat(keypoints, dim=0)
+
+
+def choose_mhr_root_transform_mode(
+    mhr_layer: MHRLayer,
+    mhr_inputs_cam: dict,
+    source_keypoints_3d: torch.Tensor,
+    T_world_from_cam: torch.Tensor,
+    max_frames: int = 32,
+    keypoint_idxs: torch.Tensor = INIT_CONSENSUS_KEYPOINT_IDXS,
+) -> tuple[str, dict[str, float]]:
+    """Choose the root-rotation transform mode that preserves source 3D keypoints.
+
+    The source MHR params and source keypoints are both in the camera frame.  A
+    correct parameter transform should match the same keypoints transformed
+    directly by T_world_from_cam after MHR forward in world coordinates.
+    """
+    device = mhr_inputs_cam["global_rot"].device
+    dtype = mhr_inputs_cam["global_rot"].dtype
+    source_keypoints_3d = source_keypoints_3d.to(device=device, dtype=dtype)
+    T_world_from_cam = T_world_from_cam.to(device=device, dtype=dtype)
+
+    n_frames = source_keypoints_3d.shape[0]
+    if n_frames <= max_frames:
+        frame_idxs = torch.arange(n_frames, device=device)
+    else:
+        frame_idxs = torch.linspace(
+            0,
+            n_frames - 1,
+            steps=max_frames,
+            device=device,
+        ).round().long().unique()
+
+    keypoint_idxs = keypoint_idxs.to(device)
+    target_keypoints = transform_points_camera_to_world(
+        source_keypoints_3d[frame_idxs],
+        T_world_from_cam,
+    )[:, keypoint_idxs]
+
+    scores: dict[str, float] = {}
+    with torch.no_grad():
+        for mode in ROOT_ROT_TRANSFORM_MODES:
+            candidate_inputs = {
+                k: v[frame_idxs].clone() if v.shape[0] == n_frames else v.clone()
+                for k, v in mhr_inputs_cam.items()
+            }
+            candidate_inputs = transform_mhr_params(
+                candidate_inputs,
+                T_world_from_cam,
+                root_rot_mode=mode,
+            )
+            candidate_keypoints = mhr_layer(candidate_inputs, keypoints_only=True)["pred_keypoints_3d"][
+                :,
+                keypoint_idxs,
+            ]
+            scores[mode] = float(
+                l2_distance(candidate_keypoints, target_keypoints).mean().detach().cpu()
+            )
+
+    best_mode = min(scores, key=scores.get)
+    return best_mode, scores
+
+
+def score_keypoint_consensus_per_frame(
+    avg_keypoints_3d: torch.Tensor,
+    source_keypoints_3d: torch.Tensor,
+    keypoint_idxs: torch.Tensor = INIT_CONSENSUS_KEYPOINT_IDXS,
+    gm_scale: float = INIT_CONSENSUS_GM_SCALE,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Score raw-average and source candidates by 3D consensus per frame.
+
+    Args:
+        avg_keypoints_3d: (N, P, 3) raw averaged-init keypoints in world frame.
+        source_keypoints_3d: (C, N, P, 3) source-view candidate keypoints in world frame.
+        keypoint_idxs: Stable keypoints to use for consensus scoring.
+        gm_scale: Geman-McClure scale in world units.
+    Returns:
+        avg_scores: (N,) raw-average distance to the source consensus.
+        source_scores: (C, N) source candidate centrality scores.
+    """
+    keypoint_idxs = keypoint_idxs.to(source_keypoints_3d.device)
+    avg_stable = avg_keypoints_3d[:, keypoint_idxs]
+    source_stable = source_keypoints_3d[:, :, keypoint_idxs]
+
+    avg_pairwise = geman_mcclure_distance(
+        avg_stable.unsqueeze(0),
+        source_stable,
+        gm_scale,
+    )
+    avg_scores = avg_pairwise.mean(dim=(0, 2))
+
+    source_pairwise = geman_mcclure_distance(
+        source_stable.unsqueeze(1),
+        source_stable.unsqueeze(0),
+        gm_scale,
+    )
+    source_scores = source_pairwise.mean(dim=(1, 3))
+    return avg_scores, source_scores
+
+
+def smooth_medoid_sources_with_hysteresis(
+    source_scores: torch.Tensor,
+    switch_ratio: float = INIT_MEDOID_SWITCH_RATIO,
+    switch_margin: float = INIT_MEDOID_SWITCH_MARGIN,
+    switch_patience: int = INIT_MEDOID_SWITCH_PATIENCE,
+) -> torch.Tensor:
+    """Smooth per-frame medoid camera choices with sustained-score hysteresis."""
+    if source_scores.ndim != 2:
+        raise ValueError(f"Expected source_scores shape (C, N), got {tuple(source_scores.shape)}")
+    if source_scores.shape[0] == 0:
+        raise ValueError("Expected at least one source camera")
+    if source_scores.shape[1] == 0:
+        return torch.empty(0, dtype=torch.long, device=source_scores.device)
+
+    sequence_source_scores = source_scores.median(dim=1).values
+    current_idx = int(sequence_source_scores.argmin().detach().cpu())
+    pending_idx: int | None = None
+    pending_count = 0
+    smoothed_idxs = torch.empty(source_scores.shape[1], dtype=torch.long, device=source_scores.device)
+
+    for frame_idx in range(source_scores.shape[1]):
+        frame_scores = source_scores[:, frame_idx]
+        candidate_idx = int(frame_scores.argmin().detach().cpu())
+        current_score = frame_scores[current_idx]
+        candidate_score = frame_scores[candidate_idx]
+        candidate_is_better = (
+            candidate_idx != current_idx
+            and candidate_score < current_score * switch_ratio
+            and (current_score - candidate_score) > switch_margin
+        )
+
+        if candidate_is_better:
+            if pending_idx == candidate_idx:
+                pending_count += 1
+            else:
+                pending_idx = candidate_idx
+                pending_count = 1
+            if pending_count >= switch_patience:
+                current_idx = candidate_idx
+                pending_idx = None
+                pending_count = 0
+        else:
+            pending_idx = None
+            pending_count = 0
+
+        smoothed_idxs[frame_idx] = current_idx
+
+    return smoothed_idxs
+
+
+def select_robust_mhr_inputs_by_consensus_scores(
+    mhr_inputs_avg: dict,
+    mhr_inputs_all: list[dict],
+    avg_scores: torch.Tensor,
+    source_scores: torch.Tensor,
+    ratio_threshold: float = INIT_FALLBACK_SCORE_RATIO,
+    margin_threshold: float = INIT_FALLBACK_SCORE_MARGIN,
+    switch_ratio: float = INIT_MEDOID_SWITCH_RATIO,
+    switch_margin: float = INIT_MEDOID_SWITCH_MARGIN,
+    switch_patience: int = INIT_MEDOID_SWITCH_PATIENCE,
+) -> tuple[dict, dict]:
+    """Keep averaged init by default; replace failing frames with hysteresis medoids."""
+    best_source_scores, _ = source_scores.min(dim=0)
+    fallback_mask = (
+        (avg_scores > best_source_scores * ratio_threshold)
+        & ((avg_scores - best_source_scores) > margin_threshold)
+    )
+    medoid_idxs = smooth_medoid_sources_with_hysteresis(
+        source_scores,
+        switch_ratio=switch_ratio,
+        switch_margin=switch_margin,
+        switch_patience=switch_patience,
+    )
+
+    robust_inputs = {k: v.clone() for k, v in mhr_inputs_avg.items()}
+    fallback_frames = torch.nonzero(fallback_mask, as_tuple=False).flatten()
+    frame_keys = ["global_trans", "global_rot", "body_pose_params", "hand_pose_params"]
+    if fallback_frames.numel() > 0:
+        for key in frame_keys:
+            source_stack = torch.stack([inp[key] for inp in mhr_inputs_all])
+            robust_inputs[key][fallback_frames] = source_stack[
+                medoid_idxs[fallback_frames],
+                fallback_frames,
+            ]
+
+    chosen_counts = torch.bincount(
+        medoid_idxs[fallback_frames].detach().cpu(),
+        minlength=len(mhr_inputs_all),
+    )
+    medoid_switches = (
+        int((medoid_idxs[1:] != medoid_idxs[:-1]).sum().detach().cpu())
+        if medoid_idxs.numel() > 1
+        else 0
+    )
+    diagnostics = {
+        "fallback_mask": fallback_mask,
+        "fallback_count": int(fallback_frames.numel()),
+        "avg_init_kept": fallback_frames.numel() == 0,
+        "medoid_init": fallback_frames.numel() > 0,
+        "chosen_counts": [int(x) for x in chosen_counts.tolist()],
+        "median_raw_avg_score": float(avg_scores.detach().median().cpu()),
+        "median_best_source_score": float(best_source_scores.detach().median().cpu()),
+        "medoid_switches": medoid_switches,
+    }
+    return robust_inputs, diagnostics
+
+
+def build_robust_initial_mhr_inputs(
+    mhr_layer: MHRLayer,
+    mhr_inputs_avg: dict,
+    mhr_inputs_all: list[dict],
+    chunk_size: int = 64,
+) -> dict:
+    """Use averaged init by default, with hysteresis-smoothed medoid fallback."""
+    avg_keypoints_3d = predict_mhr_keypoints_3d(
+        mhr_layer=mhr_layer,
+        mhr_inputs=mhr_inputs_avg,
+        chunk_size=chunk_size,
+    )
+    source_keypoints_3d = torch.stack([
+        predict_mhr_keypoints_3d(
+            mhr_layer=mhr_layer,
+            mhr_inputs=mhr_inputs,
+            chunk_size=chunk_size,
+        )
+        for mhr_inputs in mhr_inputs_all
+    ])
+    avg_scores, source_scores = score_keypoint_consensus_per_frame(
+        avg_keypoints_3d=avg_keypoints_3d,
+        source_keypoints_3d=source_keypoints_3d,
+    )
+
+    robust_inputs, diagnostics = select_robust_mhr_inputs_by_consensus_scores(
+        mhr_inputs_avg=mhr_inputs_avg,
+        mhr_inputs_all=mhr_inputs_all,
+        avg_scores=avg_scores,
+        source_scores=source_scores,
+    )
+    print(
+        "Robust MHR init consensus fallback: "
+        f"frames={diagnostics['fallback_count']}, "
+        f"avg_init_kept={diagnostics['avg_init_kept']}, "
+        f"medoid_init={diagnostics['medoid_init']}, "
+        f"medoid_chosen_cameras={diagnostics['chosen_counts']}, "
+        f"medoid_switches={diagnostics['medoid_switches']}, "
+        f"median_raw_avg_score={diagnostics['median_raw_avg_score']:.4f}, "
+        f"median_best_source_score={diagnostics['median_best_source_score']:.4f}"
+    )
+    return robust_inputs
 
 
 def temporal_smoothness(opt_params: dict):
@@ -672,8 +1058,25 @@ def mv_optimize_mhr_params(
             mesh_path.parent.mkdir(parents=True, exist_ok=True)
             torch.save(mhr_mesh_cam, mesh_path)
 
-        mhr_inputs = extract_mhr_inputs(mhr_outputs)
-        mhr_inputs = transform_mhr_params(mhr_inputs, T_world_from_cam)
+        mhr_inputs_cam = extract_mhr_inputs(mhr_outputs)
+        root_transform_mode, root_transform_scores = choose_mhr_root_transform_mode(
+            mhr_layer=mhr_layer,
+            mhr_inputs_cam=mhr_inputs_cam,
+            source_keypoints_3d=mhr_outputs["pred_keypoints_3d"],
+            T_world_from_cam=T_world_from_cam,
+        )
+        score_str = " ".join(
+            f"{mode}={score:.4f}" for mode, score in root_transform_scores.items()
+        )
+        print(
+            f"MHR camera-to-world root transform camera {cam_idx}: "
+            f"mode={root_transform_mode} | {score_str}"
+        )
+        mhr_inputs = transform_mhr_params(
+            mhr_inputs_cam,
+            T_world_from_cam,
+            root_rot_mode=root_transform_mode,
+        )
         mhr_inputs_all.append(mhr_inputs)
 
         gt_keypoints_2d_all.append(mhr_outputs["pred_keypoints_2d"])
@@ -729,7 +1132,15 @@ def mv_optimize_mhr_params(
 
     mhr_params_mv_path.parent.mkdir(parents=True, exist_ok=True)
 
-    mhr_inputs_avg = average_mhr_inputs(mhr_inputs_all)
+    gt_keypoints_2d_all = torch.stack(gt_keypoints_2d_all)
+    gt_weights_all = torch.stack(gt_weights_all)  # (C, N, P)
+
+    mhr_inputs_avg_raw = average_mhr_inputs(mhr_inputs_all)
+    mhr_inputs_avg = build_robust_initial_mhr_inputs(
+        mhr_layer=mhr_layer,
+        mhr_inputs_avg=mhr_inputs_avg_raw,
+        mhr_inputs_all=mhr_inputs_all,
+    )
 
     if debug > 0:
         mhr_outputs_avg = mhr_layer(mhr_inputs_avg, keypoints_only=True)
@@ -745,9 +1156,6 @@ def mv_optimize_mhr_params(
             )
             if debug <= 1:
                 break
-
-    gt_keypoints_2d_all = torch.stack(gt_keypoints_2d_all)
-    gt_weights_all = torch.stack(gt_weights_all)  # (C, N, P)
 
     mhr_inputs_opt = optimize_multiview(
         mhr_layer=mhr_layer,
