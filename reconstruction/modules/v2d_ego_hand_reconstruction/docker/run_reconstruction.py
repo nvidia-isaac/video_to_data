@@ -8,7 +8,7 @@ sync with upstream IsaacTeleop.
 Prerequisites:
     - Both Docker images must be built (``python -m v2d_ego_hand_reconstruction.docker.build``).
     - ``weights_dir`` must contain ``models/MANO_RIGHT.pkl`` and ``BMC/*.npy``
-      (manotorch layout; see ``vendor/doc/quickstart.md`` for download instructions).
+      (manotorch layout; see https://nvidia.github.io/IsaacTeleop/main/references/egocentric_hand_reconstruction.html for download instructions).
 """
 
 import os
