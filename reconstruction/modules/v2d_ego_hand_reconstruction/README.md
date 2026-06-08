@@ -27,7 +27,7 @@ Build both Docker images (ViPE + Dyn-HaMR):
 python -m v2d_ego_hand_reconstruction.docker.build
 ```
 
-Place required data in your weights directory before running (see `vendor/doc/quickstart.md`).
+Place required data in your weights directory before running (see [Isaac Teleop Documentation](https://nvidia.github.io/IsaacTeleop/main/references/egocentric_hand_reconstruction.html)).
 The layout follows the manotorch convention so the same directory is shared with `v2d_hamer`:
 
 ```
@@ -67,7 +67,7 @@ Set environment variables ACCESS_KEY_ID and SECRET_ACCESS_KEY for S3/Swift permi
 export ACCESS_KEY_ID=XXX SECRET_ACCESS_KEY=XXX
 ```
 
-Please check vendor/doc/quickstart.md for detail.
+Please check [Isaac Teleop Documentation](https://nvidia.github.io/IsaacTeleop/main/references/egocentric_hand_reconstruction.html) for detail.
 
 ```bash
 python -m v2d_ego_hand_reconstruction.docker.run_reconstruction \
