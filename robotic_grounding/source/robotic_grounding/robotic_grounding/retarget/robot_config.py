@@ -157,8 +157,7 @@ class RobotRetargetConfig:
             to all-zero costs (no posture term), which is a strict
             no-op compatible with the existing SOMA bit-equivalence
             regression. Consumed by
-            ``ConfigDrivenWholeBodyKinematics`` only -- the legacy
-            ``G1WholeBodyKinematics`` path does not look at this field.
+            ``ConfigDrivenWholeBodyKinematics``.
     """
 
     robot_name: str

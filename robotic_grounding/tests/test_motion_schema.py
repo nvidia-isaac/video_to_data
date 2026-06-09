@@ -142,7 +142,7 @@ def _fully_populated_motion_data(t: int = 4) -> MotionData:
     n = 2  # contact links per side
 
     md = _minimal_motion_data(t=t, j=j, e=e, num_bodies=1)
-    md.source_dataset = "nvhuman"
+    md.source_dataset = "soma"
     md.ee_link_names = ["left_wrist_yaw_link", "right_wrist_yaw_link"]
     md.safe_object_name = "body_0"
     md.object_name = "body_0"
@@ -185,7 +185,7 @@ def _fully_populated_motion_data(t: int = 4) -> MotionData:
     md.hand_contact_active = [[0.0 for _ in range(t)] for _ in md.hand_sides]
 
     # Source + diagnostics
-    md.source_kind = "nvhuman"
+    md.source_kind = "soma"
     md.source_payload = b"\x00\x01\x02"
     md.source_joint_names = ["n0", "n1"]
     md.ik_error_per_frame = [0.0 for _ in range(t)]
@@ -216,7 +216,7 @@ def test_u1_full_roundtrip(tmp_path: Path) -> None:
     assert loaded.schema_version == SCHEMA_VERSION
     assert loaded.sequence_id == md.sequence_id
     assert loaded.robot_name == md.robot_name
-    assert loaded.source_dataset == "nvhuman"
+    assert loaded.source_dataset == "soma"
     assert abs(loaded.fps - md.fps) < 1e-6
 
     # Robot state
@@ -267,7 +267,7 @@ def test_u1_full_roundtrip(tmp_path: Path) -> None:
     assert tuple(loaded.left_link_contact_positions.shape) == (4, 2, 3)
 
     # Source + diagnostics
-    assert loaded.source_kind == "nvhuman"
+    assert loaded.source_kind == "soma"
     assert loaded.source_payload == b"\x00\x01\x02"
     assert loaded.ik_error_per_frame is not None
 

@@ -27,8 +27,7 @@ Save schema (from the SOMA exporter ``save_soma_npz``):
     absolute_pose     bool        when False, ``poses`` are local rotations
 
 The ``SOMA`` class in this file mirrors the public surface of
-``robotic_grounding.retarget.read_nvhuman.NVHuman`` so that ``soma_to_g1.py``
-can replace ``NVHuman.load_motion`` with a drop-in equivalent.
+the SOMA exporter so ``soma_to_g1.py`` can consume it directly.
 """
 
 from __future__ import annotations
@@ -155,7 +154,7 @@ def _resolve_data_root(
 ) -> Path | None:
     """Resolve the SOMA assets root for ``SOMALayer``.
 
-    Strategy (match the ``NVHuman`` / MANO pattern of repo-local assets, but
+    Strategy (match the MANO pattern of repo-local assets, but
     never force-create an empty directory that blocks SOMA's built-in
     HuggingFace download):
 
@@ -163,7 +162,7 @@ def _resolve_data_root(
       (``SOMA_neutral.npz``, ``correctives_model.pt``, plus the
       identity-model files for ``identity_model_type``), use it.
     * If ``BODY_MODELS_DIR / "soma"`` is fully populated, use it (drop-in
-      local cache alongside NVHuman/MANO).
+      local cache alongside MANO).
     * Otherwise return ``None`` so ``SOMALayer`` auto-downloads to the
       HuggingFace cache; this keeps the first-run bootstrap working in a
       fresh Docker image without any manual asset staging. We additionally
@@ -215,10 +214,10 @@ def _matrix_to_wxyz(matrix: np.ndarray) -> np.ndarray:
 
 
 class SOMA:
-    """SOMA model wrapper modeled on ``read_nvhuman.NVHuman``.
+    """SOMA model wrapper.
 
     Wraps ``soma.SOMALayer`` and provides ``load_motion(...)`` returning the
-    same dict shape ``NVHuman.load_motion`` returns: ``joints``, ``joints_wxyz``,
+    dict shape: ``joints``, ``joints_wxyz``,
     ``vertices``, ``num_frames``.
     """
 
@@ -233,7 +232,7 @@ class SOMA:
         Args:
             data_root: Local SOMA asset directory. Defaults to
                 ``assets/body_models/soma`` so SOMA-X reuses the repo asset
-                layout (matching MANO/NVHuman conventions). The SOMA-X
+                layout (matching the MANO convention). The SOMA-X
                 package will populate this directory on first use if empty.
             identity_model_type: SOMA identity model. ``mhr`` is the default
                 used by the exporter referenced by this codebase.
@@ -270,7 +269,7 @@ class SOMA:
         # shifting indices, so ``self.layer.parents`` (length J) is the
         # right source. Cache as numpy for downstream FK code.
         self.parents: np.ndarray = np.asarray(self.layer.parents, dtype=np.int64)
-        # Faces exposed for visualization parity with NVHuman.visualize.
+        # Faces exposed for the SOMA visualize() method.
         # ``rig_data`` is a numpy archive (NpzFile), not a dict, so we use
         # ``.files`` to check membership rather than .get on a dict.
         rig_data = self.layer.rig_data
@@ -298,7 +297,7 @@ class SOMA:
     ) -> dict[str, Any]:
         """Load SOMA params and return joints/orientations/vertices.
 
-        The returned dict mirrors ``NVHuman.load_motion`` so the retargeter
+        The returned dict has the shape the retargeter
         can swap source-body wrappers without changing the per-frame loop.
 
         Args:
@@ -513,7 +512,7 @@ class SOMA:
         root_path: str = "/soma",
         rgba: np.ndarray | None = None,
     ) -> None:
-        """Visualize SOMA mesh in viser, matching ``NVHuman.visualize`` API.
+        """Visualize SOMA mesh in viser.
 
         Args:
             viser_server: Viser server instance.
@@ -631,11 +630,11 @@ def _normalize_to_first_frame(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Normalize so frame 0 is centered at the origin with canonical orientation.
 
-    Mirrors ``NVHuman.load_motion`` post-processing: subtract frame-0 root
+    Post-processing: subtract frame-0 root
     translation and undo frame-0 root rotation across all frames so the
     downstream G1 retargeter sees a sequence anchored at the origin. This
     keeps the existing first-frame ground-anchoring logic in
-    ``nvhuman_to_g1.py`` valid when reused for SOMA.
+    ``soma_to_g1.py``.
     """
     transl_first = transform["transl_first"]
     R_first_inv = transform["R_first_inv"]

@@ -7,13 +7,13 @@ Usage (Sharpa / Arctic-style Parquet under ``human_motion_data``):
     python scripts/view_scene.py \
         --motion_file source/robotic_grounding/robotic_grounding/assets/human_motion_data/arctic_processed/sequence_id=arctic_s01_ketchup_use_01/robot_name=sharpa_wave
 
-NVHuman→G1 retargeted data (after ``nvhuman_to_g1.py --save``):
-    # Save motion first (writes under HUMAN_MOTION_DATA_DIR/nvhuman_g1_processed/...)
-    python scripts/retarget/nvhuman_to_g1.py <sequence_dir> --save
+SOMA→G1 retargeted data (after ``soma_to_g1.py --save``):
+    # Save motion first (writes under HUMAN_MOTION_DATA_DIR/whole_body/soma/...)
+    python scripts/retarget/soma_to_g1.py <sequence_dir> --save
 
     # Point at the partition directory (sequence_id=.../robot_name=g1) or use cwd-relative path
     python scripts/view_scene.py \
-        --motion_file source/robotic_grounding/robotic_grounding/assets/human_motion_data/nvhuman_g1_processed/sequence_id=<your_sequence>/robot_name=g1
+        --motion_file source/robotic_grounding/robotic_grounding/assets/human_motion_data/whole_body/soma/sequence_id=<your_sequence>/robot_name=g1
 
     # Headless (validate without GUI)
     python scripts/view_scene.py --motion_file <path> --headless

@@ -240,6 +240,60 @@ fi
 
 cd "${REPO_ROOT}"
 
+# ---- pinocchio / cmeel loader-path fix --------------------------------
+# The Isaac Lab container ships pinocchio compiled against urdfdom v4
+# and tinyxml2 v10, but the system-installed cmeel-urdfdom is v6 and
+# cmeel-tinyxml2 is v11. So ``import pinocchio`` dies with:
+#   ImportError: liburdfdom_sensor.so.4.0: cannot open shared object file
+# (verified with ldd on
+#   .../cmeel.prefix/lib/python3.11/site-packages/pinocchio/pinocchio_pywrap_default*.so:
+#   liburdfdom_{model,sensor,world}.so.4.0 => not found,
+#   libtinyxml2.so.10 => not found).
+# The fix is to install older cmeel wheels that ship the matching
+# soversions into a separate prefix and prepend their lib/ directory
+# to LD_LIBRARY_PATH so the loader finds them BEFORE walking into the
+# v6/v11 prefix.
+#
+# Done once per host (cached at ${PINOCCHIO_DEPS_PREFIX}); subsequent
+# runs just re-export LD_LIBRARY_PATH. If pinocchio already imports
+# cleanly (different image, apt-installed pinocchio, system loader
+# already configured), the whole step is skipped.
+setup_pinocchio_ld_path() {
+    # Fast path: pinocchio imports cleanly with the existing env.
+    if python -c "import pinocchio" >/dev/null 2>&1; then
+        info "pinocchio import OK (no LD_LIBRARY_PATH fix needed)"
+        return 0
+    fi
+
+    local cache_dir="${PINOCCHIO_DEPS_PREFIX:-${HOME:-/tmp}/.cache/robotic_grounding/pinocchio_deps}"
+    local lib_dir="${cache_dir}/cmeel.prefix/lib"
+
+    if [[ ! -f "${lib_dir}/liburdfdom_sensor.so.4.0" || ! -f "${lib_dir}/libtinyxml2.so.10" ]]; then
+        info "Pinocchio v4/v10 cmeel deps not cached; installing to ${cache_dir}"
+        mkdir -p "${cache_dir}"
+        # ``--no-deps`` keeps pip from upgrading cmeel-tinyxml2 to v11
+        # (cmeel-urdfdom 4.0.1's metadata names tinyxml2 with a range
+        # that picks v11 by default; we want v10 specifically).
+        if ! python -m pip install --target "${cache_dir}" --no-deps \
+                "cmeel-urdfdom==4.0.1" "cmeel-tinyxml2==10.0.0" >/dev/null 2>&1; then
+            warn "pip install failed; stage 2 will hit the original ImportError."
+            warn "Try running by hand:"
+            warn "  python -m pip install --target '${cache_dir}' --no-deps cmeel-urdfdom==4.0.1 cmeel-tinyxml2==10.0.0"
+            return 0
+        fi
+    fi
+
+    export LD_LIBRARY_PATH="${lib_dir}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+    info "Pinocchio v4 deps      : ${lib_dir} (prepended to LD_LIBRARY_PATH)"
+
+    if ! python -c "import pinocchio" >/dev/null 2>&1; then
+        warn "pinocchio still fails to import after prepending ${lib_dir}."
+        warn "Run by hand to see the full traceback:"
+        warn "  LD_LIBRARY_PATH='${lib_dir}':\$LD_LIBRARY_PATH python -c 'import pinocchio'"
+    fi
+}
+setup_pinocchio_ld_path
+
 # ---- stage runners ----------------------------------------------------
 # Each stage is wrapped so it can be skipped (manual mode) or auto-skipped
 # (auto mode for stages 1, 4, and conditionally 3).

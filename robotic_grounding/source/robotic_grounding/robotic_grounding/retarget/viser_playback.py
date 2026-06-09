@@ -15,8 +15,8 @@ Two entry points share one scene graph:
   ``scripts/replay_viser.py``.
 - ``ViserPlayback.for_live_retarget(server, pin_model, ...)`` attaches to an
   already-created ``viser.ViserServer``, exposing only the per-frame draw
-  surface. Used by the retargeters (``scripts/retarget/nvhuman_to_g1.py``)
-  to stream in-progress frames, including the optional NVHuman body mesh.
+  surface. Used by ``scripts/retarget/soma_to_g1.py`` to stream
+  in-progress frames.
 
 The shared scene primitives (object mesh + ``/object``/``/head``/``/root``
 frames + per-side contact spheres) live in private builders on the class so
@@ -40,9 +40,11 @@ import viser
 from scipy.spatial.transform import Rotation as R
 
 from robotic_grounding.motion_schema import MotionData, load_motion_data_parquet
-from robotic_grounding.retarget import G1_URDF_DIR
 from robotic_grounding.retarget.pinocchio_viser_visualizer import ViserVisualizer
-from robotic_grounding.retarget.whole_body_kinematics import G1WholeBodyKinematics
+from robotic_grounding.retarget.robot_config import load_robot_config
+from robotic_grounding.retarget.whole_body_kinematics import (
+    ConfigDrivenWholeBodyKinematics,
+)
 
 # Silence the aborted-handshake tracebacks the `websockets` layer inside
 # viser logs at INFO/WARNING when a browser tab reconnects mid-session or
@@ -61,7 +63,7 @@ for _name in ("websockets", "websockets.server", "websockets.asyncio.server"):
 # normalize ``MotionData`` inline here.
 
 # Repo root used to resolve repo-relative mesh paths carried in the parquet.
-# Mirrors nvhuman_to_g1.py's REPO_ROOT so both agree on the anchor.
+# Mirrors soma_to_g1.py's REPO_ROOT so both agree on the anchor.
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
@@ -101,8 +103,8 @@ class LiveFrameState:
     contact_active: list[float] | None = None
 
     # Optional body mesh overlay. Vertices expected in world frame with the
-    # same ground alignment as the robot; the module forwards to
-    # NVHuman.visualize untouched.
+    # same ground alignment as the robot. Currently unused by the active
+    # SOMA retarget path; kept as a forward-compatible field.
     body_vertices: np.ndarray | None = None
 
     # Optional IK-target frames for retargeter debug. Keys are frame names
@@ -350,7 +352,6 @@ class ViserPlayback:
         self._contact_handles: dict[str, Any] = {}
         self._ik_target_handles: dict[str, Any] = {}
         self._body_mesh_handle: Any = None
-        self._nvhuman: Any | None = None
 
         # Parquet-mode GUI handles, populated by ``_build_gui``.
         self._gui_frame: Any = None
@@ -432,7 +433,6 @@ class ViserPlayback:
         self._contact_handles = {}
         self._ik_target_handles = {}
         self._body_mesh_handle = None
-        self._nvhuman = None
         self._hand_sides = list(hand_sides)
 
         self._gui_frame = None
@@ -505,13 +505,31 @@ class ViserPlayback:
     def _build_pinocchio_visualizer_for_parquet(self) -> None:
         """Load the G1 whole-body Pinocchio model and wrap in ViserVisualizer.
 
-        Only runs for single-robot parquets.
+        Only runs for single-robot parquets. Uses the canonical
+        ``ConfigDrivenWholeBodyKinematics`` (the same kinematics backend
+        ``soma_to_g1.py`` runs) loaded from the in-repo G1 config so
+        replay matches retarget. Only parquets whose ``source_dataset``
+        matches the active G1 config's source (currently ``soma``)
+        replay through this path; parquets produced against other
+        source schemas are rejected here rather than silently replayed
+        against a mismatched joint mapping.
         """
-        kin = G1WholeBodyKinematics(
-            robot_asset_path=str(G1_URDF_DIR / "main_with_hand.urdf"),
-            package_dirs=[str(G1_URDF_DIR)],
-            source_model="nvhuman",
-        )
+        # Hard guard for mismatched parquets. The SOMA G1 config expects
+        # a specific joint layout; parquets produced from a different
+        # source schema have a different joint count + ordering and
+        # would either crash in ``_reorder_to_pinocchio`` below or
+        # silently render with joints in the wrong positions. Fail fast
+        # with a clear message instead.
+        src = (self._md.source_dataset or "").strip().lower()
+        if src and src != "soma":
+            raise ValueError(
+                f"viser_playback: cannot replay parquet with "
+                f"source_dataset={src!r}; only 'soma' is supported. "
+                f"Re-retarget via scripts/retarget/soma_to_g1.py or "
+                f"point at a soma-produced partition."
+            )
+        config = load_robot_config("g1")
+        kin = ConfigDrivenWholeBodyKinematics(config=config)
         self._pin_model = kin.robot.model
         self._pin_joint_names = [str(n) for n in self._pin_model.names]
         self._pin_viz = ViserVisualizer(
@@ -687,16 +705,18 @@ class ViserPlayback:
     def display(
         self,
         state: LiveFrameState,
-        nvhuman: Any | None = None,
+        body_model: Any | None = None,
     ) -> None:
         """Live-mode draw: apply whatever fields ``state`` provides.
 
         Args:
             state: Per-frame pose bundle (all fields optional).
-            nvhuman: Optional pre-constructed ``retarget.read_nvhuman.NVHuman``
-                instance used to draw ``state.body_vertices``. Passing it
-                from the caller avoids re-loading the body model inside the
-                module; the retargeter already has one.
+            body_model: Optional source body model (e.g. a
+                ``retarget.read_soma.SOMA`` instance) used to draw the human
+                overlay from ``state.body_vertices``. It must expose
+                ``visualize(server, vertices=...)``. Passing it from the
+                caller avoids re-loading the body model here; the retargeter
+                already holds one. When omitted, the overlay is skipped.
         """
         if state.q is not None and self._pin_viz is not None:
             self._pin_viz.display(np.asarray(state.q, dtype=np.float64))
@@ -730,8 +750,8 @@ class ViserPlayback:
                 )
                 handle.visible = float(active) > 0.5
 
-        if state.body_vertices is not None and nvhuman is not None:
-            nvhuman.visualize(self._server, vertices=state.body_vertices)
+        if state.body_vertices is not None and body_model is not None:
+            body_model.visualize(self._server, vertices=state.body_vertices)
 
         if state.ik_target_poses:
             self._update_ik_target_frames(state.ik_target_poses)

@@ -30,7 +30,7 @@ These hold across both files:
 
 ## `frame_alignment.json`
 
-The frame change from the source skeleton (e.g. SOMA-X / NVHuman) into
+The frame change from the source skeleton (e.g. SOMA-X) into
 the robot world. Two layers:
 
 - **World layer**: `world_axis_swap_matrix` (or the equivalent
@@ -123,7 +123,7 @@ What the IK actually does on the robot.
 `urdf` and `package_dirs` are resolved relative to the directory the
 JSON lives in (i.e. `configs/<robot>/`). `posture_task` is consumed by
 `ConfigDrivenWholeBodyKinematics`; absent or all-zero costs disable the
-posture term entirely (no-op for the legacy `G1WholeBodyKinematics`
+posture term entirely (which is the legacy default behavior
 path, which never reads it).
 
 ## Adding a new robot

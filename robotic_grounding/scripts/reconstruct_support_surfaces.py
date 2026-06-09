@@ -6,7 +6,7 @@ script just parses CLI args and dispatches to that module so the same
 logic can be reused from the planner orchestrator.
 
 Usage:
-  1. Run retarget/loader first (e.g. taco_loader.py --save, nvhuman_to_g1.py --save)
+  1. Run retarget/loader first (e.g. taco_loader.py --save, soma_to_g1.py --save)
   2. python scripts/reconstruct_support_surfaces.py --input_dir ... [--sequence_id ID]
 """
 
@@ -29,9 +29,14 @@ from robotic_grounding.retarget.support_recon import (
     reconstruct_support_for_sequence,
 )
 
-# nvhuman_g1 is a *processed* whole-body schema, not a registered source
+# soma_g1 is a *processed* whole-body schema, not a registered source
 # dataset, so it's kept as a separate default outside the registry.
-DEFAULT_INPUT_DIR_G1 = HUMAN_MOTION_DATA_DIR / "nvhuman_g1_processed"
+# ``PROCESSED_DATASET_NAMES`` is the canonical set of --dataset values
+# that select ``DEFAULT_INPUT_DIR_G1`` instead of going through
+# ``get_dataset_config``; keep argparse choices and the dispatch in
+# ``main`` in sync by referencing this constant.
+PROCESSED_DATASET_NAMES: tuple[str, ...] = ("soma_g1", "motion_v1")
+DEFAULT_INPUT_DIR_G1 = HUMAN_MOTION_DATA_DIR / "whole_body" / "soma"
 
 
 def _parse_args() -> argparse.Namespace:
@@ -46,7 +51,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--dataset",
-        choices=get_all_dataset_names() + ("nvhuman_g1", "motion_v1"),
+        choices=get_all_dataset_names() + PROCESSED_DATASET_NAMES,
         default="oakink2",
         help="Dataset for default input_dir when --input_dir not set.",
     )
@@ -79,7 +84,7 @@ def main() -> None:
     args = _parse_args()
     if args.input_dir:
         input_dir = args.input_dir
-    elif args.dataset in {"nvhuman_g1", "motion_v1"}:
+    elif args.dataset in PROCESSED_DATASET_NAMES:
         input_dir = DEFAULT_INPUT_DIR_G1
     else:
         config = get_dataset_config(args.dataset)

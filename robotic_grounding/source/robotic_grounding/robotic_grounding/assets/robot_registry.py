@@ -63,7 +63,7 @@ ROBOT_REGISTRY: dict[str, RobotSpec] = {
         fingertip_body_name=FINGERTIP_BODY_NAME,
         hand_contact_bodies=HAND_CONTACT_BODIES,
     ),
-    # Whole-body retarget (nvhuman_to_g1.py) uses main_with_hand.urdf — keep asset in sync.
+    # Whole-body retarget (soma_to_g1.py) uses main_with_hand.urdf — keep asset in sync.
     "g1": RobotSpec(
         robot_cfg=G1_CYLINDER_MODEL_12_HANDS_DEX_DELAYED_CFG,
         wrist_joint_names=[],

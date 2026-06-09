@@ -21,12 +21,7 @@ from scipy.spatial.transform import Rotation as R
 
 from robotic_grounding.retarget.params import (
     DEX3_TO_MANO_MAPPING,
-    DEX3_TO_NVHUMAN_MAPPING,
     MANO_JOINTS_ORDER,
-    NVHUMAN_JOINTS_ORDER,
-    R_NVHUMAN_TO_ROBOT,
-    R_PALM_CORRECTION_LEFT,
-    R_PALM_CORRECTION_RIGHT,
     SHARPA_RELATIVE_FRAMES,
     SHARPA_TO_MANO_MAPPING,
     SHARPA_TO_MANO_ROTATION_OFFSET,
@@ -42,7 +37,7 @@ class HandKinematics:
         self,
         side: Literal["right", "left"],
         robot_asset_path: str,
-        source_model: Literal["mano", "nvskel"],
+        source_model: Literal["mano"],
         use_relative_frames: bool = False,
         solver: str = "daqp",
         max_iter: int = 200,
@@ -55,7 +50,7 @@ class HandKinematics:
         Args:
             side: Hand side ("left" or "right").
             robot_asset_path: Path to the robot URDF file.
-            source_model: Source motion model ("mano" or "nvskel").
+            source_model: Source motion model. Only "mano" is supported.
             use_relative_frames: Whether to use relative frame tasks.
             solver: IK solver to use.
             max_iter: Maximum IK iterations.
@@ -128,13 +123,8 @@ class HandKinematics:
         )
 
     def get_source_joint_order(self) -> list[str]:
-        """Get the source joint order based on source model."""
-        if self.source_model == "mano":
-            return MANO_JOINTS_ORDER
-        elif self.source_model == "nvskel":
-            return NVHUMAN_JOINTS_ORDER
-        else:
-            raise ValueError(f"Unknown source model: {self.source_model}")
+        """Get the source joint order. ``source_model`` is MANO-only."""
+        return MANO_JOINTS_ORDER
 
     def get_target_to_source_mapping(self) -> dict[str, tuple[str, float, float]]:
         """Get the source to target mapping.
@@ -154,17 +144,8 @@ class HandKinematics:
         return []
 
     def get_base_source_joint(self) -> str:
-        """Get the base source joint name for scaling.
-
-        Returns:
-            The base source joint name.
-        """
-        if self.source_model == "mano":
-            return "wrist"
-        elif self.source_model == "nvskel":
-            return "LeftHand" if self.side == "left" else "RightHand"
-        else:
-            raise ValueError(f"Unknown source model: {self.source_model}")
+        """Base source joint name for scaling. ``source_model`` is MANO-only."""
+        return "wrist"
 
     def transform_source_position(self, position: np.ndarray) -> np.ndarray:
         """Transform source position to robot convention.
@@ -457,7 +438,7 @@ class SharpaHandKinematics(HandKinematics):
         self,
         side: Literal["right", "left"],
         robot_asset_path: str,
-        source_model: Literal["mano", "nvskel"],
+        source_model: Literal["mano"],
         use_relative_frames: bool = False,
         solver: str = "daqp",
         max_iter: int = 200,
@@ -490,36 +471,22 @@ class SharpaHandKinematics(HandKinematics):
         )
 
     def get_target_to_source_mapping(self) -> dict[str, tuple[str, float, float]]:
-        """Get the source to target mapping."""
-        if self.source_model == "mano":
-            return {
-                k.replace(".*", self.side): v for k, v in SHARPA_TO_MANO_MAPPING.items()
-            }
-        elif self.source_model == "nvskel":
-            raise NotImplementedError(
-                f"nvskel source model is not implemented yet for {self.__class__.__name__} hand."
-            )
-        else:
-            raise ValueError(f"Unknown source model: {self.source_model}")
+        """Source-to-target mapping. ``source_model`` is MANO-only."""
+        return {
+            k.replace(".*", self.side): v for k, v in SHARPA_TO_MANO_MAPPING.items()
+        }
 
     def get_target_to_source_rel(self) -> list[tuple[str, str, float, float]]:
-        """Get the source to target relative mapping."""
-        if self.source_model == "mano":
-            return [
-                (
-                    entry[0].replace(".*", self.side),
-                    entry[1].replace(".*", self.side),
-                    entry[2],
-                    entry[3],
-                )
-                for entry in SHARPA_RELATIVE_FRAMES
-            ]
-        elif self.source_model == "nvskel":
-            raise NotImplementedError(
-                f"nvskel source model is not implemented yet for {self.__class__.__name__} hand."
+        """Source-to-target relative mapping. ``source_model`` is MANO-only."""
+        return [
+            (
+                entry[0].replace(".*", self.side),
+                entry[1].replace(".*", self.side),
+                entry[2],
+                entry[3],
             )
-        else:
-            raise ValueError(f"Unknown source model: {self.source_model}")
+            for entry in SHARPA_RELATIVE_FRAMES
+        ]
 
     def get_frame_rotation_correction(self, frame_name: str) -> np.ndarray:
         """Apply SHARPA_TO_MANO_ROTATION_OFFSET for wrist frame alignment."""
@@ -529,14 +496,14 @@ class SharpaHandKinematics(HandKinematics):
 
 
 class Dex3HandKinematics(HandKinematics):
-    """Dex3 hand kinematics class for NVHuman to Dex3 retargeting."""
+    """Dex3 hand kinematics class for MANO to Dex3 retargeting."""
 
     def __init__(
         self,
         side: Literal["right", "left"],
         robot_asset_path: str,
         package_dirs: Optional[list[str]] = None,
-        source_model: Literal["mano", "nvskel"] = "nvskel",
+        source_model: Literal["mano"] = "mano",
         use_relative_frames: bool = False,
         solver: str = "daqp",
         max_iter: int = 100,
@@ -545,14 +512,6 @@ class Dex3HandKinematics(HandKinematics):
     ) -> None:
         """Initialize the Dex3 hand kinematics."""
         self.package_dirs = package_dirs or []
-
-        # Setup coordinate transforms
-        self._R_nvhuman_to_robot = np.array(R_NVHUMAN_TO_ROBOT, dtype=np.float64)
-        self._palm_correction = (
-            np.array(R_PALM_CORRECTION_LEFT, dtype=np.float64)
-            if side == "left"
-            else np.array(R_PALM_CORRECTION_RIGHT, dtype=np.float64)
-        )
 
         super().__init__(
             side=side,
@@ -574,41 +533,12 @@ class Dex3HandKinematics(HandKinematics):
         )
 
     def get_target_to_source_mapping(self) -> dict[str, tuple[str, float, float]]:
-        """Get the source to target mapping for Dex3."""
-        if self.source_model == "mano":
-            return {
-                k.replace(".*", self.side): v for k, v in DEX3_TO_MANO_MAPPING.items()
-            }
-        elif self.source_model == "nvskel":
-            side_prefix = "Left" if self.side == "left" else "Right"
-            mapping = {}
-            for robot_frame, (
-                nvhuman_joint,
-                pos_cost,
-                ori_cost,
-            ) in DEX3_TO_NVHUMAN_MAPPING.items():
-                robot_frame_resolved = robot_frame.replace(".*", self.side)
-                nvhuman_joint_resolved = nvhuman_joint.replace(".*", side_prefix)
-                mapping[robot_frame_resolved] = (
-                    nvhuman_joint_resolved,
-                    pos_cost,
-                    ori_cost,
-                )
-            return mapping
-        else:
-            raise ValueError(f"Unknown source model: {self.source_model}")
+        """Dex3 source-to-target mapping. ``source_model`` is MANO-only."""
+        return {k.replace(".*", self.side): v for k, v in DEX3_TO_MANO_MAPPING.items()}
 
-    def transform_source_position(self, position: np.ndarray) -> np.ndarray:
-        """Transform position from source to robot convention."""
-        if self.source_model == "mano":
-            return position
-        return position @ self._R_nvhuman_to_robot.T
-
-    def transform_source_rotation(self, rotation: np.ndarray) -> np.ndarray:
-        """Transform rotation matrix from source to robot convention."""
-        if self.source_model == "mano":
-            return rotation
-        return self._R_nvhuman_to_robot @ rotation @ self._R_nvhuman_to_robot.T
+    # No transform_source_position / transform_source_rotation overrides:
+    # MANO is in the same convention as the Dex3 robot, so the base-class
+    # identity defaults (HandKinematics.transform_source_*) are correct.
 
     # MANO→Dex3 palm frame corrections (180° rotations)
     _R_MANO_PALM_RIGHT = np.array(
@@ -620,12 +550,8 @@ class Dex3HandKinematics(HandKinematics):
 
     def get_frame_rotation_correction(self, frame_name: str) -> np.ndarray:
         """Get rotation correction for palm frames to align with human hand."""
-        if self.source_model == "mano":
-            if "palm" in frame_name:
-                if self.side == "right":
-                    return self._R_MANO_PALM_RIGHT
-                return self._R_MANO_PALM_LEFT
-            return np.eye(3)
         if "palm" in frame_name:
-            return self._palm_correction
+            if self.side == "right":
+                return self._R_MANO_PALM_RIGHT
+            return self._R_MANO_PALM_LEFT
         return np.eye(3)

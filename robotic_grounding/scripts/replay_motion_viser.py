@@ -12,9 +12,7 @@ Loads a partition and opens a browser-accessible viser scene with a Frame
 slider and Play/FPS/Loop/Step controls for data-quality inspection.
 
 Shows robot + object + per-side contact markers. The parquet carries no
-source body mesh, so no human-body overlay is available in replay; that
-overlay is a retarget-time layer provided by ``nvhuman_to_g1.py`` when it
-streams frames through the same ``ViserPlayback`` module.
+source body mesh, so no human-body overlay is available in replay.
 
 Usage:
     python scripts/replay_viser.py --motion_file <partition_dir_or_file>

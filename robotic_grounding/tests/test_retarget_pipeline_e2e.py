@@ -47,6 +47,10 @@ class TestRetargetPipelineE2E(unittest.TestCase):
     assets_dir: Path
     isaaclab_path: str
     isaaclab_script: str
+    # Lib dir to prepend to LD_LIBRARY_PATH so pinocchio imports; None when the
+    # Isaac Lab python already imports pinocchio cleanly (see
+    # ``_ensure_pinocchio_ld_path``).
+    _pinocchio_lib_dir: str | None = None
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -76,6 +80,97 @@ class TestRetargetPipelineE2E(unittest.TestCase):
 
         print(f"GPU available: {torch.cuda.get_device_name(0)}")
 
+        cls._ensure_pinocchio_ld_path()
+
+    @classmethod
+    def _ensure_pinocchio_ld_path(cls) -> None:
+        """Make ``import pinocchio`` work inside ``isaaclab.sh -p`` subprocesses.
+
+        The Isaac Lab container ships pinocchio (pin 3.7.0) compiled against
+        urdfdom v4 / tinyxml2 v10, but the system cmeel wheels are v6 / v11, so
+        ``import pinocchio`` dies with::
+
+            ImportError: liburdfdom_sensor.so.4.0: cannot open shared object file
+
+        ``scripts/retarget/process_soma_sequence.sh::setup_pinocchio_ld_path``
+        fixes this for the OSMO workflow by installing the matching cmeel wheels
+        into a side prefix and prepending its ``lib/`` to ``LD_LIBRARY_PATH``.
+        This test invokes each stage directly via ``isaaclab.sh -p`` (not
+        through that script), so we replicate the fix here and stash the lib dir
+        on the class for ``_run`` to inject into every stage's environment.
+
+        No-op (leaves ``_pinocchio_lib_dir`` None) when the Isaac Lab python
+        already imports pinocchio cleanly — e.g. on an image where the cmeel
+        soversion mismatch has been fixed at build time.
+        """
+        cls._pinocchio_lib_dir = None
+
+        def _pinocchio_imports() -> bool:
+            return (
+                subprocess.run(
+                    [cls.isaaclab_script, "-p", "-c", "import pinocchio"],
+                    capture_output=True,
+                    check=False,
+                ).returncode
+                == 0
+            )
+
+        if _pinocchio_imports():
+            print("pinocchio import OK (no LD_LIBRARY_PATH fix needed)")
+            return
+
+        cache_dir = Path(
+            os.environ.get(
+                "PINOCCHIO_DEPS_PREFIX",
+                str(Path.home() / ".cache" / "robotic_grounding" / "pinocchio_deps"),
+            )
+        )
+        lib_dir = cache_dir / "cmeel.prefix" / "lib"
+        have_libs = (lib_dir / "liburdfdom_sensor.so.4.0").exists() and (
+            lib_dir / "libtinyxml2.so.10"
+        ).exists()
+        if not have_libs:
+            print(f"Installing pinocchio v4/v10 cmeel deps to {cache_dir}")
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            # ``--no-deps`` so pip doesn't pull cmeel-tinyxml2 v11 (urdfdom
+            # 4.0.1's metadata range otherwise resolves to v11; we need v10).
+            subprocess.run(
+                [
+                    cls.isaaclab_script,
+                    "-p",
+                    "-m",
+                    "pip",
+                    "install",
+                    "--target",
+                    str(cache_dir),
+                    "--no-deps",
+                    "cmeel-urdfdom==4.0.1",
+                    "cmeel-tinyxml2==10.0.0",
+                ],
+                capture_output=True,
+                check=False,
+            )
+
+        cls._pinocchio_lib_dir = str(lib_dir)
+        print(f"pinocchio v4 deps: {lib_dir} (prepended to LD_LIBRARY_PATH)")
+
+        check = subprocess.run(
+            [cls.isaaclab_script, "-p", "-c", "import pinocchio"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={
+                **os.environ,
+                "LD_LIBRARY_PATH": f"{lib_dir}:{os.environ.get('LD_LIBRARY_PATH', '')}",
+            },
+        )
+        if check.returncode != 0:
+            print(
+                "WARNING: pinocchio still fails to import after the "
+                f"LD_LIBRARY_PATH fix; stages will hit the ImportError.\n"
+                f"{check.stderr[-1000:]}"
+            )
+
     # ------------------------------------------------------------------
     # Subprocess helpers
     # ------------------------------------------------------------------
@@ -97,6 +192,14 @@ class TestRetargetPipelineE2E(unittest.TestCase):
         env = dict(os.environ)
         env.setdefault("OMNI_HEADLESS", "1")
         env.setdefault("WANDB_MODE", "disabled")
+        # Make ``import pinocchio`` resolvable for every stage that pulls in the
+        # retarget pipeline (1.5 URDFs, 2 process, 4 visualize). See
+        # ``_ensure_pinocchio_ld_path``.
+        if self._pinocchio_lib_dir:
+            prev = env.get("LD_LIBRARY_PATH", "")
+            env["LD_LIBRARY_PATH"] = (
+                f"{self._pinocchio_lib_dir}:{prev}" if prev else self._pinocchio_lib_dir
+            )
 
         print(f"\n--- stage: {stage} ---")
         print(f"cmd: {' '.join(cmd)}")
