@@ -26,10 +26,10 @@ from .robot_gains import (
 )
 
 # Resolved at import; vertical-slice paths are absolute for now.
-ASSETS = "/home/cning/simtoolreal_isaaclab/simtoolreal_lab/assets/usd"
+ASSETS = "/home/cning/simtoolreal_isaaclab/assets/usd"
 ROBOT_USD = f"{ASSETS}/iiwa14_left_sharpa/robot.usd"
 OBJECT_USD = f"{ASSETS}/claw_hammer/claw_hammer.usd"
-TRAJECTORY = "/home/cning/simtoolreal_isaaclab/simtoolreal_lab/trajectories/hammer/claw_hammer/swing_down.json"
+TRAJECTORY = "/home/cning/simtoolreal_isaaclab/trajectories/hammer/claw_hammer/swing_down.json"
 
 # Canonical SimToolReal 29-DOF joint order (arm 0:7, hand 7:29).
 JOINT_NAMES_ISAACGYM = [

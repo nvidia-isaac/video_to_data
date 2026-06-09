@@ -12,7 +12,7 @@ import isaaclab.sim as sim_utils  # noqa: E402
 from isaaclab.actuators import ImplicitActuatorCfg  # noqa: E402
 from isaaclab.assets import Articulation, ArticulationCfg, RigidObject, RigidObjectCfg  # noqa: E402
 
-ASSETS = "/home/cning/simtoolreal_isaaclab/simtoolreal_lab/assets/usd"
+ASSETS = "/home/cning/simtoolreal_isaaclab/assets/usd"
 ROBOT_USD = f"{ASSETS}/iiwa14_left_sharpa/robot.usd"
 OBJECT_USD = f"{ASSETS}/claw_hammer/claw_hammer.usd"
 

@@ -10,7 +10,7 @@ The network is built from the ORIGINAL config.yaml's train.params so the checkpo
 bit-for-bit (LSTM 1024 + MLP [1024,1024,512,512] + coef_cond sigma + 32-d expl embedding).
 
 Run:
-  cd IsaacLab && ./isaaclab.sh -p ~/simtoolreal_isaaclab/simtoolreal_lab/scripts/deploy_pretrained.py \
+  cd IsaacLab && ./isaaclab.sh -p ~/simtoolreal_isaaclab/scripts/deploy_pretrained.py \
       --headless --num_envs 64 --delta
   # add --video --cam_env_index <i> for an RTX mp4 of one env
 """
@@ -24,7 +24,7 @@ ORIG_REPO = "/home/cning/simtoolreal"
 DEFAULT_CONFIG = f"{ORIG_REPO}/pretrained_policy/config.yaml"
 DEFAULT_CKPT = f"{ORIG_REPO}/pretrained_policy/model.pth"
 
-ASSETS_USD = "/home/cning/simtoolreal_isaaclab/simtoolreal_lab/assets/usd"
+ASSETS_USD = "/home/cning/simtoolreal_isaaclab/assets/usd"
 TRAJ_ROOT = f"{ORIG_REPO}/dextoolbench/trajectories"
 # DexToolBench objects: name -> (category, object_scale-given-to-policy). Scale = dextoolbench
 # objects.py base-bbox * 25 (= bbox / object_base_size 0.04); NOT applied to the mesh.
@@ -69,7 +69,7 @@ import sys  # noqa: E402
 import gymnasium as gym  # noqa: E402
 import yaml  # noqa: E402
 
-sys.path.insert(0, "/home/cning/simtoolreal_isaaclab/simtoolreal_lab")
+sys.path.insert(0, "/home/cning/simtoolreal_isaaclab")
 
 import simtoolreal_lab.tasks  # noqa: E402, F401
 from rl_games.common import env_configurations, vecenv  # noqa: E402

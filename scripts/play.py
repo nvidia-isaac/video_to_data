@@ -39,7 +39,7 @@ import sys  # noqa: E402
 import gymnasium as gym  # noqa: E402
 import yaml  # noqa: E402
 
-sys.path.insert(0, "/home/cning/simtoolreal_isaaclab/simtoolreal_lab")
+sys.path.insert(0, "/home/cning/simtoolreal_isaaclab")
 
 import simtoolreal_lab.tasks  # noqa: E402, F401
 from rl_games.common import env_configurations, vecenv  # noqa: E402
@@ -50,7 +50,7 @@ from isaaclab_rl.rl_games import RlGamesGpuEnv, RlGamesVecEnvWrapper  # noqa: E4
 
 from simtoolreal_lab.tasks.simtoolreal.simtoolreal_env_cfg import SimToolRealEnvCfg  # noqa: E402
 
-AGENTS_DIR = "/home/cning/simtoolreal_isaaclab/simtoolreal_lab/simtoolreal_lab/tasks/simtoolreal/agents"
+AGENTS_DIR = "/home/cning/simtoolreal_isaaclab/simtoolreal_lab/tasks/simtoolreal/agents"
 RESULT_FILE = "/home/cning/simtoolreal_isaaclab/eval_result.txt"
 
 

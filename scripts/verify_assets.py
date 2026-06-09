@@ -18,7 +18,7 @@ from isaaclab.assets import Articulation, RigidObject  # noqa: E402
 
 import sys  # noqa: E402
 
-sys.path.insert(0, "/home/cning/simtoolreal_isaaclab/simtoolreal_lab")
+sys.path.insert(0, "/home/cning/simtoolreal_isaaclab")
 from simtoolreal_lab.tasks.simtoolreal.simtoolreal_env_cfg import (  # noqa: E402
     SimToolRealEnvCfg,
 )

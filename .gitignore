@@ -1,9 +1,11 @@
 # Generated outputs
 logs/
 videos/
+*_result.txt
+verify_assets.txt
 
 # Large assets (meshes / USDs) — regenerate via convert_object.py or download separately
-simtoolreal_lab/assets/
+assets/
 
 # Python caches
 __pycache__/

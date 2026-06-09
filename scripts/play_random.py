@@ -22,7 +22,7 @@ simulation_app = app_launcher.app
 import sys  # noqa: E402
 import traceback  # noqa: E402
 
-sys.path.insert(0, "/home/cning/simtoolreal_isaaclab/simtoolreal_lab")
+sys.path.insert(0, "/home/cning/simtoolreal_isaaclab")
 
 import torch  # noqa: E402
 

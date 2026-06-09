@@ -8,7 +8,7 @@ claw hammer's claw/head and thin screwdriver/marker — which improves grasp fid
 
 Run:
   cd IsaacLab && (venv) OMNI_KIT_ACCEPT_EULA=YES ./isaaclab.sh -p \
-      ~/simtoolreal_isaaclab/simtoolreal_lab/scripts/convert_object.py <input.urdf> <output.usd> --headless
+      ~/simtoolreal_isaaclab/scripts/convert_object.py <input.urdf> <output.usd> --headless
 """
 
 import argparse
