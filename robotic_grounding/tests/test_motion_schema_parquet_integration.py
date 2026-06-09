@@ -9,8 +9,7 @@
 """Integration test for the `motion_v1` parquet pipeline.
 
 Writes a motion_v1 parquet, loads it via SceneConfig + the unified reader,
-and asserts the usual round-trip invariants. The canonical schema is
-`MotionData`; older per-robot dataclasses have been retired.
+and asserts the usual round-trip invariants.
 
 Usage (pytest):
     pytest tests/test_motion_schema_parquet_integration.py
