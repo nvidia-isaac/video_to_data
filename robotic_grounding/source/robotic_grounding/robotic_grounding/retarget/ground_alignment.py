@@ -8,7 +8,7 @@
 
 """Post-process modules that correct drift in retargeted whole-body data.
 
-The retarget loop in ``scripts/retarget/nvhuman_to_g1.py`` anchors the robot to
+The retarget loop in ``scripts/retarget/soma_to_g1.py`` anchors the robot to
 the ground on frame 0 but has no mechanism to track drift over the rest of the
 sequence. The reconstruction's camera-to-world mapping can drift several
 centimeters over long sequences, causing the robot to appear to sink or float
@@ -92,8 +92,8 @@ class FirstPassResult:
     # Per-side per-frame hand-contact mask (0.0/1.0).
     hand_contact_active_per_frame: np.ndarray  # (T, S)
     # Source-raw translations shifted by pass-1 ground offset.
-    nvhuman_head_translation: np.ndarray  # (T, 3)
-    nvhuman_root_translation: np.ndarray  # (T, 3)
+    source_head_translation: np.ndarray  # (T, 3)
+    source_root_translation: np.ndarray  # (T, 3)
     # NEW: cached ankle XYZ per frame (post pass-1 ground offset, pre-clamp).
     # Consistent with ee_pose_w's Z convention.
     ankle_frame_xyz: np.ndarray  # (T, 2, 3) -- index 0 = left, 1 = right

@@ -8,9 +8,8 @@
 
 """Script to retarget SOMA-X (NVlabs SOMA) motion to G1 whole body using Pink IK.
 
-Mirrors ``scripts/retarget/nvhuman_to_g1.py`` but reads the SOMA exporter
-schema (``soma_params.npz`` + object pose file + object glTF/OBJ + optional
-``ground_plane.json``) instead of NVHuman's ``nova_params_opt.pt``.
+Reads the SOMA exporter schema: ``soma_params.npz`` + object pose file +
+object glTF/OBJ + optional ``ground_plane.json``.
 
 The output parquet shares the same ``motion_v1`` schema used by training and
 replay; only the dataset folder differs:
@@ -68,10 +67,12 @@ from tqdm import tqdm
 G1_URDF = G1_URDF_DIR / "main_with_hand.urdf"
 PACKAGE_DIRS = [str(G1_URDF_DIR)]
 # First-pass IK snapshot consumed by ``scripts/retarget/rerun_post_process.py``.
-# Kept on a SOMA-specific cache path so SOMA and NVHuman runs of the same
-# sequence id do not stomp on each other.
+# Cache key is suffixed with a schema version. Bump when the cached
+# FirstPassResult layout changes (field rename, new required field, etc.)
+# so stale pickles from a previous schema are not read back into a
+# differently-shaped dataclass.
 FIRST_PASS_CACHE_DIR = Path(
-    os.environ.get("SOMA_FIRST_PASS_CACHE_DIR", "/tmp/soma_g1_processed_cache")
+    os.environ.get("SOMA_FIRST_PASS_CACHE_DIR", "/tmp/soma_g1_processed_cache_v2")
 )
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -407,8 +408,8 @@ def main() -> None:
         identity_model_type=args.identity_model_type,
         device=device,
     )
-    # First-frame anchoring (mirrors ``NVHuman.load_motion``): the SOMA
-    # exporter writes ``transl`` in raw world coordinates, so Hips can sit
+    # First-frame anchoring: the SOMA exporter writes ``transl`` in raw
+    # world coordinates, so Hips can sit
     # several meters off the origin with arbitrary heading. The in-loop
     # ground-anchoring step below assumes the body is already centered at
     # the origin with canonical heading; without this normalization the
@@ -538,7 +539,7 @@ def main() -> None:
         name.split("_")[0] for name in ee_link_names if "_hand_palm_link" in name
     ]
 
-    # SOMA fingertip joint names match NVHuman 1:1 (no twist joints involved).
+    # SOMA fingertip joint names match the canonical MHR rig 1:1.
     hand_side_to_fingertip_source_joints: dict[str, list[int]] = {}
     for side, prefix in (("left", "Left"), ("right", "Right")):
         candidates = [
@@ -561,8 +562,8 @@ def main() -> None:
         object_mesh_path = str(Path(object_mesh_path).resolve())
         object_mesh_radius = _compute_mesh_radius(object_mesh_path)
 
-        # Mirror the NVHuman retargeter: copy mesh + materials next to the
-        # parquet partition so saved asset paths are portable. Place under a
+        # Copy mesh + materials next to the parquet partition so saved
+        # asset paths are portable. Place under a
         # sibling ``object/`` folder relative to the parquet's ``robot_name=``
         # leaf so save_motion_parquet's rmtree of the leaf does not delete
         # them.
@@ -604,16 +605,14 @@ def main() -> None:
             "ik_error_per_frame": [],
             "ik_num_iterations": [],
             "frame_task_errors": [],
-            # Source raw -- the field names are inherited from the NVHuman
-            # builder so the post-process plane-alignment helper does not
-            # need a SOMA-specific FirstPassResult dataclass; for SOMA,
-            # `nvhuman_*` here actually carries SOMA head/root values.
+            # Source raw -- head + root values from the SOMA exporter,
+            # consumed by the post-process plane-alignment helper.
             "soma_joints": [],
             "soma_joints_wxyz": [],
-            "nvhuman_head_translation": [],
-            "nvhuman_head_wxyz": [],
-            "nvhuman_root_translation": [],
-            "nvhuman_root_wxyz": [],
+            "source_head_translation": [],
+            "source_head_wxyz": [],
+            "source_root_translation": [],
+            "source_root_wxyz": [],
         }
 
     playback: ViserPlayback | None = None
@@ -856,10 +855,10 @@ def main() -> None:
             builder["frame_task_errors"].append(list(result["frame_task_errors"]))
             builder["soma_joints"].append(positions.tolist())
             builder["soma_joints_wxyz"].append(rotations.tolist())
-            builder["nvhuman_head_translation"].append(head_position.tolist())
-            builder["nvhuman_head_wxyz"].append(head_rotation_wxyz.tolist())
-            builder["nvhuman_root_translation"].append(root_position.tolist())
-            builder["nvhuman_root_wxyz"].append(root_rotation_wxyz.tolist())
+            builder["source_head_translation"].append(head_position.tolist())
+            builder["source_head_wxyz"].append(head_rotation_wxyz.tolist())
+            builder["source_root_translation"].append(root_position.tolist())
+            builder["source_root_wxyz"].append(root_rotation_wxyz.tolist())
 
         if playback is not None:
             vertices_vis = kin.transform_source_position(vertices[frame_idx]).copy()
@@ -892,13 +891,7 @@ def main() -> None:
                     body_vertices=vertices_vis,
                     ik_target_poses=ik_target_poses,
                 ),
-                # The viser playback path expects a body model with the same
-                # interface NVHuman exposes for visualization. SOMA wraps
-                # SOMALayer; pass it through so the helper can call
-                # ``model.visualize(...)`` if implemented. The path is
-                # tolerant to body wrappers that do not implement
-                # ``visualize`` (it falls back to vertex-only rendering).
-                nvhuman=soma,
+                body_model=soma,
             )
 
         if frame_idx == 0 and args.visualize:
@@ -928,11 +921,11 @@ def main() -> None:
             hand_contact_active_per_frame=np.asarray(
                 builder["hand_contact_active_per_frame"], dtype=np.float64
             ),
-            nvhuman_head_translation=np.asarray(
-                builder["nvhuman_head_translation"], dtype=np.float64
+            source_head_translation=np.asarray(
+                builder["source_head_translation"], dtype=np.float64
             ),
-            nvhuman_root_translation=np.asarray(
-                builder["nvhuman_root_translation"], dtype=np.float64
+            source_root_translation=np.asarray(
+                builder["source_root_translation"], dtype=np.float64
             ),
             ankle_frame_xyz=np.asarray(ankle_xyz_per_frame, dtype=np.float64),
         )
@@ -941,8 +934,8 @@ def main() -> None:
             "object_articulation": list(builder["object_articulation"]),
             "soma_joints": [list(f) for f in builder["soma_joints"]],
             "soma_joints_wxyz": [list(f) for f in builder["soma_joints_wxyz"]],
-            "nvhuman_head_wxyz": [list(f) for f in builder["nvhuman_head_wxyz"]],
-            "nvhuman_root_wxyz": [list(f) for f in builder["nvhuman_root_wxyz"]],
+            "source_head_wxyz": [list(f) for f in builder["source_head_wxyz"]],
+            "source_root_wxyz": [list(f) for f in builder["source_root_wxyz"]],
             "ik_error_per_frame": list(builder["ik_error_per_frame"]),
             "ik_num_iterations": list(builder["ik_num_iterations"]),
             "frame_task_errors": [list(f) for f in builder["frame_task_errors"]],
@@ -996,13 +989,13 @@ def main() -> None:
         corr_ee_pose[..., 2] += robot_delta_z[:, None]
         builder["ee_pose_w"] = corr_ee_pose.tolist()
 
-        corr_nv_head = first_pass.nvhuman_head_translation.copy()
+        corr_nv_head = first_pass.source_head_translation.copy()
         corr_nv_head[:, 2] += robot_delta_z
-        builder["nvhuman_head_translation"] = corr_nv_head.tolist()
+        builder["source_head_translation"] = corr_nv_head.tolist()
 
-        corr_nv_root = first_pass.nvhuman_root_translation.copy()
+        corr_nv_root = first_pass.source_root_translation.copy()
         corr_nv_root[:, 2] += robot_delta_z
-        builder["nvhuman_root_translation"] = corr_nv_root.tolist()
+        builder["source_root_translation"] = corr_nv_root.tolist()
 
         builder["object_root_position"] = corr_obj_root_pos.tolist()
         builder["object_root_axis_angle"] = corr_obj_root_aa.tolist()
@@ -1038,10 +1031,10 @@ def main() -> None:
                 "soma_scale_params": soma_scale_params,
                 "soma_joints": builder.pop("soma_joints"),
                 "soma_joints_wxyz": builder.pop("soma_joints_wxyz"),
-                "nvhuman_head_translation": builder.pop("nvhuman_head_translation"),
-                "nvhuman_head_wxyz": builder.pop("nvhuman_head_wxyz"),
-                "nvhuman_root_translation": builder.pop("nvhuman_root_translation"),
-                "nvhuman_root_wxyz": builder.pop("nvhuman_root_wxyz"),
+                "source_head_translation": builder.pop("source_head_translation"),
+                "source_head_wxyz": builder.pop("source_head_wxyz"),
+                "source_root_translation": builder.pop("source_root_translation"),
+                "source_root_wxyz": builder.pop("source_root_wxyz"),
             }
         )
 
@@ -1218,8 +1211,17 @@ def main() -> None:
         print(f"Retargeting complete. Processed {num_frames} frames.")
     if args.visualize:
         print("Visualization server running. Press Ctrl+C to exit.")
-        while True:
-            time.sleep(1)
+        # Catch the interrupt and return cleanly (exit 0) rather than letting
+        # it propagate as a KeyboardInterrupt traceback. The whole foreground
+        # process group receives the Ctrl+C, including the wrapper
+        # process_soma_sequence.sh; bash only continues to the next stage if
+        # this child exits normally, so a clean exit here is what lets the
+        # pipeline advance instead of aborting.
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            print("\nVisualization stopped; continuing.")
 
 
 if __name__ == "__main__":

@@ -11,13 +11,12 @@ Every retargeting and planning script will write the same parquet layout, `Motio
 The whole-body pipeline currently has two incompatible parquet layouts and a growing divergence between them:
 
 - **Planner output** (`g1_planner.py`) writes `qpos` + `qpos_layout` + `joint_names` + `ee_pos_w/ee_quat_w` + `robot_*_wrist_*`. Used by the apple-pick experiment.
-- **Nvhuman retarget output** (`nvhuman_to_g1.py`, backed by `NvhumanG1Data`) writes `robot_root_position` + `robot_root_wxyz` + `robot_joint_positions` + `robot_frames`. No `qpos`, no `ee_pos_w`. Used by the bottle experiment.
 
 The symptoms we hit last week are not one-offs; they are the predictable result of having two schemas:
 
 1. Training's `load_motion_data` was written for planner output, so the bottle parquet crashes with `KeyError: 'qpos'`.
 2. We've been adding adapter branches inside `load_motion_data` to paper over the differences (`if "ee_pos_w" in data: … elif "robot_left_wrist_position" in data: …`). Every new retarget script adds another branch.
-3. Every new robot (Dex3 today, others later) spawns another per-robot dataclass (`NvhumanG1Data`, `NvhumanDex3Data`) that effectively duplicates 80% of the same fields with slightly different shapes and quaternion conventions.
+3. Every new robot (Dex3 today, others later) used to spawn another per-robot dataclass (now consolidated into the unified `MotionData` schema).
 4. Downstream tools (`SceneConfig`, `dummy_agent._autoframe_viewer`, `reconstruct_support_surfaces.py`, replay) each implement their own parquet reads with their own assumptions about which columns exist.
 
 This is the kind of divergence that only gets worse. Since this parquet is the contract between retargeting and training — the entire data pipeline hinges on it — the cost of not fixing it scales with the team, the number of robots, and the number of datasets.
@@ -44,7 +43,7 @@ This is the kind of divergence that only gets worse. Since this parquet is the c
   - Pose entries are `[x, y, z, qw, qx, qy, qz]` for each frame.
   - Time series are `(T, ...)`. Per-timestep lists only.
   - Joint ordering is always carried alongside values via a companion name list.
-- **Keep raw source co-located.** MANO params, NVHuman joints, and any other upstream motion data travel with the file as an optional opaque `source_payload` blob, so one parquet carries provenance end-to-end without bloating the strongly-typed columns that training actually reads.
+- **Keep raw source co-located.** MANO params, SOMA joints, and any other upstream motion data travel with the file as an optional opaque `source_payload` blob, so one parquet carries provenance end-to-end without bloating the strongly-typed columns that training actually reads.
 - **Explicit versioning.** Every file carries `schema_version` (e.g. `"motion_v1"`). The reader checks it and raises on mismatch with a clear migration hint. Breaking changes bump the version; additive changes are backward-compatible.
 - **Additive evolution only within a version.** New optional columns are fine; renaming or repurposing existing columns requires a version bump.
 
@@ -60,7 +59,7 @@ The schema is grouped here for readability; in code it's one flat pyarrow schema
 | `sequence_id` | string | partition key |
 | `robot_name` | string | partition key (`g1`, `dex3`, …) |
 | `motion_kind` | string | `"single_robot"` or `"dual_hand"`; required-field check branches on this |
-| `source_dataset` | string | `nvhuman`, `arctic`, `hot3d`, … |
+| `source_dataset` | string | `soma`, `arctic`, `hot3d`, … |
 | `raw_motion_file` | string | provenance |
 | `fps` | float32 | trajectory frame rate |
 | `coord_frame` | string | producer-declared convention tag, e.g. `"robot_base_z_up"` |
@@ -80,7 +79,7 @@ training loader internally concatenates them to `[root_pos(3),
 root_quat_wxyz(4), joints(J)]` — the shape `TrackingCommand` already consumes.
 
 For `motion_kind="dual_hand"` these fields are not required. Producers that
-only emit floating-wrist trajectories (e.g. `nvhuman_to_dex3.py`) leave them
+only emit floating-wrist trajectories (e.g. `arctic_to_dex3.py`) leave them
 empty; the corresponding tensors load as `None`.
 
 ### End-effector frames (required for tracking tasks)
@@ -130,11 +129,11 @@ Generalized from today's `mano_{side}_*` column family.
 
 | Field | Shape | Notes |
 |---|---|---|
-| `source_kind` | string | `"nvhuman"`, `"mano"`, or `""` |
+| `source_kind` | string | `"soma"`, `"mano"`, or `""` |
 | `source_payload` | bytes | pickled dict (betas, finger pose, joints, head/root trajectories, etc.) |
 | `source_joint_names` | list[str] | optional, if `source_payload` carries joint data |
 
-A single opaque blob keeps the strongly-typed part of the schema small and avoids exploding it with e.g. `nvhuman_joints (T, 93, 3)` shapes that only retarget validation ever needs. **Training never reads `source_payload`**; it exists for reproducibility, debugging, and re-retargeting.
+A single opaque blob keeps the strongly-typed part of the schema small and avoids exploding it with e.g. `soma_joints (T, J, 3)` shapes that only retarget validation ever needs. **Training never reads `source_payload`**; it exists for reproducibility, debugging, and re-retargeting.
 
 ### Retarget diagnostics (optional)
 
@@ -147,13 +146,13 @@ A single opaque blob keeps the strongly-typed part of the schema small and avoid
 ## Pipeline
 
 ```
-Raw motion (NVHuman / MANO / …)
+Raw motion (SOMA / MANO / …)
             │
             ▼
 Dataset loader          scripts/retarget/*_loader.py
             │
             ▼
-Retarget IK             nvhuman_to_g1 / nvhuman_to_dex3 / …
+Retarget IK             soma_to_g1 / arctic_to_dex3 / taco_to_dex3 / …
             │
             ▼
 (optional) Planner      g1_planner
@@ -205,14 +204,14 @@ Any step can populate only the groups it knows about. The planner and the retarg
 
 ## Costs / trade-offs
 
-- One-time migration pass over existing on-disk `NvhumanG1Data`, `NvhumanDex3Data`, and planner parquets. The migrator handles this idempotently; it's a single offline run per dataset.
+- One-time migration pass over historical on-disk per-robot dataclasses (now retired) and planner parquets. The migrator handled this idempotently; the consolidated `MotionData` schema is the canonical reader/writer.
 - Retarget scripts get slightly longer (they now populate more structured groups). This is a net-positive: the structure is explicit instead of implicit in column naming conventions.
 - Breaking change vs. the current bottle parquet on disk. The migrator covers this; the disruption window is "one afternoon" not "gradual debt across the codebase."
 
 ## Relationship to existing code
 
 - `ManoSharpaData` and the dual-hand V2P pipeline are **untouched**. Their schema stays as-is.
-- `NvhumanG1Data` and `NvhumanDex3Data` are **retired**. Their producers switch to `MotionData`; their consumers read via the unified reader.
+- The legacy per-robot dataclasses are **retired**. Producers write `MotionData`; consumers read it via the unified reader.
 - The `create_data_logger_class` factory stays, used by `ManoSharpaData` only.
 
 ---

@@ -20,11 +20,6 @@ from pink.tasks import FrameTask, PostureTask, Task
 from scipy.spatial.transform import Rotation as R
 
 from robotic_grounding.retarget.params import (
-    G1_WHOLEBODY_TO_NVHUMAN_MAPPING,
-    NVHUMAN_JOINTS_ORDER,
-    R_NVHUMAN_TO_ROBOT,
-    R_PALM_CORRECTION_LEFT,
-    R_PALM_CORRECTION_RIGHT,
     SOMA_JOINTS_ORDER,
 )
 from robotic_grounding.retarget.pinocchio_viser_visualizer import ViserVisualizer
@@ -41,7 +36,7 @@ class WholeBodyKinematics:
     def __init__(
         self,
         robot_asset_path: str,
-        source_model: Literal["nvhuman", "smplh", "soma"],
+        source_model: Literal["smplh", "soma"],
         package_dirs: Optional[list[str]] = None,
         solver: str = "daqp",
         max_iter: int = 200,
@@ -52,7 +47,9 @@ class WholeBodyKinematics:
 
         Args:
             robot_asset_path: Path to the robot URDF/MJCF file.
-            source_model: Source motion model ("nvhuman" or "smplh").
+            source_model: Source motion model ("soma" is the canonical
+                whole-body source; "smplh" is reserved for future SMPL-H
+                support and currently raises NotImplementedError).
             package_dirs: Directories to search for package:// mesh URLs.
             solver: IK solver to use.
             max_iter: Maximum IK iterations.
@@ -105,8 +102,6 @@ class WholeBodyKinematics:
 
     def get_source_joint_order(self) -> list[str]:
         """Get the source joint order based on source model."""
-        if self.source_model == "nvhuman":
-            return NVHUMAN_JOINTS_ORDER
         if self.source_model == "soma":
             return SOMA_JOINTS_ORDER
         if self.source_model == "smplh":
@@ -125,7 +120,7 @@ class WholeBodyKinematics:
 
     def get_base_source_joint(self) -> str:
         """Get the base source joint name for scaling."""
-        if self.source_model in ("nvhuman", "soma"):
+        if self.source_model == "soma":
             return "Hips"
         if self.source_model == "smplh":
             raise NotImplementedError("SMPL-H source model is not yet implemented.")
@@ -250,19 +245,16 @@ class WholeBodyKinematics:
             target_wxyz = source_joints_wxyz[source_joint_idx]
             target_rot = R.from_quat(target_wxyz, scalar_first=True).as_matrix()
             # ``source_joints_wxyz`` carries world-frame joint orientations.
-            # SOMA: world rotations come straight from FK over
-            # ``t_pose_world`` and need a single left-multiply by
-            # ``R_src_to_robot`` to land in the robot world frame -- the
-            # similarity-transform variant ``transform_source_rotation``
-            # silently degrades alignment when the source-to-robot rotation
-            # is not symmetric. NVHuman has historically used the
-            # similarity transform here, paired with hand-tuned palm
-            # corrections (``R_PALM_CORRECTION_*``); preserve that
-            # behaviour to keep the NVHuman retarget output stable.
-            if self.source_model == "soma":
-                target_rot = self.transform_world_rotation(target_rot)
-            else:
-                target_rot = self.transform_source_rotation(target_rot)
+            # SOMA: world rotations come from FK over ``t_pose_world`` and
+            # need a single left-multiply by ``R_src_to_robot`` to land in
+            # the robot world frame. The similarity-transform variant
+            # (``transform_source_rotation``) is intentionally NOT used
+            # here: when ``R_src_to_robot`` is not symmetric, the
+            # similarity form silently degrades alignment.
+            # ``source_model`` is narrowed to ``Literal["smplh", "soma"]``
+            # and the smplh path raises NotImplementedError earlier in
+            # init, so SOMA is the only live source at this point.
+            target_rot = self.transform_world_rotation(target_rot)
 
             frame_correction = self.get_frame_rotation_correction(robot_frame_name)
             target_rot = target_rot @ frame_correction
@@ -499,107 +491,6 @@ class WholeBodyKinematics:
         }
 
 
-class G1WholeBodyKinematics(WholeBodyKinematics):
-    """G1 robot whole body kinematics for NVHuman retargeting.
-
-    NVHuman uses the X=left, Y=up, Z=forward source-frame convention; the
-    same coordinate transforms and palm corrections apply to every G1 IK
-    target frame, so the source_model flag only selects between NVHuman
-    and the (un-implemented) SMPL-H joint-order lists.
-
-    SOMA is intentionally not supported on this legacy class: new code
-    must use :class:`ConfigDrivenWholeBodyKinematics` plus
-    :func:`robotic_grounding.retarget.robot_config.load_robot_config`,
-    which reads the SOMA→G1 corrections from
-    ``configs/g1/{frame_alignment,retargeter}.json``.
-    """
-
-    def __init__(
-        self,
-        robot_asset_path: str,
-        package_dirs: Optional[list[str]] = None,
-        source_model: Literal["nvhuman", "smplh", "soma"] = "nvhuman",
-        solver: str = "daqp",
-        max_iter: int = 200,
-        frequency: float = 200.0,
-        frame_tasks_converged_threshold: float = 1e-6,
-    ) -> None:
-        """Initialize G1 whole body kinematics."""
-        if source_model == "soma":
-            raise ValueError(
-                "source_model='soma' no longer supported in legacy path; "
-                "use ConfigDrivenWholeBodyKinematics(load_robot_config(...)) "
-                "instead."
-            )
-        self._R_nvhuman_to_robot = np.array(R_NVHUMAN_TO_ROBOT, dtype=np.float64)
-        self._left_palm_correction = np.array(R_PALM_CORRECTION_LEFT, dtype=np.float64)
-        self._right_palm_correction = np.array(
-            R_PALM_CORRECTION_RIGHT, dtype=np.float64
-        )
-
-        super().__init__(
-            robot_asset_path=robot_asset_path,
-            source_model=source_model,
-            package_dirs=package_dirs,
-            solver=solver,
-            max_iter=max_iter,
-            frequency=frequency,
-            frame_tasks_converged_threshold=frame_tasks_converged_threshold,
-        )
-
-    def load_robot_model(self) -> pin.RobotWrapper:
-        """Load the G1 robot model from URDF with a free-flyer root joint."""
-        return pin.RobotWrapper.BuildFromURDF(
-            filename=self.robot_asset_path,
-            package_dirs=self.package_dirs,
-            root_joint=pin.JointModelFreeFlyer(),
-        )
-
-    def get_target_to_source_mapping(self) -> dict[str, tuple[str, float, float]]:
-        """Get the G1 to source body mapping."""
-        if self.source_model == "nvhuman":
-            return dict(G1_WHOLEBODY_TO_NVHUMAN_MAPPING)
-        if self.source_model == "smplh":
-            raise NotImplementedError(
-                "SMPL-H source model is not yet implemented for G1."
-            )
-        raise ValueError(f"Unknown source model: {self.source_model}")
-
-    def get_frame_rotation_correction(self, frame_name: str) -> np.ndarray:
-        """Get rotation correction from source joint local frame to G1 link local frame.
-
-        Applied as ``target_rot = target_rot @ correction`` inside
-        ``WholeBodyKinematics.set_frame_tasks_target``. Only palm
-        corrections are needed for NVHuman: the dex3 URDF palm link's
-        axes differ from the NVHuman hand convention, and a fixed
-        per-side correction lines them up.
-        """
-        if "left" in frame_name and "palm" in frame_name:
-            return self._left_palm_correction
-        if "right" in frame_name and "palm" in frame_name:
-            return self._right_palm_correction
-        return np.eye(3)
-
-    def _r_source_to_robot(self) -> np.ndarray:
-        """Pick the source-to-robot rotation matrix for the active source model."""
-        return self._R_nvhuman_to_robot
-
-    def transform_source_position(self, position: np.ndarray) -> np.ndarray:
-        """Transform position from source convention to robot convention."""
-        R_src_to_robot = self._r_source_to_robot()
-        return position @ R_src_to_robot.T
-
-    def transform_source_rotation(self, rotation: np.ndarray) -> np.ndarray:
-        """Transform a body-local rotation from source convention to robot convention."""
-        R_src_to_robot = self._r_source_to_robot()
-        return R_src_to_robot @ rotation @ R_src_to_robot.T
-
-    def transform_world_rotation(self, rotation: np.ndarray) -> np.ndarray:
-        """Transform a world-frame rotation from source convention to robot convention."""
-        R_src_to_robot = self._r_source_to_robot()
-        return R_src_to_robot @ rotation
-
-
 class ConfigDrivenWholeBodyKinematics(WholeBodyKinematics):
     """Whole-body IK driven by a :class:`RobotRetargetConfig`.
 
@@ -610,9 +501,9 @@ class ConfigDrivenWholeBodyKinematics(WholeBodyKinematics):
     :meth:`WholeBodyKinematics.set_frame_tasks_target`) is unchanged.
 
     Numerical contract: for the verified G1 SOMA setup, this class
-    produces frame task targets and IK output bit-equivalent to
-    :class:`G1WholeBodyKinematics(source_model="soma")` (within
-    ``atol=1e-8``) when the config matches the legacy constants. See
+    produces frame task targets and IK output that match the legacy
+    G1 SOMA implementation within ``atol=1e-8`` when the config
+    matches the legacy constants. See
     ``tests/test_soma_g1_config_regression.py``.
     """
 
@@ -637,9 +528,19 @@ class ConfigDrivenWholeBodyKinematics(WholeBodyKinematics):
             for frame_name, vec in config.t_per_link.items()
         }
 
+        # Only "soma" is fully implemented; "smplh" raises
+        # NotImplementedError in every parent-class branch and would
+        # only surface a confusing late error. Fail fast at init.
+        if config.source_model != "soma":
+            raise ValueError(
+                f"ConfigDrivenWholeBodyKinematics: source_model="
+                f"{config.source_model!r} is not implemented (only 'soma' "
+                f"is supported). Update the robot config or implement the "
+                f"smplh path before instantiating."
+            )
         super().__init__(
             robot_asset_path=str(config.urdf_path),
-            source_model=cast(Literal["nvhuman", "smplh", "soma"], config.source_model),
+            source_model=cast(Literal["soma"], config.source_model),
             package_dirs=[str(p) for p in config.package_dirs],
             solver=solver,
             max_iter=max_iter,
@@ -701,9 +602,9 @@ class ConfigDrivenWholeBodyKinematics(WholeBodyKinematics):
         """Similarity transform for body-local source rotations.
 
         Not used by the SOMA path (which goes through
-        :meth:`transform_world_rotation`), but kept consistent with
-        :class:`G1WholeBodyKinematics` so non-SOMA source models that
-        share this class get the expected NVHuman-style behaviour.
+        :meth:`transform_world_rotation`), but retained so future
+        non-SOMA source models can reuse this class for similarity-
+        transformed body-local rotations.
         """
         R_src = self._R_source_to_robot
         return R_src @ rotation @ R_src.T

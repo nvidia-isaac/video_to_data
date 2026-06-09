@@ -111,13 +111,13 @@ python scripts/retarget/vis_retargeted.py # Need to run retargeting and save res
 
 For Arctic motion files, download them from [here](https://drive.google.com/file/d/1rL4T9N4AwQoWRqS5pOuB6a0D0B9Y8dsP/view?usp=sharing) and extract to `source/robotic_grounding/robotic_grounding/assets/human_motion_data/arctic`. (TODO: We need to figure out an appropriate way for data storage)
 
-### Whole-body (NVHuman → G1)
+### Whole-body (SOMA → G1)
 ```bash
-# Retarget and save Parquet (data_folder must contain nova_params_opt.pt, poses.npy, object/textured_mesh.obj)
-python scripts/retarget/nvhuman_to_g1.py <data_folder> --save
+# Retarget and save Parquet (data_folder must contain soma_params.npz, object/textured_mesh.obj)
+python scripts/retarget/soma_to_g1.py <data_folder> --save
 
 # Visualize retargeting in Viser (port 8080)
-python scripts/retarget/nvhuman_to_g1.py <data_folder> --visualize
+python scripts/retarget/soma_to_g1.py <data_folder> --visualize
 ```
 
 ### Kinematic replay (all schemas)
@@ -126,7 +126,7 @@ Robot and object are teleported kinematically — no physics forces act on them.
 ```bash
 # Replay G1 retargeted data (loops by default)
 python scripts/replay_motion.py \
-    --motion_file source/robotic_grounding/robotic_grounding/assets/human_motion_data/nvhuman_g1_processed/sequence_id=<seq>/robot_name=g1
+    --motion_file source/robotic_grounding/robotic_grounding/assets/human_motion_data/whole_body/soma/sequence_id=<seq>/robot_name=g1
 
 # Replay hand-only data
 python scripts/replay_motion.py \
@@ -145,10 +145,10 @@ Detect where objects rest on surfaces above the ground plane and generate collis
 python scripts/reconstruct_support_surfaces.py --input_dir <loader_output_dir> --sequence_id <seq>
 
 # For G1 whole-body retargeted data
-python scripts/reconstruct_support_surfaces.py --input_dir source/robotic_grounding/robotic_grounding/assets/human_motion_data/nvhuman_g1_processed --sequence_id <seq>
+python scripts/reconstruct_support_surfaces.py --input_dir source/robotic_grounding/robotic_grounding/assets/human_motion_data/whole_body/soma --sequence_id <seq>
 
 # Or use the dataset shortcut
-python scripts/reconstruct_support_surfaces.py --dataset nvhuman_g1 --sequence_id <seq>
+python scripts/reconstruct_support_surfaces.py --dataset soma_g1 --sequence_id <seq>
 ```
 
 Objects resting on the ground are automatically filtered out (threshold configurable via `--ground_threshold`).

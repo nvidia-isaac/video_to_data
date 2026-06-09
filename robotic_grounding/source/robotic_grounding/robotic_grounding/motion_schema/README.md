@@ -2,7 +2,7 @@
 
 Single schema shared by:
 
-- **Producers**: `scripts/retarget/nvhuman_to_g1.py`, `scripts/retarget/nvhuman_to_dex3.py`,
+- **Producers**: `scripts/retarget/soma_to_g1.py`,
   `source/robotic_grounding/robotic_grounding/planner/g1_planner.py::save_planner_parquet`.
 - **Consumers**: training loader at
   `source/robotic_grounding/robotic_grounding/tasks/v2p_whole_body/mdp/commands/tracking_utils.py`,
@@ -53,7 +53,7 @@ branch on this value, so producers must tag the file at write time.
   planner output). Requires `robot_joint_names`, `robot_root_position`,
   `robot_root_wxyz`, `robot_joint_positions` in addition to the common fields.
 - **`dual_hand`** — floating dual-wrist trajectories (e.g. Dex3 from
-  NVHuman). Requires `hand_sides`, `hand_frame_names`, `hand_frames_w`,
+  MANO source). Requires `hand_sides`, `hand_frame_names`, `hand_frames_w`,
   `hand_finger_joint_names`, `hand_finger_joints` in addition to the common
   fields. Whole-body joint state may be left empty.
 

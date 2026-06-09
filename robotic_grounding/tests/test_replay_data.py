@@ -34,7 +34,7 @@ from robotic_grounding.retarget.data_logger import ManoSharpaData
 
 # replay_data lives under robotic_grounding.tasks which transitively imports
 # Isaac Lab / Omniverse.  Use the same importlib fallback as the existing
-# test_nvhuman_g1_parquet_integration.py so the test runs without Omniverse.
+# test_motion_schema_parquet_integration.py so the test runs without Omniverse.
 _SCENE_UTILS_DIR = (
     Path(__file__).resolve().parents[1]
     / "source"
@@ -103,7 +103,7 @@ def _write_motion_v1_g1_parquet(output_dir: Path) -> Path:
         sequence_id=seq_id,
         robot_name=robot_name,
         motion_kind="single_robot",
-        source_dataset="nvhuman",
+        source_dataset="soma",
         raw_motion_file="fake.pt",
         fps=30.0,
         coord_frame="robot_base_z_up",
@@ -137,7 +137,7 @@ def _write_motion_v1_dex3_parquet(output_dir: Path) -> Path:
         sequence_id=seq_id,
         robot_name=robot_name,
         motion_kind="dual_hand",
-        source_dataset="nvhuman",
+        source_dataset="soma",
         raw_motion_file="fake.pt",
         fps=30.0,
         coord_frame="robot_base_z_up",

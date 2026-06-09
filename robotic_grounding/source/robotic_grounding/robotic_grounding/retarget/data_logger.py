@@ -585,8 +585,9 @@ def filter_sequence_ids(sequence_ids: list[str], args: argparse.Namespace) -> li
 # Logger Classes
 #############################################################
 # ManoSharpaData remains the logger for the dual-hand V2P pipeline.
-# The NvhumanG1 / NvhumanDex3 layouts are retired; their producers now write
-# the unified `motion_v1` schema via `robotic_grounding.motion_schema`.
+# The whole-body G1 and hand-only Dex3 producers write the unified
+# ``motion_v1`` schema directly via ``robotic_grounding.motion_schema``;
+# no dedicated logger class is needed for them.
 ManoSharpaData = create_data_logger_class(
     "ManoSharpaData",
     BASE_FIELDS + MANO_FIELDS + SHARPA_FIELDS + OBJECT_FIELDS,

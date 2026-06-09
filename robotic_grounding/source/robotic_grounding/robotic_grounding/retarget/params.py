@@ -104,114 +104,12 @@ MANO_JOINTS_PARENTS = [
 MANO_FINGERTIP_INDICES = [4, 8, 12, 16, 20]
 
 #############################################################
-# NVHuman parameters
-#############################################################
-
-NVHUMAN_JOINTS_ORDER = [
-    "Hips",  # 0
-    "Spine1",  # 1
-    "Spine2",  # 2
-    "Chest",  # 3
-    "Neck1",  # 4
-    "Neck2",  # 5
-    "Head",  # 6
-    "HeadEnd",  # 7
-    "Jaw",  # 8
-    "LeftEye",  # 9
-    "RightEye",  # 10
-    "LeftShoulder",  # 11
-    "LeftArm",  # 12
-    "LeftForeArm",  # 13
-    "LeftHand",  # 14
-    "LeftHandThumb1",  # 15
-    "LeftHandThumb2",  # 16
-    "LeftHandThumb3",  # 17
-    "LeftHandThumbEnd",  # 18
-    "LeftHandIndex1",  # 19
-    "LeftHandIndex2",  # 20
-    "LeftHandIndex3",  # 21
-    "LeftHandIndex4",  # 22
-    "LeftHandIndexEnd",  # 23
-    "LeftHandMiddle1",  # 24
-    "LeftHandMiddle2",  # 25
-    "LeftHandMiddle3",  # 26
-    "LeftHandMiddle4",  # 27
-    "LeftHandMiddleEnd",  # 28
-    "LeftHandRing1",  # 29
-    "LeftHandRing2",  # 30
-    "LeftHandRing3",  # 31
-    "LeftHandRing4",  # 32
-    "LeftHandRingEnd",  # 33
-    "LeftHandPinky1",  # 34
-    "LeftHandPinky2",  # 35
-    "LeftHandPinky3",  # 36
-    "LeftHandPinky4",  # 37
-    "LeftHandPinkyEnd",  # 38
-    "LeftForeArmTwist1",  # 39
-    "LeftForeArmTwist2",  # 40
-    "LeftArmTwist1",  # 41
-    "LeftArmTwist2",  # 42
-    "RightShoulder",  # 43
-    "RightArm",  # 44
-    "RightForeArm",  # 45
-    "RightHand",  # 46
-    "RightHandThumb1",  # 47
-    "RightHandThumb2",  # 48
-    "RightHandThumb3",  # 49
-    "RightHandThumbEnd",  # 50
-    "RightHandIndex1",  # 51
-    "RightHandIndex2",  # 52
-    "RightHandIndex3",  # 53
-    "RightHandIndex4",  # 54
-    "RightHandIndexEnd",  # 55
-    "RightHandMiddle1",  # 56
-    "RightHandMiddle2",  # 57
-    "RightHandMiddle3",  # 58
-    "RightHandMiddle4",  # 59
-    "RightHandMiddleEnd",  # 60
-    "RightHandRing1",  # 61
-    "RightHandRing2",  # 62
-    "RightHandRing3",  # 63
-    "RightHandRing4",  # 64
-    "RightHandRingEnd",  # 65
-    "RightHandPinky1",  # 66
-    "RightHandPinky2",  # 67
-    "RightHandPinky3",  # 68
-    "RightHandPinky4",  # 69
-    "RightHandPinkyEnd",  # 70
-    "RightForeArmTwist1",  # 71
-    "RightForeArmTwist2",  # 72
-    "RightArmTwist1",  # 73
-    "RightArmTwist2",  # 74
-    "LeftLeg",  # 75
-    "LeftShin",  # 76
-    "LeftFoot",  # 77
-    "LeftToeBase",  # 78
-    "LeftToeEnd",  # 79
-    "LeftShinTwist1",  # 80
-    "LeftShinTwist2",  # 81
-    "LeftLegTwist1",  # 82
-    "LeftLegTwist2",  # 83
-    "RightLeg",  # 84
-    "RightShin",  # 85
-    "RightFoot",  # 86
-    "RightToeBase",  # 87
-    "RightToeEnd",  # 88
-    "RightShinTwist1",  # 89
-    "RightShinTwist2",  # 90
-    "RightLegTwist1",  # 91
-    "RightLegTwist2",  # 92
-]
-
-#############################################################
 # SOMA parameters (NVlabs SOMA-X, MHR identity)
 #############################################################
 
-# Ordered SOMA rig joint names exported by ``save_soma_npz``. Identical to
-# NVHUMAN_JOINTS_ORDER except that the eight forearm/arm/leg/shin "twist"
-# pseudo joints are not part of the SOMA rig. Index positions are stable for
-# any SOMA-X export because ``save_soma_npz`` writes joint_names verbatim
-# from ``soma.rig_data["joint_names"]``.
+# Ordered SOMA rig joint names exported by ``save_soma_npz``. Index
+# positions are stable for any SOMA-X export because ``save_soma_npz``
+# writes joint_names verbatim from ``soma.rig_data["joint_names"]``.
 SOMA_JOINTS_ORDER = [
     "Hips",  # 0
     "Spine1",  # 1
@@ -344,14 +242,6 @@ SHARPA_RELATIVE_FRAMES = [
 # IK parameters for Dex3 hand
 #############################################################
 
-DEX3_TO_NVHUMAN_MAPPING = {
-    # Dex3 .* hand sites: (target NVHuman joint, position cost, orientation cost)
-    ".*_hand_palm_link": (".*Hand", 1.0, 0.1),
-    ".*_thumb_tip": (".*HandThumbEnd", 1.0, 0.0),
-    ".*_index_tip": (".*HandIndexEnd", 1.0, 0.0),
-    ".*_middle_tip": (".*HandRingEnd", 1.0, 0.0),  # Map ring finger to middle
-}
-
 DEX3_TO_MANO_MAPPING = {
     # Dex3 .* hand sites: (target MANO joint, position cost, orientation cost)
     ".*_hand_palm_link": ("wrist", 1.0, 0.1),
@@ -359,84 +249,6 @@ DEX3_TO_MANO_MAPPING = {
     ".*_index_tip": ("index4", 1.0, 0.0),
     ".*_middle_tip": ("middle4", 1.0, 0.0),
 }
-
-# NVHuman convention: X=left, Y=up, Z=forward
-# Robot convention: X=forward, Y=left, Z=up
-# Mapping: NVHuman Z → Robot X, NVHuman X → Robot Y, NVHuman Y → Robot Z
-R_NVHUMAN_TO_ROBOT = [
-    [0, 0, 1],
-    [1, 0, 0],
-    [0, 1, 0],
-]
-
-# Palm frame corrections to align robot palm frame with human hand orientation.
-R_PALM_CORRECTION_LEFT = [
-    [0, 0, 1],
-    [1, 0, 0],
-    [0, 1, 0],
-]
-
-# Right hand: R_y(90°) @ R_z(-90°) - first -90° about Z, then 90° about Y
-R_PALM_CORRECTION_RIGHT = [
-    [0, 0, 1],
-    [-1, 0, 0],
-    [0, -1, 0],
-]
-
-#############################################################
-# IK parameters for G1 whole body
-#############################################################
-
-G1_WHOLEBODY_TO_NVHUMAN_MAPPING = {
-    # Pelvis
-    "pelvis": ("Hips", 1.0, 0.5),
-    # Torso
-    "torso_link": ("Chest", 1.0, 0.5),
-    # Left arm / hand
-    "left_hand_palm_link": ("LeftHand", 2.0, 0.1),
-    "left_hand_thumb_2_link": ("LeftHandThumbEnd", 2.0, 0.0),
-    "left_hand_index_1_link": ("LeftHandIndexEnd", 2.0, 0.0),
-    "left_hand_middle_1_link": ("LeftHandRingEnd", 2.0, 0.0),
-    # Right arm / hand
-    "right_hand_palm_link": ("RightHand", 2.0, 0.1),
-    "right_hand_thumb_2_link": ("RightHandThumbEnd", 2.0, 0.0),
-    "right_hand_index_1_link": ("RightHandIndexEnd", 2.0, 0.0),
-    "right_hand_middle_1_link": ("RightHandRingEnd", 2.0, 0.0),
-    # Left leg / foot
-    "left_knee_link": ("LeftShin", 0.25, 0.0),
-    "left_ankle_roll_link": ("LeftFoot", 5.0, 1.0),
-    # Right leg / foot
-    "right_knee_link": ("RightShin", 0.25, 0.0),
-    "right_ankle_roll_link": ("RightFoot", 5.0, 1.0),
-}
-
-# Foot joints used for ground-plane estimation and foot-Z clamping during
-# whole-body retargeting. Source joints are from NVHUMAN_JOINTS_ORDER; robot
-# frames are the contact links used in G1_WHOLEBODY_TO_NVHUMAN_MAPPING.
-NVHUMAN_FOOT_JOINT_NAMES = [
-    "LeftFoot",
-    "RightFoot",
-    "LeftToeBase",
-    "RightToeBase",
-    "LeftToeEnd",
-    "RightToeEnd",
-]
-
-G1_FOOT_FRAME_NAMES = [
-    "left_ankle_roll_link",
-    "right_ankle_roll_link",
-]
-
-# Z-distance from the G1 ``*_ankle_roll_link`` joint origin down to the foot
-# sole. Source: ``LL_FOOT`` / ``LR_FOOT`` fixed joints in the G1 URDF
-# (``main_with_hand.urdf``) sit at ``xyz="0.04 0 -0.037"`` off each
-# ``ankle_roll_link``, so the sole is 3.7 cm below the ankle joint origin.
-# Used by the retargeter to convert ankle-frame Z to sole Z when anchoring
-# the robot to the floor. Assumes the foot is approximately level; frame-0
-# ankle pitches in nvhuman-sourced motions are small (<= ~0.3 rad), so the
-# residual Z error is a few mm — negligible versus the multi-cm grounding
-# error this replaces.
-G1_ANKLE_ROLL_OFFSET = 0.037
 
 #############################################################
 # MANO hand link definitions

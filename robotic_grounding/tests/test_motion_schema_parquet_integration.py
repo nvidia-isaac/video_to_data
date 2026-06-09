@@ -9,9 +9,8 @@
 """Integration test for the `motion_v1` parquet pipeline.
 
 Writes a motion_v1 parquet, loads it via SceneConfig + the unified reader,
-and asserts the usual round-trip invariants. Replaces the legacy
-`test_nvhuman_g1_parquet_integration.py` which was built around
-`NvhumanG1Data` — that dataclass is retired in favor of `MotionData`.
+and asserts the usual round-trip invariants. The canonical schema is
+`MotionData`; older per-robot dataclasses have been retired.
 
 Usage (pytest):
     pytest tests/test_motion_schema_parquet_integration.py
@@ -114,7 +113,7 @@ def test_motion_v1_parquet_roundtrip_scene_config_and_loader(tmp_path: Path) -> 
         sequence_id=sequence_id,
         robot_name=robot_name,
         motion_kind="single_robot",
-        source_dataset="nvhuman",
+        source_dataset="soma",
         raw_motion_file=str(tmp_path / "nova_params_opt.pt"),
         fps=30.0,
         coord_frame="robot_base_z_up",

@@ -20,7 +20,7 @@ green=right) is drawn at the corresponding wrist while the mask is on.
 
 Usage:
     python scripts/replay_motion.py \
-        --motion_file source/robotic_grounding/robotic_grounding/assets/human_motion_data/nvhuman_g1_processed/sequence_id=<seq>/robot_name=g1
+        --motion_file source/robotic_grounding/robotic_grounding/assets/human_motion_data/whole_body/soma/sequence_id=<seq>/robot_name=g1
 
     python scripts/replay_motion.py --motion_file <path> --speed 0.5
     python scripts/replay_motion.py --motion_file <path> --no-loop
