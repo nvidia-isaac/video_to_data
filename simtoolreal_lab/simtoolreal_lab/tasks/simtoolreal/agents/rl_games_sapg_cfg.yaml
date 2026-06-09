@@ -1,0 +1,120 @@
+# SAPG config — mirrors isaacgymenvs/launch_training.py overrides + SimToolRealLSTMAsymmetricPPO.yaml.
+# Run with --num_envs 6144 -> 6 SAPG blocks (6144 / expl_coef_block_size 1024). 6 blocks is REQUIRED:
+# the fork's player hardcodes 6 blocks (players.py "linspace(50,0,6)"), so train/eval must use 6.
+# batch = horizon(16) * 6144 = 98304; minibatch 16384 -> 6 minibatches.
+params:
+  seed: 0
+
+  env:
+    clip_observations: 10.0
+    clip_actions: 1.0
+
+  algo:
+    name: a2c_continuous
+
+  model:
+    name: continuous_a2c_logstd
+
+  network:
+    name: actor_critic
+    separate: False
+    space:
+      continuous:
+        mu_activation: None
+        sigma_activation: None
+        mu_init:
+          name: default
+        sigma_init:
+          name: const_initializer
+          val: 0
+        fixed_sigma: 'coef_cond'   # SAPG: exploration-coefficient-conditioned sigma
+    mlp:
+      units: [1024, 1024, 512, 512]
+      activation: elu
+      d2rl: False
+      initializer:
+        name: default
+      regularizer:
+        name: None
+    rnn:
+      name: lstm
+      units: 1024
+      layers: 1
+      before_mlp: True
+      layer_norm: True
+
+  load_checkpoint: False
+  load_path: ''
+
+  config:
+    name: 00_simtoolreal_clawhammer_lift   # SAPG parses policy_idx = int(name.split('_')[0])
+    env_name: rlgpu
+    device: 'cuda:0'
+    device_name: 'cuda:0'
+    multi_gpu: False
+    ppo: True
+    mixed_precision: True
+    normalize_input: True
+    normalize_value: True
+    normalize_advantage: True
+    value_bootstrap: True
+    num_actors: -1
+    reward_shaper:
+      scale_value: 1.0
+    gamma: 0.99
+    tau: 0.95
+    learning_rate: 1e-4
+    lr_schedule: adaptive
+    schedule_type: standard
+    kl_threshold: 0.016
+    score_to_win: 1000000
+    max_epochs: 10000
+    save_best_after: 100
+    save_frequency: 500
+    print_stats: True
+    grad_norm: 1.0
+    entropy_coef: 0.0
+    truncate_grads: True
+    e_clip: 0.1
+    horizon_length: 16
+    minibatch_size: 16384
+    mini_epochs: 2
+    critic_coef: 4.0
+    clip_value: True
+    seq_length: 16
+    bounds_loss_coef: 0.0001
+
+    # --- SAPG (off-policy experience sharing across blocks + learned exploration) ---
+    use_others_experience: 'lf'        # leader-follower experience sharing
+    off_policy_ratio: 1.0
+    expl_type: 'mixed_expl_learn_param'
+    expl_reward_type: 'entropy'
+    expl_coef_block_size: 1024         # num_envs / num_blocks = 6144 / 6  (original: 24576/6 = 4096)
+    expl_reward_coef_scale: 0.005
+    expl_reward_coef_embd_size: 32
+
+    # --- asymmetric critic (privileged "critic" obs group, dim 155) ---
+    central_value_config:
+      minibatch_size: 16384
+      mini_epochs: 2
+      learning_rate: 1e-4
+      kl_threshold: 0.016
+      clip_value: True
+      normalize_input: True
+      truncate_grads: True
+      network:
+        name: actor_critic
+        central_value: True
+        mlp:
+          units: [1024, 1024, 512, 512]
+          activation: elu
+          d2rl: False
+          initializer:
+            name: default
+          regularizer:
+            name: None
+
+    player:
+      deterministic: True
+      games_num: 100000
+      print_stats: True
