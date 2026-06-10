@@ -59,7 +59,7 @@ python experiments/run_experiment.py recon_body_apple --local
 # Eval with checkpoint
 isaaclab.sh -p scripts/rsl_rl/eval.py \
     --task SonicG1-ReconBody-v0 \
-    --motion_file whole_body/mhr/sequence_id=apple_pick_optimized/robot_name=g1 \
+    --motion_file whole_body/soma/sequence_id=apple_pick_optimized/robot_name=g1 \
     --checkpoint <path>/model_N.pt \
     --enable_cameras
 ```

@@ -243,7 +243,7 @@ def save_motion_parquet(
 
     Args:
         md: Populated `MotionData`.
-        root_path: Dataset root (e.g. `.../whole_body/mhr`).
+        root_path: Dataset root (e.g. `.../whole_body/soma`).
         partition_cols: Hive partition keys. Defaults to `sequence_id`, `robot_name`.
         validate: If True, run required-fields and wxyz sanity checks before writing.
         file_name: Optional stable basename for the single parquet file (e.g.

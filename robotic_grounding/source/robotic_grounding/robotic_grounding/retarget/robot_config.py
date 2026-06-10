@@ -156,8 +156,7 @@ class RobotRetargetConfig:
         posture_task: Optional posture-regularization weights. Defaults
             to all-zero costs (no posture term), which is a strict
             no-op compatible with the existing SOMA bit-equivalence
-            regression. Consumed by
-            ``ConfigDrivenWholeBodyKinematics``.
+            regression. Consumed by ``WholeBodyKinematics``.
     """
 
     robot_name: str
