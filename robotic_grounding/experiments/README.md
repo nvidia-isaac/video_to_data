@@ -4,10 +4,12 @@ Each experiment lives in its own subdirectory and is registered in `registry.yam
 The runner script dispatches experiments locally or to OSMO:
 
 ```bash
-python robotic_grounding/scripts/run_experiment.py <id> --local
-python robotic_grounding/scripts/run_experiment.py <id> --osmo
-python robotic_grounding/scripts/run_experiment.py --list
+python experiments/run_experiment.py <id> --local
+python experiments/run_experiment.py <id> --osmo
+python experiments/run_experiment.py --list
 ```
+
+Commands assume the current directory is `robotic_grounding/`. From the repository root, use `python robotic_grounding/experiments/run_experiment.py ...`. Add `--dry-run` to preview local commands or generated OSMO submissions without launching work. Agents without OSMO/NGC setup should read [workflow/README.md](../workflow/README.md) before attempting cloud launch commands.
 
 ---
 
@@ -19,7 +21,7 @@ experiments/
   utils.py                    # shared helpers (build_train_command, make_entry_script, …)
   <experiment_dir>/
     config.yaml               # required — experiment definition
-    workflow.py               # required for multi-task/sweep OSMO jobs
+    workflow.py               # optional; required for custom multi-task/sweep workflows
 ```
 
 Only `example_*` directories are committed to the repo.
@@ -28,6 +30,32 @@ Add your own experiment folders locally; they are gitignored (`experiments/exp*/
 ---
 
 ## Example experiments
+
+### Relative-object merge examples
+
+These are the committed examples to use when validating the relative-object merge path:
+
+| ID | Purpose |
+|----|---------|
+| `example_fixed_post` | Stage 2 FixedTimestepCurriculum with the stage-3 object-tracking boost in the tail. |
+| `example_AC_post` | Adaptive custom VOC schedule with the stage-3 object-tracking boost in the same run. |
+| `example_pre_fixed_post` | Pipeline wrapper that runs collision-free stage 1, then fixed-post stage 2/3. |
+
+Preview their generated OSMO workflows before launching:
+
+```bash
+python experiments/run_experiment.py example_fixed_post --osmo --dry-run
+python experiments/run_experiment.py example_AC_post --osmo --dry-run
+python experiments/run_experiment.py example_pre_fixed_post --osmo --dry-run
+```
+
+Print the generated train entry script for a single experiment:
+
+```bash
+python experiments/run_experiment.py example_fixed_post --print-workflow
+```
+
+---
 
 ### 1. Single run — `example_single`
 
@@ -40,15 +68,15 @@ No `workflow.py` needed — `run_experiment.py` generates the workflow inline.
 
 | Key | Purpose |
 |-----|---------|
-| `motion_file` | Motion file path (e.g. `arctic_processed/arctic_s01_capsulemachine_grab_01/sharpa_wave`) |
+| `motion_file` | Motion file path (e.g. `arctic/arctic_processed/arctic_s01_capsulemachine_grab_01/sharpa_wave`) |
 | `train_overrides` | Hydra key=value overrides passed to `train.py` |
 | `video` | Whether to record video |
 | `osmo.build_image` | Whether to build+push the Docker image before submitting |
 
 ```bash
-python robotic_grounding/scripts/run_experiment.py example_single --local
-python robotic_grounding/scripts/run_experiment.py example_single --osmo
-python robotic_grounding/scripts/run_experiment.py example_single --print-workflow  # preview entry script
+python experiments/run_experiment.py example_single --local
+python experiments/run_experiment.py example_single --osmo
+python experiments/run_experiment.py example_single --print-workflow  # preview entry script
 ```
 
 ---
@@ -58,7 +86,7 @@ python robotic_grounding/scripts/run_experiment.py example_single --print-workfl
 **Directory:** `example_sequence_list/`
 
 Spawns one independent OSMO task per sequence in `osmo_multi_task.sequence_ids`.
-Requires `workflow.py` with a `generate_workflow(exp_id, config) -> str` function.
+Requires `workflow.py` with a `generate_workflow(exp_id, config) -> str` function. Newer single-stage configs can instead use top-level `sequences:`; for those, the runner generates one OSMO task per sequence without a custom `workflow.py`.
 
 **Additional config.yaml keys:**
 
@@ -70,8 +98,8 @@ Requires `workflow.py` with a `generate_workflow(exp_id, config) -> str` functio
 **Local single-sequence run** via `--variant <short_name>` (requires `get_variant_overrides` in `workflow.py`):
 
 ```bash
-python robotic_grounding/scripts/run_experiment.py example_sequences --osmo
-python robotic_grounding/scripts/run_experiment.py example_sequences --local --variant capsulemachine
+python experiments/run_experiment.py example_sequences --osmo
+python experiments/run_experiment.py example_sequences --local --variant capsulemachine
 ```
 
 ---
@@ -92,16 +120,100 @@ Requires `workflow.py` with `generate_workflow` and optionally `get_variant_over
 The example sweeps `contact_force.weight × action_l1.weight` (2×2 = 4 tasks):
 
 ```bash
-python robotic_grounding/scripts/run_experiment.py example_sweep --osmo
-python robotic_grounding/scripts/run_experiment.py example_sweep --local --variant cf1p0_aln5e-3
+python experiments/run_experiment.py example_sweep --osmo
+python experiments/run_experiment.py example_sweep --local --variant cf1p0_aln5e-3
 ```
+
+---
+
+## Local run path without OSMO or W&B
+
+Use this path when the agent only has the local container and local motion data. It does not submit OSMO jobs and does not require a W&B API key.
+
+Preview the generated train command:
+
+```bash
+python experiments/run_experiment.py example_fixed_post --local --dry-run \
+  --logger tensorboard \
+  --num-envs 1 \
+  --max-iterations 1
+```
+
+Run a one-iteration local train smoke test with TensorBoard logging:
+
+```bash
+python scripts/rsl_rl/train.py \
+  --headless \
+  --task Sharpa-V2P-v0 \
+  --motion_file arctic/arctic_processed/arctic_s01_box_grab_01/sharpa_wave \
+  --num_envs 1 \
+  --max_iterations 1 \
+  --logger tensorboard \
+  --run_name smoke_train \
+  --use_primitive_urdfs \
+  agent.num_steps_per_env=8 \
+  agent.save_interval=1
+```
+
+Evaluate the checkpoint created by that smoke test with the direct eval script:
+
+```bash
+CHECKPOINT=$(find logs/rsl_rl -path '*smoke_train*/model_*.pt' | sort -V | tail -1)
+python scripts/rsl_rl/eval.py \
+  --headless \
+  --task Sharpa-V2P-v0 \
+  --motion_file arctic/arctic_processed/arctic_s01_box_grab_01/sharpa_wave \
+  --num_envs 1 \
+  --checkpoint "$CHECKPOINT" \
+  --eval_episodes 1 \
+  --use_primitive_urdfs
+```
+
+For a dummy-agent asset check, use the commands in the top-level [README.md](../README.md). If the motion data is missing and OSMO is unavailable, stop and ask for the local dataset path or a prepared asset bundle.
+
+---
+
+## OSMO launch checklist
+
+Use this section only after OSMO/NGC access is configured. The setup guide is [workflow/README.md](../workflow/README.md). Real OSMO training also expects `WANDB_API_KEY`; without it, use the local TensorBoard path above.
+
+1. Confirm the experiment is registered:
+   ```bash
+   python experiments/run_experiment.py --list
+   ```
+2. Preview before launching:
+   ```bash
+   python experiments/run_experiment.py <id> --osmo --dry-run
+   python experiments/run_experiment.py <id> --print-workflow
+   ```
+3. Submit with an existing image:
+   ```bash
+   export WANDB_API_KEY=<key>
+   python experiments/run_experiment.py <id> --osmo \
+     --image nvcr.io/nvstaging/isaac-amr/robotic-grounding:<tag> \
+     --pool isaac-dev-l40s-04 \
+     --priority NORMAL
+   ```
+4. If the selected image does not contain your branch changes, build and push through the runner:
+   ```bash
+   python experiments/run_experiment.py <id> --osmo --build-image \
+     --image nvcr.io/nvstaging/isaac-amr/robotic-grounding:<tag>
+   ```
+5. Inspect the workflow:
+   ```bash
+   osmo workflow list
+   osmo workflow logs <workflow-name>
+   osmo workflow cancel <workflow-name>
+   ```
+
+When `osmo.motion_data_url` is set in `config.yaml`, the runner adds the OSMO dataset input and derives the mounted `--motion_file` path in the generated workflow. Do not manually rewrite those paths unless you are debugging the generator.
 
 ---
 
 ## Adding a new experiment
 
 1. Create `experiments/<your_exp_dir>/config.yaml` (copy an example as a starting point).
-2. If multi-task or sweep, add `workflow.py` with `generate_workflow(exp_id, config) -> str`.
+2. For simple multi-sequence runs, prefer top-level `sequences:` in `config.yaml`. Add `workflow.py` only for custom multi-task or sweep generation with `generate_workflow(exp_id, config) -> str`.
 3. Register it in `experiments/registry.local.yaml` (gitignored — create it if it doesn't exist):
    ```yaml
    # experiments/registry.local.yaml  — never committed
@@ -111,7 +223,7 @@ python robotic_grounding/scripts/run_experiment.py example_sweep --local --varia
    are immediately available without touching any tracked file.
 4. Run it:
    ```bash
-   python robotic_grounding/scripts/run_experiment.py myexp --local --dry-run
+   python experiments/run_experiment.py myexp --local --dry-run
    ```
 
 ---
@@ -173,9 +285,9 @@ Follow the steps below based on the first argument:
 
 **launch** — submit to OSMO
 1. Read experiments/registry.yaml to resolve the experiment directory.
-2. Run: python robotic_grounding/scripts/run_experiment.py <exp_id> --print-workflow
+2. Run: python experiments/run_experiment.py <exp_id> --print-workflow
    Show the output to the user and ask for confirmation.
-3. On confirmation run: python robotic_grounding/scripts/run_experiment.py <exp_id> --osmo
+3. On confirmation run: python experiments/run_experiment.py <exp_id> --osmo
 
 **status** — check progress on W&B
 1. Read the run_name from experiments/<exp_dir>/config.yaml.

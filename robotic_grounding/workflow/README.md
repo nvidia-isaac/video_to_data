@@ -28,6 +28,16 @@ Install the [OSMO CLI](https://isaac-infrastructure.gitlab-master-pages.nvidia.c
 
 Omni-auth credentials are generally not needed; if a workflow complains about them, remove the credentials block from the yaml or follow the [token guide](https://docs.omniverse.nvidia.com/nucleus/latest/config-and-info/api_tokens.html#token-generation).
 
+### 4. Configure W&B for training jobs
+
+OSMO training workflows log to W&B by default. Set `WANDB_API_KEY` in the shell that submits the workflow:
+
+```bash
+export WANDB_API_KEY=<your-key>
+```
+
+If W&B is not available, do not submit a cloud training run. Use local smoke tests with `--logger tensorboard` from the top-level README or `experiments/README.md`.
+
 ## Submitting a Job
 
 `run_osmo.py` builds + pushes + submits in one command. Add `--image <tag>` to skip rebuilding with an existing image, or `--dry-run` to preview.

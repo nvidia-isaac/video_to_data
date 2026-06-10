@@ -83,6 +83,63 @@ If using VSCode or Cursor, you can use the `Attach to Running Container` feature
 
 Currently, due to Isaac Lab's image requiring root for Omniverse, we are using the root user for the container. There can be some permission issues, but they can be bypassed with `sudo chown -R $(whoami) .` in the host machine.
 
+For agent-oriented checks, use this quick path before opening a merge request. Commands assume the `robotic_grounding/` package root, and Isaac commands should run inside the container. OSMO and W&B are not required for the local smoke tests below.
+
+## Agent Smoke Tests
+
+### Assets and dummy agent
+
+Motion data resolves under `source/robotic_grounding/robotic_grounding/assets/human_motion_data/`. The safest local shorthand is `<dataset>/<dataset>_processed/<sequence_id>/sharpa_wave`, for example `arctic/arctic_processed/arctic_s01_box_grab_01/sharpa_wave`.
+
+Pull retargeted outputs when they are missing:
+
+```bash
+osmo dataset info v2d_arctic_retarget_exp_200 --order desc
+osmo dataset download v2d_arctic_retarget_exp_200:<version> \
+  source/robotic_grounding/robotic_grounding/assets/human_motion_data/arctic/ \
+  --regex '(arctic_processed|arctic_urdfs|reconstructed_stage)/.*'
+```
+
+If OSMO is not configured, do not attempt the dataset download. Use any already
+present local motion partition, or ask for the dataset version/path needed for
+the task. OSMO setup lives in [workflow/README.md](workflow/README.md).
+
+Run a GUI dummy-agent smoke test inside the container:
+
+```bash
+python scripts/rsl_rl/dummy_agent.py \
+  --task Sharpa-V2P-v0-Play \
+  --motion_file arctic/arctic_processed/arctic_s01_box_grab_01/sharpa_wave \
+  --num_envs 1 \
+  --use_primitive_urdfs
+```
+
+Run the same check headless with a short MP4:
+
+```bash
+python scripts/rsl_rl/dummy_agent.py \
+  --headless \
+  --task Sharpa-V2P-v0-Play \
+  --motion_file arctic/arctic_processed/arctic_s01_box_grab_01/sharpa_wave \
+  --num_envs 1 \
+  --use_primitive_urdfs \
+  --record_video \
+  --output_dir /tmp/rg_dummy_agent_video \
+  --video_length 300
+```
+
+Success means Isaac starts, the task registers, `SceneConfig.from_motion_file` loads the parquet partition, no missing-asset exception is raised, and the simulation advances.
+
+### Training and OSMO
+
+Use the `RL training` section below for a local `train.py` dry-run and one-iteration smoke test. If W&B is not configured, keep local smoke tests on TensorBoard by passing `--logger tensorboard`. Use [experiments/README.md](experiments/README.md) for OSMO dry-runs, image selection, and launch commands. The key merge-readiness checks are:
+
+```bash
+python experiments/run_experiment.py example_fixed_post --osmo --dry-run
+python experiments/run_experiment.py example_AC_post --osmo --dry-run
+python experiments/run_experiment.py example_pre_fixed_post --osmo --dry-run
+```
+
 ### Running Debugging Env
 
 The debug environment (`Sharpa-V2P-Debug-v0`) provides interactive GUI controls for testing contact sensors and MDP components:
@@ -159,12 +216,46 @@ python scripts/view_scene.py --motion_file <parquet_partition_path>
 ```
 
 ## RL training
+
+Commands in this section assume you are inside the container from the
+`robotic_grounding/` package root. These commands do not require W&B or OSMO
+when the motion data is already present locally.
+
 ```bash
-python scripts/rsl_rl/dummy_agent.py  # Run environment with zero/random actions for testing setup
-python scripts/rsl_rl/train.py        # Train an RL agent using RSL-RL
-python scripts/rsl_rl/eval.py         # Evaluate a trained checkpoint and export policy to JIT/ONNX
-python scripts/rsl_rl/play.py         # Play environment without a checkpoint (sinusoidal or zero actions)
+# Verify the experiment runner can generate a train.py command without starting Isaac.
+python experiments/run_experiment.py example_fixed_post --local --dry-run
+
+# Run a real one-iteration train smoke test.
+python scripts/rsl_rl/train.py \
+  --headless \
+  --task Sharpa-V2P-v0 \
+  --motion_file arctic/arctic_processed/arctic_s01_box_grab_01/sharpa_wave \
+  --num_envs 1 \
+  --max_iterations 1 \
+  --logger tensorboard \
+  --run_name smoke_train \
+  --use_primitive_urdfs \
+  agent.num_steps_per_env=8 \
+  agent.save_interval=1
+
+# Evaluate the checkpoint produced by the smoke train.
+CHECKPOINT=$(find logs/rsl_rl -path '*smoke_train*/model_*.pt' | sort -V | tail -1)
+python scripts/rsl_rl/eval.py \
+  --headless \
+  --task Sharpa-V2P-v0 \
+  --motion_file arctic/arctic_processed/arctic_s01_box_grab_01/sharpa_wave \
+  --num_envs 1 \
+  --checkpoint "$CHECKPOINT" \
+  --eval_episodes 1 \
+  --use_primitive_urdfs
+
+# Other entry points.
+python scripts/rsl_rl/dummy_agent.py  # Run an environment with zero actions.
+python scripts/rsl_rl/eval.py         # Evaluate a trained checkpoint and export policy.
+python scripts/rsl_rl/play.py         # Play without a checkpoint.
 ```
+
+See the `Agent Smoke Tests` section above for the required asset layout, dummy-agent commands, and OSMO experiment dry-runs.
 
 ## RL Tasks
 - `Sharpa-V2P-v0-Play`
