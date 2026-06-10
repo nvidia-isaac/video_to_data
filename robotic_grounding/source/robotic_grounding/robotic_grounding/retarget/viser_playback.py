@@ -43,7 +43,7 @@ from robotic_grounding.motion_schema import MotionData, load_motion_data_parquet
 from robotic_grounding.retarget.pinocchio_viser_visualizer import ViserVisualizer
 from robotic_grounding.retarget.robot_config import load_robot_config
 from robotic_grounding.retarget.whole_body_kinematics import (
-    ConfigDrivenWholeBodyKinematics,
+    WholeBodyKinematics,
 )
 
 # Silence the aborted-handshake tracebacks the `websockets` layer inside
@@ -506,30 +506,12 @@ class ViserPlayback:
         """Load the G1 whole-body Pinocchio model and wrap in ViserVisualizer.
 
         Only runs for single-robot parquets. Uses the canonical
-        ``ConfigDrivenWholeBodyKinematics`` (the same kinematics backend
+        ``WholeBodyKinematics`` (the same kinematics backend
         ``soma_to_g1.py`` runs) loaded from the in-repo G1 config so
-        replay matches retarget. Only parquets whose ``source_dataset``
-        matches the active G1 config's source (currently ``soma``)
-        replay through this path; parquets produced against other
-        source schemas are rejected here rather than silently replayed
-        against a mismatched joint mapping.
+        replay matches retarget.
         """
-        # Hard guard for mismatched parquets. The SOMA G1 config expects
-        # a specific joint layout; parquets produced from a different
-        # source schema have a different joint count + ordering and
-        # would either crash in ``_reorder_to_pinocchio`` below or
-        # silently render with joints in the wrong positions. Fail fast
-        # with a clear message instead.
-        src = (self._md.source_dataset or "").strip().lower()
-        if src and src != "soma":
-            raise ValueError(
-                f"viser_playback: cannot replay parquet with "
-                f"source_dataset={src!r}; only 'soma' is supported. "
-                f"Re-retarget via scripts/retarget/soma_to_g1.py or "
-                f"point at a soma-produced partition."
-            )
         config = load_robot_config("g1")
-        kin = ConfigDrivenWholeBodyKinematics(config=config)
+        kin = WholeBodyKinematics(config=config)
         self._pin_model = kin.robot.model
         self._pin_joint_names = [str(n) for n in self._pin_model.names]
         self._pin_viz = ViserVisualizer(

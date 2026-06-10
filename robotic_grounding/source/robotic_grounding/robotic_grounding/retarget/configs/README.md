@@ -122,9 +122,8 @@ What the IK actually does on the robot.
 
 `urdf` and `package_dirs` are resolved relative to the directory the
 JSON lives in (i.e. `configs/<robot>/`). `posture_task` is consumed by
-`ConfigDrivenWholeBodyKinematics`; absent or all-zero costs disable the
-posture term entirely (which is the legacy default behavior
-path, which never reads it).
+`WholeBodyKinematics`; absent or all-zero costs disable the posture
+term entirely (the legacy default).
 
 ## Adding a new robot
 

@@ -6,7 +6,7 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
-from typing import Any, Literal, Optional, cast
+from typing import Any, Optional
 
 import numpy as np
 import pink
@@ -27,43 +27,70 @@ from robotic_grounding.retarget.robot_config import RobotRetargetConfig
 
 
 class WholeBodyKinematics:
-    """Base class for whole body kinematics retargeting.
+    """Whole-body IK driven by a :class:`RobotRetargetConfig`.
 
-    Follows the same patterns as HandKinematics but operates on the full body:
-    pelvis, torso, arms/hands, and legs/feet.
+    SOMA -> robot core. All robot-specific data (URDF path, ik_map,
+    world axis swap, per-bone rotation corrections, per-bone translation
+    offsets, posture-regularization costs) comes from the config; the IK
+    runtime (:meth:`compute`, :meth:`set_frame_tasks_target`) consumes
+    that data without any further branching.
     """
 
     def __init__(
         self,
-        robot_asset_path: str,
-        source_model: Literal["smplh", "soma"],
-        package_dirs: Optional[list[str]] = None,
+        config: RobotRetargetConfig,
+        *,
         solver: str = "daqp",
         max_iter: int = 200,
         frequency: float = 200.0,
         frame_tasks_converged_threshold: float = 1e-6,
     ) -> None:
-        """Initialize the whole body kinematics.
+        """Initialize from a fully materialized :class:`RobotRetargetConfig`.
 
         Args:
-            robot_asset_path: Path to the robot URDF/MJCF file.
-            source_model: Source motion model ("soma" is the canonical
-                whole-body source; "smplh" is reserved for future SMPL-H
-                support and currently raises NotImplementedError).
-            package_dirs: Directories to search for package:// mesh URLs.
+            config: The robot retarget config bundle (URDF path, ik_map,
+                coordinate transforms, posture-task costs).
             solver: IK solver to use.
-            max_iter: Maximum IK iterations.
+            max_iter: Maximum IK iterations per frame.
             frequency: IK solve frequency.
-            frame_tasks_converged_threshold: Convergence threshold.
+            frame_tasks_converged_threshold: Convergence threshold on
+                per-frame-task error delta (and on the QP velocity-norm
+                fallback used when posture tasks are active).
         """
-        self.robot_asset_path = robot_asset_path
-        self.source_model = source_model
-        self.package_dirs = package_dirs or []
+        # 1. Validate the source model exactly once. Every runtime
+        # method assumes SOMA from here on; there is no per-method
+        # branching on ``source_model``.
+        if config.source_model != "soma":
+            raise ValueError(
+                f"WholeBodyKinematics: source_model={config.source_model!r} "
+                f"is not supported (only 'soma' is implemented). Update the "
+                f"robot config before instantiating."
+            )
+
+        # 2. Config-derived transforms. Stored BEFORE
+        # ``setup_frame_tasks`` runs because
+        # ``get_target_to_source_mapping`` reads ``self._config.ik_map``.
+        self._config = config
+        self._R_source_to_robot = np.asarray(config.r_world, dtype=np.float64)
+        self._frame_corrections = {
+            frame_name: np.asarray(matrix, dtype=np.float64)
+            for frame_name, matrix in config.r_per_link.items()
+        }
+        self._frame_translations = {
+            frame_name: np.asarray(vec, dtype=np.float64)
+            for frame_name, vec in config.t_per_link.items()
+        }
+
+        # 3. Base attributes from config + kwargs.
+        self.robot_asset_path = str(config.urdf_path)
+        self.package_dirs = [str(p) for p in config.package_dirs]
+        self.source_model = config.source_model
         self.solver = solver
         self.max_iter = max_iter
         self.frequency = frequency
         self.frame_tasks_converged_threshold = frame_tasks_converged_threshold
 
+        # 4. Build robot and Pink configuration.
         self.robot = self.load_robot_model()
 
         self.robot_joint_names = {
@@ -90,87 +117,109 @@ class WholeBodyKinematics:
         rate = RateLimiter(frequency=frequency, warn=False)
         self.dt = rate.period
 
+        # 5. IK mapping and frame tasks (read config-derived state).
         self.source_joint_order = self.get_source_joint_order()
         self.target_to_source = self.get_target_to_source_mapping()
         self.frame_tasks = self.setup_frame_tasks()
 
+        # 6. Posture-regularization tasks. Built only when their cost is
+        # strictly positive so the default-zero config path stays
+        # bit-equivalent to a frame-tasks-only IK (no extra task object,
+        # no extra QP block, ``_extra_tasks`` returns ``[]``). The
+        # ``q0`` task target never changes; the ``q_prev`` target is
+        # refreshed per frame from ``compute()``'s ``qpos`` argument.
+        pt = config.posture_task
+        self._posture_q0_task: Optional[PostureTask] = (
+            self._build_posture_task(pt.q0_cost, pt.lm_damping, pt.gain)
+            if pt.q0_cost > 0.0
+            else None
+        )
+        self._posture_qprev_task: Optional[PostureTask] = (
+            self._build_posture_task(pt.q_prev_cost, pt.lm_damping, pt.gain)
+            if pt.q_prev_cost > 0.0
+            else None
+        )
+
+    @property
+    def config(self) -> RobotRetargetConfig:
+        """Return the underlying config bundle (read-only handle)."""
+        return self._config
+
     def load_robot_model(self) -> pin.RobotWrapper:
-        """Load the robot model. Must be implemented by subclass."""
-        raise NotImplementedError(
-            f"{self.__class__.__name__} must implement this method."
+        """Load the robot URDF with a free-flyer root joint."""
+        return pin.RobotWrapper.BuildFromURDF(
+            filename=self.robot_asset_path,
+            package_dirs=self.package_dirs,
+            root_joint=pin.JointModelFreeFlyer(),
         )
 
     def get_source_joint_order(self) -> list[str]:
-        """Get the source joint order based on source model."""
-        if self.source_model == "soma":
-            return SOMA_JOINTS_ORDER
-        if self.source_model == "smplh":
-            raise NotImplementedError("SMPL-H source model is not yet implemented.")
-        raise ValueError(f"Unknown source model: {self.source_model}")
+        """Return the SOMA source joint order."""
+        return SOMA_JOINTS_ORDER
 
     def get_target_to_source_mapping(self) -> dict[str, tuple[str, float, float]]:
-        """Get the target-to-source mapping.
+        """Build the IK frame->source mapping straight from the config.
 
         Returns:
-            Dictionary of {robot_frame: (source_joint, position_cost, orientation_cost)}.
+            Dictionary of ``{robot_frame: (source_joint, position_cost,
+            orientation_cost)}``.
         """
-        raise NotImplementedError(
-            f"{self.__class__.__name__} must implement this method."
-        )
+        return {
+            frame_name: (entry.soma_joint, entry.position_cost, entry.orientation_cost)
+            for frame_name, entry in self._config.ik_map.items()
+        }
 
     def get_base_source_joint(self) -> str:
-        """Get the base source joint name for scaling."""
-        if self.source_model == "soma":
-            return "Hips"
-        if self.source_model == "smplh":
-            raise NotImplementedError("SMPL-H source model is not yet implemented.")
-        raise ValueError(f"Unknown source model: {self.source_model}")
+        """Return the SOMA joint used as the scaling anchor."""
+        return self._config.base_source_joint
 
     def transform_source_position(self, position: np.ndarray) -> np.ndarray:
-        """Transform source position to robot convention.
-
-        Override in subclass if coordinate system transformation is needed.
-        """
-        return position
+        """Transform a SOMA-world position into robot world (right-multiply by ``R.T``)."""
+        return position @ self._R_source_to_robot.T
 
     def transform_source_rotation(self, rotation: np.ndarray) -> np.ndarray:
-        """Transform a source body-local rotation matrix to robot convention.
+        """Similarity transform for body-local source rotations.
 
-        Uses a similarity transform ``R_src_to_robot @ M @ R_src_to_robot.T``
-        so the rotation remains expressed in the robot's basis while acting on
-        vectors from the body's local frame. Override in subclass if a
-        coordinate system transformation is needed.
+        Applies ``R_src_to_robot @ M @ R_src_to_robot.T`` so the
+        rotation remains expressed in the robot's basis while acting on
+        vectors from the body's local frame. Not used by the SOMA world
+        path (which goes through :meth:`transform_world_rotation`) but
+        retained because :meth:`set_frame_tasks_target` documents the
+        distinction.
         """
-        return rotation
+        R_src = self._R_source_to_robot
+        return R_src @ rotation @ R_src.T
 
     def transform_world_rotation(self, rotation: np.ndarray) -> np.ndarray:
-        """Transform a source world-frame rotation matrix to robot convention.
-
-        For world-frame transforms (e.g. an object's global pose, not a
-        body-local joint rotation), only a left-multiply by
-        ``R_src_to_robot`` is needed. Subclasses that rotate source
-        coordinates should override.
-        """
-        return rotation
+        """Transform a SOMA-world rotation into robot world (left-multiply by ``R``)."""
+        return self._R_source_to_robot @ rotation
 
     def get_frame_rotation_correction(self, frame_name: str) -> np.ndarray:
-        """Get rotation correction for a specific robot frame.
+        """Return the per-link right-multiply correction for ``frame_name``.
 
-        Override in subclass if per-frame rotation corrections are needed.
+        Falls back to identity for any frame the config does not
+        explicitly correct, so adding a position-only IK target is a
+        single JSON edit (no Python).
         """
-        return np.eye(3)
+        correction = self._frame_corrections.get(frame_name)
+        if correction is None:
+            return np.eye(3)
+        return correction
 
     def get_frame_translation_offset(self, frame_name: str) -> np.ndarray:
-        """Get translation offset for a specific robot frame.
+        """Return the per-link translation offset for ``frame_name``.
 
         Returned vector is expressed in the corrected robot-link local
         frame and applied at runtime as ``target_pos += target_rot @
         t_offset`` (mirrors soma-retargeter's
         ``wp.quat_rotate(q, offset_tx.p)`` term in
-        ``wp_compute_scaled_effectors``). Default is zero; override in
-        subclasses that read offsets from a config.
+        ``wp_compute_scaled_effectors``). Falls back to zeros for any
+        frame the config does not provide.
         """
-        return np.zeros(3, dtype=np.float64)
+        offset = self._frame_translations.get(frame_name)
+        if offset is None:
+            return np.zeros(3, dtype=np.float64)
+        return offset
 
     def visualize(
         self,
@@ -245,15 +294,12 @@ class WholeBodyKinematics:
             target_wxyz = source_joints_wxyz[source_joint_idx]
             target_rot = R.from_quat(target_wxyz, scalar_first=True).as_matrix()
             # ``source_joints_wxyz`` carries world-frame joint orientations.
-            # SOMA: world rotations come from FK over ``t_pose_world`` and
-            # need a single left-multiply by ``R_src_to_robot`` to land in
-            # the robot world frame. The similarity-transform variant
+            # World rotations come from SOMA FK and need a single
+            # left-multiply by ``R_src_to_robot`` to land in the robot
+            # world frame. The similarity-transform variant
             # (``transform_source_rotation``) is intentionally NOT used
             # here: when ``R_src_to_robot`` is not symmetric, the
             # similarity form silently degrades alignment.
-            # ``source_model`` is narrowed to ``Literal["smplh", "soma"]``
-            # and the smplh path raises NotImplementedError earlier in
-            # init, so SOMA is the only live source at this point.
             target_rot = self.transform_world_rotation(target_rot)
 
             frame_correction = self.get_frame_rotation_correction(robot_frame_name)
@@ -320,21 +366,41 @@ class WholeBodyKinematics:
             )
         return frame_tasks
 
-    def _extra_tasks(self, qpos: Optional[np.ndarray]) -> list[Task]:
-        """Extra Pink tasks appended to the QP each ``compute()`` call.
+    def _build_posture_task(
+        self, cost: float, lm_damping: float, gain: float
+    ) -> PostureTask:
+        """Build a Pink ``PostureTask`` and seed its target at ``q0``.
 
-        Subclasses can return additional tasks (e.g. posture
-        regularization) that should be solved alongside the frame
-        tasks. The default returns an empty list, preserving the
-        legacy behaviour of solving only frame tasks.
-
-        ``qpos`` is the warm-start configuration the caller passed in
-        (``None`` if defaulted to ``q0``). It is forwarded so subclasses
-        can refresh per-frame targets (e.g. a "track previous q"
-        posture task) before each solve.
+        The "regularize toward q0" task keeps this initial target for
+        its lifetime; the "track previous q" task overwrites it on
+        every ``compute()`` call (see :meth:`_extra_tasks`). Seeding
+        both at q0 here avoids a separate "first call" branch in
+        :meth:`_extra_tasks`.
         """
-        del qpos
-        return []
+        task = PostureTask(cost=cost, lm_damping=lm_damping, gain=gain)
+        task.set_target(self.robot.q0.copy())
+        return task
+
+    def _extra_tasks(self, qpos: Optional[np.ndarray]) -> list[Task]:
+        """Return the configured posture tasks for this frame's solve.
+
+        Refreshes the "track previous q" task's target from the
+        caller-provided warm-start ``qpos`` (the script passes the
+        previous frame's IK solution; for frame 0 ``qpos`` is ``q0`` so
+        the term collapses to a pull toward q0). Returns ``[]`` when
+        both posture costs are zero in the config, preserving the
+        legacy frame-tasks-only IK exactly.
+        """
+        extras: list[Task] = []
+        q0_task = self._posture_q0_task
+        if q0_task is not None:
+            extras.append(q0_task)
+        qprev_task = self._posture_qprev_task
+        if qprev_task is not None:
+            target = self.robot.q0.copy() if qpos is None else qpos.copy()
+            qprev_task.set_target(target)
+            extras.append(qprev_task)
+        return extras
 
     def compute(
         self,
@@ -364,10 +430,10 @@ class WholeBodyKinematics:
             source_joints_wxyz=source_joints_wxyz,
             source_to_robot_scale=source_to_robot_scale,
         )
-        # Subclass-supplied extras (e.g. posture regularization). Note
-        # we resolve these BEFORE seeding ``self.configuration.q`` from
-        # ``qpos`` so subclasses can refresh per-frame targets using the
-        # caller's warm-start without depending on solver-side state.
+        # Resolve config-driven extras (e.g. posture regularization)
+        # BEFORE seeding ``self.configuration.q`` from ``qpos`` so they
+        # can refresh per-frame targets using the caller's warm-start
+        # without depending on solver-side state.
         extra_tasks = list(self._extra_tasks(qpos))
         tasks = list(self.frame_tasks.values()) + extra_tasks
         has_extra_tasks = bool(extra_tasks)
@@ -489,180 +555,3 @@ class WholeBodyKinematics:
             "frame_task_errors": [frame_tasks_pos_error[k] for k in self.frame_tasks],
             "num_optimization_iterations": num_optimization_iterations,
         }
-
-
-class ConfigDrivenWholeBodyKinematics(WholeBodyKinematics):
-    """Whole-body IK driven by a :class:`RobotRetargetConfig`.
-
-    This class is the SOMA-to-robot core. All robot-specific data (URDF
-    path, ik_map, world axis swap, per-bone offsets, per-link tweaks)
-    comes from the config; the IK runtime
-    (:meth:`WholeBodyKinematics.compute`,
-    :meth:`WholeBodyKinematics.set_frame_tasks_target`) is unchanged.
-
-    Numerical contract: for the verified G1 SOMA setup, this class
-    produces frame task targets and IK output that match the legacy
-    G1 SOMA implementation within ``atol=1e-8`` when the config
-    matches the legacy constants. See
-    ``tests/test_soma_g1_config_regression.py``.
-    """
-
-    def __init__(
-        self,
-        config: RobotRetargetConfig,
-        *,
-        solver: str = "daqp",
-        max_iter: int = 200,
-        frequency: float = 200.0,
-        frame_tasks_converged_threshold: float = 1e-6,
-    ) -> None:
-        """Initialize from a fully materialized :class:`RobotRetargetConfig`."""
-        self._config = config
-        self._R_source_to_robot = np.asarray(config.r_world, dtype=np.float64)
-        self._frame_corrections = {
-            frame_name: np.asarray(matrix, dtype=np.float64)
-            for frame_name, matrix in config.r_per_link.items()
-        }
-        self._frame_translations = {
-            frame_name: np.asarray(vec, dtype=np.float64)
-            for frame_name, vec in config.t_per_link.items()
-        }
-
-        # Only "soma" is fully implemented; "smplh" raises
-        # NotImplementedError in every parent-class branch and would
-        # only surface a confusing late error. Fail fast at init.
-        if config.source_model != "soma":
-            raise ValueError(
-                f"ConfigDrivenWholeBodyKinematics: source_model="
-                f"{config.source_model!r} is not implemented (only 'soma' "
-                f"is supported). Update the robot config or implement the "
-                f"smplh path before instantiating."
-            )
-        super().__init__(
-            robot_asset_path=str(config.urdf_path),
-            source_model=cast(Literal["soma"], config.source_model),
-            package_dirs=[str(p) for p in config.package_dirs],
-            solver=solver,
-            max_iter=max_iter,
-            frequency=frequency,
-            frame_tasks_converged_threshold=frame_tasks_converged_threshold,
-        )
-
-        # Posture-regularization tasks. Built only when their cost is
-        # strictly positive so the default-zero config path stays
-        # bit-equivalent to the legacy SOMA IK (no extra task object,
-        # no extra QP block, ``_extra_tasks`` returns ``[]``). The
-        # ``q0`` task target never changes; the ``q_prev`` target is
-        # refreshed per frame from ``compute()``'s ``qpos`` argument.
-        pt = config.posture_task
-        self._posture_q0_task: Optional[PostureTask] = (
-            self._build_posture_task(pt.q0_cost, pt.lm_damping, pt.gain)
-            if pt.q0_cost > 0.0
-            else None
-        )
-        self._posture_qprev_task: Optional[PostureTask] = (
-            self._build_posture_task(pt.q_prev_cost, pt.lm_damping, pt.gain)
-            if pt.q_prev_cost > 0.0
-            else None
-        )
-
-    @property
-    def config(self) -> RobotRetargetConfig:
-        """Return the underlying config bundle (read-only handle)."""
-        return self._config
-
-    def load_robot_model(self) -> pin.RobotWrapper:
-        """Load the robot URDF with a free-flyer root joint."""
-        return pin.RobotWrapper.BuildFromURDF(
-            filename=self.robot_asset_path,
-            package_dirs=self.package_dirs,
-            root_joint=pin.JointModelFreeFlyer(),
-        )
-
-    def get_target_to_source_mapping(self) -> dict[str, tuple[str, float, float]]:
-        """Build the IK frame->source mapping straight from the config."""
-        return {
-            frame_name: (entry.soma_joint, entry.position_cost, entry.orientation_cost)
-            for frame_name, entry in self._config.ik_map.items()
-        }
-
-    def get_base_source_joint(self) -> str:
-        """Return the SOMA joint used as the scaling anchor."""
-        return self._config.base_source_joint
-
-    def transform_source_position(self, position: np.ndarray) -> np.ndarray:
-        """Transform a SOMA-world position into robot world (right-multiply by ``R.T``)."""
-        return position @ self._R_source_to_robot.T
-
-    def transform_world_rotation(self, rotation: np.ndarray) -> np.ndarray:
-        """Transform a SOMA-world rotation into robot world (left-multiply by ``R``)."""
-        return self._R_source_to_robot @ rotation
-
-    def transform_source_rotation(self, rotation: np.ndarray) -> np.ndarray:
-        """Similarity transform for body-local source rotations.
-
-        Not used by the SOMA path (which goes through
-        :meth:`transform_world_rotation`), but retained so future
-        non-SOMA source models can reuse this class for similarity-
-        transformed body-local rotations.
-        """
-        R_src = self._R_source_to_robot
-        return R_src @ rotation @ R_src.T
-
-    def get_frame_rotation_correction(self, frame_name: str) -> np.ndarray:
-        """Return the per-link right-multiply correction for ``frame_name``.
-
-        Falls back to identity for any frame the config does not
-        explicitly correct, so adding a position-only IK target is a
-        single JSON edit (no Python).
-        """
-        correction = self._frame_corrections.get(frame_name)
-        if correction is None:
-            return np.eye(3)
-        return correction
-
-    def get_frame_translation_offset(self, frame_name: str) -> np.ndarray:
-        """Return the per-link translation offset for ``frame_name``.
-
-        Falls back to zeros for any frame the config does not provide,
-        which keeps frames without a configured ``t_offset`` consistent
-        with the legacy ``target_pos`` behavior.
-        """
-        offset = self._frame_translations.get(frame_name)
-        if offset is None:
-            return np.zeros(3, dtype=np.float64)
-        return offset
-
-    def _build_posture_task(
-        self, cost: float, lm_damping: float, gain: float
-    ) -> PostureTask:
-        """Build a Pink ``PostureTask`` and seed its target at ``q0``.
-
-        The "regularize toward q0" task keeps this initial target for
-        its lifetime; the "track previous q" task overwrites it on
-        every ``compute()`` call (see :meth:`_extra_tasks`). Seeding
-        both at q0 here avoids a separate "first call" branch in
-        :meth:`_extra_tasks`.
-        """
-        task = PostureTask(cost=cost, lm_damping=lm_damping, gain=gain)
-        task.set_target(self.robot.q0.copy())
-        return task
-
-    def _extra_tasks(self, qpos: Optional[np.ndarray]) -> list[Task]:
-        """Return the configured posture tasks for this frame's solve.
-
-        Refreshes the "track previous q" task's target from the
-        caller-provided warm-start ``qpos`` (the script passes the
-        previous frame's IK solution; for frame 0 ``qpos`` is ``q0`` so
-        the term collapses to a pull toward q0).
-        """
-        extras: list[Task] = []
-        q0_task = self._posture_q0_task
-        if q0_task is not None:
-            extras.append(q0_task)
-        qprev_task = self._posture_qprev_task
-        if qprev_task is not None:
-            target = self.robot.q0.copy() if qpos is None else qpos.copy()
-            qprev_task.set_target(target)
-            extras.append(qprev_task)
-        return extras

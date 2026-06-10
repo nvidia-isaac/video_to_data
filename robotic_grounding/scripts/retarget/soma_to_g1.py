@@ -59,7 +59,7 @@ from robotic_grounding.retarget.read_soma import SOMA
 from robotic_grounding.retarget.robot_config import load_robot_config
 from robotic_grounding.retarget.viser_playback import LiveFrameState, ViserPlayback
 from robotic_grounding.retarget.whole_body_kinematics import (
-    ConfigDrivenWholeBodyKinematics,
+    WholeBodyKinematics,
 )
 from scipy.spatial.transform import Rotation as R
 from tqdm import tqdm
@@ -151,7 +151,7 @@ def _compute_mesh_radius(mesh_path: str) -> float:
 
 
 def _get_robot_joint_position_names(
-    kin: ConfigDrivenWholeBodyKinematics, base_q_size: int
+    kin: WholeBodyKinematics, base_q_size: int
 ) -> list[str]:
     """Return names aligned to ``q[base_q_size:]`` ordering."""
     indexed_names: list[tuple[int, str]] = []
@@ -396,7 +396,7 @@ def main() -> None:
     print(f"  Object poses: {len(object_poses_world)} frames")
 
     config = load_robot_config(args.robot_name)
-    kin = ConfigDrivenWholeBodyKinematics(config=config)
+    kin = WholeBodyKinematics(config=config)
     foot_frame_names = list(config.foot_frames)
     ankle_roll_offset = float(config.ankle_roll_offset)
     base_q_size = 7
