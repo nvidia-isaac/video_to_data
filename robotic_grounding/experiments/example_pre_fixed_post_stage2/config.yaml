@@ -1,0 +1,106 @@
+# Example: stage 2 — FixedTimestepCurriculum on top of stage-1 nocoll warmup
+# =============================================================================
+#
+# This is the SECOND of three configs that make up the `example_pre_fixed_post`
+# 3-stage pipeline. See `experiments/example_pre_fixed_post/config.yaml` for
+# the pipeline wrapper that chains stage 1 → stage 2.
+#
+# What it does
+# ------------
+# Identical to `example_fixed_post` BUT resumes from stage 1's checkpoint
+# (collision-free hand warmup). The 11-row FixedTimestepCurriculum schedule
+# from v2p_hand_env_cfg.py runs in full — robot-object collisions are
+# re-enabled here, contact rewards activate, and the schedule's last row
+# (iter 16000+) provides the stage-3 obj_kp=20 boost.
+#
+# Resume mechanics
+# ----------------
+# The runner (experiments/run_experiment.py:_run_pipeline_local) automatically
+# fills in `resume_from=<stage1_checkpoint_path>` after stage 1 completes.
+# The two fields below tell the W&B-artifact fallback (used for --fresh runs
+# without a local checkpoint) where to find the artifact:
+#   stage1_wandb_project     — project containing the stage1 W&B artifacts
+#   stage1_artifact_prefix   — artifact name prefix, joined with sequence id
+#
+# Notes
+# -----
+# - `sequences` MUST be identical to stage 1's `osmo_multi_task.sequence_ids`.
+# - `agent.policy.actor_hidden_dims` MUST match stage 1 exactly.
+# - `osmo.image`, `osmo.pool`, `osmo.motion_data_url` MUST match stage 1.
+# - This config is NOT launched directly. The pipeline wrapper handles it.
+
+id: example_pre_fixed_post_stage2
+description: "Example stage 2: FixedTimestepCurriculum (with built-in obj_kp boost), resumes from example_pre_fixed_post_stage1"
+run_name_suffix: example_pre_fixed_post_stage2
+
+wandb_project: v2p_hands
+# Resume hooks — used by `_fetch_stage1_artifact` for `--fresh` OSMO submissions.
+stage1_wandb_project: v2p_hands
+stage1_artifact_prefix: checkpoint_stage1_nocoll_
+
+urdf_suffix: art
+
+eval_video_only: true
+use_primitive_urdfs: true
+
+# MUST match `osmo_multi_task.sequence_ids` in example_pre_fixed_post_stage1.
+sequences:
+  - arctic_s01_box_grab_01
+
+train_overrides:
+  # -- Regularization (not in the schedule) ---------------------------------
+  env.rewards.action_rate_l2.weight: "-5e-3"
+  env.rewards.action_l1.weight: "-2e-3"
+
+  # -- Termination thresholds -----------------------------------------------
+  env.terminations.object_away_from_trajectory.params.position_threshold: "0.15"
+  env.terminations.object_away_from_trajectory.params.orientation_threshold: "0.7"
+
+  # -- Curriculum overrides -------------------------------------------------
+  # Schedule: env-default values [2000, 4000, ...] × 1.067 (rounded to 50) to
+  # compensate for the ~6.7% common_step-vs-iter overhead — each row fires at
+  # the labeled iter in the example_fixed_post comment block.
+  env.curriculum.fixed_timestep_curriculum.params.timestep_schedule:
+    "[2150,4300,5900,7500,9100,10700,12300,13900,15500,17100,18250]"
+  # Soften penalties from class defaults -20/-5 to -10/-10 (matches take2).
+  env.curriculum.fixed_timestep_curriculum.params.rewards_unintended_contact_penalty: "-10.0"
+  env.curriculum.fixed_timestep_curriculum.params.rewards_missed_contact_penalty: "-10.0"
+
+  # -- PPO runner -----------------------------------------------------------
+  # 20000 iters reaches the boost row (iter 16000+) with ~4000 iters of stage-3
+  # post-training at full obj_kp=20.
+  agent.num_steps_per_env: "24"
+  agent.max_iterations: "20000"
+  agent.save_interval: "200"
+  agent.empirical_normalization: "True"
+
+  # -- Policy ---------------------------------------------------------------
+  # MUST match stage 1 hidden dims exactly.
+  agent.policy.init_noise_std: "0.1"
+  agent.policy.actor_hidden_dims: "[1024,512,256,128]"
+  agent.policy.critic_hidden_dims: "[1024,512,256,128]"
+  agent.policy.activation: "elu"
+
+  # -- Algorithm ------------------------------------------------------------
+  agent.algorithm.value_loss_coef: "1.0"
+  agent.algorithm.use_clipped_value_loss: "True"
+  agent.algorithm.clip_param: "0.1"
+  agent.algorithm.entropy_coef: "0.001"
+  agent.algorithm.num_learning_epochs: "5"
+  agent.algorithm.num_mini_batches: "4"
+  agent.algorithm.learning_rate: "1.0e-3"
+  agent.algorithm.schedule: "adaptive"
+  agent.algorithm.gamma: "0.99"
+  agent.algorithm.lam: "0.95"
+  agent.algorithm.desired_kl: "0.005"
+  agent.algorithm.max_grad_norm: "1.0"
+
+osmo:
+  build_image: false
+  # MUST match stage 1's image.
+  image: nvcr.io/nvstaging/isaac-amr/robotic-grounding:latest
+  priority: NORMAL
+  # MUST match stage 1's pool.
+  pool: isaac-dev-l40s-04
+  # MUST match stage 1's motion_data_url.
+  motion_data_url: https://us-west-2-aws.osmo.nvidia.com/datasets/isaac/retargeted_arctic_exp_full

@@ -16,6 +16,92 @@ HUMAN_MOTION_DATA_DIR = os.path.join(ASSET_DIR, "human_motion_data")
 URDF_DIR = os.path.join(ASSET_DIR, "urdfs")
 
 
+def _looks_like_sequence_subfolder(name: str) -> bool:
+    """Return true for dataset sequence folders that contain per-sequence dirs."""
+    return (
+        name in {"arctic_processed", "taco_processed", "hot3d_processed_filtered"}
+        or "_processed" in name
+    )
+
+
+def _legacy_motion_layout(motion_file: str | Path) -> dict | None:
+    """Parse legacy .../<processed>/<sequence>/<robot> motion layouts."""
+    path = Path(motion_file).resolve()
+    motion_dir = path if path.is_dir() else path.parent
+    if not motion_dir.name or motion_dir.name.startswith("robot_name="):
+        return None
+    seq_dir = motion_dir.parent
+    sequence_subfolder = seq_dir.parent
+    if seq_dir.name.startswith("sequence_id="):
+        return None
+    if not _looks_like_sequence_subfolder(sequence_subfolder.name):
+        return None
+    return {
+        "robot_name": unquote(motion_dir.name),
+        "sequence_id": unquote(seq_dir.name),
+        "motion_folder": str(motion_dir),
+        "sequence_subfolder": sequence_subfolder,
+    }
+
+
+# Per-object scale overrides for OakInk-V2 objects whose meshes are repaired as
+# solid blobs and need a small uniform scale tweak to avoid PhysX interpenetration.
+# Ported verbatim from ManipTrans (main/dataset/oakink2_dataset_utils.py:34-41).
+# Keys use OakInk-V2's @ notation; lookup also accepts the body_name "safe" form
+# (underscores) used downstream. Effect: shrink the body, grow the cap, opening
+# ~10mm of radial clearance — enough for the cap to wrap the body's neck.
+OAKINK2_OBJECT_SCALE: dict[str, float] = {
+    "O02@0206@00001": 1.15,  # alcohol burner — cap (grow 15%)
+    "O02@0206@00002": 0.95,  # alcohol burner — body (shrink 5%)
+    "O02@0029@00011": 0.9,
+    "O02@0029@00012": 1.2,
+    "O02@0015@00020": 0.98,
+    "O02@0015@00019": 1.02,
+}
+
+
+# Per-object collision-approximation overrides. Defaults to URDF importer's
+# convex-hull/decomposition; "sdf" forces a PhysX SDF mesh collider via the
+# `apply_sdf_collision_approximations` prestartup event. Use this for objects
+# where the visual mesh has real concavity (open cavities, hollow vessels, etc.)
+# that convex decomposition can't represent — fingertips reaching into the cavity
+# correctly experience no contact instead of hitting phantom hull material.
+OAKINK2_OBJECT_COLLISION_APPROXIMATION: dict[str, str] = {
+    "O02@0011@00003": "sdf",  # pour_tube vessel — open-top, non-watertight mesh
+    "O02@0206@00001": "sdf",  # uncap_alcohol_burner cap — 23-piece convex too slow at 4096 envs
+}
+
+
+def _oakink2_collision_approximation_for(body_name: str) -> str | None:
+    """Look up collision-approximation override for an OakInk-V2 object."""
+    if body_name in OAKINK2_OBJECT_COLLISION_APPROXIMATION:
+        return OAKINK2_OBJECT_COLLISION_APPROXIMATION[body_name]
+    at_form = body_name.replace("_", "@", 2) if body_name.startswith("O02_") else None
+    if at_form and at_form in OAKINK2_OBJECT_COLLISION_APPROXIMATION:
+        return OAKINK2_OBJECT_COLLISION_APPROXIMATION[at_form]
+    return None
+
+
+def _oakink2_scale_for(body_name: str) -> tuple[float, float, float]:
+    """Look up uniform scale for an OakInk-V2 object by body name.
+
+    Accepts either the @-notation key (``O02@0206@00002``) or the underscore-safe
+    body_name form (``O02_0206_00002``) — both map to the same scale entry.
+    Returns ``(1.0, 1.0, 1.0)`` when no override is registered.
+    """
+    if body_name in OAKINK2_OBJECT_SCALE:
+        s = OAKINK2_OBJECT_SCALE[body_name]
+    else:
+        at_form = (
+            body_name.replace("_", "@", 2) if body_name.startswith("O02_") else None
+        )
+        if at_form and at_form in OAKINK2_OBJECT_SCALE:
+            s = OAKINK2_OBJECT_SCALE[at_form]
+        else:
+            return (1.0, 1.0, 1.0)
+    return (s, s, s)
+
+
 @dataclass
 class ObjectConfig:
     """Configuration for a rigid scene object (target or fixed)."""
@@ -29,6 +115,11 @@ class ObjectConfig:
 
     init_pos: list[float] | None = None
     init_rot: list[float] | None = None
+
+    # Per-object collision approximation override. None → use default (convex hull /
+    # decomposition from URDF importer). "sdf" → apply PhysX SDF mesh collider in
+    # the prestartup event (preserves cavity geometry for hollow / non-watertight objects).
+    collision_approximation: str | None = None
 
 
 @dataclass
@@ -135,7 +226,7 @@ class SceneConfig:
 
     @staticmethod
     def _parse_partition_path(motion_file: str) -> dict:
-        """Extract robot_name, sequence_id, motion_folder, motion_filters from partition path."""
+        """Extract robot_name, sequence_id, motion_folder, motion_filters from motion path."""
         result: dict = {}
         path = Path(motion_file).resolve()
         for parent in [path] + list(path.parents):
@@ -151,6 +242,14 @@ class SceneConfig:
                 ("robot_name", "=", result["robot_name"]),
                 ("sequence_id", "=", result["sequence_id"]),
             ]
+            return result
+
+        legacy = _legacy_motion_layout(path)
+        if legacy:
+            result["robot_name"] = legacy["robot_name"]
+            result["sequence_id"] = legacy["sequence_id"]
+            result["motion_folder"] = legacy["motion_folder"]
+            result["motion_filters"] = []
         return result
 
     @staticmethod
@@ -230,11 +329,16 @@ class SceneConfig:
             urdf_path = urdf_paths[i] if i < len(urdf_paths) else None
 
             # Fallback: derive URDF path from mesh path by convention
-            # e.g. meshes/hot3d/12345.glb -> urdfs/hot3d/12345_rigid.urdf
+            # e.g. meshes/hot3d/12345.glb -> urdfs/hot3d/12345_rigid.urdf.
+            # Only overwrite when the derived path actually exists; otherwise
+            # keep the original parquet urdf_path so the dataset_root fallback
+            # below has a filename to search for on OSMO.
             if not urdf_path or not Path(urdf_path).exists():
-                urdf_path = cls._urdf_from_mesh_path(
+                mesh_derived = cls._urdf_from_mesh_path(
                     mesh_paths[i] if i < len(mesh_paths) else None
                 )
+                if mesh_derived:
+                    urdf_path = mesh_derived
 
             # Fallback: search for URDF by filename in the motion file's dataset
             if (
@@ -253,7 +357,12 @@ class SceneConfig:
                 f"body='{body_name}'. Generate URDFs with scripts/generate_rigid_urdfs.py"
             )
 
-            obj = ObjectConfig(name=body_name, usd_path=urdf_path)
+            obj = ObjectConfig(
+                name=body_name,
+                usd_path=urdf_path,
+                scale=_oakink2_scale_for(body_name),
+                collision_approximation=_oakink2_collision_approximation_for(body_name),
+            )
             _load_body_pose(data, obj, i)
             objects.append(obj)
 
@@ -279,16 +388,33 @@ class SceneConfig:
 
     @staticmethod
     def _dataset_root_from_motion_file(motion_file: str) -> Path | None:
-        """Derive dataset root from a partitioned motion file path.
+        """Derive dataset root from a partitioned or legacy motion file path.
 
-        Walks up the path past partition dirs (key=value format) and the
-        sequences subfolder to reach the dataset root.
-
-        Example:
-          .../v2d_taco_retarget_exp_200/taco_processed/sequence_id=.../robot_name=...
-          → .../v2d_taco_retarget_exp_200/
+        Partitioned example:
+          .../<dataset>/taco_processed/sequence_id=.../robot_name=... -> .../<dataset>/
+        Legacy example:
+          .../<dataset>/taco/taco_processed/<sequence>/sharpa_wave -> .../<dataset>/
         """
         path = Path(motion_file)
+
+        legacy = _legacy_motion_layout(path)
+        if legacy:
+            sequence_subfolder = legacy["sequence_subfolder"]
+            candidates = [sequence_subfolder.parent, sequence_subfolder.parent.parent]
+            marker_dirs = ("taco_urdfs", "reconstructed_stage", "hot3d_urdfs", "urdfs")
+            for candidate in candidates:
+                if (
+                    candidate
+                    and candidate.exists()
+                    and any((candidate / m).exists() for m in marker_dirs)
+                ):
+                    return candidate
+            return (
+                candidates[0]
+                if candidates and candidates[0] != candidates[0].parent
+                else None
+            )
+
         prev_no_eq = False
         for _ in range(10):
             if path == path.parent:
@@ -302,18 +428,21 @@ class SceneConfig:
 
     @staticmethod
     def _find_asset_in_dataset(filename: str, dataset_root: Path) -> str | None:
-        """Search for an asset file in immediate subdirectories of the dataset root."""
+        """Search for an asset file in bounded dataset subdirectories."""
         if not dataset_root or not dataset_root.is_dir():
             return None
-        direct = dataset_root / filename
-        if direct.exists():
-            return str(direct)
-        for subdir in dataset_root.iterdir():
-            if not subdir.is_dir():
-                continue
-            candidate = subdir / filename
-            if candidate.exists():
-                return str(candidate)
+        frontier = [dataset_root]
+        for _depth in range(3):
+            next_frontier: list[Path] = []
+            for root in frontier:
+                candidate = root / filename
+                if candidate.exists():
+                    return str(candidate)
+                try:
+                    next_frontier.extend(p for p in root.iterdir() if p.is_dir())
+                except OSError:
+                    continue
+            frontier = next_frontier
         return None
 
     @staticmethod
@@ -379,8 +508,21 @@ class SceneConfig:
 
     @staticmethod
     def _build_fixed_objects(motion_file: str) -> list[ObjectConfig]:
-        """Auto-discover fixed objects (support surfaces) from the motion file path."""
+        """Auto-discover fixed objects (support surfaces) from the motion file path.
+
+        For maniptrans_oakink sequences (microwave/laptop articulated), the
+        per-sequence support-disk reconstruction is buggy — disks land inside
+        the object mesh causing spawn-time depenetration kicks. Those sequences
+        use a single ManipTrans-style fixed table instead, spawned by
+        apply_scene_config — so we skip the disk discovery entirely here.
+        """
         fixed: list[ObjectConfig] = []
+        # Only the ARTICULATED maniptrans_oakink subset uses the fixed table
+        # path (see _add_maniptrans_oakink_table). Rigid maniptrans_oakink
+        # sequences (in maniptrans_oakink_processed/, not _articulated/) keep
+        # the standard per-sequence support-disk discovery below.
+        if "maniptrans_oakink_processed_articulated" in motion_file:
+            return fixed  # fixed table spawned by apply_scene_config._add_maniptrans_oakink_table
         support_path = _discover_support_surface(motion_file)
         if support_path is not None:
             fixed.append(
@@ -467,14 +609,74 @@ def _load_body_pose(data: dict, obj: ObjectConfig, body_index: int) -> None:
 
 
 def _discover_support_surface(motion_file: str) -> str | None:
-    """Find reconstructed support surface USDA from partitioned parquet path."""
+    """Find reconstructed support surface USDA from partitioned parquet path.
+
+    Primary lookup: walk up to ``sequence_id=<name>`` and check
+    ``../../reconstructed_stage/<name>_support.usda`` relative to it.
+
+    Fallback for OSMO: on OSMO the motion_file lives under
+    ``/osmo/data/input/0/<dataset>/`` so the relative walk fails.
+    We maintain a mapping from known dataset subfolder names to the
+    repo-resident ``reconstructed_stage/`` directories (baked into the
+    Docker image) so support surfaces load correctly during OSMO training.
+    """
+    # Known dataset subfolder → repo-resident reconstructed_stage/ dir.
+    # These paths are relative to HUMAN_MOTION_DATA_DIR (ASSET_DIR/human_motion_data).
+    _DATASET_STAGE_DIRS: dict[str, Path] = {
+        "spider_oakink_processed": Path(HUMAN_MOTION_DATA_DIR)
+        / "spider_oakink"
+        / "reconstructed_stage",
+        "spider_oakink_processed_invalid": Path(HUMAN_MOTION_DATA_DIR)
+        / "spider_oakink"
+        / "reconstructed_stage",
+        "spider_oakinkv2_new_processed": Path(HUMAN_MOTION_DATA_DIR)
+        / "spider_oakinkv2_new"
+        / "reconstructed_stage",
+        "maniptrans_oakink_processed": Path(HUMAN_MOTION_DATA_DIR)
+        / "maniptrans_oakink"
+        / "reconstructed_stage",
+        "maniptrans_oakink_processed_articulated": Path(HUMAN_MOTION_DATA_DIR)
+        / "maniptrans_oakink"
+        / "reconstructed_stage",
+    }
+
     path = Path(motion_file).resolve()
     for parent in [path] + list(path.parents):
         if parent.name.startswith("sequence_id="):
             seq_id = parent.name.split("=", 1)[1]
+            # Primary: check sibling reconstructed_stage/ (local runs)
             stage_dir = parent.parent.parent / "reconstructed_stage"
             support_path = stage_dir / f"{seq_id}_support.usda"
             if support_path.exists():
                 return str(support_path)
+            # Fallback: check repo-resident stage dir by dataset subfolder name
+            dataset_subfolder = parent.parent.name  # e.g. "spider_oakink_processed"
+            if dataset_subfolder in _DATASET_STAGE_DIRS:
+                fallback = (
+                    _DATASET_STAGE_DIRS[dataset_subfolder] / f"{seq_id}_support.usda"
+                )
+                if fallback.exists():
+                    return str(fallback)
             return None
+
+    legacy = _legacy_motion_layout(path)
+    if legacy:
+        seq_id = str(legacy["sequence_id"])
+        sequence_subfolder = legacy["sequence_subfolder"]
+        candidates = [
+            sequence_subfolder.parent
+            / "reconstructed_stage"
+            / f"{seq_id}_support.usda",
+            sequence_subfolder.parent.parent
+            / "reconstructed_stage"
+            / f"{seq_id}_support.usda",
+        ]
+        dataset_subfolder = sequence_subfolder.name
+        if dataset_subfolder in _DATASET_STAGE_DIRS:
+            candidates.append(
+                _DATASET_STAGE_DIRS[dataset_subfolder] / f"{seq_id}_support.usda"
+            )
+        for support_path in candidates:
+            if support_path.exists():
+                return str(support_path)
     return None

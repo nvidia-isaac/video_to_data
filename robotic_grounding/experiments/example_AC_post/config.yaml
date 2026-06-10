@@ -1,0 +1,156 @@
+# Example: stage 2 + 3 combined via AC adaptive `custom_schedule`
+# =============================================================================
+#
+# This example demonstrates the "AC-post" recipe used in
+# experiments/exp_arcticFull_ACv2_take3_ketchup and
+# experiments/exp_dexmachina_main_ketchup_patchup_seed{0..4}.
+#
+# What it does
+# ------------
+# Trains a single uninterrupted run that combines:
+#   * Stage 2 — virtual object control (VOC) curriculum that decays VOC from 1.0
+#               down to 0.0 over 8 adaptive steps, gradually transferring
+#               authority from the trajectory-tracking force to the policy.
+#   * Stage 3 — built-in post-training: at step 9 the schedule holds VOC=0 and
+#               boosts the object-keypoint tracking weight to 20.0 (with hand_kp
+#               and hand_joint restored to 0.25). These boost values match the
+#               fixed-timestep recipe (`example_fixed_post`) so the two recipes
+#               are directly comparable on the same metric.
+#
+# Why "adaptive"
+# --------------
+# Each decay step fires when the policy hits health thresholds — first decay is
+# CV-gated (contact_wrench_support_reward_cv ≤ 0.07), subsequent decays gate on
+# `episode_length_ratio_mean ≥ 0.95` AND `WSR retention ≥ 0.95 × baseline`. If
+# gates do not fire, `max_eligible_wait_env_steps = 48000` (~2k iters at
+# num_envs=2048, num_steps_per_env=24) force-fires the next step so progress is
+# guaranteed.
+#
+# When to use this recipe
+# -----------------------
+# When you have a moderate-difficulty single-object task on a dataset that
+# already trains reliably with VOC (e.g. dexmachina-style sequences) and want
+# to bake stage 3 into the same run for simplicity. Not yet tested on
+# multi-object or random-start-state tasks; for new/unstable datasets prefer
+# the fixed-timestep recipe (see `experiments/example_fixed_post`).
+#
+# Usage
+# -----
+#   python robotic_grounding/scripts/run_experiment.py example_AC_post --local
+#   python robotic_grounding/scripts/run_experiment.py example_AC_post --osmo
+
+id: example_AC_post
+description: "Example: AC-post — stage 2 (AC custom_schedule) + stage 3 (obj_kp=30 boost) in one run"
+run_name_suffix: example_AC_post
+
+task: Sharpa-V2P-AutoCurr-v0
+seed: 0
+
+wandb_project: v2p_hands
+urdf_suffix: art
+
+eval_video_only: true
+eval_episodes_per_save: 4096
+video_length: 400
+use_primitive_urdfs: true
+
+# A single illustrative sequence. In practice this is a list of all sequences
+# you want to train on; the OSMO workflow runs one task per entry.
+sequences:
+  - arctic_s01_box_grab_01
+
+train_overrides:
+  # -- Diagnostics + reset distribution -------------------------------------
+  env.commands.dual_hands_object_tracking_command.enable_additional_metrics: True
+  env.commands.dual_hands_object_tracking_command.debug_vis: "False"
+  # 15% of episode resets snap to frame 0; the rest pick a random frame.
+  env.commands.dual_hands_object_tracking_command.reset_to_first_frame_prob: "0.15"
+
+  # -- Regularization (constant across all curriculum steps) -----------------
+  env.rewards.action_rate_l2.weight: "-5e-3"
+  env.rewards.action_l1.weight: "-2e-3"
+
+  # -- Initial reward weights (before step 1 fires) -------------------------
+  env.rewards.object_keypoints_tracking_exp.weight: "0.0"
+  env.rewards.hand_keypoints_tracking_exp.weight: "0.25"
+  env.rewards.hand_joint_pos_tracking_exp.weight: "0.25"
+
+  # -- Termination thresholds -----------------------------------------------
+  env.terminations.object_away_from_trajectory.params.position_threshold: "0.15"
+  env.terminations.object_away_from_trajectory.params.orientation_threshold: "0.7"
+
+  # -- Curriculum mode: custom_schedule (adaptive gated) --------------------
+  env.commands.dual_hands_object_tracking_command.initial_virtual_object_control_curriculum_scale: "1.0"
+  env.commands.dual_hands_object_tracking_command.virtual_object_control_decay_mode: "custom_schedule"
+  env.curriculum.virtual_object_control_curriculum.params.decay_mode: "custom_schedule"
+  # ~1000 iter (24000 env steps) initial wait before step 1 is eligible.
+  env.curriculum.virtual_object_control_curriculum.params.initial_wait_env_steps: "24000"
+  # ~1000 iter cooldown between successive decays.
+  env.curriculum.virtual_object_control_curriculum.params.wait_env_steps_since_last_decay: "24000"
+  env.curriculum.virtual_object_control_curriculum.params.deque_maxlen: "500"
+  env.curriculum.virtual_object_control_curriculum.params.episode_length_ratio_threshold: "0.95"
+
+  # -- Reward thresholds (zeroed; gating uses ep_len + WSR retention) -------
+  env.curriculum.virtual_object_control_curriculum.params.reward_thresholds.object_keypoints_tracking_exp: "0.0"
+  env.curriculum.virtual_object_control_curriculum.params.reward_thresholds.hand_keypoints_tracking_exp: "0.0"
+  env.curriculum.virtual_object_control_curriculum.params.reward_thresholds.contact_force_reward: "0.0"
+  env.curriculum.virtual_object_control_curriculum.params.reward_thresholds.contact_wrench_support_reward: "0.0"
+
+  # -- WSR retention gate (kicks in after first decay) ----------------------
+  env.curriculum.virtual_object_control_curriculum.params.reward_baseline_retention.contact_wrench_support_reward: "0.95"
+
+  # -- Force-fire each transition after ~2k iters (48000 env steps) of stall
+  env.curriculum.virtual_object_control_curriculum.params.max_eligible_wait_env_steps: "48000"
+
+  # -- CV gate for the FIRST decay only -------------------------------------
+  env.curriculum.virtual_object_control_curriculum.params.metric_upper_thresholds.contact_wrench_support_reward_cv: "0.07"
+  env.curriculum.virtual_object_control_curriculum.params.metric_upper_thresholds_initial_only: True
+
+  # -- The 9-step schedule (stages 2 + 3) -----------------------------------
+  #     Step:    1     2    3     4    5     6      7     8    9
+  #     VOC:     0.75  0.5  0.25  0.1  0.05  0.025  0.01  0.0  0.0
+  env.curriculum.virtual_object_control_curriculum.params.custom_voc_schedule: "[0.75,0.5,0.25,0.1,0.05,0.025,0.01,0.0,0.0]"
+  # Object-keypoint weight ramps gently 0.1 → 0.5 across stage 2, then JUMPS
+  # to 20.0 at step 9. This step-9 jump is the stage-3 post-train boost — and
+  # the boost magnitude matches `example_fixed_post` for cross-recipe parity.
+  env.curriculum.virtual_object_control_curriculum.params.custom_reward_schedules.object_keypoints_tracking_exp: "[0.1,0.1,0.2,0.25,0.25,0.5,0.5,0.5,20.0]"
+  # Hand rewards stay at 0 through stage 2 (VOC handles tracking), then return
+  # at step 9 to re-anchor the policy under heavy object reward.
+  env.curriculum.virtual_object_control_curriculum.params.custom_reward_schedules.hand_keypoints_tracking_exp: "[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.25]"
+  env.curriculum.virtual_object_control_curriculum.params.custom_reward_schedules.hand_joint_pos_tracking_exp: "[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.25]"
+
+  # -- PPO runner -----------------------------------------------------------
+  # 50k iters allows ~40k for natural curriculum progression (8 steps × ~3-5k each)
+  # plus ~10k of stage-3 post-training at VOC=0 / obj_kp=30.
+  agent.num_steps_per_env: "24"
+  agent.max_iterations: "50000"
+  agent.save_interval: "200"
+  agent.empirical_normalization: "True"
+  # Policy width matches the rest of the ACv2 family (compatible with
+  # checkpoint-resume from any ACv2 batch).
+  agent.policy.init_noise_std: "0.1"
+  agent.policy.actor_hidden_dims: "[1024,512,256,128]"
+  agent.policy.critic_hidden_dims: "[1024,512,256,128]"
+  agent.policy.activation: "elu"
+  # Algorithm (ACv2 baseline)
+  agent.algorithm.value_loss_coef: "1.0"
+  agent.algorithm.use_clipped_value_loss: "True"
+  agent.algorithm.clip_param: "0.1"
+  agent.algorithm.entropy_coef: "0.001"
+  agent.algorithm.num_learning_epochs: "5"
+  agent.algorithm.num_mini_batches: "4"
+  agent.algorithm.learning_rate: "1.0e-3"
+  agent.algorithm.schedule: "adaptive"
+  agent.algorithm.gamma: "0.99"
+  agent.algorithm.lam: "0.95"
+  agent.algorithm.desired_kl: "0.005"
+  agent.algorithm.max_grad_norm: "1.0"
+
+osmo:
+  build_image: false
+  # Replace with a recent image tag containing your code.
+  image: nvcr.io/nvstaging/isaac-amr/robotic-grounding:latest
+  priority: NORMAL
+  pool: isaac-dev-l40s-04
+  # Replace with the OSMO bucket URL for your dataset.
+  motion_data_url: https://us-west-2-aws.osmo.nvidia.com/datasets/isaac/retargeted_arctic_exp_full

@@ -499,7 +499,6 @@ class MotionData:
             updates[name] = [None if v is None else v[start_frame:end] for v in value]
         return replace(self, **updates)
 
-
 # ---------------------------------------------------------------------------
 # Errors
 # ---------------------------------------------------------------------------

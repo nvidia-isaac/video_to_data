@@ -978,3 +978,258 @@ def missed_contact_penalty(
         right_cmd_active_per_body=command.right_wrench_cmd_active_per_body,
         left_cmd_active_per_body=command.left_wrench_cmd_active_per_body,
     )
+
+
+def relative_object_pose_reward(
+    env: ManagerBasedRLEnv,
+    command_name: str = "dual_hands_object_tracking_command",
+    pos_sigma: float = 0.05,
+    rot_sigma: float = 0.5,
+) -> torch.Tensor:
+    """Proximity-gated reward for inter-object relative pose tracking (num_envs,).
+
+    Measures how well the policy maintains the correct spatial relationship between
+    object0 and object1 as demonstrated in the reference motion. Only active when
+    the demo shows the objects within ``relative_object_proximity_threshold`` of each
+    other. Returns zeros for single-object tasks.
+
+    Args:
+        env: The RL environment.
+        command_name: Name of the command term to get demo data from.
+        pos_sigma: Position tolerance in metres; reward = 1/e at this error. Default 5 cm.
+        rot_sigma: Rotation tolerance in radians; reward = 1/e at this error. Default ~29 deg.
+    """
+    command = env.command_manager.get_term(command_name)
+    if not getattr(command, "_has_multi_object", False):
+        return torch.zeros(env.num_envs, device=env.device)
+    pos_err, rot_err = command.relative_object_pose_error
+    proximity_mask = command.relative_object_proximity_mask
+    reward = torch.exp(-pos_err / pos_sigma) * torch.exp(-rot_err / rot_sigma)
+    return reward * proximity_mask.float()
+
+
+def relative_object_pos_reward(
+    env: ManagerBasedRLEnv,
+    command_name: str = "dual_hands_object_tracking_command",
+    pos_sigma: float = 0.02,
+) -> torch.Tensor:
+    """Proximity-gated position component of inter-object relative pose reward (num_envs,).
+
+    Decoupled from rotation so pos and rot weights can be tuned independently.
+    Returns zeros for single-object tasks.
+
+    Args:
+        env: The RL environment.
+        command_name: Name of the command term to get demo data from.
+        pos_sigma: Position tolerance in metres; reward = 1/e at this error. Default 2 cm.
+    """
+    command = env.command_manager.get_term(command_name)
+    if not getattr(command, "_has_multi_object", False):
+        return torch.zeros(env.num_envs, device=env.device)
+    pos_err, _ = command.relative_object_pose_error
+    proximity_mask = command.relative_object_proximity_mask
+    return torch.exp(-pos_err / pos_sigma) * proximity_mask.float()
+
+
+def relative_object_rot_reward(
+    env: ManagerBasedRLEnv,
+    command_name: str = "dual_hands_object_tracking_command",
+    rot_sigma: float = 0.3,
+) -> torch.Tensor:
+    """Proximity-gated rotation component of inter-object relative pose reward (num_envs,).
+
+    Decoupled from position so rot weight can be tuned independently. Default rot_sigma
+    is tighter (0.3 rad ≈ 17°) than the combined form to give stronger gradient signal.
+    Returns zeros for single-object tasks.
+
+    Args:
+        env: The RL environment.
+        command_name: Name of the command term to get demo data from.
+        rot_sigma: Rotation tolerance in radians; reward = 1/e at this error. Default ~17 deg.
+    """
+    command = env.command_manager.get_term(command_name)
+    if not getattr(command, "_has_multi_object", False):
+        return torch.zeros(env.num_envs, device=env.device)
+    _, rot_err = command.relative_object_pose_error
+    proximity_mask = command.relative_object_proximity_mask
+    return torch.exp(-rot_err / rot_sigma) * proximity_mask.float()
+
+
+def inter_object_proximity_reward(
+    env: ManagerBasedRLEnv,
+    command_name: str = "dual_hands_object_tracking_command",
+    dist_sigma: float = 0.05,
+) -> torch.Tensor:
+    """Scalar inter-object distance tracking reward (num_envs,).
+
+    Always-on companion to the proximity-gated relative pose rewards: encourages
+    |‖obj1 − obj0‖ − demo_distance| → 0 even when the two objects are far apart
+    in the demo. Provides a long-range signal so the policy is incentivised to
+    close the gap (e.g. spoon moving toward pan) before the proximity-gated
+    pose rewards activate. Returns zeros for single-object tasks.
+
+    Args:
+        env: The RL environment.
+        command_name: Name of the command term to get demo data from.
+        dist_sigma: Distance tolerance in metres; reward = 1/e at this error. Default 5 cm.
+    """
+    command = env.command_manager.get_term(command_name)
+    if not getattr(command, "_has_multi_object", False):
+        return torch.zeros(env.num_envs, device=env.device)
+    obj0_pos = command.object_position_e[:, 0, :]
+    obj1_pos = command.object_position_e[:, command._obj1_root_body_idx, :]
+    cur_dist = torch.norm(obj1_pos - obj0_pos, dim=-1)
+    demo_dist = command._demo_inter_object_dist[command.timestep_counter]
+    return torch.exp(-(cur_dist - demo_dist).abs() / dist_sigma)
+
+
+def object_meshvert_tracking_fine(
+    env: ManagerBasedRLEnv,
+    command_name: str = "dual_hands_object_tracking_command",
+    var: float = 0.001,
+) -> torch.Tensor:
+    """Mesh-vertex paper-AUC-aligned tracking reward (num_envs,).
+
+    Uses the same DEXMACHINA_SAMPLED_VERTS (500 surface points/body) that
+    the dexmachina_AUC metric is computed on. Distance is mean per-vertex
+    ADD (meters), squared inside exp -- so reward operates at the same
+    spatial scale as the AUC bins (1-9 cm). Captures both position AND
+    rotation error at the object's actual size, unlike unit-vector
+    keypoints which amplify rotation by the 1 m arm.
+
+    Returns zeros if the command term doesn't have DEXMACHINA_SAMPLED_VERTS
+    (mesh load failure).
+    """
+    cmd = env.command_manager.get_term(command_name)
+    if not getattr(cmd, "_dexmachina_metric_enabled", False):
+        return torch.zeros(env.num_envs, device=env.device)
+    M = cmd._dexmachina_num_verts
+    verts = cmd.DEXMACHINA_SAMPLED_VERTS  # (E, B, M, 3)
+    pos_p = cmd.object_position_e.unsqueeze(2).expand(-1, -1, M, -1)
+    quat_p = cmd.object_orientation_e.unsqueeze(2).expand(-1, -1, M, -1)
+    pos_d = cmd.object_body_position_command_e.unsqueeze(2).expand(-1, -1, M, -1)
+    quat_d = cmd.object_body_wxyz_command_e.unsqueeze(2).expand(-1, -1, M, -1)
+    v_p, _ = math_utils.combine_frame_transforms(pos_p, quat_p, verts)
+    v_d, _ = math_utils.combine_frame_transforms(pos_d, quat_d, verts)
+    add_per_env = torch.norm(v_p - v_d, dim=-1).mean(dim=(-2, -1))  # (E,) meters
+    return torch.exp(-(add_per_env**2) / var)
+
+
+def object_position_tracking_fine(
+    env: ManagerBasedRLEnv,
+    command_name: str = "dual_hands_object_tracking_command",
+    var: float = 0.001,
+) -> torch.Tensor:
+    """Sharp Gaussian on object centroid position — tight tracking in 1-3 cm regime.
+
+    Same data path as :func:`object_position_tracking_exp` but with a much
+    smaller default ``var`` (0.001 vs 0.3) so the reward is only meaningful
+    once the position error is already small. Used as a post-train fine
+    tracking term during the last curriculum stage.
+
+    Args:
+        env: The RL environment.
+        command_name: Name of the command term providing demo data.
+        var: Variance for the exponential reward (m^2). Default 0.001.
+
+    Returns:
+        Task reward tensor (num_envs,).
+    """
+    command = env.command_manager.get_term(command_name)
+    object_position_e = command.object_position_e_sq
+    object_position_error_e = torch.sum(
+        torch.square(command.object_body_position_command_e - object_position_e),
+        dim=-1,
+    )
+    return torch.exp(-object_position_error_e / var)
+
+
+def object_velocity_tracking_exp(
+    env: ManagerBasedRLEnv,
+    command_name: str = "dual_hands_object_tracking_command",
+    var: float = 0.05,
+) -> torch.Tensor:
+    """Compute task reward based on object linear-velocity tracking (num_envs,).
+
+    Current velocity is read from ``object_body_lin_vel_e`` (body-link linear
+    velocity in env frame; translation-invariant so equals world frame value).
+    Target velocity is precomputed from finite differences of the reference
+    trajectory and exposed as ``object_body_lin_vel_command_e``.
+
+    Args:
+        env: The RL environment.
+        command_name: Name of the command term to get demo data from.
+        var: Variance for the exponential reward (m^2/s^2). Default 0.05.
+
+    Returns:
+        Task reward tensor (num_envs,).
+    """
+    command = env.command_manager.get_term(command_name)
+    obj_lin_vel = command.object_body_lin_vel_e  # (num_envs, num_bodies, 3)
+    cmd_lin_vel = command.object_body_lin_vel_command_e  # (num_envs, num_bodies, 3)
+    vel_err_sq = torch.sum(torch.square(cmd_lin_vel - obj_lin_vel), dim=-1).mean(-1)
+    return torch.exp(-vel_err_sq / var)
+
+
+def hand_skeleton_tracking_exp(
+    env: ManagerBasedRLEnv,
+    command_name: str = "dual_hands_object_tracking_command",
+) -> torch.Tensor:
+    r"""Paper r_finger: per-body weighted Cartesian L2 over hand skeleton intersection.
+
+    For each hand and each body in the intersection between retargeted hand
+    frames and the robot articulation (same as ``paper_Ej_cm`` metric),
+    computes (LINEAR distance kernel — matches ManipTrans imitator):
+
+    .. math::
+        r = \\frac{1}{2}\\left[
+            \\frac{\\sum_b w_b \\exp(-\\lambda_b \\sqrt{\\|p_b - p_b^*\\|^2 + \\epsilon})}{\\sum_b w_b}
+        \\right]_{\\text{right}}
+        + \\text{same}_{\\text{left}}
+
+    Per-body weights ``w_b`` use the existing weight table. Per-body decay
+    rates ``\\lambda_b`` come from the LINEAR-distance lambda table (see
+    ``paper_{side}_body_lambdas_lin`` in
+    :meth:`DualHandsObjectTrackingCommand._init_hand_data`), with steep
+    fingertip values and a per-finger DP factor.
+
+    Returns:
+        Reward tensor (num_envs,) in (0, 1].
+    """
+    command = env.command_manager.get_term(command_name)
+    env_origins_b = command._env.scene.env_origins.unsqueeze(1)  # (num_envs, 1, 3)
+    eps = 1e-12  # numerical floor inside sqrt to keep gradients finite at d=0
+
+    # Right hand
+    right_robot_e = (
+        command.right_robot.data.body_link_pos_w[:, command.paper_right_robot_body_ids]
+        - env_origins_b
+    )  # (num_envs, F_r, 3)
+    right_ref_e = command.retargeted_right_hand_frames[command.timestep_counter][
+        :, command.paper_right_ref_frame_indices, :3
+    ]  # (num_envs, F_r, 3) — env frame
+    right_err_sq = (right_robot_e - right_ref_e).pow(2).sum(-1)  # (num_envs, F_r)
+    right_err = torch.sqrt(right_err_sq + eps)  # linear distance
+    right_weights = command.paper_right_body_weights.unsqueeze(0)  # (1, F_r)
+    right_lambda = command.paper_right_body_lambdas_lin.unsqueeze(0)  # (1, F_r)
+    right_rew = (right_weights * torch.exp(-right_lambda * right_err)).sum(
+        -1
+    ) / right_weights.sum()
+
+    # Left hand
+    left_robot_e = (
+        command.left_robot.data.body_link_pos_w[:, command.paper_left_robot_body_ids]
+        - env_origins_b
+    )  # (num_envs, F_l, 3)
+    left_ref_e = command.retargeted_left_hand_frames[command.timestep_counter][
+        :, command.paper_left_ref_frame_indices, :3
+    ]  # (num_envs, F_l, 3)
+    left_err_sq = (left_robot_e - left_ref_e).pow(2).sum(-1)  # (num_envs, F_l)
+    left_err = torch.sqrt(left_err_sq + eps)
+    left_weights = command.paper_left_body_weights.unsqueeze(0)  # (1, F_l)
+    left_lambda = command.paper_left_body_lambdas_lin.unsqueeze(0)  # (1, F_l)
+    left_rew = (left_weights * torch.exp(-left_lambda * left_err)).sum(
+        -1
+    ) / left_weights.sum()
+
+    return (right_rew + left_rew) / 2.0

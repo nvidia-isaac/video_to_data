@@ -1,0 +1,142 @@
+# Example: stage 2 + 3 combined via FixedTimestepCurriculum
+# =============================================================================
+#
+# This example demonstrates the "fixed-post" recipe used in
+# experiments/archive/exp75_fixedTimestep and experiments/exp_arcticFull_batch1_v0.
+#
+# What it does
+# ------------
+# Trains a single uninterrupted run that combines:
+#   * Stage 2 — virtual object control (VOC) curriculum that decays VOC from 1.0
+#               down to 0.0 over 9 deterministic, iteration-keyed steps. Decay
+#               does NOT react to training quality — it fires on a wall-clock
+#               iteration schedule (so timing is fully reproducible).
+#   * Stage 3 — built-in post-training: at iter 16000+ the schedule holds VOC=0
+#               and boosts the object-keypoint tracking weight to 20.0 (with
+#               hand_kp and hand_joint restored to 0.25). This sharpens object
+#               pose tracking once contact behavior is stable.
+#
+# The actual schedule lives in
+#   source/robotic_grounding/robotic_grounding/tasks/v2p/v2p_hand_env_cfg.py
+#       FixedTimestepCurriculumCfg
+# Configs only override the contact-penalty weights; the 11-row schedule itself
+# is the env default.
+#
+# Schedule (the *empirical* iter at which each row fires, after applying the
+# overhead correction below)
+# -------------------------------------------------------
+#   iter window     VOC    obj_kp  hand_kp  hand_joint
+#   -------------------------------------------------
+#   0     -  2000   1.0    0.0     0.25     0.25     # hand-only warmup row 1
+#   2000  -  4000   1.0    0.0     0.0      0.0      # transition row
+#   4000  -  5500   0.75   0.1     0.0      0.0      # stage 2 begins
+#   5500  -  7000   0.5    0.1     0.0      0.0
+#   7000  -  8500   0.25   0.2     0.0      0.0
+#   8500  - 10000   0.1    0.25    0.0      0.0
+#   10000 - 11500   0.05   0.25    0.0      0.0
+#   11500 - 13000   0.025  0.5     0.0      0.0
+#   13000 - 14500   0.01   0.5     0.0      0.0
+#   14500 - 16000   0.0    0.5     0.0      0.0      # stage 2 ends
+#   16000+ (clamp)  0.0    20.0    0.25     0.25     # stage 3 post-train boost
+#
+# Empirical-overhead correction
+# -----------------------------
+# The FixedTimestepCurriculum gates on env.common_step_counter, which grows at
+# ~25.6 per PPO iter (not 24) due to eval rollouts + video recording. So the
+# raw env-default schedule values [2000, 4000, ...] would fire ~6.7% LATE if
+# left unmodified. We override `timestep_schedule` to values × 1.067 (rounded
+# to nearest 50) below so the empirical fire iter matches the labels above.
+# Source-truth schedule lives in
+#   source/robotic_grounding/robotic_grounding/tasks/v2p/v2p_hand_env_cfg.py
+#       FixedTimestepCurriculumCfg
+#
+# Constants: contact_wrench_support_reward = 10.0,
+#   unintended_contact_penalty = -10.0 (overridden from class default -20.0),
+#   missed_contact_penalty     = -10.0 (overridden from class default -5.0).
+#
+# When to use this recipe
+# -----------------------
+# A solid, predictable baseline that has worked well across most arctic and
+# taco experiments. Recommended as the first thing to try on a NEW dataset —
+# the iteration-keyed schedule produces reproducible behavior independent of
+# per-sequence dynamics. If the deterministic schedule wastes iters on easy
+# sequences, switch to `example_AC_post` for adaptive gating.
+#
+# Usage
+# -----
+#   python robotic_grounding/scripts/run_experiment.py example_fixed_post --local
+#   python robotic_grounding/scripts/run_experiment.py example_fixed_post --osmo
+
+id: example_fixed_post
+description: "Example: fixed-post — stage 2 (FixedTimestepCurriculum) + stage 3 (obj_kp=20 boost) in one run"
+run_name_suffix: example_fixed_post
+
+wandb_project: v2p_hands
+urdf_suffix: art
+
+eval_video_only: true
+use_primitive_urdfs: true
+
+# A single illustrative sequence. In practice this is a list of all sequences
+# you want to train on; the OSMO workflow runs one task per entry.
+sequences:
+  - arctic_s01_box_grab_01
+
+train_overrides:
+  # -- Regularization (not in the schedule) ---------------------------------
+  env.rewards.action_rate_l2.weight: "-5e-3"
+  env.rewards.action_l1.weight: "-2e-3"
+
+  # -- Termination thresholds -----------------------------------------------
+  env.terminations.object_away_from_trajectory.params.position_threshold: "0.15"
+  env.terminations.object_away_from_trajectory.params.orientation_threshold: "0.7"
+
+  # -- Curriculum overrides --------------------------------------------------
+  # Schedule: env-default values [2000, 4000, ...] × 1.067 (rounded to 50) to
+  # compensate for the ~6.7% common_step-vs-iter overhead. Net effect: each
+  # row fires at the labeled iter in the comment block above.
+  env.curriculum.fixed_timestep_curriculum.params.timestep_schedule:
+    "[2150,4300,5900,7500,9100,10700,12300,13900,15500,17100,18250]"
+  # Softening the penalties from class defaults -20/-5 to -10/-10 is the
+  # standard tweak in our configs (matches arctic ACv2 batches + take2).
+  env.curriculum.fixed_timestep_curriculum.params.rewards_unintended_contact_penalty: "-10.0"
+  env.curriculum.fixed_timestep_curriculum.params.rewards_missed_contact_penalty: "-10.0"
+
+  # -- PPO runner -----------------------------------------------------------
+  # 20000 iters reaches the boost row (iter 16000+) with ~4000 iters of stage-3
+  # post-training at full obj_kp=20. Bump to 25k-30k for more post-train time.
+  agent.num_steps_per_env: "24"
+  agent.max_iterations: "20000"
+  agent.save_interval: "200"
+  agent.empirical_normalization: "True"
+
+  # -- Policy ---------------------------------------------------------------
+  # 1024-wide matches the ACv2 family. Use [512,256,128] only if you need to
+  # match an older stage-1 checkpoint architecture (see example_pre_fixed_post).
+  agent.policy.init_noise_std: "0.1"
+  agent.policy.actor_hidden_dims: "[1024,512,256,128]"
+  agent.policy.critic_hidden_dims: "[1024,512,256,128]"
+  agent.policy.activation: "elu"
+
+  # -- Algorithm ------------------------------------------------------------
+  agent.algorithm.value_loss_coef: "1.0"
+  agent.algorithm.use_clipped_value_loss: "True"
+  agent.algorithm.clip_param: "0.1"
+  agent.algorithm.entropy_coef: "0.001"
+  agent.algorithm.num_learning_epochs: "5"
+  agent.algorithm.num_mini_batches: "4"
+  agent.algorithm.learning_rate: "1.0e-3"
+  agent.algorithm.schedule: "adaptive"
+  agent.algorithm.gamma: "0.99"
+  agent.algorithm.lam: "0.95"
+  agent.algorithm.desired_kl: "0.005"
+  agent.algorithm.max_grad_norm: "1.0"
+
+osmo:
+  build_image: false
+  # Replace with a recent image tag containing your code.
+  image: nvcr.io/nvstaging/isaac-amr/robotic-grounding:latest
+  priority: NORMAL
+  pool: isaac-dev-l40s-04
+  # Replace with the OSMO bucket URL for your dataset.
+  motion_data_url: https://us-west-2-aws.osmo.nvidia.com/datasets/isaac/retargeted_arctic_exp_full

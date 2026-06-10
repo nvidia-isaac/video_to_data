@@ -1,0 +1,116 @@
+# Example: stage 1 — collision-free hand-keypoint warm-up
+# =============================================================================
+#
+# This is the FIRST of three configs that make up the `example_pre_fixed_post`
+# 3-stage pipeline. See `experiments/example_pre_fixed_post/config.yaml` for the
+# pipeline wrapper that chains stage 1 → stage 2 (which embeds stage 3).
+#
+# What it does
+# ------------
+# Trains a short (1000 iter) run with:
+#   * Robot-to-object collisions DISABLED — hand can pass through the object.
+#   * Hand tracking rewards active, all object/contact rewards zeroed.
+#   * VOC fixed at 1.0 (the object is fully driven by the trajectory force, so
+#     the hand can explore freely around it).
+#   * Object-away termination effectively disabled (thresholds = 100) so the
+#     hand never causes early termination during exploration.
+#
+# Why have a stage-1 pre-train at all?
+# ------------------------------------
+# When the reconstructed motion data is noisy (typical for low-quality video
+# input or new datasets), the hand-only warm-up lets the policy learn a
+# reasonable hand-keypoint controller without interference from contact
+# physics. Stage 2 then starts from a working hand controller and can focus
+# on solving the contact / object-tracking problem.
+#
+# Skip this stage if your data is clean and stage 2's built-in zero-reward
+# warm-up rows (iter 0-4000 of the FixedTimestepCurriculum) are sufficient.
+# In that case use `example_fixed_post` directly.
+#
+# Notes on the policy architecture
+# --------------------------------
+# `actor_hidden_dims` and `critic_hidden_dims` MUST be identical between
+# stage 1 and stage 2 — the orchestrator loads stage 1's checkpoint into
+# stage 2's policy module. Mismatches silently produce garbage.
+#
+# Usage
+# -----
+# This config is NOT launched directly. The pipeline wrapper handles it.
+#   python robotic_grounding/scripts/run_experiment.py example_pre_fixed_post --osmo
+
+id: example_pre_fixed_post_stage1
+description: "Example stage 1: collision-free hand warm-up (1000 iter), fed into example_pre_fixed_post_stage2"
+run_name: stage1_nocoll
+video: false
+max_iterations: 1000
+
+train_overrides:
+  # -- Disable robot-to-object collisions (the whole point of stage 1) -------
+  env.events.setup_collision_groups.params.disable_robot_to_object_collisions: "true"
+
+  # -- Hand tracking active --------------------------------------------------
+  env.rewards.hand_keypoints_tracking_exp.weight: "1.0"
+  env.rewards.hand_joint_pos_tracking_exp.weight: "1.0"
+
+  # -- Everything else zeroed ------------------------------------------------
+  env.rewards.object_keypoints_tracking_exp.weight: "0.0"
+  env.rewards.contact_wrench_support_reward.weight: "0.0"
+  env.rewards.unintended_contact_penalty.weight: "0.0"
+  env.rewards.missed_contact_penalty.weight: "0.0"
+  env.rewards.contact_force_reward.weight: "0.0"
+  env.rewards.dexmachina_contact_tracking_reward.weight: "0.0"
+  env.rewards.contact_wrench_continuous_reward.weight: "0.0"
+  env.rewards.contact_wrench_cumulative_reward.weight: "0.0"
+  env.rewards.action_rate_l2.weight: "-5e-4"
+  env.rewards.action_l1.weight: "-5e-4"
+
+  # -- Object-away termination effectively disabled -------------------------
+  env.terminations.object_away_from_trajectory.params.position_threshold: "100.0"
+  env.terminations.object_away_from_trajectory.params.orientation_threshold: "100.0"
+
+  # -- VOC fixed at 1.0 — object stays on trajectory all of stage 1 ---------
+  env.commands.dual_hands_object_tracking_command.initial_virtual_object_control_curriculum_scale: "1.0"
+  env.commands.dual_hands_object_tracking_command.virtual_object_control_decay_mode: "linear"
+  env.curriculum.virtual_object_control_curriculum.params.decay_mode: "linear"
+  env.curriculum.virtual_object_control_curriculum.params.linear_decay_step: "0.0"
+  env.curriculum.virtual_object_control_curriculum.params.wait_env_steps_since_last_decay: "6000"
+  env.curriculum.virtual_object_control_curriculum.params.zero_scale_factor_threshold: "0.0"
+
+  # -- PPO runner ------------------------------------------------------------
+  agent.num_steps_per_env: "24"
+  agent.save_interval: "200"
+  agent.empirical_normalization: "True"
+
+  # -- Policy ----------------------------------------------------------------
+  # MUST match stage 2 hidden dims exactly so the checkpoint loads cleanly.
+  agent.policy.init_noise_std: "0.1"
+  agent.policy.actor_hidden_dims: "[1024,512,256,128]"
+  agent.policy.critic_hidden_dims: "[1024,512,256,128]"
+  agent.policy.activation: "elu"
+
+  # -- Algorithm -------------------------------------------------------------
+  agent.algorithm.value_loss_coef: "1.0"
+  agent.algorithm.use_clipped_value_loss: "True"
+  agent.algorithm.clip_param: "0.1"
+  agent.algorithm.entropy_coef: "0.001"
+  agent.algorithm.num_learning_epochs: "5"
+  agent.algorithm.num_mini_batches: "4"
+  agent.algorithm.learning_rate: "1.0e-3"
+  agent.algorithm.schedule: "adaptive"
+  agent.algorithm.gamma: "0.99"
+  agent.algorithm.lam: "0.95"
+  agent.algorithm.desired_kl: "0.005"
+  agent.algorithm.max_grad_norm: "1.0"
+
+# Stage 1 spawns one OSMO task per sequence in this list.
+# MUST be the same sequences as `example_pre_fixed_post_stage2.sequences`.
+osmo_multi_task:
+  sequence_ids:
+    - arctic_s01_box_grab_01
+
+osmo:
+  # Replace with a recent image tag containing your code.
+  image: nvcr.io/nvstaging/isaac-amr/robotic-grounding:latest
+  pool: isaac-dev-l40s-04
+  # Replace with the OSMO bucket URL for your dataset.
+  motion_data_url: https://us-west-2-aws.osmo.nvidia.com/datasets/isaac/retargeted_arctic_exp_full

@@ -27,6 +27,15 @@ except ImportError:
     omni_debug_draw = None
 
 from robotic_grounding.retarget.data_logger import ManoSharpaData
+from robotic_grounding.tasks.v2p.mdp.commands.maniptrans_metrics import (
+    init_maniptrans_body_tables,
+    register_maniptrans_metric_keys,
+    update_maniptrans_metrics,
+)
+from robotic_grounding.tasks.v2p.mdp.commands.spider_metrics import (
+    register_spider_metric_keys,
+    update_spider_metrics,
+)
 from robotic_grounding.tasks.v2p.mdp.utils import (
     compute_wrench_space,
     compute_wrench_space_support_function,
@@ -113,12 +122,25 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         self._init_buffers(cfg)
         self._init_hand_data()
         self._init_object_data()
+        self._init_relative_object_data()
         self._init_contact_data()
         self._precompute_contact_positions_normals_in_object_frame()
         self._precompute_hand_keypoints_in_object_frame()
         self._precompute_contact_wrench_support_values()
         if self.cfg.enable_additional_metrics:
             self._precompute_bbox_corner_vecs()
+            self._precompute_dexmachina_sampled_verts()
+        else:
+            # Same banner format as _precompute_dexmachina_sampled_verts so the
+            # gate failure mode is observable regardless of which branch trips.
+            self._dexmachina_metric_enabled = False
+            print(
+                "[dexmachina_eval] WARNING: dexmachina_bbox / dexmachina_AUC metric "
+                "DISABLED for this experiment — reason: cfg.enable_additional_metrics "
+                "is False, so surface-vertex precompute was skipped. Set "
+                "enable_additional_metrics=True on the command term cfg if you want "
+                "AUC during training/eval."
+            )
         self._set_contact_vis_impl(getattr(self.cfg, "debug_vis", False))
         self._init_metrics(cfg)
 
@@ -280,6 +302,10 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             cfg.initial_virtual_object_control_curriculum_scale
             * torch.ones(self.num_envs, 1, device=self.device)  # (num_envs, 1)
         )
+        # Set by eval passes that need VOC truly frozen at 0. Gates both
+        # _resample_command's per-env reset-to-1.0 write and _update_command's
+        # per-step schedule rewrite, so eval can't be inflated by VOC assistance.
+        self._spider_eval_freeze_voc: bool = False
 
         # Unit vectors reused by reward computation and visualization
         self.X_UNIT_VEC = torch.tensor([1.0, 0.0, 0.0], device=self.device).repeat(
@@ -415,6 +441,8 @@ class DualHandsObjectTrackingCommand(CommandTerm):
                 torch.tensor(retargeted_fingertip_indices, device=self.device),
             )
 
+            init_maniptrans_body_tables(self, side, retargeted_hand_frame_names)
+
     def _init_object_data(self) -> None:
         """Convert retargeted object motion arrays to GPU tensors.
 
@@ -433,6 +461,26 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         self.retargeted_object_body_wxyz = torch.tensor(
             self._retargeted_motion_data.object_body_wxyz, device=self.device
         ).float()
+
+        # SPIDER-paper-aligned tracking-error precomputations (used in _update_metrics).
+        # ref_pos_mean: mean reference position over the full retargeted trajectory,
+        # per body — needed to mean-subtract the reference (matches SPIDER's
+        # compute_object_tracking_error, postprocess/get_success_rate.py:143-148).
+        # static_body_mask: bodies whose ref position varies <1 mm over the whole
+        # trajectory — SPIDER excludes these from the success metric (a static body
+        # like stir_beaker's beaker would otherwise trivially score 0 error and bias
+        # the multi-body mean).
+        self._spider_ref_pos_mean_b = self.retargeted_object_body_position.mean(
+            dim=0
+        )  # (N_body, 3)
+        ref_pos_t0 = self.retargeted_object_body_position[0]  # (N_body, 3)
+        ref_pos_disp = (
+            self.retargeted_object_body_position - ref_pos_t0
+        )  # (T, N_body, 3)
+        ref_pos_disp_mean_norm = torch.linalg.norm(ref_pos_disp, dim=-1).mean(
+            dim=0
+        )  # (N_body,)
+        self._spider_static_body_mask = ref_pos_disp_mean_norm < 0.001  # (N_body,)
         self.retargeted_object_articulation = torch.tensor(
             self._retargeted_motion_data.object_articulation, device=self.device
         ).float()
@@ -444,6 +492,56 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             f"Find {len(self.retargeted_object_body_names)} in motion file, "
             f"but {self.num_bodies} in the object."
         )
+
+        # Reference linear velocity per body, computed via central finite
+        # difference on the retargeted position trajectory. Used by the
+        # ``object_velocity_tracking_exp`` reward. Boundary frames (t=0 and
+        # t=T-1) use forward/backward differences. Units are m/s.
+        if self.retargeted_object_body_position.shape[0] >= 2:
+            dt = float(self.step_dt)
+            pos = self.retargeted_object_body_position  # (T, N_body, 3)
+            vel = torch.zeros_like(pos)
+            vel[1:-1] = (pos[2:] - pos[:-2]) / (2.0 * dt)
+            vel[0] = (pos[1] - pos[0]) / dt
+            vel[-1] = (pos[-1] - pos[-2]) / dt
+            self.retargeted_object_body_lin_vel = vel
+        else:
+            self.retargeted_object_body_lin_vel = torch.zeros_like(
+                self.retargeted_object_body_position
+            )
+
+    def _init_relative_object_data(self) -> None:
+        """Precompute demo relative pose (obj1 in obj0's frame) for multi-object tasks.
+
+        Sets:
+          - ``self._has_multi_object`` — False for single-object sequences, skips all relative-pose logic.
+          - ``self._obj1_root_body_idx`` — index of obj1's root body in the concatenated body array.
+          - ``self._demo_rel_pos`` — (T, 3) demo relative position of obj1 root in obj0 root frame.
+          - ``self._demo_rel_quat`` — (T, 4) demo relative quaternion of obj1 root in obj0 root frame.
+          - ``self._demo_inter_object_dist`` — (T,) L2 distance between obj0 and obj1 roots in demo.
+        """
+        if len(self.objects) < 2:
+            self._has_multi_object = False
+            return
+        self._has_multi_object = True
+        self._obj1_root_body_idx = self.objects[0].data.body_link_pos_w.shape[1]
+
+        # env-frame positions and world-frame quats (env origin cancels in relative transform)
+        demo_obj0_pos = self.retargeted_object_body_position[:, 0, :]
+        demo_obj0_quat = self.retargeted_object_body_wxyz[:, 0, :]
+        demo_obj1_pos = self.retargeted_object_body_position[
+            :, self._obj1_root_body_idx, :
+        ]
+        demo_obj1_quat = self.retargeted_object_body_wxyz[
+            :, self._obj1_root_body_idx, :
+        ]
+
+        self._demo_rel_pos, self._demo_rel_quat = math_utils.subtract_frame_transforms(
+            demo_obj0_pos, demo_obj0_quat, demo_obj1_pos, demo_obj1_quat
+        )  # (T, 3) and (T, 4)
+        self._demo_inter_object_dist = torch.norm(
+            demo_obj1_pos - demo_obj0_pos, dim=-1
+        )  # (T,)
 
     def _init_contact_data(self) -> None:
         """Load per-link contact data from retargeted motion for both hand sides.
@@ -680,6 +778,14 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         # Transform hand frames into the contact object body's local frame
         frame_position_o = torch.zeros_like(hand_frames[..., :3])
         frame_wxyz_o = torch.zeros_like(hand_frames[..., 3:7])
+
+        # SPIDER_RIGID and other rigid-collapse datasets keep the source
+        # annotation's articulated body ids in `*_object_contact_part_ids` even
+        # though `retargeted_object_body_position` has been collapsed to a
+        # single body. Clamp to the available body count so the `- 1` index
+        # stays in range without changing semantics for true multi-body objects.
+        num_bodies = self.retargeted_object_body_position.shape[1]
+        part_ids_per_hand = part_ids_per_hand.clamp(min=1, max=num_bodies)
 
         contact_body_position = self.retargeted_object_body_position[
             horizon_ids, part_ids_per_hand - 1
@@ -942,6 +1048,112 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         )
         # (num_envs, num_bodies, 8, 3)
 
+    def _precompute_dexmachina_sampled_verts(self, num_samples: int = 500) -> None:
+        """Load 500 paper-exact uniformly-sampled vertices per body for ADD.
+
+        Reference: dexmachina/eval/compute_add.py:load_part_verts (calls
+        dexmachina/envs/object.py:sample_mesh_vertices, which seeds np.random
+        with `seed=42` and uniformly samples `num_samples` indices from
+        `mesh.vertices` via `np.random.choice`). The paper does NOT use
+        area-weighted surface sampling. We mirror this exactly in
+        `dexmachina_eval.sample_mesh_surface_vertices` with `seed=42`.
+
+        Stores ``self.DEXMACHINA_SAMPLED_VERTS`` of shape
+        ``(num_envs, num_bodies, num_samples, 3)`` in each body's local frame.
+        These are used in ``_update_metrics`` to compute the paper's per-vertex
+        ADD plus its threshold-sweep AUC.
+
+        Sets ``self._dexmachina_metric_enabled`` to True iff all body meshes
+        loaded successfully. Mesh paths come from the parquet's
+        ``object_mesh_paths`` field; if any mesh is missing or unloadable we
+        disable the metric for this experiment rather than failing init.
+        """
+        from robotic_grounding.tasks.v2p.mdp.commands.dexmachina_eval import (  # noqa: PLC0415
+            sample_mesh_surface_vertices,
+        )
+
+        self._dexmachina_metric_enabled = False
+        self._dexmachina_num_verts = num_samples
+
+        # Loud, uniform "DISABLED because X" banner — keeps the gate failure
+        # observable so post-training eval (--dexmachina_auc, EvalCallback
+        # --eval_dexmachina_auc) doesn't silently lack AUC. Reasons are
+        # mutually exclusive; each early-return prints exactly one banner.
+        _disabled_prefix = (
+            "[dexmachina_eval] WARNING: dexmachina_bbox / dexmachina_AUC metric "
+            "DISABLED for this experiment — "
+        )
+
+        mesh_paths = list(
+            getattr(self._retargeted_motion_data, "object_mesh_paths", []) or []
+        )
+        if not mesh_paths:
+            print(
+                _disabled_prefix
+                + "reason: motion data has no `object_mesh_paths` field (or it is "
+                "empty). Re-run retargeting with a pipeline that populates "
+                "object_mesh_paths in the parquet, otherwise post-training "
+                "--dexmachina_auc / --eval_dexmachina_auc will skip silently."
+            )
+            return
+
+        num_bodies = self.object_body_half_extents.shape[0]
+        if len(mesh_paths) != num_bodies:
+            print(
+                _disabled_prefix
+                + f"reason: `object_mesh_paths` length ({len(mesh_paths)}) != "
+                f"num object bodies ({num_bodies}). Parquet is malformed; "
+                "regenerate motion data so the two match."
+            )
+            return
+
+        sampled: list[torch.Tensor] = []
+        for body_idx, mp in enumerate(mesh_paths):
+            try:
+                verts_np = sample_mesh_surface_vertices(mp, num_samples=num_samples)
+            except Exception as e:  # noqa: BLE001
+                print(
+                    _disabled_prefix
+                    + f"reason: failed to load/sample mesh for body {body_idx} "
+                    f"at path '{mp}' ({type(e).__name__}: {e}). Verify the mesh "
+                    "file exists and is readable by trimesh."
+                )
+                return
+            sampled.append(
+                torch.tensor(verts_np, device=self.device, dtype=torch.float32)
+            )
+
+        verts = torch.stack(sampled, dim=0)  # (num_bodies, num_samples, 3)
+        self.DEXMACHINA_SAMPLED_VERTS = verts.unsqueeze(0).expand(
+            self.num_envs, -1, -1, -1
+        )  # (num_envs, num_bodies, num_samples, 3)
+        # Paper-exact in-training dexmachina_AUC: flat sliding pool of per-env
+        # per-frame ADD values, one row per body. Each _update_metrics call
+        # appends the current step's (num_envs,) ADD values for body b to
+        # _dexmachina_pool[b]; the AUC is then computed across the entire pool.
+        # This matches dexmachina/eval/compute_add.py exactly — `compute_auc`
+        # flattens the (n_envs * n_frames) array for each part before computing
+        # accuracy, and the "overall" AUC is the mean across parts.
+        #
+        # Pool capacity (per body): num_envs * 50 — roughly 50 rollout steps'
+        # worth of samples per env. 50 steps is enough for AUC over 9
+        # thresholds to be stable (each accuracy is mean over num_envs*50 ≈
+        # 50k+ samples for a typical 1024-env rollout) but short enough that
+        # the metric tracks policy improvement instead of lagging behind by
+        # multiple PPO iterations. The pool drains in FIFO order so the
+        # reported AUC is always over the most recent ~50 sim steps.
+        num_bodies = self.object_body_half_extents.shape[0]
+        self._dexmachina_num_bodies = int(num_bodies)
+        _dexmachina_pool_steps = 50
+        self._dexmachina_pool_capacity = int(self.num_envs * _dexmachina_pool_steps)
+        # One deque per body — appendleft/popleft are O(1) and the .item()
+        # cost we previously paid per-env-per-step is gone.
+        self._dexmachina_pool: list[collections.deque] = [
+            collections.deque(maxlen=self._dexmachina_pool_capacity)
+            for _ in range(num_bodies)
+        ]
+        self._dexmachina_metric_enabled = True
+
     def _init_metrics(self, cfg: CommandTermCfg) -> None:
         """Initialize all tracking-error metric buffers to zero.
 
@@ -969,6 +1181,8 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         self.metrics["object_articulation_error"] = torch.zeros(
             self.num_envs, device=self.device
         )
+        register_spider_metric_keys(self)
+        register_maniptrans_metric_keys(self)
         self.metrics["virtual_object_controller_scale_factor"] = (
             cfg.initial_virtual_object_control_curriculum_scale
             * torch.ones(self.num_envs, device=self.device)
@@ -997,29 +1211,51 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             self.metrics["object_body_z_error"] = torch.zeros(
                 self.num_envs, device=self.device
             )
-
-            # Object contact indicator metrics
-            for suffix in [
-                "right_contact_frac",
-                "left_contact_frac",
-                "any_contact_frac",
-            ]:
-                self.metrics[f"object_has_{suffix}"] = torch.zeros(
-                    self.num_envs, device=self.device
-                )
-
-            # Hand tracking quality fraction
-            self.metrics["hand_tracking_good_frac"] = torch.zeros(
+            # Paper-exact DexMachina ADD metric (mean per-vertex displacement over
+            # 500 sampled surface vertices per body) + threshold-sweep AUC.
+            # See dexmachina_eval.py + dexmachina/eval/compute_add.py.
+            self.metrics["dexmachina_bbox"] = torch.zeros(
+                self.num_envs, device=self.device
+            )
+            self.metrics["dexmachina_AUC"] = torch.zeros(
                 self.num_envs, device=self.device
             )
 
-            # VOC decay event marker — 1.0 on the step a curriculum decay fires, 0.0 otherwise.
-            # Use alongside object_bbox_corner_error in W&B to see if tracking degrades post-decay.
-            self.metrics["voc_decay_fired"] = torch.zeros(
+            # DISABLED: object_has_{right,left,any}_contact_frac W&B logging
+            # for suffix in [
+            #     "right_contact_frac",
+            #     "left_contact_frac",
+            #     "any_contact_frac",
+            # ]:
+            #     self.metrics[f"object_has_{suffix}"] = torch.zeros(
+            #         self.num_envs, device=self.device
+            #     )
+
+            # DISABLED: hand_tracking_good_frac W&B logging
+            # self.metrics["hand_tracking_good_frac"] = torch.zeros(
+            #     self.num_envs, device=self.device
+            # )
+
+            # DISABLED: voc_decay_fired W&B logging (and its prev-scale tracker)
+            # self.metrics["voc_decay_fired"] = torch.zeros(
+            #     self.num_envs, device=self.device
+            # )
+            # self._prev_voc_scale = float(
+            #     cfg.initial_virtual_object_control_curriculum_scale
+            # )
+            # Rolling step-level buffer for contact_wrench_support_reward CV (W=200).
+            # Initialized to 1.0 (high = not plateaued) until the buffer fills.
+            self._cws_reward_step_buf: collections.deque = collections.deque(maxlen=200)
+            self.metrics["contact_wrench_support_reward_cv"] = torch.ones(
                 self.num_envs, device=self.device
             )
-            self._prev_voc_scale = float(
-                cfg.initial_virtual_object_control_curriculum_scale
+
+        if self._has_multi_object:
+            self.metrics["relative_object_pos_error"] = torch.zeros(
+                self.num_envs, device=self.device
+            )
+            self.metrics["relative_object_rot_error"] = torch.zeros(
+                self.num_envs, device=self.device
             )
             # Rolling step-level buffer for contact_wrench_support_reward CV (W=200).
             # Initialized to 1.0 (high = not plateaued) until the buffer fills.
@@ -1526,6 +1762,56 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         ).float()
 
     @property
+    def object_body_lin_vel_e(self) -> torch.Tensor:
+        """Current linear velocity per body in env frame. Shape ``(num_envs, NUM_BODY, 3)``.
+
+        Velocity is translation-invariant, so this is identical to the world-frame
+        value — the ``_e`` suffix is kept for naming symmetry with the position
+        properties.
+        """
+        return torch.cat(
+            [object.data.body_link_lin_vel_w for object in self.objects], dim=1
+        ).float()
+
+    @property
+    def object_body_lin_vel_command_e(self) -> torch.Tensor:
+        """Target linear velocity per body at the current timestep. Shape ``(num_envs, NUM_BODY, 3)``.
+
+        Precomputed via central finite differences over the retargeted position
+        trajectory in :meth:`_init_object_data`.
+        """
+        return self.retargeted_object_body_lin_vel[self.timestep_counter].float()
+
+    @property
+    def relative_object_pose_error(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """Pose error between current and demo relative pose of obj1 in obj0's frame.
+
+        Returns:
+            pos_err: (num_envs,) L2 position error in metres.
+            rot_err: (num_envs,) geodesic rotation error in radians.
+
+        Only call when self._has_multi_object is True.
+        """
+        obj0_pos = self.object_position_e[:, 0, :]
+        obj0_quat = self.object_orientation_e[:, 0, :]
+        obj1_pos = self.object_position_e[:, self._obj1_root_body_idx, :]
+        obj1_quat = self.object_orientation_e[:, self._obj1_root_body_idx, :]
+        cur_rel_pos, cur_rel_quat = math_utils.subtract_frame_transforms(
+            obj0_pos, obj0_quat, obj1_pos, obj1_quat
+        )
+        demo_rel_pos = self._demo_rel_pos[self.timestep_counter]
+        demo_rel_quat = self._demo_rel_quat[self.timestep_counter]
+        pos_err = torch.norm(cur_rel_pos - demo_rel_pos, dim=-1)
+        rot_err = math_utils.quat_error_magnitude(cur_rel_quat, demo_rel_quat)
+        return pos_err, rot_err
+
+    @property
+    def relative_object_proximity_mask(self) -> torch.Tensor:
+        """(num_envs,) bool — True when demo inter-object distance < proximity_threshold."""
+        demo_dist = self._demo_inter_object_dist[self.timestep_counter]
+        return demo_dist < self.cfg.relative_object_proximity_threshold
+
+    @property
     def object_com_position_and_wxyz_w(self) -> torch.Tensor:
         """The current position and orientation in the environment frame for the object com. Shape is (num_envs, num_bodies, 7)."""
         return torch.cat(
@@ -1888,184 +2174,164 @@ class DualHandsObjectTrackingCommand(CommandTerm):
     def _update_metrics(self) -> None:
         """Update the metrics."""
         # Right hand
-        # right_hand_wrist_pose_command_e = self.right_hand_wrist_pose_command_e
-        # self.metrics["right_hand_wrist_position_error"] = torch.norm(
-        #     self.right_hand_wrist_position_e - right_hand_wrist_pose_command_e[:, :3],
-        #     dim=-1,
-        # )
-        # self.metrics["right_hand_wrist_wxyz_error"] = math_utils.quat_error_magnitude(
-        #     self.right_hand_wrist_wxyz_e, right_hand_wrist_pose_command_e[:, 3:]
-        # )
-        # self.metrics["right_hand_finger_joints_error"] = torch.norm(
-        #     self.right_hand_finger_joint_pos - self.right_hand_finger_joint_pos_command,
-        #     dim=-1,
-        # )
-        # # Left hand
-        # left_hand_wrist_pose_command_e = self.left_hand_wrist_pose_command_e
-        # self.metrics["left_hand_wrist_position_error"] = torch.norm(
-        #     self.left_hand_wrist_position_e - left_hand_wrist_pose_command_e[:, :3],
-        #     dim=-1,
-        # )
-        # self.metrics["left_hand_wrist_wxyz_error"] = math_utils.quat_error_magnitude(
-        #     self.left_hand_wrist_wxyz_e, left_hand_wrist_pose_command_e[:, 3:]
-        # )
-        # self.metrics["left_hand_finger_joints_error"] = torch.norm(
-        #     self.left_hand_finger_joint_pos - self.left_hand_finger_joint_pos_command,
-        #     dim=-1,
-        # )
-        # # # Object
-        # self.metrics["object_body_position_error"] = torch.norm(
-        #     self.object_position_e - self.object_body_position_command_e,
-        #     dim=-1,
-        # ).mean(dim=-1)
-        # self.metrics["object_body_wxyz_error"] = math_utils.quat_error_magnitude(
-        #     self.object_orientation_e,
-        #     self.object_body_wxyz_command_e,
-        # ).mean(dim=-1)
+        right_hand_wrist_pose_command_e = self.right_hand_wrist_pose_command_e
+        self.metrics["right_hand_wrist_position_error"] = torch.norm(
+            self.right_hand_wrist_position_e - right_hand_wrist_pose_command_e[:, :3],
+            dim=-1,
+        )
+        self.metrics["right_hand_wrist_wxyz_error"] = math_utils.quat_error_magnitude(
+            self.right_hand_wrist_wxyz_e, right_hand_wrist_pose_command_e[:, 3:]
+        )
+        self.metrics["right_hand_finger_joints_error"] = torch.norm(
+            self.right_hand_finger_joint_pos - self.right_hand_finger_joint_pos_command,
+            dim=-1,
+        )
+        # Left hand
+        left_hand_wrist_pose_command_e = self.left_hand_wrist_pose_command_e
+        self.metrics["left_hand_wrist_position_error"] = torch.norm(
+            self.left_hand_wrist_position_e - left_hand_wrist_pose_command_e[:, :3],
+            dim=-1,
+        )
+        self.metrics["left_hand_wrist_wxyz_error"] = math_utils.quat_error_magnitude(
+            self.left_hand_wrist_wxyz_e, left_hand_wrist_pose_command_e[:, 3:]
+        )
+        self.metrics["left_hand_finger_joints_error"] = torch.norm(
+            self.left_hand_finger_joint_pos - self.left_hand_finger_joint_pos_command,
+            dim=-1,
+        )
+        # Object
+        self.metrics["object_body_position_error"] = torch.norm(
+            self.object_position_e - self.object_body_position_command_e,
+            dim=-1,
+        ).mean(dim=-1)
+        self.metrics["object_body_wxyz_error"] = math_utils.quat_error_magnitude(
+            self.object_orientation_e,
+            self.object_body_wxyz_command_e,
+        ).mean(dim=-1)
 
         # Log the per-env VOC scale actually applied to the object controller.
         self.metrics["virtual_object_controller_scale_factor"] = (
             self.virtual_object_controller_scale_factor_per_env.squeeze(-1)
         )
 
+        _spider_shared = update_spider_metrics(self)
+        update_maniptrans_metrics(self, _spider_shared)
+
+        if self._has_multi_object:
+            pos_err, rot_err = self.relative_object_pose_error
+            self.metrics["relative_object_pos_error"] = pos_err
+            self.metrics["relative_object_rot_error"] = rot_err
+
         if not self.cfg.enable_additional_metrics:
             return
 
-        voc_scale_now = float(self.virtual_object_controller_scale_factor)
-        decay_fired = 1.0 if voc_scale_now < self._prev_voc_scale else 0.0
-        self._prev_voc_scale = voc_scale_now
-        self.metrics["voc_decay_fired"] = decay_fired * torch.ones(
-            self.num_envs, device=self.device
-        )
+        # DISABLED: voc_decay_fired W&B logging
+        # voc_scale_now = float(self.virtual_object_controller_scale_factor)
+        # decay_fired = 1.0 if voc_scale_now < self._prev_voc_scale else 0.0
+        # self._prev_voc_scale = voc_scale_now
+        # self.metrics["voc_decay_fired"] = decay_fired * torch.ones(
+        #     self.num_envs, device=self.device
+        # )
 
         # ------------------------------------------------------------------ #
-        # Contact wrench level metrics
-        # Read the internal buffers directly (already filled by the reward
-        # function earlier in the same step) to avoid re-running the expensive
-        # wrench space computation.
+        # DISABLED: per-side contact wrench level metrics (command/current
+        # support mean, support ratio). The CV metric below uses
+        # contact_wrench_support_reward_jit directly off self.* buffers, so
+        # this entire local-variable preamble is dead.
         # ------------------------------------------------------------------ #
-        right_cmd = (
-            self.right_hand_contact_wrench_supports_command
-        )  # (num_envs, num_bodies, num_basis)
-        right_curr = self.right_contact_wrench_supports  # buffer
-        left_cmd = self.left_hand_contact_wrench_supports_command
-        left_curr = self.left_contact_wrench_supports  # buffer
+        # right_cmd = (
+        #     self.right_hand_contact_wrench_supports_command
+        # )  # (num_envs, num_bodies, num_basis)
+        # right_curr = self.right_contact_wrench_supports  # buffer
+        # left_cmd = self.left_hand_contact_wrench_supports_command
+        # left_curr = self.left_contact_wrench_supports  # buffer
+        #
+        # right_cmd_has_contact = right_cmd.amax(dim=-1) > 1e-3  # (num_envs, num_bodies)
+        # right_curr_has_contact = right_curr.amax(dim=-1) > 1e-3
+        # left_cmd_has_contact = left_cmd.amax(dim=-1) > 1e-3
+        # left_curr_has_contact = left_curr.amax(dim=-1) > 1e-3
+        #
+        # right_cmd_count = right_cmd_has_contact.sum(dim=-1).clamp(
+        #     min=1e-3
+        # )  # (num_envs,)
+        # left_cmd_count = left_cmd_has_contact.sum(dim=-1).clamp(min=1e-3)
+        #
+        # self.metrics["contact_wrench_command_support_mean_right"] = (
+        #     right_cmd.mean(dim=-1) * right_cmd_has_contact
+        # ).sum(dim=-1) / right_cmd_count
+        # self.metrics["contact_wrench_current_support_mean_right"] = (
+        #     right_curr.mean(dim=-1) * right_cmd_has_contact
+        # ).sum(dim=-1) / right_cmd_count
+        # self.metrics["contact_wrench_command_support_mean_left"] = (
+        #     left_cmd.mean(dim=-1) * left_cmd_has_contact
+        # ).sum(dim=-1) / left_cmd_count
+        # self.metrics["contact_wrench_current_support_mean_left"] = (
+        #     left_curr.mean(dim=-1) * left_cmd_has_contact
+        # ).sum(dim=-1) / left_cmd_count
+        #
+        # has_demo_contact_right = right_cmd_has_contact.any(dim=-1)  # (num_envs,)
+        # has_demo_contact_left = left_cmd_has_contact.any(dim=-1)
+        #
+        # def _contact_ratio(
+        #     curr: torch.Tensor, cmd: torch.Tensor, cmd_has_contact: torch.Tensor
+        # ) -> torch.Tensor:
+        #     # (per-basis alignment ratio — see git history for full body)
+        #     basis_active = (cmd > 1e-3) & cmd_has_contact.unsqueeze(-1)
+        #     per_basis = curr / (cmd + 1e-6)
+        #     n_active = basis_active.float().sum(dim=(-2, -1)).clamp(min=1.0)
+        #     per_env_ratio = (per_basis * basis_active.float()).sum(
+        #         dim=(-2, -1)
+        #     ) / n_active
+        #     has_demo = cmd_has_contact.any(dim=-1)
+        #     n_envs = has_demo.float().sum().clamp(min=1.0)
+        #     val = (per_env_ratio * has_demo.float()).sum() / n_envs
+        #     return val.expand(curr.shape[0])
+        #
+        # self.metrics["contact_wrench_support_ratio_right"] = _contact_ratio(
+        #     right_curr,
+        #     right_cmd,
+        #     right_cmd_has_contact,
+        # )
+        # self.metrics["contact_wrench_support_ratio_left"] = _contact_ratio(
+        #     left_curr,
+        #     left_cmd,
+        #     left_cmd_has_contact,
+        # )
 
-        right_cmd_has_contact = right_cmd.amax(dim=-1) > 1e-3  # (num_envs, num_bodies)
-        right_curr_has_contact = right_curr.amax(dim=-1) > 1e-3
-        left_cmd_has_contact = left_cmd.amax(dim=-1) > 1e-3
-        left_curr_has_contact = left_curr.amax(dim=-1) > 1e-3
+        # DISABLED: contact_bodies_coverage_frac_{right,left} W&B logging
+        # n_demo_right = has_demo_contact_right.float().sum().clamp(min=1.0)
+        # n_demo_left = has_demo_contact_left.float().sum().clamp(min=1.0)
+        # coverage_right = (right_cmd_has_contact & right_curr_has_contact).float().sum(
+        #     dim=-1
+        # ) / right_cmd_count
+        # coverage_left = (left_cmd_has_contact & left_curr_has_contact).float().sum(
+        #     dim=-1
+        # ) / left_cmd_count
+        # self.metrics["contact_bodies_coverage_frac_right"] = (
+        #     (coverage_right * has_demo_contact_right.float()).sum() / n_demo_right
+        # ).expand(self.num_envs)
+        # self.metrics["contact_bodies_coverage_frac_left"] = (
+        #     (coverage_left * has_demo_contact_left.float()).sum() / n_demo_left
+        # ).expand(self.num_envs)
 
-        right_cmd_count = right_cmd_has_contact.sum(dim=-1).clamp(
-            min=1e-3
-        )  # (num_envs,)
-        left_cmd_count = left_cmd_has_contact.sum(dim=-1).clamp(min=1e-3)
-
-        self.metrics["contact_wrench_command_support_mean_right"] = (
-            right_cmd.mean(dim=-1) * right_cmd_has_contact
-        ).sum(dim=-1) / right_cmd_count
-        self.metrics["contact_wrench_current_support_mean_right"] = (
-            right_curr.mean(dim=-1) * right_cmd_has_contact
-        ).sum(dim=-1) / right_cmd_count
-        self.metrics["contact_wrench_command_support_mean_left"] = (
-            left_cmd.mean(dim=-1) * left_cmd_has_contact
-        ).sum(dim=-1) / left_cmd_count
-        self.metrics["contact_wrench_current_support_mean_left"] = (
-            left_curr.mean(dim=-1) * left_cmd_has_contact
-        ).sum(dim=-1) / left_cmd_count
-
-        has_demo_contact_right = right_cmd_has_contact.any(dim=-1)  # (num_envs,)
-        has_demo_contact_left = left_cmd_has_contact.any(dim=-1)
-
-        def _contact_ratio(
-            curr: torch.Tensor, cmd: torch.Tensor, cmd_has_contact: torch.Tensor
-        ) -> torch.Tensor:
-            """Per-basis alignment ratio.
-
-            For each basis direction k where the command has positive support
-            (cmd[e, b, k] > 1e-3) on a body that has commanded contact, compute
-            curr[e, b, k] / cmd[e, b, k].  Average over all active (body, basis)
-            pairs per env, then average over envs where any contact is commanded.
-            Result is broadcast back to (num_envs,).
-
-            This avoids the false-positive from the previous mean-then-divide
-            approach: a current wrench that generates force orthogonal to the
-            commanded directions would score 0 here but could look fine if we
-            first collapsed the basis dimension with .mean().
-
-            curr, cmd       : (num_envs, num_bodies, num_basis)
-            cmd_has_contact : (num_envs, num_bodies)
-            """
-            # Gate: basis direction is active only where the command has support
-            # AND the body is a commanded-contact body.
-            basis_active = (cmd > 1e-3) & cmd_has_contact.unsqueeze(
-                -1
-            )  # (num_envs, num_bodies, num_basis)
-            # Per-basis ratio (unbounded — diagnostic only, no clamp by design).
-            per_basis = curr / (cmd + 1e-6)  # (num_envs, num_bodies, num_basis)
-            # Mean over active (body, basis) pairs per env.
-            n_active = (
-                basis_active.float().sum(dim=(-2, -1)).clamp(min=1.0)
-            )  # (num_envs,)
-            per_env_ratio = (per_basis * basis_active.float()).sum(
-                dim=(-2, -1)
-            ) / n_active  # (num_envs,)
-            # Mean over envs where contact is commanded (exclude non-contact-phase envs).
-            has_demo = cmd_has_contact.any(dim=-1)  # (num_envs,)
-            n_envs = has_demo.float().sum().clamp(min=1.0)
-            val = (per_env_ratio * has_demo.float()).sum() / n_envs
-            return val.expand(curr.shape[0])
-
-        self.metrics["contact_wrench_support_ratio_right"] = _contact_ratio(
-            right_curr,
-            right_cmd,
-            right_cmd_has_contact,
-        )
-        self.metrics["contact_wrench_support_ratio_left"] = _contact_ratio(
-            left_curr,
-            left_cmd,
-            left_cmd_has_contact,
-        )
-
-        # Mean only over envs where contact is commanded, so that non-contact-phase
-        # envs (which contribute 0 / clamp(0, 1e-3) ≈ 0) do not dilute the metric.
-        n_demo_right = has_demo_contact_right.float().sum().clamp(min=1.0)
-        n_demo_left = has_demo_contact_left.float().sum().clamp(min=1.0)
-        coverage_right = (right_cmd_has_contact & right_curr_has_contact).float().sum(
-            dim=-1
-        ) / right_cmd_count
-        coverage_left = (left_cmd_has_contact & left_curr_has_contact).float().sum(
-            dim=-1
-        ) / left_cmd_count
-        self.metrics["contact_bodies_coverage_frac_right"] = (
-            (coverage_right * has_demo_contact_right.float()).sum() / n_demo_right
-        ).expand(self.num_envs)
-        self.metrics["contact_bodies_coverage_frac_left"] = (
-            (coverage_left * has_demo_contact_left.float()).sum() / n_demo_left
-        ).expand(self.num_envs)
-
-        # ------------------------------------------------------------------ #
-        # Object contact indicator metrics — conditioned on demo contact phase
-        # so that non-contact-phase envs (which should not have contact) do not
-        # dilute the fraction.
-        # ------------------------------------------------------------------ #
-        has_curr_right = right_curr_has_contact.any(dim=-1)  # (num_envs,)
-        has_curr_left = left_curr_has_contact.any(dim=-1)
-        has_demo_contact_any = has_demo_contact_right | has_demo_contact_left
-        n_demo_any = has_demo_contact_any.float().sum().clamp(min=1.0)
-        self.metrics["object_has_right_contact_frac"] = (
-            (has_curr_right.float() * has_demo_contact_right.float()).sum()
-            / n_demo_right
-        ).expand(self.num_envs)
-        self.metrics["object_has_left_contact_frac"] = (
-            (has_curr_left.float() * has_demo_contact_left.float()).sum() / n_demo_left
-        ).expand(self.num_envs)
-        self.metrics["object_has_any_contact_frac"] = (
-            (
-                (has_curr_right | has_curr_left).float() * has_demo_contact_any.float()
-            ).sum()
-            / n_demo_any
-        ).expand(self.num_envs)
+        # DISABLED: object_has_{right,left,any}_contact_frac W&B logging
+        # has_curr_right = right_curr_has_contact.any(dim=-1)  # (num_envs,)
+        # has_curr_left = left_curr_has_contact.any(dim=-1)
+        # has_demo_contact_any = has_demo_contact_right | has_demo_contact_left
+        # n_demo_any = has_demo_contact_any.float().sum().clamp(min=1.0)
+        # self.metrics["object_has_right_contact_frac"] = (
+        #     (has_curr_right.float() * has_demo_contact_right.float()).sum()
+        #     / n_demo_right
+        # ).expand(self.num_envs)
+        # self.metrics["object_has_left_contact_frac"] = (
+        #     (has_curr_left.float() * has_demo_contact_left.float()).sum() / n_demo_left
+        # ).expand(self.num_envs)
+        # self.metrics["object_has_any_contact_frac"] = (
+        #     (
+        #         (has_curr_right | has_curr_left).float() * has_demo_contact_any.float()
+        #     ).sum()
+        #     / n_demo_any
+        # ).expand(self.num_envs)
 
         # ------------------------------------------------------------------ #
         # Bounding-box corner tracking error
@@ -2107,6 +2373,86 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             (corner_error_per_env * past_reset_phase.float()).sum() / n_past_reset
         ).expand(self.num_envs)
 
+        # ------------------------------------------------------------------ #
+        # Paper-exact DexMachina ADD metric + AUC.
+        # Vertex set: 500 uniform vertex samples per body (paper formula,
+        # dexmachina/envs/object.py:305-315, sample_mesh_vertices). Per-frame
+        # ADD = mean per-vertex L2 distance between policy pose and demo pose,
+        # per body. AUC: flat sliding pool of per-env per-frame per-body ADDs,
+        # then `compute_dexmachina_auc` (paper-exact) over the full pool.
+        # ------------------------------------------------------------------ #
+        if getattr(self, "_dexmachina_metric_enabled", False):
+            M = self._dexmachina_num_verts
+            dex_pos_exp = self.object_position_e.unsqueeze(2).expand(-1, -1, M, -1)
+            dex_wxyz_exp = self.object_orientation_e.unsqueeze(2).expand(-1, -1, M, -1)
+            dex_cmd_pos_exp = self.object_body_position_command_e.unsqueeze(2).expand(
+                -1, -1, M, -1
+            )
+            dex_cmd_wxyz_exp = self.object_body_wxyz_command_e.unsqueeze(2).expand(
+                -1, -1, M, -1
+            )
+            dex_current_verts, _ = math_utils.combine_frame_transforms(
+                dex_pos_exp, dex_wxyz_exp, self.DEXMACHINA_SAMPLED_VERTS
+            )  # (num_envs, num_bodies, M, 3)
+            dex_command_verts, _ = math_utils.combine_frame_transforms(
+                dex_cmd_pos_exp, dex_cmd_wxyz_exp, self.DEXMACHINA_SAMPLED_VERTS
+            )
+            # Per-body per-env per-frame mean-vertex ADD (paper's get_all_add).
+            dex_add_per_body_env = torch.norm(
+                dex_current_verts - dex_command_verts, dim=-1
+            ).mean(
+                dim=-1
+            )  # (num_envs, num_bodies)
+
+            # Fast spatial-mean progress signal (averaged over bodies). Kept as
+            # dexmachina_bbox so existing dashboards continue to work.
+            dex_vert_err_per_env = dex_add_per_body_env.mean(dim=-1)  # (num_envs,)
+            dex_bbox_val = (
+                dex_vert_err_per_env * past_reset_phase.float()
+            ).sum() / n_past_reset
+            self.metrics["dexmachina_bbox"] = dex_bbox_val.expand(self.num_envs)
+
+            # Flat sliding pool: append every per-env entry for every body.
+            # `deque(maxlen=...)` drops old samples in FIFO order, so the AUC
+            # is always over the most recent ~50 sim-steps × num_envs samples
+            # per body. .tolist() pays one host transfer per step but avoids
+            # holding a GPU buffer of inf-padded trajectories.
+            from robotic_grounding.tasks.v2p.mdp.commands.dexmachina_eval import (  # noqa: PLC0415
+                DEXMACHINA_THRESHOLDS_M,
+                compute_dexmachina_auc,
+            )
+
+            # Gate the pool extension by `past_reset_phase` so VOC-warmup
+            # frames (where timestep_counter is frozen and the policy isn't
+            # free-running) don't contaminate the AUC. The standalone eval
+            # path forces VOC=0 and has no warmup; the train-time metric must
+            # match that semantic to be comparable to the paper.
+            _past_mask = past_reset_phase.detach().to("cpu").bool().tolist()
+            # (num_bodies, num_envs) host-side — one transfer.
+            _add_host = dex_add_per_body_env.detach().to("cpu").transpose(0, 1).tolist()
+            for b in range(self._dexmachina_num_bodies):
+                self._dexmachina_pool[b].extend(
+                    v for v, ok in zip(_add_host[b], _past_mask, strict=True) if ok
+                )
+
+            # Compute AUC across the full flat pool, per body, then mean.
+            # Skip the first few steps where the pool is still tiny (an AUC
+            # over <num_envs samples is dominated by reset-frame noise).
+            min_pool_samples = max(self.num_envs, 1)
+            if all(len(pool) >= min_pool_samples for pool in self._dexmachina_pool):
+                _pools_t = torch.tensor(
+                    [list(pool) for pool in self._dexmachina_pool],
+                    dtype=torch.float32,
+                    device=self.device,
+                )  # (num_bodies, N)
+                _auc = compute_dexmachina_auc(_pools_t, DEXMACHINA_THRESHOLDS_M)
+                self.metrics["dexmachina_AUC"] = torch.full(
+                    (self.num_envs,),
+                    float(_auc.item()),
+                    device=self.device,
+                    dtype=torch.float32,
+                )
+
         # Z-only tracking error — detects "object stays on table" failure mode
         z_error_per_env = torch.abs(
             self.object_position_e[..., 2] - self.object_body_position_command_e[..., 2]
@@ -2117,14 +2463,47 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             (z_error_per_env * past_reset_phase.float()).sum() / n_past_reset
         ).expand(self.num_envs)
 
+        # DISABLED: hand_tracking_good_frac W&B logging
+        # _WRIST_GOOD_THRESHOLD = 0.05  # 5 cm
+        # self.metrics["hand_tracking_good_frac"] = (
+        #     (self.metrics["right_hand_wrist_position_error"] < _WRIST_GOOD_THRESHOLD)
+        #     & (self.metrics["left_hand_wrist_position_error"] < _WRIST_GOOD_THRESHOLD)
+        # ).float()
+
         # ------------------------------------------------------------------ #
-        # Hand tracking quality fraction
+        # Contact wrench support reward CV (W=200 steps)
+        # Scale-invariant plateau indicator: CV = std/mean over the rolling
+        # buffer. Low CV (≲0.07) means the reward has plateaued; high CV means
+        # it is still actively changing. Used as a curriculum decay gate.
         # ------------------------------------------------------------------ #
-        _WRIST_GOOD_THRESHOLD = 0.05  # 5 cm
-        self.metrics["hand_tracking_good_frac"] = (
-            (self.metrics["right_hand_wrist_position_error"] < _WRIST_GOOD_THRESHOLD)
-            & (self.metrics["left_hand_wrist_position_error"] < _WRIST_GOOD_THRESHOLD)
-        ).float()
+        cws_step_val = (
+            contact_wrench_support_reward_jit(
+                right_cmd_active=self.right_wrench_cmd_active,
+                right_cur_active=self.right_wrench_cur_active,
+                left_cmd_active=self.left_wrench_cmd_active,
+                left_cur_active=self.left_wrench_cur_active,
+                right_cmd_active_per_body=self.right_wrench_cmd_active_per_body,
+                left_cmd_active_per_body=self.left_wrench_cmd_active_per_body,
+                right_cmd_supports=self.right_hand_contact_wrench_supports_command,
+                right_cur_supports=self.right_hand_contact_wrench_supports,
+                left_cmd_supports=self.left_hand_contact_wrench_supports_command,
+                left_cur_supports=self.left_hand_contact_wrench_supports,
+                tolerance=0.1,
+                var=0.1,
+            )
+            .mean()
+            .item()
+        )
+        self._cws_reward_step_buf.append(cws_step_val)
+        if len(self._cws_reward_step_buf) >= 10:
+            buf = torch.tensor(
+                list(self._cws_reward_step_buf),
+                dtype=torch.float32,
+                device=self.device,
+            )
+            mean_abs = buf.mean().abs().clamp(min=1e-6)
+            cv = buf.std() / mean_abs
+            self.metrics["contact_wrench_support_reward_cv"] = cv.expand(self.num_envs)
 
         # ------------------------------------------------------------------ #
         # Contact wrench support reward CV (W=200 steps)
@@ -2165,6 +2544,12 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         """Resample the command."""
         n = len(env_ids)
 
+        # Reset SPIDER metric running buffers for the envs that just ended, so
+        # the new episode starts with a fresh running sim_pos_mean.
+        if hasattr(self, "_spider_sim_pos_sum"):
+            self._spider_sim_pos_sum[env_ids] = 0.0
+            self._spider_step_count[env_ids] = 0.0
+
         # Reset to a random frame from the original retargeted motion data
         self.timestep_counter[env_ids] = torch.randint(
             low=0,
@@ -2203,7 +2588,8 @@ class DualHandsObjectTrackingCommand(CommandTerm):
 
         # Update the tracking length, reset curriculum + reset-step counters.
         self.tracking_lengths[env_ids] = (self.retargeted_horizon - tc).clamp(min=1)
-        self.virtual_object_controller_scale_factor_per_env[env_ids] = 1.0
+        if not self._spider_eval_freeze_voc:
+            self.virtual_object_controller_scale_factor_per_env[env_ids] = 1.0
         self.steps_since_last_reset[env_ids] = 0
 
         # ── JIT-compiled pure-tensor derivations (indexing, cat, rand, clamp) ──
@@ -2307,7 +2693,11 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         self.steps_since_last_reset += 1
 
         # Decay virtual object control scale factor toward curriculum scale
-        if self.cfg.virtual_object_control_decay_mode == "linear":
+        if self._spider_eval_freeze_voc:
+            # Eval passes that need VOC=0 throughout: skip the schedule writer
+            # entirely so per_env stays at whatever the eval set it to.
+            pass
+        elif self.cfg.virtual_object_control_decay_mode == "linear":
             progress = self.steps_since_last_reset.float() / max(
                 self.cfg.virtual_object_control_decay_steps, 1
             )

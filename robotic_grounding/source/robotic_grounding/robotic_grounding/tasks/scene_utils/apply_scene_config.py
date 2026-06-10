@@ -63,12 +63,30 @@ def _spawn_articulated(
     obj_rot = (
         tuple(float(r) for r in obj.init_rot) if obj.init_rot else (1.0, 0.0, 0.0, 0.0)
     )
+    # OakInk2 articulated assets (microwave, laptop):
+    #   1. ~33mm convex-hull overlap between adjacent links at joint=0 (per
+    #      handoff doc §4) → disable self-collisions (PhysX would depenetrate
+    #      on startup and kick the object).
+    #   2. Door collision is a single thin convex hull, with default
+    #      contact_offset=0 the hand can TUNNEL through before PhysX detects
+    #      contact. Bump contact_offset to 5mm so contacts engage with margin.
+    spawn = ARTICULATED_OBJECT_CFG.spawn.replace(
+        asset_path=obj.urdf_path,
+        fix_base=False,
+    )
+    if "maniptrans_oakink" in obj.urdf_path:
+        spawn = spawn.replace(
+            articulation_props=ARTICULATED_OBJECT_CFG.spawn.articulation_props.replace(
+                enabled_self_collisions=False,
+            ),
+            collision_props=ARTICULATED_OBJECT_CFG.spawn.collision_props.replace(
+                contact_offset=0.08,  # large margin to catch fast hand motion (door ~3.5cm)
+                rest_offset=0.0,
+            ),
+        )
     return ARTICULATED_OBJECT_CFG.replace(
         prim_path=prim_path,
-        spawn=ARTICULATED_OBJECT_CFG.spawn.replace(
-            asset_path=obj.urdf_path,
-            fix_base=False,
-        ),
+        spawn=spawn,
         init_state=ArticulationCfg.InitialStateCfg(
             pos=obj_pos,
             rot=obj_rot,
@@ -132,6 +150,118 @@ def _spawn_rigid(
     )
 
 
+def _add_maniptrans_oakink_table(env_cfg: Any, scene_config: SceneConfig) -> None:
+    """Spawn a fixed table under maniptrans_oakink articulated sequences.
+
+    Table is 2m × 2m × 4cm, centered in XY on the primary object.
+    Table top = z=0.415, matching ManipTrans's _table_surface_z (paper-aligned).
+    Mocap parquets have been pre-shifted in Z by
+    scripts/shift_to_maniptrans_table_frame.py so the object's lowest world Z
+    at frame 0 lands exactly on z=0.415.
+
+    XY centering is per-sequence (from the first scene object's init_pos),
+    because our mocap is NOT XY-aligned to a uniform table position the way
+    ManipTrans's is — different sequences place the object at different
+    world XY coords (e.g. e76b2_12 microwave at x=-0.47). Per-seq centering
+    keeps the object well inside the table footprint.
+
+    Table size 2m × 2m × 4cm: thicker than ManipTrans's 3cm so the table
+    surface reads as solid at side-view camera angles; larger than 1×1.6 so
+    no sequence hangs over the edge.
+
+    Replaces the buggy per-sequence support-disk reconstruction (disks placed
+    ~3.7cm inside the microwave base mesh causing spawn-time depenetration).
+    """
+    # Only articulated maniptrans_oakink sequences (microwave/laptop in the
+    # `_articulated/` subdir) get the fixed table. Rigid maniptrans_oakink
+    # sequences keep the per-sequence support-disk pipeline.
+    if "maniptrans_oakink_processed_articulated" not in scene_config.motion_file:
+        return
+    if not hasattr(env_cfg, "scene"):
+        return
+    # XY centering: use the first scene object's init_pos. Z always 0.4 →
+    # top at 0.415 (matches the shift script's TABLE_TOP_Z constant).
+    obj_xy = (0.0, 0.0)
+    if (
+        scene_config.scene_objects
+        and scene_config.scene_objects[0].init_pos is not None
+    ):
+        obj_xy = (
+            float(scene_config.scene_objects[0].init_pos[0]),
+            float(scene_config.scene_objects[0].init_pos[1]),
+        )
+    attr_name = "maniptrans_oakink_table"
+    table_spawn = sim_utils.CuboidCfg(
+        size=(2.0, 2.0, 0.04),
+        rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+        mass_props=sim_utils.MassPropertiesCfg(mass=100.0),
+        collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
+        physics_material=sim_utils.RigidBodyMaterialCfg(static_friction=1.0),
+        visual_material=sim_utils.PreviewSurfaceCfg(
+            diffuse_color=(0.4, 0.3, 0.2), metallic=0.0
+        ),
+    )
+    table_cfg = AssetBaseCfg(
+        prim_path=f"{{ENV_REGEX_NS}}/{attr_name}",
+        spawn=table_spawn,
+        init_state=AssetBaseCfg.InitialStateCfg(
+            pos=(obj_xy[0], obj_xy[1], 0.395),  # center z = 0.415 - 0.04/2
+            rot=(1.0, 0.0, 0.0, 0.0),
+        ),
+    )
+    setattr(env_cfg.scene, attr_name, table_cfg)
+    if hasattr(env_cfg, "events") and hasattr(env_cfg.events, "setup_collision_groups"):
+        env_cfg.events.setup_collision_groups.params["fixed_object_names"].append(
+            attr_name
+        )
+    # Enable scene-wide CCD so PhysX does swept time-of-impact checks for fast-
+    # moving bodies (hand fingertips). Door is 3.5cm thick; without CCD even
+    # 8cm contact_offset can miss tunneling at 100Hz with fast wrist motion.
+    if hasattr(env_cfg, "sim") and hasattr(env_cfg.sim, "physx"):
+        env_cfg.sim.physx.enable_ccd = True
+
+
+def _apply_maniptrans_oakink_spawn_overrides(
+    env_cfg: Any, scene_config: SceneConfig
+) -> None:
+    """Reduce spawn-kick artifacts for maniptrans_oakink scenes.
+
+    Reset writes wrist+finger pose directly via write_root_pose_to_sim — a
+    teleport with no IK / depenetration. If the mocap-frame Sharpa hand
+    overlaps the object (MANO↔Sharpa geometry mismatch, or the chosen frame
+    is mid-grasp), PhysX recovers by applying a large depenetration impulse
+    that pops the hand off the surface.
+
+    Cap hand `max_depenetration_velocity` to 0.1 m/s (default 1.0) so any
+    residual overlap resolves quietly rather than as a visible kick.
+    """
+    # Only articulated maniptrans_oakink sequences need the depenetration
+    # softening; the rigid pipeline doesn't have the MANO↔Sharpa overlap issue
+    # at the same magnitude.
+    if "maniptrans_oakink_processed_articulated" not in scene_config.motion_file:
+        return
+
+    def _soften(cfg: Any) -> Any:
+        if cfg is None or not hasattr(cfg, "spawn") or cfg.spawn is None:
+            return cfg
+        rp = getattr(cfg.spawn, "rigid_props", None)
+        if rp is None:
+            return cfg
+        return cfg.replace(
+            spawn=cfg.spawn.replace(
+                rigid_props=rp.replace(
+                    max_depenetration_velocity=0.1,
+                    max_contact_impulse=100.0,
+                ),
+            ),
+        )
+
+    if hasattr(env_cfg, "scene"):
+        for side in ("right_robot", "left_robot"):
+            if hasattr(env_cfg.scene, side):
+                setattr(env_cfg.scene, side, _soften(getattr(env_cfg.scene, side)))
+
+
 def apply_scene_objects(env_cfg: Any, scene_config: SceneConfig) -> None:
     """Spawn all scene objects and fixed objects into env_cfg.scene."""
     for obj in scene_config.scene_objects:
@@ -150,6 +280,16 @@ def apply_scene_objects(env_cfg: Any, scene_config: SceneConfig) -> None:
             env_cfg.events.setup_collision_groups.params["object_names"].append(
                 attr_name
             )
+        # Tag objects that need a non-default collision approximation (e.g. SDF) so
+        # the prestartup event applies it after spawn.
+        if (
+            getattr(obj, "collision_approximation", None) == "sdf"
+            and hasattr(env_cfg, "events")
+            and hasattr(env_cfg.events, "apply_sdf_collision_approximations")
+        ):
+            env_cfg.events.apply_sdf_collision_approximations.params[
+                "sdf_object_names"
+            ].append(attr_name)
 
     # Fixed objects (support surfaces, etc.)
     for fixed_obj in scene_config.fixed_objects:
@@ -195,9 +335,9 @@ def apply_scene_objects(env_cfg: Any, scene_config: SceneConfig) -> None:
             spawn_cfg.physics_material = sim_utils.RigidBodyMaterialCfg(
                 static_friction=1.0
             )
-            spawn_cfg.visual_material = sim_utils.PreviewSurfaceCfg(
-                diffuse_color=(0.14, 0.14, 0.14), metallic=0.7
-            )
+            # Headless OSMO has hit invalid null prims while creating preview
+            # materials for generated support-surface primitives. Physics props
+            # are what matter here, so leave the default visual material alone.
 
             fixed_cfg = AssetBaseCfg(
                 prim_path=f"{{ENV_REGEX_NS}}/{attr_name}",
@@ -214,6 +354,10 @@ def apply_scene_objects(env_cfg: Any, scene_config: SceneConfig) -> None:
                 env_cfg.events.setup_collision_groups.params[
                     "fixed_object_names"
                 ].append(attr_name)
+
+    # Add the ManipTrans-style fixed table for maniptrans_oakink sequences.
+    # No-op for other datasets.
+    _add_maniptrans_oakink_table(env_cfg, scene_config)
 
 
 def apply_scene_virtual_object_controls(
@@ -381,6 +525,7 @@ def apply_scene_contact_sensors(env_cfg: Any, scene_config: SceneConfig) -> None
 
     # Contact sensor on the object body-hand pairs
     env_cfg.object_to_hand_contact_sensor_names = []
+    _max_contact_count = getattr(env_cfg, "max_contact_data_count_per_prim", 1024)
 
     for object in scene_config.scene_objects:
         object_name = object.name
@@ -408,7 +553,7 @@ def apply_scene_contact_sensors(env_cfg: Any, scene_config: SceneConfig) -> None
                         ),
                         track_contact_points=True,
                         track_air_time=True,
-                        max_contact_data_count_per_prim=128,
+                        max_contact_data_count_per_prim=_max_contact_count,
                     ),
                 )
                 env_cfg.object_to_hand_contact_sensor_names.append(sensor_name)
@@ -438,6 +583,7 @@ def apply_scene_config(
             )
         apply_scene_commands(env_cfg, scene_config)
         apply_scene_contact_sensors(env_cfg, scene_config)
+        _apply_maniptrans_oakink_spawn_overrides(env_cfg, scene_config)
         env_cfg.episode_length_s = (
             scene_config.episode_length_s
             / env_cfg.commands.dual_hands_object_tracking_command.motion_speed
@@ -460,6 +606,9 @@ def apply_scene_config(
         )
         if hand_contact_bodies:
             contact_sensor_names = []
+            _wb_max_contact_count = getattr(
+                env_cfg, "max_contact_data_count_per_prim", 1024
+            )
             for obj in scene_config.scene_objects:
                 obj_name = obj.name
                 body_names = (
@@ -486,7 +635,7 @@ def apply_scene_config(
                                 filter_prim_paths_expr=filter_prims,
                                 track_contact_points=True,
                                 track_air_time=True,
-                                max_contact_data_count_per_prim=128,
+                                max_contact_data_count_per_prim=_wb_max_contact_count,
                             ),
                         )
                         contact_sensor_names.append(sensor_name)
