@@ -9,6 +9,11 @@ example_sweep: example_param_sweep
 stage1: example_stage1_nocoll
 stage2: example_stage2
 two_stage: example_two_stage
+example_AC_post: example_AC_post
+example_fixed_post: example_fixed_post
+example_pre_fixed_post: example_pre_fixed_post
+example_pre_fixed_post_stage1: example_pre_fixed_post_stage1
+example_pre_fixed_post_stage2: example_pre_fixed_post_stage2
 
 # Whole-body experiments:
 recon_body_corn_can_right_left_handover_01: recon_body_corn_can_right_left_handover_01

@@ -104,9 +104,8 @@ train_overrides:
 
 # Stage 1 spawns one OSMO task per sequence in this list.
 # MUST be the same sequences as `example_pre_fixed_post_stage2.sequences`.
-osmo_multi_task:
-  sequence_ids:
-    - arctic_s01_box_grab_01
+sequences:
+  - arctic_s01_box_grab_01
 
 osmo:
   # Replace with a recent image tag containing your code.
