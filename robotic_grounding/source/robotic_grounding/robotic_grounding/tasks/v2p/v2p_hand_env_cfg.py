@@ -569,23 +569,6 @@ class CurriculumCfg:
         },
     )
 
-    # Annealing termination curriculum (off by default — single-stage list keeps
-    # the existing thresholds). Enable in train_overrides by populating `stages`
-    # with multiple entries and setting `advance_threshold`. See
-    # TerminationAnnealingCurriculum docstring in curriculum.py.
-    termination_annealing = CurrTerm(
-        func=mdp.TerminationAnnealingCurriculum,
-        params={
-            "command_name": "dual_hands_object_tracking_command",
-            "num_steps_per_env": 24,
-            "stages": [[0.15, 0.7, 0.25]],
-            "advance_threshold": 0.7,
-            "window_iters": 200,
-            "min_dwell_iters": 500,
-            "voc_gate_threshold": 0.1,
-        },
-    )
-
 
 @configclass
 class FixedTimestepCurriculumCfg:
@@ -682,24 +665,6 @@ class FixedTimestepCurriculumCfg:
             "termination_object_away_from_trajectory_position_threshold": None,
             "termination_object_away_from_trajectory_orientation_threshold": None,
             "termination_hand_wrist_away_from_trajectory_threshold": None,
-        },
-    )
-
-    # Annealing termination curriculum (off by default — weight 0 stage list of
-    # length 1 keeps the existing thresholds). Enable in train_overrides by
-    # populating `stages` with multiple entries and setting `advance_threshold`.
-    # See TerminationAnnealingCurriculum docstring in curriculum.py.
-    termination_annealing = CurrTerm(
-        func=mdp.TerminationAnnealingCurriculum,
-        params={
-            "command_name": "dual_hands_object_tracking_command",
-            "num_steps_per_env": 24,
-            # Single-stage default = no-op; overrides activate annealing.
-            "stages": [[0.15, 0.7, 0.25]],
-            "advance_threshold": 0.7,
-            "window_iters": 200,
-            "min_dwell_iters": 500,
-            "voc_gate_threshold": 0.1,
         },
     )
 
