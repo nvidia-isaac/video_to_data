@@ -71,6 +71,14 @@ class SimToolRealEnvCfg(DirectRLEnvCfg):
         num_envs=8192, env_spacing=1.2, replicate_physics=True
     )
 
+    # --- optional per-env camera (one TiledCamera view per sub-env, to record ALL envs in a single
+    # rollout). OFF by default so training/normal eval pays no render cost. Resolution is per-env. ---
+    per_env_camera: bool = False
+    cam_width: int = 1280
+    cam_height: int = 720
+    cam_eye: tuple = (-0.10, -0.62, 0.90)    # per-env camera eye (env-local)
+    cam_lookat: tuple = (0.15, 0.0, 0.64)    # per-env camera look-at (env-local)
+
     # --- robot (fix_base baked into USD at conversion; placed at base offset) ---
     robot_cfg: ArticulationCfg = ArticulationCfg(
         prim_path="/World/envs/env_.*/Robot",

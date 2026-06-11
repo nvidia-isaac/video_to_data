@@ -37,8 +37,10 @@ OBJECTS = {
 }
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--object", type=str, default="claw_hammer", choices=list(OBJECTS), help="DexToolBench object to manipulate")
-parser.add_argument("--demo_task", type=str, default="swing_down", help="trajectory task name (e.g. swing_down, spin_vertical, spin_horizontal, draw_smile, write_c)")
+parser.add_argument("--object", type=str, default="claw_hammer", choices=list(OBJECTS), help="DexToolBench object to manipulate (simtoolreal env)")
+parser.add_argument("--env", type=str, default="simtoolreal", choices=["simtoolreal", "screwdriver", "screwdriver043"], help="env: single-object SimToolReal, ScrewdriverEnv (044 flat screwdriver + slot screw), or Screwdriver043Env (043 phillips screwdriver + CROSS-slot screw, 50%% thread_test)")
+parser.add_argument("--randomize_layout", action="store_true", help="(screwdriver env) randomize screw+screwdriver poses each reset; per-env tighten goals are generated per layout. Keeps --num_envs (no forced single env).")
+parser.add_argument("--demo_task", type=str, default="swing_down", help="trajectory task name (e.g. swing_down, spin_vertical, draw_smile, tighten_screw)")
 parser.add_argument("--task", type=str, default="Isaac-SimToolReal-ClawHammer-Direct-v0")
 parser.add_argument("--num_envs", type=int, default=96)  # multiple of 6 (SAPG blocks)
 parser.add_argument("--orig_config", type=str, default=DEFAULT_CONFIG, help="original pretrained config.yaml (net arch)")
@@ -51,13 +53,27 @@ parser.add_argument("--video_length", type=int, default=400, help="number of ste
 parser.add_argument("--cam_eye", type=str, default="-0.55,-0.45,0.80", help="render camera position (x,y,z), env-local")
 parser.add_argument("--cam_lookat", type=str, default="0.0,0.20,0.62", help="render camera target (x,y,z), env-local")
 parser.add_argument("--cam_env_index", type=int, default=0, help="render camera follows this env index")
+parser.add_argument("--env_spacing", type=float, default=0.0, help="override scene env_spacing (>0). Large value pushes neighbor envs out of frame for a clean single-env video; layout RNG/rollout are env-local so unchanged.")
+parser.add_argument("--screwdriver_usd", type=str, default=f"{ASSETS_USD}/044_screwdriver_sdf/044_screwdriver_sdf.usd", help="(screwdriver env) screwdriver Object USD. Default = the SDF-collider asset (thin blade enters the slot); pass the convexDecomposition one to compare.")
+parser.add_argument("--per_env_cam", action="store_true", help="attach ONE TiledCamera per sub-env and record a clip per env in a SINGLE rollout (no re-render). Logs render FPS. Camera framing uses --cam_eye/--cam_lookat (env-local).")
+parser.add_argument("--cam_width", type=int, default=1280, help="per-env camera width (default = current single-cam res)")
+parser.add_argument("--cam_height", type=int, default=720, help="per-env camera height")
+parser.add_argument("--per_env_cam_fps", type=int, default=30, help="playback fps for the per-env clips")
+parser.add_argument("--success_tolerance", type=float, default=None, help="(demo) override success_tolerance. Default 0.01 -> kp_tol=0.015m. e.g. 0.005 -> kp_tol=0.0075m (2x stricter: tip must get closer, hovering above the slot no longer counts).")
+parser.add_argument("--per_env_cam_record", type=str, default="", help="comma list of env indices to WRITE clips for (default empty = all envs). All cameras still render (keeps the rollout RNG-identical), but only these envs are encoded -- use to cheaply reproduce one env's clip.")
+parser.add_argument("--screw_turns", action="store_true", help="(screwdriver env) the screw turns + sinks as the screwdriver tightens it (kinematic coupling: screw tracks the driver's rotation about its axis while the tip is engaged).")
+parser.add_argument("--physical_screw", action="store_true", help="(screwdriver env) replace the kinematic screw+thread_test with ONE articulation (thread_test fixed base + revolute-jointed screw, SDF collider) so the screw physically spins via blade contact. Supersedes --screw_turns.")
+parser.add_argument("--screw_damping", type=float, default=0.0005, help="(physical screw) revolute-joint velocity damping (stops free coasting). Keep small (contact torque is tiny).")
+parser.add_argument("--screw_friction", type=float, default=0.0005, help="(physical screw) revolute-joint static/Coulomb friction (mimics thread friction).")
+parser.add_argument("--screw_armature", type=float, default=0.0, help="(physical screw) revolute-joint added inertia.")
+parser.add_argument("--responsive_goals", action="store_true", help="(screwdriver env) closed-loop goal: follows the screw's current rotation, re-inserts from the top if the tip is out of the slot, rotates if it's in. Replaces the fixed tighten_traj (kept as backup). Runs full --steps (no success-reset).")
 parser.add_argument("--seed", type=int, default=0, help="seed for reproducible env resets across runs")
 parser.add_argument("--zero_action", action="store_true", help="DEBUG: ignore policy, apply zero actions (isolate physics stability)")
 parser.add_argument("--debug_steps", type=int, default=0, help="DEBUG: print per-component finite-status for the first N steps")
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 
-if args_cli.video:
+if args_cli.video or args_cli.per_env_cam:
     args_cli.enable_cameras = True  # rendering requires cameras
 
 app_launcher = AppLauncher(args_cli)
@@ -137,16 +153,71 @@ def main():
     import torch
 
     torch.manual_seed(args_cli.seed)
-    if args_cli.demo:
-        args_cli.num_envs = 1  # the original eval_interactive.py demo runs a single env
-    env_cfg = SimToolRealEnvCfg()
+    if args_cli.demo and not args_cli.randomize_layout:
+        args_cli.num_envs = 1  # single-env demo; randomized runs keep --num_envs (diverse layouts)
+    if args_cli.env == "screwdriver":
+        # ScrewdriverEnv: 044 flat screwdriver + passive screw inserted in a thread_test fixture.
+        from simtoolreal_lab.tasks.screwdriver.screwdriver_env_cfg import ScrewdriverEnvCfg
+        env_cfg = ScrewdriverEnvCfg()
+        args_cli.task = "Isaac-SimToolReal-Screwdriver-Direct-v0"
+        env_cfg.randomize_layout = args_cli.randomize_layout  # per-reset random layout (per-env goals adapt)
+        env_cfg.pretrained_object_scale = (2.5, 0.75, 0.75)  # screwdriver-like keypoint box
+        env_cfg.trajectory_path = f"{TRAJ_ROOT}/screwdriver/044_screwdriver/{args_cli.demo_task}.json"
+        # swap the screwdriver Object USD (default = SDF collider so the thin blade enters the slot)
+        if args_cli.screwdriver_usd:
+            env_cfg.object_cfg.spawn.usd_path = args_cli.screwdriver_usd
+        print(f"[deploy] screwdriver Object USD -> {env_cfg.object_cfg.spawn.usd_path}", flush=True)
+        # SDF colliders generate many more contacts than convex hulls; the default GPU collision
+        # stack (2**26 ~ 67M) overflows at ~100 envs ("Contacts have been dropped"). Bump it.
+        env_cfg.sim.physx.gpu_collision_stack_size = 2 ** 28  # ~268M
+        if args_cli.physical_screw:
+            env_cfg.physical_screw = True
+            env_cfg.screw_joint_damping = args_cli.screw_damping
+            env_cfg.screw_joint_friction = args_cli.screw_friction
+            env_cfg.screw_joint_armature = args_cli.screw_armature
+        elif args_cli.screw_turns:
+            env_cfg.screw_turns_with_driver = True
+    elif args_cli.env == "screwdriver043":
+        # Screwdriver043Env: 043 PHILLIPS screwdriver + a CROSS-slot screw in the (50%) thread_test.
+        # Same env logic as ScrewdriverEnv, but the per-env goals come from the CROSS-slot generator
+        # (tighten_traj043: minimal-rotation tip-down + nearest-arm roll snap).
+        from simtoolreal_lab.tasks.screwdriver043.screwdriver043_env_cfg import Screwdriver043EnvCfg
+        env_cfg = Screwdriver043EnvCfg()
+        args_cli.task = "Isaac-SimToolReal-Screwdriver043-Direct-v0"
+        env_cfg.randomize_layout = args_cli.randomize_layout
+        env_cfg.pretrained_object_scale = (2.5, 0.75, 0.75)  # aligned-043 == aligned-044 extent
+        # base placeholder trajectory (74 goals); per-env CROSS goals override under randomize_layout
+        env_cfg.trajectory_path = f"{TRAJ_ROOT}/screwdriver/044_screwdriver/{args_cli.demo_task}.json"
+        # SDF screwdriver + SDF screw across ~100 envs generates ~700MB of contacts; 2**28 (268MB)
+        # overflows ("Contacts have been dropped" -> unstable physics). 2**30 (~1.07GB) clears it.
+        env_cfg.sim.physx.gpu_collision_stack_size = 2 ** 30
+        # NOTE: do NOT apply --screwdriver_usd (that default is the 044 SDF); the 043 cfg already
+        # points Object at the aligned-043 USD.
+        if args_cli.physical_screw:
+            # cross-slot screw revolute-jointed to the 50% thread_test (SDF) -> spins via REAL contact
+            env_cfg.physical_screw = True
+            env_cfg.screw_joint_damping = args_cli.screw_damping
+            env_cfg.screw_joint_friction = args_cli.screw_friction
+            env_cfg.screw_joint_armature = args_cli.screw_armature
+        elif args_cli.screw_turns:
+            env_cfg.screw_turns_with_driver = True  # kinematic coupling: cross screw turns with driver
+    else:
+        env_cfg = SimToolRealEnvCfg()
+        # select the DexToolBench object + its trajectory task (default claw_hammer / swing_down)
+        _cat, _scale = OBJECTS[args_cli.object]
+        env_cfg.object_cfg.spawn.usd_path = f"{ASSETS_USD}/{args_cli.object}/{args_cli.object}.usd"
+        env_cfg.pretrained_object_scale = _scale
+        env_cfg.trajectory_path = f"{TRAJ_ROOT}/{_cat}/{args_cli.object}/{args_cli.demo_task}.json"
     env_cfg.seed = args_cli.seed
     env_cfg.scene.num_envs = args_cli.num_envs
-    # select the DexToolBench object + its trajectory task (default claw_hammer / swing_down)
-    _cat, _scale = OBJECTS[args_cli.object]
-    env_cfg.object_cfg.spawn.usd_path = f"{ASSETS_USD}/{args_cli.object}/{args_cli.object}.usd"
-    env_cfg.pretrained_object_scale = _scale
-    env_cfg.trajectory_path = f"{TRAJ_ROOT}/{_cat}/{args_cli.object}/{args_cli.demo_task}.json"
+    if args_cli.env_spacing > 0:
+        env_cfg.scene.env_spacing = args_cli.env_spacing  # clean single-env framing; rollout is env-local
+    if args_cli.per_env_cam:
+        env_cfg.per_env_camera = True
+        env_cfg.cam_width = args_cli.cam_width
+        env_cfg.cam_height = args_cli.cam_height
+        env_cfg.cam_eye = tuple(float(v) for v in args_cli.cam_eye.split(","))
+        env_cfg.cam_lookat = tuple(float(v) for v in args_cli.cam_lookat.split(","))
     # zero-shot deploy of the original checkpoint: original obs/action convention, clean eval
     env_cfg.pretrained_compat = True
     env_cfg.eval_append_expl_coef = True   # coef_cond: append exploit coef 0.0 at obs idx 140
@@ -164,7 +235,7 @@ def main():
 
         env_cfg.demo_mode = True
         env_cfg.use_fixed_goal_trajectory = True
-        env_cfg.success_tolerance = 0.01   # evalSuccessTolerance (-> kp_tol = 0.01*1.5 = 0.015)
+        env_cfg.success_tolerance = args_cli.success_tolerance if args_cli.success_tolerance is not None else 0.01  # evalSuccessTolerance (-> kp_tol = tol*1.5)
         env_cfg.success_steps = 1          # successSteps
         # deterministic init: no reset noise
         env_cfg.reset_position_noise_x = 0.0
@@ -182,6 +253,10 @@ def main():
         # per-episode time cap exceeds the requested rollout so it stays one continuous episode
         # (only resets early if all goals reached or the object is dropped).
         env_cfg.episode_length_s = (args_cli.steps + 120) / 60.0
+
+    if args_cli.responsive_goals and args_cli.env == "screwdriver":
+        env_cfg.responsive_goals = True
+        env_cfg.max_consecutive_successes = 0  # closed-loop: no success-reset; run full steps, keep tightening
 
     agent_cfg = build_agent_cfg(args_cli.num_envs)
     rl_device = "cuda:0"
@@ -205,7 +280,7 @@ def main():
             video_folder=video_dir,
             step_trigger=lambda step: step == 0,
             video_length=args_cli.video_length,
-            name_prefix="pretrained_" + ("delta" if args_cli.delta else f"{args_cli.object}_{args_cli.demo_task}"),
+            name_prefix="pretrained_" + ("delta" if args_cli.delta else f"{'044_screwdriver' if args_cli.env == 'screwdriver' else args_cli.object}_{args_cli.demo_task}"),
             disable_logger=True,
         )
         video_env = env  # keep a handle so we can flush the (possibly partial) video on early stop
@@ -240,10 +315,35 @@ def main():
     STEPS = args_cli.steps
     lift_frames = torch.zeros(base.num_envs, device=base.device)
     peak_succ = torch.zeros(base.num_envs, device=base.device)  # max consecutive trajectory goals reached, per env
+    peak_screw_spin = torch.zeros(base.num_envs, device=base.device)  # max |screw_spin joint| (physical screw)
+    screw_total = torch.zeros(base.num_envs, device=base.device)       # NET accumulated rotation (multi-turn capable)
+    prev_screw = None
     obs = env.reset()
     o = obs["obs"]
     if player.is_rnn:
         player.init_rnn()
+
+    # --- per-env cameras: aim each env's camera at its action region (env-local eye/lookat) and
+    # open one mp4 writer per env. The TiledCamera renders all envs every step (cost measured below).
+    pe_cam = pe_writers = None
+    t_step = t_cap = 0.0
+    if args_cli.per_env_cam:
+        import time as _time
+        import imageio.v2 as _imageio
+        pe_cam = base.scene.sensors["per_env_cam"]
+        leye = torch.tensor([float(v) for v in args_cli.cam_eye.split(",")], device=base.device)
+        # camera framing is baked into the per-env OffsetCfg (env-local eye/lookat) in _build_per_env_camera
+        pe_dir = "/home/cning/simtoolreal_isaaclab/videos/per_env"
+        os.makedirs(pe_dir, exist_ok=True)
+        for f in os.listdir(pe_dir):  # clear stale clips
+            if f.endswith(".mp4"):
+                os.remove(os.path.join(pe_dir, f))
+        rec_ids = ([int(x) for x in args_cli.per_env_cam_record.split(",")]
+                   if args_cli.per_env_cam_record else list(range(base.num_envs)))
+        pe_writers = {i: _imageio.get_writer(f"{pe_dir}/env_{i:03d}.mp4", fps=args_cli.per_env_cam_fps,
+                                             macro_block_size=None, codec="libx264") for i in rec_ids}
+        emit(f"PER_ENV_CAM on: {base.num_envs} cameras @ {args_cli.cam_width}x{args_cli.cam_height} "
+             f"(writing {len(rec_ids)} clip(s): {rec_ids if len(rec_ids)<=10 else 'all'}) -> {pe_dir}")
 
     if args_cli.debug_steps > 0:
         # physical-sanity dump of the aligned obs for env 0 at reset
@@ -302,7 +402,24 @@ def main():
             a = player.get_action(o, is_deterministic=True)
             if t < args_cli.debug_steps:
                 emit(f"[dbg t={t} action] absmax={a.abs().max().item():.3f} mean={a.mean().item():.3f} finite={bool(torch.isfinite(a).all())}")
-        obs, rew, done, info = env.step(a)
+        if pe_cam is not None and t == 1:
+            cp = pe_cam.data.pos_w
+            for i in [0, 4, 7, 11, min(11, base.num_envs - 1)]:
+                if i < base.num_envs:
+                    emit(f"[camdbg] env{i} origin={[round(v,2) for v in base.scene.env_origins[i].tolist()]} "
+                         f"cam_pos={[round(v,2) for v in cp[i].tolist()]} "
+                         f"expect_eye={[round(v,2) for v in (base.scene.env_origins[i]+leye).tolist()]}")
+        if pe_cam is not None:
+            _s = _time.perf_counter()
+            obs, rew, done, info = env.step(a)
+            t_step += _time.perf_counter() - _s
+            _c = _time.perf_counter()
+            rgb = pe_cam.data.output["rgb"]  # (N,H,W,3) uint8 on GPU
+            for i in pe_writers:           # transfer + encode only the recorded env(s)
+                pe_writers[i].append_data(rgb[i].cpu().numpy())
+            t_cap += _time.perf_counter() - _c
+        else:
+            obs, rew, done, info = env.step(a)
         o = obs["obs"]
         if t < args_cli.debug_steps:
             dbg("post_step", t)
@@ -313,20 +430,38 @@ def main():
                 s[:, d, :] = 0.0
         lift_frames += base.lifted_object.float()
         peak_succ = torch.maximum(peak_succ, base.successes)
+        if getattr(base, "screw_asm", None) is not None:
+            jp = base.screw_asm.data.joint_pos[:, 0]
+            peak_screw_spin = torch.maximum(peak_screw_spin, jp.abs())
+            if prev_screw is None:
+                prev_screw = jp.clone()
+            screw_total = screw_total + torch.atan2(torch.sin(jp - prev_screw), torch.cos(jp - prev_screw))
+            prev_screw = jp.clone()
         if t % 60 == 0 or t == STEPS - 1:
-            emit(
+            msg = (
                 f"t={t:3d} lift_rate={base.lifted_object.float().mean().item():.2f} "
                 f"obj_z={base.object_pos[:,2].mean().item():.3f} "
                 f"kp_dist_to_goal={base.keypoints_max_dist.mean().item():.3f} "
                 f"succ_mean={base.successes.mean().item():.2f} succ_max={int(base.successes.max().item())}"
             )
-        # demo: stop once the trajectory episode ends (all goals reached -> max_consecutive_successes
-        # -> done). prev_episode_successes holds the pre-reset count (captured in env._reset_idx).
-        # This stops the rollout/recording at completion instead of resetting and replaying.
-        if args_cli.demo and bool(done.any()):
+            if getattr(base, "cfg", None) is not None and getattr(base.cfg, "screw_turns_with_driver", False):
+                import math as _m
+                msg += (f" screw_turn_max={base.screw_turn.abs().max().item()*180/_m.pi:.0f}deg "
+                        f"sink_max={base.screw_sink.max().item()*1000:.1f}mm")
+            if getattr(base, "screw_asm", None) is not None:
+                import math as _m
+                jp = base.screw_asm.data.joint_pos[:, 0]
+                msg += f" screw_spin_max={jp.abs().max().item()*180/_m.pi:.0f}deg"
+            emit(msg)
+        # capture pre-reset goal counts (in case an env resets this step) for the peak metric
+        if bool(done.any()):
+            peak_succ = torch.maximum(peak_succ, base.prev_episode_successes)
+        # SINGLE-env demo only: stop the rollout/recording once that episode ends (all goals reached
+        # or dropped). For multi-env (e.g. 100 randomized layouts) DON'T stop on any one env's reset —
+        # envs reset independently (re-randomizing + regenerating their per-env goals); run full STEPS.
+        if args_cli.demo and base.num_envs == 1 and not args_cli.randomize_layout and bool(done.any()):
             ng = base.trajectory_goals.shape[0] if base.trajectory_goals is not None else 0
             done_goals = int(base.prev_episode_successes.max().item())
-            peak_succ = torch.maximum(peak_succ, base.prev_episode_successes)
             emit(f"EPISODE_END t={t} goals_reached={done_goals}/{ng} (all_goals={'yes' if done_goals >= ng else 'no'})")
             break
     emit(
@@ -338,7 +473,34 @@ def main():
     best = int(lift_frames.argmax().item())
     emit(f"BEST_LIFT_ENV={best} lifted_frac={(lift_frames[best] / STEPS).item():.2f}")
     bs = int(peak_succ.argmax().item())
-    emit(f"BEST_SUCCESS_ENV={bs} peak_goals_reached={int(peak_succ[bs].item())}/{base.trajectory_goals.shape[0] if base.trajectory_goals is not None else '-'}")
+    NG = base.trajectory_goals.shape[0] if base.trajectory_goals is not None else "-"
+    emit(f"BEST_SUCCESS_ENV={bs} peak_goals_reached={int(peak_succ[bs].item())}/{NG}")
+    # top-10 envs by goals reached (+ peak screw spin if the screw is physical)
+    import math as _mm
+    k = min(10, base.num_envs)
+    phys = getattr(base, "screw_asm", None) is not None
+    # physical screw -> rank by how much the screw was turned (net rotation); else by goals reached
+    rank_metric = screw_total.abs() if phys else peak_succ
+    topk = torch.topk(rank_metric, k)
+    emit(f"TOP{k}_ENVS (by {'screw rotation' if phys else 'goals reached'}):")
+    for rank, (val, idx) in enumerate(zip(topk.values.tolist(), topk.indices.tolist())):
+        if phys:
+            emit(f"  #{rank+1:2d} env_{idx:03d}: screw {abs(screw_total[idx].item())*180/_mm.pi:.0f}deg "
+                 f"({int(peak_succ[idx].item())}/{NG} goals)")
+        else:
+            emit(f"  #{rank+1:2d} env_{idx:03d}: {int(val)}/{NG} goals")
+
+    if pe_cam is not None:
+        for w in pe_writers.values():
+            w.close()
+        n = base.num_envs
+        sps = STEPS / t_step if t_step > 0 else 0.0           # sim+render steps/sec (env.step only)
+        eps = n * sps                                          # env-steps/sec
+        enc = STEPS / (t_step + t_cap) if (t_step + t_cap) > 0 else 0.0  # incl. per-env encode
+        emit(f"FPS per_env_cam={n}x{args_cli.cam_width}x{args_cli.cam_height}: "
+             f"sim+render={sps:.2f} steps/s ({eps:.0f} env-steps/s); "
+             f"with_encode={enc:.2f} steps/s; step_time={t_step:.1f}s encode_time={t_cap:.1f}s")
+        emit(f"PER_ENV_CLIPS -> /home/cning/simtoolreal_isaaclab/videos/per_env/env_*.mp4  (best success: env_{bs:03d})")
     rf.close()
 
     # flush the recorded video explicitly (RlGamesVecEnvWrapper.close may not reach the inner

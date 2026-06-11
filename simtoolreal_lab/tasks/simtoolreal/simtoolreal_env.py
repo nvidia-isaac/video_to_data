@@ -204,13 +204,46 @@ class SimToolRealEnv(DirectRLEnv):
         self.robot = Articulation(self.cfg.robot_cfg)
         self.object = RigidObject(self.cfg.object_cfg)
         self.table = RigidObject(self.cfg.table_cfg)
+        self._build_per_env_camera()  # created before clone so it replicates per env
         spawn_ground_plane(prim_path="/World/ground", cfg=GroundPlaneCfg())
         self.scene.clone_environments(copy_from_source=False)
         self.scene.articulations["robot"] = self.robot
         self.scene.rigid_objects["object"] = self.object
         self.scene.rigid_objects["table"] = self.table
+        self._register_per_env_camera()
         light = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
         light.func("/World/Light", light)
+
+    # ------------------------------------------------------------------ optional per-env camera
+    def _build_per_env_camera(self):
+        """Create one TiledCamera view per sub-env (if cfg.per_env_camera). Call BEFORE
+        clone_environments so the camera prim is replicated to every env."""
+        self.per_env_cam = None
+        if not getattr(self.cfg, "per_env_camera", False):
+            return
+        from isaaclab.sensors import TiledCamera, TiledCameraCfg
+        from isaaclab.utils.math import quat_from_matrix, create_rotation_matrix_from_view
+        # Bake the look-at into the OffsetCfg (applied per-env relative to each env prim, so it is
+        # correct for every env and survives TiledCamera's per-step re-application of the offset --
+        # unlike set_world_poses_from_view, which the camera overwrites each update). The view matrix
+        # is OpenGL convention (-Z fwd, +Y up); env prims only translate, so the world look-at
+        # rotation == the per-env-local offset rotation.
+        eye = torch.tensor([self.cfg.cam_eye], device=self.device, dtype=torch.float32)
+        tgt = torch.tensor([self.cfg.cam_lookat], device=self.device, dtype=torch.float32)
+        rot = quat_from_matrix(create_rotation_matrix_from_view(eye, tgt, up_axis="Z", device=str(self.device)))[0]
+        cfg = TiledCameraCfg(
+            prim_path="/World/envs/env_.*/PerEnvCam",
+            offset=TiledCameraCfg.OffsetCfg(pos=tuple(float(v) for v in self.cfg.cam_eye),
+                                            rot=tuple(float(v) for v in rot.tolist()), convention="opengl"),
+            data_types=["rgb"],
+            spawn=sim_utils.PinholeCameraCfg(focal_length=24.0, clipping_range=(0.005, 50.0)),
+            width=int(self.cfg.cam_width), height=int(self.cfg.cam_height),
+        )
+        self.per_env_cam = TiledCamera(cfg)
+
+    def _register_per_env_camera(self):
+        if getattr(self, "per_env_cam", None) is not None:
+            self.scene.sensors["per_env_cam"] = self.per_env_cam
 
     # ------------------------------------------------------------------ action
     def _pre_physics_step(self, actions: torch.Tensor) -> None:

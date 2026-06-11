@@ -48,17 +48,24 @@ from rl_games.torch_runner import Runner  # noqa: E402
 
 from isaaclab_rl.rl_games import RlGamesGpuEnv, RlGamesVecEnvWrapper  # noqa: E402
 
-from simtoolreal_lab.tasks.simtoolreal.simtoolreal_env_cfg import SimToolRealEnvCfg  # noqa: E402
+import importlib  # noqa: E402
 
 AGENTS_DIR = "/home/cning/simtoolreal_isaaclab/simtoolreal_lab/tasks/simtoolreal/agents"
 RESULT_FILE = "/home/cning/simtoolreal_isaaclab/eval_result.txt"
+
+
+def resolve_env_cfg(task: str):
+    """Load the env-cfg class registered for `task` (so each task gets its own cfg)."""
+    entry = gym.spec(task).kwargs["env_cfg_entry_point"]
+    module_name, class_name = entry.split(":")
+    return getattr(importlib.import_module(module_name), class_name)
 
 
 def main():
     import torch
 
     torch.manual_seed(args_cli.seed)  # reproducible env resets so the same env lifts across the 2 passes
-    env_cfg = SimToolRealEnvCfg()
+    env_cfg = resolve_env_cfg(args_cli.task)()
     env_cfg.seed = args_cli.seed
     env_cfg.scene.num_envs = args_cli.num_envs
     env_cfg.use_fixed_goal_trajectory = not args_cli.delta  # fixed swing_down goals (default) or training delta goals
