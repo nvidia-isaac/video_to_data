@@ -1,0 +1,82 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Task-library LOAD workflow (MANO migration, Phase 3): raw hand-object dataset
+# -> MANO FK + object FK + contacts -> {dataset}_loaded Parquet (ManoSharpaData,
+# MANO + object only). This is the stage that uses manotorch (GPL-3.0), contained
+# to the v2d_task_library_loader image; the loaded Parquet is consumed downstream
+# by robotic_grounding's slimmed retarget.yaml (Stages 1.5-6, manotorch-free).
+#
+# Inputs are fetched from CSS at runtime (image stays lean): raw dataset, the
+# per-dataset object assets (urdfs+meshes), and the MANO models (licensed).
+#
+# Prereqs:
+#   - image built with `mujoco<3.7` (3.7+ breaks the arctic object URDFs) and pushed.
+#   - object_assets uploaded to CSS for {{dataset}} (arctic done; others deferred).
+#   - MANO models: a clean swift copy of v2d_ego_data's hand dir at
+#     .../datasets/v2d/reconstruction/data/weights/hand/ (has models/MANO_*.pkl).
+#
+# Usage:
+#   osmo workflow submit reconstruction/workflows/task_library_load/osmo/load.yaml \
+#     --set dataset=arctic --pool <pool>
+
+workflow:
+  name: {{workflow_name}}
+  resources:
+    default:
+      cpu: 8          # <=1/8 of an 8-GPU node's CPUs when requesting 1 GPU
+      gpu: 1
+      memory: 64Gi
+      storage: 100Gi
+
+  tasks:
+  - name: load
+    image: nvcr.io/nvstaging/isaac-amr/v2d_task_library_loader:{{image_tag}}
+    command:
+    - /bin/bash
+    args:
+    - /tmp/entry.sh
+    inputs:
+    - url: {{raw_url}}            # {{input:0}} raw dataset (e.g. .../arctic/dataset/)
+    - url: {{object_assets_url}}  # {{input:1}} urdfs/ + meshes/ (sibling layout)
+    - url: {{mano_url}}           # {{input:2}} MANO hand dir (has models/MANO_*.pkl)
+    outputs:
+    - url: {{loaded_output_url}}  # {{output}} -> {dataset}_loaded Parquet
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        # The loader derives sequence_id from the dataset_root path tail
+        # (.../dataset/<subject>/<seq>.mano.npy -> "dataset_<subject>_<seq>"). OSMO
+        # mounts the raw input at /osmo/data/input/0, which would yield "0_<subject>_..".
+        # Symlink it to a "dataset"-named dir so the ids match the convention
+        # (dataset_s01_box_grab_01), consistent with existing data.
+        ln -sfn {{input:0}} /tmp/dataset
+        FILTER_ARGS=""
+        [ -n "{{sequence_pattern}}" ] && FILTER_ARGS="${FILTER_ARGS} --sequence_pattern '{{sequence_pattern}}'"
+        [ -n "{{sequence_id}}" ]      && FILTER_ARGS="${FILTER_ARGS} --sequence_id {{sequence_id}}"
+        [ -n "{{max_sequences}}" ]    && FILTER_ARGS="${FILTER_ARGS} --max_sequences {{max_sequences}}"
+        eval python -m v2d.task_library_loader.lib.run_loader \
+          --dataset {{dataset}} \
+          --dataset_root /tmp/dataset \
+          --object_model_root {{input:1}}/urdfs/{{dataset}} \
+          --mesh_dir {{input:1}}/meshes/{{dataset}} \
+          --mano_model_dir {{input:2}} \
+          --output_dir {{output}} \
+          --device cuda:0 --save ${FILTER_ARGS}
+
+default-values:
+  workflow_name: v2d_arctic_load
+  image_tag: latest
+  dataset: arctic
+  raw_url: swift://pdx.s8k.io/AUTH_team-isaac/datasets/v2d/human_motion_data/arctic/dataset/
+  object_assets_url: swift://pdx.s8k.io/AUTH_team-isaac/datasets/v2d/human_motion_data/arctic/object_assets/
+  # MANO hand dir (clean swift copy of v2d_ego_data's data/weights/hand;
+  # contains models/MANO_{LEFT,RIGHT}.pkl — manotorch's mano_assets_root layout).
+  mano_url: swift://pdx.s8k.io/AUTH_team-isaac/datasets/v2d/reconstruction/data/weights/hand/
+  # Default writes the canonical _loaded prefix (regenerates it). Override to a
+  # scratch prefix for tests so you don't clobber an existing _loaded.
+  loaded_output_url: swift://pdx.s8k.io/AUTH_team-isaac/datasets/v2d/human_motion_data/arctic/arctic_loaded/
+  # Optional sequence filters (mirror the loader CLI).
+  sequence_pattern: ""
+  sequence_id: ""
+  max_sequences: ""
