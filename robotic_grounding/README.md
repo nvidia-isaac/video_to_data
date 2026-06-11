@@ -132,13 +132,7 @@ Success means Isaac starts, the task registers, `SceneConfig.from_motion_file` l
 
 ### Training and OSMO
 
-Use the `RL training` section below for a local `train.py` dry-run and one-iteration smoke test. If W&B is not configured, keep local smoke tests on TensorBoard by passing `--logger tensorboard`. Use [experiments/README.md](experiments/README.md) for OSMO dry-runs, image selection, and launch commands. The key merge-readiness checks are:
-
-```bash
-python experiments/run_experiment.py example_fixed_post --osmo --dry-run
-python experiments/run_experiment.py example_AC_post --osmo --dry-run
-python experiments/run_experiment.py example_pre_fixed_post --osmo --dry-run
-```
+Use the `RL training` section below for a local `train.py` one-iteration smoke test. If W&B is not configured, keep local smoke tests on TensorBoard by passing `--logger tensorboard`. Use [workflow/README.md](workflow/README.md) for OSMO image setup and cloud submission prerequisites.
 
 ### Running Debugging Env
 
@@ -222,9 +216,6 @@ Commands in this section assume you are inside the container from the
 when the motion data is already present locally.
 
 ```bash
-# Verify the experiment runner can generate a train.py command without starting Isaac.
-python experiments/run_experiment.py example_fixed_post --local --dry-run
-
 # Run a real one-iteration train smoke test.
 python scripts/rsl_rl/train.py \
   --headless \
@@ -255,7 +246,7 @@ python scripts/rsl_rl/eval.py         # Evaluate a trained checkpoint and export
 python scripts/rsl_rl/play.py         # Play without a checkpoint.
 ```
 
-See the `Agent Smoke Tests` section above for the required asset layout, dummy-agent commands, and OSMO experiment dry-runs.
+See the `Agent Smoke Tests` section above for the required asset layout, dummy-agent commands, and OSMO setup guidance.
 
 ## RL Tasks
 - `Sharpa-V2P-v0-Play`

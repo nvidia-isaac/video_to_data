@@ -36,7 +36,7 @@ OSMO training workflows log to W&B by default. Set `WANDB_API_KEY` in the shell 
 export WANDB_API_KEY=<your-key>
 ```
 
-If W&B is not available, do not submit a cloud training run. Use local smoke tests with `--logger tensorboard` from the top-level README or `experiments/README.md`.
+If W&B is not available, do not submit a cloud training run. Use local smoke tests with `--logger tensorboard` from the top-level README.
 
 ## Submitting a Job
 

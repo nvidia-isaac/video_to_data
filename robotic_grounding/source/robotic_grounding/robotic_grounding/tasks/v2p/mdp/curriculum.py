@@ -807,7 +807,6 @@ class FixedTimestepCurriculum(ManagerTermBase):
         rewards_object_meshvert_tracking_fine: float | list[float] = 0.0,
         rewards_object_position_tracking_fine: float | list[float] = 0.0,
         rewards_object_velocity_tracking_exp: float | list[float] = 0.0,
-        rewards_hand_skeleton_tracking_exp: float | list[float] = 0.0,
         rewards_dexmachina_contact_tracking_reward: float | list[float] = 0.0,
         rewards_relative_object_pos_reward: float | list[float] = 0.0,
         rewards_relative_object_rot_reward: float | list[float] = 0.0,

@@ -1088,30 +1088,35 @@ def object_meshvert_tracking_fine(
     command_name: str = "dual_hands_object_tracking_command",
     var: float = 0.001,
 ) -> torch.Tensor:
-    """Mesh-vertex paper-AUC-aligned tracking reward (num_envs,).
-
-    Uses the same DEXMACHINA_SAMPLED_VERTS (500 surface points/body) that
-    the dexmachina_AUC metric is computed on. Distance is mean per-vertex
-    ADD (meters), squared inside exp -- so reward operates at the same
-    spatial scale as the AUC bins (1-9 cm). Captures both position AND
-    rotation error at the object's actual size, unlike unit-vector
-    keypoints which amplify rotation by the 1 m arm.
-
-    Returns zeros if the command term doesn't have DEXMACHINA_SAMPLED_VERTS
-    (mesh load failure).
-    """
-    cmd = env.command_manager.get_term(command_name)
-    if not getattr(cmd, "_dexmachina_metric_enabled", False):
+    """Fine object-pose reward from sampled mesh vertices (num_envs,)."""
+    command = env.command_manager.get_term(command_name)
+    if not getattr(command, "_meshvert_reward_enabled", False):
         return torch.zeros(env.num_envs, device=env.device)
-    M = cmd._dexmachina_num_verts
-    verts = cmd.DEXMACHINA_SAMPLED_VERTS  # (E, B, M, 3)
-    pos_p = cmd.object_position_e.unsqueeze(2).expand(-1, -1, M, -1)
-    quat_p = cmd.object_orientation_e.unsqueeze(2).expand(-1, -1, M, -1)
-    pos_d = cmd.object_body_position_command_e.unsqueeze(2).expand(-1, -1, M, -1)
-    quat_d = cmd.object_body_wxyz_command_e.unsqueeze(2).expand(-1, -1, M, -1)
-    v_p, _ = math_utils.combine_frame_transforms(pos_p, quat_p, verts)
-    v_d, _ = math_utils.combine_frame_transforms(pos_d, quat_d, verts)
-    add_per_env = torch.norm(v_p - v_d, dim=-1).mean(dim=(-2, -1))  # (E,) meters
+
+    num_verts = command._meshvert_num_verts
+    verts = command.OBJECT_MESHVERT_SAMPLED_VERTS
+    pos_current = command.object_position_e.unsqueeze(2).expand(-1, -1, num_verts, -1)
+    quat_current = command.object_orientation_e.unsqueeze(2).expand(
+        -1, -1, num_verts, -1
+    )
+    pos_target = command.object_body_position_command_e.unsqueeze(2).expand(
+        -1, -1, num_verts, -1
+    )
+    quat_target = command.object_body_wxyz_command_e.unsqueeze(2).expand(
+        -1, -1, num_verts, -1
+    )
+
+    verts_current, _ = math_utils.combine_frame_transforms(
+        pos_current,
+        quat_current,
+        verts,
+    )
+    verts_target, _ = math_utils.combine_frame_transforms(
+        pos_target,
+        quat_target,
+        verts,
+    )
+    add_per_env = torch.norm(verts_current - verts_target, dim=-1).mean(dim=(-2, -1))
     return torch.exp(-(add_per_env**2) / var)
 
 
@@ -1169,67 +1174,3 @@ def object_velocity_tracking_exp(
     cmd_lin_vel = command.object_body_lin_vel_command_e  # (num_envs, num_bodies, 3)
     vel_err_sq = torch.sum(torch.square(cmd_lin_vel - obj_lin_vel), dim=-1).mean(-1)
     return torch.exp(-vel_err_sq / var)
-
-
-def hand_skeleton_tracking_exp(
-    env: ManagerBasedRLEnv,
-    command_name: str = "dual_hands_object_tracking_command",
-) -> torch.Tensor:
-    r"""Paper r_finger: per-body weighted Cartesian L2 over hand skeleton intersection.
-
-    For each hand and each body in the intersection between retargeted hand
-    frames and the robot articulation (same as ``paper_Ej_cm`` metric),
-    computes (LINEAR distance kernel — matches ManipTrans imitator):
-
-    .. math::
-        r = \\frac{1}{2}\\left[
-            \\frac{\\sum_b w_b \\exp(-\\lambda_b \\sqrt{\\|p_b - p_b^*\\|^2 + \\epsilon})}{\\sum_b w_b}
-        \\right]_{\\text{right}}
-        + \\text{same}_{\\text{left}}
-
-    Per-body weights ``w_b`` use the existing weight table. Per-body decay
-    rates ``\\lambda_b`` come from the LINEAR-distance lambda table (see
-    ``paper_{side}_body_lambdas_lin`` in
-    :meth:`DualHandsObjectTrackingCommand._init_hand_data`), with steep
-    fingertip values and a per-finger DP factor.
-
-    Returns:
-        Reward tensor (num_envs,) in (0, 1].
-    """
-    command = env.command_manager.get_term(command_name)
-    env_origins_b = command._env.scene.env_origins.unsqueeze(1)  # (num_envs, 1, 3)
-    eps = 1e-12  # numerical floor inside sqrt to keep gradients finite at d=0
-
-    # Right hand
-    right_robot_e = (
-        command.right_robot.data.body_link_pos_w[:, command.paper_right_robot_body_ids]
-        - env_origins_b
-    )  # (num_envs, F_r, 3)
-    right_ref_e = command.retargeted_right_hand_frames[command.timestep_counter][
-        :, command.paper_right_ref_frame_indices, :3
-    ]  # (num_envs, F_r, 3) — env frame
-    right_err_sq = (right_robot_e - right_ref_e).pow(2).sum(-1)  # (num_envs, F_r)
-    right_err = torch.sqrt(right_err_sq + eps)  # linear distance
-    right_weights = command.paper_right_body_weights.unsqueeze(0)  # (1, F_r)
-    right_lambda = command.paper_right_body_lambdas_lin.unsqueeze(0)  # (1, F_r)
-    right_rew = (right_weights * torch.exp(-right_lambda * right_err)).sum(
-        -1
-    ) / right_weights.sum()
-
-    # Left hand
-    left_robot_e = (
-        command.left_robot.data.body_link_pos_w[:, command.paper_left_robot_body_ids]
-        - env_origins_b
-    )  # (num_envs, F_l, 3)
-    left_ref_e = command.retargeted_left_hand_frames[command.timestep_counter][
-        :, command.paper_left_ref_frame_indices, :3
-    ]  # (num_envs, F_l, 3)
-    left_err_sq = (left_robot_e - left_ref_e).pow(2).sum(-1)  # (num_envs, F_l)
-    left_err = torch.sqrt(left_err_sq + eps)
-    left_weights = command.paper_left_body_weights.unsqueeze(0)  # (1, F_l)
-    left_lambda = command.paper_left_body_lambdas_lin.unsqueeze(0)  # (1, F_l)
-    left_rew = (left_weights * torch.exp(-left_lambda * left_err)).sum(
-        -1
-    ) / left_weights.sum()
-
-    return (right_rew + left_rew) / 2.0

@@ -11,8 +11,7 @@ from typing import Any
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Default W&B team entity for all OSMO-submitted runs. Overridable per experiment via
-# `wandb_entity:` in config.yaml (see generators in run_experiment.py, launch_stage2.py,
-# monitor_two_stage.py, and example_stage1_nocoll/workflow.py).
+# `wandb_entity:` in config.yaml (see generators in run_experiment.py and launch_stage2.py).
 DEFAULT_WANDB_ENTITY = "nvidia-isaac"
 
 # Container registry repo for the robotic-grounding Docker image. Individual experiments

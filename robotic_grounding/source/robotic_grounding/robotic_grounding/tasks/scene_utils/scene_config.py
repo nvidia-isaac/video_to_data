@@ -44,64 +44,6 @@ def _legacy_motion_layout(motion_file: str | Path) -> dict | None:
     }
 
 
-# Per-object scale overrides for OakInk-V2 objects whose meshes are repaired as
-# solid blobs and need a small uniform scale tweak to avoid PhysX interpenetration.
-# Ported verbatim from ManipTrans (main/dataset/oakink2_dataset_utils.py:34-41).
-# Keys use OakInk-V2's @ notation; lookup also accepts the body_name "safe" form
-# (underscores) used downstream. Effect: shrink the body, grow the cap, opening
-# ~10mm of radial clearance — enough for the cap to wrap the body's neck.
-OAKINK2_OBJECT_SCALE: dict[str, float] = {
-    "O02@0206@00001": 1.15,  # alcohol burner — cap (grow 15%)
-    "O02@0206@00002": 0.95,  # alcohol burner — body (shrink 5%)
-    "O02@0029@00011": 0.9,
-    "O02@0029@00012": 1.2,
-    "O02@0015@00020": 0.98,
-    "O02@0015@00019": 1.02,
-}
-
-
-# Per-object collision-approximation overrides. Defaults to URDF importer's
-# convex-hull/decomposition; "sdf" forces a PhysX SDF mesh collider via the
-# `apply_sdf_collision_approximations` prestartup event. Use this for objects
-# where the visual mesh has real concavity (open cavities, hollow vessels, etc.)
-# that convex decomposition can't represent — fingertips reaching into the cavity
-# correctly experience no contact instead of hitting phantom hull material.
-OAKINK2_OBJECT_COLLISION_APPROXIMATION: dict[str, str] = {
-    "O02@0011@00003": "sdf",  # pour_tube vessel — open-top, non-watertight mesh
-    "O02@0206@00001": "sdf",  # uncap_alcohol_burner cap — 23-piece convex too slow at 4096 envs
-}
-
-
-def _oakink2_collision_approximation_for(body_name: str) -> str | None:
-    """Look up collision-approximation override for an OakInk-V2 object."""
-    if body_name in OAKINK2_OBJECT_COLLISION_APPROXIMATION:
-        return OAKINK2_OBJECT_COLLISION_APPROXIMATION[body_name]
-    at_form = body_name.replace("_", "@", 2) if body_name.startswith("O02_") else None
-    if at_form and at_form in OAKINK2_OBJECT_COLLISION_APPROXIMATION:
-        return OAKINK2_OBJECT_COLLISION_APPROXIMATION[at_form]
-    return None
-
-
-def _oakink2_scale_for(body_name: str) -> tuple[float, float, float]:
-    """Look up uniform scale for an OakInk-V2 object by body name.
-
-    Accepts either the @-notation key (``O02@0206@00002``) or the underscore-safe
-    body_name form (``O02_0206_00002``) — both map to the same scale entry.
-    Returns ``(1.0, 1.0, 1.0)`` when no override is registered.
-    """
-    if body_name in OAKINK2_OBJECT_SCALE:
-        s = OAKINK2_OBJECT_SCALE[body_name]
-    else:
-        at_form = (
-            body_name.replace("_", "@", 2) if body_name.startswith("O02_") else None
-        )
-        if at_form and at_form in OAKINK2_OBJECT_SCALE:
-            s = OAKINK2_OBJECT_SCALE[at_form]
-        else:
-            return (1.0, 1.0, 1.0)
-    return (s, s, s)
-
-
 @dataclass
 class ObjectConfig:
     """Configuration for a rigid scene object (target or fixed)."""
@@ -115,11 +57,6 @@ class ObjectConfig:
 
     init_pos: list[float] | None = None
     init_rot: list[float] | None = None
-
-    # Per-object collision approximation override. None → use default (convex hull /
-    # decomposition from URDF importer). "sdf" → apply PhysX SDF mesh collider in
-    # the prestartup event (preserves cavity geometry for hollow / non-watertight objects).
-    collision_approximation: str | None = None
 
 
 @dataclass
@@ -357,12 +294,7 @@ class SceneConfig:
                 f"body='{body_name}'. Generate URDFs with scripts/generate_rigid_urdfs.py"
             )
 
-            obj = ObjectConfig(
-                name=body_name,
-                usd_path=urdf_path,
-                scale=_oakink2_scale_for(body_name),
-                collision_approximation=_oakink2_collision_approximation_for(body_name),
-            )
+            obj = ObjectConfig(name=body_name, usd_path=urdf_path)
             _load_body_pose(data, obj, i)
             objects.append(obj)
 
@@ -508,21 +440,8 @@ class SceneConfig:
 
     @staticmethod
     def _build_fixed_objects(motion_file: str) -> list[ObjectConfig]:
-        """Auto-discover fixed objects (support surfaces) from the motion file path.
-
-        For maniptrans_oakink sequences (microwave/laptop articulated), the
-        per-sequence support-disk reconstruction is buggy — disks land inside
-        the object mesh causing spawn-time depenetration kicks. Those sequences
-        use a single ManipTrans-style fixed table instead, spawned by
-        apply_scene_config — so we skip the disk discovery entirely here.
-        """
+        """Auto-discover fixed objects (support surfaces) from the motion file path."""
         fixed: list[ObjectConfig] = []
-        # Only the ARTICULATED maniptrans_oakink subset uses the fixed table
-        # path (see _add_maniptrans_oakink_table). Rigid maniptrans_oakink
-        # sequences (in maniptrans_oakink_processed/, not _articulated/) keep
-        # the standard per-sequence support-disk discovery below.
-        if "maniptrans_oakink_processed_articulated" in motion_file:
-            return fixed  # fixed table spawned by apply_scene_config._add_maniptrans_oakink_table
         support_path = _discover_support_surface(motion_file)
         if support_path is not None:
             fixed.append(
@@ -613,33 +532,7 @@ def _discover_support_surface(motion_file: str) -> str | None:
 
     Primary lookup: walk up to ``sequence_id=<name>`` and check
     ``../../reconstructed_stage/<name>_support.usda`` relative to it.
-
-    Fallback for OSMO: on OSMO the motion_file lives under
-    ``/osmo/data/input/0/<dataset>/`` so the relative walk fails.
-    We maintain a mapping from known dataset subfolder names to the
-    repo-resident ``reconstructed_stage/`` directories (baked into the
-    Docker image) so support surfaces load correctly during OSMO training.
     """
-    # Known dataset subfolder → repo-resident reconstructed_stage/ dir.
-    # These paths are relative to HUMAN_MOTION_DATA_DIR (ASSET_DIR/human_motion_data).
-    _DATASET_STAGE_DIRS: dict[str, Path] = {
-        "spider_oakink_processed": Path(HUMAN_MOTION_DATA_DIR)
-        / "spider_oakink"
-        / "reconstructed_stage",
-        "spider_oakink_processed_invalid": Path(HUMAN_MOTION_DATA_DIR)
-        / "spider_oakink"
-        / "reconstructed_stage",
-        "spider_oakinkv2_new_processed": Path(HUMAN_MOTION_DATA_DIR)
-        / "spider_oakinkv2_new"
-        / "reconstructed_stage",
-        "maniptrans_oakink_processed": Path(HUMAN_MOTION_DATA_DIR)
-        / "maniptrans_oakink"
-        / "reconstructed_stage",
-        "maniptrans_oakink_processed_articulated": Path(HUMAN_MOTION_DATA_DIR)
-        / "maniptrans_oakink"
-        / "reconstructed_stage",
-    }
-
     path = Path(motion_file).resolve()
     for parent in [path] + list(path.parents):
         if parent.name.startswith("sequence_id="):
@@ -649,14 +542,6 @@ def _discover_support_surface(motion_file: str) -> str | None:
             support_path = stage_dir / f"{seq_id}_support.usda"
             if support_path.exists():
                 return str(support_path)
-            # Fallback: check repo-resident stage dir by dataset subfolder name
-            dataset_subfolder = parent.parent.name  # e.g. "spider_oakink_processed"
-            if dataset_subfolder in _DATASET_STAGE_DIRS:
-                fallback = (
-                    _DATASET_STAGE_DIRS[dataset_subfolder] / f"{seq_id}_support.usda"
-                )
-                if fallback.exists():
-                    return str(fallback)
             return None
 
     legacy = _legacy_motion_layout(path)
@@ -671,11 +556,6 @@ def _discover_support_surface(motion_file: str) -> str | None:
             / "reconstructed_stage"
             / f"{seq_id}_support.usda",
         ]
-        dataset_subfolder = sequence_subfolder.name
-        if dataset_subfolder in _DATASET_STAGE_DIRS:
-            candidates.append(
-                _DATASET_STAGE_DIRS[dataset_subfolder] / f"{seq_id}_support.usda"
-            )
         for support_path in candidates:
             if support_path.exists():
                 return str(support_path)

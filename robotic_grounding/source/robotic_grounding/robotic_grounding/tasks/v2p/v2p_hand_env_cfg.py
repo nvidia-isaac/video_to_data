@@ -208,14 +208,6 @@ class EventCfg:
         },
     )
 
-    apply_sdf_collision_approximations = EventTerm(
-        func=mdp.apply_sdf_collision_approximations,
-        mode="prestartup",
-        params={
-            "sdf_object_names": [],
-        },
-    )
-
     # startup
     right_physics_material = EventTerm(
         func=isaac_mdp.randomize_rigid_body_material,
@@ -256,26 +248,6 @@ class EventCfg:
     #         "num_buckets": 64,
     #     },
     # )
-
-    # Optional ManipTrans-style gravity removal on each hand. Default OFF so
-    # full-task training keeps gravity. Stage1 imitator runs can override
-    # ``disabled=True`` via train_overrides to match dexhandimitator.py:248.
-    disable_right_robot_gravity = EventTerm(
-        func=mdp.disable_robot_gravity,
-        mode="startup",
-        params={
-            "asset_cfg": SceneEntityCfg("right_robot"),
-            "disabled": False,
-        },
-    )
-    disable_left_robot_gravity = EventTerm(
-        func=mdp.disable_robot_gravity,
-        mode="startup",
-        params={
-            "asset_cfg": SceneEntityCfg("left_robot"),
-            "disabled": False,
-        },
-    )
 
 
 @configclass
@@ -350,14 +322,6 @@ class RewardsCfg:
         },
     )
 
-    hand_skeleton_tracking_exp = RewTerm(
-        func=mdp.hand_skeleton_tracking_exp,
-        weight=0.0,
-        params={
-            "command_name": "dual_hands_object_tracking_command",
-        },
-    )
-
     hand_keypoints_tracking_exp = RewTerm(
         func=mdp.hand_keypoints_tracking_exp,
         weight=0.0,
@@ -423,6 +387,16 @@ class RewardsCfg:
         weight=-0.25,
         params={
             "command_name": "dual_hands_object_tracking_command",
+        },
+    )
+
+    dexmachina_contact_tracking_reward = RewTerm(
+        func=mdp.dexmachina_contact_tracking_reward,
+        weight=0.0,
+        params={
+            "command_name": "dual_hands_object_tracking_command",
+            "var": 0.03,
+            "mask_zero_contact": True,
         },
     )
 
@@ -502,17 +476,6 @@ class RewardsCfg:
     #     },
     # )
 
-    # DexMachina Contact Tracking Reward
-    dexmachina_contact_tracking_reward = RewTerm(
-        func=mdp.dexmachina_contact_tracking_reward,
-        weight=0.0,
-        params={
-            "command_name": "dual_hands_object_tracking_command",
-            "var": 0.03,
-            "mask_zero_contact": True,
-        },
-    )
-
 
 @configclass
 class TerminationsCfg:
@@ -542,33 +505,6 @@ class TerminationsCfg:
             "orientation_threshold": 0.7,
         },
     )
-
-    # Paper Section 3.3 grasp-violation termination.
-    # Disabled by default (grasp_distance_threshold=0.0 means the MoCap-demands
-    # check never fires). Opt in by setting grasp_distance_threshold > 0
-    # (paper uses 0.02 m, i.e. 2 cm) in per-experiment train_overrides.
-    hand_object_contact_violation = DoneTerm(
-        func=mdp.hand_object_contact_violation,
-        params={
-            "command_name": "dual_hands_object_tracking_command",
-            "grasp_distance_threshold": 0.0,
-            "contact_force_threshold_n": 0.5,
-            "grace_frames": 5,
-        },
-    )
-
-    # Disabled: this per-finger Cartesian-error termination no longer serves
-    # the current training/eval recipes. Leave the implementation in
-    # mdp.terminations as historical reference, but do not register it.
-    # hand_finger_away_from_trajectory = DoneTerm(
-    #     func=mdp.hand_finger_away_from_trajectory,
-    #     params={
-    #         "command_name": "dual_hands_object_tracking_command",
-    #         "grace_frames": 20,
-    #         "tighten_factor": 0.7,
-    #         "tighten_steps": 128000,
-    #     },
-    # )
 
 
 @configclass
@@ -616,7 +552,6 @@ class CurriculumCfg:
                 "object_meshvert_tracking_fine": [],
                 "object_position_tracking_fine": [],
                 "object_velocity_tracking_exp": [],
-                "hand_skeleton_tracking_exp": [],
             },
             # Force decay after this many env steps of being gate-eligible without firing.
             # 0 = disabled. Only active in custom_schedule mode.
@@ -739,7 +674,6 @@ class FixedTimestepCurriculumCfg:
             "rewards_object_meshvert_tracking_fine": 0.0,
             "rewards_object_position_tracking_fine": 0.0,
             "rewards_object_velocity_tracking_exp": 0.0,
-            "rewards_hand_skeleton_tracking_exp": 0.0,
             "rewards_dexmachina_contact_tracking_reward": 0.0,
             "rewards_relative_object_pos_reward": 0.0,
             "rewards_relative_object_rot_reward": 0.0,
@@ -748,8 +682,6 @@ class FixedTimestepCurriculumCfg:
             "termination_object_away_from_trajectory_position_threshold": None,
             "termination_object_away_from_trajectory_orientation_threshold": None,
             "termination_hand_wrist_away_from_trajectory_threshold": None,
-            # Disabled with hand_finger_away_from_trajectory registration.
-            # "termination_hand_finger_away_from_trajectory_grace_frames": None,
         },
     )
 
