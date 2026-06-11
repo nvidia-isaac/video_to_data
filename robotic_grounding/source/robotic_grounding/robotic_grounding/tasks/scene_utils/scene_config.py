@@ -16,34 +16,6 @@ HUMAN_MOTION_DATA_DIR = os.path.join(ASSET_DIR, "human_motion_data")
 URDF_DIR = os.path.join(ASSET_DIR, "urdfs")
 
 
-def _looks_like_sequence_subfolder(name: str) -> bool:
-    """Return true for dataset sequence folders that contain per-sequence dirs."""
-    return (
-        name in {"arctic_processed", "taco_processed", "hot3d_processed_filtered"}
-        or "_processed" in name
-    )
-
-
-def _legacy_motion_layout(motion_file: str | Path) -> dict | None:
-    """Parse legacy .../<processed>/<sequence>/<robot> motion layouts."""
-    path = Path(motion_file).resolve()
-    motion_dir = path if path.is_dir() else path.parent
-    if not motion_dir.name or motion_dir.name.startswith("robot_name="):
-        return None
-    seq_dir = motion_dir.parent
-    sequence_subfolder = seq_dir.parent
-    if seq_dir.name.startswith("sequence_id="):
-        return None
-    if not _looks_like_sequence_subfolder(sequence_subfolder.name):
-        return None
-    return {
-        "robot_name": unquote(motion_dir.name),
-        "sequence_id": unquote(seq_dir.name),
-        "motion_folder": str(motion_dir),
-        "sequence_subfolder": sequence_subfolder,
-    }
-
-
 @dataclass
 class ObjectConfig:
     """Configuration for a rigid scene object (target or fixed)."""
@@ -163,7 +135,7 @@ class SceneConfig:
 
     @staticmethod
     def _parse_partition_path(motion_file: str) -> dict:
-        """Extract robot_name, sequence_id, motion_folder, motion_filters from motion path."""
+        """Extract robot_name, sequence_id, motion_folder, motion_filters from partition path."""
         result: dict = {}
         path = Path(motion_file).resolve()
         for parent in [path] + list(path.parents):
@@ -179,14 +151,6 @@ class SceneConfig:
                 ("robot_name", "=", result["robot_name"]),
                 ("sequence_id", "=", result["sequence_id"]),
             ]
-            return result
-
-        legacy = _legacy_motion_layout(path)
-        if legacy:
-            result["robot_name"] = legacy["robot_name"]
-            result["sequence_id"] = legacy["sequence_id"]
-            result["motion_folder"] = legacy["motion_folder"]
-            result["motion_filters"] = []
         return result
 
     @staticmethod
@@ -266,16 +230,11 @@ class SceneConfig:
             urdf_path = urdf_paths[i] if i < len(urdf_paths) else None
 
             # Fallback: derive URDF path from mesh path by convention
-            # e.g. meshes/hot3d/12345.glb -> urdfs/hot3d/12345_rigid.urdf.
-            # Only overwrite when the derived path actually exists; otherwise
-            # keep the original parquet urdf_path so the dataset_root fallback
-            # below has a filename to search for on OSMO.
+            # e.g. meshes/hot3d/12345.glb -> urdfs/hot3d/12345_rigid.urdf
             if not urdf_path or not Path(urdf_path).exists():
-                mesh_derived = cls._urdf_from_mesh_path(
+                urdf_path = cls._urdf_from_mesh_path(
                     mesh_paths[i] if i < len(mesh_paths) else None
                 )
-                if mesh_derived:
-                    urdf_path = mesh_derived
 
             # Fallback: search for URDF by filename in the motion file's dataset
             if (
@@ -320,33 +279,16 @@ class SceneConfig:
 
     @staticmethod
     def _dataset_root_from_motion_file(motion_file: str) -> Path | None:
-        """Derive dataset root from a partitioned or legacy motion file path.
+        """Derive dataset root from a partitioned motion file path.
 
-        Partitioned example:
-          .../<dataset>/taco_processed/sequence_id=.../robot_name=... -> .../<dataset>/
-        Legacy example:
-          .../<dataset>/taco/taco_processed/<sequence>/sharpa_wave -> .../<dataset>/
+        Walks up the path past partition dirs (key=value format) and the
+        sequences subfolder to reach the dataset root.
+
+        Example:
+          .../v2d_taco_retarget_exp_200/taco_processed/sequence_id=.../robot_name=...
+          → .../v2d_taco_retarget_exp_200/
         """
         path = Path(motion_file)
-
-        legacy = _legacy_motion_layout(path)
-        if legacy:
-            sequence_subfolder = legacy["sequence_subfolder"]
-            candidates = [sequence_subfolder.parent, sequence_subfolder.parent.parent]
-            marker_dirs = ("taco_urdfs", "reconstructed_stage", "hot3d_urdfs", "urdfs")
-            for candidate in candidates:
-                if (
-                    candidate
-                    and candidate.exists()
-                    and any((candidate / m).exists() for m in marker_dirs)
-                ):
-                    return candidate
-            return (
-                candidates[0]
-                if candidates and candidates[0] != candidates[0].parent
-                else None
-            )
-
         prev_no_eq = False
         for _ in range(10):
             if path == path.parent:
@@ -360,21 +302,18 @@ class SceneConfig:
 
     @staticmethod
     def _find_asset_in_dataset(filename: str, dataset_root: Path) -> str | None:
-        """Search for an asset file in bounded dataset subdirectories."""
+        """Search for an asset file in immediate subdirectories of the dataset root."""
         if not dataset_root or not dataset_root.is_dir():
             return None
-        frontier = [dataset_root]
-        for _depth in range(3):
-            next_frontier: list[Path] = []
-            for root in frontier:
-                candidate = root / filename
-                if candidate.exists():
-                    return str(candidate)
-                try:
-                    next_frontier.extend(p for p in root.iterdir() if p.is_dir())
-                except OSError:
-                    continue
-            frontier = next_frontier
+        direct = dataset_root / filename
+        if direct.exists():
+            return str(direct)
+        for subdir in dataset_root.iterdir():
+            if not subdir.is_dir():
+                continue
+            candidate = subdir / filename
+            if candidate.exists():
+                return str(candidate)
         return None
 
     @staticmethod
@@ -528,35 +467,14 @@ def _load_body_pose(data: dict, obj: ObjectConfig, body_index: int) -> None:
 
 
 def _discover_support_surface(motion_file: str) -> str | None:
-    """Find reconstructed support surface USDA from partitioned parquet path.
-
-    Primary lookup: walk up to ``sequence_id=<name>`` and check
-    ``../../reconstructed_stage/<name>_support.usda`` relative to it.
-    """
+    """Find reconstructed support surface USDA from partitioned parquet path."""
     path = Path(motion_file).resolve()
     for parent in [path] + list(path.parents):
         if parent.name.startswith("sequence_id="):
             seq_id = parent.name.split("=", 1)[1]
-            # Primary: check sibling reconstructed_stage/ (local runs)
             stage_dir = parent.parent.parent / "reconstructed_stage"
             support_path = stage_dir / f"{seq_id}_support.usda"
             if support_path.exists():
                 return str(support_path)
             return None
-
-    legacy = _legacy_motion_layout(path)
-    if legacy:
-        seq_id = str(legacy["sequence_id"])
-        sequence_subfolder = legacy["sequence_subfolder"]
-        candidates = [
-            sequence_subfolder.parent
-            / "reconstructed_stage"
-            / f"{seq_id}_support.usda",
-            sequence_subfolder.parent.parent
-            / "reconstructed_stage"
-            / f"{seq_id}_support.usda",
-        ]
-        for support_path in candidates:
-            if support_path.exists():
-                return str(support_path)
     return None

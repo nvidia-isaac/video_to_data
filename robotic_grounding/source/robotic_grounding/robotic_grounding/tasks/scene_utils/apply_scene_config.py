@@ -83,7 +83,9 @@ def _spawn_articulated(
                 stiffness={".*": 0.0},
                 damping={".*": 0.0},
                 armature={".*": 0.01},
-                friction={".*": 0.1},  # TODO: confirm joint friction is appropriate
+                friction={
+                    ".*": 0.1
+                },  # TODO: @zeol confirm joint friction is appropriate
             ),
         },
     )
@@ -148,6 +150,7 @@ def apply_scene_objects(env_cfg: Any, scene_config: SceneConfig) -> None:
             env_cfg.events.setup_collision_groups.params["object_names"].append(
                 attr_name
             )
+
     # Fixed objects (support surfaces, etc.)
     for fixed_obj in scene_config.fixed_objects:
         if fixed_obj.init_pos is None or fixed_obj.init_rot is None:
@@ -192,9 +195,9 @@ def apply_scene_objects(env_cfg: Any, scene_config: SceneConfig) -> None:
             spawn_cfg.physics_material = sim_utils.RigidBodyMaterialCfg(
                 static_friction=1.0
             )
-            # Headless OSMO has hit invalid null prims while creating preview
-            # materials for generated support-surface primitives. Physics props
-            # are what matter here, so leave the default visual material alone.
+            spawn_cfg.visual_material = sim_utils.PreviewSurfaceCfg(
+                diffuse_color=(0.14, 0.14, 0.14), metallic=0.7
+            )
 
             fixed_cfg = AssetBaseCfg(
                 prim_path=f"{{ENV_REGEX_NS}}/{attr_name}",
@@ -378,7 +381,6 @@ def apply_scene_contact_sensors(env_cfg: Any, scene_config: SceneConfig) -> None
 
     # Contact sensor on the object body-hand pairs
     env_cfg.object_to_hand_contact_sensor_names = []
-    _max_contact_count = getattr(env_cfg, "max_contact_data_count_per_prim", 1024)
 
     for object in scene_config.scene_objects:
         object_name = object.name
@@ -406,7 +408,7 @@ def apply_scene_contact_sensors(env_cfg: Any, scene_config: SceneConfig) -> None
                         ),
                         track_contact_points=True,
                         track_air_time=True,
-                        max_contact_data_count_per_prim=_max_contact_count,
+                        max_contact_data_count_per_prim=128,
                     ),
                 )
                 env_cfg.object_to_hand_contact_sensor_names.append(sensor_name)
@@ -458,9 +460,6 @@ def apply_scene_config(
         )
         if hand_contact_bodies:
             contact_sensor_names = []
-            _wb_max_contact_count = getattr(
-                env_cfg, "max_contact_data_count_per_prim", 1024
-            )
             for obj in scene_config.scene_objects:
                 obj_name = obj.name
                 body_names = (
@@ -487,7 +486,7 @@ def apply_scene_config(
                                 filter_prim_paths_expr=filter_prims,
                                 track_contact_points=True,
                                 track_air_time=True,
-                                max_contact_data_count_per_prim=_wb_max_contact_count,
+                                max_contact_data_count_per_prim=128,
                             ),
                         )
                         contact_sensor_names.append(sensor_name)
