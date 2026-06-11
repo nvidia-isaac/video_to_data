@@ -27,7 +27,7 @@ datasets:
             hitl_batch_name_template: "batch_{date}"
           export:
             workflow_yaml: osmo/mv_hoi_export.yaml
-            batch_size: 40
+            batch_size: 20
             kratos_table: llmdf_admin.project_285164_annotations
             kratos_status_table: llmdf_admin.item_status_transition_metrics
             kratos_project_id: 285164

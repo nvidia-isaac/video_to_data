@@ -160,13 +160,11 @@ def frame_count_from_edex_text(text: str | None) -> int | None:
 
 
 def frame_count_from_sources(
-    root_metadata: str | None,
     preprocess_metadata: str | None,
     preprocess_edex: str | None,
 ) -> int | None:
     return (
-        frame_count_from_metadata_text(root_metadata)
-        or frame_count_from_metadata_text(preprocess_metadata)
+        frame_count_from_metadata_text(preprocess_metadata)
         or frame_count_from_edex_text(preprocess_edex)
     )
 
@@ -183,7 +181,6 @@ def resolve_frame_count(
         f"/{sequence_name}"
     ).strip("/")
     return frame_count_from_sources(
-        _s3_text(client, bucket, f"{seq_prefix}/hoi_metadata.yaml"),
         _s3_text(client, bucket, f"{seq_prefix}/mv_preprocess/hoi_metadata.yaml"),
         _s3_text(client, bucket, f"{seq_prefix}/mv_preprocess/edex"),
     )

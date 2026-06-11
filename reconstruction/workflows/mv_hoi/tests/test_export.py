@@ -334,7 +334,7 @@ def test_normalize_failure_annotations_keeps_nonempty_category_lists():
                 "reason": "drag segment",
             }
         ],
-        frame_count=200,
+        frame_count=220,
     )
 
     assert error is None
@@ -345,6 +345,31 @@ def test_normalize_failure_annotations_keeps_nonempty_category_lists():
             "end_frame": 105,
             "failure_category": ["bad_pose"],
             "reason": "drag segment",
+        }
+    ]
+
+
+def test_normalize_failure_annotations_accepts_last_frame_closed_range():
+    segments, error = mv_export.normalize_failure_annotations(
+        [
+            {
+                "id": "last-frame",
+                "start_frame": 999,
+                "end_frame": 999,
+                "failure_category": "bad_pose",
+            }
+        ],
+        frame_count=999,
+    )
+
+    assert error is None
+    assert segments == [
+        {
+            "id": "last-frame",
+            "start_frame": 998,
+            "end_frame": 999,
+            "failure_category": "bad_pose",
+            "reason": None,
         }
     ]
 
@@ -364,6 +389,26 @@ def test_normalize_failure_annotations_rejects_invalid_range():
 
     assert segments == []
     assert error.startswith("invalid_failure_annotation")
+
+
+def test_normalize_failure_annotations_rejects_end_past_frame_count():
+    segments, error = mv_export.normalize_failure_annotations(
+        [
+            {
+                "id": "bad",
+                "start_frame": 999,
+                "end_frame": 1000,
+                "failure_category": "bad_pose",
+            }
+        ],
+        frame_count=999,
+    )
+
+    assert segments == []
+    assert error == (
+        "invalid_failure_annotation: start_frame=998, end_frame=1000, "
+        "frame_count=999"
+    )
 
 
 def test_qc_failure_gates_count_and_union_coverage():
@@ -424,17 +469,10 @@ def test_qc_failure_gates_accept_configured_thresholds():
 
 def test_frame_count_discovery_order_and_edex_fallback():
     assert mv_export.frame_count_from_sources(
-        "frame_count: 123\n",
-        "frame_count: 456\n",
-        '[{"frame_start": 0, "frame_end": 789}]',
-    ) == 123
-    assert mv_export.frame_count_from_sources(
-        None,
         "frame_count: 456\n",
         '[{"frame_start": 0, "frame_end": 789}]',
     ) == 456
     assert mv_export.frame_count_from_sources(
-        None,
         None,
         '[{"version": "0.9", "frame_start": 7, "frame_end": 39}]',
     ) == 32
@@ -1111,7 +1149,7 @@ def test_run_export_rechecked_qc_fail_can_remain_failed(monkeypatch, tmp_path):
 @pytest.mark.parametrize(
     "details",
     [
-        "invalid_failure_annotation: start_frame=0, end_frame=4, frame_count=20",
+        "invalid_failure_annotation: start_frame=-1, end_frame=4, frame_count=20",
         "task_failed: export_seq",
     ],
 )
