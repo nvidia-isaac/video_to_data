@@ -20,6 +20,7 @@ from v2d.common.video import FrameSource, get_video_writer, tile_videos
 from v2d.mv.vis.renderer import Renderer
 
 HUMAN_MESH_COLOR = np.array([102, 230, 179], dtype=np.uint8)  # light green
+_MISSING = object()
 
 
 @dataclass(frozen=True)
@@ -27,9 +28,9 @@ class CameraRenderJob:
     cam_name: str
     rgb_path: Path
     output_path: Path
-    object_mesh_path: Path
-    object_pose_path: Path
-    mhr_mesh_mv_path: Path
+    object_mesh_path: Path | None
+    object_pose_path: Path | None
+    mhr_mesh_mv_path: Path | None
     cam_intrinsics: np.ndarray
     cam_extrinsics: np.ndarray
     profile: bool = False
@@ -53,18 +54,108 @@ def _format_timing(timings: dict[str, float]) -> str:
     return ", ".join(f"{name}={seconds:.2f}s" for name, seconds in timings.items())
 
 
+def _cfg_get(cfg, key: str, default=None):
+    value = _MISSING
+    if hasattr(cfg, "get"):
+        value = cfg.get(key, _MISSING)
+    if value is _MISSING and hasattr(cfg, key):
+        value = getattr(cfg, key)
+    return default if value is _MISSING else value
+
+
+def _optional_path(value) -> Path | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if text == "" or text.lower() in {"none", "null"}:
+        return None
+    return Path(text)
+
+
+def _validate_overlay_asset_paths(
+    object_mesh_path: Path | None,
+    object_pose_path: Path | None,
+    mhr_mesh_mv_path: Path | None,
+) -> None:
+    if (object_mesh_path is None) != (object_pose_path is None):
+        raise ValueError(
+            "Object overlay requires both object_mesh_path and "
+            "object_pose_path/object_pose_dir."
+        )
+    if object_mesh_path is None and mhr_mesh_mv_path is None:
+        raise ValueError(
+            "HOI overlay requires at least one mesh source: provide object "
+            "assets, human assets, or both."
+        )
+
+
+def _resolve_overlay_asset_paths(cfg) -> tuple[Path | None, Path | None, Path | None]:
+    object_mesh_path = _optional_path(_cfg_get(cfg, "object_mesh_path"))
+    object_pose_path = _optional_path(_cfg_get(cfg, "object_pose_path"))
+    object_pose_dir = _optional_path(_cfg_get(cfg, "object_pose_dir"))
+    if object_pose_path is None and object_pose_dir is not None:
+        object_pose_path = object_pose_dir / "poses.npy"
+
+    mhr_mesh_mv_path = _optional_path(_cfg_get(cfg, "mhr_mesh_mv_path"))
+    human_pose_dir = _optional_path(_cfg_get(cfg, "human_pose_dir"))
+    if mhr_mesh_mv_path is None and human_pose_dir is not None:
+        mhr_mesh_mv_path = human_pose_dir / "mhr_mesh_mv.pt"
+
+    _validate_overlay_asset_paths(
+        object_mesh_path=object_mesh_path,
+        object_pose_path=object_pose_path,
+        mhr_mesh_mv_path=mhr_mesh_mv_path,
+    )
+    return object_mesh_path, object_pose_path, mhr_mesh_mv_path
+
+
+def _validate_overlay_assets(
+    object_mesh: trimesh.Trimesh | None,
+    object_poses: np.ndarray | None,
+    human_vertices: np.ndarray | None,
+    human_faces: np.ndarray | None,
+) -> None:
+    if (object_mesh is None) != (object_poses is None):
+        raise ValueError("Object overlay requires both object_mesh and object_poses.")
+    if (human_vertices is None) != (human_faces is None):
+        raise ValueError("Human overlay requires both human_vertices and human_faces.")
+    if object_mesh is None and human_vertices is None:
+        raise ValueError(
+            "HOI overlay requires at least one mesh source: provide object "
+            "assets, human assets, or both."
+        )
+
+
 def _load_overlay_assets(
-    object_mesh_path: Path,
-    object_pose_path: Path,
-    mhr_mesh_mv_path: Path,
+    object_mesh_path: Path | None,
+    object_pose_path: Path | None,
+    mhr_mesh_mv_path: Path | None,
 ):
-    object_mesh = trimesh.load(object_mesh_path, process=False, force='mesh')
+    _validate_overlay_asset_paths(
+        object_mesh_path=object_mesh_path,
+        object_pose_path=object_pose_path,
+        mhr_mesh_mv_path=mhr_mesh_mv_path,
+    )
 
-    mhr_mesh = torch.load(mhr_mesh_mv_path, weights_only=False, map_location="cpu")
-    human_vertices = mhr_mesh["pred_vertices"].cpu().numpy()
-    human_faces = mhr_mesh["faces"].cpu().numpy()
+    object_mesh = None
+    object_poses = None
+    if object_mesh_path is not None:
+        object_mesh = trimesh.load(object_mesh_path, process=False, force='mesh')
+        object_poses = np.load(object_pose_path)
 
-    object_poses = np.load(object_pose_path)
+    human_vertices = None
+    human_faces = None
+    if mhr_mesh_mv_path is not None:
+        mhr_mesh = torch.load(mhr_mesh_mv_path, weights_only=False, map_location="cpu")
+        human_vertices = mhr_mesh["pred_vertices"].cpu().numpy()
+        human_faces = mhr_mesh["faces"].cpu().numpy()
+
+    _validate_overlay_assets(
+        object_mesh=object_mesh,
+        object_poses=object_poses,
+        human_vertices=human_vertices,
+        human_faces=human_faces,
+    )
 
     return object_mesh, object_poses, human_vertices, human_faces
 
@@ -72,12 +163,12 @@ def _load_overlay_assets(
 def render_hoi_overlay(
     rgb_path: Path,
     output_path: Path,
-    object_mesh: trimesh.Trimesh,
-    object_poses: np.ndarray,
-    human_vertices: np.ndarray,
-    human_faces: np.ndarray,
-    cam_intrinsics: np.ndarray,
-    cam_extrinsics: np.ndarray,
+    object_mesh: trimesh.Trimesh | None = None,
+    object_poses: np.ndarray | None = None,
+    human_vertices: np.ndarray | None = None,
+    human_faces: np.ndarray | None = None,
+    cam_intrinsics: np.ndarray | None = None,
+    cam_extrinsics: np.ndarray | None = None,
     profile: bool = False,
     show_progress: bool = True,
     progress_interval: float = 0.1,
@@ -87,13 +178,21 @@ def render_hoi_overlay(
     Args:
         rgb_path: Path to RGB frames (image dir, .h5, or video file).
         output_path: Output video path.
-        object_mesh: Object mesh in its canonical frame.
-        object_poses: (N, 4, 4) per-frame object-to-world poses.
-        human_vertices: (N, V, 3) human vertices in world frame.
-        human_faces: (F, 3) human mesh face indices.
+        object_mesh: Optional object mesh in its canonical frame.
+        object_poses: Optional (N, 4, 4) per-frame object-to-world poses.
+        human_vertices: Optional (N, V, 3) human vertices in world frame.
+        human_faces: Optional (F, 3) human mesh face indices.
         cam_intrinsics: (3, 3) camera intrinsic matrix.
         cam_extrinsics: (4, 4) T_world_from_camera matrix.
     """
+    _validate_overlay_assets(
+        object_mesh=object_mesh,
+        object_poses=object_poses,
+        human_vertices=human_vertices,
+        human_faces=human_faces,
+    )
+    if cam_intrinsics is None or cam_extrinsics is None:
+        raise ValueError("cam_intrinsics and cam_extrinsics are required.")
     total_start = time.perf_counter()
     timings = {
         "setup": 0.0,
@@ -105,11 +204,18 @@ def render_hoi_overlay(
     }
 
     source = FrameSource.from_path(rgb_path)
-    n_frames = min(source.n_frames, len(object_poses), len(human_vertices))
+    frame_limits = [source.n_frames]
+    if object_poses is not None:
+        frame_limits.append(len(object_poses))
+    if human_vertices is not None:
+        frame_limits.append(len(human_vertices))
+    n_frames = min(frame_limits)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     writer = None
-    human_colors = np.tile(HUMAN_MESH_COLOR, (human_vertices.shape[1], 1))
+    human_colors = None
+    if human_vertices is not None:
+        human_colors = np.tile(HUMAN_MESH_COLOR, (human_vertices.shape[1], 1))
 
     try:
         writer = get_video_writer(output_path, fps=30, crf=23)
@@ -117,7 +223,7 @@ def render_hoi_overlay(
         setup_start = time.perf_counter()
         with Renderer(image_size=source.image_size) as renderer:
             object_handle = None
-            if n_frames > 0:
+            if object_mesh is not None and n_frames > 0:
                 object_handle = renderer.add_persistent_mesh(
                     object_mesh,
                     pose=object_poses[0],
@@ -139,18 +245,21 @@ def render_hoi_overlay(
                     renderer.set_persistent_mesh_pose(object_handle, object_poses[i])
                     timings["pose"] += time.perf_counter() - pose_start
 
-                mesh_start = time.perf_counter()
-                human_mesh_i = trimesh.Trimesh(
-                    vertices=human_vertices[i],
-                    faces=human_faces,
-                    vertex_colors=human_colors,
-                    process=False,
-                )
-                timings["human_mesh"] += time.perf_counter() - mesh_start
+                meshes = []
+                if human_vertices is not None:
+                    mesh_start = time.perf_counter()
+                    human_mesh_i = trimesh.Trimesh(
+                        vertices=human_vertices[i],
+                        faces=human_faces,
+                        vertex_colors=human_colors,
+                        process=False,
+                    )
+                    meshes.append(human_mesh_i)
+                    timings["human_mesh"] += time.perf_counter() - mesh_start
 
                 render_start = time.perf_counter()
                 rendered_image = renderer.render_overlay(
-                    meshes=[human_mesh_i],
+                    meshes=meshes,
                     K=cam_intrinsics,
                     T=cam_extrinsics,
                     image=image,
@@ -252,6 +361,7 @@ def _build_camera_render_jobs(
 ) -> list[CameraRenderJob]:
     jobs: list[CameraRenderJob] = []
     profile = bool(cfg.get("profile", False))
+    object_mesh_path, object_pose_path, mhr_mesh_mv_path = _resolve_overlay_asset_paths(cfg)
     for cam_id in cfg.cameras:
         cam = rig.get_camera(cam_id)
         jobs.append(
@@ -259,9 +369,9 @@ def _build_camera_render_jobs(
                 cam_name=cam.name,
                 rgb_path=Path(cfg.rgb_path_template.format(cam_name=cam.name)),
                 output_path=Path(cfg.output_dir) / f"{cam.name}_hoi_overlay.mp4",
-                object_mesh_path=Path(cfg.object_mesh_path),
-                object_pose_path=Path(cfg.object_pose_path),
-                mhr_mesh_mv_path=Path(cfg.mhr_mesh_mv_path),
+                object_mesh_path=object_mesh_path,
+                object_pose_path=object_pose_path,
+                mhr_mesh_mv_path=mhr_mesh_mv_path,
                 cam_intrinsics=cam.param.K,
                 cam_extrinsics=cam.param.T,
                 profile=profile,
@@ -296,10 +406,11 @@ def render_hoi_overlay_from_config(cfg):
 
     if render_workers == 1:
         load_start = time.perf_counter()
+        object_mesh_path, object_pose_path, mhr_mesh_mv_path = _resolve_overlay_asset_paths(cfg)
         object_mesh, object_poses, human_vertices, human_faces = _load_overlay_assets(
-            object_mesh_path=Path(cfg.object_mesh_path),
-            object_pose_path=Path(cfg.object_pose_path),
-            mhr_mesh_mv_path=Path(cfg.mhr_mesh_mv_path),
+            object_mesh_path=object_mesh_path,
+            object_pose_path=object_pose_path,
+            mhr_mesh_mv_path=mhr_mesh_mv_path,
         )
         _log_profile(
             profile,
@@ -363,9 +474,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Render HOI overlay for all cameras from config")
     parser.add_argument("--camera_params_path", type=str, required=True)
     parser.add_argument("--rgb_dir", type=str, required=True)
-    parser.add_argument("--object_mesh_path", type=str, required=True)
-    parser.add_argument("--object_pose_dir", type=str, required=True)
-    parser.add_argument("--human_pose_dir", type=str, required=True)
+    parser.add_argument("--object_mesh_path", type=str)
+    parser.add_argument("--object_pose_dir", type=str)
+    parser.add_argument("--human_pose_dir", type=str)
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--config_path", type=str, default=None,
                         help="Optional override config (merged on top of defaults)")

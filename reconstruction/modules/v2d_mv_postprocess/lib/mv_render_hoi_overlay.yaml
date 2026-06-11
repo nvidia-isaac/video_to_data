@@ -3,14 +3,14 @@ cameras: [0, 2, 4, 6]
 
 camera_params_path: ???
 rgb_dir: ???
-object_mesh_path: ???
-object_pose_dir: ???
-human_pose_dir: ???
+object_mesh_path: null
+object_pose_dir: null
+human_pose_dir: null
 output_dir: ???
 
 rgb_path_template: "${rgb_dir}/{cam_name}"
-object_pose_path: "${object_pose_dir}/poses.npy"
-mhr_mesh_mv_path: "${human_pose_dir}/mhr_mesh_mv.pt"
+object_pose_path: null
+mhr_mesh_mv_path: null
 
 tile_shape: [2, 2]
 tile_image_size: [768, 576]

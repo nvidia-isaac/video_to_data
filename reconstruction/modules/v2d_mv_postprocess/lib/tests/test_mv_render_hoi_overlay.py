@@ -65,7 +65,7 @@ class FakeRenderer:
         return None
 
     def add_persistent_mesh(self, mesh, pose=None):
-        self.added_meshes.append((mesh, pose.copy()))
+        self.added_meshes.append((mesh, None if pose is None else pose.copy()))
         return 1
 
     def set_persistent_mesh_pose(self, handle, pose):
@@ -86,8 +86,10 @@ class FakeCfg:
     rgb_path_template = "{cam_name}.h5"
     output_dir = "/tmp/out"
     object_mesh_path = "/tmp/object.glb"
-    object_pose_path = "/tmp/poses.npy"
-    mhr_mesh_mv_path = "/tmp/mhr_mesh_mv.pt"
+    object_pose_dir = "/tmp/object_poses"
+    object_pose_path = None
+    human_pose_dir = "/tmp/human"
+    mhr_mesh_mv_path = None
 
     def get(self, key, default=None):
         return default
@@ -143,6 +145,89 @@ def test_render_hoi_overlay_uses_persistent_object_mesh(monkeypatch, tmp_path):
     assert FakeFrameSource.source.closed
 
 
+def test_render_hoi_overlay_object_only_uses_empty_transient_meshes(monkeypatch, tmp_path):
+    writer = FakeWriter()
+    FakeFrameSource.source = FakeSource()
+    FakeRenderer.instances = []
+    monkeypatch.setattr(mv_render_hoi_overlay, "FrameSource", FakeFrameSource)
+    monkeypatch.setattr(mv_render_hoi_overlay, "Renderer", FakeRenderer)
+    monkeypatch.setattr(mv_render_hoi_overlay, "get_video_writer", lambda *args, **kwargs: writer)
+
+    object_poses = np.stack([np.eye(4), np.eye(4)])
+    object_poses[1, 0, 3] = 3.0
+
+    mv_render_hoi_overlay.render_hoi_overlay(
+        rgb_path=tmp_path / "rgb.h5",
+        output_path=tmp_path / "front_hoi_overlay.mp4",
+        object_mesh=ObjectMeshThatMustNotBeCopied(),
+        object_poses=object_poses,
+        cam_intrinsics=np.eye(3),
+        cam_extrinsics=np.eye(4),
+    )
+
+    renderer = FakeRenderer.instances[0]
+    assert len(renderer.added_meshes) == 1
+    assert [handle for handle, _ in renderer.pose_updates] == [1, 1]
+    assert [len(meshes) for meshes in renderer.render_meshes] == [0, 0]
+    assert len(writer.frames) == 2
+    assert writer.closed
+
+
+def test_render_hoi_overlay_human_only_skips_persistent_object(monkeypatch, tmp_path):
+    writer = FakeWriter()
+    FakeFrameSource.source = FakeSource()
+    FakeRenderer.instances = []
+    monkeypatch.setattr(mv_render_hoi_overlay, "FrameSource", FakeFrameSource)
+    monkeypatch.setattr(mv_render_hoi_overlay, "Renderer", FakeRenderer)
+    monkeypatch.setattr(mv_render_hoi_overlay, "get_video_writer", lambda *args, **kwargs: writer)
+
+    mv_render_hoi_overlay.render_hoi_overlay(
+        rgb_path=tmp_path / "rgb.h5",
+        output_path=tmp_path / "front_hoi_overlay.mp4",
+        human_vertices=np.zeros((2, 4, 3), dtype=np.float32),
+        human_faces=np.array([[0, 1, 2]], dtype=np.int64),
+        cam_intrinsics=np.eye(3),
+        cam_extrinsics=np.eye(4),
+    )
+
+    renderer = FakeRenderer.instances[0]
+    assert renderer.added_meshes == []
+    assert renderer.pose_updates == []
+    assert [len(meshes) for meshes in renderer.render_meshes] == [1, 1]
+    assert len(writer.frames) == 2
+    assert writer.closed
+
+
+def test_render_hoi_overlay_requires_at_least_one_mesh_source(tmp_path):
+    with pytest.raises(ValueError, match="at least one mesh source"):
+        mv_render_hoi_overlay.render_hoi_overlay(
+            rgb_path=tmp_path / "rgb.h5",
+            output_path=tmp_path / "front_hoi_overlay.mp4",
+            cam_intrinsics=np.eye(3),
+            cam_extrinsics=np.eye(4),
+        )
+
+
+def test_render_hoi_overlay_requires_complete_object_pair(tmp_path):
+    with pytest.raises(ValueError, match="object_mesh and object_poses"):
+        mv_render_hoi_overlay.render_hoi_overlay(
+            rgb_path=tmp_path / "rgb.h5",
+            output_path=tmp_path / "front_hoi_overlay.mp4",
+            object_mesh=ObjectMeshThatMustNotBeCopied(),
+            cam_intrinsics=np.eye(3),
+            cam_extrinsics=np.eye(4),
+        )
+
+    with pytest.raises(ValueError, match="object_mesh and object_poses"):
+        mv_render_hoi_overlay.render_hoi_overlay(
+            rgb_path=tmp_path / "rgb.h5",
+            output_path=tmp_path / "front_hoi_overlay.mp4",
+            object_poses=np.stack([np.eye(4), np.eye(4)]),
+            cam_intrinsics=np.eye(3),
+            cam_extrinsics=np.eye(4),
+        )
+
+
 def test_render_hoi_overlay_prints_sparse_progress_without_tqdm(monkeypatch, tmp_path, capsys):
     writer = FakeWriter()
     FakeFrameSource.source = FakeSource()
@@ -183,6 +268,78 @@ def test_camera_jobs_can_disable_progress_for_parallel_workers():
     assert [job.cam_name for job in jobs] == ["cam_0", "cam_1"]
     assert [job.show_progress for job in jobs] == [False, False]
     assert [job.progress_interval for job in jobs] == [0.25, 0.25]
+    assert [job.object_mesh_path for job in jobs] == [Path("/tmp/object.glb")] * 2
+    assert [job.object_pose_path for job in jobs] == [Path("/tmp/object_poses/poses.npy")] * 2
+    assert [job.mhr_mesh_mv_path for job in jobs] == [Path("/tmp/human/mhr_mesh_mv.pt")] * 2
+
+
+def test_camera_jobs_support_human_only_config():
+    class HumanOnlyCfg(FakeCfg):
+        object_mesh_path = None
+        object_pose_dir = None
+        object_pose_path = None
+
+    jobs = mv_render_hoi_overlay._build_camera_render_jobs(
+        HumanOnlyCfg(),
+        FakeRig(),
+        show_progress=False,
+        progress_interval=0.25,
+    )
+
+    assert [job.object_mesh_path for job in jobs] == [None, None]
+    assert [job.object_pose_path for job in jobs] == [None, None]
+    assert [job.mhr_mesh_mv_path for job in jobs] == [Path("/tmp/human/mhr_mesh_mv.pt")] * 2
+
+
+def test_camera_jobs_reject_incomplete_object_config():
+    class IncompleteObjectCfg(FakeCfg):
+        object_pose_dir = None
+        object_pose_path = None
+
+    with pytest.raises(ValueError, match="object_mesh_path"):
+        mv_render_hoi_overlay._build_camera_render_jobs(
+            IncompleteObjectCfg(),
+            FakeRig(),
+        )
+
+
+def test_render_camera_worker_passes_optional_assets(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_load_overlay_assets(object_mesh_path, object_pose_path, mhr_mesh_mv_path):
+        calls.append((object_mesh_path, object_pose_path, mhr_mesh_mv_path))
+        return (
+            None,
+            None,
+            np.zeros((2, 4, 3), dtype=np.float32),
+            np.array([[0, 1, 2]], dtype=np.int64),
+        )
+
+    def fake_render_hoi_overlay(**kwargs):
+        assert kwargs["object_mesh"] is None
+        assert kwargs["object_poses"] is None
+        assert kwargs["human_vertices"].shape == (2, 4, 3)
+        return {"total": 1.0}
+
+    monkeypatch.setattr(mv_render_hoi_overlay, "_load_overlay_assets", fake_load_overlay_assets)
+    monkeypatch.setattr(mv_render_hoi_overlay, "render_hoi_overlay", fake_render_hoi_overlay)
+
+    job = mv_render_hoi_overlay.CameraRenderJob(
+        cam_name="cam",
+        rgb_path=tmp_path / "cam.h5",
+        output_path=tmp_path / "cam_hoi_overlay.mp4",
+        object_mesh_path=None,
+        object_pose_path=None,
+        mhr_mesh_mv_path=tmp_path / "mhr_mesh_mv.pt",
+        cam_intrinsics=np.eye(3),
+        cam_extrinsics=np.eye(4),
+    )
+
+    result = mv_render_hoi_overlay._render_camera_overlay_worker(job)
+
+    assert calls == [(None, None, tmp_path / "mhr_mesh_mv.pt")]
+    assert result.cam_name == "cam"
+    assert result.timings == {"asset_load": result.timings["asset_load"], "total": 1.0}
 
 
 def test_parallel_camera_jobs_preserve_order(monkeypatch, tmp_path):
