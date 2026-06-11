@@ -286,39 +286,12 @@ class RewardsCfg:
         },
     )
 
-    object_keypoints_tracking_refine = RewTerm(
-        func=mdp.object_keypoints_tracking_exp,
-        weight=0.0,
-        params={
-            "command_name": "dual_hands_object_tracking_command",
-            "var": 0.001,
-        },
-    )
-
     object_meshvert_tracking_fine = RewTerm(
         func=mdp.object_meshvert_tracking_fine,
         weight=0.0,
         params={
             "command_name": "dual_hands_object_tracking_command",
             "var": 0.001,
-        },
-    )
-
-    object_position_tracking_fine = RewTerm(
-        func=mdp.object_position_tracking_fine,
-        weight=0.0,
-        params={
-            "command_name": "dual_hands_object_tracking_command",
-            "var": 0.001,
-        },
-    )
-
-    object_velocity_tracking_exp = RewTerm(
-        func=mdp.object_velocity_tracking_exp,
-        weight=0.0,
-        params={
-            "command_name": "dual_hands_object_tracking_command",
-            "var": 0.05,
         },
     )
 
@@ -550,8 +523,6 @@ class CurriculumCfg:
                 "hand_keypoints_tracking_exp": [],
                 "hand_joint_pos_tracking_exp": [],
                 "object_meshvert_tracking_fine": [],
-                "object_position_tracking_fine": [],
-                "object_velocity_tracking_exp": [],
             },
             # Force decay after this many env steps of being gate-eligible without firing.
             # 0 = disabled. Only active in custom_schedule mode.
@@ -653,10 +624,7 @@ class FixedTimestepCurriculumCfg:
             "rewards_missed_contact_penalty": -5.0,
             # Optional per-step scheduled rewards — 0.0 scalar expands to match
             # the timestep_schedule length at runtime.
-            "rewards_object_keypoints_tracking_refine": 0.0,
             "rewards_object_meshvert_tracking_fine": 0.0,
-            "rewards_object_position_tracking_fine": 0.0,
-            "rewards_object_velocity_tracking_exp": 0.0,
             "rewards_dexmachina_contact_tracking_reward": 0.0,
             "rewards_relative_object_pos_reward": 0.0,
             "rewards_relative_object_rot_reward": 0.0,

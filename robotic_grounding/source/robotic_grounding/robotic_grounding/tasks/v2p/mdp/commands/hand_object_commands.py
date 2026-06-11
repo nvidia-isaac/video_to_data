@@ -448,23 +448,6 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             f"but {self.num_bodies} in the object."
         )
 
-        # Reference linear velocity per body, computed via central finite
-        # difference on the retargeted position trajectory. Used by the
-        # ``object_velocity_tracking_exp`` reward. Boundary frames (t=0 and
-        # t=T-1) use forward/backward differences. Units are m/s.
-        if self.retargeted_object_body_position.shape[0] >= 2:
-            dt = float(self.step_dt)
-            pos = self.retargeted_object_body_position  # (T, N_body, 3)
-            vel = torch.zeros_like(pos)
-            vel[1:-1] = (pos[2:] - pos[:-2]) / (2.0 * dt)
-            vel[0] = (pos[1] - pos[0]) / dt
-            vel[-1] = (pos[-1] - pos[-2]) / dt
-            self.retargeted_object_body_lin_vel = vel
-        else:
-            self.retargeted_object_body_lin_vel = torch.zeros_like(
-                self.retargeted_object_body_position
-            )
-
     def _init_relative_object_data(self) -> None:
         """Precompute demo relative pose (obj1 in obj0's frame) for multi-object tasks.
 
@@ -1618,27 +1601,6 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         return torch.cat(
             [object.data.body_link_quat_w for object in self.objects], dim=1
         ).float()
-
-    @property
-    def object_body_lin_vel_e(self) -> torch.Tensor:
-        """Current linear velocity per body in env frame. Shape ``(num_envs, NUM_BODY, 3)``.
-
-        Velocity is translation-invariant, so this is identical to the world-frame
-        value — the ``_e`` suffix is kept for naming symmetry with the position
-        properties.
-        """
-        return torch.cat(
-            [object.data.body_link_lin_vel_w for object in self.objects], dim=1
-        ).float()
-
-    @property
-    def object_body_lin_vel_command_e(self) -> torch.Tensor:
-        """Target linear velocity per body at the current timestep. Shape ``(num_envs, NUM_BODY, 3)``.
-
-        Precomputed via central finite differences over the retargeted position
-        trajectory in :meth:`_init_object_data`.
-        """
-        return self.retargeted_object_body_lin_vel[self.timestep_counter].float()
 
     @property
     def relative_object_pose_error(self) -> tuple[torch.Tensor, torch.Tensor]:
