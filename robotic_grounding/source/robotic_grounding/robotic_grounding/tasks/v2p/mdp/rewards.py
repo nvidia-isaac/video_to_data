@@ -978,3 +978,143 @@ def missed_contact_penalty(
         right_cmd_active_per_body=command.right_wrench_cmd_active_per_body,
         left_cmd_active_per_body=command.left_wrench_cmd_active_per_body,
     )
+
+
+def relative_object_pose_reward(
+    env: ManagerBasedRLEnv,
+    command_name: str = "dual_hands_object_tracking_command",
+    pos_sigma: float = 0.05,
+    rot_sigma: float = 0.5,
+) -> torch.Tensor:
+    """Proximity-gated reward for inter-object relative pose tracking (num_envs,).
+
+    Measures how well the policy maintains the correct spatial relationship between
+    object0 and object1 as demonstrated in the reference motion. Only active when
+    the demo shows the objects within ``relative_object_proximity_threshold`` of each
+    other. Returns zeros for single-object tasks.
+
+    Args:
+        env: The RL environment.
+        command_name: Name of the command term to get demo data from.
+        pos_sigma: Position tolerance in metres; reward = 1/e at this error. Default 5 cm.
+        rot_sigma: Rotation tolerance in radians; reward = 1/e at this error. Default ~29 deg.
+    """
+    command = env.command_manager.get_term(command_name)
+    if not getattr(command, "_has_multi_object", False):
+        return torch.zeros(env.num_envs, device=env.device)
+    pos_err, rot_err = command.relative_object_pose_error
+    proximity_mask = command.relative_object_proximity_mask
+    reward = torch.exp(-pos_err / pos_sigma) * torch.exp(-rot_err / rot_sigma)
+    return reward * proximity_mask.float()
+
+
+def relative_object_pos_reward(
+    env: ManagerBasedRLEnv,
+    command_name: str = "dual_hands_object_tracking_command",
+    pos_sigma: float = 0.02,
+) -> torch.Tensor:
+    """Proximity-gated position component of inter-object relative pose reward (num_envs,).
+
+    Decoupled from rotation so pos and rot weights can be tuned independently.
+    Returns zeros for single-object tasks.
+
+    Args:
+        env: The RL environment.
+        command_name: Name of the command term to get demo data from.
+        pos_sigma: Position tolerance in metres; reward = 1/e at this error. Default 2 cm.
+    """
+    command = env.command_manager.get_term(command_name)
+    if not getattr(command, "_has_multi_object", False):
+        return torch.zeros(env.num_envs, device=env.device)
+    pos_err, _ = command.relative_object_pose_error
+    proximity_mask = command.relative_object_proximity_mask
+    return torch.exp(-pos_err / pos_sigma) * proximity_mask.float()
+
+
+def relative_object_rot_reward(
+    env: ManagerBasedRLEnv,
+    command_name: str = "dual_hands_object_tracking_command",
+    rot_sigma: float = 0.3,
+) -> torch.Tensor:
+    """Proximity-gated rotation component of inter-object relative pose reward (num_envs,).
+
+    Decoupled from position so rot weight can be tuned independently. Default rot_sigma
+    is tighter (0.3 rad ≈ 17°) than the combined form to give stronger gradient signal.
+    Returns zeros for single-object tasks.
+
+    Args:
+        env: The RL environment.
+        command_name: Name of the command term to get demo data from.
+        rot_sigma: Rotation tolerance in radians; reward = 1/e at this error. Default ~17 deg.
+    """
+    command = env.command_manager.get_term(command_name)
+    if not getattr(command, "_has_multi_object", False):
+        return torch.zeros(env.num_envs, device=env.device)
+    _, rot_err = command.relative_object_pose_error
+    proximity_mask = command.relative_object_proximity_mask
+    return torch.exp(-rot_err / rot_sigma) * proximity_mask.float()
+
+
+def inter_object_proximity_reward(
+    env: ManagerBasedRLEnv,
+    command_name: str = "dual_hands_object_tracking_command",
+    dist_sigma: float = 0.05,
+) -> torch.Tensor:
+    """Scalar inter-object distance tracking reward (num_envs,).
+
+    Always-on companion to the proximity-gated relative pose rewards: encourages
+    |‖obj1 − obj0‖ − demo_distance| → 0 even when the two objects are far apart
+    in the demo. Provides a long-range signal so the policy is incentivised to
+    close the gap (e.g. spoon moving toward pan) before the proximity-gated
+    pose rewards activate. Returns zeros for single-object tasks.
+
+    Args:
+        env: The RL environment.
+        command_name: Name of the command term to get demo data from.
+        dist_sigma: Distance tolerance in metres; reward = 1/e at this error. Default 5 cm.
+    """
+    command = env.command_manager.get_term(command_name)
+    if not getattr(command, "_has_multi_object", False):
+        return torch.zeros(env.num_envs, device=env.device)
+    obj0_pos = command.object_position_e[:, 0, :]
+    obj1_pos = command.object_position_e[:, command._obj1_root_body_idx, :]
+    cur_dist = torch.norm(obj1_pos - obj0_pos, dim=-1)
+    demo_dist = command._demo_inter_object_dist[command.timestep_counter]
+    return torch.exp(-(cur_dist - demo_dist).abs() / dist_sigma)
+
+
+def object_meshvert_tracking_fine(
+    env: ManagerBasedRLEnv,
+    command_name: str = "dual_hands_object_tracking_command",
+    var: float = 0.001,
+) -> torch.Tensor:
+    """Fine object-pose reward from sampled mesh vertices (num_envs,)."""
+    command = env.command_manager.get_term(command_name)
+    if not getattr(command, "_meshvert_reward_enabled", False):
+        return torch.zeros(env.num_envs, device=env.device)
+
+    num_verts = command._meshvert_num_verts
+    verts = command.OBJECT_MESHVERT_SAMPLED_VERTS
+    pos_current = command.object_position_e.unsqueeze(2).expand(-1, -1, num_verts, -1)
+    quat_current = command.object_orientation_e.unsqueeze(2).expand(
+        -1, -1, num_verts, -1
+    )
+    pos_target = command.object_body_position_command_e.unsqueeze(2).expand(
+        -1, -1, num_verts, -1
+    )
+    quat_target = command.object_body_wxyz_command_e.unsqueeze(2).expand(
+        -1, -1, num_verts, -1
+    )
+
+    verts_current, _ = math_utils.combine_frame_transforms(
+        pos_current,
+        quat_current,
+        verts,
+    )
+    verts_target, _ = math_utils.combine_frame_transforms(
+        pos_target,
+        quat_target,
+        verts,
+    )
+    add_per_env = torch.norm(verts_current - verts_target, dim=-1).mean(dim=(-2, -1))
+    return torch.exp(-(add_per_env**2) / var)

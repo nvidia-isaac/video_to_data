@@ -20,6 +20,8 @@ def configure_collision_groups(
     fixed_object_names: list[str],
     disable_robot_to_object_collisions: bool = False,
     disable_robot_to_fixed_object_collisions: bool = True,
+    disable_inter_object_collisions: bool = False,
+    disable_object_to_fixed_object_collisions: bool = False,
 ) -> None:
     """Prestartup event to configure collision groups.
 
@@ -38,6 +40,8 @@ def configure_collision_groups(
         fixed_object_names: List of fixed object names to add to the FixedObjectGroup.
         disable_robot_to_object_collisions: Whether to disable collisions between robots and objects.
         disable_robot_to_fixed_object_collisions: Whether to disable collisions between robots and fixed objects.
+        disable_inter_object_collisions: Whether to disable collisions between objects.
+        disable_object_to_fixed_object_collisions: Whether to disable collisions between objects and fixed objects.
     """
     del env_ids
 
@@ -95,3 +99,12 @@ def configure_collision_groups(
     if disable_robot_to_fixed_object_collisions:
         robot_group.GetFilteredGroupsRel().AddTarget(fixed_object_group_path)
         fixed_object_group.GetFilteredGroupsRel().AddTarget(robot_group_path)
+
+    # Disable collisions between objects (intra-ObjectGroup self-filter)
+    if disable_inter_object_collisions:
+        object_group.GetFilteredGroupsRel().AddTarget(object_group_path)
+
+    # Disable collisions between objects and fixed objects (support surfaces, etc.)
+    if disable_object_to_fixed_object_collisions:
+        object_group.GetFilteredGroupsRel().AddTarget(fixed_object_group_path)
+        fixed_object_group.GetFilteredGroupsRel().AddTarget(object_group_path)

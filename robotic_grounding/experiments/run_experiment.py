@@ -16,16 +16,11 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import glob as _glob
 import importlib.util
 import os
-import re
-import shutil
 import subprocess
 import sys
-import sys as _sys
 import tempfile
-import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -41,7 +36,6 @@ if str(RG_ROOT) not in sys.path:
 from experiments.utils import (  # noqa: E402
     DEFAULT_OSMO_IMAGE_LATEST,
     DEFAULT_OSMO_IMAGE_REPO,
-    DEFAULT_OSMO_PIPELINE_IMAGE,
     DEFAULT_WANDB_ENTITY,
     build_eval_command,
     build_train_command,
@@ -737,297 +731,6 @@ def create_wandb_sweep(exp_id: str, config: dict) -> None:
     print("Then: wandb agent <entity>/" + project + "/<sweep_id>")
 
 
-# ---------------------------------------------------------------------------
-# Two-stage pipeline orchestration (generic, driven entirely by config.yaml)
-# ---------------------------------------------------------------------------
-
-
-def _find_latest_checkpoint(run_name: str) -> Path | None:
-    """Find the highest-iteration checkpoint for a given RSL-RL run_name, or None.
-
-    RSL-RL saves to logs/rsl_rl/<experiment_name>/<timestamp>_<run_name>/model_<N>.pt.
-    We search recursively so we're not coupled to the experiment_name sub-dir.
-    """
-    pattern = str(RG_ROOT / "logs" / "rsl_rl" / "**" / f"*_{run_name}" / "model_*.pt")
-    checkpoints = _glob.glob(pattern, recursive=True)
-    if not checkpoints:
-        return None
-
-    def _iteration(p: str) -> int:
-        m = re.search(r"model_(\d+)\.pt", p)
-        return int(m.group(1)) if m else -1
-
-    return Path(max(checkpoints, key=_iteration))
-
-
-def _fetch_stage1_artifact(stage2_config: dict) -> Path | None:
-    """Download the stage1 W&B artifact for stage2 and return the local .pt path, or None."""
-    _scripts = str(Path(__file__).resolve().parent)
-    if _scripts not in _sys.path:
-        _sys.path.insert(0, _scripts)
-    try:
-        from launch_stage2 import fetch_checkpoints as _fetch  # noqa: E402, PLC0415
-    except ImportError:
-        return None
-
-    tmpdir_obj = tempfile.TemporaryDirectory()
-    try:
-        checkpoints = _fetch(Path(tmpdir_obj.name), stage2_config)
-    except SystemExit:
-        tmpdir_obj.cleanup()
-        return None
-    if not checkpoints:
-        tmpdir_obj.cleanup()
-        return None
-    # Copy to a stable location under logs/ before tmpdir is cleaned up
-    seq_key, tmp_path = next(iter(checkpoints.items()))
-    stable_dir = RG_ROOT / "logs" / "rsl_rl" / "sharpa_v2p" / f"stage1_ckpt_{seq_key}"
-    stable_dir.mkdir(parents=True, exist_ok=True)
-    stable_path = stable_dir / tmp_path.name
-    shutil.copy2(tmp_path, stable_path)
-    tmpdir_obj.cleanup()
-    return stable_path
-
-
-def _run_pipeline_local(exp_id: str, config: dict, args: argparse.Namespace) -> None:
-    """Run the two-stage pipeline locally: stage1 → checkpoint → stage2.
-
-    Resume logic (skips completed stages):
-    - If --fresh: ignore existing stage2 checkpoint; start stage2 from stage1 checkpoint
-      (downloads W&B artifact if no local stage1 checkpoint found)
-    - If a stage2 checkpoint exists → resume stage2 from it (skip stage1 entirely)
-    - Elif a stage1 checkpoint exists → skip stage1, run stage2 from stage1 checkpoint
-    - Else → run stage1 from scratch, then stage2
-    """
-    stage1_exp_id = config.get("stage1_exp_id", "stage1")
-    stage2_config_id = config.get("stage2_config_id")
-    dry_run = getattr(args, "dry_run", False)
-    fresh = getattr(args, "fresh", False)
-
-    if not stage2_config_id:
-        raise SystemExit("[pipeline:local] No stage2_config_id in pipeline config.")
-
-    _, stage1_config = load_experiment_config(stage1_exp_id)
-    _, stage2_config = load_experiment_config(stage2_config_id)
-    stage2_config = dict(stage2_config)
-
-    stage1_run_name = stage1_config.get("run_name", "stage1_nocoll")
-    stage2_run_name = stage2_config.get("run_name", f"{stage2_config_id}_run")
-
-    # --- Check for existing checkpoints ---
-    stage2_ckpt = None if fresh else _find_latest_checkpoint(stage2_run_name)
-    stage1_ckpt = _find_latest_checkpoint(stage1_run_name)
-
-    if stage2_ckpt:
-        print(
-            f"\n[pipeline:local] Resuming stage 2 from existing checkpoint: {stage2_ckpt}"
-        )
-        stage2_config["resume_from"] = str(stage2_ckpt)
-    elif stage1_ckpt:
-        print(
-            f"\n[pipeline:local] Stage 1 checkpoint found, skipping stage 1: {stage1_ckpt}"
-        )
-        stage2_config["resume_from"] = str(stage1_ckpt)
-    elif fresh:
-        # --fresh with no local stage1 checkpoint: download W&B artifact
-        print("\n[pipeline:local] --fresh: fetching stage1 artifact from W&B...")
-        artifact_ckpt = _fetch_stage1_artifact(stage2_config)
-        if artifact_ckpt:
-            print(f"[pipeline:local] Using stage1 artifact: {artifact_ckpt}")
-            stage2_config["resume_from"] = str(artifact_ckpt)
-        else:
-            raise SystemExit(
-                "[pipeline:local] --fresh: no local stage1 checkpoint and W&B artifact download failed."
-            )
-    else:
-        # --- Run stage 1 from scratch ---
-        print(f"\n[pipeline:local] Running stage 1 ({stage1_exp_id})...")
-        exit_code = run_local(stage1_exp_id, stage1_config, dry_run=dry_run)
-        if dry_run:
-            print("[pipeline:local] Dry-run: skipping stage 2.")
-            return
-        if exit_code != 0:
-            raise SystemExit(f"[pipeline:local] Stage 1 failed (exit {exit_code})")
-        stage1_ckpt = _find_latest_checkpoint(stage1_run_name)
-        if not stage1_ckpt:
-            raise SystemExit(
-                "[pipeline:local] Stage 1 completed but no checkpoint found."
-            )
-        print(f"\n[pipeline:local] Stage 1 checkpoint: {stage1_ckpt}")
-        stage2_config["resume_from"] = str(stage1_ckpt)
-
-    # --- Stage 2 ---
-    print(f"\n[pipeline:local] Running stage 2 ({stage2_config_id})...")
-    exit_code = run_local(stage2_config_id, stage2_config, dry_run=dry_run)
-    if exit_code != 0:
-        raise SystemExit(f"[pipeline:local] Stage 2 failed (exit {exit_code})")
-    print("[pipeline:local] Done.")
-
-
-def _pipeline_submit_stage1(
-    stage1_exp_id: str,
-    pool: str,
-    priority: str,
-    build_image: bool,
-    dry_run: bool,
-    run_name_prefix: str = "",
-    image: str | None = None,
-) -> str | None:
-    """Submit stage1 via run_experiment.py. Returns the OSMO workflow ID."""
-    cmd = [
-        sys.executable,
-        str(Path(__file__).resolve()),
-        stage1_exp_id,
-        "--osmo",
-        "--pool",
-        pool,
-        "--priority",
-        priority,
-    ]
-    if build_image:
-        cmd.append("--build-image")
-    if image:
-        cmd.extend(["--image", image])
-    if dry_run:
-        cmd.append("--dry-run")
-    if run_name_prefix:
-        cmd.extend(["--run-name-prefix", run_name_prefix])
-
-    print(f"\n[pipeline] Submitting stage 1 ({stage1_exp_id})...")
-    result = subprocess.run(
-        cmd, cwd=RG_ROOT, capture_output=True, text=True, check=False
-    )
-    print(result.stdout, end="")
-    print(result.stderr, end="")
-    if result.returncode != 0:
-        raise SystemExit(
-            f"[pipeline] Stage 1 submission failed (exit {result.returncode})"
-        )
-
-    if dry_run:
-        print("[pipeline] Dry-run: skipping stage1 poll and stage2 launch.")
-        return None
-
-    match = re.search(r"Workflow ID\s+-\s+(\S+)", result.stdout + result.stderr)
-    if match:
-        return match.group(1)
-    raise SystemExit(
-        "[pipeline] Could not determine stage1 workflow ID from OSMO output."
-    )
-
-
-def _pipeline_poll_until_done(workflow_id: str, poll_interval: int) -> None:
-    """Block until the workflow reaches a terminal state."""
-    terminal = {"COMPLETED", "SUCCEEDED", "FAILED", "FAILED_CANCELED", "CANCELED"}
-    print(f"\n[pipeline] Polling workflow {workflow_id} every {poll_interval}s...")
-    while True:
-        result = subprocess.run(
-            ["osmo", "workflow", "query", workflow_id],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        output = result.stdout + result.stderr
-        wf_match = re.search(r"Status\s*:\s*(\S+)", output)
-        wf_status = wf_match.group(1) if wf_match else "UNKNOWN"
-        task_statuses = re.findall(r"\S+\s+\S+\s+(\S+)\s*$", output, re.MULTILINE)
-        print(f"[pipeline]   {workflow_id}: {wf_status}  tasks: {task_statuses}")
-        if wf_status in terminal:
-            if wf_status not in {"SUCCEEDED", "COMPLETED"}:
-                raise SystemExit(f"[pipeline] Stage 1 {wf_status} — aborting pipeline.")
-            print("[pipeline] Stage 1 SUCCEEDED.")
-            return
-        time.sleep(poll_interval)
-
-
-def run_pipeline(exp_id: str, config: dict, args: argparse.Namespace) -> None:
-    """Orchestrate the full two-stage pipeline (generic, config-driven)."""
-    if getattr(args, "local", False):
-        _run_pipeline_local(exp_id, config, args)
-        return
-
-    stage1_exp_id = config.get("stage1_exp_id", "stage1")
-    stage2_exp_id = config.get("stage2_exp_id", "stage2_from_stage1")
-    osmo_cfg = config.get("osmo", {})
-    pool = getattr(args, "pool", None) or osmo_cfg.get("pool", "isaac-dev-l40s-04")
-    priority = getattr(args, "priority", None) or osmo_cfg.get("priority", "NORMAL")
-    build_image = getattr(args, "build_image", False) or osmo_cfg.get(
-        "build_image", False
-    )
-    image = getattr(args, "image", None) or osmo_cfg.get("image")
-    # stage1_image / stage2_image allow separate overrides; fall back to shared image
-    stage1_image = osmo_cfg.get("stage1_image") or image
-    stage2_image = osmo_cfg.get("stage2_image") or image
-    dry_run = getattr(args, "dry_run", False)
-    poll_interval = config.get("poll_interval_seconds", 60)
-
-    # Build and push the image once before any submissions so both stages use
-    # the same freshly built image and we don't redundantly rebuild mid-pipeline.
-    if build_image and not dry_run:
-        build_target = stage1_image or stage2_image or DEFAULT_OSMO_PIPELINE_IMAGE
-        image_version = build_target.split(":")[-1]
-        print(f"\n[pipeline] Building and pushing Docker image: {build_target} ...")
-        result = subprocess.run(
-            f"./workflow/run.sh build {image_version}",
-            shell=True,
-            cwd=RG_ROOT,
-            check=False,
-        )
-        if result.returncode != 0:
-            raise SystemExit("[pipeline] Docker build failed.")
-        result = subprocess.run(
-            f"./workflow/run.sh push {image_version}",
-            shell=True,
-            cwd=RG_ROOT,
-            check=False,
-        )
-        if result.returncode != 0:
-            raise SystemExit("[pipeline] Docker push failed.")
-        build_image = False  # skip rebuild in stage1/stage2 individual submissions
-
-    workflow_id = _pipeline_submit_stage1(
-        stage1_exp_id,
-        pool,
-        priority,
-        build_image,
-        dry_run,
-        run_name_prefix=f"{exp_id}_",
-        image=stage1_image,
-    )
-    if dry_run or workflow_id is None:
-        return
-
-    _pipeline_poll_until_done(workflow_id, poll_interval)
-
-    stage2_config_id = config.get("stage2_config_id", stage2_exp_id)
-    stage2_run_name_suffix = config.get("stage2_run_name_suffix")
-    print(
-        f"\n[pipeline] Launching stage 2 (config: {stage2_config_id}, job: {stage2_exp_id})..."
-    )
-    cmd = [
-        sys.executable,
-        str(RG_ROOT / "scripts" / "launch_stage2.py"),
-        "--config-id",
-        stage2_config_id,
-        "--exp-id",
-        stage2_exp_id,
-        "--pool",
-        pool,
-        "--priority",
-        priority,
-    ]
-    if stage2_run_name_suffix:
-        cmd.extend(["--run-name-suffix", stage2_run_name_suffix])
-    if build_image:
-        cmd.append("--build-image")
-    if stage2_image:
-        cmd.extend(["--image", stage2_image])
-    result = subprocess.run(cmd, cwd=RG_ROOT, check=False)
-    if result.returncode != 0:
-        raise SystemExit(f"[pipeline] Stage 2 launch failed (exit {result.returncode})")
-    print("[pipeline] Done.")
-
-
 def main() -> None:
     """Parse arguments and run experiment locally or on OSMO."""
     parser = argparse.ArgumentParser(description="Run experiments locally or on OSMO")
@@ -1096,11 +799,6 @@ def main() -> None:
         "--dry-run", action="store_true", help="Print without executing"
     )
     parser.add_argument(
-        "--fresh",
-        action="store_true",
-        help="(pipeline --local only) Ignore existing stage2 checkpoint; start stage2 fresh from stage1 checkpoint (downloads W&B artifact if no local stage1 checkpoint found)",
-    )
-    parser.add_argument(
         "--variant",
         default=None,
         help="For multi-task experiments: name of workflow variant to run locally (e.g. hand_kp_w2)",
@@ -1150,12 +848,14 @@ def main() -> None:
     if args.list:
         registry = load_registry()
         for eid, dirname in sorted(registry.items()):
-            try:
-                _, cfg = load_experiment_config(eid)
+            config_path = EXPERIMENTS_DIR / dirname / "config.yaml"
+            if config_path.exists():
+                with open(config_path, encoding="utf-8") as f:
+                    cfg = yaml.safe_load(f) or {}
                 desc = cfg.get("description", "")
                 print(f"  {eid}: {desc} ({dirname})")
-            except Exception:
-                print(f"  {eid}: {dirname}")
+            else:
+                print(f"  {eid}: missing config ({dirname})")
         return
 
     if not args.exp_id:
@@ -1185,11 +885,6 @@ def main() -> None:
 
     if args.print_workflow:
         _print_workflow(args.exp_id, config)
-        return
-
-    # Pipeline experiments delegate all orchestration to run_pipeline().
-    if config.get("pipeline"):
-        run_pipeline(args.exp_id, config, args)
         return
 
     if args.eval:

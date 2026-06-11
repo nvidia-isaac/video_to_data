@@ -11,8 +11,7 @@ from typing import Any
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Default W&B team entity for all OSMO-submitted runs. Overridable per experiment via
-# `wandb_entity:` in config.yaml (see generators in run_experiment.py, launch_stage2.py,
-# monitor_two_stage.py, and example_stage1_nocoll/workflow.py).
+# `wandb_entity:` in config.yaml.
 DEFAULT_WANDB_ENTITY = "nvidia-isaac"
 
 # Container registry repo for the robotic-grounding Docker image. Individual experiments
@@ -21,9 +20,6 @@ DEFAULT_WANDB_ENTITY = "nvidia-isaac"
 # and as the default ":latest" fallback for generated OSMO workflow YAMLs.
 DEFAULT_OSMO_IMAGE_REPO = "nvcr.io/nvstaging/isaac-amr/robotic-grounding"
 DEFAULT_OSMO_IMAGE_LATEST = f"{DEFAULT_OSMO_IMAGE_REPO}:latest"
-# Pipeline fallback tag used when neither stage pins an image explicitly. Historical
-# default — kept stable so existing two-stage experiments keep working.
-DEFAULT_OSMO_PIPELINE_IMAGE = f"{DEFAULT_OSMO_IMAGE_REPO}:v2d"
 
 
 def sequence_to_object(sequence_id: str) -> str:

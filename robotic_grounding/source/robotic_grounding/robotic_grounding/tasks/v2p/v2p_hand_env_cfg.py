@@ -233,6 +233,10 @@ class EventCfg:
         },
     )
 
+    # Object physics material event term disabled — SceneEntityCfg("object") does
+    # not match any real scene entity (objects spawn per-sequence with dynamic
+    # names). Objects use IsaacLab's default RigidBodyMaterialCfg (static=0.5,
+    # dynamic=0.5, restitution=0.0).
     # object_physics_material = EventTerm(
     #     func=isaac_mdp.randomize_rigid_body_material,
     #     mode="startup",
@@ -279,6 +283,15 @@ class RewardsCfg:
         params={
             "command_name": "dual_hands_object_tracking_command",
             "var": 0.1,
+        },
+    )
+
+    object_meshvert_tracking_fine = RewTerm(
+        func=mdp.object_meshvert_tracking_fine,
+        weight=0.0,
+        params={
+            "command_name": "dual_hands_object_tracking_command",
+            "var": 0.001,
         },
     )
 
@@ -350,6 +363,53 @@ class RewardsCfg:
         },
     )
 
+    dexmachina_contact_tracking_reward = RewTerm(
+        func=mdp.dexmachina_contact_tracking_reward,
+        weight=0.0,
+        params={
+            "command_name": "dual_hands_object_tracking_command",
+            "var": 0.03,
+            "mask_zero_contact": True,
+        },
+    )
+
+    relative_object_pose_reward = RewTerm(
+        func=mdp.relative_object_pose_reward,
+        weight=0.0,
+        params={
+            "command_name": "dual_hands_object_tracking_command",
+            "pos_sigma": 0.05,
+            "rot_sigma": 0.5,
+        },
+    )
+
+    relative_object_pos_reward = RewTerm(
+        func=mdp.relative_object_pos_reward,
+        weight=0.0,
+        params={
+            "command_name": "dual_hands_object_tracking_command",
+            "pos_sigma": 0.02,
+        },
+    )
+
+    relative_object_rot_reward = RewTerm(
+        func=mdp.relative_object_rot_reward,
+        weight=0.0,
+        params={
+            "command_name": "dual_hands_object_tracking_command",
+            "rot_sigma": 0.3,
+        },
+    )
+
+    inter_object_proximity_reward = RewTerm(
+        func=mdp.inter_object_proximity_reward,
+        weight=0.0,
+        params={
+            "command_name": "dual_hands_object_tracking_command",
+            "dist_sigma": 0.05,
+        },
+    )
+
     contact_force_reward = RewTerm(
         func=mdp.contact_force_reward,
         weight=0.0,
@@ -388,17 +448,6 @@ class RewardsCfg:
     #         "var": 1.0,
     #     },
     # )
-
-    # DexMachina Contact Tracking Reward
-    dexmachina_contact_tracking_reward = RewTerm(
-        func=mdp.dexmachina_contact_tracking_reward,
-        weight=0.0,
-        params={
-            "command_name": "dual_hands_object_tracking_command",
-            "var": 0.03,
-            "mask_zero_contact": True,
-        },
-    )
 
 
 @configclass
@@ -459,8 +508,6 @@ class CurriculumCfg:
             "metric_thresholds": {
                 "contact_wrench_support_ratio_right": 0.0,
                 "contact_wrench_support_ratio_left": 0.0,
-                "contact_bodies_coverage_frac_right": 0.0,
-                "contact_bodies_coverage_frac_left": 0.0,
             },
             # 0.0 = disabled; set > 0 to require current deque mean >= baseline * ratio
             "reward_baseline_retention": {
@@ -473,6 +520,7 @@ class CurriculumCfg:
                 "object_keypoints_tracking_exp": [],
                 "hand_keypoints_tracking_exp": [],
                 "hand_joint_pos_tracking_exp": [],
+                "object_meshvert_tracking_fine": [],
             },
             # Force decay after this many env steps of being gate-eligible without firing.
             # 0 = disabled. Only active in custom_schedule mode.
@@ -480,6 +528,10 @@ class CurriculumCfg:
             # 0.0 = disabled; set > 0 to require metric <= threshold before decay.
             "metric_upper_thresholds": {
                 "contact_wrench_support_reward_cv": 0.0,
+                # For multi-object tasks: gate VOC decay on relative orientation quality.
+                # Set to e.g. 0.15 (rad) to prevent decay while rot_err is too large.
+                # Ignored (with a warning suppressed by 0.0) on single-object tasks.
+                "relative_object_rot_error": 0.0,
             },
             # If True, metric_upper_thresholds gate only applies before the first decay.
             "metric_upper_thresholds_initial_only": False,
@@ -496,6 +548,10 @@ class FixedTimestepCurriculumCfg:
         params={
             "command_name": "dual_hands_object_tracking_command",
             "num_steps_per_env": 24,
+            # Last entry (16500) is a post-training reward boost: VOC has been 0
+            # since iter 14500, so the policy is already self-driving; the jump
+            # from 0.5 -> 20.0 on object_keypoints_tracking_exp amplifies the
+            # tracking signal for fine-grained object pose convergence.
             "timestep_schedule": [
                 2000,
                 4000,
@@ -507,6 +563,7 @@ class FixedTimestepCurriculumCfg:
                 13000,
                 14500,
                 16000,
+                16500,
             ],
             "virtual_object_control_scale_factor": [
                 1.0,
@@ -518,6 +575,7 @@ class FixedTimestepCurriculumCfg:
                 0.05,
                 0.025,
                 0.01,
+                0.0,
                 0.0,
             ],
             "rewards_object_keypoints_tracking_exp": [
@@ -531,6 +589,7 @@ class FixedTimestepCurriculumCfg:
                 0.5,
                 0.5,
                 0.5,
+                20.0,
             ],
             "rewards_hand_keypoints_tracking_exp": [
                 0.25,
@@ -543,6 +602,7 @@ class FixedTimestepCurriculumCfg:
                 0.0,
                 0.0,
                 0.0,
+                0.25,
             ],
             "rewards_hand_joint_pos_tracking_exp": [
                 0.25,
@@ -555,10 +615,22 @@ class FixedTimestepCurriculumCfg:
                 0.0,
                 0.0,
                 0.0,
+                0.25,
             ],
             "rewards_contact_wrench_support_reward": 10.0,
             "rewards_unintended_contact_penalty": -20.0,
             "rewards_missed_contact_penalty": -5.0,
+            # Optional per-step scheduled rewards — 0.0 scalar expands to match
+            # the timestep_schedule length at runtime.
+            "rewards_object_meshvert_tracking_fine": 0.0,
+            "rewards_dexmachina_contact_tracking_reward": 0.0,
+            "rewards_relative_object_pos_reward": 0.0,
+            "rewards_relative_object_rot_reward": 0.0,
+            "rewards_inter_object_proximity_reward": 0.0,
+            # Optional per-step termination thresholds — None means no override.
+            "termination_object_away_from_trajectory_position_threshold": None,
+            "termination_object_away_from_trajectory_orientation_threshold": None,
+            "termination_hand_wrist_away_from_trajectory_threshold": None,
         },
     )
 
@@ -588,6 +660,8 @@ class V2PHandEnvCfg(ManagerBasedRLEnvCfg):
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
     curriculum: FixedTimestepCurriculumCfg = FixedTimestepCurriculumCfg()
+
+    max_contact_data_count_per_prim: int = 1024
 
     def __post_init__(self) -> None:
         """Post initialization."""
@@ -629,6 +703,8 @@ class V2PHandEnvCfgEnvOnly(ManagerBasedRLEnvCfg):
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
     curriculum: FixedTimestepCurriculumCfg = FixedTimestepCurriculumCfg()
+
+    max_contact_data_count_per_prim: int = 1024
 
     def __post_init__(self) -> None:
         """Post initialization."""

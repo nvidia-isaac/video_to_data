@@ -113,12 +113,15 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         self._init_buffers(cfg)
         self._init_hand_data()
         self._init_object_data()
+        self._init_relative_object_data()
         self._init_contact_data()
         self._precompute_contact_positions_normals_in_object_frame()
         self._precompute_hand_keypoints_in_object_frame()
         self._precompute_contact_wrench_support_values()
+        self._meshvert_reward_enabled = False
         if self.cfg.enable_additional_metrics:
             self._precompute_bbox_corner_vecs()
+            self._precompute_object_mesh_vertices()
         self._set_contact_vis_impl(getattr(self.cfg, "debug_vis", False))
         self._init_metrics(cfg)
 
@@ -444,6 +447,39 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             f"Find {len(self.retargeted_object_body_names)} in motion file, "
             f"but {self.num_bodies} in the object."
         )
+
+    def _init_relative_object_data(self) -> None:
+        """Precompute demo relative pose (obj1 in obj0's frame) for multi-object tasks.
+
+        Sets:
+          - ``self._has_multi_object`` — False for single-object sequences, skips all relative-pose logic.
+          - ``self._obj1_root_body_idx`` — index of obj1's root body in the concatenated body array.
+          - ``self._demo_rel_pos`` — (T, 3) demo relative position of obj1 root in obj0 root frame.
+          - ``self._demo_rel_quat`` — (T, 4) demo relative quaternion of obj1 root in obj0 root frame.
+          - ``self._demo_inter_object_dist`` — (T,) L2 distance between obj0 and obj1 roots in demo.
+        """
+        if len(self.objects) < 2:
+            self._has_multi_object = False
+            return
+        self._has_multi_object = True
+        self._obj1_root_body_idx = self.objects[0].data.body_link_pos_w.shape[1]
+
+        # env-frame positions and world-frame quats (env origin cancels in relative transform)
+        demo_obj0_pos = self.retargeted_object_body_position[:, 0, :]
+        demo_obj0_quat = self.retargeted_object_body_wxyz[:, 0, :]
+        demo_obj1_pos = self.retargeted_object_body_position[
+            :, self._obj1_root_body_idx, :
+        ]
+        demo_obj1_quat = self.retargeted_object_body_wxyz[
+            :, self._obj1_root_body_idx, :
+        ]
+
+        self._demo_rel_pos, self._demo_rel_quat = math_utils.subtract_frame_transforms(
+            demo_obj0_pos, demo_obj0_quat, demo_obj1_pos, demo_obj1_quat
+        )  # (T, 3) and (T, 4)
+        self._demo_inter_object_dist = torch.norm(
+            demo_obj1_pos - demo_obj0_pos, dim=-1
+        )  # (T,)
 
     def _init_contact_data(self) -> None:
         """Load per-link contact data from retargeted motion for both hand sides.
@@ -942,6 +978,63 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         )
         # (num_envs, num_bodies, 8, 3)
 
+    def _precompute_object_mesh_vertices(self, num_samples: int = 500) -> None:
+        """Sample deterministic object mesh vertices for mesh-vertex tracking."""
+        import numpy as np  # noqa: PLC0415
+        import trimesh  # noqa: PLC0415
+
+        self._meshvert_reward_enabled = False
+        self._meshvert_num_verts = int(num_samples)
+
+        mesh_paths = list(
+            getattr(self._retargeted_motion_data, "object_mesh_paths", []) or []
+        )
+        num_bodies = int(self.object_body_half_extents.shape[0])
+        if len(mesh_paths) != num_bodies:
+            print(
+                "[object_meshvert_tracking_fine] WARNING: "
+                f"expected {num_bodies} object mesh paths, got {len(mesh_paths)}"
+            )
+            return
+
+        sampled_verts = []
+        for mesh_path in mesh_paths:
+            try:
+                mesh = trimesh.load(mesh_path, force="mesh", process=False)
+                if hasattr(mesh, "geometry"):
+                    mesh = trimesh.util.concatenate(tuple(mesh.geometry.values()))
+                vertices = np.asarray(mesh.vertices, dtype=np.float32)
+                if vertices.shape[0] == 0:
+                    raise ValueError("mesh has no vertices")
+
+                rng = np.random.default_rng(42)
+                indices = rng.choice(
+                    vertices.shape[0],
+                    size=self._meshvert_num_verts,
+                    replace=vertices.shape[0] < self._meshvert_num_verts,
+                )
+            except Exception as exc:  # noqa: BLE001
+                print(
+                    "[object_meshvert_tracking_fine] WARNING: "
+                    f"failed to sample vertices from {mesh_path}: {exc}"
+                )
+                return
+
+            sampled_verts.append(
+                torch.tensor(
+                    vertices[indices],
+                    device=self.device,
+                    dtype=torch.float32,
+                )
+            )
+
+        self.OBJECT_MESHVERT_SAMPLED_VERTS = (
+            torch.stack(sampled_verts, dim=0)
+            .unsqueeze(0)
+            .expand(self.num_envs, -1, -1, -1)
+        )
+        self._meshvert_reward_enabled = True
+
     def _init_metrics(self, cfg: CommandTermCfg) -> None:
         """Initialize all tracking-error metric buffers to zero.
 
@@ -986,9 +1079,6 @@ class DualHandsObjectTrackingCommand(CommandTerm):
                 self.metrics[f"contact_wrench_support_ratio_{side}"] = torch.zeros(
                     self.num_envs, device=self.device
                 )
-                self.metrics[f"contact_bodies_coverage_frac_{side}"] = torch.zeros(
-                    self.num_envs, device=self.device
-                )
 
             # Object bounding-box tracking and lift metrics
             self.metrics["object_bbox_corner_error"] = torch.zeros(
@@ -997,34 +1087,18 @@ class DualHandsObjectTrackingCommand(CommandTerm):
             self.metrics["object_body_z_error"] = torch.zeros(
                 self.num_envs, device=self.device
             )
-
-            # Object contact indicator metrics
-            for suffix in [
-                "right_contact_frac",
-                "left_contact_frac",
-                "any_contact_frac",
-            ]:
-                self.metrics[f"object_has_{suffix}"] = torch.zeros(
-                    self.num_envs, device=self.device
-                )
-
-            # Hand tracking quality fraction
-            self.metrics["hand_tracking_good_frac"] = torch.zeros(
-                self.num_envs, device=self.device
-            )
-
-            # VOC decay event marker — 1.0 on the step a curriculum decay fires, 0.0 otherwise.
-            # Use alongside object_bbox_corner_error in W&B to see if tracking degrades post-decay.
-            self.metrics["voc_decay_fired"] = torch.zeros(
-                self.num_envs, device=self.device
-            )
-            self._prev_voc_scale = float(
-                cfg.initial_virtual_object_control_curriculum_scale
-            )
             # Rolling step-level buffer for contact_wrench_support_reward CV (W=200).
             # Initialized to 1.0 (high = not plateaued) until the buffer fills.
             self._cws_reward_step_buf: collections.deque = collections.deque(maxlen=200)
             self.metrics["contact_wrench_support_reward_cv"] = torch.ones(
+                self.num_envs, device=self.device
+            )
+
+        if self._has_multi_object:
+            self.metrics["relative_object_pos_error"] = torch.zeros(
+                self.num_envs, device=self.device
+            )
+            self.metrics["relative_object_rot_error"] = torch.zeros(
                 self.num_envs, device=self.device
             )
 
@@ -1526,6 +1600,35 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         ).float()
 
     @property
+    def relative_object_pose_error(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """Pose error between current and demo relative pose of obj1 in obj0's frame.
+
+        Returns:
+            pos_err: (num_envs,) L2 position error in metres.
+            rot_err: (num_envs,) geodesic rotation error in radians.
+
+        Only call when self._has_multi_object is True.
+        """
+        obj0_pos = self.object_position_e[:, 0, :]
+        obj0_quat = self.object_orientation_e[:, 0, :]
+        obj1_pos = self.object_position_e[:, self._obj1_root_body_idx, :]
+        obj1_quat = self.object_orientation_e[:, self._obj1_root_body_idx, :]
+        cur_rel_pos, cur_rel_quat = math_utils.subtract_frame_transforms(
+            obj0_pos, obj0_quat, obj1_pos, obj1_quat
+        )
+        demo_rel_pos = self._demo_rel_pos[self.timestep_counter]
+        demo_rel_quat = self._demo_rel_quat[self.timestep_counter]
+        pos_err = torch.norm(cur_rel_pos - demo_rel_pos, dim=-1)
+        rot_err = math_utils.quat_error_magnitude(cur_rel_quat, demo_rel_quat)
+        return pos_err, rot_err
+
+    @property
+    def relative_object_proximity_mask(self) -> torch.Tensor:
+        """(num_envs,) bool — True when demo inter-object distance < proximity_threshold."""
+        demo_dist = self._demo_inter_object_dist[self.timestep_counter]
+        return demo_dist < self.cfg.relative_object_proximity_threshold
+
+    @property
     def object_com_position_and_wxyz_w(self) -> torch.Tensor:
         """The current position and orientation in the environment frame for the object com. Shape is (num_envs, num_bodies, 7)."""
         return torch.cat(
@@ -1888,184 +1991,53 @@ class DualHandsObjectTrackingCommand(CommandTerm):
     def _update_metrics(self) -> None:
         """Update the metrics."""
         # Right hand
-        # right_hand_wrist_pose_command_e = self.right_hand_wrist_pose_command_e
-        # self.metrics["right_hand_wrist_position_error"] = torch.norm(
-        #     self.right_hand_wrist_position_e - right_hand_wrist_pose_command_e[:, :3],
-        #     dim=-1,
-        # )
-        # self.metrics["right_hand_wrist_wxyz_error"] = math_utils.quat_error_magnitude(
-        #     self.right_hand_wrist_wxyz_e, right_hand_wrist_pose_command_e[:, 3:]
-        # )
-        # self.metrics["right_hand_finger_joints_error"] = torch.norm(
-        #     self.right_hand_finger_joint_pos - self.right_hand_finger_joint_pos_command,
-        #     dim=-1,
-        # )
-        # # Left hand
-        # left_hand_wrist_pose_command_e = self.left_hand_wrist_pose_command_e
-        # self.metrics["left_hand_wrist_position_error"] = torch.norm(
-        #     self.left_hand_wrist_position_e - left_hand_wrist_pose_command_e[:, :3],
-        #     dim=-1,
-        # )
-        # self.metrics["left_hand_wrist_wxyz_error"] = math_utils.quat_error_magnitude(
-        #     self.left_hand_wrist_wxyz_e, left_hand_wrist_pose_command_e[:, 3:]
-        # )
-        # self.metrics["left_hand_finger_joints_error"] = torch.norm(
-        #     self.left_hand_finger_joint_pos - self.left_hand_finger_joint_pos_command,
-        #     dim=-1,
-        # )
-        # # # Object
-        # self.metrics["object_body_position_error"] = torch.norm(
-        #     self.object_position_e - self.object_body_position_command_e,
-        #     dim=-1,
-        # ).mean(dim=-1)
-        # self.metrics["object_body_wxyz_error"] = math_utils.quat_error_magnitude(
-        #     self.object_orientation_e,
-        #     self.object_body_wxyz_command_e,
-        # ).mean(dim=-1)
+        right_hand_wrist_pose_command_e = self.right_hand_wrist_pose_command_e
+        self.metrics["right_hand_wrist_position_error"] = torch.norm(
+            self.right_hand_wrist_position_e - right_hand_wrist_pose_command_e[:, :3],
+            dim=-1,
+        )
+        self.metrics["right_hand_wrist_wxyz_error"] = math_utils.quat_error_magnitude(
+            self.right_hand_wrist_wxyz_e, right_hand_wrist_pose_command_e[:, 3:]
+        )
+        self.metrics["right_hand_finger_joints_error"] = torch.norm(
+            self.right_hand_finger_joint_pos - self.right_hand_finger_joint_pos_command,
+            dim=-1,
+        )
+        # Left hand
+        left_hand_wrist_pose_command_e = self.left_hand_wrist_pose_command_e
+        self.metrics["left_hand_wrist_position_error"] = torch.norm(
+            self.left_hand_wrist_position_e - left_hand_wrist_pose_command_e[:, :3],
+            dim=-1,
+        )
+        self.metrics["left_hand_wrist_wxyz_error"] = math_utils.quat_error_magnitude(
+            self.left_hand_wrist_wxyz_e, left_hand_wrist_pose_command_e[:, 3:]
+        )
+        self.metrics["left_hand_finger_joints_error"] = torch.norm(
+            self.left_hand_finger_joint_pos - self.left_hand_finger_joint_pos_command,
+            dim=-1,
+        )
+        # Object
+        self.metrics["object_body_position_error"] = torch.norm(
+            self.object_position_e - self.object_body_position_command_e,
+            dim=-1,
+        ).mean(dim=-1)
+        self.metrics["object_body_wxyz_error"] = math_utils.quat_error_magnitude(
+            self.object_orientation_e,
+            self.object_body_wxyz_command_e,
+        ).mean(dim=-1)
 
         # Log the per-env VOC scale actually applied to the object controller.
         self.metrics["virtual_object_controller_scale_factor"] = (
             self.virtual_object_controller_scale_factor_per_env.squeeze(-1)
         )
 
+        if self._has_multi_object:
+            pos_err, rot_err = self.relative_object_pose_error
+            self.metrics["relative_object_pos_error"] = pos_err
+            self.metrics["relative_object_rot_error"] = rot_err
+
         if not self.cfg.enable_additional_metrics:
             return
-
-        voc_scale_now = float(self.virtual_object_controller_scale_factor)
-        decay_fired = 1.0 if voc_scale_now < self._prev_voc_scale else 0.0
-        self._prev_voc_scale = voc_scale_now
-        self.metrics["voc_decay_fired"] = decay_fired * torch.ones(
-            self.num_envs, device=self.device
-        )
-
-        # ------------------------------------------------------------------ #
-        # Contact wrench level metrics
-        # Read the internal buffers directly (already filled by the reward
-        # function earlier in the same step) to avoid re-running the expensive
-        # wrench space computation.
-        # ------------------------------------------------------------------ #
-        right_cmd = (
-            self.right_hand_contact_wrench_supports_command
-        )  # (num_envs, num_bodies, num_basis)
-        right_curr = self.right_contact_wrench_supports  # buffer
-        left_cmd = self.left_hand_contact_wrench_supports_command
-        left_curr = self.left_contact_wrench_supports  # buffer
-
-        right_cmd_has_contact = right_cmd.amax(dim=-1) > 1e-3  # (num_envs, num_bodies)
-        right_curr_has_contact = right_curr.amax(dim=-1) > 1e-3
-        left_cmd_has_contact = left_cmd.amax(dim=-1) > 1e-3
-        left_curr_has_contact = left_curr.amax(dim=-1) > 1e-3
-
-        right_cmd_count = right_cmd_has_contact.sum(dim=-1).clamp(
-            min=1e-3
-        )  # (num_envs,)
-        left_cmd_count = left_cmd_has_contact.sum(dim=-1).clamp(min=1e-3)
-
-        self.metrics["contact_wrench_command_support_mean_right"] = (
-            right_cmd.mean(dim=-1) * right_cmd_has_contact
-        ).sum(dim=-1) / right_cmd_count
-        self.metrics["contact_wrench_current_support_mean_right"] = (
-            right_curr.mean(dim=-1) * right_cmd_has_contact
-        ).sum(dim=-1) / right_cmd_count
-        self.metrics["contact_wrench_command_support_mean_left"] = (
-            left_cmd.mean(dim=-1) * left_cmd_has_contact
-        ).sum(dim=-1) / left_cmd_count
-        self.metrics["contact_wrench_current_support_mean_left"] = (
-            left_curr.mean(dim=-1) * left_cmd_has_contact
-        ).sum(dim=-1) / left_cmd_count
-
-        has_demo_contact_right = right_cmd_has_contact.any(dim=-1)  # (num_envs,)
-        has_demo_contact_left = left_cmd_has_contact.any(dim=-1)
-
-        def _contact_ratio(
-            curr: torch.Tensor, cmd: torch.Tensor, cmd_has_contact: torch.Tensor
-        ) -> torch.Tensor:
-            """Per-basis alignment ratio.
-
-            For each basis direction k where the command has positive support
-            (cmd[e, b, k] > 1e-3) on a body that has commanded contact, compute
-            curr[e, b, k] / cmd[e, b, k].  Average over all active (body, basis)
-            pairs per env, then average over envs where any contact is commanded.
-            Result is broadcast back to (num_envs,).
-
-            This avoids the false-positive from the previous mean-then-divide
-            approach: a current wrench that generates force orthogonal to the
-            commanded directions would score 0 here but could look fine if we
-            first collapsed the basis dimension with .mean().
-
-            curr, cmd       : (num_envs, num_bodies, num_basis)
-            cmd_has_contact : (num_envs, num_bodies)
-            """
-            # Gate: basis direction is active only where the command has support
-            # AND the body is a commanded-contact body.
-            basis_active = (cmd > 1e-3) & cmd_has_contact.unsqueeze(
-                -1
-            )  # (num_envs, num_bodies, num_basis)
-            # Per-basis ratio (unbounded — diagnostic only, no clamp by design).
-            per_basis = curr / (cmd + 1e-6)  # (num_envs, num_bodies, num_basis)
-            # Mean over active (body, basis) pairs per env.
-            n_active = (
-                basis_active.float().sum(dim=(-2, -1)).clamp(min=1.0)
-            )  # (num_envs,)
-            per_env_ratio = (per_basis * basis_active.float()).sum(
-                dim=(-2, -1)
-            ) / n_active  # (num_envs,)
-            # Mean over envs where contact is commanded (exclude non-contact-phase envs).
-            has_demo = cmd_has_contact.any(dim=-1)  # (num_envs,)
-            n_envs = has_demo.float().sum().clamp(min=1.0)
-            val = (per_env_ratio * has_demo.float()).sum() / n_envs
-            return val.expand(curr.shape[0])
-
-        self.metrics["contact_wrench_support_ratio_right"] = _contact_ratio(
-            right_curr,
-            right_cmd,
-            right_cmd_has_contact,
-        )
-        self.metrics["contact_wrench_support_ratio_left"] = _contact_ratio(
-            left_curr,
-            left_cmd,
-            left_cmd_has_contact,
-        )
-
-        # Mean only over envs where contact is commanded, so that non-contact-phase
-        # envs (which contribute 0 / clamp(0, 1e-3) ≈ 0) do not dilute the metric.
-        n_demo_right = has_demo_contact_right.float().sum().clamp(min=1.0)
-        n_demo_left = has_demo_contact_left.float().sum().clamp(min=1.0)
-        coverage_right = (right_cmd_has_contact & right_curr_has_contact).float().sum(
-            dim=-1
-        ) / right_cmd_count
-        coverage_left = (left_cmd_has_contact & left_curr_has_contact).float().sum(
-            dim=-1
-        ) / left_cmd_count
-        self.metrics["contact_bodies_coverage_frac_right"] = (
-            (coverage_right * has_demo_contact_right.float()).sum() / n_demo_right
-        ).expand(self.num_envs)
-        self.metrics["contact_bodies_coverage_frac_left"] = (
-            (coverage_left * has_demo_contact_left.float()).sum() / n_demo_left
-        ).expand(self.num_envs)
-
-        # ------------------------------------------------------------------ #
-        # Object contact indicator metrics — conditioned on demo contact phase
-        # so that non-contact-phase envs (which should not have contact) do not
-        # dilute the fraction.
-        # ------------------------------------------------------------------ #
-        has_curr_right = right_curr_has_contact.any(dim=-1)  # (num_envs,)
-        has_curr_left = left_curr_has_contact.any(dim=-1)
-        has_demo_contact_any = has_demo_contact_right | has_demo_contact_left
-        n_demo_any = has_demo_contact_any.float().sum().clamp(min=1.0)
-        self.metrics["object_has_right_contact_frac"] = (
-            (has_curr_right.float() * has_demo_contact_right.float()).sum()
-            / n_demo_right
-        ).expand(self.num_envs)
-        self.metrics["object_has_left_contact_frac"] = (
-            (has_curr_left.float() * has_demo_contact_left.float()).sum() / n_demo_left
-        ).expand(self.num_envs)
-        self.metrics["object_has_any_contact_frac"] = (
-            (
-                (has_curr_right | has_curr_left).float() * has_demo_contact_any.float()
-            ).sum()
-            / n_demo_any
-        ).expand(self.num_envs)
 
         # ------------------------------------------------------------------ #
         # Bounding-box corner tracking error
@@ -2116,15 +2088,6 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         self.metrics["object_body_z_error"] = (
             (z_error_per_env * past_reset_phase.float()).sum() / n_past_reset
         ).expand(self.num_envs)
-
-        # ------------------------------------------------------------------ #
-        # Hand tracking quality fraction
-        # ------------------------------------------------------------------ #
-        _WRIST_GOOD_THRESHOLD = 0.05  # 5 cm
-        self.metrics["hand_tracking_good_frac"] = (
-            (self.metrics["right_hand_wrist_position_error"] < _WRIST_GOOD_THRESHOLD)
-            & (self.metrics["left_hand_wrist_position_error"] < _WRIST_GOOD_THRESHOLD)
-        ).float()
 
         # ------------------------------------------------------------------ #
         # Contact wrench support reward CV (W=200 steps)

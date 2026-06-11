@@ -186,6 +186,15 @@ class DualHandsObjectTrackingCommandCfg(CommandTermCfg):
     Off by default to avoid compute overhead in production runs.
     """
 
+    relative_object_proximity_threshold: float = 0.3
+    """Demo inter-object root distance (m) below which the relative-pose reward/metric is active."""
+
+    relative_object_reward_pos_sigma: float = 0.05
+    """Position sigma (m) for the relative-pose reward: exp(-pos_err / sigma)."""
+
+    relative_object_reward_rot_sigma: float = 0.5
+    """Rotation sigma (rad) for the relative-pose reward: exp(-rot_err / sigma)."""
+
     ###################################################
     # Visualizer markers
     ###################################################
