@@ -1079,9 +1079,6 @@ class DualHandsObjectTrackingCommand(CommandTerm):
                 self.metrics[f"contact_wrench_support_ratio_{side}"] = torch.zeros(
                     self.num_envs, device=self.device
                 )
-                self.metrics[f"contact_bodies_coverage_frac_{side}"] = torch.zeros(
-                    self.num_envs, device=self.device
-                )
 
             # Object bounding-box tracking and lift metrics
             self.metrics["object_bbox_corner_error"] = torch.zeros(

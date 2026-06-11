@@ -103,7 +103,7 @@ class VirtualObjectControlCurriculum(ManagerTermBase):
         self._deque_ep_len_ratio_mean = torch.zeros(1, device=self._env.device)
         self._deque_ep_len_ratio_std = torch.zeros(1, device=self._env.device)
 
-        # Optional metric thresholds (e.g. contact_wrench_support_ratio, coverage_frac).
+        # Optional metric thresholds (e.g. contact_wrench_support_ratio).
         # Sampled at episode end from command metrics; averaged over the deque window.
         # Entries with threshold == 0.0 are treated as disabled and excluded.
         _raw = cfg.params.get("metric_thresholds", {})
