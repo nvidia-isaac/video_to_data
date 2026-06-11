@@ -8,11 +8,12 @@
 
 """Retarget TACO loaded data (ManoSharpaData with MANO+object only) to Dex3.
 
-Reads Parquet from taco_loader.py output (human_motion_data/taco/taco_loaded),
+Reads the taco_loaded Parquet (ManoSharpaData; produced upstream by
+reconstruction's v2d_task_library_loader load workflow),
 runs IK per frame to fill robot_* fields, and saves to taco_processed (robot_name=dex3).
 
 Usage:
-  1. python scripts/retarget/taco_loader.py --save
+  1. (upstream) reconstruction load workflow writes taco_loaded Parquet
   2. python scripts/retarget/taco_to_dex3.py --save
 """
 

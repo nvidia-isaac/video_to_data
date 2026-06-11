@@ -6,7 +6,8 @@ script just parses CLI args and dispatches to that module so the same
 logic can be reused from the planner orchestrator.
 
 Usage:
-  1. Run retarget/loader first (e.g. taco_loader.py --save, soma_to_g1.py --save)
+  1. Produce *_loaded data first: the reconstruction v2d_task_library_loader
+     load workflow (hand+object datasets), or soma_to_g1.py --save (whole-body)
   2. python scripts/reconstruct_support_surfaces.py --input_dir ... [--sequence_id ID]
 """
 
@@ -94,7 +95,7 @@ def main() -> None:
     if not input_dir.is_dir():
         print(
             f"Input dir not found: {input_dir}. Run the loader first "
-            "(e.g. taco_loader.py --save)."
+            "(e.g. via the reconstruction load workflow)."
         )
         return
 

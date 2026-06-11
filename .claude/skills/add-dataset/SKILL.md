@@ -7,6 +7,14 @@ description: Guide for adding a new hand-object motion dataset to the robotic_gr
 
 This skill walks through the 3 steps required to integrate a new hand-object motion dataset into the retarget-to-training pipeline.
 
+> **Repo split (MANO migration):** Stage 1 (Load) lives in the **`reconstruction`**
+> repo's `v2d_task_library_loader` module — it uses MANO forward kinematics
+> (manotorch, GPL-3.0) and is built into its own image. Stages 1.5+ (URDFs,
+> retarget/IK, training) stay in **`robotic_grounding`**, which is manotorch-free
+> and consumes the `{dataset}_loaded` Parquet the loader produces. So: the
+> **loader** (Step 2) is authored in `reconstruction`; the **registry entry**
+> (Step 1) and **retarget script** (Step 3) are authored here in `robotic_grounding`.
+
 ## Before You Start
 
 All work is done from the `robotic_grounding/` directory. Gather this information from the user before starting:
@@ -206,8 +214,9 @@ Add an entry to the `DATASET_CONFIGS` dict. This is the **single source of truth
     has_contact_data=False,      # set True if contact analysis will run
     has_support_surfaces=True,
     link_to_site_quat_wxyz=None, # quaternion (w,x,y,z) for IK, or None
-    loader_script="scripts/retarget/newdata_loader.py",
-    retarget_script="scripts/retarget/newdata_to_sharpa.py",
+    retarget_scripts={          # robot name -> retarget script (relative to repo root)
+        "sharpa_wave": "scripts/retarget/newdata_to_sharpa.py",
+    },
 ),
 ```
 
@@ -227,18 +236,25 @@ Add an entry to the `DATASET_CONFIGS` dict. This is the **single source of truth
 | `loaded_suffix` | str | "_loaded" | Directory suffix for loaded stage |
 | `processed_suffix` | str | "_processed" | Directory suffix for processed stage |
 | `css_raw_prefix` | str | "" | CSS raw data subdirectory (empty = "dataset/") |
-| `loader_script` | str | "" | Path to loader script (relative to repo root) |
-| `retarget_script` | str | "" | Path to retarget script (relative to repo root) |
+| `loader_script` | str | "" | **Deprecated/unused** — Stage-1 loaders moved to reconstruction's `v2d_task_library_loader`. Left empty. |
+| `retarget_scripts` | dict | `{}` | Maps robot name (`"sharpa_wave"`, `"dex3"`) → retarget script path (relative to repo root) |
 
-## Step 2: Write the Loader Script
+## Step 2: Write the Loader Script (in the `reconstruction` repo)
 
-**New file:** `scripts/retarget/newdata_loader.py`
+**New file:** `reconstruction/modules/v2d_task_library_loader/lib/newdata_loader.py`
+
+> This is the **GPL/MANO stage** — it lives in `reconstruction`, not here,
+> because it uses manotorch forward kinematics. After writing it, register the
+> class in `reconstruction/modules/v2d_task_library_loader/lib/loader_registry.py`
+> so `run_loader.py --dataset newdata` can dispatch to it. The loader imports the
+> Parquet schema and MANO constants from `robotic_grounding` (which reconstruction
+> depends on), so the `ManoSharpaData` contract stays single-sourced.
 
 This script reads raw motion data and converts it to the `ManoSharpaData` Parquet schema (MANO hand parameters + object poses per frame).
 
 ### Subclass DatasetLoaderBase
 
-The base class is at `source/robotic_grounding/robotic_grounding/retarget/dataset_loader_base.py`. Implement these required abstract methods:
+The base class is at `reconstruction/modules/v2d_task_library_loader/lib/dataset_loader_base.py`. Implement these required abstract methods:
 
 ```python
 class NewDatasetLoader(DatasetLoaderBase):
@@ -319,7 +335,8 @@ if __name__ == "__main__":
 
 ### Reference implementations
 
-Use these as templates, ordered from simplest to most complex:
+Use these as templates, ordered from simplest to most complex (all in
+`reconstruction/modules/v2d_task_library_loader/lib/`):
 
 | Loader | Best for | Key patterns |
 |--------|----------|-------------|
@@ -393,7 +410,7 @@ Most scripts pick up the new dataset automatically via the registry:
 
 | What | How it works |
 |------|-------------|
-| **OSMO workflow** | `run_loader.py` / `run_retarget.py` dispatch via registry |
+| **OSMO workflow** | Stage 1 Load: reconstruction `v2d_{dataset}_load` (`lib/run_loader.py` dispatch). Stages 1.5+: RG `retarget.yaml` (`run_retarget.py` dispatch via registry), consuming the `{dataset}_loaded` dataset |
 | **CSS browse/sync** | `list_css_sequences.py` and `sync_css_data.py` pick up the new name from `get_all_dataset_names()` |
 | **Stage 4 viz** | `vis_retargeted.py` pulls `--dataset` choices + filter args from the registry |
 | **Stage 3 reconstruct** | `reconstruct_support_surfaces.py` pulls `--dataset` choices from the registry |
@@ -440,14 +457,17 @@ Start the container once (separate terminal):
 Then iterate on load → retarget → visualize:
 
 ```bash
-# Loader (CPU is fine for MANO FK).  The data-root flag name follows the
-# dataset: --h2o_dir, --grab_dir, --dexycb_dir, etc.  Check your loader's
-# parse_args() for the exact flag.
-docker exec robotic-grounding-latest-gpu0 python scripts/retarget/<dataset>_loader.py \
-  --<dataset>_dir /workspace/video_to_data/robotic_grounding/source/robotic_grounding/robotic_grounding/assets/human_motion_data/<dataset>/dataset \
+# Loader (CPU is fine for MANO FK). Runs from the RECONSTRUCTION loader module
+# (it has manotorch); iterate there, not in the RG container. The data-root flag
+# name follows the dataset: --h2o_dir, --grab_dir, --dexycb_dir, etc. Check your
+# loader's parse_args() for the exact flag.
+#   cd reconstruction/modules/v2d_task_library_loader
+python -m v2d.task_library_loader.lib.run_loader --dataset <dataset> \
+  --dataset_root <raw_dataset_dir> \
+  --output_dir <out>/<dataset>_loaded \
   --device cpu --save --max_sequences 1
 
-# Retarget (GPU needed for IK)
+# Retarget (GPU needed for IK) — back in the robotic_grounding container
 docker exec robotic-grounding-latest-gpu0 python scripts/retarget/<dataset>_to_sharpa.py \
   --input_dir .../<dataset>_loaded \
   --output_dir .../<dataset>_processed \
@@ -471,8 +491,20 @@ Common bugs to watch for in the recording:
 ## Step 5: Scale to OSMO
 
 Once the Viser recording looks right (hands grip the object, motion is smooth,
-no obvious flips or floating), submit the full retarget to OSMO. By this
-point Track A should have finished uploading the full raw dataset to CSS.
+no obvious flips or floating), submit to OSMO. By this point Track A should have
+finished uploading the full raw dataset to CSS. This is now **two chained
+workflows** (MANO migration):
+
+**(a) Load** — run the reconstruction loader to produce the `{dataset}_loaded`
+OSMO dataset (this is the GPL/MANO stage, in the reconstruction repo):
+
+```bash
+osmo workflow submit reconstruction/workflows/task_library_load/osmo/load.yaml \
+  --set dataset=<dataset> --pool <pool>
+```
+
+**(b) Retarget+** — once `{dataset}_loaded` exists, run the RG workflow, which
+consumes it and runs `process + reconstruct` across all sequences:
 
 ```bash
 python scripts/run_osmo.py \
@@ -482,9 +514,7 @@ python scripts/run_osmo.py \
   --pool groot-l40-01
 ```
 
-This builds + pushes a new image (with all local loader fixes) and submits
-a workflow that runs `load + process + reconstruct` across all sequences.
-Build+push takes ~15 min before the workflow starts running.
+Each step builds + pushes its own image (~15 min) before the workflow runs.
 
 Monitor:
 ```bash

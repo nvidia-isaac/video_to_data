@@ -24,7 +24,6 @@ from robotic_grounding.retarget.hand_kinematics import (
     HandKinematics,
     SharpaHandKinematics,
 )
-from robotic_grounding.retarget.params import MANO_FINGERTIP_INDICES
 
 # Default partition columns when saving to Parquet (shared across datasets)
 DEFAULT_PARTITION_COLS = ["sequence_id", "robot_name"]
@@ -161,34 +160,6 @@ def run_frame_ik(
     left_qpos = left_results["q"]
 
     return right_qpos, left_qpos, right_results, left_results
-
-
-def compute_tip_to_object_surface_distance(
-    mano_joints: torch.Tensor,
-    object_surface_points_world: torch.Tensor,
-) -> Optional[list[list[float]]]:
-    """Compute MANO fingertip-to-surface distances for one hand.
-
-    Object surface points are assumed to be in world frame.
-
-    Args:
-        mano_joints: MANO joints (21, 3) on same device as object_surface_points_world.
-        object_surface_points_world: Object surface points in world frame (V, 3).
-
-    Returns:
-        List of 5 lists (one per fingertip) of float distances, or None if
-        computation is not possible.
-    """
-    fingertips = mano_joints[MANO_FINGERTIP_INDICES]
-
-    dists = torch.cdist(
-        fingertips.unsqueeze(0), object_surface_points_world.unsqueeze(0)
-    ).squeeze(0)
-
-    # Get minimum distance from each fingertip to surface
-    min_dists = dists.amin(dim=-1)  # (5,)
-
-    return min_dists.cpu().tolist()
 
 
 def wrist_pose_from_mano_joint0(

@@ -8,11 +8,12 @@
 
 """Retarget ARCTIC loaded data (ManoSharpaData with MANO+object only) to Dex3.
 
-Reads Parquet from arctic_loader.py output (human_motion_data/arctic/arctic_loaded),
+Reads the arctic_loaded Parquet (ManoSharpaData; produced upstream by
+reconstruction's v2d_task_library_loader load workflow),
 runs IK per frame to fill robot_* fields, and saves to arctic_processed (robot_name=dex3).
 
 Usage:
-  1. python scripts/retarget/arctic_loader.py --save
+  1. (upstream) reconstruction load workflow writes arctic_loaded Parquet
   2. python scripts/retarget/arctic_to_dex3.py --save
 """
 
@@ -25,7 +26,6 @@ import numpy as np
 import torch
 import trimesh
 import viser
-from arctic_loader import ARCTIC_MANO_KWARGS
 from robotic_grounding.retarget import HUMAN_MOTION_DATA_DIR, MESHES_DIR
 from robotic_grounding.retarget.data_logger import (
     ManoDex3Data,
@@ -34,7 +34,6 @@ from robotic_grounding.retarget.data_logger import (
     filter_sequence_ids,
     list_sequence_ids,
 )
-from robotic_grounding.retarget.read_mano import MANO
 from robotic_grounding.retarget.retarget_utils import (
     DEFAULT_PARTITION_COLS,
     run_frame_ik,
@@ -151,26 +150,6 @@ def main(args: argparse.Namespace) -> None:
                 mesh_dir=args.mesh_dir,
             )
 
-            mano_kwargs = ARCTIC_MANO_KWARGS
-            mano = MANO(gender="neutral", device=device, **mano_kwargs)
-            mano_results: dict[str, Any] = {}
-            for side in ("right", "left"):
-                mano_results[side] = mano.forward(
-                    side=side,
-                    global_orient=torch.tensor(
-                        getattr(data, f"mano_{side}_global_orient"), device=device
-                    ),
-                    finger_pose=torch.tensor(
-                        getattr(data, f"mano_{side}_finger_pose"), device=device
-                    ),
-                    transl=torch.tensor(
-                        getattr(data, f"mano_{side}_trans"), device=device
-                    ),
-                    betas=torch.tensor(
-                        getattr(data, f"mano_{side}_betas"), device=device
-                    ),
-                )
-
         # Run IK for each frame and collect robot_* time series
         robot_right_wrist_position = []
         robot_right_wrist_wxyz = []
@@ -236,15 +215,6 @@ def main(args: argparse.Namespace) -> None:
             )
 
             if args.visualize:
-                for side in ("right", "left"):
-                    mano.visualize(
-                        viser_server,
-                        side,
-                        vertices=mano_results[side]["vertices"][t],
-                        faces=mano_results[side]["faces"],
-                        joints=mano_results[side]["joints"][t],
-                        joints_wxyz=mano_results[side]["joints_wxyz"][t],
-                    )
                 right_dex3_kinematics.visualize(viser_server, right_qpos)
                 left_dex3_kinematics.visualize(viser_server, left_qpos)
                 for obj_idx, obj_name in enumerate(data.object_body_names):

@@ -44,18 +44,32 @@ RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
     scipy \
     scikit-learn
 
-# Install chumpy and manotorch (using --no-build-isolation to avoid pip module issues in old setup.py)
-RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir --no-build-isolation \
-    git+https://github.com/mattloper/chumpy.git \
-    git+https://github.com/lixiny/manotorch.git
+# GPL hand-model deps (chumpy + MANO layers) removed — the Stage-1 dataset load
+# (raw -> loaded Parquet via hand FK) moved to reconstruction's
+# v2d_task_library_loader. robotic_grounding consumes the loaded Parquet only.
 
 # Install Retargeting dependencies
 # (usd-core omitted — no aarch64 wheel; base image ships nvidia-srl-usd 2.0.0 which provides pxr)
+# Pin the full pinocchio native closure — see workflow/Dockerfile for why
+# (unpinned cmeel-* drift the soversions pinocchio links against; use coal not
+# hpp-fcl to avoid the cmeel-boost resolve conflict).
 RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
     mujoco \
     judo-rai>=0.0.5 \
-    "pin-pink>=4.0.0" \
     pin==3.7.0 \
+    pin-pink==4.2.0 \
+    coal==3.0.1 \
+    eigenpy==3.10.3 \
+    cmeel==0.57.3 \
+    cmeel-boost==1.87.0.1 \
+    cmeel-urdfdom==4.0.1 \
+    cmeel-console-bridge==1.0.2.3 \
+    cmeel-tinyxml2==10.0.0 \
+    cmeel-tinyxml==2.6.2.3 \
+    cmeel-assimp==5.4.3.1 \
+    cmeel-octomap==1.10.0 \
+    cmeel-qhull==8.0.2.1 \
+    cmeel-zlib==1.3.1 \
     deprecation
 
 # Install QPSolvers

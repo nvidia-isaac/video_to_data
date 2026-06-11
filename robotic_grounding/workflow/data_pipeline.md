@@ -18,8 +18,8 @@ Two parquet formats are in use today:
 ```
 Raw Data on CSS (pkl/jsonl/csv/npy/...)
     |
-    v  Stage 1: Load
-ManoSharpaData Parquet (MANO hands + object poses)
+    v  Stage 1: Load  (reconstruction v2d_{dataset}_load workflow; GPL MANO FK)
+ManoSharpaData Parquet (MANO hands + object poses)  -->  {dataset}_loaded/ swift prefix
     |
     |-- Stage 1.5: Generate URDFs         --> {dataset}_urdfs/*.urdf
     |
@@ -30,23 +30,36 @@ ManoSharpaData Parquet (+ robot joint trajectories)
     |-- Stage 4: Visualize (optional)     --> {dataset}_html/recordings/{seq}.viser (+ .mp4)
     |-- Stage 5: Record video (optional)  --> {dataset}_videos/{seq}.mp4 (Isaac Sim)
     |
-    v  (All stages' outputs published as one OSMO dataset version)
-v2d_{dataset}_retarget_exp_200:<version>
+    v  (All stages' outputs written to the swift output_url prefix)
+swift://…/human_motion_data/{dataset}/{dataset}_processed/ (+ _urdfs, reconstructed_stage, _html, _videos)
     |
-    v  Stage 6: osmo dataset download
+    v  Stage 6: sync_css_data.py / aws s3 sync
 Local assets/human_motion_data/{dataset}/
     |
     v  Stage 7: RL Training (Isaac Sim)
 Trained policy checkpoint
 ```
 
-Stages 1–5 are the OSMO `retarget.yaml` workflow; any subset can run via `--set stages=<stage>`. All artifacts from one run are published as a single versioned OSMO dataset (see [data_storage.md](data_storage.md)).
+Stage 1 (Load) runs as a **separate workflow in the `reconstruction` repo**
+(`v2d_{dataset}_load`): it carries the GPL-3.0 MANO/manotorch forward-kinematics
+code, contained in its own image, and writes a `{dataset}_loaded` Parquet to a
+swift prefix. Stages 1.5–5 are the robotic_grounding `retarget.yaml` workflow,
+which **consumes** that `{dataset}_loaded` data (it is manotorch-free); any
+subset can run via `--set stages=<stage>`. All `retarget.yaml` artifacts from one
+run are written to the swift `output_url` prefix (see [data_storage.md](data_storage.md)).
 
 ## Stage 1: Load
 
 **Purpose:** Parse raw dataset files into a standardized Parquet schema.
 
-**Script:** `scripts/retarget/{dataset}_loader.py` (dispatched via `scripts/retarget/run_loader.py`)
+> **Home:** Stage 1 lives in the **`reconstruction`** repo, not here. It uses
+> MANO forward kinematics (manotorch, GPL-3.0), so it is contained in the
+> `v2d_task_library_loader` image and run as the `v2d_{dataset}_load` OSMO
+> workflow. robotic_grounding consumes the resulting `{dataset}_loaded` dataset
+> and never imports manotorch. The description below documents the contract.
+
+**Module:** `reconstruction/modules/v2d_task_library_loader/lib/{dataset}_loader.py`
+(dispatched via `lib/run_loader.py`, i.e. `python -m v2d.task_library_loader.lib.run_loader`)
 
 Each dataset stores motion data differently (pickles, JSONL, CSV, NPY). The
 loader reads the raw format and writes a `ManoSharpaData` Parquet containing:
@@ -68,13 +81,15 @@ The loader also handles dataset-specific preprocessing:
 **Output:** `human_motion_data/{dataset}/{dataset}_loaded/` partitioned by
 `sequence_id` and `robot_name`.
 
-**Command:**
+**Command** (run from the `reconstruction` repo / loader image, not here):
 ```bash
-python scripts/retarget/run_loader.py \
+python -m v2d.task_library_loader.lib.run_loader \
   --dataset <name> \
+  --dataset_root <raw_dataset_dir> \
   --output_dir <path> \
   --device cuda:0 --save
 ```
+or submit `reconstruction/workflows/task_library_load/osmo/load.yaml` on OSMO.
 
 ## Stage 1.5: Generate Rigid URDFs
 
@@ -171,7 +186,7 @@ Pyrender MP4s are skipped for OakInk2 (120 FPS × long sequences OOMs the
 pod); Stage 5 already produces Isaac Sim MP4s for those.
 
 **Output:** `{dataset}_html/recordings/{seq}.viser` (+ `.mp4` where not
-skipped) in the OSMO dataset.
+skipped) under the swift output prefix.
 
 ## Stage 5: Record Isaac Sim Video (optional)
 
@@ -190,27 +205,30 @@ motion, and saves the MP4. Runs sequentially on one GPU — parallel Isaac
 Sim startup contention (shader cache, EGL drivers, VRAM) made the sharded
 version strictly slower in practice.
 
-**Output:** `{dataset}_videos/{sequence_id}.mp4` in the OSMO dataset.
+**Output:** `{dataset}_videos/{sequence_id}.mp4` under the swift output prefix.
 
 ## Stage 6: Sync Results Locally
 
-**Purpose:** Pull the published OSMO dataset to the local repo so training
-and local visualization scripts can read it.
+**Purpose:** Pull the workflow's swift outputs to the local repo so training
+and local visualization scripts can read them.
 
-**Command:** `osmo dataset download` — full details, component-filter
-examples, and the legacy CSS-swift fallback are in
+**Command:** `sync_css_data.py` / `aws s3 sync` — full details and
+component-filter examples are in
 [data_storage.md](data_storage.md#pulling-retarget-outputs-locally).
 
 Quick version:
 
 ```bash
-# Pick a published version
-osmo dataset info v2d_<dataset>_retarget_exp_200 --order desc
+source scripts/setup_css_env.sh
 
-# Pull just the pieces training needs
-osmo dataset download v2d_<dataset>_retarget_exp_200:<version> \
-  source/robotic_grounding/robotic_grounding/assets/human_motion_data/<dataset>/ \
-  --regex '(<dataset>_processed|<dataset>_urdfs|reconstructed_stage)/.*'
+# Pull the pieces training needs (processed / loaded / support_surfaces)
+python scripts/sync_css_data.py --dataset <dataset> --component processed
+
+# Other components (urdfs/html/videos) via the aws CLI against the CSS endpoint
+aws s3 sync \
+  s3://datasets/v2d/human_motion_data/<dataset>/<dataset>_urdfs/ \
+  source/robotic_grounding/robotic_grounding/assets/human_motion_data/<dataset>/<dataset>_urdfs/ \
+  --endpoint-url ${CSS_ENDPOINT_URL} --region us-east-1
 ```
 
 ## Stage 7: RL Training
@@ -273,7 +291,7 @@ python scripts/rsl_rl/train.py \
 
 ## OSMO Workflow
 
-Stages 1 through 5 are submitted as a single OSMO workflow (`workflow/retarget.yaml`) running on the GPU cluster. All artifacts from one run are snapshotted into a new version of the `v2d_{dataset}_retarget_exp_200` OSMO dataset. See [README.md](README.md) for submission options and [data_storage.md](data_storage.md) for the output layout; `/osmo-retarget` skill covers usage patterns.
+Stages 1.5 through 5 are submitted as a single OSMO workflow (`workflow/retarget.yaml`) running on the GPU cluster (Stage 1 Load runs separately in `reconstruction`). All artifacts from one run are written to the swift `output_url` prefix (`…/human_motion_data/{dataset}/`). See [README.md](README.md) for submission options and [data_storage.md](data_storage.md) for the output layout; `/osmo-retarget` skill covers usage patterns.
 
 ```bash
 python scripts/run_osmo.py \
@@ -295,7 +313,7 @@ Candidates considered for Robot Grounding Task Library. Source:
 
 ### In the pipeline
 
-Outputs live under `v2d_<name>_retarget_exp_200` OSMO datasets.
+Outputs live under the swift `…/human_motion_data/<name>/` prefix.
 
 | Dataset | Sequences | GT Fidelity | Hands | Notes |
 |---------|-----------|-------------|-------|-------|
@@ -335,10 +353,12 @@ ground truth, so they can't flow through the retarget pipeline as-is.
 See the `/add-dataset` skill or run through these steps:
 
 1. Add a `DatasetConfig` entry in `source/robotic_grounding/robotic_grounding/retarget/dataset_registry.py`.
-2. Write a loader script at `scripts/retarget/<name>_loader.py`.
-3. Write a retarget script at `scripts/retarget/<name>_to_sharpa.py`.
+2. Write a **loader** in the `reconstruction` repo at
+   `reconstruction/modules/v2d_task_library_loader/lib/<name>_loader.py` (this is
+   the GPL/MANO stage) and register it in `lib/loader_registry.py`.
+3. Write a **retarget** script here at `scripts/retarget/<name>_to_sharpa.py`.
 
-Everything else (workflow dispatch, OSMO dataset publish, URDF generation,
+Everything else (workflow dispatch, swift output publish, URDF generation,
 training validation) is driven by the dataset registry automatically.
 
 ## Validating Before Training
@@ -364,11 +384,11 @@ This bakes ~2.7 GB of meshes into every Docker image. Progress so far:
 
 - [x] **URDFs published with retarget outputs** — the `process` stage
   generates URDFs into `assets/urdfs/{dataset}/` and the workflow copies
-  them to `{dataset}_urdfs/` inside the OSMO dataset version, so every
-  versioned run carries a regenerated URDF tree.
+  them to `{dataset}_urdfs/` under the swift output prefix, so every
+  run carries a regenerated URDF tree.
 - [ ] **Local sync for URDFs** — `scripts/sync_css_data.py` still only
-  knows about `loaded`/`processed`/`support_surfaces`; `osmo dataset
-  download --regex '{dataset}_urdfs/.*'` is the current workaround. Adding
+  knows about `loaded`/`processed`/`support_surfaces`; `aws s3 sync` of the
+  `{dataset}_urdfs/` prefix is the current workaround. Adding
   `--component urdfs` to `sync_css_data.py` would close the gap for anyone
   still pulling from CSS.
 - [ ] **Read-time fallback** — update `SceneConfig` path resolution to

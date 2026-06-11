@@ -14,20 +14,24 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# Retarget pipeline: raw data -> loaded Parquet -> retargeted Parquet -> support surfaces.
+# Retarget pipeline: loaded Parquet -> retargeted Parquet -> support surfaces.
+#
+# The LOAD stage (raw dataset -> {dataset}_loaded Parquet via MANO FK) runs
+# SEPARATELY in the reconstruction `v2d_task_library_loader` load workflow
+# (manotorch/GPL-3.0, contained there); this workflow consumes its
+# `{dataset}_loaded` output. See the MANO migration plan.
 #
 # Controls which stages run via the `stages` parameter:
 #   all         - run every stage below (default)
-#   load        - raw dataset -> Parquet (MANO + object only)
 #   process     - loaded Parquet -> retargeted Parquet (IK) + rigid URDFs
 #   reconstruct - loaded Parquet -> support surface USD
-#   visualize   - retargeted Parquet -> offline Viser + MANO-only MP4s (pyrender)
+#   visualize   - retargeted Parquet -> offline Viser + robot-hand MP4s (pyrender)
 #   video       - retargeted Parquet -> Isaac Lab MP4s with robot hands (dummy_agent)
 #
 # HOT3D-only behavior:
-#   Stage 1.6 (right after load) splits ~90-second HOT3D sequences into
-#   atomic hand-object interaction clips. All subsequent stages (URDFs,
-#   retarget, visualize, video, quality filter) then operate on segments.
+#   Stage 1.6 (before retarget, on the loaded Parquet) splits ~90-second HOT3D
+#   sequences into atomic hand-object interaction clips. All subsequent stages
+#   (URDFs, retarget, visualize, video, quality filter) then operate on segments.
 #   Penetration filtering happens transparently in Stage 6 via the auto-
 #   discovered hand_penetration data_quality_check.
 #
@@ -37,9 +41,7 @@
 #     --image nvcr.io/nvstaging/isaac-amr/robotic-grounding:datasets \
 #     --workflow-yaml workflow/retarget.yaml --set dataset=taco
 #
-#   # Load only
-#   python scripts/run_osmo.py --experiment-name retarget-taco-load \
-#     --workflow-yaml workflow/retarget.yaml --set dataset=taco --set stages=load
+#   # (Load runs separately — see reconstruction/workflows/task_library_load/.)
 #
 #   # Process only (IK retargeting)
 #   python scripts/run_osmo.py --experiment-name retarget-taco-process \
@@ -70,21 +72,23 @@ workflow:
     environment:
       ACCEPT_EULA: Y
     inputs:
-    # Only pull the raw dataset; prior-run outputs at sibling prefixes
-    # ({{dataset}}_loaded/, {{dataset}}_processed/, ...) are re-generated
-    # each run and would otherwise be redundantly downloaded.  Fine-grained
-    # sequence filtering happens in the Python scripts via FILTER_ARGS
-    # below, not at the swift download layer.
+    # Consume the {{dataset}}_loaded Parquet produced by the reconstruction
+    # `v2d_task_library_loader` load workflow (raw -> MANO FK -> loaded). The raw
+    # dataset is no longer pulled here — every stage below reads the loaded /
+    # processed Parquet (Stage 1.5 reads baked object meshes). Fine-grained
+    # sequence filtering happens in the Python scripts via FILTER_ARGS below.
     - url: {{input_url}}
-      regex: dataset/.*
+      regex: {{dataset}}_loaded/.*
     outputs:
-    # Snapshot the whole {{output}} folder as a versioned OSMO dataset so
-    # every run is rollback-able by version.  Using an `_exp_200` suffix
-    # during small-sample experiments keeps the production
-    # `v2d_{{dataset}}_retarget` history clean — flip back when running the
-    # full dataset.
-    - dataset:
-        name: v2d_{{dataset}}_retarget_exp_full{{dataset_suffix}}
+    # Publish the whole {{output}} folder to a swift prefix, mirroring the
+    # reconstruction load workflow's url-based output. (Previously a versioned
+    # OSMO `dataset:`, but the isaac dataset bucket is read-only; swift writes
+    # via the team AUTH path still work.) The stage scripts write
+    # {{dataset}}_processed / {{dataset}}_urdfs / reconstructed_stage / … under
+    # {{output}}, which land beside the loaded data at output_url. For
+    # experiments, override output_url to a scratch prefix so you don't
+    # overwrite the canonical {{dataset}}_processed.
+    - url: {{output_url}}
     files:
     - path: /tmp/entry.sh
       contents: |-
@@ -133,26 +137,11 @@ workflow:
           return $ec
         }
 
-        # Stage 1: Load raw data -> Parquet (sharded)
-        if [ "${STAGES}" = "all" ] || [ "${STAGES}" = "load" ]; then
-          echo "=== Stage 1: Loading {{dataset}} (${SHARDS} shards) ==="
-          PIDS=()
-          for i in $(seq 0 $((SHARDS-1))); do
-            (
-              export CUDA_VISIBLE_DEVICES=$i
-              eval python scripts/retarget/run_loader.py \
-                --dataset {{dataset}} \
-                --output_dir ${LOADED_DIR} \
-                --device cuda:0 \
-                --save ${FILTER_ARGS} \
-                --shard_id $i --num_shards ${SHARDS}
-            ) &
-            PIDS+=($!)
-          done
-          wait_shards "${PIDS[@]}"
-          echo "=== Copying loaded data to output ==="
-          cp -r ${LOADED_DIR} ${OUTPUT}/{{dataset}}_loaded
-        fi
+        # Stage 1 (load: raw dataset -> {{dataset}}_loaded Parquet via MANO FK) now
+        # runs in the reconstruction `v2d_task_library_loader` load workflow.
+        # This workflow CONSUMES its output:
+        # ${LOADED_DIR} is populated from the {{dataset}}_loaded/ input (see
+        # `inputs:` above), not generated here.
 
         # Stage 1.6 (HOT3D only): segment long loaded sequences into atomic
         # hand-object interaction clips bounded by contact events. The
@@ -164,7 +153,7 @@ workflow:
         # transparently in Stage 6 — ``hand_penetration.py`` is auto-discovered
         # by ``data_assessor.py`` and wraps ``filter_penetrations.py``.
         if [ "{{dataset}}" = "hot3d" ] && \
-           { [ "${STAGES}" = "all" ] || [ "${STAGES}" = "load" ]; }; then
+           { [ "${STAGES}" = "all" ] || [ "${STAGES}" = "process" ]; }; then
           echo "=== Stage 1.6: HOT3D segmentation ==="
           SEGMENTED_LOADED_DIR=${LOADED_DIR}_segmented
           rm -rf "${SEGMENTED_LOADED_DIR}"
@@ -417,10 +406,10 @@ default-values:
   sequence_pattern: ".*"
   sequence_id: ""
   max_sequences: ""
-  # Optional suffix appended to the OSMO dataset name. Default empty → publishes
-  # to v2d_{dataset}_retarget_exp_full (production). For experiments / smoke
-  # tests, pass --set dataset_suffix=_test_new (or similar) so the run lands in
-  # a separate dataset and doesn't bloat the production version history.
+  # Deprecated/unused: output is now a swift `url:` (see outputs above), not a
+  # versioned OSMO dataset, so this suffix no longer affects anything. Kept so
+  # existing `--set dataset_suffix=...` callers don't error. For experiment
+  # isolation, override output_url to a scratch prefix instead.
   dataset_suffix: ""
   # Sharding: each stage fans out into SHARDS parallel processes, each pinned
   # to CUDA_VISIBLE_DEVICES=<shard_id>.  Defaults to 8 to match the
