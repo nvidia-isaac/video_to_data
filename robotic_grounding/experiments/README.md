@@ -16,7 +16,6 @@ python robotic_grounding/experiments/run_experiment.py example_single --osmo
 | Path | Purpose |
 |------|---------|
 | `run_experiment.py` | Main entry point for local training and OSMO submission. |
-| `launch_stage2.py` | Helper for stage-2 jobs that fetch stage-1 checkpoints from W&B. No stage-2 example config is committed on this branch. |
 | `utils.py` | Shared command and workflow-generation helpers. |
 | `registry.yaml` | Committed experiment id to directory mapping. |
 | `example_single_run/config.yaml` | Minimal single-sequence smoke example. |
@@ -35,8 +34,7 @@ python robotic_grounding/experiments/run_experiment.py example_single --osmo
 | `recon_body_corn_can_right_left_handover_01` | `recon_body_corn_can_right_left_handover_01` |
 | `recon_body_snack_box_pick_and_place_01` | `recon_body_snack_box_pick_and_place_01` |
 
-The old committed multi-sequence, sweep, stage-1, stage-2, and two-stage example
-directories are intentionally not present on this branch.
+The old committed multi-run example directories are intentionally not present on this branch.
 
 ## Adding Local Experiments
 
