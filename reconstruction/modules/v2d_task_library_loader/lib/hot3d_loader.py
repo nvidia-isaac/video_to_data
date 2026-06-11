@@ -54,7 +54,6 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, module="mano")
 
 from manotorch.manolayer import ManoLayer  # noqa: E402
 from robotic_grounding.retarget import (  # noqa: E402
-    BODY_MODELS_DIR,
     HUMAN_MOTION_DATA_DIR,
     MESHES_DIR,
 )
@@ -316,10 +315,34 @@ class Hot3DDatasetLoader(DatasetLoaderBase):
     """Hot3D dataset loader."""
 
     def __init__(self) -> None:
-        """Initialize MANO layers and PCA component caches for both hands."""
+        """Initialize caches; MANO layers are built lazily from --mano_model_dir."""
         super().__init__()
-        mano_assets_root = str(BODY_MODELS_DIR / "mano")
-        # Store layers (not just components) so we can compute J_shaped[0] for Quest3.
+        # The PCA MANO layers need the assets dir from --mano_model_dir, which is
+        # only available once run() sets self._args. Build them lazily on first
+        # use (see _ensure_mano_layers) instead of hardcoding a baked-in path —
+        # the OSMO load fetches MANO from swift at runtime.
+        self._right_mano_layer: ManoLayer | None = None
+        self._left_mano_layer: ManoLayer | None = None
+        self._right_components: np.ndarray | None = None
+        self._left_components: np.ndarray | None = None
+        self._valid_frame_ids_cache: dict[str, list[int]] = {}
+        self._scene_offset_cache: dict[str, np.ndarray] = {}
+        self._r_total_cache: dict[str, np.ndarray] = (
+            {}
+        )  # combined coord+yaw rotation per sequence
+
+    def _ensure_mano_layers(self) -> None:
+        """Build the PCA MANO layers from --mano_model_dir (once).
+
+        Hot3D stores hand poses as 15-component PCA, so we need ManoLayer both
+        for the PCA component matrix (to expand to 45-DOF axis-angle) and for the
+        Quest3 J_shaped[0] zero-pose forward. The assets dir comes from
+        ``self._args.mano_model_dir`` (set by the base ``run()``), matching the
+        args-first contract the rest of the loaders use.
+        """
+        if self._right_mano_layer is not None:
+            return
+        mano_assets_root = str(self._args.mano_model_dir)
         self._right_mano_layer = ManoLayer(
             use_pca=True,
             ncomps=15,
@@ -340,11 +363,6 @@ class Hot3DDatasetLoader(DatasetLoaderBase):
         self._left_components = (
             self._left_mano_layer.th_selected_comps.detach().cpu().numpy()
         )
-        self._valid_frame_ids_cache: dict[str, list[int]] = {}
-        self._scene_offset_cache: dict[str, np.ndarray] = {}
-        self._r_total_cache: dict[str, np.ndarray] = (
-            {}
-        )  # combined coord+yaw rotation per sequence
 
     def list_sequences(self, args: Any) -> list[SequenceInfo]:
         """Discover all sequences in hot3d_dir (subdirectories with MANO JSONL)."""
@@ -397,6 +415,7 @@ class Hot3DDatasetLoader(DatasetLoaderBase):
         self, sequence_info: SequenceInfo, device: torch.device
     ) -> dict[str, Any]:
         """Load MANO parameters from Hot3D JSONL; expand PCA to 45-DOF."""
+        self._ensure_mano_layers()
         src: Hot3DSequenceSource = sequence_info.source
         mano_data = _load_mano_jsonl(src.seq_dir / "mano_hand_pose_trajectory.jsonl")
         obj_data_all = _load_object_csv(src.seq_dir / "dynamic_objects.csv")
