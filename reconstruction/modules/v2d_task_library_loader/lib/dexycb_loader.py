@@ -1,10 +1,5 @@
-# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
-#
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto. Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 
 """Load DexYCB dataset (NVLabs, CVPR 2021) into ManoSharpaData schema.
 
@@ -75,11 +70,10 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, module="mano")
 from manotorch.manolayer import ManoLayer  # noqa: E402
 from robotic_grounding.retarget import (  # noqa: E402
     ASSETS_DIR,
-    BODY_MODELS_DIR,
     HUMAN_MOTION_DATA_DIR,
     MESHES_DIR,
 )
-from robotic_grounding.retarget.dataset_loader_base import (  # noqa: E402
+from v2d.task_library_loader.lib.dataset_loader_base import (  # noqa: E402
     DatasetLoaderBase,
     SequenceInfo,
     load_meshes_to_device,
@@ -92,6 +86,8 @@ logging.getLogger().setLevel(logging.ERROR)
 # Constants
 # ---------------------------------------------------------------------------
 DEFAULT_DEXYCB_DIR = HUMAN_MOTION_DATA_DIR / "dexycb" / "dataset"
+DEXYCB_URDF_DIR = ASSETS_DIR / "urdfs" / "dexycb"
+DEXYCB_MESH_DIR = MESHES_DIR / "dexycb"
 LOADED_SAVE_DIR = HUMAN_MOTION_DATA_DIR / "dexycb" / "dexycb_loaded"
 DEXYCB_FPS = 30.0
 
@@ -410,12 +406,19 @@ class DexYCBDatasetLoader(DatasetLoaderBase):
     """Load DexYCB sequences into ManoSharpaData (MANO + object only)."""
 
     def __init__(self) -> None:
-        """Pre-build right/left ManoLayers so FK is ready before list_sequences."""
+        """Defer ManoLayer build until args (mano_model_dir) are known."""
         self._args: argparse.Namespace | None = None
         # Per-sequence camera-to-world extrinsic cache, shared between
         # load_mano_data and load_object_data so the yml is read once.
         self._cam_to_world_cache: dict[str, np.ndarray] = {}
-        mano_assets_root = str(BODY_MODELS_DIR / "mano")
+        self._right_layer: ManoLayer | None = None
+        self._left_layer: ManoLayer | None = None
+
+    def _ensure_mano_layers(self) -> None:
+        """Lazily build right/left PCA ManoLayers from --mano_model_dir."""
+        if self._right_layer is not None and self._left_layer is not None:
+            return
+        mano_assets_root = str(getattr(self._args, "mano_model_dir", None))
         self._right_layer = ManoLayer(
             use_pca=True,
             ncomps=45,
@@ -449,7 +452,7 @@ class DexYCBDatasetLoader(DatasetLoaderBase):
     def list_sequences(self, args: Any) -> list[SequenceInfo]:
         """Discover DexYCB sequences (one per session for the chosen camera)."""
         self._args = args
-        dexycb_dir = Path(getattr(args, "dexycb_dir", DEFAULT_DEXYCB_DIR))
+        dexycb_dir = Path(getattr(args, "dataset_root", DEFAULT_DEXYCB_DIR))
         serial = getattr(args, "camera_serial", DEFAULT_CAMERA_SERIAL)
 
         if not dexycb_dir.exists():
@@ -526,8 +529,9 @@ class DexYCBDatasetLoader(DatasetLoaderBase):
         self, sequence_info: SequenceInfo, device: torch.device
     ) -> dict[str, Any]:
         """Parse pose_m from every labels_*.npz frame in the sequence."""
+        self._ensure_mano_layers()
         src: DexYCBSequenceSource = sequence_info.source
-        dexycb_dir = Path(getattr(self._args, "dexycb_dir", DEFAULT_DEXYCB_DIR))
+        dexycb_dir = Path(getattr(self._args, "dataset_root", DEFAULT_DEXYCB_DIR))
         frame_ids = _collect_frame_ids(src.camera_dir)
         if not frame_ids:
             raise FileNotFoundError(f"No labels_*.npz in {src.camera_dir}")
@@ -697,7 +701,7 @@ class DexYCBDatasetLoader(DatasetLoaderBase):
             # the ``z_lift`` applied in ``load_mano_data``, which depends on
             # hand trans and is only computed when MANO data is loaded
             # first.  Intended as a safety net, not the common path.
-            dexycb_dir = Path(getattr(self._args, "dexycb_dir", DEFAULT_DEXYCB_DIR))
+            dexycb_dir = Path(getattr(self._args, "dataset_root", DEFAULT_DEXYCB_DIR))
             c2w = _load_cam_to_world(
                 dexycb_dir, src.extrinsics_id, src.camera_serial, src.camera_dir
             )
@@ -742,12 +746,12 @@ class DexYCBDatasetLoader(DatasetLoaderBase):
         """Load the YCB textured meshes for each object in the scene.
 
         Searches in order:
-        1. ``assets/meshes/dexycb/{name}/textured_simple.obj`` (committed copy)
-        2. ``{dexycb_dir}/models/{name}/textured_simple.obj`` (canonical)
+        1. ``{mesh_dir}/{name}/textured_simple.obj`` (committed copy)
+        2. ``{dataset_root}/models/{name}/textured_simple.obj`` (canonical)
         """
         src: DexYCBSequenceSource = sequence_info.source
-        dexycb_dir = Path(getattr(self._args, "dexycb_dir", DEFAULT_DEXYCB_DIR))
-        canonical_dir = MESHES_DIR / "dexycb"
+        dexycb_dir = Path(getattr(self._args, "dataset_root", DEFAULT_DEXYCB_DIR))
+        canonical_dir = Path(getattr(self._args, "mesh_dir", DEXYCB_MESH_DIR))
         models_dir = dexycb_dir / "models"
 
         mesh_paths: dict[str, str] = {}
@@ -800,22 +804,22 @@ class DexYCBDatasetLoader(DatasetLoaderBase):
     def get_object_mesh_paths(self, sequence_info: SequenceInfo) -> list[str]:
         """Return per-object mesh paths for a sequence, preferring committed copies."""
         src: DexYCBSequenceSource = sequence_info.source
-        mesh_dir = MESHES_DIR / "dexycb"
+        mesh_dir = Path(getattr(self._args, "mesh_dir", DEXYCB_MESH_DIR))
         paths: list[str] = []
         for name in src.ycb_names:
             preferred = mesh_dir / name / "textured_simple.obj"
             if preferred.exists():
                 paths.append(str(preferred))
                 continue
-            dexycb_dir = Path(getattr(self._args, "dexycb_dir", DEFAULT_DEXYCB_DIR))
+            dexycb_dir = Path(getattr(self._args, "dataset_root", DEFAULT_DEXYCB_DIR))
             fallback = dexycb_dir / "models" / name / "textured_simple.obj"
             paths.append(str(fallback))
         return paths
 
     def get_object_urdf_paths(self, sequence_info: SequenceInfo) -> list[str]:
-        """Return per-object URDF paths under ``assets/urdfs/dexycb/``."""
+        """Return per-object URDF paths under ``--object_model_root``."""
         src: DexYCBSequenceSource = sequence_info.source
-        urdf_dir = ASSETS_DIR / "urdfs" / "dexycb"
+        urdf_dir = Path(getattr(self._args, "object_model_root", DEXYCB_URDF_DIR))
         return [
             str(urdf_dir / f"{make_usd_safe(name)}_rigid.urdf")
             for name in src.ycb_names
@@ -830,16 +834,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Load DexYCB sequences into ManoSharpaData schema."
     )
-    parser.add_argument(
-        "--dexycb_dir",
-        type=Path,
-        default=DEFAULT_DEXYCB_DIR,
-        help="Root directory of the extracted DexYCB dataset (parent of subjects + calibration + models).",
-    )
-    parser.add_argument(
-        "--output_dir",
-        type=Path,
-        default=LOADED_SAVE_DIR,
+    DatasetLoaderBase.add_common_args(
+        parser,
+        dataset_root=DEFAULT_DEXYCB_DIR,
+        object_model_root=DEXYCB_URDF_DIR,
+        mesh_dir=DEXYCB_MESH_DIR,
+        output_dir=LOADED_SAVE_DIR,
     )
     parser.add_argument(
         "--camera_serial",
@@ -847,15 +847,11 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_CAMERA_SERIAL,
         help="Which of the 8 DexYCB camera serials to ingest (default: toolkit master).",
     )
-    parser.add_argument("--device", type=str, default="cuda:0")
-    parser.add_argument("--save", action="store_true")
-    parser.add_argument("--visualize", action="store_true", default=False)
     parser.add_argument(
         "--list_sequences",
         action="store_true",
         help="List sequences and exit.",
     )
-    DatasetLoaderBase.add_filter_args(parser)
     return parser.parse_args()
 
 

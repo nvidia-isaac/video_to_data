@@ -8,11 +8,12 @@
 
 """Retarget DexYCB loaded data (ManoSharpaData with MANO+object only) to Sharpa.
 
-Reads Parquet from dexycb_loader.py output (human_motion_data/dexycb_loaded),
+Reads the dexycb_loaded Parquet (ManoSharpaData; produced upstream by
+reconstruction's v2d_task_library_loader load workflow),
 runs IK per frame to fill robot_* fields, and saves to dexycb_processed.
 
 Usage:
-  1. python scripts/retarget/dexycb_loader.py --save
+  1. (upstream) reconstruction load workflow writes dexycb_loaded Parquet
   2. python scripts/retarget/dexycb_to_sharpa.py --save
 """
 

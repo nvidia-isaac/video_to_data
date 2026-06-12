@@ -1,29 +1,36 @@
-# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
-#
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto. Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+"""MANO model wrapper: forward kinematics + optional viser visualization.
+
+Ported from robotic_grounding's ``retarget/read_mano.py``. The only change vs.
+the original is that the MANO asset root is passed in (``mano_assets_root``)
+rather than read from a hardcoded ``BODY_MODELS_DIR`` — the caller supplies a
+directory holding the (separately-licensed) MANO ``.pkl`` models, matching the
+``v2d_hand_alignment`` / ``v2d_wilor`` convention. The MANO ``.pkl`` files are
+never vendored.
+
+``manotorch`` (GPL-3.0) is imported here and stays contained in this module's
+Docker image; it is never installed into the ``robotic_grounding`` image.
+
+Reference:
+https://github.com/lixiny/manotorch/blob/2f6a701e76ee544bbeac1d3e72c628061f585a6c/scripts/simple_app.py
+"""
 
 from typing import Any, Dict
 
 import numpy as np
 import torch
-from judo.visualizers.model import add_mesh
 from manotorch.axislayer import AxisLayerFK
 from manotorch.manolayer import ManoLayer
 
-from robotic_grounding.retarget import BODY_MODELS_DIR
+# Clean, manotorch-free helpers imported from robotic_grounding (installed as a
+# dependency; see the module Dockerfile). MANO_JOINTS_ORDER also defines the
+# parquet joint-column ordering — the producer/consumer contract.
 from robotic_grounding.retarget.params import (
     MANO_JOINTS_ORDER,
     TRANSFORMS_TO_JOINTS,
 )
 from robotic_grounding.retarget.utils import quat_from_matrix
-
-"""Reference:
-https://github.com/lixiny/manotorch/blob/2f6a701e76ee544bbeac1d3e72c628061f585a6c/scripts/simple_app.py
-"""
 
 
 class MANO:
@@ -31,6 +38,7 @@ class MANO:
 
     def __init__(
         self,
+        mano_assets_root: str,
         gender: str = "neutral",
         device: torch.device | None = None,
         flat_hand_mean: bool = True,
@@ -40,6 +48,9 @@ class MANO:
         Initialize the MANO model.
 
         Args:
+            mano_assets_root: directory containing the MANO models (a ``models/``
+                subdir with ``MANO_RIGHT.pkl`` / ``MANO_LEFT.pkl``), supplied at
+                runtime by the caller. Not vendored.
             gender: str, "neutral" or "male" or "female"
             device: torch.device | None, the device to use for the model
             flat_hand_mean: bool, whether to use the flat hand mean for MANO
@@ -47,7 +58,6 @@ class MANO:
                 If None, no joint centering is applied.
         """
         self.device = device if device is not None else torch.device("cpu")
-        mano_assets_root = str(BODY_MODELS_DIR / "mano")
 
         # Right hand
         self.right_mano_layer = ManoLayer(
@@ -74,7 +84,7 @@ class MANO:
         ).to(self.device)
         self.left_axis_layer = AxisLayerFK(
             side=self.left_mano_layer.side,
-            mano_assets_root=str(BODY_MODELS_DIR / "mano"),
+            mano_assets_root=mano_assets_root,
         ).to(self.device)
 
         # Faces
@@ -189,6 +199,9 @@ class MANO:
             joints: torch.Tensor | np.ndarray, (21, 3)
             joints_wxyz: torch.Tensor | np.ndarray, (21, 4)
         """
+        # Imported lazily so the FK path does not require the ``judo`` viz dep.
+        from judo.visualizers.model import add_mesh
+
         if vertices is not None and faces is not None:
             vertices = (
                 vertices.cpu().numpy()

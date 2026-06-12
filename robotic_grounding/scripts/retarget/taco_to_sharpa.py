@@ -8,11 +8,12 @@
 
 """Retarget TACO loaded data (ManoSharpaData with MANO+object only) to Sharpa.
 
-Reads Parquet from taco_loader.py output (human_motion_data/taco_loaded),
+Reads the taco_loaded Parquet (ManoSharpaData; produced upstream by
+reconstruction's v2d_task_library_loader load workflow),
 runs IK per frame to fill robot_* fields, and saves to taco_loaded/mano_object_robot_processed.
 
 Usage:
-  1. python scripts/retarget/taco_loader.py --save
+  1. (upstream) reconstruction load workflow writes taco_loaded Parquet
   2. python scripts/retarget/taco_to_sharpa.py --save
 """
 

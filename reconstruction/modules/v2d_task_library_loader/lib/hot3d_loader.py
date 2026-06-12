@@ -1,10 +1,5 @@
-# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
-#
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto. Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 
 """Load Hot3D dataset into ManoSharpaData schema (MANO + object only, no robot).
 
@@ -59,11 +54,10 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, module="mano")
 
 from manotorch.manolayer import ManoLayer  # noqa: E402
 from robotic_grounding.retarget import (  # noqa: E402
-    BODY_MODELS_DIR,
     HUMAN_MOTION_DATA_DIR,
     MESHES_DIR,
 )
-from robotic_grounding.retarget.dataset_loader_base import (  # noqa: E402
+from v2d.task_library_loader.lib.dataset_loader_base import (  # noqa: E402
     DatasetLoaderBase,
     SequenceInfo,
     load_meshes_to_device,
@@ -76,6 +70,8 @@ warnings.filterwarnings("ignore", category=UserWarning, module="manotorch")
 
 DEFAULT_HOT3D_DIR = HUMAN_MOTION_DATA_DIR / "hot3d" / "dataset"
 LOADED_SAVE_DIR = HUMAN_MOTION_DATA_DIR / "hot3d" / "hot3d_loaded"
+HOT3D_MESH_DIR = MESHES_DIR / "hot3d"
+HOT3D_URDF_DIR = MESHES_DIR.parent / "urdfs" / "hot3d"
 HOT3D_FPS = 30.0
 
 # Quest3 world frame is Y-UP; Aria world frame is Z-UP (our pipeline convention).
@@ -319,10 +315,34 @@ class Hot3DDatasetLoader(DatasetLoaderBase):
     """Hot3D dataset loader."""
 
     def __init__(self) -> None:
-        """Initialize MANO layers and PCA component caches for both hands."""
+        """Initialize caches; MANO layers are built lazily from --mano_model_dir."""
         super().__init__()
-        mano_assets_root = str(BODY_MODELS_DIR / "mano")
-        # Store layers (not just components) so we can compute J_shaped[0] for Quest3.
+        # The PCA MANO layers need the assets dir from --mano_model_dir, which is
+        # only available once run() sets self._args. Build them lazily on first
+        # use (see _ensure_mano_layers) instead of hardcoding a baked-in path —
+        # the OSMO load fetches MANO from swift at runtime.
+        self._right_mano_layer: ManoLayer | None = None
+        self._left_mano_layer: ManoLayer | None = None
+        self._right_components: np.ndarray | None = None
+        self._left_components: np.ndarray | None = None
+        self._valid_frame_ids_cache: dict[str, list[int]] = {}
+        self._scene_offset_cache: dict[str, np.ndarray] = {}
+        self._r_total_cache: dict[str, np.ndarray] = (
+            {}
+        )  # combined coord+yaw rotation per sequence
+
+    def _ensure_mano_layers(self) -> None:
+        """Build the PCA MANO layers from --mano_model_dir (once).
+
+        Hot3D stores hand poses as 15-component PCA, so we need ManoLayer both
+        for the PCA component matrix (to expand to 45-DOF axis-angle) and for the
+        Quest3 J_shaped[0] zero-pose forward. The assets dir comes from
+        ``self._args.mano_model_dir`` (set by the base ``run()``), matching the
+        args-first contract the rest of the loaders use.
+        """
+        if self._right_mano_layer is not None:
+            return
+        mano_assets_root = str(self._args.mano_model_dir)
         self._right_mano_layer = ManoLayer(
             use_pca=True,
             ncomps=15,
@@ -343,15 +363,10 @@ class Hot3DDatasetLoader(DatasetLoaderBase):
         self._left_components = (
             self._left_mano_layer.th_selected_comps.detach().cpu().numpy()
         )
-        self._valid_frame_ids_cache: dict[str, list[int]] = {}
-        self._scene_offset_cache: dict[str, np.ndarray] = {}
-        self._r_total_cache: dict[str, np.ndarray] = (
-            {}
-        )  # combined coord+yaw rotation per sequence
 
     def list_sequences(self, args: Any) -> list[SequenceInfo]:
         """Discover all sequences in hot3d_dir (subdirectories with MANO JSONL)."""
-        hot3d_dir = Path(args.hot3d_dir)
+        hot3d_dir = Path(args.dataset_root)
         seq_name_filter = getattr(args, "seq_name", None)
 
         seq_dirs = sorted(
@@ -400,6 +415,7 @@ class Hot3DDatasetLoader(DatasetLoaderBase):
         self, sequence_info: SequenceInfo, device: torch.device
     ) -> dict[str, Any]:
         """Load MANO parameters from Hot3D JSONL; expand PCA to 45-DOF."""
+        self._ensure_mano_layers()
         src: Hot3DSequenceSource = sequence_info.source
         mano_data = _load_mano_jsonl(src.seq_dir / "mano_hand_pose_trajectory.jsonl")
         obj_data_all = _load_object_csv(src.seq_dir / "dynamic_objects.csv")
@@ -630,7 +646,7 @@ class Hot3DDatasetLoader(DatasetLoaderBase):
     ]:
         """Load Hot3D object meshes from assets/meshes/hot3d/ directory (.glb, meters)."""
         src: Hot3DSequenceSource = sequence_info.source
-        assets_dir = MESHES_DIR / "hot3d"
+        assets_dir = Path(self._args.mesh_dir)
         mesh_paths: dict[str, str] = {}
         for uid in src.object_uids:
             glb_path = assets_dir / f"{uid}.glb"
@@ -657,7 +673,7 @@ class Hot3DDatasetLoader(DatasetLoaderBase):
     def get_object_mesh_paths(self, sequence_info: SequenceInfo) -> list[str]:
         """Return GLB mesh paths for all objects in the sequence."""
         src: Hot3DSequenceSource = sequence_info.source
-        assets_dir = MESHES_DIR / "hot3d"
+        assets_dir = Path(self._args.mesh_dir)
         return [str(assets_dir / f"{uid}.glb") for uid in src.object_uids]
 
     def get_object_urdf_paths(self, sequence_info: SequenceInfo) -> list[str]:
@@ -666,7 +682,7 @@ class Hot3DDatasetLoader(DatasetLoaderBase):
         URDFs are generated by scripts/generate_rigid_urdfs.py --dataset hot3d.
         """
         src: Hot3DSequenceSource = sequence_info.source
-        urdf_dir = MESHES_DIR.parent / "urdfs" / "hot3d"
+        urdf_dir = Path(self._args.object_model_root)
         return [str(urdf_dir / f"{uid}_rigid.urdf") for uid in src.object_uids]
 
 
@@ -680,22 +696,15 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Load Hot3D sequences into ManoSharpaData schema (MANO + object only)."
     )
-    parser.add_argument(
-        "--hot3d_dir",
-        type=Path,
-        default=DEFAULT_HOT3D_DIR,
-        help="Path to Hot3D dataset root (contains sequence folders and assets/).",
+    DatasetLoaderBase.add_common_args(
+        parser,
+        dataset_root=DEFAULT_HOT3D_DIR,
+        object_model_root=HOT3D_URDF_DIR,
+        mesh_dir=HOT3D_MESH_DIR,
+        output_dir=LOADED_SAVE_DIR,
     )
-    parser.add_argument("--device", type=str, default="cuda:0")
-    parser.add_argument("--visualize", action="store_true", default=False)
-    parser.add_argument("--save", action="store_true", default=False)
+    # Hot3D-specific extras.
     parser.add_argument("--mano_to_robot_scale", type=float, default=1.2)
-    parser.add_argument(
-        "--output_dir",
-        type=Path,
-        default=LOADED_SAVE_DIR,
-        help="Parent directory for Parquet output.",
-    )
     parser.add_argument(
         "--seq_name",
         type=str,
@@ -708,7 +717,6 @@ def parse_args() -> argparse.Namespace:
         default=False,
         help="List available sequences and exit.",
     )
-    DatasetLoaderBase.add_filter_args(parser)
     return parser.parse_args()
 
 
@@ -717,7 +725,7 @@ def main(args: argparse.Namespace) -> None:
     if args.list_sequences:
         loader = Hot3DDatasetLoader()
         sequences = loader.list_sequences(args)
-        print(f"Found {len(sequences)} sequences in {args.hot3d_dir}")
+        print(f"Found {len(sequences)} sequences in {args.dataset_root}")
         for i, s in enumerate(sequences, start=1):
             print(f"{i:3d}. {s.sequence_id}  objects={s.object_name}")
         return

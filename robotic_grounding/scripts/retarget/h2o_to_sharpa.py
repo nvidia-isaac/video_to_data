@@ -8,11 +8,12 @@
 
 """Retarget H2O loaded data (ManoSharpaData with MANO+object only) to Sharpa.
 
-Reads Parquet from h2o_loader.py output (human_motion_data/h2o_loaded),
+Reads the h2o_loaded Parquet (ManoSharpaData; produced upstream by
+reconstruction's v2d_task_library_loader load workflow),
 runs IK per frame to fill robot_* fields, and saves to h2o_processed.
 
 Usage:
-  1. python scripts/retarget/h2o_loader.py --save
+  1. (upstream) reconstruction load workflow writes h2o_loaded Parquet
   2. python scripts/retarget/h2o_to_sharpa.py --save
 """
 

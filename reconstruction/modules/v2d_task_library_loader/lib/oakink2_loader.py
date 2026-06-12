@@ -1,10 +1,5 @@
-# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
-#
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto. Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 
 """Load OakInk2 dataset into ManoSharpaData schema (MANO + object only, no robot).
 
@@ -35,7 +30,7 @@ from typing import Any
 import numpy as np
 import torch
 from robotic_grounding.retarget import ASSETS_DIR, HUMAN_MOTION_DATA_DIR
-from robotic_grounding.retarget.dataset_loader_base import (
+from v2d.task_library_loader.lib.dataset_loader_base import (
     DatasetLoaderBase,
     SequenceInfo,
     load_meshes_to_device,
@@ -151,18 +146,18 @@ def _extract_hand_from_entry(
     return global_orient, finger_pose, trans, betas
 
 
-def _resolve_mesh_path(object_id: str, use_object_raw: bool) -> Path:
+def _resolve_mesh_path(object_id: str, use_object_raw: bool, mesh_dir: Path) -> Path:
     """Resolve object mesh path; prefers object_repair, falls back to object_raw."""
     primary = "object_raw" if use_object_raw else "object_repair"
-    path = OAKINK2_MESH_DIR / primary / "align_ds" / object_id / "model.obj"
+    path = mesh_dir / primary / "align_ds" / object_id / "model.obj"
     if path.exists():
         return path
     fallback = "object_repair" if use_object_raw else "object_raw"
-    path2 = OAKINK2_MESH_DIR / fallback / "align_ds" / object_id / "model.obj"
+    path2 = mesh_dir / fallback / "align_ds" / object_id / "model.obj"
     if path2.exists():
         return path2
     raise FileNotFoundError(
-        f"No mesh for '{object_id}' in {OAKINK2_MESH_DIR} (checked {primary} and {fallback})"
+        f"No mesh for '{object_id}' in {mesh_dir} (checked {primary} and {fallback})"
     )
 
 
@@ -236,7 +231,7 @@ class OakInk2DatasetLoader(DatasetLoaderBase):
         Only scans filenames — pkl contents are loaded lazily in load_mano_data
         to avoid deserializing every file during discovery.
         """
-        oakink_dir = Path(args.oakink_dir)
+        oakink_dir = Path(args.dataset_root)
         use_object_raw = getattr(args, "use_object_raw", False)
         seq_name_filter = getattr(args, "seq_name", None)
 
@@ -365,10 +360,13 @@ class OakInk2DatasetLoader(DatasetLoaderBase):
     ) -> tuple[dict[str, Any], dict[str, torch.Tensor], dict[str, torch.Tensor], bool]:
         """Load OakInk2 object meshes (model.obj, already in meters)."""
         src: OakInk2SequenceSource = sequence_info.source
+        mesh_dir = Path(getattr(self._args, "mesh_dir", OAKINK2_MESH_DIR))
         mesh_paths: dict[str, str] = {}
         for oid in src.object_ids:
             try:
-                mesh_paths[oid] = str(_resolve_mesh_path(oid, src.use_object_raw))
+                mesh_paths[oid] = str(
+                    _resolve_mesh_path(oid, src.use_object_raw, mesh_dir)
+                )
             except FileNotFoundError as e:
                 print(f"Warning: {e}")
         return load_meshes_to_device(mesh_paths, device)
@@ -384,10 +382,11 @@ class OakInk2DatasetLoader(DatasetLoaderBase):
     def get_object_mesh_paths(self, sequence_info: SequenceInfo) -> list[str]:
         """Return mesh paths for all objects in the sequence (one per object_id)."""
         src: OakInk2SequenceSource = sequence_info.source
+        mesh_dir = Path(getattr(self._args, "mesh_dir", OAKINK2_MESH_DIR))
         paths = []
         for oid in src.object_ids:
             try:
-                paths.append(str(_resolve_mesh_path(oid, src.use_object_raw)))
+                paths.append(str(_resolve_mesh_path(oid, src.use_object_raw, mesh_dir)))
             except FileNotFoundError:
                 paths.append("")
         return paths
@@ -396,7 +395,7 @@ class OakInk2DatasetLoader(DatasetLoaderBase):
         """Return paths to OakInk2 object URDF files (one per object_id)."""
         src: OakInk2SequenceSource = sequence_info.source
         object_urdf_root = Path(
-            getattr(self._args, "object_urdf_root", OAKINK2_OBJECT_URDF_DIR)
+            getattr(self._args, "object_model_root", OAKINK2_OBJECT_URDF_DIR)
         )
         paths = []
         for oid in src.object_ids:
@@ -414,21 +413,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Load OakInk2 sequences into ManoSharpaData schema (MANO + object only)."
     )
-    parser.add_argument(
-        "--oakink_dir",
-        type=Path,
-        default=DEFAULT_OAKINK_DIR,
-        help="Path to OakInk-v2-hub root directory.",
+    DatasetLoaderBase.add_common_args(
+        parser,
+        dataset_root=DEFAULT_OAKINK_DIR,
+        object_model_root=OAKINK2_OBJECT_URDF_DIR,
+        mesh_dir=OAKINK2_MESH_DIR,
+        output_dir=LOADED_SAVE_DIR,
     )
-    parser.add_argument(
-        "--object_urdf_root",
-        type=Path,
-        default=OAKINK2_OBJECT_URDF_DIR,
-        help="Directory with {name}_rigid.urdf URDF files.",
-    )
-    parser.add_argument("--device", type=str, default="cuda:0")
-    parser.add_argument("--visualize", action="store_true", default=False)
-    parser.add_argument("--save", action="store_true", default=False)
     parser.add_argument(
         "--use_object_raw",
         action="store_true",
@@ -436,12 +427,6 @@ def parse_args() -> argparse.Namespace:
         help="Use object_raw instead of object_repair meshes.",
     )
     parser.add_argument("--mano_to_robot_scale", type=float, default=1.2)
-    parser.add_argument(
-        "--output_dir",
-        type=Path,
-        default=LOADED_SAVE_DIR,
-        help="Parent directory for Parquet output.",
-    )
     parser.add_argument(
         "--seq_name",
         type=str,
@@ -454,7 +439,6 @@ def parse_args() -> argparse.Namespace:
         default=False,
         help="List available sequences and exit.",
     )
-    DatasetLoaderBase.add_filter_args(parser)
     return parser.parse_args()
 
 
@@ -463,7 +447,9 @@ def main(args: argparse.Namespace) -> None:
     if args.list_sequences:
         loader = OakInk2DatasetLoader()
         sequences = loader.list_sequences(args)
-        print(f"Found {len(sequences)} sequences in {args.oakink_dir / 'anno_preview'}")
+        print(
+            f"Found {len(sequences)} sequences in {args.dataset_root / 'anno_preview'}"
+        )
         for i, s in enumerate(sequences, start=1):
             print(f"{i:3d}. {s.sequence_id}")
         return

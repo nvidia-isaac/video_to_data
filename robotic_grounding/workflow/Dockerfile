@@ -39,10 +39,9 @@ RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
     scipy \
     scikit-learn
 
-# Install chumpy and manotorch (using --no-build-isolation to avoid pip module issues in old setup.py)
-RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir --no-build-isolation \
-    git+https://github.com/mattloper/chumpy.git \
-    git+https://github.com/lixiny/manotorch.git
+# GPL hand-model deps (chumpy + MANO layers) removed — the Stage-1 dataset load
+# (raw -> loaded Parquet via hand FK) moved to reconstruction's
+# v2d_task_library_loader. robotic_grounding consumes the loaded Parquet only.
 
 # Install py-soma-x for SOMA body model used by `scripts/retarget/soma_to_g1.py`.
 # Assets are auto-downloaded from HuggingFace on first SOMALayer use; the
@@ -52,12 +51,32 @@ RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir --no-build-iso
 RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
     py-soma-x
 
-# Install Retargeting dependencies
+# Install Retargeting dependencies.
+# Pin the FULL pinocchio native closure to the last known-good versions.
+# pinocchio (`pin`) bundles its native libs via cmeel; leaving them unpinned
+# lets a rebuild drift cmeel soversions pinocchio wasn't built against, failing
+# at runtime with e.g. "ImportError: liburdfdom_sensor.so.4.0 / libtinyxml2.so.10:
+# cannot open shared object file". Pin pin's actual closure (pin -> coal, eigenpy,
+# cmeel-*; cmeel-urdfdom -> cmeel-console-bridge, cmeel-tinyxml2). NOTE: include
+# `coal` (not `hpp-fcl`) — pinocchio 3.7 depends on coal, and adding hpp-fcl 2.4.4
+# makes the resolve impossible (it wants cmeel-boost~=1.83 vs eigenpy's ~=1.87).
 RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
     mujoco \
     judo-rai>=0.0.5 \
-    "pin-pink>=4.0.0" \
     pin==3.7.0 \
+    pin-pink==4.2.0 \
+    coal==3.0.1 \
+    eigenpy==3.10.3 \
+    cmeel==0.57.3 \
+    cmeel-boost==1.87.0.1 \
+    cmeel-urdfdom==4.0.1 \
+    cmeel-console-bridge==1.0.2.3 \
+    cmeel-tinyxml2==10.0.0 \
+    cmeel-tinyxml==2.6.2.3 \
+    cmeel-assimp==5.4.3.1 \
+    cmeel-octomap==1.10.0 \
+    cmeel-qhull==8.0.2.1 \
+    cmeel-zlib==1.3.1 \
     usd-core \
     deprecation
 

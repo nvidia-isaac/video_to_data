@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import torch
 import trimesh
 import viser
 from scipy.spatial.transform import Rotation
@@ -45,7 +44,6 @@ from robotic_grounding.retarget.dataset_registry import (
 )
 from robotic_grounding.retarget.hand_kinematics import HandKinematics
 from robotic_grounding.retarget.params import MANO_FINGERTIP_INDICES, MANO_HAND_LINKS
-from robotic_grounding.retarget.read_mano import MANO
 from robotic_grounding.retarget.retarget_utils import (
     setup_dex3_kinematics,
     setup_sharpa_kinematics,
@@ -219,12 +217,6 @@ def parse_args() -> argparse.Namespace:
     # FILTER_ARGS through every stage).
     add_sequence_filter_args(parser)
     parser.add_argument(
-        "--show_mano",
-        action="store_true",
-        default=False,
-        help="Show MANO hand meshes and joint frames alongside robot hands.",
-    )
-    parser.add_argument(
         "--visualize_contacts",
         action="store_true",
         default=False,
@@ -263,64 +255,10 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Also render an offline MP4 via pyrender next to the .viser file. "
             "Requires --save_html so the output directory exists. No browser or "
-            "Isaac Sim needed — uses the pinocchio/visual meshes plus MANO verts."
+            "Isaac Sim needed — uses the pinocchio/visual meshes."
         ),
     )
     return parser.parse_args()
-
-
-def mano_kwargs_from_data(logger_data: Any) -> dict[str, Any]:
-    """Read MANO model kwargs stored in the Parquet data."""
-    kwargs: dict[str, Any] = {}
-    if hasattr(logger_data, "mano_flat_hand_mean"):
-        kwargs["flat_hand_mean"] = logger_data.mano_flat_hand_mean
-    if (
-        hasattr(logger_data, "mano_center_idx")
-        and logger_data.mano_center_idx is not None
-    ):
-        kwargs["center_idx"] = logger_data.mano_center_idx
-    return kwargs
-
-
-def run_mano_forward_from_data(
-    mano: MANO,
-    logger_data: Any,
-    device: torch.device,
-) -> dict[str, dict[str, torch.Tensor]]:
-    """Run MANO forward pass for both hands using stored Parquet parameters.
-
-    Returns dict keyed by "right"/"left", each containing MANO forward outputs.
-    """
-    results: dict[str, dict[str, torch.Tensor]] = {}
-    for side in ("right", "left"):
-        trans = torch.tensor(
-            getattr(logger_data, f"mano_{side}_trans"),
-            dtype=torch.float32,
-            device=device,
-        )
-        global_orient = torch.tensor(
-            getattr(logger_data, f"mano_{side}_global_orient"),
-            dtype=torch.float32,
-            device=device,
-        )
-        finger_pose = torch.tensor(
-            getattr(logger_data, f"mano_{side}_finger_pose"),
-            dtype=torch.float32,
-            device=device,
-        )
-        betas = torch.tensor(
-            getattr(logger_data, f"mano_{side}_betas"),
-            dtype=torch.float32,
-            device=device,
-        )
-        results[side] = mano.forward(
-            side=side,
-            global_orient=global_orient,
-            finger_pose=finger_pose,
-            transl=trans,
-            betas=betas,
-        )
-    return results
 
 
 def find_support_usd(input_dir: Path, sequence_id: str) -> Path | None:
@@ -344,7 +282,6 @@ def visualize_one_trajectory(
     trajectory_id: int,
     data_class: type[ManoSharpaData] | type[ManoDex3Data] = ManoSharpaData,
     robot_name: str = "sharpa_wave",
-    show_mano: bool = False,
     visualize_contacts: bool = False,
     visualize_fingertip_distances: bool = False,
     support_usd: Path | None = None,
@@ -379,15 +316,6 @@ def visualize_one_trajectory(
         trajectory_id=trajectory_id,
     )
     H = len(logger_data.robot_right_wrist_position)
-
-    mano: MANO | None = None
-    mano_results: dict[str, dict[str, torch.Tensor]] | None = None
-    if show_mano:
-        mano_kwargs = mano_kwargs_from_data(logger_data)
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        mano = MANO(gender="neutral", device=device, **mano_kwargs)
-        print(f"MANO model initialized ({mano_kwargs}) on {device}")
-        mano_results = run_mano_forward_from_data(mano, logger_data, device)
 
     # Optional: world frame
     viser_object_handles["frame"] = viser_server.scene.add_frame(
@@ -573,18 +501,6 @@ def visualize_one_trajectory(
                 )
                 contact_points_handles.append(normal_handle)
 
-        # MANO hand mesh + joint frames
-        if mano is not None and mano_results is not None:
-            for side in ("right", "left"):
-                mano.visualize(
-                    viser_server,
-                    side,
-                    vertices=mano_results[side]["vertices"][frame_id],
-                    faces=mano_results[side]["faces"],
-                    joints=mano_results[side]["joints"][frame_id],
-                    joints_wxyz=mano_results[side]["joints_wxyz"][frame_id],
-                )
-
         # Offline MP4 capture — mirror the current viser scene state.
         if video_renderer is not None:
             video_renderer.update_robot("right", right_qpos)
@@ -604,13 +520,6 @@ def visualize_one_trajectory(
                 T[:3, :3] = rot
                 T[:3, 3] = pos
                 video_renderer.update_object(object_body_name, T)
-            if mano is not None and mano_results is not None:
-                for side in ("right", "left"):
-                    video_renderer.update_mano(
-                        side,
-                        mano_results[side]["vertices"][frame_id].detach().cpu().numpy(),
-                        mano_results[side]["faces"].detach().cpu().numpy(),
-                    )
             video_renderer.capture()
 
         dt = 1.0 / logger_data.fps
@@ -738,7 +647,6 @@ def main(args: argparse.Namespace) -> None:
             trajectory_id=args.trajectory_id,
             data_class=data_class,
             robot_name=args.robot,
-            show_mano=args.show_mano,
             visualize_contacts=args.visualize_contacts,
             visualize_fingertip_distances=args.visualize_fingertip_distances,
             support_usd=support_usd,

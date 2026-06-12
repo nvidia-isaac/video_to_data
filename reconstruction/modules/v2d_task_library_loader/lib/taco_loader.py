@@ -1,10 +1,5 @@
-# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
-#
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto. Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 
 """Load TACO dataset into ManoSharpaData schema (MANO + object only, no robot).
 
@@ -30,7 +25,7 @@ from typing import Any
 import numpy as np
 import torch
 from robotic_grounding.retarget import ASSETS_DIR, HUMAN_MOTION_DATA_DIR, MESHES_DIR
-from robotic_grounding.retarget.dataset_loader_base import (
+from v2d.task_library_loader.lib.dataset_loader_base import (
     DatasetLoaderBase,
     SequenceInfo,
     load_meshes_to_device,
@@ -68,23 +63,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Load TACO sequences into ManoSharpaData schema (MANO + object only)."
     )
-    parser.add_argument(
-        "--dataset_root",
-        type=Path,
-        default=TACO_DATA_DIR,
-        help="TACO dataset root (Object_Poses, Hand_Poses).",
-    )
-    parser.add_argument(
-        "--object_model_root",
-        type=Path,
-        default=TACO_OBJECT_MODEL_DIR,
-        help="Directory with {name}_cm.obj meshes.",
-    )
-    parser.add_argument(
-        "--object_urdf_root",
-        type=Path,
-        default=TACO_OBJECT_URDF_DIR,
-        help="Directory with {name}_rigid.urdf URDF files.",
+    DatasetLoaderBase.add_common_args(
+        parser,
+        dataset_root=TACO_DATA_DIR,
+        object_model_root=TACO_OBJECT_URDF_DIR,
+        mesh_dir=TACO_OBJECT_MODEL_DIR,
+        output_dir=LOADED_SAVE_DIR,
     )
     parser.add_argument(
         "--triplet",
@@ -98,16 +82,6 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Randomly sample N triplets from the dataset. Only used when --triplet is not set.",
     )
-    parser.add_argument("--device", type=str, default="cuda:0")
-    parser.add_argument("--visualize", action="store_true", default=False)
-    parser.add_argument("--save", action="store_true", default=False)
-    parser.add_argument(
-        "--output_dir",
-        type=Path,
-        default=LOADED_SAVE_DIR,
-        help="Parent directory for Parquet; data written to <output_dir>.",
-    )
-    DatasetLoaderBase.add_filter_args(parser)
     return parser.parse_args()
 
 
@@ -371,12 +345,10 @@ class TacoDatasetLoader(DatasetLoaderBase):
     ]:
         """Load TACO object meshes (tool/target _cm.obj) for the sequence."""
         src: TacoSequenceSource = sequence_info.source
-        object_model_root = Path(
-            getattr(self._args, "object_model_root", TACO_OBJECT_MODEL_DIR)
-        )
+        mesh_dir = Path(getattr(self._args, "mesh_dir", TACO_OBJECT_MODEL_DIR))
         mesh_paths = {
-            "tool": str(object_model_root / f"{src.tool_name}_cm.obj"),
-            "target": str(object_model_root / f"{src.target_name}_cm.obj"),
+            "tool": str(mesh_dir / f"{src.tool_name}_cm.obj"),
+            "target": str(mesh_dir / f"{src.target_name}_cm.obj"),
         }
         return load_meshes_to_device(mesh_paths, device, vertex_scale=0.01)
 
@@ -391,23 +363,21 @@ class TacoDatasetLoader(DatasetLoaderBase):
     def get_object_mesh_paths(self, sequence_info: SequenceInfo) -> list[str]:
         """Return paths to TACO object meshes (tool and target _cm.obj)."""
         src: TacoSequenceSource = sequence_info.source
-        object_model_root = Path(
-            getattr(self._args, "object_model_root", TACO_OBJECT_MODEL_DIR)
-        )
+        mesh_dir = Path(getattr(self._args, "mesh_dir", TACO_OBJECT_MODEL_DIR))
         return [
-            str(object_model_root / f"{src.tool_name}_cm.obj"),
-            str(object_model_root / f"{src.target_name}_cm.obj"),
+            str(mesh_dir / f"{src.tool_name}_cm.obj"),
+            str(mesh_dir / f"{src.target_name}_cm.obj"),
         ]
 
     def get_object_urdf_paths(self, sequence_info: SequenceInfo) -> list[str]:
         """Return paths to TACO object URDF files (tool and target _rigid.urdf)."""
         src: TacoSequenceSource = sequence_info.source
-        object_urdf_root = Path(
-            getattr(self._args, "object_urdf_root", TACO_OBJECT_URDF_DIR)
+        object_model_root = Path(
+            getattr(self._args, "object_model_root", TACO_OBJECT_URDF_DIR)
         )
         return [
-            str(object_urdf_root / f"{src.tool_name}_rigid.urdf"),
-            str(object_urdf_root / f"{src.target_name}_rigid.urdf"),
+            str(object_model_root / f"{src.tool_name}_rigid.urdf"),
+            str(object_model_root / f"{src.target_name}_rigid.urdf"),
         ]
 
 

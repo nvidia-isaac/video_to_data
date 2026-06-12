@@ -1,10 +1,5 @@
-# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
-#
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto. Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 
 """Utilities for computing fingertip-to-object surface distances.
 
@@ -154,6 +149,34 @@ def compute_tips_distance(
     min_dists = dists.min(dim=-1).values  # (5,)
 
     return min_dists
+
+
+def compute_tip_to_object_surface_distance(
+    mano_joints: torch.Tensor,
+    object_surface_points_world: torch.Tensor,
+) -> list[list[float]] | None:
+    """Compute MANO fingertip-to-surface distances for one hand.
+
+    Object surface points are assumed to be in world frame.
+
+    Args:
+        mano_joints: MANO joints (21, 3) on same device as object_surface_points_world.
+        object_surface_points_world: Object surface points in world frame (V, 3).
+
+    Returns:
+        List of 5 lists (one per fingertip) of float distances, or None if
+        computation is not possible.
+    """
+    fingertips = mano_joints[MANO_FINGERTIP_INDICES]
+
+    dists = torch.cdist(
+        fingertips.unsqueeze(0), object_surface_points_world.unsqueeze(0)
+    ).squeeze(0)
+
+    # Get minimum distance from each fingertip to surface
+    min_dists = dists.amin(dim=-1)  # (5,)
+
+    return min_dists.cpu().tolist()
 
 
 def load_object_mesh(mesh_path: str) -> tuple[torch.Tensor, torch.Tensor]:

@@ -32,11 +32,11 @@ from robotic_grounding.retarget import (
 from robotic_grounding.retarget import (
     HUMAN_MOTION_DATA_DIR,
 )
-from robotic_grounding.retarget.dataset_loader_base import make_usd_safe
 from robotic_grounding.retarget.dataset_registry import (
     get_all_dataset_names,
     get_dataset_config,
 )
+from robotic_grounding.retarget.naming import make_usd_safe
 
 # Repository root (two levels up from scripts/)
 REPO_ROOT = Path(__file__).resolve().parent.parent

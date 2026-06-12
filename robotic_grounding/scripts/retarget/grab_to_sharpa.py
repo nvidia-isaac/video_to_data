@@ -8,11 +8,12 @@
 
 """Retarget GRAB loaded data (ManoSharpaData with MANO+object only) to Sharpa.
 
-Reads Parquet from grab_loader.py output (human_motion_data/grab_loaded),
+Reads the grab_loaded Parquet (ManoSharpaData; produced upstream by
+reconstruction's v2d_task_library_loader load workflow),
 runs IK per frame to fill robot_* fields, and saves to grab_processed.
 
 Usage:
-  1. python scripts/retarget/grab_loader.py --save
+  1. (upstream) reconstruction load workflow writes grab_loaded Parquet
   2. python scripts/retarget/grab_to_sharpa.py --save
 """
 

@@ -1,10 +1,5 @@
-# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
-#
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto. Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 
 """Load ARCTIC dataset into ManoSharpaData schema (MANO + object only, no robot).
 
@@ -26,7 +21,7 @@ from robotic_grounding.retarget import (
     HUMAN_MOTION_DATA_DIR,
     MESHES_DIR,
 )
-from robotic_grounding.retarget.dataset_loader_base import (
+from v2d.task_library_loader.lib.dataset_loader_base import (
     DatasetLoaderBase,
     SequenceInfo,
     load_meshes_to_device,
@@ -55,34 +50,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Load ARCTIC sequences into ManoSharpaData schema (MANO + object only)."
     )
-    parser.add_argument(
-        "--dataset_root",
-        type=Path,
-        default=ARCTIC_MOTION_DIR,
-        help="ARCTIC dataset root containing subject dirs with .mano.npy files.",
+    DatasetLoaderBase.add_common_args(
+        parser,
+        dataset_root=ARCTIC_MOTION_DIR,
+        object_model_root=ARCTIC_URDF_DIR,
+        mesh_dir=ARCTIC_MESH_DIR,
+        output_dir=LOADED_SAVE_DIR,
     )
-    parser.add_argument(
-        "--object_model_root",
-        type=Path,
-        default=ARCTIC_URDF_DIR,
-        help="Directory with {object_name}.urdf files for MuJoCo FK.",
-    )
-    parser.add_argument(
-        "--mesh_dir",
-        type=Path,
-        default=ARCTIC_MESH_DIR,
-        help="Directory with ARCTIC object meshes ({object}/{part}_watertight_tiny.obj).",
-    )
-    parser.add_argument("--device", type=str, default="cuda:0")
-    parser.add_argument("--visualize", action="store_true", default=False)
-    parser.add_argument("--save", action="store_true", default=False)
-    parser.add_argument(
-        "--output_dir",
-        type=Path,
-        default=LOADED_SAVE_DIR,
-        help="Parent directory for Parquet output; data is written to <output_dir>.",
-    )
-    DatasetLoaderBase.add_filter_args(parser)
     return parser.parse_args()
 
 

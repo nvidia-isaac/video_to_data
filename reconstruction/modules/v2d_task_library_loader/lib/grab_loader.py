@@ -1,10 +1,5 @@
-# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
-#
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto. Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 
 """Load GRAB dataset (ECCV 2020) into ManoSharpaData schema.
 
@@ -73,7 +68,7 @@ from robotic_grounding.retarget import (  # noqa: E402
     HUMAN_MOTION_DATA_DIR,
     MESHES_DIR,
 )
-from robotic_grounding.retarget.dataset_loader_base import (  # noqa: E402
+from v2d.task_library_loader.lib.dataset_loader_base import (  # noqa: E402
     DatasetLoaderBase,
     SequenceInfo,
     load_meshes_to_device,
@@ -86,6 +81,8 @@ logging.getLogger().setLevel(logging.ERROR)
 # Constants
 # ---------------------------------------------------------------------------
 DEFAULT_GRAB_DIR = HUMAN_MOTION_DATA_DIR / "grab" / "dataset"
+GRAB_URDF_DIR = ASSETS_DIR / "urdfs" / "grab"
+GRAB_MESH_DIR = MESHES_DIR / "grab"
 LOADED_SAVE_DIR = HUMAN_MOTION_DATA_DIR / "grab" / "grab_loaded"
 GRAB_FPS = 120.0
 
@@ -164,7 +161,7 @@ class GRABDatasetLoader(DatasetLoaderBase):
     def list_sequences(self, args: Any) -> list[SequenceInfo]:
         """Discover GRAB sequences across all subjects."""
         self._args = args
-        grab_dir = Path(getattr(args, "grab_dir", DEFAULT_GRAB_DIR))
+        grab_dir = Path(getattr(args, "dataset_root", DEFAULT_GRAB_DIR))
 
         if not grab_dir.exists():
             raise FileNotFoundError(f"GRAB dataset not found at {grab_dir}")
@@ -261,7 +258,7 @@ class GRABDatasetLoader(DatasetLoaderBase):
 
         def _zero_pose_joint0(side: str, betas: np.ndarray) -> np.ndarray:
             layer = ManoLayer(
-                mano_assets_root=str(ASSETS_DIR / "body_models" / "mano"),
+                mano_assets_root=str(self._args.mano_model_dir),
                 side=side,
                 flat_hand_mean=False,
                 use_pca=True,
@@ -347,8 +344,8 @@ class GRABDatasetLoader(DatasetLoaderBase):
         matches for the no-underscore objects.
         """
         src: GRABSequenceSource = sequence_info.source
-        grab_dir = Path(getattr(self._args, "grab_dir", DEFAULT_GRAB_DIR))
-        canonical_dir = MESHES_DIR / "grab"
+        grab_dir = Path(getattr(self._args, "dataset_root", DEFAULT_GRAB_DIR))
+        canonical_dir = Path(getattr(self._args, "mesh_dir", GRAB_MESH_DIR))
         contact_meshes_dir = grab_dir / "tools" / "object_meshes" / "contact_meshes"
 
         mesh_paths: dict[str, str] = {}
@@ -392,8 +389,8 @@ class GRABDatasetLoader(DatasetLoaderBase):
         Kept in sync with the candidate list in ``load_object_meshes``.
         """
         src: GRABSequenceSource = sequence_info.source
-        grab_dir = Path(getattr(self._args, "grab_dir", DEFAULT_GRAB_DIR))
-        canonical_dir = MESHES_DIR / "grab"
+        grab_dir = Path(getattr(self._args, "dataset_root", DEFAULT_GRAB_DIR))
+        canonical_dir = Path(getattr(self._args, "mesh_dir", GRAB_MESH_DIR))
         contact_meshes_dir = grab_dir / "tools" / "object_meshes" / "contact_meshes"
         name = src.object_name
         candidates = [
@@ -411,7 +408,7 @@ class GRABDatasetLoader(DatasetLoaderBase):
     def get_object_urdf_paths(self, sequence_info: SequenceInfo) -> list[str]:
         """Return rigid URDF path for the sequence's single object."""
         src: GRABSequenceSource = sequence_info.source
-        urdf_dir = ASSETS_DIR / "urdfs" / "grab"
+        urdf_dir = Path(getattr(self._args, "object_model_root", GRAB_URDF_DIR))
         return [str(urdf_dir / f"{make_usd_safe(src.object_name)}_rigid.urdf")]
 
 
@@ -425,25 +422,16 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Load GRAB sequences into ManoSharpaData schema."
     )
-    parser.add_argument(
-        "--grab_dir",
-        type=Path,
-        default=DEFAULT_GRAB_DIR,
-        help="Root directory of the extracted GRAB dataset.",
+    DatasetLoaderBase.add_common_args(
+        parser,
+        dataset_root=DEFAULT_GRAB_DIR,
+        object_model_root=GRAB_URDF_DIR,
+        mesh_dir=GRAB_MESH_DIR,
+        output_dir=LOADED_SAVE_DIR,
     )
-    parser.add_argument(
-        "--output_dir",
-        type=Path,
-        default=LOADED_SAVE_DIR,
-        help="Output directory for loaded Parquet files.",
-    )
-    parser.add_argument("--device", type=str, default="cuda:0")
-    parser.add_argument("--save", action="store_true")
-    parser.add_argument("--visualize", action="store_true", default=False)
     parser.add_argument(
         "--list_sequences", action="store_true", help="List sequences and exit."
     )
-    DatasetLoaderBase.add_filter_args(parser)
     return parser.parse_args()
 
 

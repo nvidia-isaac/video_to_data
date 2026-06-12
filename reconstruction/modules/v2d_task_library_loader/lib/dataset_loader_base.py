@@ -1,10 +1,5 @@
-# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
-#
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto. Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 
 """Base class for loading hand-object datasets into ManoSharpaData schema.
 
@@ -26,26 +21,27 @@ import viser
 from scipy.spatial.transform import Rotation as R
 from tqdm import tqdm
 
-from robotic_grounding.retarget.contact_utils import (
+# FK / contact code ported into this module (manotorch-tainted or FK-output utils).
+from v2d.task_library_loader.lib.contact_utils import (
     approximate_contact_with_id,
     compute_hand_link_contact_positions,
     find_object_contact_positions,
 )
-from robotic_grounding.retarget.data_logger import ManoSharpaData, shard_matches
-from robotic_grounding.retarget.params import MANO_HAND_LINKS, NUM_MANO_LINKS
-from robotic_grounding.retarget.read_mano import MANO
-from robotic_grounding.retarget.retarget_utils import (
-    DEFAULT_PARTITION_COLS,
+from v2d.task_library_loader.lib.distance_utils import (
     compute_tip_to_object_surface_distance,
 )
+from v2d.task_library_loader.lib.read_mano import MANO
 
+# Clean shared code imported from robotic_grounding (installed dependency; GPL-free).
+from robotic_grounding.retarget.data_logger import ManoSharpaData, shard_matches
+from robotic_grounding.retarget.naming import make_usd_safe
+from robotic_grounding.retarget.params import MANO_HAND_LINKS, NUM_MANO_LINKS
 
-def make_usd_safe(name: str) -> str:
-    """Make a name safe for USD prim paths (no leading digits, no @ etc.)."""
-    safe = name.replace("@", "_")
-    if safe and (safe[0].isdigit() or not (safe[0].isalpha() or safe[0] == "_")):
-        safe = f"obj_{safe}"
-    return safe
+# Partition columns for the output Parquet. Copied from robotic_grounding's
+# retarget_utils to avoid importing it here (it would pull pink/pinocchio IK deps).
+DEFAULT_PARTITION_COLS = ["sequence_id", "robot_name"]
+# ``make_usd_safe`` (imported above from naming.py) is re-exported here so the
+# ported loaders' ``from ...dataset_loader_base import make_usd_safe`` keep working.
 
 
 @dataclass
@@ -330,8 +326,66 @@ class DatasetLoaderBase(ABC):
         return 0, num_frames
 
     @staticmethod
+    def add_common_args(
+        parser: argparse.ArgumentParser,
+        *,
+        dataset_root: Any,
+        object_model_root: Any,
+        mesh_dir: Any,
+        output_dir: Any,
+    ) -> None:
+        """Register the args-first contract shared by every loader.
+
+        Every loader resolves its raw data (``--dataset_root``), object URDFs
+        (``--object_model_root``), object meshes (``--mesh_dir``) and MANO models
+        (``--mano_model_dir``) from these flags. The OSMO load workflow passes them
+        as swift-fetched runtime paths; the per-dataset values passed here are
+        local-dev fallbacks. Also registers ``--output_dir``/``--device``/
+        ``--visualize``/``--save`` and the sequence-filter args (via
+        :meth:`add_filter_args`).
+        """
+        parser.add_argument(
+            "--dataset_root",
+            type=Path,
+            default=dataset_root,
+            help="Raw dataset root for this dataset.",
+        )
+        parser.add_argument(
+            "--object_model_root",
+            type=Path,
+            default=object_model_root,
+            help="Directory with this dataset's per-object rigid URDFs.",
+        )
+        parser.add_argument(
+            "--mesh_dir",
+            type=Path,
+            default=mesh_dir,
+            help="Directory with this dataset's object meshes.",
+        )
+        parser.add_argument(
+            "--output_dir",
+            type=Path,
+            default=output_dir,
+            help="Parent directory for Parquet output.",
+        )
+        parser.add_argument("--device", type=str, default="cuda:0")
+        parser.add_argument("--visualize", action="store_true", default=False)
+        parser.add_argument("--save", action="store_true", default=False)
+        DatasetLoaderBase.add_filter_args(parser)
+
+    @staticmethod
     def add_filter_args(parser: argparse.ArgumentParser) -> None:
         """Add common sequence filtering args. Call from each loader's parse_args()."""
+        parser.add_argument(
+            "--mano_model_dir",
+            type=str,
+            default=None,
+            help=(
+                "Directory containing the MANO models (a models/ subdir with "
+                "MANO_RIGHT.pkl / MANO_LEFT.pkl). Required to run MANO FK; "
+                "supplied at runtime and never vendored."
+            ),
+        )
         group = parser.add_argument_group("sequence filtering")
         group.add_argument(
             "--sequence_id",
@@ -426,8 +480,18 @@ class DatasetLoaderBase(ABC):
 
         print(f"Found {len(sequences)} sequences")
 
+        if getattr(args, "mano_model_dir", None) is None:
+            raise ValueError(
+                "--mano_model_dir is required: pass the directory containing the "
+                "MANO models (models/MANO_RIGHT.pkl, MANO_LEFT.pkl)."
+            )
         mano_kwargs = self.get_mano_kwargs()
-        mano = MANO(gender="neutral", device=device, **mano_kwargs)
+        mano = MANO(
+            mano_assets_root=args.mano_model_dir,
+            gender="neutral",
+            device=device,
+            **mano_kwargs,
+        )
         viser_object_handles: dict[str, Any] = {}
         viser_contact_handles: list[Any] = []
 
@@ -600,7 +664,6 @@ class DatasetLoaderBase(ABC):
                         hand_normals = (
                             torch.from_numpy(hand_normals).float().to(device)
                         )  # point outward
-                        # TODO (xzhu): store all contact points and normals
                         (
                             _,
                             _,

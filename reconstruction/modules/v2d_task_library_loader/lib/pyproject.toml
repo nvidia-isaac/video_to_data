@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "v2d-task-library-loader-lib"
+version = "0.1.0"
+description = "Hand-object dataset loaders: MANO FK + contact/distance to ManoSharpaData Parquet"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "scipy",
+    "trimesh",
+    "tqdm",
+    "viser",
+    "pyarrow",      # data_logger (ManoSharpaData) Parquet I/O
+    "mujoco<3.7",   # arctic_loader object FK; 3.7+ broke meshdir+path-filename resolution for the arctic URDFs
+    "PyYAML",       # dexycb_loader
+    "v2d-common",
+    # manotorch + chumpy (GPL-3.0) are installed via the Dockerfile (git), not here.
+    # `deprecation` (undeclared manotorch runtime dep) is installed via the Dockerfile.
+    # pytorch3d is installed via the Dockerfile with --no-build-isolation.
+    # robotic_grounding (schema/params/utils) is installed via the Dockerfile (see note there).
+]
+
+[tool.setuptools]
+packages = ["v2d.task_library_loader.lib"]
+
+[tool.setuptools.package-dir]
+"v2d.task_library_loader.lib" = "."

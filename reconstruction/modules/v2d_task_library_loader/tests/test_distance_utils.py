@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Test script for distance_utils module.
+"""Test script for the v2d_task_library_loader distance_utils module.
 
 Run this script to verify the compute_tips_distance function works correctly.
 
-Usage (inside container):
-    /workspace/isaaclab/_isaac_sim/python.sh tests/test_distance_utils.py
+Usage (inside the v2d_task_library_loader image):
+    python -m v2d.task_library_loader.tests.test_distance_utils
 """
 
 import torch
 from robotic_grounding.retarget import ASSETS_DIR, HUMAN_MOTION_DATA_DIR
 from robotic_grounding.retarget.data_logger import ManoSharpaData
-from robotic_grounding.retarget.distance_utils import (
+from v2d.task_library_loader.lib.distance_utils import (
     MANO_FINGERTIP_INDICES,
     PYTORCH3D_AVAILABLE,
     compute_tips_distance,

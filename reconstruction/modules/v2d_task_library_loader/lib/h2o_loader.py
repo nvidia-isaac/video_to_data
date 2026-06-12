@@ -1,10 +1,5 @@
-# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
-#
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto. Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 
 """Load H2O dataset (Hand-Two-Object, ICCV 2021) into ManoSharpaData schema.
 
@@ -69,7 +64,7 @@ from robotic_grounding.retarget import (  # noqa: E402
     HUMAN_MOTION_DATA_DIR,
     MESHES_DIR,
 )
-from robotic_grounding.retarget.dataset_loader_base import (  # noqa: E402
+from v2d.task_library_loader.lib.dataset_loader_base import (  # noqa: E402
     DatasetLoaderBase,
     SequenceInfo,
     load_meshes_to_device,
@@ -80,6 +75,8 @@ from robotic_grounding.retarget.dataset_loader_base import (  # noqa: E402
 # Constants
 # ---------------------------------------------------------------------------
 DEFAULT_H2O_DIR = HUMAN_MOTION_DATA_DIR / "h2o" / "dataset"
+H2O_URDF_DIR = ASSETS_DIR / "urdfs" / "h2o"
+H2O_MESH_DIR = MESHES_DIR / "h2o"
 LOADED_SAVE_DIR = HUMAN_MOTION_DATA_DIR / "h2o" / "h2o_loaded"
 H2O_FPS = 30.0
 
@@ -322,7 +319,7 @@ class H2ODatasetLoader(DatasetLoaderBase):
     def list_sequences(self, args: Any) -> list[SequenceInfo]:
         """Discover H2O sequences (subject / action / take / camera)."""
         self._args = args
-        h2o_dir = Path(getattr(args, "h2o_dir", DEFAULT_H2O_DIR))
+        h2o_dir = Path(getattr(args, "dataset_root", DEFAULT_H2O_DIR))
         camera = getattr(args, "camera", "cam4")  # cam4 = egocentric
 
         if not h2o_dir.exists():
@@ -598,8 +595,8 @@ class H2ODatasetLoader(DatasetLoaderBase):
         sequence-level try/except can skip the sequence cleanly.
         """
         src: H2OSequenceSource = sequence_info.source
-        canonical_dir = MESHES_DIR / "h2o"
-        h2o_dir = Path(getattr(self._args, "h2o_dir", DEFAULT_H2O_DIR))
+        canonical_dir = Path(getattr(self._args, "mesh_dir", H2O_MESH_DIR))
+        h2o_dir = Path(getattr(self._args, "dataset_root", DEFAULT_H2O_DIR))
         fallback_dir = h2o_dir / "object"
 
         mesh_paths: dict[str, str] = {}
@@ -666,8 +663,8 @@ class H2ODatasetLoader(DatasetLoaderBase):
         segfaulting.
         """
         src: H2OSequenceSource = sequence_info.source
-        canonical_dir = MESHES_DIR / "h2o"
-        h2o_dir = Path(getattr(self._args, "h2o_dir", DEFAULT_H2O_DIR))
+        canonical_dir = Path(getattr(self._args, "mesh_dir", H2O_MESH_DIR))
+        h2o_dir = Path(getattr(self._args, "dataset_root", DEFAULT_H2O_DIR))
         fallback_dir = h2o_dir / "object"
         paths: list[str] = []
         for name in src.object_names:
@@ -689,7 +686,7 @@ class H2ODatasetLoader(DatasetLoaderBase):
     def get_object_urdf_paths(self, sequence_info: SequenceInfo) -> list[str]:
         """Return rigid URDF paths for all objects in the sequence."""
         src: H2OSequenceSource = sequence_info.source
-        urdf_dir = ASSETS_DIR / "urdfs" / "h2o"
+        urdf_dir = Path(getattr(self._args, "object_model_root", H2O_URDF_DIR))
         return [
             str(urdf_dir / f"{make_usd_safe(name)}_rigid.urdf")
             for name in src.object_names
@@ -706,17 +703,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Load H2O sequences into ManoSharpaData schema."
     )
-    parser.add_argument(
-        "--h2o_dir",
-        type=Path,
-        default=DEFAULT_H2O_DIR,
-        help="Root directory of the H2O dataset.",
-    )
-    parser.add_argument(
-        "--output_dir",
-        type=Path,
-        default=LOADED_SAVE_DIR,
-        help="Output directory for loaded Parquet files.",
+    DatasetLoaderBase.add_common_args(
+        parser,
+        dataset_root=DEFAULT_H2O_DIR,
+        object_model_root=H2O_URDF_DIR,
+        mesh_dir=H2O_MESH_DIR,
+        output_dir=LOADED_SAVE_DIR,
     )
     parser.add_argument(
         "--camera",
@@ -724,13 +716,9 @@ def parse_args() -> argparse.Namespace:
         default="cam4",
         help="Which camera view to use (default: cam4, egocentric).",
     )
-    parser.add_argument("--device", type=str, default="cuda:0")
-    parser.add_argument("--save", action="store_true")
-    parser.add_argument("--visualize", action="store_true", default=False)
     parser.add_argument(
         "--list_sequences", action="store_true", help="List sequences and exit."
     )
-    DatasetLoaderBase.add_filter_args(parser)
     return parser.parse_args()
 
 
