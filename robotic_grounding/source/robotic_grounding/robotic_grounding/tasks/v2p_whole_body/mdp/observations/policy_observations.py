@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 import torch
 from isaaclab.utils.math import (
     matrix_from_quat,
+    quat_apply_inverse,
     quat_inv,
     quat_mul,
     subtract_frame_transforms,
@@ -21,7 +22,10 @@ from robotic_grounding.tasks.v2p_whole_body.mdp.commands import TrackingCommand
 
 
 def motion_anchor_pos_b(
-    env: ManagerBasedRLEnv, command_name: str = "motion", num_future_frames: int = 10
+    env: ManagerBasedRLEnv,
+    command_name: str = "motion",
+    num_future_frames: int = 10,
+    frame: str = "absolute",
 ) -> torch.Tensor:
     """Get future anchor positions.
 
@@ -29,13 +33,28 @@ def motion_anchor_pos_b(
         env: The environment instance
         command_name: Name of the tracking command term
         num_future_frames: Number of future frames to include (default: 10)
+        frame: ``"absolute"`` returns legacy world-frame positions. ``"relative"``
+            returns deltas in the current anchor frame.
 
     Returns:
-        Future anchor positions (num_envs, num_future_frames * 3) - flattened 3D position
+        Future anchor positions or deltas (num_envs, num_future_frames * 3).
     """
+    if frame not in ("absolute", "relative"):
+        raise ValueError(
+            "motion_anchor_pos_b frame must be 'absolute' or 'relative', "
+            f"got {frame!r}."
+        )
+
     command: TrackingCommand = env.command_manager.get_term(command_name)
-    anchor_pos = command.command_anchor_pos_w_multi_future
-    return anchor_pos[:, :num_future_frames, :].reshape(env.num_envs, -1)
+    future_pos_w = command.command_anchor_pos_w_multi_future[:, :num_future_frames, :]
+    if frame == "absolute":
+        return future_pos_w.reshape(env.num_envs, -1)
+
+    delta_w = future_pos_w - command.robot_anchor_pos_w.unsqueeze(1)
+    num_frames = future_pos_w.shape[1]
+    anchor_quat_w = command.robot_anchor_quat_w.unsqueeze(1).expand(-1, num_frames, -1)
+    delta_b = quat_apply_inverse(anchor_quat_w, delta_w)
+    return delta_b.reshape(env.num_envs, -1)
 
 
 def motion_joint_pos_delta(
@@ -157,15 +176,22 @@ def command_trajectory_progress(
 def object_pose_delta(
     env: ManagerBasedRLEnv, command_name: str = "motion"
 ) -> torch.Tensor:
-    """Object pose delta (pos + quat) in current object frame. Shape: (num_envs, 7)."""
+    """Object body pose deltas in each current body frame. (num_envs, 7 * num_object_bodies)."""
     command: TrackingCommand = env.command_manager.get_term(command_name)
+    num_bodies = command.object_position_e.shape[1]
     pos_delta, quat_delta = subtract_frame_transforms(
-        command.object_pos_w,
-        command.object_quat_w,
-        command.command_object_pos_w,
-        command.command_object_quat_w,
+        command.object_position_e.reshape(-1, 3),
+        command.object_orientation_e.reshape(-1, 4),
+        command.object_body_position_command_e.reshape(-1, 3),
+        command.object_body_wxyz_command_e.reshape(-1, 4),
     )
-    return torch.cat([pos_delta, quat_delta], dim=-1)
+    return torch.cat(
+        [
+            pos_delta.reshape(env.num_envs, num_bodies, 3),
+            quat_delta.reshape(env.num_envs, num_bodies, 4),
+        ],
+        dim=-1,
+    ).reshape(env.num_envs, -1)
 
 
 def wrist_position_b(
@@ -230,6 +256,29 @@ def wrist_velocity_b(
     right_vel_b = torch.bmm(rot, right_vel_w.unsqueeze(-1)).squeeze(-1)
     left_vel_b = torch.bmm(rot, left_vel_w.unsqueeze(-1)).squeeze(-1)
     return torch.cat([right_vel_b, left_vel_b], dim=-1)
+
+
+def wrist_velocity_full_b(
+    env: ManagerBasedRLEnv, command_name: str = "motion"
+) -> torch.Tensor:
+    """Wrist linear+angular velocities in each wrist's own frame. (num_envs, 12) = [right(6), left(6)]."""
+    command: TrackingCommand = env.command_manager.get_term(command_name)
+    robot = command.robot
+    left_id = getattr(command, "_left_wrist_body_id", None)
+    right_id = getattr(command, "_right_wrist_body_id", None)
+
+    def _per_wrist(body_id: int | None) -> torch.Tensor:
+        if body_id is None:
+            return torch.zeros(env.num_envs, 6, device=env.device)
+        quat = robot.data.body_quat_w[:, body_id]
+        lin_w = robot.data.body_lin_vel_w[:, body_id]
+        ang_w = robot.data.body_ang_vel_w[:, body_id]
+        return torch.cat(
+            [quat_apply_inverse(quat, lin_w), quat_apply_inverse(quat, ang_w)],
+            dim=-1,
+        )
+
+    return torch.cat([_per_wrist(right_id), _per_wrist(left_id)], dim=-1).float()
 
 
 def object_position_b(
@@ -313,3 +362,79 @@ def contact_desired_positions_e(
     return torch.cat(
         [left.reshape(env.num_envs, -1), right.reshape(env.num_envs, -1)], dim=-1
     )
+
+
+def hand_object_reference_transform(
+    env: ManagerBasedRLEnv,
+    side: str,
+    command_name: str = "motion",
+    threshold: float = 10.0,
+) -> torch.Tensor:
+    """Wrist pose expressed in the frame of the object body this hand tracks.
+
+    Picks the commanded object body for this side when the scene has several
+    object bodies; reduces to the single object body otherwise. Zeroed when the
+    wrist is farther than ``threshold`` from that object.
+    """
+    command: TrackingCommand = env.command_manager.get_term(command_name)
+    if side == "left":
+        wrist_pos_e = command.left_hand_wrist_position_e
+        wrist_wxyz_e = command.left_hand_wrist_wxyz_e
+    elif side == "right":
+        wrist_pos_e = command.right_hand_wrist_position_e
+        wrist_wxyz_e = command.right_hand_wrist_wxyz_e
+    else:
+        raise ValueError(f"Unknown hand side: {side}")
+
+    obj_pos_e, obj_wxyz_e = command.get_command_contact_object_position_orientation(
+        side
+    )
+    pos_o, wxyz_o = subtract_frame_transforms(
+        obj_pos_e,
+        obj_wxyz_e,
+        wrist_pos_e,
+        wrist_wxyz_e,
+    )
+    transform = torch.cat([pos_o, wxyz_o], dim=-1)
+    mask = (torch.norm(pos_o, dim=-1, keepdim=True) < threshold).expand_as(transform)
+    return torch.where(mask, transform, torch.zeros_like(transform))
+
+
+def wrist_position_e(
+    env: ManagerBasedRLEnv, command_name: str = "motion"
+) -> torch.Tensor:
+    """Wrist positions in env frame. (num_envs, 6) = [right(3), left(3)]."""
+    command: TrackingCommand = env.command_manager.get_term(command_name)
+    return torch.cat(
+        [
+            command.right_hand_wrist_position_e,
+            command.left_hand_wrist_position_e,
+        ],
+        dim=-1,
+    )
+
+
+def wrist_wxyz_e(env: ManagerBasedRLEnv, command_name: str = "motion") -> torch.Tensor:
+    """Wrist quaternions in env frame. (num_envs, 8) = [right(4), left(4)]."""
+    command: TrackingCommand = env.command_manager.get_term(command_name)
+    return torch.cat(
+        [
+            command.right_hand_wrist_wxyz_e,
+            command.left_hand_wrist_wxyz_e,
+        ],
+        dim=-1,
+    )
+
+
+def object_position_e(
+    env: ManagerBasedRLEnv, command_name: str = "motion"
+) -> torch.Tensor:
+    """Object body positions in env frame. (num_envs, 3 * num_object_bodies)."""
+    command: TrackingCommand = env.command_manager.get_term(command_name)
+    return command.object_position_e.reshape(env.num_envs, -1)
+
+
+def object_wxyz_e(env: ManagerBasedRLEnv, command_name: str = "motion") -> torch.Tensor:
+    """Object body quaternions in env frame. (num_envs, 4 * num_object_bodies)."""
+    command: TrackingCommand = env.command_manager.get_term(command_name)
+    return command.object_orientation_e.reshape(env.num_envs, -1)

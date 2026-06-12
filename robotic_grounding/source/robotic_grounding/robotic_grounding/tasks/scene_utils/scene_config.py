@@ -399,7 +399,7 @@ class SceneConfig:
     def _build_episode_length_s(data: dict) -> float:
         """Build the episode length from the parquet data."""
         try:
-            timesteps = len(data.get("object_articulation", [[]])[0])
+            timesteps = len(data.get("object_body_position", [[]])[0])
             fps = data.get("fps", [30.0])[0]
             episode_length_s = float(timesteps / fps)
         except Exception:
@@ -439,11 +439,14 @@ def _load_articulated_poses(data: dict, obj: ArticulatedObjectConfig) -> None:
         obj.body_init_positions = [
             [p + o for p, o in zip(bp, offset, strict=True)] for bp in frame0
         ]
+        body0_pos = list(frame0[0])
+        obj.init_pos = [p + o for p, o in zip(body0_pos, offset, strict=True)]
 
     body_rot = data.get("object_body_wxyz")
     if body_rot and body_rot[0]:
         frame0 = body_rot[0][0]
         obj.body_init_rotations = [list(bw) for bw in frame0]
+        obj.init_rot = list(frame0[0])
 
     art = data.get("object_articulation")
     if art and art[0]:
