@@ -12,3 +12,18 @@
 
 !reconstructed_stage/
 !reconstructed_stage/taco_empty__kettle__plate_20231031_060_support.usda
+
+# Raw TACO pose data for the same sequence (CC BY 4.0 — see LICENSE + NOTICE).
+!dataset/
+!dataset/Hand_Poses/
+!dataset/Hand_Poses/(empty, kettle, plate)/
+!dataset/Hand_Poses/(empty, kettle, plate)/20231031_060/
+!dataset/Hand_Poses/(empty, kettle, plate)/20231031_060/**
+!dataset/Object_Poses/
+!dataset/Object_Poses/(empty, kettle, plate)/
+!dataset/Object_Poses/(empty, kettle, plate)/20231031_060/
+!dataset/Object_Poses/(empty, kettle, plate)/20231031_060/**
+
+# TACO license + attribution
+!LICENSE
+!NOTICE
