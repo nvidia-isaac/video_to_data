@@ -106,7 +106,7 @@ To create a debug environment for other tasks, use `sharpa_debug_env_cfg.py` as 
 ```bash
 # Stage 1 (Load) lives in the reconstruction repo (GPL MANO FK); it produces the
 # {dataset}_loaded Parquet that the retarget step below consumes:
-#   python -m v2d.task_library_loader.lib.run_loader --dataset arctic --dataset_root <raw> --output_dir <out> --save
+#   python -m v2d.task_library_loader.lib.run_loader --dataset arctic --dataset_root <raw> --mano_model_dir <dir with models/MANO_*.pkl> --output_dir <out> --save
 python scripts/retarget/arctic_to_sharpa.py --save # Check the file for arguments
 python scripts/retarget/vis_retargeted.py # Need to run retargeting and save results first
 ```

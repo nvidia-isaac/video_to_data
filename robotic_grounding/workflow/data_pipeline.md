@@ -86,6 +86,7 @@ The loader also handles dataset-specific preprocessing:
 python -m v2d.task_library_loader.lib.run_loader \
   --dataset <name> \
   --dataset_root <raw_dataset_dir> \
+  --mano_model_dir <dir with models/MANO_{LEFT,RIGHT}.pkl> \
   --output_dir <path> \
   --device cuda:0 --save
 ```
