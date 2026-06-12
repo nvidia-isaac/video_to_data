@@ -664,7 +664,6 @@ class DatasetLoaderBase(ABC):
                         hand_normals = (
                             torch.from_numpy(hand_normals).float().to(device)
                         )  # point outward
-                        # TODO (xzhu): store all contact points and normals
                         (
                             _,
                             _,
