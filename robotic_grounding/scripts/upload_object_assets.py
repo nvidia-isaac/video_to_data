@@ -72,8 +72,15 @@ def _find_primary_stubs(root: Path) -> list[Path]:
 
 def _sync(src: Path, dst: str, dry_run: bool, extra: list[str] | None = None) -> None:
     cmd = [
-        "aws", "s3", "sync", str(src), dst,
-        "--endpoint-url", ENDPOINT, "--region", "us-east-1",
+        "aws",
+        "s3",
+        "sync",
+        str(src),
+        dst,
+        "--endpoint-url",
+        ENDPOINT,
+        "--region",
+        "us-east-1",
     ] + (extra or [])
     print("+", " ".join(cmd))
     if not dry_run:
@@ -81,6 +88,7 @@ def _sync(src: Path, dst: str, dry_run: bool, extra: list[str] | None = None) ->
 
 
 def main() -> None:
+    """Sync the given dataset's object_assets (urdfs + meshes) to swift."""
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dataset", required=True)
     ap.add_argument("--dry-run", action="store_true")
@@ -109,7 +117,10 @@ def main() -> None:
         any_uploaded = True
 
     if not any_uploaded:
-        print(f"ERROR: no urdfs/ or meshes/ found for '{ds}' under {ASSET_DIR}", file=sys.stderr)
+        print(
+            f"ERROR: no urdfs/ or meshes/ found for '{ds}' under {ASSET_DIR}",
+            file=sys.stderr,
+        )
         sys.exit(1)
     print(f"done: object_assets for '{ds}'{' (dry-run)' if args.dry_run else ''}")
 
