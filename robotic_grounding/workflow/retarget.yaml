@@ -19,7 +19,7 @@
 # The LOAD stage (raw dataset -> {dataset}_loaded Parquet via MANO FK) runs
 # SEPARATELY in the reconstruction `v2d_task_library_loader` load workflow
 # (manotorch/GPL-3.0, contained there); this workflow consumes its
-# `{dataset}_loaded` output. See the MANO migration plan.
+# `{dataset}_loaded` output.
 #
 # Controls which stages run via the `stages` parameter:
 #   all         - run every stage below (default)
@@ -398,9 +398,13 @@ workflow:
 
 default-values:
   workflow_name: robotic_grounding_retarget
+  # TODO(public-release): internal image registry (nvcr.io/nvstaging) — replace before open-sourcing.
   image: nvcr.io/nvstaging/isaac-amr/robotic-grounding:datasets
   stages: all
   dataset: arctic
+  # TODO(public-release): input_url/output_url point to internal NVIDIA storage
+  # (pdx.s8k.io / AUTH_team-isaac). Replace the swift host + bucket (or override
+  # via --set) before open-sourcing.
   input_url: swift://pdx.s8k.io/AUTH_team-isaac/datasets/v2d/human_motion_data/{{dataset}}/
   output_url: swift://pdx.s8k.io/AUTH_team-isaac/datasets/v2d/human_motion_data/{{dataset}}/
   sequence_pattern: ".*"

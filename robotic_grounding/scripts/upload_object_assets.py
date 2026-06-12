@@ -42,6 +42,7 @@ ASSET_DIR = (
     Path(__file__).resolve().parents[1]
     / "source/robotic_grounding/robotic_grounding/assets"
 )
+# TODO(public-release): internal NVIDIA CSS endpoint + bucket — replace before open-sourcing.
 ENDPOINT = "https://pdx.s8k.io"
 BUCKET = "s3://datasets/v2d/human_motion_data"
 # Git-LFS pointer files are ~130 bytes of text beginning with this line; a sync

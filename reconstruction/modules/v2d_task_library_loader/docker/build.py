@@ -12,9 +12,9 @@ root_dir = os.path.join(module_dir, "..")             # reconstruction/modules/ 
 dockerfile_path = os.path.join(current_dir, "Dockerfile")
 
 # robotic_grounding's python package lives outside the modules/ build context
-# (monorepo). Stage a copy WITHOUT its ~45G assets dir into the build context so
-# the image can import the schema/params/utils; the ~3.5M python package is all
-# that's needed. Staged dir is git-ignored; the Dockerfile puts it on PYTHONPATH.
+# (monorepo). Stage a copy WITHOUT its large assets dir into the build context so
+# the image can import the schema/params/utils; only the python package is
+# needed. Staged dir is git-ignored; the Dockerfile puts it on PYTHONPATH.
 _RG_PKG_SRC = os.path.abspath(
     os.path.join(
         root_dir, "..", "..", "robotic_grounding",

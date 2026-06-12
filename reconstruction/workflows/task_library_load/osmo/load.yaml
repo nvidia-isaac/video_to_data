@@ -1,17 +1,18 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-# Task-library LOAD workflow (MANO migration, Phase 3): raw hand-object dataset
+# Task-library LOAD workflow: raw hand-object dataset
 # -> MANO FK + object FK + contacts -> {dataset}_loaded Parquet (ManoSharpaData,
 # MANO + object only). This is the stage that uses manotorch (GPL-3.0), contained
 # to the v2d_task_library_loader image; the loaded Parquet is consumed downstream
-# by robotic_grounding's slimmed retarget.yaml (Stages 1.5-6, manotorch-free).
+# by robotic_grounding retarget.yaml
 #
 # Inputs are fetched from CSS at runtime (image stays lean): raw dataset, the
 # per-dataset object assets (urdfs+meshes), and the MANO models (licensed).
 #
 # Prereqs:
 #   - image built with `mujoco<3.7` (3.7+ breaks the arctic object URDFs) and pushed.
-#   - object_assets uploaded to CSS for {{dataset}} (arctic done; others deferred).
+#   - object_assets on CSS for {{dataset}} (committed-mesh datasets: upload via
+#     scripts/upload_object_assets.py; h2o/grab/dexycb resolve meshes from raw).
 #   - MANO models: a clean swift copy of v2d_ego_data's hand dir at
 #     .../datasets/v2d/reconstruction/data/weights/hand/ (has models/MANO_*.pkl).
 #
@@ -30,6 +31,7 @@ workflow:
 
   tasks:
   - name: load
+    # TODO(public-release): internal image registry (nvcr.io/nvstaging) — replace before open-sourcing.
     image: nvcr.io/nvstaging/isaac-amr/v2d_task_library_loader:{{image_tag}}
     command:
     - /bin/bash
@@ -68,6 +70,9 @@ default-values:
   workflow_name: v2d_arctic_load
   image_tag: latest
   dataset: arctic
+  # TODO(public-release): the swift:// *_url defaults below point to internal NVIDIA
+  # storage (pdx.s8k.io / AUTH_team-isaac). Replace the swift host + bucket (or
+  # override all via --set) before open-sourcing.
   raw_url: swift://pdx.s8k.io/AUTH_team-isaac/datasets/v2d/human_motion_data/arctic/dataset/
   object_assets_url: swift://pdx.s8k.io/AUTH_team-isaac/datasets/v2d/human_motion_data/arctic/object_assets/
   # MANO hand dir (clean swift copy of v2d_ego_data's data/weights/hand;

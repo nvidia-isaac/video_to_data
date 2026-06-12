@@ -6,9 +6,6 @@ Mounts the (separately-licensed, never-vendored) MANO model dir, the raw
 human-motion-data dir, and the output dir, then runs the module-dispatch loader.
 The container produces the ``${dataset}_loaded`` Parquet (ManoSharpaData with
 MANO + object only) consumed downstream by robotic_grounding's IK retarget.
-
-NOTE: the exact arg surface / data-dir layout is finalized when the OSMO load
-workflow is wired (Phase 3).
 """
 import os
 

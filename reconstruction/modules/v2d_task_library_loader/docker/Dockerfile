@@ -32,5 +32,5 @@ RUN pip install -e /workspace/v2d_common -e /workspace/v2d_task_library_loader/l
 # robotic_grounding python package (assets excluded) — staged into this module's
 # build context by build.py (monorepo: RG lives outside modules/). Provides the
 # GPL-clean ManoSharpaData/ManoDex3Data schema + params + quat_from_matrix + naming.
-# PYTHONPATH (not pip install) avoids bundling RG's 45G of package_data into a wheel.
+# PYTHONPATH (not pip install) avoids bundling RG's large package_data (assets) into a wheel.
 ENV PYTHONPATH=/workspace/v2d_task_library_loader/_rg_pkg
