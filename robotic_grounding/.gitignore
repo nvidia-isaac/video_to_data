@@ -272,3 +272,16 @@ tmp_*.yaml
 
 # Visualizer datasets (large binary recordings, downloaded via sync_visualizer_data.py)
 visualizer/datasets/
+
+# Per-dataset object assets (URDFs + meshes) — large/regenerable, not committed.
+# Hosted on CSS under <dataset>/object_assets/; fetch with scripts/fetch_object_assets.py
+# (upload with scripts/upload_object_assets.py). Robot meshes (g1, sharpa_wave,
+# vega_sharpa, unitree_description) and the scene objects/ stay tracked.
+source/robotic_grounding/robotic_grounding/assets/urdfs/arctic/
+source/robotic_grounding/robotic_grounding/assets/urdfs/taco/
+source/robotic_grounding/robotic_grounding/assets/urdfs/oakink2/
+source/robotic_grounding/robotic_grounding/assets/urdfs/hot3d/
+source/robotic_grounding/robotic_grounding/assets/meshes/arctic/
+source/robotic_grounding/robotic_grounding/assets/meshes/taco/
+source/robotic_grounding/robotic_grounding/assets/meshes/oakink2/
+source/robotic_grounding/robotic_grounding/assets/meshes/hot3d/

@@ -109,6 +109,9 @@ The mesh scale comes from the dataset registry (`mesh_vertex_scale`). This
 stage is idempotent -- it skips objects that already have URDFs. Runs
 automatically inside the `process` stage on OSMO.
 
+Locally, the source meshes are not committed — make sure they're in place first
+(see [Object Assets](#object-assets-urdfs--meshes)).
+
 **Output:** `assets/urdfs/{dataset}/{object_id}_rigid.urdf` locally; in the
 OSMO workflow these are copied to `{dataset}_urdfs/` in the published
 dataset version.
@@ -371,29 +374,36 @@ starts (saves the 45-second startup wait):
 python scripts/validate_training_assets.py --dataset <name>
 ```
 
-## Planned Refactor: Consolidate URDFs + Meshes
+## Object Assets (URDFs + Meshes)
 
-Object assets still live in inconsistent places between datasets:
+Stage 1.5 (URDF gen), Stage 2 (retarget), Stage 3/4 (reconstruct/visualize), and
+Stage 7 (training) load object geometry from:
 
-| Dataset | Meshes location | URDFs location |
-|---------|-----------------|----------------|
-| hot3d, h2o | committed `assets/meshes/{name}/` | regenerated in image from committed meshes |
-| arctic, taco, oakink2 | committed `assets/meshes/{name}/` | committed `assets/urdfs/{name}/` |
-| grab, dexycb | CSS only (mounted at run time) | regenerated per workflow run from CSS meshes |
+- `source/robotic_grounding/robotic_grounding/assets/meshes/<dataset>/` — object meshes
+- `source/robotic_grounding/robotic_grounding/assets/urdfs/<dataset>/`  — rigid URDFs
 
-This bakes ~2.7 GB of meshes into every Docker image. Progress so far:
+**Obtaining them.** Download the dataset's object models from its original
+distribution (per the dataset's own license/terms; see [Dataset Inventory](#dataset-inventory)),
+copy the meshes into `assets/meshes/<dataset>/`, then generate the rigid URDFs:
 
-- [x] **URDFs published with retarget outputs** — the `process` stage
-  generates URDFs into `assets/urdfs/{dataset}/` and the workflow copies
-  them to `{dataset}_urdfs/` under the swift output prefix, so every
-  run carries a regenerated URDF tree.
-- [ ] **Local sync for URDFs** — `scripts/sync_css_data.py` still only
-  knows about `loaded`/`processed`/`support_surfaces`; `aws s3 sync` of the
-  `{dataset}_urdfs/` prefix is the current workaround. Adding
-  `--component urdfs` to `sync_css_data.py` would close the gap for anyone
-  still pulling from CSS.
-- [ ] **Read-time fallback** — update `SceneConfig` path resolution to
-  check `assets/urdfs/{name}/` first, then the per-dataset download dir.
-- [ ] **Phase out committed meshes** — once the runtime URDF/mesh path is
-  the source of truth, stop committing `assets/meshes/{name}/` for
-  hot3d/h2o/arctic/taco/oakink2 and trim the image size.
+```bash
+python scripts/generate_rigid_urdfs.py --dataset <dataset>
+```
+
+For h2o/grab/dexycb the object meshes ship inside the raw dataset, so the loaders
+read them from the raw tree — no separate mesh placement needed.
+
+<!-- INTERNAL-ONLY:START — remove before public release (TODO(public-release)) -->
+**NVIDIA-internal shortcut.** The prebuilt meshes + URDFs are mirrored on CSS;
+pull them straight into place instead of re-downloading + regenerating:
+
+```bash
+python scripts/fetch_object_assets.py --dataset <name>   # or --dataset all
+```
+
+(upload with `scripts/upload_object_assets.py`). OSMO retarget outputs also carry
+a regenerated `{dataset}_urdfs/` tree.
+<!-- INTERNAL-ONLY:END -->
+
+> Still open: wire object-asset provisioning into the Docker image build / OSMO
+> retarget so the cloud path doesn't rely on a committed copy.
