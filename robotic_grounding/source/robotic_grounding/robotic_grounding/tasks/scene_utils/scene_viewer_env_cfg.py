@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Minimal env config for verifying object spawning from a scene motion file.
 
 Uses ManagerBasedRLEnvCfg (with empty rewards/terminations) so the env can

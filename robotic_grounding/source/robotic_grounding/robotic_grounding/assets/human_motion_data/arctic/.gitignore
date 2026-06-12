@@ -1,6 +1,2 @@
 *
 !.gitignore
-!arctic_processed/
-!arctic_processed/**
-!reconstructed_stage/
-!reconstructed_stage/**

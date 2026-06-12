@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """CLI surface for the G1 whole-body planner.
 
 `parse_args` builds the argparse namespace consumed by `g1_planner.main()`.

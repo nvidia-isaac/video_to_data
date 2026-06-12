@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Reject sequences where the retargeted robot hand penetrates an object or itself by > 2 cm.
 
 Wraps the capsule-based penetration check from ``scripts/filter_penetrations.py``.

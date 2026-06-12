@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """G1 whole-body planner: EE targets → full-body motion via learned model.
 
 Generates planned whole-body motion from V2P retargeted hand/object trajectories.

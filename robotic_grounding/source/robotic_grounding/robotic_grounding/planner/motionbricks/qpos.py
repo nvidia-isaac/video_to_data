@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Kinematics helpers for the MotionBricks planner adapter.
 
 Pure math + MuJoCo FK; no torch.package or bundle awareness. The agent

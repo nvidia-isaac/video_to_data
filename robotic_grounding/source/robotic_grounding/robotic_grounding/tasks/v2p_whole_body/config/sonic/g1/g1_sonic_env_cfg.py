@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 import isaaclab.envs.mdp as il_mdp
 from isaaclab.envs.mdp import observations
 from isaaclab.managers import CurriculumTermCfg as CurrTerm

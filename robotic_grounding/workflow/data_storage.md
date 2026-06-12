@@ -14,8 +14,12 @@ swift://pdx.s8k.io/AUTH_team-isaac/datasets/v2d/human_motion_data/{dataset}/
 | **Loaded** (`{dataset}_loaded/`) | swift `…/{dataset}/{dataset}_loaded/` | **reconstruction** `v2d_{dataset}_load` workflow (MANO FK; GPL-contained) | consumed by `retarget.yaml`; pull with `sync_css_data.py` |
 | **Retarget outputs** (`{dataset}_processed/`, `{dataset}_urdfs/`, `reconstructed_stage/`, `{dataset}_html/`, `{dataset}_videos/`, `{dataset}_quality.csv`) | swift `…/{dataset}/…` | `retarget.yaml` (writes to `output_url`) | pull with `sync_css_data.py` / `aws s3` |
 
-Object meshes are baked into the Docker image under `assets/meshes/` — committed
-to the repo via git-lfs and available at build time.
+Object meshes + URDFs (arctic, taco, oakink2, hot3d) live on swift under
+`…/{dataset}/object_assets/{meshes,urdfs}/{dataset}/` — **not committed** to the
+repo. Fetch them locally with `scripts/fetch_object_assets.py --dataset <name>`
+(upload with `scripts/upload_object_assets.py`). h2o/grab/dexycb keep meshes in
+the raw dataset. Robot meshes (g1, sharpa_wave, …) remain committed under
+`assets/meshes/`.
 
 ## Why swift URLs (not OSMO datasets)
 

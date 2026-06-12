@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """MuJoCo-side qpos assembly + scoring for the G1 whole-body planner.
 
 Owns the constants and helpers that turn the model's chunked-AR output

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Contains the functions that are specific to the locomotion environments."""
 
 from isaaclab.envs.mdp import *  # noqa: F403

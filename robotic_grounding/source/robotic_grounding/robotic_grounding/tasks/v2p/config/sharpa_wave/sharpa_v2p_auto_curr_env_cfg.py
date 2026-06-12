@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 from isaaclab.utils import configclass
 
 from robotic_grounding.tasks.v2p.v2p_hand_env_cfg import CurriculumCfg, V2PHandEnvCfg

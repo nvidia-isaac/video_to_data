@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Reconstruct support surfaces from object still-poses (CLI driver).
 
 Library code lives in ``robotic_grounding.retarget.support_recon``. This

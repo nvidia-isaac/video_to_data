@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 r"""View a scene: spawns object, optional support surface, and robot from Parquet (no RL).
 
 Robot articulation is added when the motion path includes a ``robot_name=...``

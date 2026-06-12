@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Download visualizer recordings from OSMO to local datasets dir.
 
 Syncs {name}_html/ trees (*.viser, *.mp4, viser-client/) from the OSMO

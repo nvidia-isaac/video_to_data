@@ -104,6 +104,20 @@ If OSMO is not configured, do not attempt the dataset download. Use any already
 present local motion partition, or ask for the dataset version/path needed for
 the task. OSMO setup lives in [workflow/README.md](workflow/README.md).
 
+Stages that load real object geometry — retargeting, kinematic replay, support-surface
+reconstruction, scene view, and training — need them under
+`assets/{meshes,urdfs}/<dataset>/` first: download the dataset's object models
+from its original distribution, copy the meshes into `assets/meshes/<dataset>/`,
+and run `python scripts/generate_rigid_urdfs.py --dataset <dataset>`. See
+[workflow/data_pipeline.md](workflow/data_pipeline.md#object-assets-urdfs--meshes).
+
+<!-- INTERNAL-ONLY:START — remove before public release (TODO(public-release)) -->
+NVIDIA-internal: pull the prebuilt assets from CSS instead —
+`python scripts/fetch_object_assets.py --dataset arctic` (or `--dataset all`).
+<!-- INTERNAL-ONLY:END -->
+
+(The `--use_primitive_urdfs` dummy-agent smoke test above does not need them.)
+
 Run a GUI dummy-agent smoke test inside the container:
 
 ```bash

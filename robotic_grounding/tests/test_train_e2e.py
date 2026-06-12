@@ -1,13 +1,6 @@
 #!/usr/bin/env python3
-
-# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
-#
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto. Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
-
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """End-to-end tests for train script.
 
 These tests verify that training can start and run for a few iterations.
@@ -75,8 +68,6 @@ class TestTrainE2E(unittest.TestCase):
     def get_motion_files_to_test(self) -> list[str]:
         """Get motion files to test for training."""
         return [
-            "arctic/arctic_processed/arctic_s01_mixer_use_01/sharpa_wave",
-            "arctic/arctic_processed/arctic_s01_rigid_mixer_grab_01/sharpa_wave",
             "taco/taco_processed/taco_empty__kettle__plate_20231031_060/sharpa_wave",
         ]
 
