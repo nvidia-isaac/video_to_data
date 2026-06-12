@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """SONIC action with joint-level residuals added AFTER the SONIC encoder/decoder.
 
 RL outputs scaled per-joint residuals that are added to the SONIC decoder output.

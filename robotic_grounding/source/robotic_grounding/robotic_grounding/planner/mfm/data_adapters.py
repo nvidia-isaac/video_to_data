@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Data adapters: MuJoCo arrays → motion model features.
 
 Ported 1:1 from the original data_adapters module. The only external

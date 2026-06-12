@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Whole-body motion inference from EE positions.
 
 Loads the core inferencer from a torch.package archive (planner_agent.pkg)

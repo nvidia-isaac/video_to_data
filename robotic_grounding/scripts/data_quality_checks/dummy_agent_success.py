@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Reject sequences where dummy_agent did not complete a clean render.
 
 The sentinel file (`.dummy_agent_ok`) is written by

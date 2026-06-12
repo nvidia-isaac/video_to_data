@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Base V2P whole-body environment configuration.
 
 Provides scene, commands, and events. Child configs (G1SonicEnvCfg etc.)

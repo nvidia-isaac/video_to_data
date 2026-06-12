@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Pre- and post-planning validation for the G1 whole-body planner.
 
 `warn_reference_issues` is called before planning starts. It checks reference-

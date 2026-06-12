@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Support-surface reconstruction from object still-poses.
 
 Auto-detects schema (motion_v1 / mano_sharpa) from parquet columns, finds

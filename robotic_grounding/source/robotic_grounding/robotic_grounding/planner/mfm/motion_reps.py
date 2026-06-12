@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Rotation and motion representation utilities for the planner pipeline."""
 
 # ruff: noqa: ANN001, ANN201, ANN202, ANN204, D102, D103, D107, D417

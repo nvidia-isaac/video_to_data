@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Reject arctic sequences with more than one reconstructed support surface.
 
 Arctic objects are articulated (root + lid/lever) but should only produce a

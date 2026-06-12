@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 # ruff: noqa: PLC0415 — lazy imports in __post_init__ for circular dep avoidance
 from dataclasses import MISSING
 from enum import Enum

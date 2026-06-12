@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """IK verification for planner EE targets using differential IK (mink).
 
 Optional dependency: ``pip install mink`` is required to use this module.

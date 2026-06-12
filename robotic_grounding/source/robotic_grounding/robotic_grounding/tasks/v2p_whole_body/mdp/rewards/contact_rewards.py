@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Contact and wrench support rewards for whole-body manipulation.
 
 These rewards use wrench space support functions computed by the tracking command
