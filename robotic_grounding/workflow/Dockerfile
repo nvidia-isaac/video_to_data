@@ -114,9 +114,20 @@ COPY README.md ./
 COPY source/ ./source/
 COPY scripts/ ./scripts/
 
+# Embed the third-party TACO object meshes the E2E tests need at the canonical
+# asset path the pipeline reads from. The fixtures and their CC BY 4.0 LICENSE +
+# NOTICE live under ci/assets/taco/meshes/ (© Yun Liu et al.); copy the whole dir
+# so the license/attribution travels with the meshes in the image.
+COPY ci/assets/taco/meshes/ ./source/robotic_grounding/robotic_grounding/assets/meshes/taco/
+
 # Install the project in editable mode
 RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
     -e ./source/robotic_grounding
+
+# Pre-generate the rigid URDFs for the embedded TACO meshes so the E2E tests that
+# load processed sequences (test_train_e2e.py) find them without first running the
+# URDF-generation stage. Mesh-only discovery (globs meshes/taco/*_cm.obj); no GPU.
+RUN ${ISAACLAB_PATH}/isaaclab.sh -p scripts/generate_rigid_urdfs.py --dataset taco
 
 # Create wrapper script for python (for convenience in container shell)
 RUN echo '#!/bin/bash' > /usr/local/bin/python && \

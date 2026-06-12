@@ -68,8 +68,6 @@ class TestTrainE2E(unittest.TestCase):
     def get_motion_files_to_test(self) -> list[str]:
         """Get motion files to test for training."""
         return [
-            "arctic/arctic_processed/arctic_s01_mixer_use_01/sharpa_wave",
-            "arctic/arctic_processed/arctic_s01_rigid_mixer_grab_01/sharpa_wave",
             "taco/taco_processed/taco_empty__kettle__plate_20231031_060/sharpa_wave",
         ]
 

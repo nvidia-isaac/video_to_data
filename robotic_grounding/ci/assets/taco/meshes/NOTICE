@@ -1,0 +1,14 @@
+This directory contains third-party object models, redistributed unmodified
+(other than OBJ export and centimetre scaling — the `_cm` filename suffix) as
+fixtures for the retarget end-to-end test (tests/test_retarget_pipeline_e2e.py).
+They are embedded into the Docker image (workflow/Dockerfile) which is used by the
+CI pipeline.
+
+TACO object models © Yun Liu et al., licensed under CC BY 4.0
+(https://creativecommons.org/licenses/by/4.0/).
+Source: https://github.com/leolyliu/TACO-Instructions
+Liu et al., "TACO: Benchmarking Generalizable Bimanual Tool-Action-Object
+Understanding", CVPR 2024.
+
+The full text of the CC BY 4.0 license is in the LICENSE file alongside this
+notice.

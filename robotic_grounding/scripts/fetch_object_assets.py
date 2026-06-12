@@ -49,7 +49,7 @@ BUCKET = "s3://datasets/v2d/human_motion_data"
 DATASETS = ("arctic", "taco", "oakink2", "hot3d")
 
 
-def _sync(src: str, dst: Path, dry_run: bool) -> int:
+def _sync(src: str, dst: Path, dry_run: bool, includes: list[str] | None = None) -> int:
     dst.mkdir(parents=True, exist_ok=True)
     cmd = [
         "aws",
@@ -62,17 +62,28 @@ def _sync(src: str, dst: Path, dry_run: bool) -> int:
         "--region",
         "us-east-1",
     ]
+    # Restrict to specific filenames: exclude everything, then re-include each
+    # pattern (used by CI to grab only the handful of objects a test needs).
+    if includes:
+        cmd += ["--exclude", "*"]
+        for pat in includes:
+            cmd += ["--include", pat]
     print("+", " ".join(cmd))
     if dry_run:
         return 0
     return subprocess.run(cmd, check=False).returncode
 
 
-def _fetch_dataset(ds: str, dry_run: bool) -> None:
-    for kind in ("urdfs", "meshes"):
+def _fetch_dataset(
+    ds: str,
+    dry_run: bool,
+    kinds: tuple[str, ...] = ("urdfs", "meshes"),
+    includes: list[str] | None = None,
+) -> None:
+    for kind in kinds:
         src = f"{BUCKET}/{ds}/object_assets/{kind}/{ds}/"
         dst = ASSET_DIR / kind / ds
-        rc = _sync(src, dst, dry_run)
+        rc = _sync(src, dst, dry_run, includes)
         if rc != 0:
             print(
                 f"ERROR: failed to fetch {kind} for '{ds}' from {src} "
@@ -91,6 +102,18 @@ def main() -> None:
         help=f"Dataset name, or 'all' for: {', '.join(DATASETS)}",
     )
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument(
+        "--meshes-only",
+        action="store_true",
+        help="Fetch only meshes/, not urdfs/ (URDFs can be regenerated locally).",
+    )
+    ap.add_argument(
+        "--include",
+        action="append",
+        metavar="PATTERN",
+        help="Restrict to filenames matching PATTERN (repeatable); fetch the rest "
+        "by omitting. E.g. --include '030_cm.obj' --include '005_cm.obj'.",
+    )
     args = ap.parse_args()
 
     targets = DATASETS if args.dataset == "all" else (args.dataset,)
@@ -100,8 +123,9 @@ def main() -> None:
             f"({', '.join(DATASETS)}); trying anyway.",
             file=sys.stderr,
         )
+    kinds = ("meshes",) if args.meshes_only else ("urdfs", "meshes")
     for ds in targets:
-        _fetch_dataset(ds, args.dry_run)
+        _fetch_dataset(ds, args.dry_run, kinds=kinds, includes=args.include)
     print(
         f"done: fetched object_assets for {', '.join(targets)}"
         f"{' (dry-run)' if args.dry_run else ''}"
