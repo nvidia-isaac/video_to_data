@@ -18,6 +18,7 @@ def run_loader(
     output_dir: str,
     mano_model_dir: str,
     human_motion_data_dir: str,
+    object_assets_dir: str | None = None,
     device: str = "cuda:0",
     save: bool = True,
     sequence_pattern: str | None = None,
@@ -27,26 +28,40 @@ def run_loader(
     num_shards: int | None = None,
     dev: bool = False,
 ) -> None:
+    extra_volumes = [
+        f"{os.path.abspath(human_motion_data_dir)}:/data/human_motion_data"
+    ]
+    extra_args: dict[str, object] = {
+        "dataset": dataset,
+        "device": device,
+        "save": save,
+        "sequence_pattern": sequence_pattern,
+        "sequence_id": sequence_id,
+        "max_sequences": max_sequences,
+        "shard_id": shard_id,
+        "num_shards": num_shards,
+    }
+
+    # Object assets (rigid URDFs + meshes). Mount the root containing
+    # `urdfs/<dataset>/` and `meshes/<dataset>/` as ONE volume so the URDFs'
+    # relative `../../meshes/<dataset>/…` refs resolve (MuJoCo loads arctic's
+    # articulated URDF by path and follows those refs).
+    if object_assets_dir is not None:
+        extra_volumes.append(
+            f"{os.path.abspath(object_assets_dir)}:/data/object_assets"
+        )
+        extra_args["object_model_root"] = f"/data/object_assets/urdfs/{dataset}"
+        extra_args["mesh_dir"] = f"/data/object_assets/meshes/{dataset}"
+
     run_in_container(
         image=IMAGE_NAME,
         module="v2d.task_library_loader.lib.run_loader",
         inputs={"mano_model_dir": mano_model_dir},
         outputs={"output_dir": output_dir},
-        extra_args={
-            "dataset": dataset,
-            "device": device,
-            "save": save,
-            "sequence_pattern": sequence_pattern,
-            "sequence_id": sequence_id,
-            "max_sequences": max_sequences,
-            "shard_id": shard_id,
-            "num_shards": num_shards,
-        },
+        extra_args=extra_args,
         # The loaders read raw inputs from $HUMAN_MOTION_DATA_DIR/<dataset>/...
         env={"HUMAN_MOTION_DATA_DIR": "/data/human_motion_data"},
-        extra_volumes=[
-            f"{os.path.abspath(human_motion_data_dir)}:/data/human_motion_data"
-        ],
+        extra_volumes=extra_volumes,
         dev=dev,
         modules_dir=MODULES_DIR,
         gpus=True,
@@ -61,6 +76,12 @@ if __name__ == "__main__":
     parser.add_argument("--output_dir", required=True)
     parser.add_argument("--mano_model_dir", required=True)
     parser.add_argument("--human_motion_data_dir", required=True)
+    parser.add_argument(
+        "--object_assets_dir",
+        default=None,
+        help="Root holding urdfs/<dataset>/ + meshes/<dataset>/ (mounted as one "
+        "volume so URDF '../../meshes/...' refs resolve). Omit for h2o/grab/dexycb.",
+    )
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--save", action="store_true", default=True)
     parser.add_argument("--sequence_pattern", default=None)
@@ -75,6 +96,7 @@ if __name__ == "__main__":
         output_dir=args.output_dir,
         mano_model_dir=args.mano_model_dir,
         human_motion_data_dir=args.human_motion_data_dir,
+        object_assets_dir=args.object_assets_dir,
         device=args.device,
         save=args.save,
         sequence_pattern=args.sequence_pattern,
