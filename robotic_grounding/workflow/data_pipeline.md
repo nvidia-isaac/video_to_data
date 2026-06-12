@@ -81,16 +81,35 @@ The loader also handles dataset-specific preprocessing:
 **Output:** `human_motion_data/{dataset}/{dataset}_loaded/` partitioned by
 `sequence_id` and `robot_name`.
 
-**Command** (run from the `reconstruction` repo / loader image, not here):
+**In-container command** (what runs inside the loader image):
 ```bash
 python -m v2d.task_library_loader.lib.run_loader \
   --dataset <name> \
   --dataset_root <raw_dataset_dir> \
+  --object_model_root <dir with the dataset's *.urdf> \
+  --mesh_dir <dir with the dataset's object meshes> \
   --mano_model_dir <dir with models/MANO_{LEFT,RIGHT}.pkl> \
   --output_dir <path> \
   --device cuda:0 --save
 ```
-or submit `reconstruction/workflows/task_library_load/osmo/load.yaml` on OSMO.
+
+**Run it locally** (host wrapper — mounts the inputs and runs the in-container
+command above). Raw data lives under `<human_motion_data_dir>/<dataset>/dataset/`;
+`--object_assets_dir` is the root holding `urdfs/<dataset>/` + `meshes/<dataset>/`:
+
+```bash
+python -m v2d.task_library_loader.docker.run_loader \
+  --dataset arctic \
+  --human_motion_data_dir <dir containing arctic/dataset/...> \
+  --object_assets_dir <dir containing urdfs/arctic + meshes/arctic> \
+  --mano_model_dir <dir with models/MANO_{LEFT,RIGHT}.pkl> \
+  --output_dir <out> \
+  --max_sequences 2 --save
+```
+
+Omit `--object_assets_dir` for h2o/grab/dexycb (meshes come from the raw dataset).
+
+Or submit `reconstruction/workflows/task_library_load/osmo/load.yaml` on OSMO.
 
 ## Stage 1.5: Generate Rigid URDFs
 
@@ -139,14 +158,29 @@ frames) to the existing Parquet alongside the original MANO and object data.
 **Output:** `human_motion_data/{dataset}/{dataset}_processed/` (same partition
 structure, now includes SHARPA robot fields).
 
-**Command:**
+**Command** (in-container — robotic_grounding image):
 ```bash
 python scripts/retarget/run_retarget.py \
-  --dataset <name> \
+  --dataset <name> --robot sharpa_wave \
   --input_dir <loaded_dir> \
   --output_dir <processed_dir> \
   --device cuda:0 --save
 ```
+
+**Run it locally** (override the image's Isaac Sim entrypoint — retarget is
+pinocchio IK, no sim):
+
+```bash
+docker run --rm --gpus all --entrypoint /bin/bash \
+  -v "$PWD/..:/workspace/video_to_data" \
+  -v <loaded_dir>:/data/loaded -v <processed_dir>:/data/processed \
+  -w /workspace/video_to_data/robotic_grounding \
+  robotic-grounding:<tag> \
+  -c "python scripts/retarget/run_retarget.py --dataset <name> --robot sharpa_wave \
+       --input_dir /data/loaded --output_dir /data/processed --device cuda:0 --save"
+```
+
+(Or `./workflow/run.sh start` then run the in-container command.)
 
 ## Stage 3: Reconstruct Support Surfaces (optional)
 
