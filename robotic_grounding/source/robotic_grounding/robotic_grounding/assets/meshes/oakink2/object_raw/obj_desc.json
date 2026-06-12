@@ -1,3 +1,692 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:8321d47c52bdd7dfa86da38e5dc8a04dcc65d540bd00b710e1de82651abe95df
-size 18664
+{
+  "C10001": {
+    "obj_id": "C10001",
+    "obj_name": "blue mug",
+    "obj_name_zh": "\u84dd\u8272\u9a6c\u514b\u676f"
+  },
+  "C11001": {
+    "obj_id": "C11001",
+    "obj_name": "blue cup",
+    "obj_name_zh": "\u84dd\u8272\u8336\u676f"
+  },
+  "C12001": {
+    "obj_id": "C12001",
+    "obj_name": "bowl",
+    "obj_name_zh": "\u7897"
+  },
+  "C14001": {
+    "obj_id": "C14001",
+    "obj_name": "wineglass",
+    "obj_name_zh": "\u9152\u676f"
+  },
+  "C43001": {
+    "obj_id": "C43001",
+    "obj_name": "gamecontroler",
+    "obj_name_zh": "\u6e38\u620f\u624b\u67c4"
+  },
+  "C51001": {
+    "obj_id": "C51001",
+    "obj_name": "mouse",
+    "obj_name_zh": "\u9f20\u6807"
+  },
+  "O02@0003@00004": {
+    "obj_id": "O02@0003@00004",
+    "obj_name": "cap of toothpaste",
+    "obj_name_zh": "\u7259\u818f\u76d6\u5b50"
+  },
+  "O02@0003@00005": {
+    "obj_id": "O02@0003@00005",
+    "obj_name": "toothpaste tube",
+    "obj_name_zh": "\u7259\u818f\u7ba1\u4f53"
+  },
+  "O02@0003@00006": {
+    "obj_id": "O02@0003@00006",
+    "obj_name": "toothpaste",
+    "obj_name_zh": "\u7259\u818f"
+  },
+  "O02@0010@00003": {
+    "obj_id": "O02@0010@00003",
+    "obj_name": "green mug",
+    "obj_name_zh": "\u7eff\u8272\u9a6c\u514b\u676f"
+  },
+  "O02@0011@00001": {
+    "obj_id": "O02@0011@00001",
+    "obj_name": "little green cup",
+    "obj_name_zh": "\u7eff\u8272\u5c0f\u8336\u676f"
+  },
+  "O02@0011@00002": {
+    "obj_id": "O02@0011@00002",
+    "obj_name": "conical flask",
+    "obj_name_zh": "\u9525\u5f62\u74f6"
+  },
+  "O02@0011@00003": {
+    "obj_id": "O02@0011@00003",
+    "obj_name": "beaker",
+    "obj_name_zh": "\u70e7\u676f"
+  },
+  "O02@0013@00004": {
+    "obj_id": "O02@0013@00004",
+    "obj_name": "teapot cap",
+    "obj_name_zh": "\u74f7\u8336\u58f6\u76d6"
+  },
+  "O02@0013@00005": {
+    "obj_id": "O02@0013@00005",
+    "obj_name": "porcelain teapot body",
+    "obj_name_zh": "\u74f7\u8336\u58f6\u8eab"
+  },
+  "O02@0013@00006": {
+    "obj_id": "O02@0013@00006",
+    "obj_name": "porcelain teapot",
+    "obj_name_zh": "\u74f7\u8336\u58f6"
+  },
+  "O02@0015@00001": {
+    "obj_id": "O02@0015@00001",
+    "obj_name": "large black and yellow striped bottle cap",
+    "obj_name_zh": "\u5927\u7684\u9ed1\u9ec4\u6761\u7eb9\u74f6\u74f6\u76d6"
+  },
+  "O02@0015@00002": {
+    "obj_id": "O02@0015@00002",
+    "obj_name": "large black and yellow striped bottle body",
+    "obj_name_zh": "\u5927\u7684\u9ed1\u9ec4\u6761\u7eb9\u74f6\u74f6\u8eab"
+  },
+  "O02@0015@00003": {
+    "obj_id": "O02@0015@00003",
+    "obj_name": "large black and yellow striped bottle",
+    "obj_name_zh": "\u5927\u7684\u9ed1\u9ec4\u6761\u7eb9\u74f6"
+  },
+  "O02@0015@00004": {
+    "obj_id": "O02@0015@00004",
+    "obj_name": "large white bottle cap",
+    "obj_name_zh": "\u5927\u7684\u767d\u8272\u74f6\u74f6\u76d6"
+  },
+  "O02@0015@00005": {
+    "obj_id": "O02@0015@00005",
+    "obj_name": "large white bottle body",
+    "obj_name_zh": "\u5927\u7684\u767d\u8272\u74f6\u74f6\u8eab"
+  },
+  "O02@0015@00006": {
+    "obj_id": "O02@0015@00006",
+    "obj_name": "large white bottle",
+    "obj_name_zh": "\u5927\u7684\u767d\u8272\u74f6"
+  },
+  "O02@0015@00007": {
+    "obj_id": "O02@0015@00007",
+    "obj_name": "blue striped bottle cap",
+    "obj_name_zh": "\u84dd\u8272\u6761\u7eb9\u74f6\u74f6\u76d6"
+  },
+  "O02@0015@00008": {
+    "obj_id": "O02@0015@00008",
+    "obj_name": "blue striped bottle body",
+    "obj_name_zh": "\u84dd\u8272\u6761\u7eb9\u74f6\u74f6\u8eab"
+  },
+  "O02@0015@00009": {
+    "obj_id": "O02@0015@00009",
+    "obj_name": "blue striped bottle",
+    "obj_name_zh": "\u84dd\u8272\u6761\u7eb9\u74f6"
+  },
+  "O02@0015@00010": {
+    "obj_id": "O02@0015@00010",
+    "obj_name": "green striped bottle cap",
+    "obj_name_zh": "\u7eff\u8272\u6761\u7eb9\u74f6\u74f6\u76d6"
+  },
+  "O02@0015@00011": {
+    "obj_id": "O02@0015@00011",
+    "obj_name": "green striped bottle body",
+    "obj_name_zh": "\u7eff\u8272\u6761\u7eb9\u74f6\u74f6\u8eab"
+  },
+  "O02@0015@00012": {
+    "obj_id": "O02@0015@00012",
+    "obj_name": "green striped bottle",
+    "obj_name_zh": "\u7eff\u8272\u6761\u7eb9\u74f6"
+  },
+  "O02@0015@00013": {
+    "obj_id": "O02@0015@00013",
+    "obj_name": "red striped bottle cap",
+    "obj_name_zh": "\u7ea2\u8272\u6761\u7eb9\u74f6\u74f6\u76d6"
+  },
+  "O02@0015@00014": {
+    "obj_id": "O02@0015@00014",
+    "obj_name": "red striped bottle body",
+    "obj_name_zh": "\u7ea2\u8272\u6761\u7eb9\u74f6\u74f6\u8eab"
+  },
+  "O02@0015@00015": {
+    "obj_id": "O02@0015@00015",
+    "obj_name": "red striped bottle",
+    "obj_name_zh": "\u7ea2\u8272\u6761\u7eb9\u74f6"
+  },
+  "O02@0015@00016": {
+    "obj_id": "O02@0015@00016",
+    "obj_name": "yellow striped bottle cap",
+    "obj_name_zh": "\u9ec4\u8272\u6761\u7eb9\u74f6\u74f6\u76d6"
+  },
+  "O02@0015@00017": {
+    "obj_id": "O02@0015@00017",
+    "obj_name": "yellow striped bottle body",
+    "obj_name_zh": "\u9ec4\u8272\u6761\u7eb9\u74f6\u74f6\u8eab"
+  },
+  "O02@0015@00018": {
+    "obj_id": "O02@0015@00018",
+    "obj_name": "yellow striped bottle",
+    "obj_name_zh": "\u9ec4\u8272\u6761\u7eb9\u74f6"
+  },
+  "O02@0015@00019": {
+    "obj_id": "O02@0015@00019",
+    "obj_name": "gray-green porcelain bottle cap",
+    "obj_name_zh": "\u7070\u7eff\u8272\u74f7\u74f6\u74f6\u76d6"
+  },
+  "O02@0015@00020": {
+    "obj_id": "O02@0015@00020",
+    "obj_name": "gray-green porcelain bottle body",
+    "obj_name_zh": "\u7070\u7eff\u8272\u74f7\u74f6\u74f6\u8eab"
+  },
+  "O02@0015@00021": {
+    "obj_id": "O02@0015@00021",
+    "obj_name": "gray-green porcelain bottle",
+    "obj_name_zh": "\u7070\u7eff\u8272\u74f7\u74f6"
+  },
+  "O02@0015@00022": {
+    "obj_id": "O02@0015@00022",
+    "obj_name": "green and yellow striped bottle cap",
+    "obj_name_zh": "\u9ec4\u7eff\u6761\u7eb9\u74f6\u74f6\u76d6"
+  },
+  "O02@0015@00023": {
+    "obj_id": "O02@0015@00023",
+    "obj_name": "green and yellow striped bottle body",
+    "obj_name_zh": "\u9ec4\u7eff\u6761\u7eb9\u74f6\u74f6\u8eab"
+  },
+  "O02@0015@00024": {
+    "obj_id": "O02@0015@00024",
+    "obj_name": "green and yellow striped bottle",
+    "obj_name_zh": "\u9ec4\u7eff\u6761\u7eb9\u74f6"
+  },
+  "O02@0015@00025": {
+    "obj_id": "O02@0015@00025",
+    "obj_name": "large white narrow-mouth bottle cap",
+    "obj_name_zh": "\u5927\u7684\u767d\u8272\u7a84\u53e3\u74f6\u74f6\u76d6"
+  },
+  "O02@0015@00026": {
+    "obj_id": "O02@0015@00026",
+    "obj_name": "large white narrow-mouth bottle body",
+    "obj_name_zh": "\u5927\u7684\u767d\u8272\u7a84\u53e3\u74f6\u74f6\u8eab"
+  },
+  "O02@0015@00027": {
+    "obj_id": "O02@0015@00027",
+    "obj_name": "large white narrow-mouth bottle",
+    "obj_name_zh": "\u5927\u7684\u767d\u8272\u7a84\u53e3\u74f6"
+  },
+  "O02@0017@00001": {
+    "obj_id": "O02@0017@00001",
+    "obj_name": "plate",
+    "obj_name_zh": "\u789f\u5b50"
+  },
+  "O02@0017@00002": {
+    "obj_id": "O02@0017@00002",
+    "obj_name": "plate",
+    "obj_name_zh": "\u789f\u5b50"
+  },
+  "O02@0018@00001": {
+    "obj_id": "O02@0018@00001",
+    "obj_name": "box lid",
+    "obj_name_zh": "\u76d2\u76d6"
+  },
+  "O02@0018@00002": {
+    "obj_id": "O02@0018@00002",
+    "obj_name": "box body",
+    "obj_name_zh": "\u76d2\u4f53"
+  },
+  "O02@0018@00003": {
+    "obj_id": "O02@0018@00003",
+    "obj_name": "box",
+    "obj_name_zh": "\u76d2\u5b50"
+  },
+  "O02@0019@00001": {
+    "obj_id": "O02@0019@00001",
+    "obj_name": "drawer frame",
+    "obj_name_zh": "\u62bd\u5c49\u6846\u67b6"
+  },
+  "O02@0019@00002": {
+    "obj_id": "O02@0019@00002",
+    "obj_name": "drawer",
+    "obj_name_zh": "\u62bd\u5c49"
+  },
+  "O02@0019@00003": {
+    "obj_id": "O02@0019@00003",
+    "obj_name": "drawer",
+    "obj_name_zh": "\u62bd\u5c49"
+  },
+  "O02@0020@00001": {
+    "obj_id": "O02@0020@00001",
+    "obj_name": "white fruit knife",
+    "obj_name_zh": "\u767d\u8272\u6c34\u679c\u5200"
+  },
+  "O02@0020@00002": {
+    "obj_id": "O02@0020@00002",
+    "obj_name": "white cleaver knife",
+    "obj_name_zh": "\u767d\u8272\u83dc\u5200"
+  },
+  "O02@0025@00001": {
+    "obj_id": "O02@0025@00001",
+    "obj_name": "toothbrush",
+    "obj_name_zh": "\u7259\u5237"
+  },
+  "O02@0026@00001": {
+    "obj_id": "O02@0026@00001",
+    "obj_name": "fryingpan",
+    "obj_name_zh": "\u5e73\u5e95\u9505"
+  },
+  "O02@0028@00001": {
+    "obj_id": "O02@0028@00001",
+    "obj_name": "lightbulb",
+    "obj_name_zh": "\u706f\u6ce1"
+  },
+  "O02@0029@00001": {
+    "obj_id": "O02@0029@00001",
+    "obj_name": "pen body",
+    "obj_name_zh": "\u7b14\u8eab"
+  },
+  "O02@0029@00002": {
+    "obj_id": "O02@0029@00002",
+    "obj_name": "pen cap",
+    "obj_name_zh": "\u7b14\u76d6"
+  },
+  "O02@0029@00003": {
+    "obj_id": "O02@0029@00003",
+    "obj_name": "pen",
+    "obj_name_zh": "\u7b14"
+  },
+  "O02@0029@00007": {
+    "obj_id": "O02@0029@00007",
+    "obj_name": "pencil",
+    "obj_name_zh": "\u94c5\u7b14"
+  },
+  "O02@0029@00008": {
+    "obj_id": "O02@0029@00008",
+    "obj_name": "whiteboard pen body",
+    "obj_name_zh": "\u767d\u677f\u7b14\u8eab"
+  },
+  "O02@0029@00009": {
+    "obj_id": "O02@0029@00009",
+    "obj_name": "whiteboard pen cap",
+    "obj_name_zh": "\u767d\u677f\u7b14\u76d6"
+  },
+  "O02@0029@00010": {
+    "obj_id": "O02@0029@00010",
+    "obj_name": "whiteboard pen",
+    "obj_name_zh": "\u767d\u677f\u7b14"
+  },
+  "O02@0029@00011": {
+    "obj_id": "O02@0029@00011",
+    "obj_name": "whiteboard pen body",
+    "obj_name_zh": "\u767d\u677f\u7b14\u8eab"
+  },
+  "O02@0029@00012": {
+    "obj_id": "O02@0029@00012",
+    "obj_name": "whiteboard pen cap",
+    "obj_name_zh": "\u767d\u677f\u7b14\u76d6"
+  },
+  "O02@0029@00013": {
+    "obj_id": "O02@0029@00013",
+    "obj_name": "whiteboard pen",
+    "obj_name_zh": "\u767d\u677f\u7b14"
+  },
+  "O02@0030@00002": {
+    "obj_id": "O02@0030@00002",
+    "obj_name": "spoon",
+    "obj_name_zh": "\u8c03\u7fb9"
+  },
+  "O02@0031@00002": {
+    "obj_id": "O02@0031@00002",
+    "obj_name": "fork",
+    "obj_name_zh": "\u53c9\u5b50"
+  },
+  "O02@0032@00001": {
+    "obj_id": "O02@0032@00001",
+    "obj_name": "tongs",
+    "obj_name_zh": "\u5939\u5b50"
+  },
+  "O02@0032@00002": {
+    "obj_id": "O02@0032@00002",
+    "obj_name": "tongs",
+    "obj_name_zh": "\u5939\u5b50"
+  },
+  "O02@0032@00003": {
+    "obj_id": "O02@0032@00003",
+    "obj_name": "tongs",
+    "obj_name_zh": "\u5939\u5b50"
+  },
+  "O02@0033@00001": {
+    "obj_id": "O02@0033@00001",
+    "obj_name": "rod",
+    "obj_name_zh": "\u6405\u62cc\u68d2"
+  },
+  "O02@0033@00002": {
+    "obj_id": "O02@0033@00002",
+    "obj_name": "glass rod",
+    "obj_name_zh": "\u73bb\u7483\u68d2"
+  },
+  "O02@0035@00001": {
+    "obj_id": "O02@0035@00001",
+    "obj_name": "scissors",
+    "obj_name_zh": "\u526a\u5200"
+  },
+  "O02@0035@00002": {
+    "obj_id": "O02@0035@00002",
+    "obj_name": "scissors",
+    "obj_name_zh": "\u526a\u5200"
+  },
+  "O02@0035@00003": {
+    "obj_id": "O02@0035@00003",
+    "obj_name": "scissors",
+    "obj_name_zh": "\u526a\u5200"
+  },
+  "O02@0037@00001": {
+    "obj_id": "O02@0037@00001",
+    "obj_name": "stapler lever",
+    "obj_name_zh": "\u8ba2\u4e66\u673a\u538b\u6746"
+  },
+  "O02@0037@00002": {
+    "obj_id": "O02@0037@00002",
+    "obj_name": "stapler base",
+    "obj_name_zh": "\u8ba2\u4e66\u673a\u5e95\u5ea7"
+  },
+  "O02@0037@00003": {
+    "obj_id": "O02@0037@00003",
+    "obj_name": "stapler",
+    "obj_name_zh": "\u8ba2\u4e66\u673a"
+  },
+  "O02@0038@00001": {
+    "obj_id": "O02@0038@00001",
+    "obj_name": "scale",
+    "obj_name_zh": "\u79e4"
+  },
+  "O02@0039@00001": {
+    "obj_id": "O02@0039@00001",
+    "obj_name": "microwave oven cavity",
+    "obj_name_zh": "\u5fae\u6ce2\u7089\u8154\u4f53"
+  },
+  "O02@0039@00002": {
+    "obj_id": "O02@0039@00002",
+    "obj_name": "microwave oven gate",
+    "obj_name_zh": "\u5fae\u6ce2\u7089\u95e8"
+  },
+  "O02@0039@00003": {
+    "obj_id": "O02@0039@00003",
+    "obj_name": "microwave oven",
+    "obj_name_zh": "\u5fae\u6ce2\u7089"
+  },
+  "O02@0039@00004": {
+    "obj_id": "O02@0039@00004",
+    "obj_name": "microwave oven gate lever",
+    "obj_name_zh": "\u5fae\u6ce2\u7089\u95e8\u6813"
+  },
+  "O02@0044@00001": {
+    "obj_id": "O02@0044@00001",
+    "obj_name": "pencil sharpener base",
+    "obj_name_zh": "\u5377\u7b14\u5200\u5e95\u5ea7"
+  },
+  "O02@0044@00002": {
+    "obj_id": "O02@0044@00002",
+    "obj_name": "pencil sharpener handle",
+    "obj_name_zh": "\u5377\u7b14\u5200\u624b\u67c4"
+  },
+  "O02@0044@00003": {
+    "obj_id": "O02@0044@00003",
+    "obj_name": "pencil sharpener",
+    "obj_name_zh": "\u5377\u7b14\u5200"
+  },
+  "O02@0045@00001": {
+    "obj_id": "O02@0045@00001",
+    "obj_name": "lamp base",
+    "obj_name_zh": "\u53f0\u706f\u5e95\u5ea7"
+  },
+  "O02@0045@00002": {
+    "obj_id": "O02@0045@00002",
+    "obj_name": "lamp head",
+    "obj_name_zh": "\u53f0\u706f\u706f\u5934"
+  },
+  "O02@0045@00003": {
+    "obj_id": "O02@0045@00003",
+    "obj_name": "lamp",
+    "obj_name_zh": "\u53f0\u706f"
+  },
+  "O02@0047@00001": {
+    "obj_id": "O02@0047@00001",
+    "obj_name": "usb hub",
+    "obj_name_zh": "usb\u6269\u5c55\u575e"
+  },
+  "O02@0047@00002": {
+    "obj_id": "O02@0047@00002",
+    "obj_name": "usb stick",
+    "obj_name_zh": "usb\u5b58\u50a8"
+  },
+  "O02@0048@00001": {
+    "obj_id": "O02@0048@00001",
+    "obj_name": "power plug",
+    "obj_name_zh": "\u7535\u6e90\u63d2\u5934"
+  },
+  "O02@0048@00002": {
+    "obj_id": "O02@0048@00002",
+    "obj_name": "power socket",
+    "obj_name_zh": "\u7535\u6e90\u63d2\u5ea7"
+  },
+  "O02@0049@00001": {
+    "obj_id": "O02@0049@00001",
+    "obj_name": "tape",
+    "obj_name_zh": "\u80f6\u5e26"
+  },
+  "O02@0053@00001": {
+    "obj_id": "O02@0053@00001",
+    "obj_name": "laptop lid",
+    "obj_name_zh": "\u7b14\u8bb0\u672c\u7535\u8111\u76d6\u5b50"
+  },
+  "O02@0053@00002": {
+    "obj_id": "O02@0053@00002",
+    "obj_name": "laptop base",
+    "obj_name_zh": "\u7b14\u8bb0\u672c\u7535\u8111\u4e3b\u4f53"
+  },
+  "O02@0053@00003": {
+    "obj_id": "O02@0053@00003",
+    "obj_name": "laptop",
+    "obj_name_zh": "\u7b14\u8bb0\u672c\u7535\u8111"
+  },
+  "O02@0054@00001": {
+    "obj_id": "O02@0054@00001",
+    "obj_name": "whiteboard",
+    "obj_name_zh": "\u767d\u677f"
+  },
+  "O02@0055@00001": {
+    "obj_id": "O02@0055@00001",
+    "obj_name": "whiteboard eraser",
+    "obj_name_zh": "\u767d\u677f\u64e6"
+  },
+  "O02@0055@00002": {
+    "obj_id": "O02@0055@00002",
+    "obj_name": "whiteboard eraser",
+    "obj_name_zh": "\u767d\u677f\u64e6"
+  },
+  "O02@0056@00001": {
+    "obj_id": "O02@0056@00001",
+    "obj_name": "paper",
+    "obj_name_zh": "\u7eb8"
+  },
+  "O02@0056@00002": {
+    "obj_id": "O02@0056@00002",
+    "obj_name": "paper",
+    "obj_name_zh": "\u7eb8"
+  },
+  "O02@0056@00003": {
+    "obj_id": "O02@0056@00003",
+    "obj_name": "paper",
+    "obj_name_zh": "\u7eb8"
+  },
+  "O02@0060@00001": {
+    "obj_id": "O02@0060@00001",
+    "obj_name": "book",
+    "obj_name_zh": "\u4e66"
+  },
+  "O02@0060@00002": {
+    "obj_id": "O02@0060@00002",
+    "obj_name": "book",
+    "obj_name_zh": "\u4e66"
+  },
+  "O02@0060@00003": {
+    "obj_id": "O02@0060@00003",
+    "obj_name": "book",
+    "obj_name_zh": "\u4e66"
+  },
+  "O02@0080@00001": {
+    "obj_id": "O02@0080@00001",
+    "obj_name": "vase",
+    "obj_name_zh": "\u82b1\u74f6"
+  },
+  "O02@0081@00001": {
+    "obj_id": "O02@0081@00001",
+    "obj_name": "flower",
+    "obj_name_zh": "\u82b1"
+  },
+  "O02@0090@00001": {
+    "obj_id": "O02@0090@00001",
+    "obj_name": "apple",
+    "obj_name_zh": "\u82f9\u679c"
+  },
+  "O02@0090@00002": {
+    "obj_id": "O02@0090@00002",
+    "obj_name": "apple",
+    "obj_name_zh": "\u82f9\u679c"
+  },
+  "O02@0090@00003": {
+    "obj_id": "O02@0090@00003",
+    "obj_name": "apple",
+    "obj_name_zh": "\u82f9\u679c"
+  },
+  "O02@0092@00001": {
+    "obj_id": "O02@0092@00001",
+    "obj_name": "pear",
+    "obj_name_zh": "\u68a8"
+  },
+  "O02@0092@00002": {
+    "obj_id": "O02@0092@00002",
+    "obj_name": "pear",
+    "obj_name_zh": "\u68a8"
+  },
+  "O02@0092@00003": {
+    "obj_id": "O02@0092@00003",
+    "obj_name": "pear",
+    "obj_name_zh": "\u68a8"
+  },
+  "O02@0094@00001": {
+    "obj_id": "O02@0094@00001",
+    "obj_name": "bread",
+    "obj_name_zh": "\u9762\u5305"
+  },
+  "O02@0094@00002": {
+    "obj_id": "O02@0094@00002",
+    "obj_name": "bread",
+    "obj_name_zh": "\u9762\u5305"
+  },
+  "O02@0094@00003": {
+    "obj_id": "O02@0094@00003",
+    "obj_name": "bread",
+    "obj_name_zh": "\u9762\u5305"
+  },
+  "O02@0094@00004": {
+    "obj_id": "O02@0094@00004",
+    "obj_name": "bread",
+    "obj_name_zh": "\u9762\u5305"
+  },
+  "O02@0094@00005": {
+    "obj_id": "O02@0094@00005",
+    "obj_name": "bread",
+    "obj_name_zh": "\u9762\u5305"
+  },
+  "O02@0100@00001": {
+    "obj_id": "O02@0100@00001",
+    "obj_name": "sponge",
+    "obj_name_zh": "\u6d77\u7ef5"
+  },
+  "O02@0200@00001": {
+    "obj_id": "O02@0200@00001",
+    "obj_name": "ignitor",
+    "obj_name_zh": "\u70b9\u706b\u5668"
+  },
+  "O02@0201@00001": {
+    "obj_id": "O02@0201@00001",
+    "obj_name": "tripod",
+    "obj_name_zh": "\u4e09\u811a\u67b6"
+  },
+  "O02@0202@00001": {
+    "obj_id": "O02@0202@00001",
+    "obj_name": "test tube",
+    "obj_name_zh": "\u8bd5\u7ba1"
+  },
+  "O02@0202@00002": {
+    "obj_id": "O02@0202@00002",
+    "obj_name": "test tube",
+    "obj_name_zh": "\u8bd5\u7ba1"
+  },
+  "O02@0203@00001": {
+    "obj_id": "O02@0203@00001",
+    "obj_name": "test tube holder",
+    "obj_name_zh": "\u8bd5\u7ba1\u5939"
+  },
+  "O02@0203@00002": {
+    "obj_id": "O02@0203@00002",
+    "obj_name": "test tube holder",
+    "obj_name_zh": "\u8bd5\u7ba1\u5939"
+  },
+  "O02@0203@00003": {
+    "obj_id": "O02@0203@00003",
+    "obj_name": "test tube holder",
+    "obj_name_zh": "\u8bd5\u7ba1\u5939"
+  },
+  "O02@0204@00001": {
+    "obj_id": "O02@0204@00001",
+    "obj_name": "test tube rack",
+    "obj_name_zh": "\u8bd5\u7ba1\u67b6"
+  },
+  "O02@0205@00001": {
+    "obj_id": "O02@0205@00001",
+    "obj_name": "asbestos mesh",
+    "obj_name_zh": "\u77f3\u68c9\u7f51"
+  },
+  "O02@0206@00001": {
+    "obj_id": "O02@0206@00001",
+    "obj_name": "alcohol burner cap",
+    "obj_name_zh": "\u9152\u7cbe\u706f\u5e3d"
+  },
+  "O02@0206@00002": {
+    "obj_id": "O02@0206@00002",
+    "obj_name": "alcohol burner",
+    "obj_name_zh": "\u9152\u7cbe\u706f"
+  },
+  "O02@0206@00003": {
+    "obj_id": "O02@0206@00003",
+    "obj_name": "alcohol burner",
+    "obj_name_zh": "\u9152\u7cbe\u706f"
+  },
+  "O93001": {
+    "obj_id": "O93001",
+    "obj_name": "donut",
+    "obj_name_zh": "\u751c\u751c\u5708"
+  },
+  "S10001": {
+    "obj_id": "S10001",
+    "obj_name": "yellow mug",
+    "obj_name_zh": "\u9ec4\u8272\u9a6c\u514b\u676f"
+  },
+  "S10020": {
+    "obj_id": "S10020",
+    "obj_name": "orange mug",
+    "obj_name_zh": "\u6a59\u8272\u9a6c\u514b\u676f"
+  },
+  "S10021": {
+    "obj_id": "S10021",
+    "obj_name": "tall blue mug",
+    "obj_name_zh": "\u8f83\u9ad8\u7684\u84dd\u8272\u9a6c\u514b\u676f"
+  },
+  "S20005": {
+    "obj_id": "S20005",
+    "obj_name": "orange cleaver knife",
+    "obj_name_zh": "\u6a59\u8272\u83dc\u5200"
+  }
+}
