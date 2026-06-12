@@ -110,13 +110,13 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Checkout (for docs/index.html)
+      - name: Checkout (for docs static site)
         uses: actions/checkout@v4
 
-      - name: Stage landing page
+      - name: Stage static docs site
         run: |
           mkdir -p _site
-          cp docs/index.html _site/index.html
+          cp -r docs/. _site/
 
       - name: Download all package docs artifacts
         uses: actions/download-artifact@v4

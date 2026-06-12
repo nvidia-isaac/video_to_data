@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="description"
+    content="CHORD: Contact Wrench Guidance from Human Demonstrations in Robotic Dexterous Manipulation">
+  <meta name="keywords" content="Dexterous Manipulation, Human Demonstrations, RL">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>
+    Learning Dexterous Manipulation Using Contact Wrench Guidance From Human Demonstration
+  </title>
+
+  <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro|Merriweather:wght@900" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="./static/css/index.css">
+
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+</head>
+
+<body>
+
+<!-- ============================================ -->
+<!-- HERO: title, authors links, section nav      -->
+<!-- ============================================ -->
+<section class="hero is-link is-fullheight chord-hero" id="hero" style="overflow: hidden; position:relative; background: linear-gradient(135deg, #1f3a5f 0%, #4a6fa5 100%);">
+  <video class="hero-background-video" autoplay muted loop playsinline preload="metadata" aria-hidden="true">
+    <source src="./assets/videos/website-2-web.mp4" type="video/mp4">
+  </video>
+  <div class="overlay"></div>
+
+  <!-- Top nav: paper, arxiv, video, code -->
+  <div class="hero-head is-hidden-mobile">
+    <header class="navbar">
+      <div class="container is-size-5">
+        <div class="navbar-menu">
+          <div class="navbar-end">
+            <span class="navbar-item nav-disabled pl-4 pr-4" aria-disabled="true">
+              <span class="icon" style="margin-right:5px;">
+                <i class="fas fa-file-pdf"></i>
+              </span>
+              <span>Paper <small>(coming soon)</small></span>
+            </span>
+            <span class="navbar-item nav-disabled pl-4 pr-4" aria-disabled="true">
+              <span class="icon" style="margin-right:5px;">
+                <i class="ai ai-arxiv"></i>
+              </span>
+              <span>arXiv <small>(coming soon)</small></span>
+            </span>
+            <span class="navbar-item nav-disabled pl-4 pr-4" aria-disabled="true">
+              <span class="button is-inverted is-large nav-disabled-button" aria-disabled="true">
+                <span class="icon">
+                  <i class="fab fa-github"></i>
+                </span>
+                <span>Code <small>(coming soon)</small></span>
+              </span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </header>
+  </div>
+
+  <!-- Hero wordmark -->
+  <div class="hero-body">
+    <div class="container has-text-centered">
+      <div class="chord-wordmark" aria-label="CHORD">CHORD</div>
+      <!-- Mobile link buttons -->
+      <div class="column has-text-centered is-hidden-tablet">
+        <div class="publication-links">
+          <span class="link-block">
+            <span class="external-link button is-normal is-rounded is-dark nav-disabled-button" aria-disabled="true">
+              <span class="icon"><i class="fas fa-file-pdf"></i></span>
+              <span>Paper <small>(coming soon)</small></span>
+            </span>
+          </span>
+          <span class="link-block">
+            <span class="external-link button is-normal is-rounded is-dark nav-disabled-button" aria-disabled="true">
+              <span class="icon"><i class="ai ai-arxiv"></i></span>
+              <span>arXiv <small>(coming soon)</small></span>
+            </span>
+          </span>
+          <span class="link-block">
+            <span class="external-link button is-normal is-rounded is-dark nav-disabled-button" aria-disabled="true">
+              <span class="icon"><i class="fab fa-youtube"></i></span>
+              <span>Video <small>(coming soon)</small></span>
+            </span>
+          </span>
+          <span class="link-block">
+            <span class="external-link button is-normal is-rounded is-dark nav-disabled-button" aria-disabled="true">
+              <span class="icon"><i class="fab fa-github"></i></span>
+              <span>Code <small>(coming soon)</small></span>
+            </span>
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom in-page nav -->
+  <div class="hero-foot is-hidden-mobile">
+    <nav class="tabs is-boxed is-fullwidth is-size-5">
+      <ul>
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#abstract">Abstract</a></li>
+        <li><a href="#method">Method</a></li>
+        <li><a href="#results">Results</a></li>
+        <!-- <li><a href="#qa">Q &amp; A</a></li> -->
+      </ul>
+    </nav>
+  </div>
+</section>
+
+<!-- ============================================ -->
+<!-- PAPER TITLE / AUTHORS                         -->
+<!-- ============================================ -->
+<section class="section paper-header-section">
+  <div class="container has-text-centered is-max-widescreen">
+    <h1 class="title is-1 publication-title paper-title is-size-1-mobile">
+      Learning Dexterous Manipulation Using Contact Wrench Guidance From Human Demonstration
+    </h1>
+    <div class="publication-authors paper-authors" aria-label="Authors">
+      <div class="paper-author-list">
+        <div class="paper-author-line">
+          <span class="author-block">Xinghao Zhu<sup>*, &Dagger;</sup></span>
+          <span class="author-block">Zixi Liu<sup>*</sup></span>
+          <span class="author-block">Shalin Jain<sup>*</sup></span>
+          <span class="author-block">Chenran Li<sup>&dagger;</sup></span>
+          <span class="author-block">Milad Noori<sup>&dagger;</sup></span>
+          <span class="author-block">Huihua Zhao</span>
+          <span class="author-block">John Welsh</span>
+        </div>
+        <div class="paper-author-line">
+          <span class="author-block">Michael Andres Lin</span>
+          <span class="author-block">Wei Liu</span>
+          <span class="author-block">Tingwu Wang</span>
+          <span class="author-block">Xingye Da</span>
+          <span class="author-block">Zhengyi Luo</span>
+          <span class="author-block">Vishal Kulkarni</span>
+          <span class="author-block">Naema Bhatti</span>
+        </div>
+        <div class="paper-author-line">
+          <span class="author-block">Yuke Zhu</span>
+          <span class="author-block">Linxi Fan</span>
+          <span class="author-block">Bowen Wen</span>
+          <span class="author-block">Danfei Xu</span>
+          <span class="author-block">Soha Pouya</span>
+          <span class="author-block">Yan Chang<sup>&Dagger;</sup></span>
+        </div>
+      </div>
+      <div class="paper-author-notes">
+        <span><sup>*</sup>Equal Contribution</span>
+        <span><sup>&dagger;</sup>Core Contributor</span>
+        <span><sup>&Dagger;</sup>Project Lead and Corresponding Author</span>
+      </div>
+      <div class="paper-affiliation">
+        <img src="./assets/pics/NVLogo_2D_H.jpg" alt="NVIDIA" class="paper-affiliation-logo">
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================ -->
+<!-- OVERVIEW VIDEO                                -->
+<!-- ============================================ -->
+<section class="section is-medium project-video-section" id="overview">
+  <div class="container is-max-widescreen">
+    <h2 class="title is-1 has-text-centered is-size-4-mobile">Overview</h2>
+    <figure class="project-video-frame">
+      <video controls playsinline preload="metadata">
+        <source src="./assets/videos/main-video-web.mp4" type="video/mp4">
+      </video>
+    </figure>
+  </div>
+</section>
+
+<!-- ============================================ -->
+<!-- OVERVIEW / TL;DR                              -->
+<!-- ============================================ -->
+<section class="section is-medium" id="abstract">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-1 has-text-centered is-size-4-mobile">Abstract</h2>
+        <div class="abstract-copy">
+          <p>
+            Dexterous robot manipulation can benefit from the abundance of human demonstrations, but transferring such
+            demonstrations to robot policies remains challenging. We present CHORD, a framework for long-horizon
+            manipulation of rigid and articulated objects with reinforcement learning. The key idea is object-centric
+            contact wrench space guidance: we represent human and robot motions by the forces and torques they can induce
+            on the object, enabling similarity to be measured by the induced instantaneous motions.
+          </p>
+          <p>
+            This guidance makes reinforcement learning more scalable for contact-rich dexterous manipulation. We further
+            introduce a large-scale simulation benchmark with 4,739 bimanual dexterous manipulation tasks, constructed
+            from motion-capture datasets and reconstructed in-house videos. Evaluated on 1,831 benchmark tasks, CHORD
+            achieves an average success rate of 82.12%, demonstrating strong scalability. CHORD also generalizes to
+            whole-body manipulation from hand-only and third-person demonstrations, achieving a 90.77% success rate, and
+            the learned policies transfer to the real world in both open-loop and closed-loop settings.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================ -->
+<!-- METHOD                                        -->
+<!-- ============================================ -->
+<section class="section is-small" id="method">
+  <div class="container is-max-widescreen">
+    <div class="columns is-centered">
+      <div class="column is-11">
+        <h2 class="title is-1 has-text-centered is-size-4-mobile">Method</h2>
+        <h3 class="method-insight-heading">From Where to How: Contact Wrench Guidance</h3>
+        <p class="method-insight-tagline">
+          Position guidance targets where contact occurs; wrench guidance targets how contact affects object motion.
+        </p>
+
+        <div class="method-triangle" aria-label="Method overview: human demonstration, position marker, and wrench guidance">
+          <figure class="method-panel method-panel-human">
+            <img src="./assets/pics/Box%20Use%20Human.png" alt="Human hand demonstration at a box contact point">
+            <figcaption>Human demonstration</figcaption>
+          </figure>
+
+          <figure class="method-panel method-panel-marker method-panel-interactive" tabindex="0">
+            <img src="./assets/pics/Box%20Use%20Position%20Marker.png" alt="Robot hand using a position marker at the contact point">
+            <figcaption>Position Guidance</figcaption>
+            <div class="method-callout">
+              <h3>Position Guidance</h3>
+              <img class="method-callout-image" src="./assets/pics/Box%20Use%20Position%20Result.png" alt="Position marker manipulation result">
+              <p>
+                Position guidance treats the demonstrated contact location as the target. In the box-opening example,
+                the red marker denotes the human contact, while the green heat map highlights nearby locations that
+                appear similarly plausible under a position-matching objective.
+              </p>
+              <p>
+                However, contact locations that are close in space can induce different contact normals, moment arms,
+                and force directions. As a result, matching where contact occurs may still produce unstable or
+                undesired object motion.
+              </p>
+            </div>
+          </figure>
+
+          <figure class="method-panel method-panel-wrench method-panel-interactive" tabindex="0">
+            <img src="./assets/pics/Box%20Use%20Wrench%20Arrow%20.png" alt="Robot hand with contact wrench arrow guidance">
+            <figcaption>Wrench Guidance</figcaption>
+            <div class="method-callout">
+              <h3>Wrench Guidance</h3>
+              <img class="method-callout-image" src="./assets/pics/Box%20Use%20Wrench%20Result.png" alt="Wrench guidance manipulation result">
+              <p>
+                Wrench guidance treats the demonstrated interaction effect as the target. CHORD represents each contact
+                with a six-dimensional wrench that combines force and torque, computed from the contact location,
+                surface normal, and moment arm to the object.
+              </p>
+              <p>
+                Matching contact wrenches asks <strong>how</strong> the human contact influenced the object's motion,
+                encouraging the robot to reproduce the force-and-torque generation responsible for the demonstrated
+                manipulation.
+              </p>
+            </div>
+          </figure>
+        </div>
+
+        <div class="method-subsection">
+          <h3 class="method-subsection-heading">Reward Formulation</h3>
+          <p class="method-subsection-tagline">
+            CHORD turns demonstrated contacts and contact wrenches into rewards for learning dexterous robot-hand
+            policies.
+          </p>
+          <figure class="method-wide-figure method-reward-map">
+            <img src="./assets/pics/Method.png" alt="Overview of CHORD reward formulation from reference contact to contact wrench reward">
+            <button class="method-hotspot method-hotspot-left" type="button" aria-label="Reference contact explanation">
+              <span class="method-hotspot-card">
+                <span class="method-hotspot-title">Extract Human Contacts</span>
+                <span class="method-hotspot-copy">
+                  Given a human demonstration, CHORD extracts the demonstrated contact events and estimates their local
+                  friction constraints. Here, we illustrate these constraints with contact friction cones.
+                </span>
+              </span>
+            </button>
+            <button class="method-hotspot method-hotspot-center-top" type="button" aria-label="Imitation reward explanation">
+              <span class="method-hotspot-card">
+                <span class="method-hotspot-title">Human Contact Wrench</span>
+                <span class="method-hotspot-copy">
+                  For each frame and each hand, CHORD computes a human contact wrench. Here, we visualize the induced
+                  wrench manifold. In the first two frames, the right hand forms a stable grasp and the manifold spans many
+                  directions, indicating rich force and torque authority. In the third frame, contact occurs primarily
+                  from below, so the manifold covers a smaller region and reflects more limited control over object
+                  motion.
+                </span>
+              </span>
+            </button>
+            <button class="method-hotspot method-hotspot-center-bottom" type="button" aria-label="Contact matching explanation">
+              <span class="method-hotspot-card">
+                <span class="method-hotspot-title">Policy Contact Wrench</span>
+                <span class="method-hotspot-copy">
+                  The blue manifolds show the wrench distributions generated by the learned policy. For the right-hand
+                  example, the learned manifold closely matches the demonstration across frames, indicating that the
+                  robot has acquired comparable force and torque generation capabilities and can induce the intended
+                  object motion.
+                </span>
+              </span>
+            </button>
+            <button class="method-hotspot method-hotspot-right" type="button" aria-label="Contact wrench reward explanation">
+              <span class="method-hotspot-card">
+                <span class="method-hotspot-title">Imitation + Contact Wrench</span>
+                <span class="method-hotspot-copy">
+                  CHORD combines imitation and contact-wrench rewards from these references to train a dexterous
+                  robot-hand policy.
+                </span>
+              </span>
+            </button>
+          </figure>
+
+          <h3 class="method-subsection-heading method-benchmark-heading">
+            Dexterous Manipulation Benchmark with Human References
+          </h3>
+          <p class="method-subsection-tagline method-benchmark-tagline">
+            The benchmark spans large-scale, long-horizon, contact-rich tasks paired with human demonstrations,
+            covering rigid, articulated, and multi-object manipulation.
+          </p>
+          <figure class="method-benchmark-figure">
+            <img src="./assets/pics/wrench_distribution_highlights.png" alt="Dexterous manipulation benchmark with human reference wrench distribution highlights">
+          </figure>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================ -->
+<!-- RESULTS                                       -->
+<!-- ============================================ -->
+<section class="section is-small" id="results">
+  <div class="container is-max-widescreen">
+    <div class="columns is-centered">
+      <div class="column is-11">
+        <h2 class="title is-1 has-text-centered is-size-4-mobile">Results</h2>
+
+        <div class="results-story">
+          <p class="results-lede">
+            CHORD uses a unified contact-wrench representation to transfer human manipulation skills across
+            long-horizon tasks, diverse objects, whole-body behaviors, and real-world hardware.
+          </p>
+        </div>
+
+        <div class="result-benchmark-showcase">
+          <h3 class="result-benchmark-heading">Benchmark Scale and Performance</h3>
+          <p class="result-benchmark-subtitle">
+            Evaluation on the Dexterous Manipulation Benchmark with Human References.
+          </p>
+          <video class="result-benchmark-video" autoplay muted loop playsinline preload="metadata">
+            <source src="./assets/videos/many%20task-web.mp4" type="video/mp4">
+          </video>
+          <p class="result-benchmark-copy">
+            To evaluate at scale, we open-source 4,739 simulation-ready dexterous manipulation tasks paired with human
+            demonstrations. Across 1,831 diverse manipulation evaluations, CHORD achieves an average success rate of
+            82.12%.
+          </p>
+        </div>
+
+        <div class="result-subsection">
+          <h3 class="result-subsection-heading">Long-Horizon Manipulation</h3>
+          <p class="result-subsection-tagline">
+            CHORD preserves contact intent over extended manipulation sequences with dense contact events.
+          </p>
+          <div class="result-video-grid result-video-grid-four">
+            <figure class="result-video-card">
+              <video class="result-video" autoplay muted loop playsinline preload="metadata">
+                <source src="./assets/videos/sim/long/capsulemachine_one_finger-web.mp4" type="video/mp4">
+              </video>
+              <figcaption>Capsule Machine</figcaption>
+            </figure>
+            <figure class="result-video-card">
+              <video class="result-video" autoplay muted loop playsinline preload="metadata">
+                <source src="./assets/videos/sim/long/s01_notebook_use_01-web.mp4" type="video/mp4">
+              </video>
+              <figcaption>Notebook</figcaption>
+            </figure>
+            <figure class="result-video-card">
+              <video class="result-video" autoplay muted loop playsinline preload="metadata">
+                <source src="./assets/videos/sim/long/s02_mixer_use_04-web.mp4" type="video/mp4">
+              </video>
+              <figcaption>Mixer</figcaption>
+            </figure>
+            <figure class="result-video-card">
+              <video class="result-video" autoplay muted loop playsinline preload="metadata">
+                <source src="./assets/videos/sim/long/s04_box_use_02-web.mp4" type="video/mp4">
+              </video>
+              <figcaption>Box</figcaption>
+            </figure>
+          </div>
+        </div>
+
+        <div class="result-subsection">
+          <h3 class="result-subsection-heading">Diverse Object Interactions</h3>
+          <p class="result-subsection-tagline">
+            Contact-wrench guidance transfers across grasping, reorientation, handovers, tool use, and rigid,
+            articulated, or multi-object manipulation.
+          </p>
+          <div class="result-video-grid result-video-grid-six">
+            <figure class="result-video-card">
+              <video class="result-video" autoplay muted loop playsinline preload="metadata">
+                <source src="./assets/videos/sim/diverse/grasping_1%262_hand-web.mp4" type="video/mp4">
+              </video>
+              <figcaption>Two-Hand Grasp</figcaption>
+            </figure>
+            <figure class="result-video-card">
+              <video class="result-video" autoplay muted loop playsinline preload="metadata">
+                <source src="./assets/videos/sim/diverse/pick_rotate_use_eraser-web.mp4" type="video/mp4">
+              </video>
+              <figcaption>Eraser Pick-and-Rotate</figcaption>
+            </figure>
+            <figure class="result-video-card">
+              <video class="result-video" autoplay muted loop playsinline preload="metadata">
+                <source src="./assets/videos/sim/diverse/hand_over_spatula-web.mp4" type="video/mp4">
+              </video>
+              <figcaption>Spatula Handover</figcaption>
+            </figure>
+            <figure class="result-video-card">
+              <video class="result-video" autoplay muted loop playsinline preload="metadata">
+                <source src="./assets/videos/sim/diverse/spatula_rotate-web.mp4" type="video/mp4">
+              </video>
+              <figcaption>Spatula Rotation</figcaption>
+            </figure>
+            <figure class="result-video-card">
+              <video class="result-video" autoplay muted loop playsinline preload="metadata">
+                <source src="./assets/videos/sim/diverse/milk_handover-web.mp4" type="video/mp4">
+              </video>
+              <figcaption>Milk Handover</figcaption>
+            </figure>
+            <figure class="result-video-card">
+              <video class="result-video" autoplay muted loop playsinline preload="metadata">
+                <source src="./assets/videos/sim/diverse/grasping-web.mp4" type="video/mp4">
+              </video>
+              <figcaption>Grasping</figcaption>
+            </figure>
+          </div>
+        </div>
+
+        <div class="result-subsection">
+          <h3 class="result-subsection-heading">Real-World Deployment</h3>
+          <p class="result-subsection-tagline">
+            Learned policies transfer from simulation to real dexterous hands while preserving contact-driven object
+            motion.
+          </p>
+          <div class="result-video-grid result-video-grid-four">
+            <figure class="result-video-card">
+              <video class="result-video result-video-real" autoplay muted loop playsinline preload="metadata">
+                <source src="./assets/videos/real/Box-web.mp4" type="video/mp4">
+              </video>
+              <span class="result-speed-badge">3X</span>
+              <figcaption>Box</figcaption>
+            </figure>
+            <figure class="result-video-card">
+              <video class="result-video result-video-real" autoplay muted loop playsinline preload="metadata">
+                <source src="./assets/videos/real/Waffle%20iron-web.mp4" type="video/mp4">
+              </video>
+              <span class="result-speed-badge">3X</span>
+              <figcaption>Waffle Iron</figcaption>
+            </figure>
+            <figure class="result-video-card">
+              <video class="result-video result-video-real" autoplay muted loop playsinline preload="metadata">
+                <source src="./assets/videos/real/Mixer-web.mp4" type="video/mp4">
+              </video>
+              <span class="result-speed-badge">3X</span>
+              <figcaption>Mixer</figcaption>
+            </figure>
+            <figure class="result-video-card">
+              <video class="result-video result-video-real" autoplay muted loop playsinline preload="metadata">
+                <source src="./assets/videos/real/capsule%20machine-web.mp4" type="video/mp4">
+              </video>
+              <span class="result-speed-badge">3X</span>
+              <figcaption>Capsule Machine</figcaption>
+            </figure>
+          </div>
+        </div>
+
+        <div class="result-subsection result-table-subsection">
+          <h3 class="result-subsection-heading">Quantitative Evaluation</h3>
+          <p class="result-subsection-tagline">
+            CHORD maintains high success rates at scale and under whole-body transfer, while matching or outperforming
+            prior methods on their original metrics. Unlike methods limited to subsets of rigid, articulated, or
+            multi-object manipulation, CHORD succeeds across all three categories.
+          </p>
+          <figure class="result-scale-figure">
+            <img src="./assets/pics/scale_up_and_whole_body.png" alt="Large-scale and whole-body manipulation success rates across rigid, articulated, and multi-object tasks">
+            <figcaption>
+              CHORD success rates on <em>left:</em> 1,831 manipulation tasks across four
+              datasets, spanning single-object and multi-object tasks with rigid and articulated objects, and
+              <em>right:</em> 17 of these subtasks fully grounded on a humanoid robot equipped with articulated hands.
+            </figcaption>
+          </figure>
+          <h4 class="result-table-heading">Comparison with Prior Methods</h4>
+          <div class="result-table-wrap">
+            <table class="result-comparison-table">
+              <thead>
+                <tr>
+                  <th>Task Suite</th>
+                  <th>Metric</th>
+                  <th>Ref. Method</th>
+                  <th>Ref. Score</th>
+                  <th>Our Score</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>DM</code></td>
+                  <td><code>AUC</code></td>
+                  <td>DexMachina</td>
+                  <td>0.232 &plusmn; 0.214</td>
+                  <td><span class="score-pill">0.687 &plusmn; 0.358</span></td>
+                </tr>
+                <tr>
+                  <td><code>MT</code></td>
+                  <td><code>MT-SR</code></td>
+                  <td>ManipTrans</td>
+                  <td>0.428</td>
+                  <td><span class="score-pill">0.639</span></td>
+                </tr>
+                <tr>
+                  <td><code>SP</code></td>
+                  <td><code>SP-SR</code></td>
+                  <td>Spider</td>
+                  <td>0.333 &plusmn; 0.488</td>
+                  <td><span class="score-pill">0.359 &plusmn; 0.482</span></td>
+                </tr>
+                <tr class="result-table-divider">
+                  <td><code>Ours-1</code></td>
+                  <td><code>AUC</code></td>
+                  <td>DexMachina</td>
+                  <td>0.211 &plusmn; 0.138</td>
+                  <td><span class="score-pill">0.895 &plusmn; 0.052</span></td>
+                </tr>
+                <tr>
+                  <td><code>Ours-1</code></td>
+                  <td><code>SP-SR</code></td>
+                  <td>Spider</td>
+                  <td>0.133 &plusmn; 0.327</td>
+                  <td><span class="score-pill">0.999 &plusmn; 0.000</span></td>
+                </tr>
+                <tr>
+                  <td><code>Ours-2</code></td>
+                  <td><code>SP-SR</code></td>
+                  <td>Spider</td>
+                  <td>0.533 &plusmn; 0.503</td>
+                  <td><span class="score-pill">0.982 &plusmn; 0.022</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="result-table-note">
+            Scores are comparable within each row because baselines use different task suites and evaluation protocols.
+          </p>
+        </div>
+
+        <div class="result-subsection result-evidence-subsection">
+          <h3 class="result-subsection-heading">Contact-Wrench Reward Predicts Success</h3>
+          <p class="result-subsection-tagline">
+            The contact-wrench-support reward provides a reliable proxy for downstream task completion.
+          </p>
+          <figure class="result-evidence-figure result-evidence-figure-narrow">
+            <img src="./assets/pics/contact_success_correlation.png" alt="Correlation between contact wrench reward and task success rate">
+            <figcaption>
+              Across 1,831 benchmark runs, normalized contact-wrench-support reward strongly correlates with task
+              completion (overall Pearson r = 0.798; dataset-wise r = 0.76-0.89), supporting it as both a training
+              signal and a proxy metric.
+            </figcaption>
+          </figure>
+        </div>
+
+        <div class="result-subsection result-evidence-subsection">
+          <h3 class="result-subsection-heading">Long-Horizon Tracking Accuracy</h3>
+          <p class="result-subsection-tagline">
+            CHORD sustains accurate object tracking over extended manipulation sequences.
+          </p>
+          <figure class="result-evidence-figure result-evidence-figure-wide">
+            <img src="./assets/pics/horizon_auc.png" alt="Tracking accuracy across manipulation horizons for CHORD and baselines">
+            <figcaption>
+              Under the DexMachina ADD-AUC metric, CHORD maintains high object-tracking accuracy across sequences up
+              to roughly 48 seconds, while prior methods degrade as interaction horizons increase.
+            </figcaption>
+          </figure>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!--
+<video autoplay muted loop playsinline width="100%">
+  <source src="./static/videos/results.mp4" type="video/mp4">
+</video>
+-->
+
+<!-- ============================================ -->
+<!-- AUTHORS / TEAM (disabled)                     -->
+<!-- ============================================ -->
+<!--
+<section class="section is-small">
+  <div class="container is-max-desktop">
+    <h2 class="title is-3 has-text-centered is-size-4-mobile">Our Team</h2>
+    <div class="container has-text-centered">
+      <div class="publication-authors is-flex is-justify-content-space-around is-flex-wrap-wrap">
+        <div class="author-block has-text-centered">
+          <figure class="image is-128x128" style="display:inline-block;">
+            <a href="#">
+              <img class="is-rounded" src="./static/images/author1.jpg" alt="Author One">
+            </a>
+          </figure>
+          <div><a href="#">Author One</a><sup>1</sup></div>
+        </div>
+        <div class="author-block has-text-centered">
+          <figure class="image is-128x128" style="display:inline-block;">
+            <a href="#">
+              <img class="is-rounded" src="./static/images/author2.jpg" alt="Author Two">
+            </a>
+          </figure>
+          <div><a href="#">Author Two</a><sup>1</sup></div>
+        </div>
+        <div class="author-block has-text-centered">
+          <figure class="image is-128x128" style="display:inline-block;">
+            <a href="#">
+              <img class="is-rounded" src="./static/images/author3.jpg" alt="Author Three">
+            </a>
+          </figure>
+          <div><a href="#">Author Three</a><sup>2</sup></div>
+        </div>
+      </div>
+
+      <div class="publication-authors" style="margin-top: 1.5rem;">
+        <span class="author-block"><sup>1</sup>Institution One,&nbsp;</span>
+        <span class="author-block"><sup>2</sup>Institution Two</span>
+      </div>
+    </div>
+
+    <br>
+    <pre><code>@inproceedings{chord2026,
+  title     = {Chord: [Paper Title]},
+  author    = {Author One and Author Two and Author Three},
+  year      = {2026},
+  booktitle = {[Venue]},
+}</code></pre>
+    <p>
+      If you have any questions, please contact <a href="#">[contact author]</a>.
+    </p>
+  </div>
+</section>
+-->
+
+<!-- ============================================ -->
+<!-- Q & A (disabled)                              -->
+<!-- ============================================ -->
+<!--
+<section class="section is-small" id="qa">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-4 has-text-centered is-size-5-mobile">Questions &amp; Answers</h2>
+
+        <div class="block">
+          <h3 class="title is-6">[First question?]</h3>
+          <p>[Answer.]</p>
+        </div>
+
+        <div class="block">
+          <h3 class="title is-6">[Second question?]</h3>
+          <p>[Answer.]</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+-->
+
+<!-- ============================================ -->
+<!-- FOOTER (disabled)                             -->
+<!-- ============================================ -->
+<!--
+<footer class="footer">
+  <div class="container">
+    <div class="columns is-centered">
+      <div class="column is-8">
+        <div class="content">
+          <p>
+            Website template modified from
+            <a href="https://umi-on-legs.github.io/">UMI on Legs</a>,
+            <a href="https://nerfies.github.io/">NeRFies</a>, and
+            <a href="https://huy-ha.github.io/scalingup/">Scaling Up Distilling Down</a>.
+          </p>
+          <p>
+            This website is licensed under a
+            <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/">Creative
+            Commons Attribution-ShareAlike 4.0 International License</a>.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</footer>
+-->
+
+<script>
+  document.querySelectorAll('.method-panel-interactive').forEach((panel) => {
+    let clearHoverTimer;
+    const peers = document.querySelectorAll('.method-panel-interactive');
+
+    const show = () => {
+      clearTimeout(clearHoverTimer);
+      peers.forEach((peer) => {
+        if (peer !== panel) peer.classList.remove('is-hovered');
+      });
+      panel.classList.add('is-hovered');
+    };
+
+    const hide = () => {
+      clearHoverTimer = setTimeout(() => {
+        panel.classList.remove('is-hovered');
+      }, 180);
+    };
+
+    panel.addEventListener('pointerenter', show);
+    panel.addEventListener('pointerleave', hide);
+    panel.addEventListener('focusin', show);
+    panel.addEventListener('focusout', hide);
+  });
+</script>
+
+</body>
+</html>
