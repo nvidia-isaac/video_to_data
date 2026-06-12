@@ -23,6 +23,8 @@ from v2d.mv.postprocess.docker.run_mv_estimate_ground_plane import run_mv_estima
 from v2d.mv.postprocess.docker.run_mv_export_fused_pointcloud import run_mv_export_fused_pointcloud
 from v2d.mv.postprocess.docker.run_mv_eval_chamfer_human import run_mv_eval_chamfer_human
 from v2d.mv.postprocess.docker.run_mv_eval_chamfer_object import run_mv_eval_chamfer_object
+from v2d.mv.postprocess.docker.run_mv_eval_silhouette_mask_human import run_mv_eval_silhouette_mask_human
+from v2d.mv.postprocess.docker.run_mv_eval_silhouette_mask_object import run_mv_eval_silhouette_mask_object
 from v2d.mv.postprocess.docker.run_mv_render_hoi_overlay import run_mv_render_hoi_overlay
 from v2d.mv.postprocess.docker.run_mv_visualize_wis3d import run_mv_visualize_wis3d
 
@@ -61,6 +63,8 @@ def main(
     fused_pointcloud_dir = os.path.join(output_dir, "postprocess", "fused_pointcloud")
     chamfer_human_dir = os.path.join(output_dir, "postprocess", "chamfer_human")
     chamfer_object_dir = os.path.join(output_dir, "postprocess", "chamfer_object")
+    silhouette_mask_human_dir = os.path.join(output_dir, "postprocess", "silhouette_mask_human")
+    silhouette_mask_object_dir = os.path.join(output_dir, "postprocess", "silhouette_mask_object")
     hoi_overlay_dir = os.path.join(output_dir, "postprocess", "hoi_overlay")
     wis3d_dir = os.path.join(output_dir, "postprocess", "wis3d")
 
@@ -201,6 +205,25 @@ def main(
         object_pose_dir=foundation_pose_dir,
         output_dir=chamfer_object_dir,
         depth_dir=foundation_stereo_dir,
+        mask_dir=sam2_object_dir,
+        dev=dev,
+    )
+
+    # Evaluate 2D silhouette-vs-SAM2 residual for human mesh
+    run_mv_eval_silhouette_mask_human(
+        camera_params_path=os.path.join(preprocess_dir, "edex"),
+        human_pose_dir=sam3d_body_dir,
+        output_dir=silhouette_mask_human_dir,
+        mask_dir=sam2_human_dir,
+        dev=dev,
+    )
+
+    # Evaluate 2D silhouette-vs-SAM2 residual for object mesh
+    run_mv_eval_silhouette_mask_object(
+        camera_params_path=os.path.join(preprocess_dir, "edex"),
+        object_mesh_path=_find_pinned_mesh(preprocess_mesh_dir),
+        object_pose_dir=foundation_pose_dir,
+        output_dir=silhouette_mask_object_dir,
         mask_dir=sam2_object_dir,
         dev=dev,
     )

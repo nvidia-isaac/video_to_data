@@ -564,6 +564,84 @@ workflow:
         profile: true
         progress_interval: 0.1
 
+  # 2D silhouette-vs-SAM2 evaluation – object (report-only)
+  - name: eval_silhouette_mask_object
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: mv_preprocess
+    - task: foundation_pose
+    - task: sam2_object_masks
+    outputs:
+    - url: {{swift_output_base}}/eval_silhouette_mask_object/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        # Find the GPU's NUMA node and pin to its CPUs
+        PCI_ID=$(nvidia-smi --query-gpu=pci.bus_id -i 0 --format=csv,noheader \
+                 | tr '[:upper:]' '[:lower:]' | sed 's/^0000//')
+        NUMA_NODE=$(cat /sys/bus/pci/devices/${PCI_ID}/numa_node 2>/dev/null || echo 0)
+        [ "$NUMA_NODE" = "-1" ] && NUMA_NODE=0
+        CPU_LIST=$(cat /sys/devices/system/node/node${NUMA_NODE}/cpulist)
+        echo "GPU NUMA node: $NUMA_NODE, pinning to CPUs: $CPU_LIST"
+
+        MESH={{input:0}}/object_mesh/output_aligned.glb
+        if [ ! -f "$MESH" ]; then
+          echo "ERROR: $MESH not found"
+          exit 1
+        fi
+        taskset -c "$CPU_LIST" python -m v2d.mv.postprocess.lib.mv_eval_silhouette_mask_object \
+          --camera_params_path {{input:0}}/edex \
+          --object_mesh_path "$MESH" \
+          --object_pose_dir {{input:1}} \
+          --mask_dir {{input:2}} \
+          --output_dir {{output}} \
+          --config_path /tmp/silhouette_mask_object_config.yaml
+    - path: /tmp/silhouette_mask_object_config.yaml
+      contents: |-
+        mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}.h5"
+        camera_workers: 4
+        profile: true
+        progress_interval: 0.1
+
+  # 2D silhouette-vs-SAM2 evaluation – human (report-only)
+  - name: eval_silhouette_mask_human
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: mv_preprocess
+    - task: sam3d_body
+    - task: sam2_human_masks
+    outputs:
+    - url: {{swift_output_base}}/eval_silhouette_mask_human/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        # Find the GPU's NUMA node and pin to its CPUs
+        PCI_ID=$(nvidia-smi --query-gpu=pci.bus_id -i 0 --format=csv,noheader \
+                 | tr '[:upper:]' '[:lower:]' | sed 's/^0000//')
+        NUMA_NODE=$(cat /sys/bus/pci/devices/${PCI_ID}/numa_node 2>/dev/null || echo 0)
+        [ "$NUMA_NODE" = "-1" ] && NUMA_NODE=0
+        CPU_LIST=$(cat /sys/devices/system/node/node${NUMA_NODE}/cpulist)
+        echo "GPU NUMA node: $NUMA_NODE, pinning to CPUs: $CPU_LIST"
+
+        taskset -c "$CPU_LIST" python -m v2d.mv.postprocess.lib.mv_eval_silhouette_mask_human \
+          --camera_params_path {{input:0}}/edex \
+          --human_pose_dir {{input:1}} \
+          --mask_dir {{input:2}} \
+          --output_dir {{output}} \
+          --config_path /tmp/silhouette_mask_human_config.yaml
+    - path: /tmp/silhouette_mask_human_config.yaml
+      contents: |-
+        mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}.h5"
+        camera_workers: 4
+        profile: true
+        progress_interval: 0.1
+
   # Render HOI overlay videos
   - name: render_hoi_overlay
     image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
