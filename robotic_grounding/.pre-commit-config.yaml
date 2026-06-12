@@ -20,6 +20,21 @@ exclude: |
   )$
 
 repos:
+# Normalize NVIDIA Python files to the concise 2-line Apache-2.0 SPDX header used
+# in reconstruction/. Replaces legacy proprietary + verbose-Apache headers and
+# inserts one where missing; third-party (e.g. Isaac Lab) headers are left alone.
+- repo: local
+  hooks:
+    - id: license-header
+      name: enforce SPDX Apache-2.0 license header
+      entry: python robotic_grounding/scripts/license_header_hook.py
+      language: python
+      files: ^robotic_grounding/.*\.py$
+      exclude: |
+        (?x)^(
+          robotic_grounding/scripts/rsl_rl/.*
+        )$
+
 - repo: https://github.com/charliermarsh/ruff-pre-commit
   rev: 'v0.14.11'
   hooks:
