@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+import isaaclab.utils.math as math_utils
 import torch
 from isaaclab.envs import ManagerBasedEnv
 from isaaclab.managers import ManagerTermBase
@@ -324,14 +325,18 @@ def motion_contact_tracking_gaussian_exp(
 
     for side in ("right", "left"):
         pos_e = getattr(command, f"{side}_hand_object_contact_positions_e")
-        valid = (
-            getattr(command, f"{side}_hand_object_contact_positions_w").sum(dim=-1)
-            > 1e-5
-        )
+        pos_w = getattr(command, f"{side}_hand_object_contact_positions_w")
         cmd_e = getattr(command, f"{side}_hand_object_contact_command_positions_e")
         cmd_valid = getattr(command, f"retargeted_{side}_object_contact_is_valid")[
             command.timestep_counter
         ]
+
+        # Articulated objects expose one contact sensor per object body. Chamfer
+        # matching is hand-level, so flatten object bodies into one point cloud.
+        pos_e = pos_e.reshape(pos_e.shape[0], -1, 3)
+        valid = pos_w.reshape(pos_w.shape[0], -1, 3).norm(dim=-1) > 1e-5
+        cmd_e = cmd_e.reshape(cmd_e.shape[0], -1, 3)
+        cmd_valid = cmd_valid.reshape(cmd_valid.shape[0], -1)
 
         dist = chamfer_distance(pos_e, cmd_e, valid, cmd_valid)
         rew = torch.exp(-(dist**2) / std**2)
@@ -363,3 +368,35 @@ def motion_contact_force_gaussian_exp(
         total_contacts += in_contact.sum(dim=-1)
 
     return torch.nan_to_num(total_rew / total_contacts, nan=0.0)
+
+
+def motion_object_keypoints_tracking_exp(
+    env: ManagerBasedEnv,
+    command_name: str,
+    var: float,
+) -> torch.Tensor:
+    """Object keypoint tracking over all object bodies."""
+    command = env.command_manager.get_term(command_name)
+
+    object_pos = command.object_position_e.unsqueeze(2).expand(-1, -1, 6, -1)
+    object_quat = command.object_orientation_e.unsqueeze(2).expand(-1, -1, 6, -1)
+    object_keypoints, _ = math_utils.combine_frame_transforms(
+        object_pos,
+        object_quat,
+        command.KEYPOINT_VECS,
+        q12=None,
+    )
+
+    command_pos = command.object_body_position_command_e.unsqueeze(2).expand(
+        -1, -1, 6, -1
+    )
+    command_quat = command.object_body_wxyz_command_e.unsqueeze(2).expand(-1, -1, 6, -1)
+    command_keypoints, _ = math_utils.combine_frame_transforms(
+        command_pos,
+        command_quat,
+        command.KEYPOINT_VECS,
+        q12=None,
+    )
+
+    error = torch.sum(torch.square(object_keypoints - command_keypoints), dim=-1)
+    return torch.exp(-error / var).mean(dim=(-2, -1))

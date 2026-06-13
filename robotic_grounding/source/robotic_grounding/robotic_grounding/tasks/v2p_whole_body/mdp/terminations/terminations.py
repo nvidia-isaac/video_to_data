@@ -8,6 +8,10 @@ import torch
 from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab.utils.math import quat_error_magnitude
 
+from robotic_grounding.tasks.v2p.mdp.terminations import (
+    hand_wrist_away_from_trajectory as _v2p_hand_wrist_away_from_trajectory,
+)
+
 
 def _mask_freeze(command: Any, terminated: torch.Tensor) -> torch.Tensor:
     """Suppress termination during the post-reset freeze period."""
@@ -24,7 +28,10 @@ def timestep_termination(
 ) -> torch.Tensor:
     """Terminate when the trajectory is completed."""
     command = env.command_manager.get_term(command_name)
-    return command.timestep >= command.num_timesteps - 1
+    end_timestep = getattr(
+        command, "trajectory_end_timestep", command.num_timesteps - 1
+    )
+    return command.timestep >= end_timestep
 
 
 def anchor_pos_error(
@@ -99,10 +106,19 @@ def object_pos_error(
     command_name: str,
     threshold: float = 0.1,
 ) -> torch.Tensor:
-    """Terminate when the object position is too far from the command. Freeze-aware."""
+    """Terminate when any object body position is too far from the command."""
     command = env.command_manager.get_term(command_name)
-    error = torch.norm(command.object_pos_w - command.command_object_pos_w, dim=-1)
-    terminated = error > threshold
+    if hasattr(command, "object_body_position_command_e") and hasattr(
+        command, "object_position_e"
+    ):
+        error = torch.norm(
+            command.object_position_e - command.object_body_position_command_e,
+            dim=-1,
+        )
+        terminated = (error > threshold).any(dim=-1)
+    else:
+        error = torch.norm(command.object_pos_w - command.command_object_pos_w, dim=-1)
+        terminated = error > threshold
     return _mask_freeze(command, terminated)
 
 
@@ -111,8 +127,34 @@ def object_quat_error(
     command_name: str,
     threshold: float = 0.5,
 ) -> torch.Tensor:
-    """Terminate when the object orientation is too far from the command. Freeze-aware."""
+    """Terminate when any object body orientation is too far from the command."""
     command = env.command_manager.get_term(command_name)
-    error = quat_error_magnitude(command.object_quat_w, command.command_object_quat_w)
-    terminated = error > threshold
+    if hasattr(command, "object_body_wxyz_command_e") and hasattr(
+        command, "object_orientation_e"
+    ):
+        error = quat_error_magnitude(
+            command.object_orientation_e.reshape(-1, 4),
+            command.object_body_wxyz_command_e.reshape(-1, 4),
+        ).reshape(command.num_envs, -1)
+        terminated = (error > threshold).any(dim=-1)
+    else:
+        error = quat_error_magnitude(
+            command.object_quat_w, command.command_object_quat_w
+        )
+        terminated = error > threshold
+    return _mask_freeze(command, terminated)
+
+
+def hand_wrist_away_from_trajectory(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    threshold: float,
+) -> torch.Tensor:
+    """V2P hands hand-away termination with whole-body reset-freeze masking."""
+    command = env.command_manager.get_term(command_name)
+    terminated = _v2p_hand_wrist_away_from_trajectory(
+        env,
+        command_name=command_name,
+        threshold=threshold,
+    )
     return _mask_freeze(command, terminated)

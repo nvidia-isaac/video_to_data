@@ -27,6 +27,10 @@ from robotic_grounding.tasks.v2p.mdp.utils import (
     compute_wrench_space_support_function,
     sample_wrench_space_basis_scaled,
 )
+from robotic_grounding.tasks.v2p.mdp.utils_jit import (
+    wrench_preprocess_jit,
+    wrench_support_one_body_jit,
+)
 
 from .tracking_utils import load_motion_data
 
@@ -138,6 +142,22 @@ class TrackingCommand(CommandTerm):
             cfg.object_pos_offset, device=self.device
         )
         self._object_quat_w = motion_data.object_quat_w.float()
+        # Multi-body reference object trajectories (E, T, B, *) for the command
+        # target. Used by the multi-object command-frame observations/metrics.
+        self._object_body_pos_w = (
+            motion_data.object_body_position.float()
+            + torch.tensor(cfg.object_pos_offset, device=self.device)
+        )
+        self._object_body_quat_w = motion_data.object_body_wxyz.float()
+        if motion_data.object_articulation is not None:
+            self.retargeted_object_articulation = (
+                motion_data.object_articulation.float()
+            )
+        else:
+            self.retargeted_object_articulation = torch.zeros(
+                self._object_body_pos_w.shape[0], 0, device=self.device
+            )
+        self.retargeted_object_body_names = motion_data.object_body_names
         self.num_timesteps = self.root_pos_w.shape[0]
 
         # EE data
@@ -209,6 +229,12 @@ class TrackingCommand(CommandTerm):
         self.reset_timestep = torch.zeros(
             self.num_envs, dtype=torch.int32, device=self.device
         )
+        self.trajectory_end_timestep = torch.full(
+            (self.num_envs,),
+            self.num_timesteps - 1,
+            dtype=torch.int32,
+            device=self.device,
+        )
         self.steps_since_last_reset = torch.zeros(
             self.num_envs, dtype=torch.int32, device=self.device
         )
@@ -244,10 +270,32 @@ class TrackingCommand(CommandTerm):
 
         self.all_env_ids = torch.arange(self.num_envs, device=self.device)
         self.num_bodies = self.object_position_e.shape[1]
-        self.KEYPOINT_VECS = torch.tensor(
-            [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]],
-            dtype=torch.float32,
-            device=self.device,
+        if (
+            self.retargeted_object_body_names is None
+            or len(self.retargeted_object_body_names) != self.num_bodies
+        ):
+            self.retargeted_object_body_names = list(self.object.data.body_names)
+        assert len(self.retargeted_object_body_names) == self.num_bodies, (
+            "The number of body names in the motion file and the object do not match. "
+            f"Find {len(self.retargeted_object_body_names)} in motion file, "
+            f"but {self.num_bodies} in the object."
+        )
+        self.KEYPOINT_VECS = (
+            torch.tensor(
+                [
+                    [1.0, 0.0, 0.0],
+                    [-1.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                    [0.0, -1.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                    [0.0, 0.0, -1.0],
+                ],
+                dtype=torch.float32,
+                device=self.device,
+            )
+            .unsqueeze(0)
+            .unsqueeze(1)
+            .expand(self.num_envs, self.num_bodies, -1, -1)
         )
 
     def _init_metrics(self) -> None:
@@ -297,19 +345,19 @@ class TrackingCommand(CommandTerm):
                 if "right" in n.lower()
             ]
 
-        # Finger joint IDs (from cfg, robot-level)
+        # Finger joint IDs (from cfg, robot-level). Track names alongside IDs so
+        # parquet finger joint values can be reordered to IsaacLab's joint order.
+        self._left_finger_joint_names: list[str] = []
+        self._right_finger_joint_names: list[str] = []
         if cfg.finger_joint_names:
             all_fj_ids, all_fj_names = self.robot.find_joints(cfg.finger_joint_names)
-            self._left_finger_joint_ids = [
-                i
-                for i, n in zip(all_fj_ids, all_fj_names, strict=False)
-                if "left" in n.lower()
-            ]
-            self._right_finger_joint_ids = [
-                i
-                for i, n in zip(all_fj_ids, all_fj_names, strict=False)
-                if "right" in n.lower()
-            ]
+            for i, n in zip(all_fj_ids, all_fj_names, strict=False):
+                if "left" in n.lower():
+                    self._left_finger_joint_ids.append(i)
+                    self._left_finger_joint_names.append(n)
+                elif "right" in n.lower():
+                    self._right_finger_joint_ids.append(i)
+                    self._right_finger_joint_names.append(n)
 
         # Retargeted hand data (from parquet, may be None)
         self.retargeted_left_wrist_position = md.left_wrist_position  # (T, 3)
@@ -338,8 +386,17 @@ class TrackingCommand(CommandTerm):
                 torch.tensor(indices, dtype=torch.long, device=self.device),
             )
 
-        self.retargeted_left_finger_joints = md.left_finger_joints  # (T, J)
-        self.retargeted_right_finger_joints = md.right_finger_joints
+        for side in ("left", "right"):
+            parquet_vals = getattr(md, f"{side}_finger_joints")
+            parquet_names = getattr(md, f"{side}_finger_joint_names")
+            sim_names = getattr(self, f"_{side}_finger_joint_names")
+            if parquet_vals is not None and parquet_names and sim_names:
+                reorder = [parquet_names.index(n) for n in sim_names]
+                setattr(
+                    self, f"retargeted_{side}_finger_joints", parquet_vals[:, reorder]
+                )
+            else:
+                setattr(self, f"retargeted_{side}_finger_joints", parquet_vals)
 
         # Binary per-frame contact labels.
         # If a side is absent on disk, we substitute an all-zero mask of length
@@ -395,9 +452,6 @@ class TrackingCommand(CommandTerm):
             part_ids = getattr(md, f"{side}_object_contact_part_ids")  # (T, N) or None
 
             if link_contacts is not None:
-                is_valid = link_contacts[..., :3].abs().sum(dim=-1) > 1e-5
-                has_contact = is_valid.any(dim=-1)
-
                 # Normalize link contact normals
                 if link_normals is not None:
                     norms = (
@@ -407,8 +461,14 @@ class TrackingCommand(CommandTerm):
                     link_normals[..., :3] = link_normals[..., :3] / norms
 
                 # Extract part IDs from 4th column if not separately provided
-                if part_ids is None:
+                if part_ids is None and link_contacts.shape[-1] > 3:
                     part_ids = link_contacts[..., 3].long()
+                is_valid = (
+                    part_ids > 0
+                    if part_ids is not None
+                    else link_contacts[..., :3].abs().sum(dim=-1) > 1e-5
+                )
+                has_contact = is_valid.any(dim=-1)
 
                 setattr(
                     self, f"retargeted_{side}_link_contact_positions_e", link_contacts
@@ -440,82 +500,188 @@ class TrackingCommand(CommandTerm):
                 setattr(self, f"num_retargeted_contacts_{side}", 0)
 
     def _precompute_hand_keypoints_in_object_frame(self) -> None:
-        """Express hand frames and wrist poses in the object's local frame.
+        """Express hand frames and wrist poses in the contacted object's local frame.
 
         Stored as object-frame tensors so they can be quickly transformed
         to env frame each step using the current object pose.
         """
-        obj_pos = self._object_pos_w  # (T, 3)
-        obj_quat = self._object_quat_w  # (T, 4)
+        horizon = self._object_body_pos_w.shape[0]
+        horizon_ids = torch.arange(horizon, device=self.device)
 
         for side in ("left", "right"):
             frames = getattr(self, f"retargeted_{side}_hand_frames")
             wrist_pos = getattr(self, f"retargeted_{side}_wrist_position")
             wrist_wxyz = getattr(self, f"retargeted_{side}_wrist_wxyz")
+            part_ids = getattr(self, f"retargeted_{side}_object_contact_part_ids", None)
+
+            part_ids_per_hand = torch.ones(
+                horizon, dtype=torch.int64, device=self.device
+            )
+            if part_ids is not None:
+                T_ids = min(horizon, part_ids.shape[0])
+                last_contact_part_id = torch.ones(
+                    (), dtype=torch.int64, device=self.device
+                )
+                for horizon_idx in range(T_ids - 1, -1, -1):
+                    hand_contact_part_id = part_ids[horizon_idx].mode().values
+                    part_ids_per_hand[horizon_idx] = (
+                        hand_contact_part_id
+                        if hand_contact_part_id > 0
+                        else last_contact_part_id
+                    )
+                    last_contact_part_id = part_ids_per_hand[horizon_idx]
+            part_ids_per_hand = part_ids_per_hand.clamp(min=1, max=self.num_bodies)
+            setattr(
+                self,
+                f"retargeted_{side}_object_contact_part_ids_per_hand",
+                part_ids_per_hand,
+            )
+
+            contact_body_position = self._object_body_pos_w[
+                horizon_ids, part_ids_per_hand - 1
+            ]
+            contact_body_wxyz = self._object_body_quat_w[
+                horizon_ids, part_ids_per_hand - 1
+            ]
 
             if frames is not None and wrist_pos is not None:
-                T_frames = min(frames.shape[0], obj_pos.shape[0])
+                T_frames = min(frames.shape[0], horizon)
 
                 # Hand frame positions → object frame
                 frame_pos = frames[:T_frames, :, :3]  # (T, K, 3)
-                obj_pos_exp = obj_pos[:T_frames].unsqueeze(1)  # (T, 1, 3)
-                obj_quat_exp = obj_quat[:T_frames].unsqueeze(1)  # (T, 1, 4)
-                frame_pos_o = math_utils.quat_rotate_inverse(
+                obj_pos_exp = contact_body_position[:T_frames].unsqueeze(1)
+                obj_quat_exp = contact_body_wxyz[:T_frames].unsqueeze(1)
+                frame_pos_o = math_utils.quat_apply_inverse(
                     obj_quat_exp.expand_as(frame_pos[..., :1].expand(-1, -1, 4)),
                     frame_pos - obj_pos_exp,
                 )
                 setattr(self, f"retargeted_{side}_hand_frame_positions_o", frame_pos_o)
 
+                if frames.shape[-1] >= 7:
+                    frame_wxyz_o = math_utils.quat_mul(
+                        math_utils.quat_conjugate(
+                            obj_quat_exp.expand(-1, frame_pos.shape[1], -1)
+                        ),
+                        frames[:T_frames, :, 3:7],
+                    )
+                    setattr(
+                        self,
+                        f"retargeted_{side}_hand_frame_wxyz_o",
+                        frame_wxyz_o,
+                    )
+
                 # Wrist pose → object frame
-                wrist_pos_o = math_utils.quat_rotate_inverse(
-                    obj_quat[:T_frames], wrist_pos[:T_frames] - obj_pos[:T_frames]
+                T_wrist = min(wrist_pos.shape[0], horizon)
+                wrist_pos_o = math_utils.quat_apply_inverse(
+                    contact_body_wxyz[:T_wrist],
+                    wrist_pos[:T_wrist] - contact_body_position[:T_wrist],
                 )
                 wrist_wxyz_o = math_utils.quat_mul(
-                    math_utils.quat_conjugate(obj_quat[:T_frames]),
-                    wrist_wxyz[:T_frames],
+                    math_utils.quat_conjugate(contact_body_wxyz[:T_wrist]),
+                    wrist_wxyz[:T_wrist],
                 )
                 setattr(self, f"retargeted_{side}_wrist_position_o", wrist_pos_o)
                 setattr(self, f"retargeted_{side}_wrist_wxyz_o", wrist_wxyz_o)
 
     def _precompute_contact_positions_in_object_frame(self) -> None:
-        """Transform contact positions and normals into object-local (COM) frame."""
-        obj_pos = self._object_pos_w
-        obj_quat = self._object_quat_w
+        """Transform contact positions and normals into per-body object/COM frames."""
+        object_o_t_com = torch.cat(
+            [obj.data.body_com_pose_b for obj in self.objects], dim=1
+        ).float()
+        object_o_p_com = object_o_t_com[..., :3].mean(dim=0)
+        object_o_q_com = object_o_t_com[0, :, 3:7]
 
         for side in ("left", "right"):
             obj_contacts = getattr(
                 self, f"retargeted_{side}_object_contact_positions_e"
             )
             link_normals = getattr(self, f"retargeted_{side}_link_contact_normals_e")
+            contact_part_ids = getattr(
+                self, f"retargeted_{side}_object_contact_part_ids", None
+            )
 
             if obj_contacts is not None:
-                T_c = min(obj_contacts.shape[0], obj_pos.shape[0])
+                T_c = min(obj_contacts.shape[0], self._object_body_pos_w.shape[0])
                 contact_pos = obj_contacts[:T_c, :, :3]
-                obj_pos_exp = obj_pos[:T_c].unsqueeze(1)
-                obj_quat_exp = (
-                    obj_quat[:T_c].unsqueeze(1).expand(-1, contact_pos.shape[1], -1)
-                )
+                horizon_ids = torch.arange(T_c, device=self.device)
+                if contact_part_ids is None:
+                    if obj_contacts.shape[-1] > 3:
+                        contact_part_ids = obj_contacts[..., 3].long()
+                    else:
+                        contact_part_ids = torch.ones(
+                            obj_contacts.shape[:2],
+                            dtype=torch.long,
+                            device=self.device,
+                        )
+                is_valid = getattr(self, f"retargeted_{side}_object_contact_is_valid")[
+                    :T_c
+                ]
 
-                contact_pos_com = math_utils.quat_rotate_inverse(
-                    obj_quat_exp, contact_pos - obj_pos_exp
-                )
+                contact_pos_o = torch.zeros_like(contact_pos)
+                contact_pos_com = torch.zeros_like(contact_pos)
+                normals_o = None
+                normals_com = None
+                if link_normals is not None:
+                    normals = link_normals[:T_c, :, :3]
+                    normals_o = torch.zeros_like(normals)
+                    normals_com = torch.zeros_like(normals)
+
+                for link_idx in range(contact_pos.shape[1]):
+                    part_id = (contact_part_ids[:T_c, link_idx] - 1).clamp(
+                        min=0, max=self.num_bodies - 1
+                    )
+                    object_e_p_o = self._object_body_pos_w[horizon_ids, part_id]
+                    object_e_q_o = self._object_body_quat_w[horizon_ids, part_id]
+
+                    contact_pos_o[:, link_idx] = math_utils.quat_apply_inverse(
+                        object_e_q_o,
+                        contact_pos[:, link_idx] - object_e_p_o,
+                    )
+
+                    _object_o_p_com = object_o_p_com[part_id]
+                    _object_o_q_com = object_o_q_com[part_id]
+                    contact_pos_com[:, link_idx], _ = (
+                        math_utils.subtract_frame_transforms(
+                            _object_o_p_com,
+                            _object_o_q_com,
+                            contact_pos_o[:, link_idx],
+                            q02=None,
+                        )
+                    )
+
+                    if normals_o is not None and normals_com is not None:
+                        normals_o[:, link_idx] = math_utils.quat_apply_inverse(
+                            object_e_q_o,
+                            normals[:, link_idx],
+                        )
+                        normals_com[:, link_idx], _ = (
+                            math_utils.subtract_frame_transforms(
+                                torch.zeros_like(_object_o_p_com),
+                                _object_o_q_com,
+                                normals_o[:, link_idx],
+                                q02=None,
+                            )
+                        )
+
+                contact_pos_o.masked_fill_(~is_valid.unsqueeze(-1), 0.0)
+                contact_pos_com.masked_fill_(~is_valid.unsqueeze(-1), 0.0)
                 setattr(
                     self,
                     f"retargeted_{side}_object_contact_positions_com",
                     contact_pos_com,
                 )
-
-                # Also store as _o for backward compat with simple rewards
                 setattr(
                     self,
                     f"retargeted_{side}_object_contact_positions_o",
-                    contact_pos_com,
+                    contact_pos_o,
                 )
 
-                # Normals in object frame
-                if link_normals is not None:
-                    normals = link_normals[:T_c, :, :3]
-                    normals_com = math_utils.quat_rotate_inverse(obj_quat_exp, normals)
+                if normals_o is not None and normals_com is not None:
+                    normals_o.masked_fill_(~is_valid.unsqueeze(-1), 0.0)
+                    normals_com.masked_fill_(~is_valid.unsqueeze(-1), 0.0)
+                    setattr(
+                        self, f"retargeted_{side}_link_contact_normals_o", normals_o
+                    )
                     setattr(
                         self, f"retargeted_{side}_link_contact_normals_com", normals_com
                     )
@@ -523,9 +689,14 @@ class TrackingCommand(CommandTerm):
     def _init_wrench_data(self, cfg: TrackingCommandCfg) -> None:
         """Set up wrench computation buffers: basis, friction cone, mesh radius."""
         md = self._motion_data
-        self.object_mesh_radius = md.object_mesh_radius or [0.05]  # fallback
+        self.object_mesh_radius = list(md.object_mesh_radius or [0.05])
+        self.object_mesh_radius = self.object_mesh_radius[: self.num_bodies]
+        if len(self.object_mesh_radius) < self.num_bodies:
+            self.object_mesh_radius = self.object_mesh_radius + [
+                self.object_mesh_radius[-1]
+            ] * (self.num_bodies - len(self.object_mesh_radius))
         self.retargeted_horizon = min(
-            self._object_pos_w.shape[0],
+            self._object_body_pos_w.shape[0],
             (
                 getattr(
                     self, "retargeted_left_link_contact_positions_e", torch.empty(0)
@@ -565,6 +736,7 @@ class TrackingCommand(CommandTerm):
             cfg.num_wrench_space_basis_samples,
             device=self.device,
         )
+        self._tensors_dirty = True
 
     def _precompute_contact_wrench_support_values(self) -> None:
         """Precompute wrench supports for all timesteps from retargeted contacts."""
@@ -707,11 +879,12 @@ class TrackingCommand(CommandTerm):
     @property
     def future_timesteps(self) -> torch.Tensor:
         """Clamped future frame indices per env. (E, num_future_frames)."""
-        return torch.clamp(
+        future_timesteps = torch.clamp(
             self.timestep[:, None] + self._future_frame_offsets[None, :],
             0,
             self.num_timesteps - 1,
         )
+        return torch.minimum(future_timesteps, self.trajectory_end_timestep[:, None])
 
     def update_action_history(self, actions: torch.Tensor) -> None:
         """Push current processed actions into the history buffer."""
@@ -902,6 +1075,39 @@ class TrackingCommand(CommandTerm):
         return torch.zeros(self.num_envs, 3, device=self.device)
 
     @property
+    def left_hand_wrist_wxyz_e(self) -> torch.Tensor:
+        """(E, 4) current left wrist quaternion."""
+        if self._left_wrist_body_id is not None:
+            return math_utils.quat_unique(
+                self.robot.data.body_quat_w[:, self._left_wrist_body_id]
+            )
+        quat = torch.zeros(self.num_envs, 4, device=self.device)
+        quat[:, 0] = 1.0
+        return quat
+
+    @property
+    def right_hand_wrist_wxyz_e(self) -> torch.Tensor:
+        """(E, 4) current right wrist quaternion."""
+        if self._right_wrist_body_id is not None:
+            return math_utils.quat_unique(
+                self.robot.data.body_quat_w[:, self._right_wrist_body_id]
+            )
+        quat = torch.zeros(self.num_envs, 4, device=self.device)
+        quat[:, 0] = 1.0
+        return quat
+
+    def get_command_contact_object_position_orientation(
+        self, side: str
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Get the current contacted object body pose for a hand side."""
+        contact_part_id = self.get_command_contact_part_id(side)
+        object_position = self.object_position_e[self.all_env_ids, contact_part_id]
+        object_orientation = self.object_orientation_e[
+            self.all_env_ids, contact_part_id
+        ]
+        return object_position, object_orientation
+
+    @property
     def left_hand_fingertip_position_command_e(self) -> torch.Tensor:
         """(E, K, 3) left fingertip command positions in env frame."""
         return self._fingertip_command_e("left")
@@ -979,39 +1185,40 @@ class TrackingCommand(CommandTerm):
 
     @property
     def object_position_e(self) -> torch.Tensor:
-        """Object position in env frame. (E, 1, 3)."""
-        return (self.object.data.root_pos_w - self._env_origins).unsqueeze(1)
+        """Object body positions in env frame. (E, B, 3) over all object bodies."""
+        object_position_w = torch.cat(
+            [obj.data.body_link_pos_w for obj in self.objects], dim=1
+        )
+        return (object_position_w - self._env_origins.unsqueeze(1)).float()
 
     @property
     def object_orientation_e(self) -> torch.Tensor:
-        """Object quaternion in env frame. (E, 1, 4)."""
-        return self.object.data.root_quat_w.unsqueeze(1)
+        """Object body quaternions in env frame. (E, B, 4) over all object bodies."""
+        return torch.cat(
+            [obj.data.body_link_quat_w for obj in self.objects], dim=1
+        ).float()
 
     @property
     def object_body_position_command_e(self) -> torch.Tensor:
         """(E, B, 3) command object body positions in env frame."""
-        pos = self._object_pos_w[self.timestep]  # (E, 3)
-        if pos.ndim == 2:
-            pos = pos.unsqueeze(1)  # (E, 1, 3)
-        return pos
+        return self._object_body_pos_w[self.timestep]
 
     @property
     def object_body_wxyz_command_e(self) -> torch.Tensor:
         """(E, B, 4) command object body quaternions in env frame."""
-        quat = math_utils.quat_unique(self._object_quat_w[self.timestep])  # (E, 4)
-        if quat.ndim == 2:
-            quat = quat.unsqueeze(1)  # (E, 1, 4)
-        return quat
+        return math_utils.quat_unique(self._object_body_quat_w[self.timestep])
 
     @property
     def object_body_ids(self) -> torch.Tensor:
-        """Object body indices (single rigid body). (1,)."""
-        return torch.tensor([0], device=self.device)
+        """Object body indices. (B,)."""
+        return torch.arange(self.num_bodies, device=self.device)
 
     @property
     def object_com_position_and_wxyz_w(self) -> torch.Tensor:
         """(E, num_bodies, 7) object COM state."""
-        return self.object.data.body_com_state_w[..., :7].float()
+        return torch.cat(
+            [obj.data.body_com_state_w[..., :7] for obj in self.objects], dim=1
+        ).float()
 
     # ------------------------------------------------------------------
     # Properties: finger joints
@@ -1065,6 +1272,13 @@ class TrackingCommand(CommandTerm):
 
     def get_command_contact_part_id(self, side: str) -> torch.Tensor:
         """Get dominant contact body index per env. (E,) — 0-indexed."""
+        per_hand = getattr(
+            self, f"retargeted_{side}_object_contact_part_ids_per_hand", None
+        )
+        if per_hand is not None:
+            t = self.timestep.clamp(max=per_hand.shape[0] - 1)
+            return (per_hand[t] - 1).clamp(min=0, max=self.num_bodies - 1)
+
         part_ids = getattr(self, f"retargeted_{side}_object_contact_part_ids")
         if part_ids is not None:
             t = self.timestep.clamp(max=part_ids.shape[0] - 1)
@@ -1109,12 +1323,14 @@ class TrackingCommand(CommandTerm):
     @property
     def left_hand_contact_wrench_supports(self) -> torch.Tensor:
         """(E, num_bodies, num_basis) live wrench supports from sim contacts."""
-        return self._compute_live_wrench_supports("left")
+        self.refresh_tensors()
+        return self.left_contact_wrench_supports
 
     @property
     def right_hand_contact_wrench_supports(self) -> torch.Tensor:
         """(E, num_bodies, num_basis) live right hand wrench supports from sim."""
-        return self._compute_live_wrench_supports("right")
+        self.refresh_tensors()
+        return self.right_contact_wrench_supports
 
     @property
     def left_hand_contact_active_command(self) -> torch.Tensor:
@@ -1150,6 +1366,8 @@ class TrackingCommand(CommandTerm):
             )
         if self._action_history is not None:
             self._action_history[env_ids] = 0.0
+        if hasattr(self, "_tensors_dirty"):
+            self._tensors_dirty = True
 
     def _update_command(self) -> None:
         """Advance timestep and decay VOC."""
@@ -1178,6 +1396,9 @@ class TrackingCommand(CommandTerm):
         else:
             self.timestep += 1
         self.timestep.clamp_(0, self.num_timesteps - 1)
+        self.timestep.copy_(torch.minimum(self.timestep, self.trajectory_end_timestep))
+        if hasattr(self, "_tensors_dirty"):
+            self._tensors_dirty = True
 
     def _update_metrics(self) -> None:
         """Track per-step errors for logging."""
@@ -1341,13 +1562,12 @@ class TrackingCommand(CommandTerm):
             return torch.zeros(self.num_envs, 7, device=self.device)
 
         t = self.timestep.clamp(max=wrist_pos_o.shape[0] - 1)
-        obj_pos = self.object.data.root_pos_w - self._env_origins  # (E, 3)
-        obj_quat = self.object.data.root_quat_w  # (E, 4)
+        obj_pos, obj_quat = self.get_command_contact_object_position_orientation(side)
 
         pos_o = wrist_pos_o[t]  # (E, 3)
         wxyz_o = wrist_wxyz_o[t]  # (E, 4)
 
-        pos_e = math_utils.quat_rotate(obj_quat, pos_o) + obj_pos
+        pos_e = math_utils.quat_apply(obj_quat, pos_o) + obj_pos
         wxyz_e = math_utils.quat_mul(obj_quat, wxyz_o)
         return torch.cat([pos_e, wxyz_e], dim=-1)
 
@@ -1361,11 +1581,10 @@ class TrackingCommand(CommandTerm):
         t = self.timestep.clamp(max=frame_pos_o.shape[0] - 1)
         tips_o = frame_pos_o[t][:, tip_indices]  # (E, K, 3)
 
-        obj_pos = (self.object.data.root_pos_w - self._env_origins).unsqueeze(1)
-        obj_quat = self.object.data.root_quat_w.unsqueeze(1).expand_as(
-            tips_o[..., :1].expand(-1, -1, 4)
-        )
-        return math_utils.quat_rotate(obj_quat, tips_o) + obj_pos
+        obj_pos, obj_quat = self.get_command_contact_object_position_orientation(side)
+        obj_pos = obj_pos.unsqueeze(1)
+        obj_quat = obj_quat.unsqueeze(1).expand_as(tips_o[..., :1].expand(-1, -1, 4))
+        return math_utils.quat_apply(obj_quat, tips_o) + obj_pos
 
     def _contact_command_e(self, side: str) -> torch.Tensor:
         """Contact command positions in env frame."""
@@ -1377,11 +1596,39 @@ class TrackingCommand(CommandTerm):
         t = self.timestep.clamp(max=contact_o.shape[0] - 1)
         contacts = contact_o[t]  # (E, N, 3)
 
-        obj_pos = (self.object.data.root_pos_w - self._env_origins).unsqueeze(1)
-        obj_quat = self.object.data.root_quat_w.unsqueeze(1).expand(
-            -1, contacts.shape[1], -1
+        object_position, object_orientation = self._contact_object_pose_e(
+            side, contacts.shape[1]
         )
-        return math_utils.quat_rotate(obj_quat, contacts) + obj_pos
+        pos_e = math_utils.quat_apply(object_orientation, contacts) + object_position
+        valid = getattr(self, f"retargeted_{side}_object_contact_is_valid", None)
+        if valid is not None:
+            valid_t = valid[t]
+            pos_e.masked_fill_(~valid_t.unsqueeze(-1), 0.0)
+        return pos_e
+
+    def _contact_object_pose_e(
+        self, side: str, num_contacts: int
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Current object body poses for each contact link. Shapes: (E, N, 3/4)."""
+        part_ids = getattr(self, f"retargeted_{side}_object_contact_part_ids", None)
+        if part_ids is not None:
+            t = self.timestep.clamp(max=part_ids.shape[0] - 1)
+            contact_part_id = (part_ids[t] - 1).clamp(min=0, max=self.num_bodies - 1)
+        else:
+            contact_part_id = torch.zeros(
+                self.num_envs, num_contacts, dtype=torch.long, device=self.device
+            )
+        object_position = torch.gather(
+            self.object_position_e,
+            dim=1,
+            index=contact_part_id.unsqueeze(-1).expand(-1, -1, 3),
+        )
+        object_orientation = torch.gather(
+            self.object_orientation_e,
+            dim=1,
+            index=contact_part_id.unsqueeze(-1).expand(-1, -1, 4),
+        )
+        return object_position, object_orientation
 
     def _live_contact_positions_w(self, side: str) -> torch.Tensor:
         """(E, B, N, 3) contact positions from per-body sensors."""
@@ -1422,68 +1669,96 @@ class TrackingCommand(CommandTerm):
             return torch.zeros(self.num_envs, n, 6, device=self.device)
 
         t = self.timestep.clamp(max=contact_o.shape[0] - 1)
-        obj_pos = (self.object.data.root_pos_w - self._env_origins).unsqueeze(1)
-        obj_quat = self.object.data.root_quat_w.unsqueeze(1).expand(
-            -1, contact_o.shape[1], -1
+        object_position, object_orientation = self._contact_object_pose_e(
+            side, contact_o.shape[1]
         )
 
-        pos_e = math_utils.quat_rotate(obj_quat, contact_o[t]) + obj_pos
+        pos_e = (
+            math_utils.quat_apply(object_orientation, contact_o[t]) + object_position
+        )
         if normals_com is not None:
-            normals_e = math_utils.quat_rotate(obj_quat, normals_com[t])
+            normals_e = math_utils.quat_apply(object_orientation, normals_com[t])
         else:
             normals_e = torch.zeros_like(pos_e)
+        valid = getattr(self, f"retargeted_{side}_object_contact_is_valid", None)
+        if valid is not None:
+            valid_t = valid[t]
+            pos_e.masked_fill_(~valid_t.unsqueeze(-1), 0.0)
+            normals_e.masked_fill_(~valid_t.unsqueeze(-1), 0.0)
         return torch.cat([pos_e, normals_e], dim=-1)
 
-    def _compute_live_wrench_supports(self, side: str) -> torch.Tensor:
-        """Compute wrench supports from live sim contacts. Matches floating hand env pattern."""
+    def refresh_tensors(self) -> None:
+        """Refresh shared contact/wrench tensors once per sim step."""
+        if not self._tensors_dirty:
+            return
+        self._tensors_dirty = False
+
+        self._compute_contact_wrench_supports("right")
+        self._compute_contact_wrench_supports("left")
+
+        self._cached_right_wrench_cmd_supports = (
+            self.right_hand_contact_wrench_supports_command
+        )
+        self._cached_left_wrench_cmd_supports = (
+            self.left_hand_contact_wrench_supports_command
+        )
+        self._cached_right_wrench_cmd_active = (
+            self._cached_right_wrench_cmd_supports > 1e-3
+        )
+        self._cached_left_wrench_cmd_active = (
+            self._cached_left_wrench_cmd_supports > 1e-3
+        )
+        self._cached_right_wrench_cur_active = self.right_contact_wrench_supports > 1e-3
+        self._cached_left_wrench_cur_active = self.left_contact_wrench_supports > 1e-3
+        self._cached_right_wrench_cmd_active_per_body = (
+            self._cached_right_wrench_cmd_active.any(dim=-1)
+        )
+        self._cached_left_wrench_cmd_active_per_body = (
+            self._cached_left_wrench_cmd_active.any(dim=-1)
+        )
+        self._cached_right_wrench_cur_active_per_body = (
+            self._cached_right_wrench_cur_active.any(dim=-1)
+        )
+        self._cached_left_wrench_cur_active_per_body = (
+            self._cached_left_wrench_cur_active.any(dim=-1)
+        )
+
+    def _compute_contact_wrench_supports(self, side: str) -> None:
+        """Fill live wrench supports in place for one hand."""
         sensors = getattr(self, f"object_to_{side}_hand_contact_sensors", [])
+        supports = getattr(self, f"{side}_contact_wrench_supports")
+        supports.zero_()
         if not sensors or not hasattr(self, "wrench_space_bases"):
-            return torch.zeros(
-                self.num_envs,
-                self.num_bodies,
-                self.cfg.num_wrench_space_basis_samples,
-                device=self.device,
-            )
+            return
 
         num_contacts = getattr(self, f"num_robot_contacts_{side}", 0)
+        if num_contacts == 0:
+            return
+
         contact_pos_w = self._live_contact_positions_w(side)  # (E, B, N, 3)
         contact_forces_w = self._live_contact_forces_w(side)  # (E, H, B, N, 3)
 
-        active = contact_pos_w.norm(dim=-1) > 1e-3  # (E, B, N)
-
-        # COM state per body, expanded to contact dim
         obj_com = self.object_com_position_and_wxyz_w  # (E, B, 7)
-        obj_com_expanded = obj_com.unsqueeze(2).expand(-1, -1, num_contacts, -1)
-        obj_com_pos = obj_com_expanded[..., :3]
-        obj_com_quat = obj_com_expanded[..., 3:7]
+        object_com_position_w = obj_com[..., :3].unsqueeze(2)
+        object_com_orientation_w = obj_com[..., 3:7].unsqueeze(2)
 
-        # Contact positions in COM frame
-        pos_com, _ = math_utils.subtract_frame_transforms(
-            obj_com_pos, obj_com_quat, contact_pos_w, q02=None
+        contact_positions_com, contact_normals_com = wrench_preprocess_jit(
+            contact_positions_w=contact_pos_w,
+            contact_forces_first_hist_w=contact_forces_w[:, 0],
+            object_com_position_w=object_com_position_w,
+            object_com_orientation_w=object_com_orientation_w,
+            num_envs=self.num_envs,
+            num_bodies=self.num_bodies,
+            num_robot_contacts=num_contacts,
         )
-        pos_com *= active.unsqueeze(-1)
-
-        # Normals from force direction
-        normals_w = contact_forces_w[:, 0]  # (E, B, N, 3)
-        normals_w = normals_w / normals_w.norm(dim=-1, keepdim=True).clamp(min=1e-5)
-        normals_com, _ = math_utils.subtract_frame_transforms(
-            torch.zeros_like(obj_com_pos), obj_com_quat, normals_w, q02=None
-        )
-        normals_com *= active.unsqueeze(-1)
-
-        # Wrench space per body
-        supports = getattr(self, f"{side}_contact_wrench_supports")
+        friction_coefficients = float(self.cfg.friction_coefficients)
         for body_idx, body_radius in enumerate(self.object_mesh_radius):
-            wrench_space = compute_wrench_space(
-                contact_points=pos_com[:, body_idx],
-                contact_normals=normals_com[:, body_idx],
+            supports[:, body_idx] = wrench_support_one_body_jit(
+                contact_points=contact_positions_com[:, body_idx],
+                contact_normals=contact_normals_com[:, body_idx],
                 cos_t=self.friction_cone_edge_cosines,
                 sin_t=self.friction_cone_edge_sines,
-                rc=body_radius,
-                friction_coefficients=self.cfg.friction_coefficients,
-            )
-            supports[:, body_idx] = compute_wrench_space_support_function(
-                wrench_space=wrench_space,
                 basis=self.wrench_space_bases[body_idx],
+                rc=float(body_radius),
+                friction_coefficients=friction_coefficients,
             )
-        return supports

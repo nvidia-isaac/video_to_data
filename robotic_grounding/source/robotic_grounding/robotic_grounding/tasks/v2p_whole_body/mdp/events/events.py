@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 import torch
-from isaaclab.assets import Articulation, RigidObject
+from isaaclab.assets import Articulation
 from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab.managers import SceneEntityCfg
 
@@ -17,9 +17,11 @@ def reset_robot_to_trajectory_start(
 ) -> None:
     """Reset robot and object to a frame in the motion trajectory.
 
-    Frame selection:
-    - always_reset_to_first_frame: force frame 0 (eval mode)
-    - Otherwise: random within trajectory_time_index range
+    Frame-window selection:
+    - trajectory_time_index is the inclusive command window [start, end].
+    - always_reset_to_first_frame: reset to the window start.
+    - Otherwise: random reset inside the window.
+    - The timestep termination ends the episode at the window end.
 
     Post-processing (all configurable on TrackingCommandCfg):
     - Optional root Z clamp (reset_root_height_min)
@@ -32,14 +34,17 @@ def reset_robot_to_trajectory_start(
     robot: Articulation = env.scene[asset_cfg.name]
 
     # --- Frame selection ---
+    low = max(0, int(trajectory_time_index[0]))
+    high = min(command.num_timesteps - 1, int(trajectory_time_index[1]))
+    high = max(low, high)
     if command.cfg.always_reset_to_first_frame:
-        reset_ts = torch.zeros(len(env_ids), dtype=torch.int32, device=env.device)
+        reset_ts = torch.full(
+            (len(env_ids),), low, dtype=torch.int32, device=env.device
+        )
     else:
-        low = max(0, trajectory_time_index[0])
-        high = min(command.num_timesteps - 1, trajectory_time_index[1])
         reset_ts = torch.randint(
             low,
-            max(low + 1, high),
+            high + 1,
             (len(env_ids),),
             dtype=torch.int32,
             device=env.device,
@@ -47,6 +52,8 @@ def reset_robot_to_trajectory_start(
 
     command.timestep[env_ids] = reset_ts
     command.reset_timestep[env_ids] = reset_ts
+    command.trajectory_end_timestep[env_ids] = high
+    command.tracking_lengths[env_ids] = (high - reset_ts + 1).clamp(min=1)
 
     # --- Read trajectory frame ---
     initial_root_pos = command.root_pos_w[reset_ts].clone()
@@ -112,15 +119,43 @@ def reset_robot_to_trajectory_start(
         env_ids=env_ids,
     )
 
-    # --- Reset object ---
-    scene_object = env.scene[command.cfg.object_name]
-    if isinstance(scene_object, RigidObject):
-        obj_pos = command._object_pos_w[reset_ts] + env.scene.env_origins[env_ids]
-        obj_quat = command._object_quat_w[reset_ts]
-        scene_object.write_root_pose_to_sim(
-            torch.cat([obj_pos, obj_quat], dim=-1), env_ids=env_ids
-        )
+    # --- Reset objects ---
+    scene_objects = getattr(command, "objects", None) or [
+        env.scene[command.cfg.object_name]
+    ]
+    object_pose = torch.cat(
+        [
+            command._object_body_pos_w[reset_ts] + env.scene.env_origins[env_ids, None],
+            command._object_body_quat_w[reset_ts],
+        ],
+        dim=-1,
+    )
+    object_velocity = torch.zeros(
+        object_pose.shape[0],
+        object_pose.shape[1],
+        6,
+        device=object_pose.device,
+        dtype=object_pose.dtype,
+    )
+    object_joint_pos = None
+    if command.retargeted_object_articulation.numel() > 0:
+        object_joint_pos = command.retargeted_object_articulation[reset_ts]
+        if object_joint_pos.dim() == 1:
+            object_joint_pos = object_joint_pos.unsqueeze(-1)
+
+    for object_idx, scene_object in enumerate(scene_objects):
+        scene_object.write_root_pose_to_sim(object_pose[:, object_idx], env_ids=env_ids)
         scene_object.write_root_velocity_to_sim(
-            torch.zeros_like(scene_object.data.root_vel_w[env_ids]), env_ids=env_ids
+            object_velocity[:, object_idx], env_ids=env_ids
         )
-    # TODO: generalize for ArticulatedObject (Arctic multi-body)
+        if isinstance(scene_object, Articulation) and object_joint_pos is not None:
+            if len(scene_objects) > 1:
+                raise NotImplementedError(
+                    "Multi-object trajectory reset currently supports separate "
+                    "RigidObject assets or a single Articulation asset."
+                )
+            scene_object.write_joint_state_to_sim(
+                object_joint_pos,
+                torch.zeros_like(scene_object.data.joint_vel[env_ids]),
+                env_ids=env_ids,
+            )

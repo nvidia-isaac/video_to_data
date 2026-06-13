@@ -57,6 +57,7 @@ def _spawn_articulated(
     obj_rot = (
         tuple(float(r) for r in obj.init_rot) if obj.init_rot else (1.0, 0.0, 0.0, 0.0)
     )
+    joint_pos = float(obj.init_joint_pos) if obj.init_joint_pos is not None else 0.0
     return ARTICULATED_OBJECT_CFG.replace(
         prim_path=prim_path,
         spawn=ARTICULATED_OBJECT_CFG.spawn.replace(
@@ -66,7 +67,7 @@ def _spawn_articulated(
         init_state=ArticulationCfg.InitialStateCfg(
             pos=obj_pos,
             rot=obj_rot,
-            joint_pos={".*": 0.0},
+            joint_pos={".*": joint_pos},
             joint_vel={".*": 0.0},
         ),
         actuators={
@@ -444,8 +445,15 @@ def apply_scene_config(
         if object_attr_names:
             env_cfg.commands.motion.object_name = object_attr_names[0]
             env_cfg.commands.motion.object_body_names = object_attr_names
+        whole_body_step_dt = float(env_cfg.sim.dt) * int(env_cfg.decimation)
+        reset_freeze_steps = int(
+            getattr(env_cfg.commands.motion, "reset_freeze_steps", 0)
+        )
+        whole_body_episode_length_s = (
+            scene_config.episode_length_s + reset_freeze_steps * whole_body_step_dt
+        )
         env_cfg.episode_length_s = min(
-            env_cfg.episode_length_s, scene_config.episode_length_s
+            env_cfg.episode_length_s, whole_body_episode_length_s
         )
 
         # Contact sensors for whole-body

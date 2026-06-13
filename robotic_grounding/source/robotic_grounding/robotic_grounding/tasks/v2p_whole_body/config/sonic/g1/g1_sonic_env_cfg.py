@@ -3,6 +3,7 @@
 import isaaclab.envs.mdp as il_mdp
 from isaaclab.envs.mdp import observations
 from isaaclab.managers import CurriculumTermCfg as CurrTerm
+from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.managers import RewardTermCfg as RewTerm
@@ -15,9 +16,11 @@ from robotic_grounding.assets import POLICY_ASSET_DIR
 from robotic_grounding.assets.g1 import (
     G1_CYLINDER_MODEL_12_HANDS_DEX_DELAYED_CFG,
     G1_DEX_CONTACT_BODIES,
+    G1_HAND_JOINT_NAMES,
     G1_MODEL_12_ACTION_SCALE,
 )
-from robotic_grounding.tasks.v2p_whole_body.base_env_cfg import V2PEnvCfg
+from robotic_grounding.tasks.v2p.mdp.events import configure_collision_groups
+from robotic_grounding.tasks.v2p_whole_body.base_env_cfg import BaseEventsCfg, V2PEnvCfg
 from robotic_grounding.tasks.v2p_whole_body.mdp import observations as obs
 from robotic_grounding.tasks.v2p_whole_body.mdp.actions import (
     SONICActionCfg,
@@ -35,6 +38,7 @@ from robotic_grounding.tasks.v2p_whole_body.mdp.terminations import (
     anchor_quat_error,
     ee_position_error,
     ee_quat_error,
+    hand_wrist_away_from_trajectory,
     object_pos_error,
     object_quat_error,
     timestep_termination,
@@ -170,7 +174,7 @@ class G1PolicyCfg(ObsGroup):
     """Unified policy observations for whole-body tracking.
 
     Egocentric (body frame) for hand/object state, 6D rotation throughout,
-    delta-based for future frames.
+    and legacy absolute anchor positions for checkpoint compatibility.
     """
 
     wrist_position_b = ObsTerm(
@@ -218,7 +222,11 @@ class G1PolicyCfg(ObsGroup):
     )
     motion_anchor_pos_b = ObsTerm(
         func=obs.motion_anchor_pos_b,
-        params={"command_name": "motion", "num_future_frames": 3},
+        params={
+            "command_name": "motion",
+            "num_future_frames": 3,
+            "frame": "absolute",
+        },
     )
     motion_anchor_ori_b = ObsTerm(
         func=obs.motion_anchor_ori_b,
@@ -264,6 +272,126 @@ class G1SonicObservationsCfg:
     sonic_tokenizer: G1SONICEncoderCfg = G1SONICEncoderCfg()
     sonic_policy: G1SONICDecoderCfg = G1SONICDecoderCfg()
     hand_policy: G1HandPolicyCfg = G1HandPolicyCfg()
+
+
+# ---------------------------------------------------------------------------
+# ReconHand observations
+# ---------------------------------------------------------------------------
+
+
+@configclass
+class G1ReconHandPolicyCfg(ObsGroup):
+    """Policy (actor) observations for the hand-recon whole-body task.
+
+    Shape: 385 for single-body objects, plus 14 dims per additional object body.
+    """
+
+    wrist_velocity_b = ObsTerm(
+        func=obs.wrist_velocity_full_b,
+        params={"command_name": "motion"},
+        noise=Unoise(n_min=-0.01, n_max=0.01),
+    )
+    joint_pos_rel = ObsTerm(
+        func=obs.joint_pos_rel,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "sonic_joints_only": False,
+            "action_name": "joint_pos",
+        },
+        noise=Unoise(n_min=-0.01, n_max=0.01),
+    )
+    joint_vel_rel = ObsTerm(
+        func=obs.joint_vel_rel,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "sonic_joints_only": False,
+            "action_name": "joint_pos",
+        },
+        noise=Unoise(n_min=-0.01, n_max=0.01),
+    )
+    motion_anchor_pos_b = ObsTerm(
+        func=obs.motion_anchor_pos_b,
+        params={
+            "command_name": "motion",
+            "num_future_frames": 3,
+            "frame": "relative",
+        },
+    )
+    motion_anchor_ori_b = ObsTerm(
+        func=obs.motion_anchor_ori_b,
+        params={"command_name": "motion", "num_future_frames": 3},
+    )
+    motion_joint_pos_delta = ObsTerm(
+        func=obs.motion_joint_pos_delta,
+        params={"command_name": "motion", "num_future_frames": 3},
+    )
+    motion_ee_pos_delta = ObsTerm(
+        func=obs.motion_ee_pos_delta,
+        params={"command_name": "motion", "num_future_frames": 3},
+    )
+    motion_ee_quat_delta = ObsTerm(
+        func=obs.motion_ee_quat_delta,
+        params={"command_name": "motion", "num_future_frames": 3},
+    )
+    left_hand_object_transform = ObsTerm(
+        func=obs.hand_object_reference_transform,
+        params={
+            "side": "left",
+            "command_name": "motion",
+            "threshold": 10.0,
+        },
+    )
+    right_hand_object_transform = ObsTerm(
+        func=obs.hand_object_reference_transform,
+        params={
+            "side": "right",
+            "command_name": "motion",
+            "threshold": 10.0,
+        },
+    )
+    object_pose_delta = ObsTerm(
+        func=obs.object_pose_delta,
+        params={"command_name": "motion"},
+    )
+    trajectory_progress = ObsTerm(func=obs.command_trajectory_progress)
+    base_ang_vel = ObsTerm(
+        func=observations.base_ang_vel,
+        params={"asset_cfg": SceneEntityCfg("robot")},
+    )
+    actions = ObsTerm(
+        func=obs.last_action,
+        params={"action_name": "joint_pos", "sonic_joints_only": False},
+    )
+    wrist_position_e = ObsTerm(
+        func=obs.wrist_position_e,
+        params={"command_name": "motion"},
+        noise=Unoise(n_min=-0.01, n_max=0.01),
+    )
+    wrist_wxyz_e = ObsTerm(
+        func=obs.wrist_wxyz_e,
+        params={"command_name": "motion"},
+        noise=Unoise(n_min=-0.01, n_max=0.01),
+    )
+    object_position_e = ObsTerm(
+        func=obs.object_position_e,
+        params={"command_name": "motion"},
+        noise=Unoise(n_min=-0.01, n_max=0.01),
+    )
+    object_wxyz_e = ObsTerm(
+        func=obs.object_wxyz_e,
+        params={"command_name": "motion"},
+        noise=Unoise(n_min=-0.01, n_max=0.01),
+    )
+    concatenate_terms = True
+
+
+@configclass
+class G1SonicReconHandObservationsCfg:
+    """Observation config for the hand-recon whole-body task."""
+
+    policy: G1ReconHandPolicyCfg = G1ReconHandPolicyCfg()
+    sonic_tokenizer: G1SONICEncoderCfg = G1SONICEncoderCfg()
+    sonic_policy: G1SONICDecoderCfg = G1SONICDecoderCfg()
 
 
 # ---------------------------------------------------------------------------
@@ -485,8 +613,9 @@ class G1SonicReconBodyEnvCfg(G1SonicEnvCfg):
 
 @configclass
 class G1SonicReconHandRewardsCfg(G1SonicRewardsCfg):
-    """Rewards for hand-accurate references (from exp201)."""
+    """Rewards for the hand-recon whole-body task."""
 
+    termination_penalty = RewTerm(func=il_mdp.is_terminated, weight=-100.0)
     motion_hand_keypoints_gaussian_exp = RewTerm(
         func=tracking_rewards.motion_hand_keypoints_gaussian_exp,
         weight=1.0,
@@ -497,12 +626,140 @@ class G1SonicReconHandRewardsCfg(G1SonicRewardsCfg):
         weight=1.0,
         params={"command_name": "motion", "std": 1.0},
     )
+    motion_object_keypoints_tracking_exp = RewTerm(
+        func=tracking_rewards.motion_object_keypoints_tracking_exp,
+        weight=0.0,
+        params={"command_name": "motion", "var": 0.1},
+    )
+    motion_contact_tracking_gaussian_exp = RewTerm(
+        func=tracking_rewards.motion_contact_tracking_gaussian_exp,
+        weight=0.0,
+        params={"command_name": "motion", "std": 0.05},
+    )
+    contact_wrench_support_reward = RewTerm(
+        func=contact_rewards.contact_wrench_support_reward,
+        weight=0.0,
+        params={"command_name": "motion", "tolerance": 0.1, "var": 0.1},
+    )
+    unintended_contact_penalty = RewTerm(
+        func=contact_rewards.unintended_contact_penalty,
+        weight=0.0,
+        params={"command_name": "motion"},
+    )
+    missed_contact_penalty = RewTerm(
+        func=contact_rewards.missed_contact_penalty,
+        weight=0.0,
+        params={"command_name": "motion"},
+    )
     action_rate = RewTerm(func=il_mdp.action_rate_l2, weight=-0.001)
     action_l2 = RewTerm(func=il_mdp.action_l2, weight=-0.0001)
+    joint_pos_limit = RewTerm(
+        func=il_mdp.joint_pos_limits,
+        weight=0.0,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=[".*"])},
+    )
+
+
+@configclass
+class G1SonicReconHandCurriculumCfg:
+    """ReconHand curriculum hooks.
+
+    Defaults to no-op. Experiment configs can enable fixed VOC schedules by
+    overriding `timestep_schedule` and `virtual_object_control_scale_factor`.
+    """
+
+    voc_curriculum = CurrTerm(
+        func=WholeBodyFixedTimestepVOCCurriculum,
+        params={
+            "command_name": "motion",
+            "num_steps_per_env": 24,
+            # Single disabled stage (VOC target 0.0). Experiments override these two
+            # equal-length lists to enable a PPO-update VOC decay schedule.
+            "timestep_schedule": [0],
+            "virtual_object_control_scale_factor": [0.0],
+        },
+    )
+
+
+@configclass
+class G1SonicReconHandTerminationsCfg:
+    """Termination config for the hand-recon task.
+
+    Drops EE pos/quat terminations (redundant: the reference EE depends on the
+    current object pose, covered by hand_wrist_away_from_trajectory) and adds the
+    hand-away termination. Object terminations are effectively disabled.
+    """
+
+    timeout = DoneTerm(
+        func=timestep_termination,
+        time_out=True,
+        params={"command_name": "motion"},
+    )
+    anchor_pos_error = DoneTerm(
+        func=anchor_pos_error,
+        params={"command_name": "motion", "threshold": 0.70},
+    )
+    anchor_quat_error = DoneTerm(
+        func=anchor_quat_error,
+        params={"command_name": "motion", "threshold": 1.50},
+    )
+    hand_wrist_away = DoneTerm(
+        func=hand_wrist_away_from_trajectory,
+        params={"command_name": "motion", "threshold": 0.15},
+    )
+    object_pos_error = DoneTerm(
+        func=object_pos_error,
+        params={"command_name": "motion", "threshold": 100.0},
+    )
+    object_quat_error = DoneTerm(
+        func=object_quat_error,
+        params={"command_name": "motion", "threshold": 100.0},
+    )
+
+
+@configclass
+class G1SonicReconHandEventsCfg(BaseEventsCfg):
+    """Events for hand-recon scene collision grouping."""
+
+    setup_collision_groups = EventTerm(
+        func=configure_collision_groups,
+        mode="prestartup",
+        params={
+            "robot_names": ["Robot"],
+            "object_names": [],
+            "fixed_object_names": [],
+            "disable_robot_to_object_collisions": False,
+            "disable_robot_to_fixed_object_collisions": False,
+        },
+    )
 
 
 @configclass
 class G1SonicReconHandEnvCfg(G1SonicEnvCfg):
     """Hand-accurate reference env (planner pipeline)."""
 
+    # Hand-recon actor observations; overrides the inherited generic obs config.
+    events: G1SonicReconHandEventsCfg = G1SonicReconHandEventsCfg()  # type: ignore[assignment]
+    observations: G1SonicReconHandObservationsCfg = G1SonicReconHandObservationsCfg()  # type: ignore[assignment]
     rewards: G1SonicReconHandRewardsCfg = G1SonicReconHandRewardsCfg()
+    terminations: G1SonicReconHandTerminationsCfg = G1SonicReconHandTerminationsCfg()  # type: ignore[assignment]
+    curriculum: G1SonicReconHandCurriculumCfg = G1SonicReconHandCurriculumCfg()  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        """Configure Dex3 hand tracking: EE links, fingertips, VOC, freeze."""
+        super().__post_init__()
+        self.scene.replicate_physics = False
+        self.scene.filter_collisions = False
+        self.commands.motion.ee_link_names = [
+            "left_hand_palm_link",
+            "right_hand_palm_link",
+        ]
+        self.commands.motion.fingertip_body_name = ".*_(thumb_2|index_1|middle_1)_link"
+        self.commands.motion.finger_joint_names = G1_HAND_JOINT_NAMES
+        self.commands.motion.reset_freeze_steps = 50
+        self.commands.motion.initial_virtual_object_control_curriculum_scale = 1.0
+        self.commands.motion.reset_shoulder_spread = 0.5
+        self.commands.motion.voc_decay_steps = 10
+        self.commands.motion.voc_reset_scale = 1.0
+        # Upper bound; apply_scene_config() clips this down to the trajectory length.
+        self.episode_length_s = 70.0
