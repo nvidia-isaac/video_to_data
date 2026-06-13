@@ -51,7 +51,7 @@ from robotic_grounding.planner.utils.validation import (
     warn_reference_issues,
 )
 from robotic_grounding.planner.visualization import visualize
-from robotic_grounding.retarget.data_logger import ManoDex3Data, ManoSharpaData
+from robotic_grounding.retarget.data_logger import ManoDex3Data
 from robotic_grounding.retarget.support_recon import (
     reconstruct_support_for_sequence,
 )
@@ -188,21 +188,16 @@ def load_v2p_reference(
     filters: list,
     trajectory_id: int = 0,
     target_fps: float = 100.0,
-    robot_type: str = "sharpa",
+    robot_type: str = "dex3",
     start_frame: int = 0,
     start_at_first_contact: bool = False,
     pre_contact_frames: int = 0,
     end_after_last_contact_frames: int = -1,
 ) -> dict[str, Any]:
     """Load and interpolate V2P retargeted reference data."""
-    if robot_type == "sharpa":
-        data_class = ManoSharpaData
-    elif robot_type == "dex3":
-        data_class = ManoDex3Data
-    else:
-        raise ValueError(
-            f"Unknown robot_type={robot_type!r}; expected 'sharpa' or 'dex3'."
-        )
+    if robot_type != "dex3":
+        raise ValueError(f"Unsupported robot_type={robot_type!r}; expected 'dex3'.")
+    data_class = ManoDex3Data
     motion = data_class.from_parquet(
         root_path=parquet_folder, filters=filters, trajectory_id=trajectory_id
     )
@@ -359,15 +354,12 @@ def save_planner_parquet(
         T_use=T_use,
     )
 
-    robot_name = "g1" if robot_type == "sharpa" else "g1_dex3"
+    robot_name = "g1_dex3"
     # ee_link_names tells the env which body the EE pose was recorded from.
     # For dex3 the per-side wrist-position fields actually hold the palm-link
     # pose (the free-flyer URDF root), so a `wrist_yaw_link` label would put
     # the env's reward target on the wrong body with a ~4 cm systematic offset.
-    if robot_type == "dex3":
-        ee_link_names = ["left_hand_palm_link", "right_hand_palm_link"]
-    else:
-        ee_link_names = ["left_wrist_yaw_link", "right_wrist_yaw_link"]
+    ee_link_names = ["left_hand_palm_link", "right_hand_palm_link"]
     md = MotionData(
         sequence_id=sequence_id,
         robot_name=robot_name,
@@ -409,11 +401,7 @@ def main() -> None:
     hold_end_s = 0.0 if args.no_approach else args.hold_end_s
 
     scene_xml = str(_ASSETS_DIR / "mujoco" / "scene_29dof.xml")
-    hand_xml = str(
-        _ASSETS_DIR
-        / "mujoco"
-        / ("g1_dex3_hands.xml" if args.robot == "dex3" else "g1_sharpa_hands.xml")
-    )
+    hand_xml = str(_ASSETS_DIR / "mujoco" / "g1_dex3_hands.xml")
 
     # Step 1: Nominal EE FK
     print(f"Step 1: Nominal FK (robot={args.robot})")
