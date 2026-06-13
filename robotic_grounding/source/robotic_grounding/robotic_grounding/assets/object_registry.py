@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from robotic_grounding.assets import ASSET_DIR, OBJECTS_ASSET_DIR
+from robotic_grounding.assets import ASSET_DIR
 
 
 @dataclass
@@ -21,13 +21,6 @@ class ObjectSpec:
 _ARCTIC_URDF_DIR = f"{ASSET_DIR}/urdfs/arctic"
 
 OBJECT_REGISTRY: dict[str, ObjectSpec] = {
-    "apple_green": ObjectSpec(
-        usd_path=f"{OBJECTS_ASSET_DIR}/apple/apple_simple_green.usda",
-        scale=(0.8, 0.8, 0.8),
-    ),
-    "table": ObjectSpec(
-        usd_path=f"{OBJECTS_ASSET_DIR}/ikea_4x2_shelf/ikea_4x2_shelf.usd",
-    ),
     # Arctic objects (articulated URDFs, base joints removed)
     "box": ObjectSpec(
         urdf_path=f"{_ARCTIC_URDF_DIR}/box_art.urdf",
