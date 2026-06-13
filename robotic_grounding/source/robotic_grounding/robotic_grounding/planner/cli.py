@@ -24,9 +24,9 @@ _ROOT_FIX_COMPONENTS = ("x", "y", "z", "roll", "pitch", "yaw")
 def parse_args() -> argparse.Namespace:
     """Build the planner CLI parser and return the parsed namespace."""
     parser = argparse.ArgumentParser(description="G1 whole-body planner")
-    parser.add_argument("--robot", choices=["sharpa", "dex3"], default="sharpa")
+    parser.add_argument("--robot", choices=["dex3"], default="dex3")
     parser.add_argument("--v2p_parquet", required=True)
-    parser.add_argument("--v2p_robot_name", default="sharpa_wave")
+    parser.add_argument("--v2p_robot_name", default="dex3")
     parser.add_argument("--v2p_sequence", default="box_grab")
     parser.add_argument("--v2p_trajectory_id", type=int, default=0)
     parser.add_argument(

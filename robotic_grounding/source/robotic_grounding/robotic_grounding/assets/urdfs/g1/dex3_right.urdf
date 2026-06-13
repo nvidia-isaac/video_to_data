@@ -13,7 +13,7 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://unitree_description/meshes/g1/right_hand_palm_link.STL"/>
+                <mesh filename="package://g1/right_hand_palm_link.STL"/>
             </geometry>
             <material name="white">
                 <color rgba="0.7 0.7 0.7 1"/>
@@ -21,7 +21,7 @@
         </visual>
         <collision>
             <geometry>
-                <mesh filename="package://unitree_description/meshes/g1/right_hand_palm_link.STL"/>
+                <mesh filename="package://g1/right_hand_palm_link.STL"/>
             </geometry>
         </collision>
     </link>
@@ -44,7 +44,7 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://unitree_description/meshes/g1/right_hand_thumb_0_link.STL"/>
+                <mesh filename="package://g1/right_hand_thumb_0_link.STL"/>
             </geometry>
             <material name="white">
                 <color rgba="0.7 0.7 0.7 1"/>
@@ -52,7 +52,7 @@
         </visual>
         <collision>
             <geometry>
-                <mesh filename="package://unitree_description/collision/g1/hands/right_hand_thumb_0_link.obj"/>
+                <mesh filename="package://g1/collision/hands/right_hand_thumb_0_link.obj"/>
             </geometry>
         </collision>
     </link>
@@ -74,7 +74,7 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://unitree_description/meshes/g1/right_hand_thumb_1_link.STL"/>
+                <mesh filename="package://g1/right_hand_thumb_1_link.STL"/>
             </geometry>
             <material name="white">
                 <color rgba="0.7 0.7 0.7 1"/>
@@ -82,7 +82,7 @@
         </visual>
         <collision>
             <geometry>
-                <mesh filename="package://unitree_description/collision/g1/hands/right_hand_thumb_1_link.obj"/>
+                <mesh filename="package://g1/collision/hands/right_hand_thumb_1_link.obj"/>
             </geometry>
         </collision>
     </link>
@@ -104,7 +104,7 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://unitree_description/meshes/g1/right_hand_thumb_2_link.STL"/>
+                <mesh filename="package://g1/right_hand_thumb_2_link.STL"/>
             </geometry>
             <material name="white">
                 <color rgba="0.7 0.7 0.7 1"/>
@@ -112,7 +112,7 @@
         </visual>
         <collision>
             <geometry>
-                <mesh filename="package://unitree_description/collision/g1/hands/right_hand_thumb_2_link.obj"/>
+                <mesh filename="package://g1/collision/hands/right_hand_thumb_2_link.obj"/>
             </geometry>
         </collision>
     </link>
@@ -135,7 +135,7 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://unitree_description/meshes/g1/right_hand_middle_0_link.STL"/>
+                <mesh filename="package://g1/right_hand_middle_0_link.STL"/>
             </geometry>
             <material name="white">
                 <color rgba="0.7 0.7 0.7 1"/>
@@ -143,7 +143,7 @@
         </visual>
         <collision>
             <geometry>
-                <mesh filename="package://unitree_description/meshes/g1/right_hand_middle_0_link.STL"/>
+                <mesh filename="package://g1/right_hand_middle_0_link.STL"/>
             </geometry>
         </collision>
     </link>
@@ -165,7 +165,7 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://unitree_description/meshes/g1/right_hand_middle_1_link.STL"/>
+                <mesh filename="package://g1/right_hand_middle_1_link.STL"/>
             </geometry>
             <material name="white">
                 <color rgba="0.7 0.7 0.7 1"/>
@@ -173,7 +173,7 @@
         </visual>
         <collision>
             <geometry>
-                <mesh filename="package://unitree_description/meshes/g1/right_hand_middle_1_link.STL"/>
+                <mesh filename="package://g1/right_hand_middle_1_link.STL"/>
             </geometry>
         </collision>
     </link>
@@ -196,7 +196,7 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://unitree_description/meshes/g1/right_hand_index_0_link.STL"/>
+                <mesh filename="package://g1/right_hand_index_0_link.STL"/>
             </geometry>
             <material name="white">
                 <color rgba="0.7 0.7 0.7 1"/>
@@ -204,7 +204,7 @@
         </visual>
         <collision>
             <geometry>
-                <mesh filename="package://unitree_description/meshes/g1/right_hand_index_0_link.STL"/>
+                <mesh filename="package://g1/right_hand_index_0_link.STL"/>
             </geometry>
         </collision>
     </link>
@@ -226,7 +226,7 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://unitree_description/meshes/g1/right_hand_index_1_link.STL"/>
+                <mesh filename="package://g1/right_hand_index_1_link.STL"/>
             </geometry>
             <material name="white">
                 <color rgba="0.7 0.7 0.7 1"/>
@@ -234,7 +234,7 @@
         </visual>
         <collision>
             <geometry>
-                <mesh filename="package://unitree_description/meshes/g1/right_hand_index_1_link.STL"/>
+                <mesh filename="package://g1/right_hand_index_1_link.STL"/>
             </geometry>
         </collision>
     </link>

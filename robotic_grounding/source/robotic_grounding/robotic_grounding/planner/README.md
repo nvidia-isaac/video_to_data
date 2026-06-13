@@ -10,7 +10,7 @@ PYTHONPATH=robotic_grounding/source/robotic_grounding:$PYTHONPATH \
 python -m robotic_grounding.planner.g1_planner \
     --v2p_parquet robotic_grounding/source/robotic_grounding/robotic_grounding/assets/human_motion_data/arctic/arctic_processed \
     --v2p_sequence box_grab \
-    --robot sharpa \
+    --robot dex3 \
     --workspace_offset -0.30 0.0 0.07 \
     --output planner_processed
 ```
@@ -29,7 +29,7 @@ V2P Retargeted Parquet (arctic_processed/)
 │     Load hand/object trajectories, interpolate to target FPS
 │
 ├── Step 3-4: Transform to G1 Frame
-│     Local frame fix (Sharpa → G1) → yaw correction → position offset
+│     Reference frame alignment → yaw correction → position offset
 │
 ├── Step 5: Build Trajectory
 │     Hold nominal (5s) → interpolate (5s) → hold start (5s) → reference
@@ -65,9 +65,9 @@ These are informational — the upstream retargeter / asset pipeline owns them.
 |----------|---------|-------------|
 | `--v2p_parquet` | required | Path to V2P retargeted parquet folder |
 | `--v2p_sequence` | `box_grab` | Sequence ID substring filter |
-| `--v2p_robot_name` | `sharpa_wave` | Robot name filter |
+| `--v2p_robot_name` | `dex3` | Robot name filter |
 | `--v2p_trajectory_id` | `0` | Trajectory index within filtered results |
-| `--robot` | `sharpa` | Robot type: `sharpa` or `dex3` |
+| `--robot` | `dex3` | Robot type. Only `dex3` is supported. |
 | `--workspace_offset` | `-0.10 0.0 -0.15` | XYZ offset for EE targets |
 | `--target_fps` | `150.0` | Resample V2P data to this FPS |
 | `--ref_seconds` | `-1` | Seconds of reference to include (-1 = all) |
@@ -87,10 +87,9 @@ The planner populates:
 
 - Robot state (`robot_root_position`, `robot_root_wxyz`, `robot_joint_positions`,
   `robot_joint_names`) decomposed from the planner's mujoco qpos.
-- `ee_link_names` set per robot: `["left_hand_palm_link", "right_hand_palm_link"]`
-  for dex3 (where the palm IS the free-flyer URDF root), `["left_wrist_yaw_link",
-  "right_wrist_yaw_link"]` for sharpa. `ee_pose_w (T, 2, 7)` is built from the
-  reference wrist trajectories.
+- `ee_link_names` set to `["left_hand_palm_link", "right_hand_palm_link"]`
+  for dex3, where the palm is the free-flyer URDF root. `ee_pose_w (T, 2, 7)`
+  is built from the reference wrist trajectories.
 - Object metadata + trajectory (`object_body_position`, `object_body_wxyz`,
   `object_body_names`, `object_articulation`, mesh/URDF paths copied from the
   upstream ManoSharpaData retarget file).
@@ -120,9 +119,6 @@ planner/
 ├── motionbricks/             MotionBricks model backend (current planner)
 │   ├── inference.py          loads planner_agent.pkg, runs chunked AR inference
 │   └── qpos.py               qpos assembly helpers
-├── mfm/                      Legacy MFM model backend (kept for reference)
-│   ├── inference.py / chunk_runner.py / data_adapters.py / smoothing.py /
-│   │ motion_reps.py / mujoco_helper.py / ik_verify.py
 └── utils/                    Pure helpers, no planner state
     ├── transforms.py         Quaternion conversions, low-level rigid
     │                         primitives (quat_*, transform_primary_*,
