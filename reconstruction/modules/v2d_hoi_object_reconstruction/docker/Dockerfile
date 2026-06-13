@@ -161,6 +161,65 @@ RUN git clone \
         https://github.com/NVIDIA/3DObjectReconstruction.git \
         /workspace/3d-object-reconstruction
 
+# Fix upstream texture-baking clipping in 3d-object-reconstruction.
+# The renderer now accepts an optional config-driven zfar. Old configs still get
+# the dynamic camera-distance fallback instead of reverting to far*sc_factor.
+RUN python3 - <<'EOF'
+import pathlib
+
+f = pathlib.Path("/workspace/3d-object-reconstruction/src/nvidia/objectreconstruction/networks/nerf_runner.py")
+src = f.read_text()
+
+old = "def build_texture_from_images(mesh, reader, poses, Height, Width, K, sc_factor, far, tex_res,alpha=1.5,beta=0.5,adjust_brightness=True,debug_dir=None):"
+new = "def build_texture_from_images(mesh, reader, poses, Height, Width, K, sc_factor, far, tex_res, alpha=1.5, beta=0.5, adjust_brightness=True, debug_dir=None, texture_zfar=None, texture_zfar_camera_distance_margin=2.0):"
+assert old in src, "build_texture_from_images signature anchor not found in nerf_runner.py"
+src = src.replace(old, new, 1)
+
+old = "    renderer = ModelRendererOffscreen([], cam_K=K, H=Height, W=Width, zfar=far*sc_factor)"
+new = (
+    "    # Use config-driven texture zfar when provided; otherwise compute a safe fallback\n"
+    "    # from actual camera distances to avoid clipping the mesh.\n"
+    "    cam_dists = np.linalg.norm(poses[:, :3, 3], axis=-1)\n"
+    "    if texture_zfar is not None:\n"
+    "        computed_zfar = float(texture_zfar)\n"
+    "        zfar_source = \"config\"\n"
+    "    else:\n"
+    "        zfar_margin = float(texture_zfar_camera_distance_margin)\n"
+    "        computed_zfar = max(far * sc_factor, float(cam_dists.max()) * zfar_margin)\n"
+    "        zfar_source = f\"auto margin={zfar_margin:.3f}\"\n"
+    "    logging.info(f\"Texture baking zfar: {computed_zfar:.3f} \"\n"
+    "                 f\"({zfar_source}, far={far}, sc_factor={sc_factor:.3f}, \"\n"
+    "                 f\"max_cam_dist={cam_dists.max():.3f})\")\n"
+    "\n"
+    "    renderer = ModelRendererOffscreen([], cam_K=K, H=Height, W=Width, zfar=computed_zfar)"
+)
+assert old in src, "zfar anchor not found in nerf_runner.py"
+src = src.replace(old, new, 1)
+
+f.write_text(src)
+
+f = pathlib.Path("/workspace/3d-object-reconstruction/src/nvidia/objectreconstruction/networks/nvbundlesdf.py")
+src = f.read_text()
+
+old = (
+    "            sc_factor=sc_factor, far=reader.far, \n"
+    "            tex_res=cfg_texture['texture_res'],debug_dir=self.debug_dir\n"
+    "        )"
+)
+new = (
+    "            sc_factor=sc_factor, far=reader.far,\n"
+    "            tex_res=cfg_texture['texture_res'], debug_dir=self.debug_dir,\n"
+    "            texture_zfar=self.cfg_nerf.get('texture_zfar'),\n"
+    "            texture_zfar_camera_distance_margin=self.cfg_nerf.get('texture_zfar_camera_distance_margin', 2.0),\n"
+    "        )"
+)
+assert old in src, "texture zfar call anchor not found in nvbundlesdf.py"
+src = src.replace(old, new, 1)
+
+f.write_text(src)
+print("3d-object-reconstruction texture zfar patch applied successfully")
+EOF
+
 # Install Python dependencies from repo requirements
 RUN pip3 install --no-cache-dir packaging setuptools wheel
 RUN pip3 install --no-cache-dir -r /workspace/3d-object-reconstruction/src/requirements.txt
@@ -181,7 +240,7 @@ RUN update-alternatives --install /usr/bin/python python /usr/bin/python3 1 && \
     update-alternatives --install /usr/bin/pip pip /usr/bin/pip3 1
 
 # Install BundleSDF CUDA extension
-RUN git clone https://github.com/NVLabs/BundleSDF.git /BundleSDF
+RUN git clone --branch nvbundlesdf --depth 1 https://github.com/NVLabs/BundleSDF.git /BundleSDF
 RUN cp -r /BundleSDF/mycuda /customize_cuda && \
     cd /customize_cuda && \
     TORCH_CUDA_ARCH_LIST="7.0;7.5;8.0;8.6;9.0" FORCE_CUDA=1 pip install . --no-build-isolation
@@ -225,9 +284,16 @@ ENV PYTHONPATH=/workspace/3d-object-reconstruction/src:$PYTHONPATH
 
 WORKDIR /workspace
 
-# Copy and install shared packages
+# Copy and install shared/runtime packages used by the OSMO HOI workflow.
 COPY v2d_common /workspace/v2d_common
-RUN pip install -e /workspace/v2d_common
+COPY v2d_mv /workspace/v2d_mv
+COPY v2d_sam2 /workspace/v2d_sam2
+COPY v2d_bundlesdf/__init__.py /workspace/v2d_bundlesdf/__init__.py
+COPY v2d_bundlesdf/lib /workspace/v2d_bundlesdf/lib
+RUN pip install -e "/workspace/v2d_common[io]" \
+    -e /workspace/v2d_mv \
+    -e /workspace/v2d_sam2/lib \
+    -e /workspace/v2d_bundlesdf/lib
 
 # Copy hoi_object_reconstruction library into the image
 COPY v2d_hoi_object_reconstruction/__init__.py /workspace/v2d_hoi_object_reconstruction/__init__.py

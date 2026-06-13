@@ -10,32 +10,35 @@ Two modes:
 ── BundleSDF steps ──────────────────────────────────────────────────────────────────
   1.  prepare_FP_folder           – copy images, write calibration + video
   2.  CuSFM                       – → job_dir/sfm/keyframes/frames_meta.json with poses
-  2b. Stage-1 auto-detect         – detect Stage-1 end from CuSFM trajectory slope
+  2b. CuSFM scan quality          – validate two-loop pose trajectory before auto split
+  2c. Stage-1 auto-detect         – detect Stage-1 end from CuSFM trajectory slope
   3.  Grounding DINO               – detect object bbox from text prompt
   4a. Depth (parallel workers)    – FoundationStereo depth for ALL frames
-  4b. Mask                        – SAM2 masks for ALL frames
+  4b. Mask                        – SAM2 masks + optional cleanup for ALL frames
   5.  Stage-1 recon setup         – filter Stage-1 SfM keyframes + depth symlinks
   6.  Stage-1 NeRF                – reconstruct Stage-1 mesh (bottom missing)
   7.  Center mesh                 – shift mesh centroid to origin
   8.  FoundationPose tracking     – track all frames with Stage-1 mesh
   9.  World poses                 – compute T_world_from_obj + auto-detect stages
   10. Merged recon setup          – align Stage-2 keyframes into Stage-1 obj frame
-  11. Full NeRF                   – reconstruct complete mesh from both stages
+  11. Full NeRF                   – reconstruct complete mesh + output.glb from both stages
   12. FP tracking (final)         – track all frames with final textured mesh
   13. FP render (final)           – render overlay video with final textured mesh
 
 ── SAM3D steps ──────────────────────────────────────────────────────────────────────
   1.  prepare_FP_folder           – copy images, write calibration + video
   2.  CuSFM                       – camera poses for frame selection + SRT scale
-  2b. Stage-1 auto-detect         – detect Stage-1 end (used to exclude transition frames)
+  2b. CuSFM scan quality          – validate two-loop pose trajectory before auto split
+  2c. Stage-1 auto-detect         – detect Stage-1 end (used to exclude transition frames)
   3.  Grounding DINO               – detect object bbox from text prompt
-  4b. Mask                        – SAM2 masks for ALL frames (used for SRT scale)
+  4b. Mask                        – SAM2 masks + optional cleanup for ALL frames (used for SRT scale)
  [4a. Depth (optional)]           – FoundationStereo depth, used by SRT scale (--sam3d_use_depth)
   S1. Select frames               – pick one frame per azimuthal bin (60° default)
   S2. SAM3D                       – run SAM3D on each selected frame → GLB mesh
   S3. SRT scale                   – estimate scale+pose using Stage-1 silhouettes only
   S4. Render debug                – render debug overlay image for each SAM3D mesh
   S5. Render video                – project SRT mesh onto all Stage-1 keyframes → render_video.mp4
+  S6. Select suggested best       – rank candidates and copy best artifacts to sam3d/best/
 
 Two frames_meta.json files are used:
   - mapping_data_dir/frames_meta.json          : input metadata (timestamps, no poses)
@@ -53,17 +56,21 @@ Usage:
         --mode sam3d [--sam3d_use_depth] [--sam3d_bin_deg 60] [--sam3d_seed 42]
 
 Skip flags (BundleSDF):
-    --skip_prepare  --skip_sfm  --skip_stage1_detect  --skip_dino  --skip_depth  --skip_mask
+    --skip_prepare  --skip_sfm  --skip_sfm_quality_check  --skip_stage1_detect  --skip_dino  --skip_depth  --skip_mask
+    --skip_mask_postprocess
     --skip_stage1_setup  --skip_stage1_nerf  --skip_center_mesh
     --skip_fp_tracking  --skip_fp_render  --skip_world_poses  --skip_merged_setup  --skip_full_nerf
-    --skip_final_fp_tracking  --skip_final_fp_render
+    --skip_glb_export  --skip_final_fp_tracking  --skip_final_fp_render
 
 Skip flags (SAM3D):
-    --skip_prepare  --skip_sfm  --skip_stage1_detect  --skip_dino  --skip_depth  --skip_mask
+    --skip_prepare  --skip_sfm  --skip_sfm_quality_check  --skip_stage1_detect  --skip_dino  --skip_depth  --skip_mask
+    --skip_mask_postprocess
     --skip_select_frames  --skip_sam3d  --skip_srt_scale  --skip_render_debug  --skip_render_video
+    --skip_select_best_mesh
 """
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -75,6 +82,15 @@ from pathlib import Path
 
 import numpy as np
 
+
+def file_sha256(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 from v2d.docker.container import run_in_container
 from v2d.foundation_pose.docker.run_video_to_poses import run_video_to_poses as _run_fp_tracking
 from v2d.common.datatypes import Transform3d
@@ -85,6 +101,7 @@ from v2d_hoi_object_reconstruction.lib.select_sam3d_frames import (
     select_frames_by_angle_bins,
     select_frames_fallback,
 )
+from v2d_hoi_object_reconstruction.lib.select_sam3d_best import select_best_sam3d_frame
 from v2d_hoi_object_reconstruction.lib.scale_mesh_srt import estimate_srt_for_frame
 
 
@@ -273,10 +290,16 @@ def main():
                         help="Angle buffer (°) for auto stage-1 detection (default: 10°)")
     parser.add_argument("--config", default=None,
                         help="NeRF/SDF config YAML host path (optional; bundlesdf uses its own default if omitted)")
+    parser.add_argument("--bundlesdf_trunc", "--bundlesdf-trunc", dest="bundlesdf_trunc",
+                        type=float, default=None,
+                        help="Override BundleSDF nerf.trunc / trunc_start in meters")
+    parser.add_argument("--bundlesdf_mesh_resolution", "--bundlesdf-mesh-resolution",
+                        dest="bundlesdf_mesh_resolution", type=float, default=None,
+                        help="Override BundleSDF nerf.mesh_resolution in meters")
     parser.add_argument("--pipeline_config", default=None,
                         help=f"HOI pipeline config YAML, host path (default: {_DEFAULT_PIPELINE_CONFIG_HOST}). "
-                             "Controls per-step settings (stage1_detect, sfm, grounding_dino, depth, "
-                             "foundationpose, texture_bake).")
+                             "Controls per-step settings (stage1_detect, sfm, sfm_scan_quality, "
+                             "grounding_dino, depth, foundationpose, texture_bake).")
     parser.add_argument("--box_threshold", type=float, default=None,
                         help="Grounding DINO box confidence threshold (overrides pipeline_config)")
     parser.add_argument("--reference_frame", type=int, default=None,
@@ -302,11 +325,15 @@ def main():
     # Skip flags
     parser.add_argument("--skip_prepare",        action="store_true")
     parser.add_argument("--skip_sfm",            action="store_true")
+    parser.add_argument("--skip_sfm_quality_check", action="store_true",
+                        help="Skip CuSFM two-loop scan quality validation")
     parser.add_argument("--skip_stage1_detect",  action="store_true",
                         help="Skip auto stage-1 end detection (requires manual --stage1_end_frame/timestamp)")
     parser.add_argument("--skip_dino",         action="store_true")
     parser.add_argument("--skip_depth",        action="store_true")
     parser.add_argument("--skip_mask",         action="store_true")
+    parser.add_argument("--skip_mask_postprocess", action="store_true",
+                        help="Skip configured mask post-processing")
     parser.add_argument("--skip_stage1_setup", action="store_true")
     parser.add_argument("--skip_stage1_nerf",  action="store_true")
     parser.add_argument("--skip_center_mesh",  action="store_true")
@@ -316,6 +343,8 @@ def main():
     parser.add_argument("--skip_world_poses",  action="store_true")
     parser.add_argument("--skip_merged_setup",        action="store_true")
     parser.add_argument("--skip_full_nerf",            action="store_true")
+    parser.add_argument("--skip_glb_export",           action="store_true",
+                        help="BundleSDF mode: skip exporting textured_mesh.obj to output.glb")
     parser.add_argument("--skip_final_fp_tracking",    action="store_true",
                         help="Skip FoundationPose tracking with final textured mesh")
     parser.add_argument("--skip_final_fp_render",      action="store_true",
@@ -331,6 +360,8 @@ def main():
                         help="SAM3D mode: skip SAM3D debug render")
     parser.add_argument("--skip_render_video",  action="store_true",
                         help="SAM3D mode: skip Stage-1 overlay video render")
+    parser.add_argument("--skip_select_best_mesh", action="store_true",
+                        help="SAM3D mode: skip suggested best mesh selection")
 
     args = parser.parse_args()
 
@@ -355,6 +386,34 @@ def main():
                          else _pcfg_get("depth", "num_workers", 2)
     fp_weights_dir_cfg = args.fp_weights_dir     if args.fp_weights_dir is not None \
                          else _pcfg_get("foundationpose", "weights_dir")
+    sfm_quality_cfg = _pcfg.get("sfm_scan_quality") or {}
+    sfm_quality_enabled = (
+        bool(sfm_quality_cfg.get("enabled", True))
+        and not args.skip_sfm_quality_check
+    )
+    sfm_quality_fail_on_error = bool(sfm_quality_cfg.get("fail_on_error", True))
+
+    mask_postprocess_cfg = _pcfg.get("mask_postprocess") or {}
+    mask_postprocess_modes = mask_postprocess_cfg.get("modes")
+    if mask_postprocess_modes is None:
+        mask_postprocess_modes = ["bundlesdf", "sam3d"]
+    elif isinstance(mask_postprocess_modes, str):
+        mask_postprocess_modes = [mask_postprocess_modes]
+    mask_postprocess_enabled = (
+        bool(mask_postprocess_cfg.get("enabled", False))
+        and not args.skip_mask_postprocess
+        and args.mode in set(mask_postprocess_modes)
+    )
+    mask_postprocess_effective_cfg = {
+        "keep_largest_component": bool(mask_postprocess_cfg.get("keep_largest_component", False)),
+        "min_component_area_px": int(mask_postprocess_cfg.get("min_component_area_px", 2000)),
+        "min_component_area_frac": float(mask_postprocess_cfg.get("min_component_area_frac", 0.01)),
+        "open_px": int(mask_postprocess_cfg.get("open_px", 0)),
+        "erode_px": int(mask_postprocess_cfg.get("erode_px", 3)),
+    }
+    mask_postprocess_fingerprint = hashlib.sha256(
+        json.dumps(mask_postprocess_effective_cfg, sort_keys=True).encode("utf-8")
+    ).hexdigest()
     job_dir = os.path.abspath(args.job_dir)
     os.makedirs(job_dir, exist_ok=True)
 
@@ -401,13 +460,20 @@ def main():
     depth_dir         = os.path.join(job_dir, "depth")
     masks_dir         = os.path.join(job_dir, "masks")
     mask_path         = os.path.join(job_dir, "masks", "0", f"{ref_frame:06d}.png")
+    mask_prompt_hash  = os.path.join(job_dir, "masks", ".prompts.sha256")
+    mask_post_hash    = os.path.join(job_dir, "masks", ".postprocess.sha256")
+    sam2_masks_dir    = os.path.join(job_dir, "masks_raw_sam2") if mask_postprocess_enabled else masks_dir
+    sam2_mask_path    = os.path.join(sam2_masks_dir, "0", f"{ref_frame:06d}.png")
+    sam2_prompt_hash  = os.path.join(sam2_masks_dir, ".prompts.sha256")
     stage1_recon_dir  = os.path.join(job_dir, "stage1_recon")
     stage1_mesh_raw   = os.path.join(job_dir, "stage1_recon", "textured_mesh.obj")
-    centered_mesh     = os.path.join(job_dir, "mesh_input.obj")
+    stage1_mesh_glb   = os.path.join(job_dir, "stage1_recon", "output.glb")
+    centered_mesh     = os.path.join(job_dir, "mesh_input.glb")
     poses_dir         = os.path.join(job_dir, "poses")
     poses_world       = os.path.join(job_dir, "poses_world.json")
     merged_recon_dir  = os.path.join(job_dir, "merged_recon")
-    final_mesh        = os.path.join(job_dir, "merged_recon", "textured_mesh.obj")
+    final_mesh_obj    = os.path.join(job_dir, "merged_recon", "textured_mesh.obj")
+    final_mesh_glb    = os.path.join(job_dir, "merged_recon", "output.glb")
     poses_final_dir   = os.path.join(job_dir, "poses_final")
     intrinsics_path   = os.path.join(job_dir, "intrinsics", f"{ref_frame:06d}.json")
 
@@ -423,15 +489,38 @@ def main():
     c_dino_bboxes = f"{c_job}/grounding_dino_bboxes.json"
     c_prompts_json = f"{c_job}/prompts.json"
     c_depth_dir   = f"{c_job}/depth"
-    c_centered_mesh = f"{c_job}/mesh_input.obj"
+    c_centered_mesh = f"{c_job}/mesh_input.glb"
     c_poses_dir   = f"{c_job}/poses"
-    c_final_mesh  = f"{c_job}/merged_recon/textured_mesh.obj"
+    c_final_mesh_obj = f"{c_job}/merged_recon/textured_mesh.obj"
+    c_final_mesh_glb = f"{c_job}/merged_recon/output.glb"
     c_poses_final = f"{c_job}/poses_final"
     c_intrinsics  = f"{c_job}/intrinsics/{ref_frame:06d}.json"
     c_ref_frame   = f"{c_job}/ref_frame.jpg"
 
     _timings = {}
     _t_total = time.time()
+
+    def _select_stage1_center_mesh() -> str:
+        """Prefer the self-contained Stage-1 GLB; fall back to OBJ for reuse runs."""
+        if os.path.exists(stage1_mesh_glb):
+            return stage1_mesh_glb
+        if os.path.exists(stage1_mesh_raw):
+            print(
+                "[pipeline] Stage-1 GLB not found; centering OBJ mesh for FoundationPose"
+            )
+            return stage1_mesh_raw
+        return stage1_mesh_glb
+
+    def _select_final_fp_mesh() -> tuple[str, str]:
+        """Prefer the self-contained GLB; fall back to OBJ for --skip_glb_export reuse."""
+        if os.path.exists(final_mesh_glb):
+            return final_mesh_glb, c_final_mesh_glb
+        if os.path.exists(final_mesh_obj):
+            print(
+                "[pipeline] final GLB not found; using OBJ mesh for final FoundationPose"
+            )
+            return final_mesh_obj, c_final_mesh_obj
+        return final_mesh_glb, c_final_mesh_glb
 
     def _step(name, fn):
         t0 = time.time()
@@ -478,7 +567,49 @@ def main():
             )
         _step("sfm", _sfm)
 
-    # ── Step 2b: Auto-detect Stage-1 end (if not manually specified) ─────────
+    # ── Step 2b: CuSFM scan-pattern quality gate ─────────────────────────────
+    if sfm_quality_enabled:
+        if not os.path.exists(sfm_poses_meta):
+            raise FileNotFoundError(
+                f"CuSFM quality check requested, but poses were not found: {sfm_poses_meta}")
+        print("[pipeline] checking CuSFM two-loop scan quality")
+        quality_script = Path(__file__).parent.parent / "lib" / "check_sfm_scan_quality.py"
+        quality_out = Path(job_dir) / "sfm_scan_quality"
+        quality_out.mkdir(parents=True, exist_ok=True)
+
+        def _quality_arg(name, default):
+            return str(sfm_quality_cfg.get(name, default))
+
+        quality_cmd = [
+            sys.executable,
+            str(quality_script),
+            "--sfm_keyframes", sfm_poses_meta,
+            "--frames_meta", input_frames_meta,
+            "--output_dir", str(quality_out),
+            "--min_keyframes", _quality_arg("min_keyframes", 30),
+            "--min_angle_span_deg", _quality_arg("min_angle_span_deg", 600.0),
+            "--max_backtracking_fraction", _quality_arg("max_backtracking_fraction", 0.25),
+            "--max_translation_step_m", _quality_arg("max_translation_step_m", 2.0),
+            "--max_rotation_step_deg", _quality_arg("max_rotation_step_deg", 90.0),
+            "--robust_step_sigma", _quality_arg("robust_step_sigma", 6.0),
+            "--large_step_floor_m", _quality_arg("large_step_floor_m", 0.25),
+            "--max_large_step_fraction", _quality_arg("max_large_step_fraction", 0.25),
+        ]
+        if not sfm_quality_fail_on_error:
+            quality_cmd.append("--warn_only")
+
+        t0 = time.time()
+        result = subprocess.run(quality_cmd, capture_output=True, text=True)
+        print(result.stdout)
+        if result.returncode != 0:
+            raise RuntimeError(
+                "CuSFM scan quality check failed. "
+                f"See {quality_out}/result.json and diagnostic plots.\n"
+                f"{result.stderr}")
+        _timings["sfm_scan_quality"] = time.time() - t0
+        print(f"[pipeline] sfm_scan_quality done in {_timings['sfm_scan_quality']:.1f}s")
+
+    # ── Step 2c: Auto-detect Stage-1 end (if not manually specified) ─────────
     # Even when skipping detection, try to load an existing result.json so that
     # downstream steps (SRT, render_video) have stage1_end_frame available.
     if stage1_end_frame is None:
@@ -584,23 +715,92 @@ def main():
             run_depth_workers(job_dir, n_frames, gpu_ids, num_depth_workers)
 
         def run_mask():
-            if os.path.exists(mask_path):
-                print("[pipeline] mask already exists, skipping")
-                return
-            _run_gpu(
-                IMAGE_SAM2,
-                [
-                    "python", "/workspace/v2d_sam2/lib/video_to_masks.py",
-                    "--video_path",   f"{c_job}/video.mp4",
-                    "--prompts_path", c_prompts_json,
-                    "--masks_dir",    f"{c_job}/masks",
-                    "--weights_dir",  "/data/sam2_weights",
-                ],
-                mounts=[
-                    (job_dir, "/data/job"),
-                    (str(_WEIGHTS_DIR / "sam2"), "/data/sam2_weights"),
-                ],
-            )
+            prompts_hash = file_sha256(prompts_json)
+
+            if mask_postprocess_enabled and not os.path.exists(sam2_mask_path) and os.path.exists(mask_path):
+                current_hash = Path(mask_prompt_hash).read_text().strip() if os.path.exists(mask_prompt_hash) else None
+                if current_hash == prompts_hash and not os.path.exists(mask_post_hash):
+                    print("[pipeline] moving existing raw masks to masks_raw_sam2 for post-processing")
+                    if os.path.exists(sam2_masks_dir):
+                        shutil.rmtree(sam2_masks_dir)
+                    shutil.move(masks_dir, sam2_masks_dir)
+                    Path(sam2_prompt_hash).write_text(prompts_hash + "\n")
+
+            stored_hash = None
+            if os.path.exists(sam2_mask_path):
+                if os.path.exists(sam2_prompt_hash):
+                    stored_hash = Path(sam2_prompt_hash).read_text().strip()
+                    if stored_hash == prompts_hash:
+                        print("[pipeline] SAM2 masks already exist for current prompts")
+                    else:
+                        print("[pipeline] prompts.json changed; regenerating SAM2 masks")
+                        shutil.rmtree(sam2_masks_dir)
+                        stored_hash = None
+                elif os.path.getmtime(prompts_json) <= os.path.getmtime(sam2_mask_path):
+                    print("[pipeline] SAM2 masks already exist; recording current prompt hash")
+                    Path(sam2_prompt_hash).write_text(prompts_hash + "\n")
+                    stored_hash = prompts_hash
+                else:
+                    print("[pipeline] prompts.json is newer than SAM2 masks; regenerating masks")
+                    shutil.rmtree(sam2_masks_dir)
+                    stored_hash = None
+
+            if stored_hash != prompts_hash:
+                Path(sam2_masks_dir).mkdir(parents=True, exist_ok=True)
+                c_sam2_masks_dir = f"{c_job}/masks_raw_sam2" if mask_postprocess_enabled else f"{c_job}/masks"
+                _run_gpu(
+                    IMAGE_SAM2,
+                    [
+                        "python", "/workspace/v2d_sam2/lib/video_to_masks.py",
+                        "--video_path",   f"{c_job}/video.mp4",
+                        "--prompts_path", c_prompts_json,
+                        "--masks_dir",    c_sam2_masks_dir,
+                        "--weights_dir",  "/data/sam2_weights",
+                    ],
+                    mounts=[
+                        (job_dir, "/data/job"),
+                        (str(_WEIGHTS_DIR / "sam2"), "/data/sam2_weights"),
+                    ],
+                    user=f"{os.getuid()}:{os.getgid()}",
+                    extra_env={"HOME": "/tmp"},
+                )
+                Path(sam2_prompt_hash).write_text(prompts_hash + "\n")
+
+            if mask_postprocess_enabled:
+                output_current = (
+                    os.path.exists(mask_path)
+                    and os.path.exists(mask_prompt_hash)
+                    and Path(mask_prompt_hash).read_text().strip() == prompts_hash
+                    and os.path.exists(mask_post_hash)
+                    and Path(mask_post_hash).read_text().strip() == mask_postprocess_fingerprint
+                )
+                if output_current:
+                    print("[pipeline] post-processed masks already exist for current prompts/config")
+                    return
+
+                print(f"[pipeline] post-processing masks: {mask_postprocess_effective_cfg}")
+                from v2d_hoi_object_reconstruction.lib.postprocess_masks import postprocess_masks
+                if os.path.exists(masks_dir):
+                    shutil.rmtree(masks_dir)
+                summary = postprocess_masks(
+                    sam2_masks_dir,
+                    masks_dir,
+                    **mask_postprocess_effective_cfg,
+                )
+                Path(mask_prompt_hash).write_text(prompts_hash + "\n")
+                Path(mask_post_hash).write_text(mask_postprocess_fingerprint + "\n")
+                area_ratio = summary.get("area_ratio_median")
+                area_ratio_str = f"{area_ratio:.3f}" if area_ratio is not None else "n/a"
+                print(
+                    "[pipeline] mask postprocess: "
+                    f"frames={summary['frames']} "
+                    f"area_ratio_median={area_ratio_str} "
+                    f"empty_after_frames={summary['empty_after_frames']}"
+                )
+            elif sam2_masks_dir != masks_dir:
+                raise RuntimeError("internal error: SAM2 mask dir differs while post-processing is disabled")
+            else:
+                print("[pipeline] mask ready")
 
         t0 = time.time()
         tasks = {}
@@ -640,17 +840,25 @@ def main():
     if nerf_config_path:
         _nerf_inputs["config"] = nerf_config_path
 
+    def _bundlesdf_extra_args():
+        extra = {
+            "bbox_str": dino_bbox_str,
+            "skip-glb-export": args.skip_glb_export,
+        }
+        if args.bundlesdf_trunc is not None:
+            extra["trunc"] = args.bundlesdf_trunc
+        if args.bundlesdf_mesh_resolution is not None:
+            extra["mesh_resolution"] = args.bundlesdf_mesh_resolution
+        return extra
+
     if args.mode == "bundlesdf" and not args.skip_stage1_nerf:
         print("[pipeline] running Stage-1 NeRF reconstruction")
-        bbox_str = dino_bbox_str
         _step("stage1_nerf", lambda: run_in_container(
             image=IMAGE_BUNDLESDF,
             module="v2d_bundlesdf.lib.reconstruct",
             inputs=_nerf_inputs,
             outputs={"output_path": stage1_recon_dir},
-            extra_args={
-                "bbox_str": bbox_str,
-            },
+            extra_args=_bundlesdf_extra_args(),
             env={"CUDA_VISIBLE_DEVICES": str(fp_gpu), "NVIDIA_VISIBLE_DEVICES": str(fp_gpu)},
             gpus=True,
         ))
@@ -661,7 +869,7 @@ def main():
         _step("center_mesh", lambda: run_in_container(
             image=IMAGE_HOI,
             module="v2d_hoi_object_reconstruction.lib.center_mesh",
-            inputs={"input": stage1_mesh_raw},
+            inputs={"input": _select_stage1_center_mesh()},
             outputs={"output": centered_mesh},
         ))
 
@@ -728,7 +936,7 @@ def main():
                 "output": poses_world,
                 "plot":   os.path.join(job_dir, "poses_world_debug.png"),
             },
-            extra_args={"camera": "left"},
+            extra_args={"camera": "left", "stage1_prior_frame": stage1_end_frame},
             gpus=False,
         ))
 
@@ -754,15 +962,12 @@ def main():
     # ── Step 11: Full NeRF reconstruction ─────────────────────────────────────
     if args.mode == "bundlesdf" and not args.skip_full_nerf:
         print("[pipeline] running full NeRF reconstruction (both stages)")
-        bbox_str = dino_bbox_str
         _step("full_nerf", lambda: run_in_container(
             image=IMAGE_BUNDLESDF,
             module="v2d_bundlesdf.lib.reconstruct",
             inputs=_nerf_inputs,
             outputs={"output_path": merged_recon_dir},
-            extra_args={
-                "bbox_str": bbox_str,
-            },
+            extra_args=_bundlesdf_extra_args(),
             env={"CUDA_VISIBLE_DEVICES": str(fp_gpu), "NVIDIA_VISIBLE_DEVICES": str(fp_gpu)},
             gpus=True,
         ))
@@ -770,35 +975,45 @@ def main():
     # ── Step 12: FP tracking with final textured mesh ────────────────────────
     if args.mode == "bundlesdf" and not args.skip_final_fp_tracking:
         print("[pipeline] running FoundationPose tracking with final textured mesh")
-        _step("final_fp_tracking", lambda: _run_fp_tracking(
-            video_path=os.path.join(job_dir, "video.mp4"),
-            depth_folder=depth_dir,
-            masks_folder=os.path.join(job_dir, "masks", "0"),
-            camera_intrinsics_path=intrinsics_path,
-            mesh_path=final_mesh,
-            poses_dir=poses_final_dir,
-            weights_dir=fp_weights_dir,
-            reference_frame=ref_frame,
-        ))
+
+        def _final_fp_tracking():
+            final_fp_mesh, _ = _select_final_fp_mesh()
+            _run_fp_tracking(
+                video_path=os.path.join(job_dir, "video.mp4"),
+                depth_folder=depth_dir,
+                masks_folder=os.path.join(job_dir, "masks", "0"),
+                camera_intrinsics_path=intrinsics_path,
+                mesh_path=final_fp_mesh,
+                poses_dir=poses_final_dir,
+                weights_dir=fp_weights_dir,
+                reference_frame=ref_frame,
+            )
+
+        _step("final_fp_tracking", _final_fp_tracking)
 
     # ── Step 13: FP render overlay with final textured mesh ───────────────────
     if args.mode == "bundlesdf" and not args.skip_final_fp_render:
         _convert_poses_to_matrix(poses_final_dir)
         print("[pipeline] rendering FoundationPose overlay video with final textured mesh")
-        _step("final_fp_render", lambda: _run_gpu(
-            IMAGE_FOUNDATIONPOSE_RENDER,
-            [
-                "python", "/workspace/v2d_foundation_pose/lib/render_overlay.py",
-                "--video_path",             f"{c_job}/video.mp4",
-                "--poses_dir",              c_poses_final,
-                "--mesh_path",              c_final_mesh,
-                "--camera_intrinsics_path", c_intrinsics,
-                "--output_dir",             f"{c_job}/fp_render_final",
-            ],
-            mounts=[(job_dir, "/data/job")],
-            gpu_id=fp_gpu,
-            user=f"{os.getuid()}:{os.getgid()}",
-        ))
+
+        def _final_fp_render():
+            _, c_final_fp_mesh = _select_final_fp_mesh()
+            _run_gpu(
+                IMAGE_FOUNDATIONPOSE_RENDER,
+                [
+                    "python", "/workspace/v2d_foundation_pose/lib/render_overlay.py",
+                    "--video_path",             f"{c_job}/video.mp4",
+                    "--poses_dir",              c_poses_final,
+                    "--mesh_path",              c_final_fp_mesh,
+                    "--camera_intrinsics_path", c_intrinsics,
+                    "--output_dir",             f"{c_job}/fp_render_final",
+                ],
+                mounts=[(job_dir, "/data/job")],
+                gpu_id=fp_gpu,
+                user=f"{os.getuid()}:{os.getgid()}",
+            )
+
+        _step("final_fp_render", _final_fp_render)
         _step("final_fp_render_stitch", lambda: stitch_mp4(
             os.path.join(job_dir, "fp_render_final"),
             os.path.join(job_dir, "fp_render_final", "render.mp4")))
@@ -880,7 +1095,11 @@ def main():
                 elapsed = time.time() - t0
                 _timings[f"srt_{frame_id}"] = elapsed
                 scale = srt_result.get("scale", float("nan"))
-                print(f"[pipeline] SRT {frame_id} done in {elapsed:.1f}s  scale={scale:.4f}")
+                if isinstance(scale, list):
+                    scale_str = "[" + ", ".join(f"{float(v):.4f}" for v in scale) + "]"
+                else:
+                    scale_str = f"{float(scale):.4f}"
+                print(f"[pipeline] SRT {frame_id} done in {elapsed:.1f}s  scale={scale_str}")
 
         # ── Step S4: Render debug images ──────────────────────────────────────
         # Uses the original SAM3D transform/intrinsics so the mesh renders back
@@ -941,6 +1160,25 @@ def main():
                     ))
                     _step(f"render_video_stitch_{frame_id}", lambda _fd=frames_dir, _vp=video_path:
                           stitch_mp4(str(_fd), str(_vp)))
+
+        # ── Step S6: Suggested best mesh selection ───────────────────────────
+        if not args.skip_select_best_mesh:
+            print("[pipeline] selecting suggested best SAM3D mesh")
+            t0 = time.time()
+            try:
+                best_summary = select_best_sam3d_frame(Path(job_dir))
+            except ValueError as exc:
+                if args.skip_srt_scale:
+                    print(f"[pipeline] select_best skipped: {exc}", file=sys.stderr)
+                else:
+                    raise
+            else:
+                elapsed = time.time() - t0
+                _timings["sam3d_select_best"] = elapsed
+                print(
+                    f"[pipeline] suggested best SAM3D frame {best_summary['best_frame']} "
+                    f"saved to {sam3d_dir / 'best'} in {elapsed:.1f}s"
+                )
 
     total = time.time() - _t_total
     print("\n[pipeline] ── Timing summary ──────────────────────────")

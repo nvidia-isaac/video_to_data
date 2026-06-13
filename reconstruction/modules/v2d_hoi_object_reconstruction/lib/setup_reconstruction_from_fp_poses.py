@@ -53,26 +53,48 @@ from v2d_hoi_object_reconstruction.lib.recon_utils import (
 # ── Data loading ──────────────────────────────────────────────────────────────
 
 def load_stage_fid_sets(poses_world_path: Path):
-    """Return (stage1_fids, stage2_fids, T_obj_stage1, T_obj_stage2).
+    """Return explicit merge frame sets and representative object poses.
 
-    T_obj_stage1 and T_obj_stage2 are representative FP-derived object-to-world
-    poses for each stage. cam_in_ob for each camera is:
-        cam_in_ob = inv(T_world_from_obj_stage) @ T_cam_world
+    New poses_world.json files provide merge_frame_ids for each stationary stage.
+    Older files do not, so this falls back to the historical range-based behavior.
     """
     with open(poses_world_path) as f:
         d = json.load(f)
     sa = d['stage_analysis']
 
-    def fid_set(key):
+    def range_fids(key):
         start = sa[key]['start_frame']
         end   = sa[key]['end_frame']
         return set(fr['frame_id'] for fr in d['frames'] if start <= fr['frame_id'] <= end)
 
+    def merge_fids(key):
+        stage = sa[key]
+        if 'merge_frame_ids' in stage:
+            return set(int(fid) for fid in stage['merge_frame_ids'])
+        if 'inlier_frame_ids' in stage:
+            return set(int(fid) for fid in stage['inlier_frame_ids'])
+        return range_fids(key)
+
+    stage1_fids = merge_fids('stage1')
+    stage2_fids = merge_fids('stage2')
     T_obj_stage1 = np.array(sa['stage1']['T_world_from_obj'])
     T_obj_stage2 = np.array(sa['stage2']['T_world_from_obj'])
 
-    return fid_set('stage1'), fid_set('stage2'), T_obj_stage1, T_obj_stage2
+    if 'merge_frame_ids' in sa['stage1'] or 'merge_frame_ids' in sa['stage2']:
+        q1 = sa['stage1'].get('pose_quality', {})
+        q2 = sa['stage2'].get('pose_quality', {})
+        print("  Using explicit merge frame IDs from poses_world.json")
+        print(f"    stage1 merge frames: {len(stage1_fids)} "
+              f"(candidate FP inliers: {q1.get('num_inlier_frames', 'n/a')})")
+        print(f"    stage2 merge frames: {len(stage2_fids)} "
+              f"(usable={sa['stage2'].get('usable_for_merge', 'n/a')}, "
+              f"candidate FP inliers: {q2.get('num_inlier_frames', 'n/a')}, "
+              f"candidate SfM inliers: {q2.get('num_inlier_sfm_keyframes', 'n/a')})")
+        drop_reason = sa['stage2'].get('drop_reason')
+        if drop_reason:
+            print(f"    stage2 drop reason: {drop_reason}")
 
+    return stage1_fids, stage2_fids, T_obj_stage1, T_obj_stage2
 
 def load_sfm_keyframes(sfm_keyframes_path: Path, ts_us_to_seq_idx: dict,
                        valid_seq_set: set, camera: str) -> list:
