@@ -79,7 +79,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Download a run from wandb")
     parser.add_argument(
-        "run_id", help="Wandb run ID (e.g. nvidia-isaac/xzhu_v2p_hands/y5y535hn)"
+        "run_id", help="Wandb run ID (e.g. <entity>/<project>/<run_id>)"
     )
     parser.add_argument(
         "--checkpoint",
