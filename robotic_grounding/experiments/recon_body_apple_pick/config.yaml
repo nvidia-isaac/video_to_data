@@ -23,7 +23,3 @@ train_overrides:
 
 osmo:
   build_image: false
-  # Pin the pre-built image that contains the v2p_whole_body tasks so submits don't
-  # fall back to :latest (which predates this branch). Rebuild via --build-image when
-  # you change source code the image depends on.
-  image: nvcr.io/nvstaging/isaac-amr/robotic-grounding:recon_body_apple

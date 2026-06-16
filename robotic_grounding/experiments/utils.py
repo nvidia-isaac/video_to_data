@@ -7,21 +7,55 @@ Used by run_experiment.py and experiment-specific workflow.py modules.
 
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 _REPO_ROOT = Path(__file__).resolve().parent.parent
+EXPERIMENT_CONFIG_PATH = Path(__file__).resolve().parent / "experiment_config.yaml"
 
-# Default W&B team entity for all OSMO-submitted runs. Overridable per experiment via
-# `wandb_entity:` in config.yaml.
-DEFAULT_WANDB_ENTITY = "nvidia-isaac"
 
-# Container registry repo for the robotic-grounding Docker image. Individual experiments
-# pin a specific tag via `osmo.image` in their config.yaml; this constant is used when
-# deriving tags (e.g. `<repo>:<exp_id>` when --build-image is passed without --image)
-# and as the default ":latest" fallback for generated OSMO workflow YAMLs.
-DEFAULT_OSMO_IMAGE_REPO = "nvcr.io/nvstaging/isaac-amr/robotic-grounding"
-DEFAULT_OSMO_IMAGE_LATEST = f"{DEFAULT_OSMO_IMAGE_REPO}:latest"
+@lru_cache(maxsize=1)
+def load_internal_experiment_config() -> dict[str, Any]:
+    """Load optional internal launch settings removed from release builds."""
+    if not EXPERIMENT_CONFIG_PATH.exists():
+        return {}
+    with open(EXPERIMENT_CONFIG_PATH, encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"Invalid internal experiment config: {EXPERIMENT_CONFIG_PATH}"
+        )
+    return data
+
+
+def get_internal_config_value(*keys: str, default: Any = None) -> Any:
+    """Return a nested value from experiment_config.yaml when present."""
+    value: Any = load_internal_experiment_config()
+    for key in keys:
+        if not isinstance(value, dict) or key not in value:
+            return default
+        value = value[key]
+    return value
+
+
+def require_internal_config_value(*keys: str) -> Any:
+    """Return a required internal value or fail with release-safe guidance."""
+    value = get_internal_config_value(*keys)
+    if value is None:
+        dotted = ".".join(keys)
+        raise RuntimeError(
+            f"Missing internal experiment config value: {dotted}. "
+            f"Create {EXPERIMENT_CONFIG_PATH} or pass an explicit override."
+        )
+    return value
+
+
+DEFAULT_WANDB_ENTITY = get_internal_config_value("wandb_entity")
+DEFAULT_OSMO_IMAGE_REPO = get_internal_config_value("osmo", "image_repo")
+DEFAULT_OSMO_IMAGE_LATEST = get_internal_config_value("osmo", "image_latest")
 
 
 def sequence_to_object(sequence_id: str) -> str:

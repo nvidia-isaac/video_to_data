@@ -16,6 +16,17 @@ import subprocess
 import sys
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from experiments.utils import (  # noqa: E402
+    DEFAULT_OSMO_IMAGE_LATEST,
+    DEFAULT_OSMO_IMAGE_REPO,
+    get_internal_config_value,
+    require_internal_config_value,
+)
+
 
 def run_command(cmd: str, check: bool = True) -> subprocess.CompletedProcess:
     """Run a shell command and return the result."""
@@ -48,8 +59,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--pool",
-        default="isaac-dev-l40-03",
-        help="OSMO pool to use for workflow execution (default: isaac-dev-l40-03)",
+        default=None,
+        help="OSMO pool to use for workflow execution (default: internal experiment_config.yaml)",
     )
     parser.add_argument(
         "--build-image",
@@ -75,8 +86,13 @@ def main() -> None:
     args = parser.parse_args()
 
     # Get the repository root directory (assuming script is in scripts/)
-    repo_root = Path(__file__).parent.parent
-    os.chdir(repo_root)
+    os.chdir(REPO_ROOT)
+    pool = args.pool or get_internal_config_value("osmo", "runner_default_pool")
+    if pool is None:
+        raise SystemExit(
+            "OSMO pool is required. Pass --pool or provide osmo.runner_default_pool "
+            "in experiments/experiment_config.yaml."
+        )
 
     # Determine image to use
     if args.build_image:
@@ -86,9 +102,10 @@ def main() -> None:
             image_version = image_name.split(":")[-1]
         else:
             image_version = args.experiment_name
-            image_name = (
-                f"nvcr.io/nvstaging/isaac-amr/robotic-grounding:{image_version}"
+            image_repo = DEFAULT_OSMO_IMAGE_REPO or require_internal_config_value(
+                "osmo", "image_repo"
             )
+            image_name = f"{image_repo}:{image_version}"
 
         print(f"\nBuilding Docker image: {image_name} ...")
         build_cmd = f"./workflow/run.sh build {image_version}"
@@ -115,7 +132,9 @@ def main() -> None:
         image_name = args.image
         print(f"Using existing Docker image: {image_name}")
     else:
-        image_name = "nvcr.io/nvstaging/isaac-amr/robotic-grounding:latest"
+        image_name = DEFAULT_OSMO_IMAGE_LATEST or require_internal_config_value(
+            "osmo", "image_latest"
+        )
         print(f"Using default Docker image: {image_name}")
 
     # Use provided image
@@ -140,7 +159,7 @@ def main() -> None:
     osmo_cmd = (
         f"osmo workflow submit {args.workflow_yaml} "
         f"--set {set_str} "
-        f"--pool {args.pool} "
+        f"--pool {pool} "
         f"--priority {args.priority}"
     )
 

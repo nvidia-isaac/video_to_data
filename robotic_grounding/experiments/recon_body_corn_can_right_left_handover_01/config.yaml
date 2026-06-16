@@ -24,4 +24,3 @@ train_overrides:
   env.commands.motion.reset_shoulder_spread: 0.2
 osmo:
   build_image: false
-  image: nvcr.io/nvstaging/isaac-amr/robotic-grounding:recon_body_apple

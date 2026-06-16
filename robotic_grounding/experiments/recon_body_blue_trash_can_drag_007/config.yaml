@@ -33,5 +33,3 @@ train_overrides:
 
 osmo:
   build_image: false
-  # Reuse the current whole-body training image so submits don't fall back to :latest.
-  image: nvcr.io/nvstaging/isaac-amr/robotic-grounding:recon_body_apple

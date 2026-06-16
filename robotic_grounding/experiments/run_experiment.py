@@ -9,7 +9,7 @@ SPDX-License-Identifier: Apache-2.0
 Usage:
   python scripts/run_experiment.py exp5              # defaults to --osmo
   python scripts/run_experiment.py exp5 --local
-  python scripts/run_experiment.py exp5 --osmo --pool isaac-dev-l40s-04 --build-image
+  python scripts/run_experiment.py exp5 --osmo --pool <pool> --build-image
   python scripts/run_experiment.py exp6 --wandb-sweep-create   # Create wandb sweep, print agent command
   python scripts/run_experiment.py exp7 --osmo                # Submit OSMO curriculum sweep
   python scripts/run_experiment.py --list                    # List all experiments
@@ -41,8 +41,10 @@ from experiments.utils import (  # noqa: E402
     DEFAULT_WANDB_ENTITY,
     build_eval_command,
     build_train_command,
+    get_internal_config_value,
     make_entry_script,
     overrides_to_cli,
+    require_internal_config_value,
 )
 
 
@@ -65,6 +67,33 @@ def load_registry() -> dict[str, str]:
     return registry
 
 
+def _deep_merge_dict(base: dict, overrides: dict) -> dict:
+    """Return base recursively overlaid with overrides."""
+    merged = dict(base)
+    for key, value in overrides.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge_dict(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _merge_internal_experiment_config(exp_id: str, config: dict) -> dict:
+    """Overlay optional internal per-experiment settings by id."""
+    internal_experiments = get_internal_config_value("experiments", default={})
+    if not isinstance(internal_experiments, dict):
+        return config
+
+    merged = config
+    for key in dict.fromkeys((exp_id, config.get("id"))):
+        if not key:
+            continue
+        internal_config = internal_experiments.get(key)
+        if isinstance(internal_config, dict):
+            merged = _deep_merge_dict(merged, internal_config)
+    return merged
+
+
 def load_experiment_config(exp_id: str) -> tuple[Path, dict]:
     """Load config for experiment. Returns (config_path, config dict)."""
     registry = load_registry()
@@ -80,6 +109,7 @@ def load_experiment_config(exp_id: str) -> tuple[Path, dict]:
         config = yaml.safe_load(f)
     if not config:
         raise SystemExit(f"Empty or invalid config: {config_path}")
+    config = _merge_internal_experiment_config(exp_id, config)
     return config_path, config
 
 
@@ -357,9 +387,13 @@ def generate_single_task_workflow(
         print(
             "[WARNING] WANDB_API_KEY not set in local environment — wandb will fail in the container"
         )
-    # Default to the shared NVIDIA team entity so OSMO runs don't land in a submitter's
-    # personal workspace. Individual experiments can override via config `wandb_entity`.
-    wandb_entity = config.get("wandb_entity", DEFAULT_WANDB_ENTITY)
+    wandb_entity = config.get("wandb_entity") or DEFAULT_WANDB_ENTITY
+    if wandb_entity is None:
+        wandb_entity = require_internal_config_value("wandb_entity")
+    omni_server = require_internal_config_value("osmo", "omni_server")
+    image_latest = DEFAULT_OSMO_IMAGE_LATEST or require_internal_config_value(
+        "osmo", "image_latest"
+    )
     return f"""# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # Generated from experiments/ for {exp_id}
@@ -381,7 +415,7 @@ workflow:
     args: [/tmp/entry.sh]
     environment:
       ACCEPT_EULA: Y
-      OMNI_SERVER: omniverse://isaac-dev.ov.nvidia.com
+      OMNI_SERVER: {omni_server}
       WANDB_API_KEY: {wandb_api_key}
       WANDB_ENTITY: {wandb_entity}
 {inputs_block}    files:
@@ -391,7 +425,7 @@ workflow:
 
 default-values:
   workflow_name: robotic_grounding_{exp_id}
-  image: {DEFAULT_OSMO_IMAGE_LATEST}
+  image: {image_latest}
 """
 
 
@@ -433,6 +467,13 @@ def generate_multi_sequence_workflow(
         print(
             "[WARNING] WANDB_API_KEY not set in local environment — wandb will fail in the container"
         )
+    wandb_entity = config.get("wandb_entity") or DEFAULT_WANDB_ENTITY
+    if wandb_entity is None:
+        wandb_entity = require_internal_config_value("wandb_entity")
+    omni_server = require_internal_config_value("osmo", "omni_server")
+    image_latest = DEFAULT_OSMO_IMAGE_LATEST or require_internal_config_value(
+        "osmo", "image_latest"
+    )
 
     tasks = []
     for seq_id in sequences:
@@ -490,8 +531,9 @@ def generate_multi_sequence_workflow(
             f"    args: [/tmp/entry.sh]\n"
             f"    environment:\n"
             f"      ACCEPT_EULA: Y\n"
-            f"      OMNI_SERVER: omniverse://isaac-dev.ov.nvidia.com\n"
+            f"      OMNI_SERVER: {omni_server}\n"
             f"      WANDB_API_KEY: {wandb_api_key}\n"
+            f"      WANDB_ENTITY: {wandb_entity}\n"
             f"{inputs_block}"
             f"    files:\n"
             f"    - path: /tmp/entry.sh\n"
@@ -519,7 +561,7 @@ def generate_multi_sequence_workflow(
         f"\n"
         f"default-values:\n"
         f"  workflow_name: robotic_grounding_{exp_id}{'_' + workflow_label if workflow_label else ''}\n"
-        f"  image: nvcr.io/nvstaging/isaac-amr/robotic-grounding:latest\n"
+        f"  image: {image_latest}\n"
     )
 
 
@@ -608,7 +650,7 @@ def _check_osmo_login() -> None:
 def run_osmo(
     exp_id: str,
     config: dict,
-    pool: str = "isaac-dev-l40s-04",
+    pool: str | None = None,
     build_image: bool = False,
     image: str | None = None,
     priority: str = "NORMAL",
@@ -618,6 +660,8 @@ def run_osmo(
     """Generate workflow YAML and submit to OSMO via run_osmo.py."""
     if not dry_run:
         _check_osmo_login()
+    if pool is None:
+        pool = require_internal_config_value("osmo", "default_pool")
 
     # When the user asks to build but doesn't pin an explicit image tag, derive one from
     # exp_id so the tag produced by run_osmo.py matches the tag baked into the workflow
@@ -625,7 +669,10 @@ def run_osmo(
     # the submitted workflow still references :latest, which causes OSMO to run a stale
     # image and e.g. miss newly-registered gym task IDs (see SonicG1-ReconBody-v0).
     if build_image and image is None:
-        image = f"{DEFAULT_OSMO_IMAGE_REPO}:{exp_id}"
+        image_repo = DEFAULT_OSMO_IMAGE_REPO or require_internal_config_value(
+            "osmo", "image_repo"
+        )
+        image = f"{image_repo}:{exp_id}"
         print(f"[INFO] --build-image without --image: pinning to {image}")
 
     if "osmo_multi_task" in config:
@@ -655,7 +702,7 @@ def run_osmo(
         mode="w",
         suffix=".yaml",
         delete=False,
-        dir=REPO_ROOT,
+        dir=RG_ROOT,
     ) as f:
         f.write(workflow_content)
         workflow_path = Path(f.name)
@@ -690,7 +737,7 @@ def run_osmo(
         cmd.extend(["--priority", priority])
         if dry_run:
             cmd.append("--dry-run")
-        result = subprocess.run(cmd, cwd=REPO_ROOT, check=False)
+        result = subprocess.run(cmd, cwd=RG_ROOT, check=False)
         sys.exit(result.returncode)
     finally:
         workflow_path.unlink(missing_ok=True)
@@ -786,7 +833,7 @@ def main() -> None:
     parser.add_argument(
         "--pool",
         default=None,
-        help="OSMO pool (default: from config osmo.pool, or isaac-dev-l40s-04)",
+        help="OSMO pool (default: config osmo.pool, then internal experiment_config.yaml)",
     )
     parser.add_argument(
         "--build-image", action="store_true", help="Build and push image before OSMO"
@@ -924,7 +971,11 @@ def main() -> None:
         # Image precedence: CLI --image > config osmo.image > (auto-derived from exp_id
         # when --build-image and nothing else is set, see run_osmo) > workflow YAML default.
         image = args.image or osmo_cfg.get("image")
-        pool = args.pool or osmo_cfg.get("pool", "isaac-dev-l40s-04")
+        pool = (
+            args.pool
+            or osmo_cfg.get("pool")
+            or get_internal_config_value("osmo", "default_pool")
+        )
         priority = args.priority or osmo_cfg.get("priority", "NORMAL")
         run_osmo(
             args.exp_id,
