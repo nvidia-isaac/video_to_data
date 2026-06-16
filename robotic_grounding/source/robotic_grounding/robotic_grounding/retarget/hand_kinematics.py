@@ -284,7 +284,6 @@ class HandKinematics:
                 source_target_joint_pos,
                 source_target_joint_wxyz,
             )
-            # TODO: Implement relative frame tasks
             self.relative_frame_tasks[
                 task_name
             ].transform_target_to_world.translation = source_root_p_target.copy()
