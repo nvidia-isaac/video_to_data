@@ -1,6 +1,0 @@
-This directory contains MuJoCo XML assets used by the G1 whole-body planner.
-
-The G1 and Dex3 robot-description assets are from or derived from Unitree G1
-Description assets developed by Unitree Robotics and are licensed under the BSD
-3-Clause License. The full license text is in the LICENSE file alongside this
-notice.

@@ -1,4 +1,0 @@
-# Change motion_file to load a different sequence.
-# Object name, type, URDF, poses, and support surface are all auto-discovered.
-
-motion_file: source/robotic_grounding/robotic_grounding/assets/human_motion_data/arctic_processed/sequence_id=arctic_s01_waffleiron_use_02/robot_name=sharpa_wave
