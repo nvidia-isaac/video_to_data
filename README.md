@@ -61,37 +61,15 @@ python scripts/run_webapp.py
 
 See [video_ingestion_agent/README.md](video_ingestion_agent/README.md) for hardware requirements, the full extras list, the verify/refine loop, and batch-ingestion across multiple GPUs. Pre-publication TODOs are tracked in [video_ingestion_agent/docs/release_readiness.md](video_ingestion_agent/docs/release_readiness.md).
 
-### Reconstruction (video → 3D data)
+### Reconstruction
 
-```bash
-cd reconstruction
+We include a variety of algorithms and pipelines that are useful for human-object reconstruction. These packages are contained in the [reconstruction](reconstruction) subfolder.  
 
-# Install host-side orchestration wrappers (lightweight, no ML deps)
-./scripts/install_pacakages.sh
+For the initial release, we provide an example pipeline for ego-centric hand-object reconstruction.
 
-# Build per-module Docker images
-./scripts/build_containers.sh
+To get started, please follow the following the instructions [here](reconstruction/docs/ego_e2e_setup.md).
 
-# Run a minimal video→depth example (MoGe)
-python -m v2d.moge.docker.run_download_weights --output_dir data/weights/moge
-python -m v2d.moge.docker.run_video_to_depth \
-  --video_path modules/v2d_moge/assets/test_video.mp4 \
-  --depth_folder data/outputs/moge/depth \
-  --intrinsics_folder data/outputs/moge/intrinsics \
-  --weights_path data/weights/moge
-```
-
-Full multi-view HOI pipeline (rosbag → textured object mesh + SMPL body):
-
-```bash
-python -m v2d.pipelines.run_mv_hoi_reconstruction \
-  --rosbag_path /data/rosbags/session1 \
-  --output_dir  /data/datasets/session1 \
-  --extrinsics_camera_params_path /data/datasets/calibration/extrinsics/edex \
-  --obj_mesh_path /data/meshes/object.glb
-```
-
-See [reconstruction/README.md](reconstruction/README.md) for the complete module reference, including [Grounding DINO](reconstruction/README.md#v2d_grounding_dino), [SAM2](reconstruction/README.md#v2d_sam2), [FoundationPose](reconstruction/README.md#v2d_foundation_pose), [SAM3D-Body](reconstruction/README.md#v2d_sam3d_body), and others.
+> Please note:  The reconstruction subfolder contains a wide variety of packages, many of which are partially tested or in development.  You may find these packages useful, but please note they are subject to change.  The above ego-centric pipeline has been tested, and is officially included as part of the initial video to data release.  If there is a package you would like to see supported, or you have any feedback, please let us know by opening an issue on GitHub!
 
 ### Robotic Grounding (data → RL policy)
 
