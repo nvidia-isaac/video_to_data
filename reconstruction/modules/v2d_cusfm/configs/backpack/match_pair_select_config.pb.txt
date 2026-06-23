@@ -1,0 +1,15 @@
+search_translation_threshold_meters: 3
+search_rotation_threshold_degrees: 60
+max_frame_pair_size_per_file: 100000
+min_time_interval_between_keyframes_seconds: 0.5
+min_distance_between_keyframes_meters: 0.05
+collection_time_interval_seconds: 10
+max_keyframes_per_collection: 6
+
+# POSE_GRAPH_ASSOCIATION or RADIUS_SEARCH
+search_method: RADIUS_SEARCH
+use_downsampling: true
+
+# For IMAGE_RETRIEVAL search method.
+query_result_number: 20
+min_shared_word_number: 50

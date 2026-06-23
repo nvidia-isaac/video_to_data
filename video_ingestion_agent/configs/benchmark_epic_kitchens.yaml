@@ -1,0 +1,109 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
+# Benchmark Configuration for EPIC-KITCHENS-100
+# Based on ingestion.yaml, tuned for benchmarking segmentation accuracy.
+#
+# Key differences from production:
+#   - entity_graph disabled (not evaluating graph construction)
+#   - reporting disabled (benchmark report replaces this)
+#   - paths point to benchmark data
+
+experiment_name: "epic_kitchens_vllm_tp8"
+
+# ============================================================
+# Model Configuration
+# ============================================================
+models:
+  vlm_model: "Qwen/Qwen3-VL-8B-Instruct"
+  vlm_backend: "vllm"   # Use vLLM server for fast inference
+  vlm_fps: 4
+
+  llm_model: null
+  llm_backend: "local"
+
+  embedding_model: "google/siglip2-base-patch16-256"
+
+  device: "cuda"
+  api_key: null
+
+  # vLLM server settings
+  # Start server with: python scripts/serve.py -c configs/benchmark_epic_kitchens.yaml
+  vllm_url: "http://localhost:8000/v1"
+  vllm_tp_size: 8          # Tensor parallel across all 8 H100s
+  vllm_local_media: true
+
+# ============================================================
+# Paths (benchmark-specific)
+# ============================================================
+paths:
+  input_videos_dir: "data/benchmark/epic_kitchens/videos"
+  runs_dir: "runs/benchmark_epic_kitchens"
+
+# ============================================================
+# Segmentation Configuration
+# ============================================================
+segmentation:
+  chunk_size: 15.0
+  chunk_overlap: 1.5
+
+  min_clip_s: 1     # EPIC segments can be very short (<1s)
+  max_clip_s: 30.0    # EPIC segments can be long (up to ~60s)
+
+  video_extensions:
+    - ".mp4"
+    - ".MP4"
+
+  # VLM prompts for segmentation.
+  # Defaults are in ingestion/segmentation/prompts.py.
+  # Uncomment and edit below to override for this benchmark.
+  # system_prompt: ""
+  # user_prompt: ""
+
+# ============================================================
+# Verification Configuration
+# ============================================================
+verification:
+  max_iterations: 3
+
+  # VLM prompts for verification (critic).
+  # Defaults are in ingestion/segmentation/prompts.py.
+  # Uncomment and edit below to override for this benchmark.
+  # system_prompt: ""
+  # user_prompt: ""
+
+# ============================================================
+# Entity Extraction Configuration (not used in benchmark)
+# ============================================================
+entity_extraction:
+  max_time_gap: 30.0
+  min_entity_confidence: 0.5
+  min_relationship_confidence: 0.5
+
+# ============================================================
+# Processing
+# ============================================================
+processing:
+  fps: 1.0
+
+# ============================================================
+# Database (not used in benchmark)
+# ============================================================
+database:
+  directory: "outputs/"
+  embedding_dim: 768
+
+# ============================================================
+# Logging
+# ============================================================
+logging:
+  level: "INFO"
+  save_responses: true
+  response_dir: "runs/benchmark_epic_kitchens/debug"
+
+# ============================================================
+# Pipeline Feature Toggles (benchmark mode)
+# ============================================================
+enable_verification: true
+enable_refinement: true
+enable_entity_graph: false    # Disabled for benchmark
+enable_reporting: false       # Benchmark report replaces this

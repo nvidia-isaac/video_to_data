@@ -1,0 +1,60 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+from v2d.docker.container import run_in_container
+from v2d.moge.docker._config import IMAGE_NAME, MODULES_DIR
+
+def run_image_to_depth(
+    image_path: str,
+    depth_path: str,
+    intrinsics_path: str,
+    weights_path: str,
+    input_intrinsics_path: str = None,
+    points_path: str = None,
+    normals_path: str = None,
+    mask_path: str = None,
+    dev: bool = False,
+) -> None:
+    inputs = {"image_path": image_path, "weights_path": weights_path}
+    if input_intrinsics_path is not None:
+        inputs["input_intrinsics_path"] = input_intrinsics_path
+    outputs = {"depth_path": depth_path, "intrinsics_path": intrinsics_path}
+    if points_path is not None:
+        outputs["points_path"] = points_path
+    if normals_path is not None:
+        outputs["normals_path"] = normals_path
+    if mask_path is not None:
+        outputs["mask_path"] = mask_path
+    run_in_container(
+        image=IMAGE_NAME,
+        module="v2d.moge.lib.image_to_depth",
+        inputs=inputs,
+        outputs=outputs,
+        dev=dev,
+        modules_dir=MODULES_DIR,
+        gpus=True,
+    )
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Process image to depth")
+    parser.add_argument("--image_path", type=str, required=True, help="Path to input image")
+    parser.add_argument("--depth_path", type=str, required=True, help="Output path for depth image")
+    parser.add_argument("--intrinsics_path", type=str, required=True, help="Output path for camera intrinsics")
+    parser.add_argument("--weights_path", type=str, required=True, help="Path to weights")
+    parser.add_argument("--input_intrinsics_path", type=str, default=None,
+                        help="Optional known camera intrinsics JSON (used as fov_x prior)")
+    parser.add_argument("--points_path", type=str, default=None)
+    parser.add_argument("--normals_path", type=str, default=None)
+    parser.add_argument("--mask_path", type=str, default=None)
+    parser.add_argument("--dev", action="store_true", help="Mount local modules for development")
+    args = parser.parse_args()
+    run_image_to_depth(
+        args.image_path, args.depth_path, args.intrinsics_path, args.weights_path,
+        input_intrinsics_path=args.input_intrinsics_path,
+        points_path=args.points_path,
+        normals_path=args.normals_path,
+        mask_path=args.mask_path,
+        dev=args.dev,
+    )

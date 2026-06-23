@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+bbox_dir: ???
+rgb_dir: null
+video_dir: null
+output_dir: ???
+weights_dir: ???
+
+rig_config: stereo-4
+cameras: [0, 2, 4, 6]
+
+rgb_path_template: "${rgb_dir}/{cam_name}"
+video_path_template: "${video_dir}/{cam_name}.mp4"
+bbox_path_template: "${bbox_dir}/{cam_name}.json"
+mask_path_template: "${output_dir}/{cam_name}"

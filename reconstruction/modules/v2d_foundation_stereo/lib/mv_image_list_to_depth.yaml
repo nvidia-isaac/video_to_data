@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+camera_params_path: ???
+rgb_dir: ???
+output_dir: ???
+model_dir: ???
+
+rig_config: stereo-4
+
+scale: 0.5
+
+rgb_path_template: "${rgb_dir}/{cam_name}"
+depth_path_template: "${output_dir}/{cam_name}/depth"
+intrinsics_path_template: "${output_dir}/{cam_name}/intrinsics"

@@ -1,0 +1,28 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# HOI Object Reconstruction — Pipeline Configuration
+#
+# Controls the orchestration-level behaviour of each pipeline step.
+# For NeRF/SDF/texture neural rendering settings, see theseus_optimizer_hawk.yaml.
+
+stage1_detect:
+  buffer_deg: 10.0          # angle buffer (°) before the detected Stage-1 transition
+
+sfm:
+  config_set: backpack       # CuSFM config preset (backpack | av | isaac | rgbd)
+  num_threads: 1             # CPU threads for CuSFM feature matching
+
+grounding_dino:
+  box_threshold: 0.3         # confidence threshold for object bbox detection
+
+depth:
+  num_workers: 2             # parallel FoundationStereo depth workers
+
+foundationpose:
+  reference_frame: 0         # frame index used as FoundationPose registration reference
+  weights_dir: null          # path to FP weights; null = data/weights/foundationpose
+
+texture_bake:
+  min_keyframe_translation: 0.0   # min camera translation (m) between selected keyframes; 0 = keep all
+  min_keyframe_rotation_deg: 5.0  # min camera rotation (°) between selected keyframes; 0 = keep all
+  min_keyframes: 30               # minimum keyframes after subsampling (uniform padding if needed)

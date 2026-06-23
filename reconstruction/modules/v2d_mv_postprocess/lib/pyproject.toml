@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "v2d-mv-postprocess-lib"
+version = "0.1.0"
+description = "Multi-view postprocessing: HOI overlay rendering and 3D visualization"
+requires-python = ">=3.10"
+dependencies = [
+    "boto3",
+    "matplotlib",
+    "numpy",
+    "omegaconf",
+    "open3d",
+    "pyyaml",
+    "scipy",
+    "trimesh",
+    "v2d-common",
+    "v2d-mv[io,vis]",
+]
+
+[tool.setuptools]
+packages = ["v2d.mv.postprocess.lib"]
+
+[tool.setuptools.package-data]
+"v2d.mv.postprocess.lib" = ["*.yaml"]
+
+[tool.setuptools.package-dir]
+"v2d.mv.postprocess.lib" = "."

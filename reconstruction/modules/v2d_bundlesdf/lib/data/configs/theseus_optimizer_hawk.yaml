@@ -1,0 +1,286 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Configuration for NVIDIA Hawk stereo camera
+# Resolution: 1920x1200, fx=fy=852.41, cx=946.45, cy=556.80, baseline=0.1496m
+#
+# NOTE: camera_config.intrinsic, foundation_stereo.intrinsic, and foundation_stereo.baseline
+# are overridden at runtime from calibration.json (written by the prepare step).
+# The values here are fallback defaults used only when calibration.json is absent.
+
+data_path: ???
+workdir: ???
+downscale: 1.0
+
+camera_config:
+  step: 4  # CuSFM keyframe subsampling for SDF training (BundleSDF default; 1 = all keyframes)
+  intrinsic:  # overridden from calibration.json at runtime
+  - 852.41064453125   # fx
+  - 0
+  - 946.4462890625    # cx
+  - 0
+  - 852.41064453125   # fy
+  - 556.8043212890625 # cy
+  - 0
+  - 0
+  - 1
+
+bundletrack:
+  debug_dir: ???
+  SPDLOG: 1
+  USE_GRAY: false
+  port: '5555'
+  nerf_port: '9999'
+  downscale: 1.0
+  min_resolution: 300
+  erode_mask: 3
+  visible_angle: 70
+
+  segmentation:
+    ob_scales:
+    - 0.3
+    - 0.3
+    - 0.3
+    tolerance: 0.03
+
+  depth_processing:
+    zfar: 1.0
+    erode:
+      radius: 1
+      diff: 0.001
+      ratio: 0.8
+    bilateral_filter:
+      radius: 2
+      sigma_D: 2
+      sigma_R: 100000
+    outlier_removal:
+      num: 30
+      std_mul: 3
+    edge_normal_thres: 10
+    denoise_cloud: false
+    percentile: 95
+
+  bundle:
+    num_iter_outter: 7
+    num_iter_inner: 5
+    window_size: 5
+    max_BA_frames: 10
+    subset_selection_method: normal_orientation_nearest
+    depth_association_radius: 5
+    non_neighbor_max_rot: 90
+    non_neighbor_min_visible: 0.1
+    icp_pose_rot_thres: 60
+    w_rpi: 0
+    w_p2p: 1
+    w_fm: 1
+    w_sdf: 0
+    w_pm: 0
+    robust_delta: 0.005
+    min_fm_edges_newframe: 15
+    image_downscale:
+    - 4
+    feature_edge_dist_thres: 0.01
+    feature_edge_normal_thres: 30
+    max_optimized_feature_loss: 0.03
+
+  keyframe:
+    min_interval: 1
+    min_feat_num: 0
+    min_trans: 0
+    min_rot: 5
+    min_visible: 1
+
+  sift:
+    scales:
+    - 2
+    - 4
+    - 8
+    max_match_per_query: 5
+    nOctaveLayers: 3
+    contrastThreshold: 0.01
+    edgeThreshold: 50
+    sigma: 1.6
+
+  feature_corres:
+    mutual: true
+    map_points: true
+    max_dist_no_neighbor: 0.01
+    max_normal_no_neighbor: 20
+    max_dist_neighbor: 0.02
+    max_normal_neighbor: 30
+    suppression_patch_size: 5
+    max_view_normal_angle: 180
+    min_match_with_ref: 5
+    resize: 800
+    rematch_after_nerf: false
+
+  ransac:
+    max_iter: 2000
+    num_sample: 3
+    inlier_dist: 0.01
+    inlier_normal_angle: 20
+    desired_succ_rate: 0.99
+    max_trans_neighbor: 0.02
+    max_rot_deg_neighbor: 30
+    max_trans_no_neighbor: 0.01
+    max_rot_no_neighbor: 10
+    epipolar_thres: 1
+    min_match_after_ransac: 5
+
+  p2p:
+    projective: false
+    max_dist: 0.02
+    max_normal_angle: 45
+
+  sdf_edge:
+    max_dist: 0.02
+
+  shape:
+    res: 0.005
+    xrange:
+    - -0.2
+    - 0.2
+    yrange:
+    - -0.2
+    - 0.2
+    zrange:
+    - -0.2
+    - 0.2
+    max_weight: 100
+
+foundation_stereo:
+  pth_path: /data/weights/foundationstereo/model_best_bp2.pth
+  cfg_path: /data/weights/foundationstereo/cfg.yaml
+  dinov2_path: /data/weights/roma/dinov2_vitl14_pretrain.pth
+  vit_size: vitl
+  scale: 0.3
+  hiera: 0
+  z_far: 10
+  remove_invisible: true
+  intrinsic:  # overridden from calibration.json at runtime
+  - 852.41064453125
+  - 0
+  - 946.4462890625
+  - 0
+  - 852.41064453125
+  - 556.8043212890625
+  - 0
+  - 0
+  - 1
+  baseline: 0.1495617627365213  # overridden from calibration.json at runtime
+
+sam2:
+  checkpoint_path: /data/weights/sam2/sam2.1_hiera_large.pt
+  model_config: configs/sam2.1/sam2.1_hiera_l.yaml
+  bbox: null
+  device: cuda
+
+nerf:
+  batch_size: 32
+  downscale: 0.2
+  min_resolution: 300
+  n_step: 3000
+  save_dir: ???
+  netdepth: 8
+  netwidth: 256
+  netdepth_fine: 8
+  netwidth_fine: 256
+  N_rand: 2048
+  lrate: 0.01
+  lrate_pose: 0.01
+  decay_rate: 0.1
+  chunk: 99999999999
+  netchunk: 6553600
+  no_batching: 0
+  amp: false
+  N_samples: 64
+  N_samples_around_depth: 256
+  N_importance: 0
+  perturb: 1
+  use_viewdirs: 1
+  i_embed: 1
+  i_embed_views: 2
+  multires: 8
+  multires_views: 3
+  feature_grid_dim: 2
+  raw_noise_std: 0
+  i_img: 99999
+  i_weights: 99999
+  i_mesh: 99999
+  i_pose: 999999
+  i_print: 99999
+  finest_res: 256
+  base_res: 16
+  num_levels: 16
+  log2_hashmap_size: 22
+  use_octree: 1
+  first_frame_weight: 1
+  denoise_depth_use_octree_cloud: true
+  octree_embed_base_voxel_size: 0.02
+  octree_smallest_voxel_size: 0.02
+  octree_raytracing_voxel_size: 0.02
+  octree_dilate_size: 0.02
+  down_scale_ratio: 1
+  bounding_box:
+  - - -1
+    - -1
+    - -1
+  - - 1
+    - 1
+    - 1
+  use_mask: 1
+  dilate_mask_size: 0
+  rays_valid_depth_only: true
+  near: 0.1
+  far: 1.0
+  rgb_weight: 10
+  depth_weight: 0
+  sdf_lambda: 5
+  neg_trunc_ratio: 1
+  fs_weight: 100
+  empty_weight: 2
+  fs_rgb_weight: 0
+  fs_sdf: 0.1
+  trunc_weight: 6000
+  tv_loss_weight: 0
+  frame_features: 2
+  optimize_poses: 0
+  pose_reg_weight: 0
+  feature_reg_weight: 0.1
+  share_coarse_fine: 1
+  eikonal_weight: 0
+  mode: sdf
+  trunc: 0.01
+  trunc_start: 0.01
+  trunc_decay_type: ''
+  mesh_resolution: 0.005
+  max_trans: 0.02
+  max_rot: 20
+  mesh_smoothing:
+    enabled: true
+    iterations: 2
+    lambda_: 0.5
+    use_taubin: true
+  save_octree_clouds: true
+
+texture_bake:
+  downscale: 1.0
+  min_resolution: 300
+  texture_res: 2048
+  enabled: true
+  min_keyframe_translation: 0.0   # min camera translation (m) between selected keyframes; 0 = keep all
+  min_keyframe_rotation_deg: 5.0  # min camera rotation (°) between selected keyframes; 0 = keep all
+  min_keyframes: 30               # minimum keyframes after subsampling (uniform padding if needed)
+
+roma:
+  coarse_res: 560
+  upsample_res:
+  - 864
+  - 864
+  device: cuda
+  weights: /data/weights/roma/roma_outdoor.pth
+  dinov2_weights: /data/weights/roma/dinov2_vitl14_pretrain.pth
+
+base_path:
+  base_folder: ???
+  image_folder: ???
+  save_dir: ???

@@ -1,0 +1,149 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+#
+# NVIDIA CORPORATION and its licensors retain all intellectual property
+# and proprietary rights in and to this software, related documentation
+# and any modifications thereto. Any use, reproduction, disclosure or
+# distribution of this software and related documentation without an express
+# license agreement from NVIDIA CORPORATION is strictly prohibited.
+#
+# Builds Sphinx (multiversion) docs for every package in the matrix and
+# deploys the combined site to GitHub Pages on main pushes.
+#
+# Per-PR `make html` validation is handled by each package's
+# <package>_ci.yml so this workflow only runs on main / workflow_dispatch
+# and avoids duplicating that lint-quality check.
+#
+# To add a new package: append it to `matrix.package`, add its source
+# globs to the `paths:` filter, and add a list item to docs/index.html.
+
+name: Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'video_ingestion_agent/docs/**'
+      - 'video_ingestion_agent/pyproject.toml'
+      - 'docs/**'
+      - '.github/workflows/docs.yml'
+  # Build (but don't deploy) on PRs targeting main so changes to the
+  # workflow itself or to package docs are validated before merge.
+  # The deploy job's `if: github.event_name != 'pull_request'` guard
+  # keeps PRs from publishing.
+  pull_request:
+    branches: [main]
+    paths:
+      - 'video_ingestion_agent/docs/**'
+      - 'video_ingestion_agent/pyproject.toml'
+      - 'docs/**'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One in-flight Pages deploy at a time; queue the rest.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.package }} docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # sphinx-multiversion runs `git worktree add` for each version, which
+    # materializes the full repo at that SHA and triggers Git LFS smudging
+    # on sibling-package assets (parquet / pkl / npz under reconstruction/).
+    # We never need those file contents to build docs -- skipping smudging
+    # keeps them as LFS pointer files in the worktree.
+    env:
+      GIT_LFS_SKIP_SMUDGE: '1'
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - video_ingestion_agent
+    steps:
+      - name: Checkout (full history for sphinx-multiversion)
+        uses: actions/checkout@v4
+        with:
+          # sphinx-multiversion checks out each whitelisted branch / tag
+          # to build per-version docs; needs the full git history.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install docs dependencies
+        working-directory: ${{ matrix.package }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r docs/requirements.txt
+
+      - name: Build multiversion docs
+        working-directory: ${{ matrix.package }}/docs
+        # `make multi-docs` runs sphinx-multiversion across the
+        # branch / tag whitelist defined in conf.py and copies
+        # _redirect/index.html to _build/index.html.
+        run: make multi-docs
+
+      - name: Upload package docs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-${{ matrix.package }}
+          path: ${{ matrix.package }}/docs/_build/
+          retention-days: 7
+          if-no-files-found: error
+
+  deploy:
+    name: Deploy combined site to GitHub Pages
+    if: github.event_name != 'pull_request'
+    needs: [build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout (for docs/index.html)
+        uses: actions/checkout@v4
+
+      - name: Stage landing page
+        run: |
+          mkdir -p _site
+          cp docs/index.html _site/index.html
+
+      - name: Download all package docs artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: _staging
+          pattern: docs-*
+
+      - name: Place each package's docs at _site/<package>/
+        run: |
+          set -e
+          for d in _staging/docs-*; do
+            pkg="${d#_staging/docs-}"
+            mkdir -p "_site/${pkg}"
+            cp -r "${d}"/. "_site/${pkg}/"
+            echo "Staged ${pkg}: $(find "_site/${pkg}" -name index.html | head -5)"
+          done
+          echo "--- _site contents ---"
+          ls -la _site
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

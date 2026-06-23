@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Video to Data &mdash; NVIDIA Isaac</title>
+  <meta name="description" content="Video to Data (V2D) — an end-to-end pipeline that converts human demonstration videos into simulation-ready assets and physics-grounded robot training data.">
+
+  <script>
+    (function () {
+      var mode = localStorage.getItem("mode") || "";
+      if (!mode) {
+        mode = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      }
+      document.documentElement.dataset.theme = mode;
+      document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    })();
+  </script>
+
+  <style>
+    @font-face {
+      font-family: NVIDIA;
+      font-stretch: 25% 151%;
+      font-style: normal;
+      font-weight: 100 1000;
+      font-display: swap;
+      src: url(https://images.nvidia.com/etc/designs/nvidiaGDC/clientlibs_base/fonts/nvidia-sans/GLOBAL/var/NVIDIASansVF_W_Wght.woff2) format("woff2-variations");
+    }
+    @font-face {
+      font-family: RobotoMono;
+      font-stretch: 25% 151%;
+      font-style: normal;
+      font-weight: 100 1000;
+      font-display: swap;
+      src: url(https://images.nvidia.com/etc/designs/nvidiaGDC/clientlibs_base/fonts/Roboto_Mono/RobotoMono-VariableFont_wght.ttf) format("truetype-variations");
+    }
+
+    :root,
+    html[data-theme="light"] {
+      --nv-green: #76b900;
+      --nv-green-dark: #004831;
+      --bg: #fff;
+      --surface: #f7f7f7;
+      --surface-hover: #efefef;
+      --border: #e5e5e5;
+      --text: #1a1a1a;
+      --text-muted: #666;
+      --heading: #000;
+      --primary: var(--nv-green-dark);
+      --accent: var(--nv-green);
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 16px rgba(0, 0, 0, 0.04);
+      --shadow-hover: 0 1px 2px rgba(0, 0, 0, 0.06), 0 8px 28px rgba(0, 0, 0, 0.08);
+    }
+    html[data-theme="dark"] {
+      --bg: #111;
+      --surface: #1a1a1a;
+      --surface-hover: #222;
+      --border: #2a2a2a;
+      --text: #eee;
+      --text-muted: #999;
+      --heading: #fff;
+      --primary: var(--nv-green);
+      --accent: var(--nv-green);
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.4);
+      --shadow-hover: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 28px rgba(0, 0, 0, 0.5);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+    html { color-scheme: light dark; -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      font-family: NVIDIA, Arial, Helvetica, sans-serif;
+      font-size: 1rem;
+      line-height: 1.6;
+      color: var(--text);
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
+    }
+    code, kbd, pre {
+      font-family: RobotoMono, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    a { color: var(--text); text-decoration-color: var(--accent); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+    a:hover { text-decoration-thickness: 3px; }
+    h1, h2, h3 { color: var(--heading); font-weight: 700; line-height: 1.2; margin: 0; }
+
+    .only-light { display: inline-block; }
+    .only-dark  { display: none; }
+    html[data-theme="dark"] .only-light { display: none; }
+    html[data-theme="dark"] .only-dark  { display: inline-block; }
+
+    .header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      height: 3.75rem;
+      padding: 0 1.5rem;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: saturate(140%) blur(8px);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      text-decoration: none;
+      color: var(--heading);
+      font-weight: 700;
+    }
+    .brand:hover { text-decoration: none; }
+    .brand .logo { height: 1.6rem; width: auto; display: block; }
+    .brand .divider {
+      width: 1px;
+      height: 1.4rem;
+      background: var(--border);
+    }
+    .brand .project { font-size: 1rem; letter-spacing: 0.01em; }
+    .brand .project .muted { color: var(--text-muted); font-weight: 400; }
+
+    .header-spacer { flex: 1; }
+
+    .icon-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 2.25rem;
+      height: 2.25rem;
+      padding: 0;
+      border: 1px solid transparent;
+      border-radius: 0.5rem;
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    }
+    .icon-btn:hover { background: var(--surface); border-color: var(--border); color: var(--accent); }
+    .icon-btn svg { width: 1.15rem; height: 1.15rem; }
+    .icon-btn .icon-mode-light { display: none; }
+    .icon-btn .icon-mode-dark { display: inline; }
+    html[data-theme="dark"] .icon-btn .icon-mode-light { display: inline; }
+    html[data-theme="dark"] .icon-btn .icon-mode-dark { display: none; }
+
+    main {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 3.5rem 1.5rem 4rem;
+    }
+    section + section { margin-top: 4rem; }
+    .section-title {
+      font-size: 1.5rem;
+      margin-bottom: 1.25rem;
+      letter-spacing: -0.005em;
+    }
+    .section-title::after {
+      content: "";
+      display: block;
+      width: 2.25rem;
+      height: 3px;
+      margin-top: 0.5rem;
+      background: var(--accent);
+      border-radius: 2px;
+    }
+
+    .hero .eyebrow {
+      display: inline-block;
+      margin: 0 0 0.75rem;
+      padding: 0.25rem 0.6rem;
+      font-size: 0.78rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--primary);
+      background: color-mix(in srgb, var(--accent) 14%, transparent);
+      border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+      border-radius: 999px;
+      font-weight: 600;
+    }
+    .hero h1 {
+      font-size: clamp(2.25rem, 4.5vw, 3.25rem);
+      letter-spacing: -0.02em;
+      margin-bottom: 1rem;
+    }
+    .hero h1 .accent { color: var(--accent); }
+    .hero .lede {
+      font-size: 1.125rem;
+      color: var(--text-muted);
+      max-width: 60ch;
+      margin: 0;
+    }
+
+    .flow {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 0.75rem;
+      align-items: stretch;
+    }
+    .flow .step {
+      padding: 1.25rem 1.25rem 1rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .flow .step .step-num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.6rem;
+      height: 1.6rem;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #000;
+      font-weight: 700;
+      font-size: 0.85rem;
+      line-height: 1;
+    }
+    .flow .step h3 {
+      font-size: 1.0625rem;
+      letter-spacing: -0.005em;
+      margin: 0;
+    }
+    .flow .step p {
+      color: var(--text-muted);
+      font-size: 0.93rem;
+      margin: 0;
+      flex: 1;
+    }
+    .flow .step .pkg {
+      font-family: RobotoMono, monospace;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 0.5rem;
+      padding-top: 0.5rem;
+      border-top: 1px dashed var(--border);
+    }
+    .flow .arrow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent);
+      font-size: 1.5rem;
+      line-height: 1;
+      user-select: none;
+    }
+    @media (max-width: 760px) {
+      .flow {
+        grid-template-columns: 1fr;
+      }
+      .flow .arrow {
+        transform: rotate(90deg);
+        height: 1.5rem;
+      }
+    }
+
+    .packages { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.75rem; }
+    .packages li {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+      transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+    }
+    .packages li:hover {
+      border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+      box-shadow: var(--shadow-hover);
+      transform: translateY(-1px);
+    }
+    .packages a.pkg-link {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 1rem;
+      padding: 1.1rem 1.25rem;
+      text-decoration: none;
+      color: var(--text);
+    }
+    .packages .pkg-info { min-width: 0; }
+    .packages .pkg-name {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+      font-family: RobotoMono, monospace;
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--heading);
+      margin: 0 0 0.25rem;
+    }
+    .packages .pkg-tag {
+      font-family: NVIDIA, sans-serif;
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+      background: var(--bg);
+    }
+    .packages .pkg-blurb { color: var(--text-muted); font-size: 0.95rem; margin: 0; }
+    .packages .pkg-cta {
+      color: var(--primary);
+      font-weight: 600;
+      font-size: 0.9rem;
+      white-space: nowrap;
+    }
+    .packages a.pkg-link:hover .pkg-cta { color: var(--accent); }
+
+    .cta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.7rem 1.1rem;
+      border-radius: 0.5rem;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.95rem;
+      transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #000;
+      border: 1px solid var(--accent);
+    }
+    .btn-primary:hover {
+      background: color-mix(in srgb, var(--accent) 85%, #000);
+      color: #000;
+      transform: translateY(-1px);
+      text-decoration: none;
+    }
+    .btn-ghost {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      transform: translateY(-1px);
+      text-decoration: none;
+    }
+    .btn svg { width: 1rem; height: 1rem; }
+
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 1.5rem;
+      color: var(--text-muted);
+      font-size: 0.875rem;
+    }
+    footer .inner {
+      max-width: 960px;
+      margin: 0 auto;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      justify-content: space-between;
+    }
+    footer a { color: var(--text-muted); }
+    footer a:hover { color: var(--accent); }
+  </style>
+</head>
+<body>
+
+  <header class="header">
+    <a class="brand" href="./" aria-label="Video to Data — Home">
+      <svg class="logo only-light" viewBox="0 0 3096.56 1065.98" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path fill="#76b900" d="M562.33,440.33V398.81c4-.28,8.1-.5,12.25-.63,113.55-3.57,188,97.56,188,97.56S682.16,607.49,595.9,607.49a104.51,104.51,0,0,1-33.57-5.37V476.24c44.21,5.34,53.09,24.86,79.68,69.16l59.1-49.84S658,439,585.24,439a214.88,214.88,0,0,0-22.91,1.35m0-137.14v62c4.08-.32,8.16-.58,12.25-.73C732.49,359.15,835.35,494,835.35,494S717.19,637.65,594.1,637.65a181.36,181.36,0,0,1-31.77-2.8v38.33a208.94,208.94,0,0,0,26.46,1.72c114.55,0,197.39-58.5,277.62-127.74,13.29,10.65,67.74,36.55,78.94,47.91-76.28,63.85-254,115.31-354.8,115.31-9.71,0-19-.58-28.22-1.46v53.87H997.74V303.19Zm0,298.93v32.73C456.38,616,427,505.83,427,505.83s50.87-56.37,135.36-65.5v35.91l-.16,0c-44.34-5.33-79,36.1-79,36.1s19.41,69.73,79.14,89.8M374.15,501.05S437,408.39,562.33,398.81V365.2C423.46,376.35,303.19,494,303.19,494S371.3,690.89,562.33,708.92V673.18C422.15,655.55,374.15,501.05,374.15,501.05Z"/>
+        <path fill="#000" d="M1782,390l0,301.68h85.2V390Zm-670.22-.41V691.71h86V462.33l66.59,0c22.06,0,37.77,5.48,48.4,16.83,13.48,14.36,19,37.51,19,79.87V691.71l83.27,0V524.81c0-119.12-75.93-135.19-150.21-135.19h-153m807.4.43V691.71h138.19c73.63,0,97.66-12.25,123.65-39.7,18.37-19.27,30.24-61.58,30.24-107.82,0-42.4-10.05-80.23-27.58-103.78-31.56-42.13-77-50.36-144.92-50.36Zm84.52,65.68h36.63c53.14,0,87.51,23.87,87.51,85.79s-34.37,85.8-87.51,85.8h-36.63Zm-344.54-65.68-71.1,239.08-68.14-239.07h-92l97.31,301.66h122.79l98.07-301.66Zm591.74,301.66h85.21V390.06h-85.23Zm238.84-301.56-119,301.46h84l18.82-53.29h140.8l17.82,53.29h91.21L2603.56,390.13Zm55.31,55,51.61,141.23H2491.82Z"/>
+        <path fill="#000" d="M2767.13,700.91a26.61,26.61,0,1,1,26.61-26.61A26.6,26.6,0,0,1,2767.13,700.91Zm0-48.11c-11.94,0-21.12,9.18-21.12,21.5s9.18,21.5,21.12,21.5,21.12-9.18,21.12-21.5S2779.06,652.8,2767.13,652.8Zm4.77,35.62-5.14-11h-3v11h-6.32V660.11H2769c5.74,0,9.41,4.19,9.41,8.9a8,8,0,0,1-5.22,7.5l6,11.91Zm-3.75-23.09h-4.41v7.35h4.41a3.68,3.68,0,1,0,0-7.35Z"/>
+      </svg>
+      <svg class="logo only-dark" viewBox="0 0 3096.56 1065.98" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path fill="#76b900" d="M562.33,440.33V398.81c4-.28,8.1-.5,12.25-.63,113.55-3.57,188,97.56,188,97.56S682.16,607.49,595.9,607.49a104.51,104.51,0,0,1-33.57-5.37V476.24c44.21,5.34,53.09,24.86,79.68,69.16l59.1-49.84S658,439,585.24,439a214.88,214.88,0,0,0-22.91,1.35m0-137.14v62c4.08-.32,8.16-.58,12.25-.73C732.49,359.15,835.35,494,835.35,494S717.19,637.65,594.1,637.65a181.36,181.36,0,0,1-31.77-2.8v38.33a208.94,208.94,0,0,0,26.46,1.72c114.55,0,197.39-58.5,277.62-127.74,13.29,10.65,67.74,36.55,78.94,47.91-76.28,63.85-254,115.31-354.8,115.31-9.71,0-19-.58-28.22-1.46v53.87H997.74V303.19Zm0,298.93v32.73C456.38,616,427,505.83,427,505.83s50.87-56.37,135.36-65.5v35.91l-.16,0c-44.34-5.33-79,36.1-79,36.1s19.41,69.73,79.14,89.8M374.15,501.05S437,408.39,562.33,398.81V365.2C423.46,376.35,303.19,494,303.19,494S371.3,690.89,562.33,708.92V673.18C422.15,655.55,374.15,501.05,374.15,501.05Z"/>
+        <path fill="#fff" d="M1782,390l0,301.68h85.2V390Zm-670.22-.41V691.71h86V462.33l66.59,0c22.06,0,37.77,5.48,48.4,16.83,13.48,14.36,19,37.51,19,79.87V691.71l83.27,0V524.81c0-119.12-75.93-135.19-150.21-135.19h-153m807.4.43V691.71h138.19c73.63,0,97.66-12.25,123.65-39.7,18.37-19.27,30.24-61.58,30.24-107.82,0-42.4-10.05-80.23-27.58-103.78-31.56-42.13-77-50.36-144.92-50.36Zm84.52,65.68h36.63c53.14,0,87.51,23.87,87.51,85.79s-34.37,85.8-87.51,85.8h-36.63Zm-344.54-65.68-71.1,239.08-68.14-239.07h-92l97.31,301.66h122.79l98.07-301.66Zm591.74,301.66h85.21V390.06h-85.23Zm238.84-301.56-119,301.46h84l18.82-53.29h140.8l17.82,53.29h91.21L2603.56,390.13Zm55.31,55,51.61,141.23H2491.82Z"/>
+        <path fill="#fff" d="M2767.13,700.91a26.61,26.61,0,1,1,26.61-26.61A26.6,26.6,0,0,1,2767.13,700.91Zm0-48.11c-11.94,0-21.12,9.18-21.12,21.5s9.18,21.5,21.12,21.5,21.12-9.18,21.12-21.5S2779.06,652.8,2767.13,652.8Zm4.77,35.62-5.14-11h-3v11h-6.32V660.11H2769c5.74,0,9.41,4.19,9.41,8.9a8,8,0,0,1-5.22,7.5l6,11.91Zm-3.75-23.09h-4.41v7.35h4.41a3.68,3.68,0,1,0,0-7.35Z"/>
+      </svg>
+      <span class="divider" aria-hidden="true"></span>
+      <span class="project">Video to Data <span class="muted">/ Isaac</span></span>
+    </a>
+
+    <span class="header-spacer"></span>
+
+    <button class="icon-btn" id="theme-toggle" type="button" aria-label="Toggle color theme" title="Toggle color theme">
+      <svg class="icon-mode-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="4"/>
+        <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+      </svg>
+      <svg class="icon-mode-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
+    </button>
+
+    <a class="icon-btn" href="https://github.com/nvidia-isaac/video_to_data" target="_blank" rel="noopener" aria-label="GitHub repository" title="GitHub">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.11.79-.25.79-.55v-2.02c-3.2.7-3.88-1.39-3.88-1.39-.52-1.34-1.28-1.7-1.28-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.2 1.77 1.2 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.27.74-1.56-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.79 0c2.21-1.49 3.18-1.18 3.18-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.43-2.69 5.4-5.25 5.69.41.36.78 1.06.78 2.13v3.16c0 .31.21.67.8.55A11.5 11.5 0 0 0 12 .5z"/>
+      </svg>
+    </a>
+  </header>
+
+  <main>
+
+    <section class="hero">
+      <p class="eyebrow">NVIDIA &middot; Isaac</p>
+      <h1>Video <span class="accent">&rarr;</span> Data</h1>
+      <p class="lede">
+        An end-to-end pipeline that converts human demonstration videos into
+        simulation-ready assets and physics-grounded robot training data.
+      </p>
+    </section>
+
+    <section>
+      <h2 class="section-title">End-to-end workflow</h2>
+      <ol class="flow">
+        <li class="step">
+          <span class="step-num">1</span>
+          <h3>Video Ingestion Agent</h3>
+          <p>LangGraph workflow that segments demos into action clips, extracts an entity-relation scene graph, and stores SigLIP-2 frame embeddings.</p>
+          <span class="pkg">video_ingestion_agent/</span>
+        </li>
+        <li class="arrow" aria-hidden="true">&rarr;</li>
+        <li class="step">
+          <span class="step-num">2</span>
+          <h3>Reconstruction</h3>
+          <p>Containerized vision modules turn selected clips into per-frame depth, masks, textured meshes, 6-DoF object poses, and SMPL human body.</p>
+          <span class="pkg">reconstruction/</span>
+        </li>
+      </ol>
+    </section>
+
+    <section>
+      <h2 class="section-title">Packages</h2>
+      <ul class="packages">
+        <li>
+          <a class="pkg-link" href="./video_ingestion_agent/">
+            <div class="pkg-info">
+              <p class="pkg-name">video_ingestion_agent <span class="pkg-tag">Docs available</span></p>
+              <p class="pkg-blurb">Video &rarr; action segments + entity scene graph + frame embeddings. LangGraph pipeline plus an EGAgent-style natural-language retrieval agent and an optional Gradio UI.</p>
+            </div>
+            <span class="pkg-cta">Open docs &rarr;</span>
+          </a>
+        </li>
+        <li>
+          <a class="pkg-link" href="https://github.com/nvidia-isaac/video_to_data/tree/main/reconstruction" target="_blank" rel="noopener">
+            <div class="pkg-info">
+              <p class="pkg-name">reconstruction <span class="pkg-tag">Docs coming soon</span></p>
+              <p class="pkg-blurb">Video &rarr; depth, masks, meshes, 6D poses, human body. 18 containerized modules plus multi-view pipelines for HOI reconstruction and calibration.</p>
+            </div>
+            <span class="pkg-cta">View on GitHub &rarr;</span>
+          </a>
+        </li>
+      </ul>
+    </section>
+
+    <section>
+      <h2 class="section-title">Get started</h2>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="https://github.com/nvidia-isaac/video_to_data#quickstart" target="_blank" rel="noopener">
+          Read the quickstart
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+        </a>
+        <a class="btn btn-ghost" href="https://github.com/nvidia-isaac/video_to_data" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.11.79-.25.79-.55v-2.02c-3.2.7-3.88-1.39-3.88-1.39-.52-1.34-1.28-1.7-1.28-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.2 1.77 1.2 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.27.74-1.56-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.79 0c2.21-1.49 3.18-1.18 3.18-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.43-2.69 5.4-5.25 5.69.41.36.78 1.06.78 2.13v3.16c0 .31.21.67.8.55A11.5 11.5 0 0 0 12 .5z"/></svg>
+          Browse the repository
+        </a>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    <div class="inner">
+      <span>Copyright &copy; 2025&ndash;2026, NVIDIA Corporation.</span>
+      <span><a href="https://github.com/nvidia-isaac/video_to_data" target="_blank" rel="noopener">github.com/nvidia-isaac/video_to_data</a></span>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      var btn = document.getElementById("theme-toggle");
+      btn.addEventListener("click", function () {
+        var current = document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+        var next = current === "dark" ? "light" : "dark";
+        document.documentElement.dataset.theme = next;
+        localStorage.setItem("mode", next);
+      });
+    })();
+  </script>
+
+</body>
+</html>

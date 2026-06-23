@@ -1,0 +1,5 @@
+# Package-specific LFS rules for the reconstruction subproject.
+# (Universal rules live in the repo-root .gitattributes.)
+
+# Demo / test media
+assets/airplane.mp4 filter=lfs diff=lfs merge=lfs -text
