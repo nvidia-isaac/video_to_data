@@ -1,0 +1,83 @@
+# Exclude large data files from Docker build context
+
+# Data directories
+data/
+**/data/
+**/jobs/
+**/results/
+**/sessions/
+
+# Model checkpoints and weights
+checkpoints/
+**/checkpoints/
+**/weights/
+*.pt
+*.pth
+*.safetensors
+*.bin
+*.ckpt
+*.h5
+*.hdf5
+
+# Large media files
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.zip
+*.tar
+*.tar.gz
+*.gz
+
+# Large 3D model files
+*.glb
+*.gltf
+*.obj
+*.ply
+*.stl
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Documentation (if large)
+*.pdf
+
+# Logs
+*.log
+
+# Test data
+test_data/
+**/test_data/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+

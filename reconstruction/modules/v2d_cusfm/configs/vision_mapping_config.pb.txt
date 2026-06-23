@@ -1,0 +1,70 @@
+keyframe_dir: ""
+matches_dir: ""
+output_map_dir: ""
+debug_dir: ""
+keyframe_metadata_file: ""
+min_num_matches_per_pair: 15
+depth_threshold: 300
+search_depth: 15
+min_correspondences: 3
+initial_max_pixel_error: 25.0
+final_max_pixel_error: 5.0
+min_triangulation_deg: 2.0
+max_ransac_iteration: 1000
+min_num_samples: 3
+iterative_triangulation_times: 10
+maximum_cache_frame_size: 10000
+num_ba_iterations: 5
+max_observation_change: 0.005
+# use num_threads=1 to get determistic triangulation reuslts.
+num_threads: 8
+random_seed: 1
+bundle_adjustment_config {
+  # TRIVIAL
+  # SOFT_L1
+  # CAUCHY
+  loss_type: CAUCHY
+  loss_function_scale: 1.0
+  minimizer_progress_to_stdout: true
+  max_num_iterations: 200
+  max_invalid_steps: 10
+  max_linear_solver_iterations: 100
+  num_threads: 8
+  absolute_position_constraint_error_meters: 1
+  reprojection_error_standard_deviation: 4.0
+  verbose: true
+  extrinsic_error_meters: 0.01
+  extrinsic_error_degrees: 2
+  use_cudss_solver: true
+
+  relative_pose_translation_error_meters: 0.1
+  relative_pose_rotation_error_degrees: 5
+  relative_constraint_use_pose_covariance: false
+  do_rolling_shutter_correction: false
+
+  absolute_pose_translation_error_meters: 1
+  absolute_pose_rotation_error_degrees: 5
+
+
+  # frame mode
+  ba_frame_type: VEHICLE_RIG
+
+  use_fast_reproject_cost: true
+}
+# AUTO
+# POSITION_CONSTRAINS
+# RELATIVE_CONSTRAINS
+# CONSTANT_CONSTRAINS
+pose_constrains_type: AUTO
+use_camera_extrinsic_constraint: true
+extrinsic_max_timestamp_diff_microseconds: 100
+# always use the initial guess pose as relative pose constraint
+use_relative_pose_constraint: true
+# 0.1s > 3 frames for 30Hz camera
+relative_pose_measurement_min_timestamp_gap_us: 300000
+localization_mode: FIX
+
+refine_ba: true
+image_pair_min_shared_points: 1
+refine_ba_use_fixed_max_pixel_error: true
+refine_ba_avoid_loss_function: true

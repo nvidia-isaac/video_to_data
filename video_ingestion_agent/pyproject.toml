@@ -1,0 +1,180 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+[project]
+name = "video_ingestion_agent"
+version = "0.1.0"
+description = "Entity graph-based agentic workflow for robot demonstration video analysis"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "NVIDIA Isaac Team", email = "TODO@nvidia.com"}
+]
+keywords = [
+    "robotics",
+    "video-understanding",
+    "entity-graphs",
+    "agentic-workflows",
+    "robot-learning",
+    "policy-learning",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    # Core (lightweight -- sufficient for vLLM backend)
+    "numpy>=1.24.0",
+    "opencv-python>=4.8.0",
+    "pillow>=10.0.0",
+
+    # Agentic workflows
+    "langgraph>=0.2.0",
+    "langchain-core>=0.3.0",
+
+    # API clients
+    "requests>=2.31.0",
+    "openai>=1.0.0",       # For vLLM / API backends
+
+    # Database
+    "sqlalchemy>=2.0.0",
+
+    # Utilities
+    "pydantic>=2.0.0",
+    "tqdm>=4.66.0",
+    "pyyaml>=6.0.0",
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+# Heavy GPU deps for local model inference (vlm_backend: "local")
+local = [
+    "torch>=2.0.0",
+    "transformers>=4.40.0",
+    "accelerate>=0.30.0",
+    "timm>=0.9.0",           # For SigLIP
+    "bitsandbytes>=0.43.0",  # For quantization
+]
+
+# vLLM server (install in the server env, not the pipeline env)
+# Both bounds matter for Qwen3-VL TP=8 multimodal serving:
+#   - Lower bound stays on 0.12.x: 0.13+ introduces a ~6x per-video
+#     slowdown on Qwen3-VL multimodal prefill at TP=8 (verified by A/B
+#     on identical HoT3D Aria 1080p workload, groot-h100-01).
+#   - Upper bound dodges the 0.20+ Qwen3-VL deepstack-tokens regression
+#     (`num_tokens > deepstack_input_embeds_num_tokens`).
+server = [
+    "vllm>=0.12.0,<0.13",
+]
+
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.3.0",
+    "mypy>=1.9.0",
+    "pre-commit>=3.5.0",
+]
+
+docs = [
+    "sphinx>=7.0,<8.3",
+    "nvidia-sphinx-theme>=0.0.8",
+    "sphinx-multiversion>=0.2.4",
+    "sphinx_copybutton>=0.5.2",
+    "sphinx_tabs>=3.4.7",
+    "sphinx_design>=0.6.1",
+    "sphinxcontrib-mermaid>=1.0.0",
+    "sphinx-autobuild>=2024.0.0",
+]
+
+viz = [
+    "matplotlib>=3.8.0",
+    "seaborn>=0.13.0",
+    "plotly>=5.18.0",
+    "networkx>=3.2.0",
+]
+
+webapp = [
+    "gradio>=6.0.0",
+    "plotly>=5.18.0",
+    "networkx>=3.2.0",
+]
+
+benchmark = [
+    "sentence-transformers>=2.2.0",
+    "bert-score>=0.3.13",
+    "pandas>=1.5.0",
+    "joblib>=1.0.0",
+    "wandb>=0.16.0",
+]
+
+all = [
+    "video_ingestion_agent[local,server,dev,docs,viz,webapp,benchmark]",
+]
+
+[project.urls]
+Homepage = "https://github.com/nvidia-isaac/video_to_data/tree/main/video_ingestion_agent"
+Documentation = "https://github.com/nvidia-isaac/video_to_data/tree/main/video_ingestion_agent"
+Repository = "https://github.com/nvidia-isaac/video_to_data"
+Issues = "https://github.com/nvidia-isaac/video_to_data/issues"
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["video_ingestion_agent*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "B008",  # do not perform function calls in argument defaults
+    "C901",  # too complex
+    "C408",  # unnecessary dict() call - common in Plotly code
+    "UP038", # use X | Y in isinstance - less readable for multiple types
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # Allow unused imports in __init__.py
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--cov=video_ingestion_agent",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+]

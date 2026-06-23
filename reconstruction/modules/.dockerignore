@@ -1,0 +1,14 @@
+*/docker/
+*/assets/
+*/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.git/
+*/.git/
+*/.gitignore
+*/.dockerignore
+*.ipynb_checkpoints/
+*/data/
+*/checkpoints/
+common/

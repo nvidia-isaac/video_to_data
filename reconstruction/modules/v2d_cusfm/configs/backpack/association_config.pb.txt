@@ -1,0 +1,183 @@
+init_pose_mode: GIVEN
+loop_interval_threshold_in_seconds: 10
+min_matches_num: 30
+min_matches_ratio: 0.25
+use_frame_selection: false
+loop_residual_weight: 0.25
+consecutive_frame_count: 1
+image_retrieval_config {
+  min_shared_word_number: 50
+  query_result_number: 20
+  good_score_threshold: 0.1
+  pose_translation_threshold_meters: 1
+  pose_rotation_threshold_degrees: 10
+}
+match_worker_config {
+  max_pixel_error: 4.0
+  min_ransac_confidence: 0.95
+  matching_params {
+    cv_cuda_params {
+      max_matches_per_point: 2
+      norm_type: SUM_OF_ABSOLUTE_DIFFERENCES
+      enable_cross_check: false
+      match_ratio_threshold: 0.75
+    }
+
+    general_matching_params {
+      match_radius_pixels: 3000
+      max_abs_level_delta: 4
+      viewing_direction_delta_angle_degrees: 0
+      max_match_threshold: 0.4
+      max_first_second_match_ratio: 0.98
+      epipolar_threshold_pixels: 0
+      is_stereo_rectified: false
+      matching_norm_type: AUTO_MATCHING_NORM
+      turn_off_cross_check: false
+    }
+
+    lightglue_params {
+       match_threshold: 0.3
+       match_top_k: 500
+       global_non_max_method: SUPPRESSION_VIA_SQUARE_COVERING
+       num_points_tolerance_fraction: 0.3
+
+       aliked_tensorrt_config{
+        model_id: 0
+        use_fp16: true
+        input_dimension {
+          min: 1
+          min: 1
+          min: 2
+          opt: 1
+          opt: 3200
+          opt: 2
+          max: 1
+          max: 5500
+          max: 2
+        }
+        input_dimension {
+          min: 1
+          min: 1
+          min: 2
+          opt: 1
+          opt: 3200
+          opt: 2
+          max: 1
+          max: 5500
+          max: 2
+        }
+        input_dimension {
+          min: 1
+          min: 1
+          min: 128
+          opt: 1
+          opt: 3200
+          opt: 128
+          max: 1
+          max: 5500
+          max: 128
+        }
+        input_dimension {
+          min: 1
+          min: 1
+          min: 128
+          opt: 1
+          opt: 3200
+          opt: 128
+          max: 1
+          max: 5500
+          max: 128
+        }
+      }
+      superpoint_tensorrt_config{
+        model_id: 0
+        input_dimension {
+          min: 1
+          min: 1
+          min: 2
+          opt: 1
+          opt: 3200
+          opt: 2
+          max: 1
+          max: 5500
+          max: 2
+        }
+        input_dimension {
+          min: 1
+          min: 1
+          min: 2
+          opt: 1
+          opt: 3200
+          opt: 2
+          max: 1
+          max: 5500
+          max: 2
+        }
+        input_dimension {
+          min: 1
+          min: 1
+          min: 256
+          opt: 1
+          opt: 3200
+          opt: 256
+          max: 1
+          max: 5500
+          max: 256
+        }
+        input_dimension {
+          min: 1
+          min: 1
+          min: 256
+          opt: 1
+          opt: 3200
+          opt: 256
+          max: 1
+          max: 5500
+          max: 256
+        }
+      }
+    }
+  }
+}
+stereo_estimator_config {
+  ransac_max_pixel_error: 1
+  # https://github.com/opencv/opencv/blob/4.x/modules/calib3d/include/opencv2/calib3d.hpp#L2773
+  ransac_confidence: 0.999
+  # https://github.com/opencv/opencv/blob/4.x/modules/calib3d/src/five-point.cpp#L744
+  distance_3d_threshold: 1e9
+  ## in zanker there is one correct case with scale 3.6
+  scale_upper_limit: 4
+  min_inlier_number: 25
+  # if the matched points only concentrate in a small area, meaning only match
+  # to one object instead of the whole scene, normally set as 0.25,
+  # use negative value to disable the check
+  min_occupied_area_ratio: 0.10
+  # max mean error in the pose refine problem
+  max_mean_point_to_epipolarline_error: 10e-6
+  enable_homography_check: false
+  use_estimated_baseline_direction: false
+  best_candidate_use_max_inliers: false
+  keep_duplicate_sift_match: false
+  online_calibrate_left2right_rot: false
+  early_return_invalid_scale: false
+
+  # parameter for voting four stereo localizer
+  vote_translation_error_meter_tolerance: 0.5
+  vote_rotation_error_degree_tolerance: 5
+
+  ## initial scale using linear search
+  init_scale_use_linear_search: false
+  init_scale_linear_search_step: 0.05
+
+  # if there is only one result, commend the module to output or not
+  # false, reject all one result cases, success rate (re-call rate) will be low, but max translation error ~ 0.23 m
+  # true, success rate will be high, but max translation error can be 1 meter
+  allow_best_single_inlier: false
+
+  # In multi camera context, if there are multiple cameras, but only one camera
+  # has valid results, it will output the result from that camera
+  # this is less agreesive compare to allow_best_single_inlier
+  # as in this case if there are multiple camera results, and they all don't agree with each other
+  # it will not output anything, VS when allow_best_single_inlier is true, it will still output the best result
+  allow_single_camera_result: false
+}

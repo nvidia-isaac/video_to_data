@@ -1,0 +1,47 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Agent Configuration for Video Retrieval
+
+models:
+  # LLM for agent reasoning
+  llm_model: "Qwen/Qwen3-VL-8B-Instruct"
+  llm_backend: "vllm"  # "local" or "api"
+
+  # Embedding model for semantic frame search
+  embedding_model: "google/siglip2-base-patch16-256"
+
+  # API key for API backends (or set NIM_API_KEY env var)
+  api_key: null
+
+  # Device for local models
+  device: "cuda"
+
+  # vLLM backend settings (only used when vlm_backend: "vllm")
+  vllm_url: "http://localhost:8000/v1"
+  vllm_local_media: true  # Use file:// URLs (fastest, requires same machine)
+  vllm_tp_size: 8         # Tensor parallel across 8 GPUs (OSMO H100 node)
+
+agent:
+  # Maximum reasoning steps before giving up
+  max_steps: 10
+
+  # Temperature for LLM generation (0.0 = deterministic)
+  temperature: 0.0
+
+database:
+  # Directory containing graph.db and vector.db
+  directory: "outputs/"
+
+output:
+  # Directory for extracted clips
+  clips_dir: "outputs/clips"
+
+  # Padding around clip boundaries (seconds)
+  clip_padding: 0.5
+
+logging:
+  level: "INFO"
+  # Save agent reasoning traces
+  save_traces: true
+  traces_dir: "outputs/traces"

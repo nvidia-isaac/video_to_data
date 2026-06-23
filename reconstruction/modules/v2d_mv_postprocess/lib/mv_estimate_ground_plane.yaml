@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+camera_params_path: ???
+depth_dir: ???
+human_pose_dir: ???
+output_dir: ???
+rgb_dir: null
+mask_dir: null
+
+rig_config: stereo-4
+cameras: [0, 2, 4, 6]
+mask_obj_id: 0
+
+depth_path_template: "${depth_dir}/{cam_name}/depth"
+rgb_path_template: "${rgb_dir}/{cam_name}"
+mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}"
+mhr_params_mv_path: "${human_pose_dir}/mhr_params_mv.pt"
+output_path: "${output_dir}/ground_plane.json"
+
+n_sample_frames: 10
+height_band: 0.3
+ransac_threshold: 0.02
+ransac_iterations: 1000
+max_normal_angle: 15.0
+max_depth: 5.0
+image_scale: 0.5

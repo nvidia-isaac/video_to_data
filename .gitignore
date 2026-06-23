@@ -1,0 +1,9 @@
+# Root-only rules. Each subproject (reconstruction/, video_ingestion_agent/,
+# robotic_grounding/) has its own .gitignore for package-specific artifacts.
+**.egg-info 
+
+# Editor workspace files
+*.code-workspace
+
+# Local direnv overrides (only meaningful at repo root)
+.envrc.local

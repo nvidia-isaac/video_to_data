@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "v2d-pipelines"
+version = "0.1.0"
+description = "Example pipelines composing v2d Docker modules"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "opencv-python",
+    "trimesh",
+    "OpenEXR",
+]
+# Other runtime dependencies are local packages installed via scripts/install_packages.sh
+
+[tool.setuptools]
+packages = ["v2d.pipelines"]
+
+[tool.setuptools.package-dir]
+"v2d.pipelines" = "."

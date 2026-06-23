@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "v2d-depth"
+version = "0.1.0"
+description = "Depth sequence processing utilities"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "opencv-python",
+    "v2d-common",
+]
+
+[tool.setuptools]
+packages = ["v2d.depth.lib"]
+
+[tool.setuptools.package-dir]
+"v2d.depth.lib" = "lib"
