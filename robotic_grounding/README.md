@@ -11,4 +11,6 @@ reconstructed human demonstrations into deployable robot policies:
   control policies with RL.
 
 The source for this stage is not included in this release and will be published
-separately.
+in a later release.
+
+The technical report and project website are available on the project page: [Webpage](https://nvidia-isaac.github.io/video_to_data/chord/).

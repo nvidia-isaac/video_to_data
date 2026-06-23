@@ -9,7 +9,7 @@ Monorepo for **Video to Data (V2D)** — an end-to-end pipeline that converts hu
  │ Human demo    │ → │ 1. Video Ingestion   │ → │ 2. Reconstruction    │ → │ 3. Robotic Grounding       │
  │ video / rosbag│   │    Agent             │   │ depth · masks ·      │   │ retargeting → Isaac Lab    │
  │               │   │ action segments ·    │   │ meshes · 6D pose ·   │   │ RL training                │
- │               │   │ entity graph ·       │   │ body pose            │   │ Coming Soon                │
+ │               │   │ entity graph ·       │   │ body pose            │   │ Coming soon                │
  │               │   │ visual embeddings    │   │                      │   │                            │
  └───────────────┘   └──────────────────────┘   └──────────────────────┘   └────────────────────────────┘
                        video_ingestion_agent/      reconstruction/             robotic_grounding/
@@ -25,7 +25,7 @@ Monorepo for **Video to Data (V2D)** — an end-to-end pipeline that converts hu
 |---|---|---|
 | [`video_ingestion_agent/`](video_ingestion_agent/) | Video → action segments + entity scene graph + frame embeddings. LangGraph pipeline (segment → verify/refine → entity graph → embeddings) plus an EGAgent-style natural-language retrieval agent and an optional Gradio UI. | Python venv + vLLM server |
 | [`reconstruction/`](reconstruction/) | Video → depth, masks, meshes, 6D poses, human body. 18 containerized modules + multi-view pipelines. | Docker (per-module images) |
-| [`robotic_grounding/`](robotic_grounding/) | RL training on NVIDIA Isaac Lab with PPO; motion retargeting utilities. **Source published separately later.** | Coming soon |
+| [`robotic_grounding/`](robotic_grounding/) | RL training on NVIDIA Isaac Lab with PPO; motion retargeting utilities. **Code will be published in a later release.** | Coming soon |
 
 ## Prerequisites
 
@@ -94,8 +94,9 @@ See [reconstruction/README.md](reconstruction/README.md) for the complete module
 
 ### Robotic Grounding (data → RL policy)
 
-The Robotic Grounding stage (motion retargeting + Isaac Lab RL training) is
-published later. See [robotic_grounding/README.md](robotic_grounding/README.md) for an overview.
+The Robotic Grounding stage (motion retargeting + Isaac Lab RL training) will be publically available in a later release. See [robotic_grounding/README.md](robotic_grounding/README.md) for an overview.
+
+The technical report and project website are available on the project page: [Webpage](https://nvidia-isaac.github.io/video_to_data/chord/). 
 
 ## Design Philosophy
 
