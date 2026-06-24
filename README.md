@@ -2,6 +2,8 @@
 
 Monorepo for **Video to Data (V2D)** — an end-to-end pipeline that converts human demonstration videos into simulation-ready assets and physics-grounded robot training data.
 
+Documentation is available at [nvidia-isaac.github.io/video_to_data](https://nvidia-isaac.github.io/video_to_data/).
+
 ## End-to-End Workflow
 
 ```
