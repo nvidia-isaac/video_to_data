@@ -80,6 +80,11 @@ html_theme_options = {
 }
 
 html_static_path = ["_static"]
+# Copy images/ into the build so raw-HTML media (e.g. the homepage demo video) is
+# deployed. NOTE: html_extra_path copies the dir's *contents* to the build root, so
+# such media is referenced root-relative (e.g. src="v2d_...mp4"), not "images/...".
+# (`.. image::` directives are unaffected and still resolve to _images/.)
+html_extra_path = ["images"]
 html_css_files = ["custom.css"]
 html_js_files = ["svg_zoom.js"]
 

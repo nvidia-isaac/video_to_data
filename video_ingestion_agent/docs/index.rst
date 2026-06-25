@@ -13,6 +13,20 @@ a cup."*
    :alt: Video Ingestion Agent Overview
    :align: center
 
+.. The demo video/poster live in docs/images/, but html_extra_path = ["images"]
+   copies that dir's contents to the build root, so they are referenced
+   root-relative below (no "images/" prefix). See conf.py.
+
+.. raw:: html
+
+   <video controls muted playsinline preload="metadata"
+          poster="v2d_video_agent_integration_e2e_poster.jpg"
+          style="width: 100%; max-width: 960px; height: auto; display: block; margin: 1.5rem auto; border-radius: 8px; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);">
+     <source src="v2d_video_agent_integration_e2e.mp4" type="video/mp4">
+     Your browser does not support the video tag.
+     <a href="v2d_video_agent_integration_e2e.mp4">Download the demo video</a>.
+   </video>
+
 ----
 
 Start Here
