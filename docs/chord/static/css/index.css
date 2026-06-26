@@ -66,6 +66,7 @@ body {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
+  align-items: baseline;
   gap: 0.18rem 0.85rem;
 }
 
