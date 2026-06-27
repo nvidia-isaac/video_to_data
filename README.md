@@ -2,9 +2,9 @@
 
 > An end-to-end pipeline that converts human demonstration videos into simulation-ready assets and physics-grounded robot training data.
 
-**[Documentation](https://nvidia-isaac.github.io/video_to_data/)** · **[Project Page](https://nvidia-isaac.github.io/video_to_data/chord/)** · **[Tech Report](https://nvidia-isaac.github.io/video_to_data/chord/)**
+**[Documentation](https://nvidia-isaac.github.io/video_to_data/)** · **[Robotic Grounding Project Page](https://nvidia-isaac.github.io/video_to_data/chord/)** · **[Robotic Grounding Tech Report](https://nvidia-isaac.github.io/video_to_data/chord/)**
 
-![Video to Data pipeline — from human demonstration video through ingestion, reconstruction, and robotic grounding in Isaac Lab to a physics-grounded dataset, foundation models, and real-robot deployment](docs/figures/v2d_overview.png)
+![Video to Data pipeline — from human demonstration video through ingestion, reconstruction, and robotic grounding in Isaac Lab to a physics-grounded policy, dataset, and real-robot deployment](docs/figures/v2d_overview.png)
 
 ---
 
@@ -78,15 +78,15 @@ python scripts/run_webapp.py
 
 See [video_ingestion_agent/README.md](video_ingestion_agent/README.md) for hardware requirements, the full extras list, the verify/refine loop, and batch-ingestion across multiple GPUs. Pre-publication TODOs are tracked in [video_ingestion_agent/docs/release_readiness.md](video_ingestion_agent/docs/release_readiness.md).
 
-### Reconstruction
+### Reconstruction (video → reconstructed trajectory and simulation assets)
 
 The [reconstruction](reconstruction) subfolder contains a variety of algorithms and pipelines for human-object reconstruction. For the initial release, we provide an example pipeline for ego-centric hand-object reconstruction — follow the setup instructions [here](reconstruction/docs/ego_e2e_setup.md).
 
 > **Note:** The reconstruction subfolder contains a wide variety of packages, many of which are partially tested or in development. You may find these packages useful, but please note they are subject to change. The ego-centric pipeline above has been tested and is officially included as part of the initial Video to Data release. If there is a package you would like to see supported, or you have any feedback, please open an issue on GitHub.
 
-### Robotic Grounding (data → RL policy)
+### Robotic Grounding (reconstructed trajectory → RL policy and dataset)
 
-The Robotic Grounding stage (motion retargeting + Isaac Lab RL training) will be publicly available in a later release. See [robotic_grounding/README.md](robotic_grounding/README.md) for an overview. The technical report and project website are available on the [project page](https://nvidia-isaac.github.io/video_to_data/chord/).
+The Robotic Grounding stage (motion retargeting + Isaac Lab RL training) will be publicly available in a later release. See [robotic_grounding/README.md](robotic_grounding/README.md) for an overview. The [tech report](https://nvidia-isaac.github.io/video_to_data/chord/) and [project page](https://nvidia-isaac.github.io/video_to_data/chord/) are available.
 
 ## Design philosophy
 
