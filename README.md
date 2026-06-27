@@ -1,25 +1,41 @@
-# Video to Data
+# Video to Data (V2D)
 
-Monorepo for **Video to Data (V2D)** — an end-to-end pipeline that converts human demonstration videos into simulation-ready assets and physics-grounded robot training data.
+> An end-to-end pipeline that converts human demonstration videos into simulation-ready assets and physics-grounded robot training data.
 
-Documentation is available at [nvidia-isaac.github.io/video_to_data](https://nvidia-isaac.github.io/video_to_data/).
+**[Documentation](https://nvidia-isaac.github.io/video_to_data/)** · **[Project Page](https://nvidia-isaac.github.io/video_to_data/chord/)** · **[Tech Report](https://nvidia-isaac.github.io/video_to_data/chord/)**
 
-## End-to-End Workflow
+![Video to Data pipeline — from human demonstration video through ingestion, reconstruction, and robotic grounding in Isaac Lab to a physics-grounded dataset, foundation models, and real-robot deployment](docs/figures/v2d_overview.png)
 
-```
- ┌───────────────┐   ┌──────────────────────┐   ┌──────────────────────┐   ┌────────────────────────────┐
- │ Human demo    │ → │ 1. Video Ingestion   │ → │ 2. Reconstruction    │ → │ 3. Robotic Grounding       │
- │ video / rosbag│   │    Agent             │   │ depth · masks ·      │   │ retargeting → Isaac Lab    │
- │               │   │ action segments ·    │   │ meshes · 6D pose ·   │   │ RL training                │
- │               │   │ entity graph ·       │   │ body pose            │   │ Coming soon                │
- │               │   │ visual embeddings    │   │                      │   │                            │
- └───────────────┘   └──────────────────────┘   └──────────────────────┘   └────────────────────────────┘
-                       video_ingestion_agent/      reconstruction/             robotic_grounding/
-```
+---
+
+## Contents
+
+- [Overview](#overview)
+- [Demos](#demos)
+- [Packages](#packages)
+- [Prerequisites](#prerequisites)
+- [Quickstart](#quickstart)
+  - [Video Ingestion Agent](#video-ingestion-agent-video--queryable-action-database)
+  - [Reconstruction](#reconstruction)
+  - [Robotic Grounding](#robotic-grounding-data--rl-policy)
+- [Design philosophy](#design-philosophy)
+- [Contributing](#contributing)
+
+---
+
+## Overview
+
+Video to Data (V2D) turns raw human demonstrations into robot-ready training data through three composable stages. Each stage runs independently and writes its artifacts to disk, so you can stop, inspect, cache, and recompose the pipeline at any boundary.
 
 1. **Video Ingestion Agent** — a LangGraph-driven agentic workflow that segments demonstration videos into temporally-bounded action clips, extracts an entity-relation scene graph, and stores per-frame SigLIP-2 embeddings. The result is a queryable action database (`graph.db` + `vector.db`) that lets downstream stages select which clips to process via natural-language retrieval, instead of brute-forcing the full video.
 2. **Reconstruction** — containerized vision modules turn the selected RGB (or stereo) clips into per-frame depth, object masks, textured meshes, 6-DoF object poses, and SMPL human body parameters. Multi-view pipelines (`run_mv_hoi_reconstruction`, `run_mv_calibration`) orchestrate the full reconstruction from a rosbag.
 3. **Robotic Grounding** — human motion is retargeted onto the target robot embodiment (Sharpa or G1), then the reconstructed scene and retargeted motion drive Isaac Lab environments trained with RL to produce deployable policies.
+
+## Demos
+
+The pipeline in action — from a raw human demonstration, to grounded policies trained in Isaac Lab, to deployment on a physical robot.
+
+<img src="docs/figures/human.gif" width="270" alt="Raw human demonstration"> <img src="docs/figures/sim.gif" width="270" alt="Grounded robot policies in Isaac Lab"> <img src="docs/figures/real.gif" width="270" alt="Deploy to real robot">
 
 ## Packages
 
@@ -64,21 +80,15 @@ See [video_ingestion_agent/README.md](video_ingestion_agent/README.md) for hardw
 
 ### Reconstruction
 
-We include a variety of algorithms and pipelines that are useful for human-object reconstruction. These packages are contained in the [reconstruction](reconstruction) subfolder.  
+The [reconstruction](reconstruction) subfolder contains a variety of algorithms and pipelines for human-object reconstruction. For the initial release, we provide an example pipeline for ego-centric hand-object reconstruction — follow the setup instructions [here](reconstruction/docs/ego_e2e_setup.md).
 
-For the initial release, we provide an example pipeline for ego-centric hand-object reconstruction.
-
-To get started, please follow the following the instructions [here](reconstruction/docs/ego_e2e_setup.md).
-
-> Please note:  The reconstruction subfolder contains a wide variety of packages, many of which are partially tested or in development.  You may find these packages useful, but please note they are subject to change.  The above ego-centric pipeline has been tested, and is officially included as part of the initial video to data release.  If there is a package you would like to see supported, or you have any feedback, please let us know by opening an issue on GitHub!
+> **Note:** The reconstruction subfolder contains a wide variety of packages, many of which are partially tested or in development. You may find these packages useful, but please note they are subject to change. The ego-centric pipeline above has been tested and is officially included as part of the initial Video to Data release. If there is a package you would like to see supported, or you have any feedback, please open an issue on GitHub.
 
 ### Robotic Grounding (data → RL policy)
 
-The Robotic Grounding stage (motion retargeting + Isaac Lab RL training) will be publically available in a later release. See [robotic_grounding/README.md](robotic_grounding/README.md) for an overview.
+The Robotic Grounding stage (motion retargeting + Isaac Lab RL training) will be publicly available in a later release. See [robotic_grounding/README.md](robotic_grounding/README.md) for an overview. The technical report and project website are available on the [project page](https://nvidia-isaac.github.io/video_to_data/chord/).
 
-The technical report and project website are available on the project page: [Webpage](https://nvidia-isaac.github.io/video_to_data/chord/). 
-
-## Design Philosophy
+## Design philosophy
 
 - **Host orchestration, containerized inference.** The host runs thin Python wrappers that `docker run` each module; all ML dependencies live inside their respective images. No CUDA or PyTorch is ever installed on the host.
 - **Typed contracts between packages.** Modules communicate through strongly-typed dataclasses in [`v2d_common`](reconstruction/modules/v2d_common/) (`DepthImage`, `CameraIntrinsics`, `Transform3d`, `BoundingBox`, `Mask`) — never raw arrays across package boundaries.
