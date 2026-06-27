@@ -16,8 +16,8 @@
 - [Prerequisites](#prerequisites)
 - [Quickstart](#quickstart)
   - [Video Ingestion Agent](#video-ingestion-agent-video--queryable-action-database)
-  - [Reconstruction](#reconstruction)
-  - [Robotic Grounding](#robotic-grounding-data--rl-policy)
+  - [Reconstruction](#reconstruction-video--reconstructed-trajectory-and-simulation-assets)
+  - [Robotic Grounding](#robotic-grounding-reconstructed-trajectory--rl-policy-and-dataset)
 - [Design philosophy](#design-philosophy)
 - [Contributing](#contributing)
 
