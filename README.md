@@ -86,7 +86,7 @@ The [reconstruction](reconstruction) subfolder contains a variety of algorithms 
 
 ### Robotic Grounding (reconstructed trajectory → RL policy and dataset)
 
-The Robotic Grounding stage (motion retargeting + Isaac Lab RL training) will be publicly available in a later release. See [robotic_grounding/README.md](robotic_grounding/README.md) for an overview. The [tech report](https://nvidia-isaac.github.io/video_to_data/chord/) and [project page](https://nvidia-isaac.github.io/video_to_data/chord/) are available.
+The Robotic Grounding stage (motion retargeting + Isaac Lab RL training) will be publicly available in a later release. See [robotic_grounding/README.md](robotic_grounding/README.md) for an overview. The [tech report](https://nvidia-isaac.github.io/video_to_data/chord/chord.pdf) and [project page](https://nvidia-isaac.github.io/video_to_data/chord/) are available.
 
 ## Design philosophy
 
