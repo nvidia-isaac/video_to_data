@@ -1,0 +1,59 @@
+/* ===========================================================================
+   NVIDIA Design System — Spacing, Radius, Shadow, Layout Tokens
+   The brand reads precise and engineered: tight radii (the logo's green block
+   is a hard square), restrained shadows, generous structural whitespace.
+   =========================================================================== */
+
+:root {
+  /* ---- Spacing scale (4px base grid) -------------------------------------- */
+  --space-0:   0;
+  --space-1:   0.25rem;   /*  4px */
+  --space-2:   0.5rem;    /*  8px */
+  --space-3:   0.75rem;   /* 12px */
+  --space-4:   1rem;      /* 16px */
+  --space-5:   1.5rem;    /* 24px */
+  --space-6:   2rem;      /* 32px */
+  --space-7:   2.5rem;    /* 40px */
+  --space-8:   3rem;      /* 48px */
+  --space-9:   4rem;      /* 64px */
+  --space-10:  5rem;      /* 80px */
+  --space-12:  6rem;      /* 96px */
+
+  /* ---- Radius — NVIDIA skews square/technical ----------------------------- */
+  --radius-none: 0;
+  --radius-xs:   2px;     /* inputs, chips                    */
+  --radius-sm:   4px;     /* buttons, small cards             */
+  --radius-md:   6px;     /* cards, panels                    */
+  --radius-lg:   10px;    /* modals, large surfaces           */
+  --radius-pill: 999px;   /* avatars, status dots, toggles    */
+
+  /* ---- Borders ------------------------------------------------------------ */
+  --border-width:      1px;
+  --border-width-thick: 2px;
+  --border-accent:     3px;   /* the green emphasis bar / underline */
+
+  /* ---- Shadows — soft, neutral, never colored --------------------------- */
+  --shadow-xs:  0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-sm:  0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md:  0 4px 12px rgba(0, 0, 0, 0.10);
+  --shadow-lg:  0 12px 32px rgba(0, 0, 0, 0.14);
+  --shadow-focus: var(--focus-ring);
+
+  /* ---- Motion ----------------------------------------------- @kind other -- */
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1); /* @kind other */
+  --ease-out:      cubic-bezier(0.0, 0, 0.2, 1); /* @kind other */
+  --ease-in:       cubic-bezier(0.4, 0, 1, 1);   /* @kind other */
+  --dur-fast:   120ms;  /* @kind other */
+  --dur-base:   200ms;  /* @kind other */
+  --dur-slow:   320ms;  /* @kind other */
+
+  /* ---- Layout ------------------------------------------------------------- */
+  --container-max: 1280px;   /* @kind other */
+  --container-wide: 1440px;  /* @kind other */
+  --gutter:        var(--space-6);
+  --z-base:    1;     /* @kind other */
+  --z-sticky:  100;   /* @kind other */
+  --z-overlay: 1000;  /* @kind other */
+  --z-modal:   1100;  /* @kind other */
+  --z-toast:   1200;  /* @kind other */
+}

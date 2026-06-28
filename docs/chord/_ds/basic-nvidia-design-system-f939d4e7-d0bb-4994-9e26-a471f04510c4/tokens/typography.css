@@ -1,0 +1,55 @@
+/* ===========================================================================
+   NVIDIA Design System — Typography Tokens
+   Heading face: NVIDIA Sans Medium → substitute "Hanken Grotesk" 500/600.
+   Body face:    NVIDIA Sans Regular → substitute "Hanken Grotesk" 400.
+   Display:      NVIDIA Sans Light (large quotes/numbers) → Hanken Grotesk 300.
+   Mono/code:    Roboto Mono (actual brand spec).
+   Casing rule (from template): Titles = Title Case, subtitles = sentence case.
+   =========================================================================== */
+
+:root {
+  /* ---- Families ----------------------------------------------------------- */
+  --font-sans: "Hanken Grotesk", "NVIDIA Sans", system-ui, -apple-system,
+               "Segoe UI", sans-serif;
+  --font-display: "Hanken Grotesk", "NVIDIA Sans", system-ui, sans-serif;
+  --font-mono: "Roboto Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* ---- Weights (font) ----------------------------------------------------- */
+  --fw-light:    300;   /* @kind font */
+  --fw-regular:  400;   /* @kind font */
+  --fw-medium:   500;   /* @kind font */
+  --fw-semibold: 600;   /* @kind font */
+  --fw-bold:     700;   /* @kind font */
+
+  /* ---- Type scale (rem; 1rem = 16px) -------------------------------------- */
+  --fs-3xs:   0.6875rem;  /* 11px — micro labels, table meta  */
+  --fs-2xs:   0.75rem;    /* 12px — captions, badges          */
+  --fs-xs:    0.8125rem;  /* 13px — secondary UI text         */
+  --fs-sm:    0.875rem;   /* 14px — dense UI / table body     */
+  --fs-base:  1rem;       /* 16px — body                      */
+  --fs-md:    1.125rem;   /* 18px — lead body                 */
+  --fs-lg:    1.375rem;   /* 22px — card titles               */
+  --fs-xl:    1.75rem;    /* 28px — section heads             */
+  --fs-2xl:   2.25rem;    /* 36px — page titles               */
+  --fs-3xl:   3rem;       /* 48px — hero                      */
+  --fs-4xl:   4rem;       /* 64px — big display               */
+  --fs-5xl:   5.5rem;     /* 88px — slide titles / stat hero  */
+
+  /* ---- Line heights (font) ------------------------------------------------ */
+  --lh-tight:   1.05;   /* @kind font */
+  --lh-snug:    1.2;    /* @kind font */
+  --lh-normal:  1.45;   /* @kind font */
+  --lh-relaxed: 1.6;    /* @kind font */
+
+  /* ---- Letter spacing (font) ---------------------------------------------- */
+  --ls-tight:   -0.02em;  /* @kind font */
+  --ls-snug:    -0.01em;  /* @kind font */
+  --ls-normal:  0em;      /* @kind font */
+  --ls-wide:    0.04em;   /* @kind font */
+  --ls-caps:    0.08em;   /* @kind font */
+
+  /* ---- Composite text styles (font shorthand-ish helpers) ----------------- */
+  --text-eyebrow: var(--fw-semibold) var(--fs-2xs)/1.2 var(--font-sans);
+  --text-body:    var(--fw-regular) var(--fs-base)/var(--lh-normal) var(--font-sans);
+  --text-title:   var(--fw-medium) var(--fs-2xl)/var(--lh-snug) var(--font-display);
+}
