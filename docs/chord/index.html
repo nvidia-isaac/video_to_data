@@ -1,733 +1,734 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-  <meta charset="utf-8">
-  <meta name="description"
-    content="CHORD: Contact Wrench Guidance from Human Demonstrations in Robotic Dexterous Manipulation">
-  <meta name="keywords" content="Dexterous Manipulation, Human Demonstrations, RL">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>
-    Learning Dexterous Manipulation Using Contact Wrench Guidance From Human Demonstration
-  </title>
-
-  <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro|Merriweather:wght@900" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <link rel="stylesheet" href="./static/css/index.css">
-
-  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CHORD — Learning Dexterous Manipulation Using Contact Wrench Guidance from Human Demonstration</title>
+<meta name="description" content="CHORD transfers human manipulation skills to dexterous robot policies through an object-centric contact-wrench representation, paired with a large-scale benchmark of 4,739 bimanual dexterous manipulation tasks.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%2306090d'/><text x='16' y='22' font-family='Arial,sans-serif' font-weight='700' font-size='19' fill='%2376B900' text-anchor='middle'>C</text></svg>">
+<script src="./support.js"></script>
 </head>
-
 <body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/basic-nvidia-design-system-f939d4e7-d0bb-4994-9e26-a471f04510c4/tokens/fonts.css">
+<link rel="stylesheet" href="_ds/basic-nvidia-design-system-f939d4e7-d0bb-4994-9e26-a471f04510c4/tokens/colors.css">
+<link rel="stylesheet" href="_ds/basic-nvidia-design-system-f939d4e7-d0bb-4994-9e26-a471f04510c4/tokens/typography.css">
+<link rel="stylesheet" href="_ds/basic-nvidia-design-system-f939d4e7-d0bb-4994-9e26-a471f04510c4/tokens/spacing.css">
+<link rel="stylesheet" href="_ds/basic-nvidia-design-system-f939d4e7-d0bb-4994-9e26-a471f04510c4/tokens/base.css">
+<link rel="stylesheet" href="_ds/basic-nvidia-design-system-f939d4e7-d0bb-4994-9e26-a471f04510c4/styles.css">
+<script src="_ds/basic-nvidia-design-system-f939d4e7-d0bb-4994-9e26-a471f04510c4/_ds_bundle.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--surface-page); color: var(--text-primary); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+  video { display: block; }
+  ::selection { background: rgba(118,185,0,0.28); }
+</style>
+</helmet>
 
-<!-- ============================================ -->
-<!-- HERO: title, authors links, section nav      -->
-<!-- ============================================ -->
-<section class="hero is-link is-fullheight chord-hero" id="hero" style="overflow: hidden; position:relative; background: linear-gradient(135deg, #1f3a5f 0%, #4a6fa5 100%);">
-  <video class="hero-background-video" autoplay muted loop playsinline preload="metadata" aria-hidden="true">
-    <source src="./assets/videos/website-2-web.mp4" type="video/mp4">
-  </video>
-  <div class="overlay"></div>
+<template id="__bundler_thumbnail"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630"><rect width="1200" height="630" fill="#06090d"/><rect x="360" y="250" width="36" height="130" rx="4" fill="#76B900"/><text x="600" y="350" text-anchor="middle" font-family="Hanken Grotesk, Arial, sans-serif" font-weight="700" font-size="150" letter-spacing="4" fill="#ffffff">CHORD</text></svg></template>
 
-  <!-- Top nav: paper, arxiv, video, code -->
-  <div class="hero-head is-hidden-mobile">
-    <header class="navbar">
-      <div class="container is-size-5">
-        <div class="navbar-menu">
-          <div class="navbar-end">
-            <a class="navbar-item pl-4 pr-4" href="chord.pdf" target="_blank" rel="noopener noreferrer">
-              <span class="icon" style="margin-right:5px;">
-                <i class="fas fa-file-pdf"></i>
-              </span>
-              <span>Paper</span>
-            </a>
-            <span class="navbar-item nav-disabled pl-4 pr-4" aria-disabled="true">
-              <span class="icon" style="margin-right:5px;">
-                <i class="ai ai-arxiv"></i>
-              </span>
-              <span>arXiv <small>(coming soon)</small></span>
-            </span>
-            <span class="navbar-item nav-disabled pl-4 pr-4" aria-disabled="true">
-              <span class="button is-inverted is-large nav-disabled-button" aria-disabled="true">
-                <span class="icon">
-                  <i class="fab fa-github"></i>
-                </span>
-                <span>Code <small>(coming soon)</small></span>
-              </span>
-            </span>
-          </div>
-        </div>
-      </div>
-    </header>
-  </div>
+<div style="position:relative; width:100%; overflow-x:hidden; background:var(--surface-page);">
 
-  <!-- Hero wordmark -->
-  <div class="hero-body">
-    <div class="container has-text-centered">
-      <div class="chord-wordmark" aria-label="CHORD">CHORD</div>
-      <!-- Mobile link buttons -->
-      <div class="column has-text-centered is-hidden-tablet">
-        <div class="publication-links">
-          <span class="link-block">
-            <a class="external-link button is-normal is-rounded is-dark" href="chord.pdf" target="_blank" rel="noopener noreferrer">
-              <span class="icon"><i class="fas fa-file-pdf"></i></span>
-              <span>Paper</span>
-            </a>
-          </span>
-          <span class="link-block">
-            <span class="external-link button is-normal is-rounded is-dark nav-disabled-button" aria-disabled="true">
-              <span class="icon"><i class="ai ai-arxiv"></i></span>
-              <span>arXiv <small>(coming soon)</small></span>
-            </span>
-          </span>
-          <span class="link-block">
-            <span class="external-link button is-normal is-rounded is-dark nav-disabled-button" aria-disabled="true">
-              <span class="icon"><i class="fab fa-youtube"></i></span>
-              <span>Video <small>(coming soon)</small></span>
-            </span>
-          </span>
-          <span class="link-block">
-            <span class="external-link button is-normal is-rounded is-dark nav-disabled-button" aria-disabled="true">
-              <span class="icon"><i class="fab fa-github"></i></span>
-              <span>Code <small>(coming soon)</small></span>
-            </span>
-          </span>
-        </div>
+  <!-- ============ PINNED TOP NAV ============ -->
+  <nav id="chord-nav" data-solid="0" style="position:fixed; top:0; left:0; right:0; z-index:60; display:flex; align-items:center; justify-content:space-between; gap:24px; padding:14px clamp(18px,4vw,40px); background:transparent; transition:background .28s ease, box-shadow .28s ease;">
+    <a href="#top" data-navtext style="display:flex; align-items:baseline; gap:10px; text-decoration:none; color:#fff; transition:color .28s ease;">
+      <span style="font-family:var(--font-display); font-weight:700; font-size:1.3rem; letter-spacing:.02em;">CHORD</span>
+    </a>
+    <div id="chord-navlinks" style="display:flex; align-items:center; gap:clamp(14px,2vw,30px);">
+      <a href="#overview" data-sec="overview" style="position:relative; text-decoration:none; color:rgba(255,255,255,0.78); font-size:.95rem; font-weight:500; padding:4px 1px; white-space:nowrap; transition:color .2s ease;">Overview<span data-ind style="position:absolute; left:0; right:0; bottom:-3px; height:2px; background:var(--nv-green); transform:scaleX(0); transform-origin:left; transition:transform .25s ease;"></span></a>
+      <a href="#abstract" data-sec="abstract" style="position:relative; text-decoration:none; color:rgba(255,255,255,0.78); font-size:.95rem; font-weight:500; padding:4px 1px; white-space:nowrap; transition:color .2s ease;">Abstract<span data-ind style="position:absolute; left:0; right:0; bottom:-3px; height:2px; background:var(--nv-green); transform:scaleX(0); transform-origin:left; transition:transform .25s ease;"></span></a>
+      <a href="#method" data-sec="method" style="position:relative; text-decoration:none; color:rgba(255,255,255,0.78); font-size:.95rem; font-weight:500; padding:4px 1px; white-space:nowrap; transition:color .2s ease;">Contact Wrench Guidance<span data-ind style="position:absolute; left:0; right:0; bottom:-3px; height:2px; background:var(--nv-green); transform:scaleX(0); transform-origin:left; transition:transform .25s ease;"></span></a>
+      <a href="#benchmark" data-sec="benchmark" style="position:relative; text-decoration:none; color:rgba(255,255,255,0.78); font-size:.95rem; font-weight:500; padding:4px 1px; white-space:nowrap; transition:color .2s ease;">Benchmark<span data-ind style="position:absolute; left:0; right:0; bottom:-3px; height:2px; background:var(--nv-green); transform:scaleX(0); transform-origin:left; transition:transform .25s ease;"></span></a>
+      <a href="#capabilities" data-sec="capabilities" style="position:relative; text-decoration:none; color:rgba(255,255,255,0.78); font-size:.95rem; font-weight:500; padding:4px 1px; white-space:nowrap; transition:color .2s ease;">Capabilities<span data-ind style="position:absolute; left:0; right:0; bottom:-3px; height:2px; background:var(--nv-green); transform:scaleX(0); transform-origin:left; transition:transform .25s ease;"></span></a>
+      <a href="#results" data-sec="results" style="position:relative; text-decoration:none; color:rgba(255,255,255,0.78); font-size:.95rem; font-weight:500; padding:4px 1px; white-space:nowrap; transition:color .2s ease;">Results<span data-ind style="position:absolute; left:0; right:0; bottom:-3px; height:2px; background:var(--nv-green); transform:scaleX(0); transform-origin:left; transition:transform .25s ease;"></span></a>
+    </div>
+    <a href="chord.pdf" target="_blank" rel="noopener noreferrer" style="display:inline-flex; align-items:center; gap:7px; text-decoration:none; padding:8px 16px; border-radius:4px; background:var(--nv-green); color:var(--nv-black); font-weight:600; font-size:.9rem; box-shadow:0 1px 3px rgba(0,0,0,.12);">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 2h9l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm8 1.5V8h4.5L14 3.5z"/></svg>
+      Paper
+    </a>
+  </nav>
+
+  <!-- ============ HERO ============ -->
+  <header id="chord-hero" style="position:relative; min-height:100vh; display:flex; flex-direction:column; justify-content:center; overflow:hidden; background:#06090d;">
+    <video autoplay muted loop playsinline preload="metadata" aria-hidden="true" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:0;">
+      <source src="assets/videos/website-2-web.mp4" type="video/mp4">
+    </video>
+    <div style="position:absolute; inset:0; z-index:1; background:linear-gradient(180deg, rgba(6,9,13,.62) 0%, rgba(6,9,13,.30) 38%, rgba(6,9,13,.74) 100%);"></div>
+    <div style="position:relative; z-index:2; width:min(100%,1180px); margin:0 auto; padding:120px clamp(20px,5vw,40px) 64px; text-align:center;">
+      <h1 style="margin:0; font-family:var(--font-display); font-weight:700; font-size:clamp(4.5rem,12vw,9rem); line-height:.92; letter-spacing:-0.03em; color:#fff; text-shadow:0 10px 40px rgba(0,0,0,.5);">CHORD</h1>
+      <div style="display:flex; flex-wrap:wrap; justify-content:center; gap:12px; margin-top:36px;">
+        <a href="chord.pdf" target="_blank" rel="noopener noreferrer" style="display:inline-flex; align-items:center; gap:8px; text-decoration:none; padding:11px 22px; border-radius:4px; background:var(--nv-green); color:var(--nv-black); font-weight:600; font-size:1rem; box-shadow:0 4px 16px rgba(0,0,0,.3);">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 2h9l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm8 1.5V8h4.5L14 3.5z"/></svg>
+          Paper
+        </a>
+        <span style="display:inline-flex; align-items:center; gap:8px; padding:11px 22px; border-radius:4px; background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.2); color:rgba(255,255,255,.62); font-weight:600; font-size:1rem; cursor:not-allowed;">
+          <img src="assets/pics/arxiv.svg" alt="" aria-hidden="true" style="height:20px; width:auto; display:block;">
+          arXiv <span style="font-size:.74em; font-weight:600; opacity:.85;">soon</span>
+        </span>
+        <span style="display:inline-flex; align-items:center; gap:8px; padding:11px 22px; border-radius:4px; background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.2); color:rgba(255,255,255,.62); font-weight:600; font-size:1rem; cursor:not-allowed;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.85 9.73.5.1.68-.22.68-.49l-.01-1.7c-2.78.62-3.37-1.37-3.37-1.37-.46-1.18-1.11-1.5-1.11-1.5-.91-.64.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.37-2.22-.26-4.55-1.14-4.55-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.27 2.75 1.05a9.4 9.4 0 0 1 5 0c1.91-1.32 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.06.36.32.68.94.68 1.9l-.01 2.82c0 .27.18.6.69.49A10.02 10.02 0 0 0 22 12.25C22 6.58 17.52 2 12 2z"/></svg>
+          Code <span style="font-size:.74em; font-weight:600; opacity:.85;">soon</span>
+        </span>
       </div>
     </div>
-  </div>
+    <a href="#overview" aria-label="Scroll to overview" style="position:absolute; left:50%; bottom:28px; z-index:2; transform:translateX(-50%); display:flex; flex-direction:column; align-items:center; gap:6px; text-decoration:none; color:rgba(255,255,255,.72); font-size:.74rem; letter-spacing:.16em; text-transform:uppercase; font-weight:600;">
+      Scroll to Explore
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+    </a>
+  </header>
 
-  <!-- Bottom in-page nav -->
-  <div class="hero-foot is-hidden-mobile">
-    <nav class="tabs is-boxed is-fullwidth is-size-5">
-      <ul>
-        <li><a href="#overview">Overview</a></li>
-        <li><a href="#abstract">Abstract</a></li>
-        <li><a href="#method">Method</a></li>
-        <li><a href="#results">Results</a></li>
-        <!-- <li><a href="#qa">Q &amp; A</a></li> -->
-      </ul>
-    </nav>
-  </div>
-</section>
-
-<!-- ============================================ -->
-<!-- PAPER TITLE / AUTHORS                         -->
-<!-- ============================================ -->
-<section class="section paper-header-section">
-  <div class="container has-text-centered is-max-widescreen">
-    <h1 class="title is-1 publication-title paper-title is-size-1-mobile">
-      Learning Dexterous Manipulation Using Contact Wrench Guidance From Human Demonstration
-    </h1>
-    <div class="publication-authors paper-authors" aria-label="Authors">
-      <div class="paper-author-list">
-        <div class="paper-author-line">
-          <span class="author-block">Xinghao Zhu<sup>*, &Dagger;</sup></span>
-          <span class="author-block">Zixi Liu<sup>*</sup></span>
-          <span class="author-block">Shalin Jain<sup>*</sup></span>
-          <span class="author-block">Chenran Li<sup>&dagger;</sup></span>
-          <span class="author-block">Milad Noori<sup>&dagger;</sup></span>
-          <span class="author-block">Huihua Zhao</span>
-          <span class="author-block">John Welsh</span>
+  <!-- ============ PAPER HEADER ============ -->
+  <section id="top" style="padding:72px clamp(20px,5vw,40px) 28px; background:var(--surface-page);">
+    <div data-reveal style="width:min(100%,1180px); margin:0 auto; text-align:center;">
+      <h2 style="margin:0 auto; max-width:1180px; font-family:var(--font-display); font-weight:600; font-size:clamp(1.1rem,4vw,2.9rem); line-height:1.18; letter-spacing:-0.02em; color:var(--text-primary);">
+        <span style="display:block; white-space:nowrap;">Learning Dexterous Manipulation Using Contact</span>
+        <span style="display:block; white-space:nowrap;">Wrench Guidance From Human Demonstration</span>
+      </h2>
+      <div style="margin:30px auto 0; max-width:920px; display:flex; flex-direction:column; gap:7px; font-size:clamp(1rem,1.3vw,1.16rem); line-height:1.5; color:var(--nv-gray-800);">
+        <div style="display:flex; flex-wrap:wrap; justify-content:center; align-items:baseline; gap:4px 18px;">
+          <span>Xinghao Zhu<sup>*, &Dagger;</sup></span><span>Zixi Liu<sup>*</sup></span><span>Shalin Jain<sup>*</sup></span><span>Chenran Li<sup>&dagger;</sup></span><span>Milad Noori<sup>&dagger;</sup></span><span>Huihua Zhao</span><span>John Welsh</span>
         </div>
-        <div class="paper-author-line">
-          <span class="author-block">Michael Andres Lin</span>
-          <span class="author-block">Wei Liu</span>
-          <span class="author-block">Tingwu Wang</span>
-          <span class="author-block">Xingye Da</span>
-          <span class="author-block">Zhengyi Luo</span>
-          <span class="author-block">Vishal Kulkarni</span>
-          <span class="author-block">Naema Bhatti</span>
+        <div style="display:flex; flex-wrap:wrap; justify-content:center; align-items:baseline; gap:4px 18px;">
+          <span>Michael Andres Lin</span><span>Wei Liu</span><span>Tingwu Wang</span><span>Xingye Da</span><span>Zhengyi Luo</span><span>Vishal Kulkarni</span><span>Naema Bhatti</span>
         </div>
-        <div class="paper-author-line">
-          <span class="author-block">Yuke Zhu</span>
-          <span class="author-block">Linxi Fan</span>
-          <span class="author-block">Bowen Wen</span>
-          <span class="author-block">Danfei Xu</span>
-          <span class="author-block">Soha Pouya</span>
-          <span class="author-block">Yan Chang<sup>&Dagger;</sup></span>
+        <div style="display:flex; flex-wrap:wrap; justify-content:center; align-items:baseline; gap:4px 18px;">
+          <span>Yuke Zhu</span><span>Linxi Fan</span><span>Bowen Wen</span><span>Danfei Xu</span><span>Soha Pouya</span><span>Yan Chang<sup>&Dagger;</sup></span>
         </div>
       </div>
-      <div class="paper-author-notes">
-        <span><sup>*</sup>Equal Contribution</span>
-        <span><sup>&dagger;</sup>Core Contributor</span>
-        <span><sup>&Dagger;</sup>Project Lead and Corresponding Author</span>
+      <div style="display:flex; flex-wrap:wrap; justify-content:center; gap:6px 22px; margin-top:18px; color:var(--text-tertiary); font-size:.95rem;">
+        <span><sup>*</sup>Equal Contribution</span><span><sup>&dagger;</sup>Core Contributor</span><span><sup>&Dagger;</sup>Project Lead &amp; Corresponding Author</span>
       </div>
-      <div class="paper-affiliation">
-        <img src="./assets/pics/NVLogo_2D_H.jpg" alt="NVIDIA" class="paper-affiliation-logo">
+      <div style="margin-top:30px; display:flex; justify-content:center;">
+        <x-import component-from-global-scope="DesignSystem_6d5263.Logo" variant="horizontal" tone="black" height="40" hint-size="200px,40px"></x-import>
       </div>
     </div>
-  </div>
-</section>
+  </section>
 
-<!-- ============================================ -->
-<!-- OVERVIEW VIDEO                                -->
-<!-- ============================================ -->
-<section class="section is-medium project-video-section" id="overview">
-  <div class="container is-max-widescreen">
-    <h2 class="title is-1 has-text-centered is-size-4-mobile">Overview</h2>
-    <figure class="project-video-frame">
-      <video controls playsinline preload="metadata">
-        <source src="./assets/videos/main-video-web.mp4" type="video/mp4">
-      </video>
-    </figure>
-  </div>
-</section>
-
-<!-- ============================================ -->
-<!-- OVERVIEW / TL;DR                              -->
-<!-- ============================================ -->
-<section class="section is-medium" id="abstract">
-  <div class="container is-max-desktop">
-    <div class="columns is-centered">
-      <div class="column is-four-fifths">
-        <h2 class="title is-1 has-text-centered is-size-4-mobile">Abstract</h2>
-        <div class="abstract-copy">
-          <p>
-            Dexterous robot manipulation can benefit from the abundance of human demonstrations, but transferring such
-            demonstrations to robot policies remains challenging. We present CHORD, a framework for long-horizon
-            manipulation of rigid and articulated objects with reinforcement learning. The key idea is object-centric
-            contact wrench space guidance: we represent human and robot motions by the forces and torques they can induce
-            on the object, enabling similarity to be measured by the induced instantaneous motions.
-          </p>
-          <p>
-            This guidance makes reinforcement learning more scalable for contact-rich dexterous manipulation. We further
-            introduce a large-scale simulation benchmark with 4,739 bimanual dexterous manipulation tasks, constructed
-            from motion-capture datasets and reconstructed in-house videos. Evaluated on 1,831 benchmark tasks, CHORD
-            achieves an average success rate of 82.12%, demonstrating strong scalability. CHORD also generalizes to
-            whole-body manipulation from hand-only and third-person demonstrations, achieving a 90.77% success rate, and
-            the learned policies transfer to the real world in both open-loop and closed-loop settings.
-          </p>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ============================================ -->
-<!-- METHOD                                        -->
-<!-- ============================================ -->
-<section class="section is-small" id="method">
-  <div class="container is-max-widescreen">
-    <div class="columns is-centered">
-      <div class="column is-11">
-        <h2 class="title is-1 has-text-centered is-size-4-mobile">Method</h2>
-        <h3 class="method-insight-heading">From Where to How: Contact Wrench Guidance</h3>
-        <p class="method-insight-tagline">
-          Position guidance targets where contact occurs; wrench guidance targets how contact affects object motion.
+  <!-- ============ OVERVIEW ============ -->
+  <section id="overview" style="scroll-margin-top:78px; padding:56px clamp(20px,5vw,40px) 88px; background:var(--surface-page);">
+    <div style="width:min(100%,1180px); margin:0 auto;">
+      <div data-reveal style="text-align:center; margin-bottom:34px;">
+        <h2 style="margin:0; font-family:var(--font-display); font-weight:600; font-size:clamp(1.8rem,3.4vw,2.6rem); line-height:1.12; letter-spacing:-0.02em; color:var(--text-primary);">Overview</h2>
+        <p style="max-width:900px; margin:14px auto 0; font-size:1.18rem; line-height:1.6; font-weight:500; color:var(--nv-gray-800); text-wrap:balance;">
+          CHORD transfers human manipulation skills to dexterous robot policies through an object-centric contact-wrench representation &mdash; matching <em>how</em> contact moves an object, not just <em>where</em> it occurs.
         </p>
+      </div>
+      <div data-reveal style="margin:0 auto 28px; display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:16px;">
+        <figure style="margin:0;">
+          <div style="position:relative; border-radius:8px; overflow:hidden; border:1px solid var(--border-subtle); box-shadow:0 1px 3px rgba(0,0,0,.08);">
+            <video autoplay muted loop playsinline preload="metadata" aria-label="Human demonstration" style="display:block; width:100%; aspect-ratio:16/10; object-fit:cover; background:var(--nv-gray-50);">
+              <source src="assets/videos/overview/human-web.mp4" type="video/mp4">
+            </video>
+          </div>
+          <figcaption style="margin-top:10px; text-align:center; font-size:.9rem; font-weight:600; color:var(--nv-gray-700);">Human Demonstration</figcaption>
+        </figure>
+        <figure style="margin:0;">
+          <div style="position:relative; border-radius:8px; overflow:hidden; border:1px solid var(--border-subtle); box-shadow:0 1px 3px rgba(0,0,0,.08);">
+            <video autoplay muted loop playsinline preload="metadata" aria-label="Simulation rollout" style="display:block; width:100%; aspect-ratio:16/10; object-fit:cover; background:var(--nv-gray-50);">
+              <source src="assets/videos/overview/sim-web.mp4" type="video/mp4">
+            </video>
+          </div>
+          <figcaption style="margin-top:10px; text-align:center; font-size:.9rem; font-weight:600; color:var(--nv-gray-700);">Simulation</figcaption>
+        </figure>
+        <figure style="margin:0;">
+          <div style="position:relative; border-radius:8px; overflow:hidden; border:1px solid var(--border-subtle); box-shadow:0 1px 3px rgba(0,0,0,.08);">
+            <video autoplay muted loop playsinline preload="metadata" aria-label="Real-world rollout" style="display:block; width:100%; aspect-ratio:16/10; object-fit:cover; background:var(--nv-gray-50);">
+              <source src="assets/videos/overview/real-web.mp4" type="video/mp4">
+            </video>
+          </div>
+          <figcaption style="margin-top:10px; text-align:center; font-size:.9rem; font-weight:600; color:var(--nv-gray-700);">Real World</figcaption>
+        </figure>
+      </div>
+      <figure data-reveal style="margin:0; border-radius:8px; overflow:hidden; border:1px solid var(--border-subtle); box-shadow:0 18px 48px rgba(0,0,0,.12); background:#000;">
+        <video controls data-controls="1" playsinline preload="metadata" poster="" style="width:100%; aspect-ratio:16/9; background:#000;">
+          <source src="assets/videos/main-video-web.mp4" type="video/mp4">
+        </video>
+      </figure>
+      <p style="margin:10px 0 0; display:flex; align-items:center; justify-content:center; gap:7px; text-align:center; font-size:.88rem; font-weight:600; color:var(--nv-gray-700);">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4.03v8.05A4.5 4.5 0 0 0 16.5 12zM14 3.23v2.06a7 7 0 0 1 0 13.42v2.06a9 9 0 0 0 0-17.54z"/></svg>
+        This video includes voiceover narration &mdash; unmute to listen.
+      </p>
+    </div>
+  </section>
 
-        <div class="method-triangle" aria-label="Method overview: human demonstration, position marker, and wrench guidance">
-          <figure class="method-panel method-panel-human">
-            <img src="./assets/pics/Box%20Use%20Human.png" alt="Human hand demonstration at a box contact point">
-            <figcaption>Human demonstration</figcaption>
+  <!-- ============ ABSTRACT ============ -->
+  <section id="abstract" style="scroll-margin-top:78px; padding:88px clamp(20px,5vw,40px); background:var(--surface-subtle); border-top:1px solid var(--border-subtle); border-bottom:1px solid var(--border-subtle);">
+    <div data-reveal style="width:min(100%,820px); margin:0 auto;">
+      <h2 style="margin:0 0 24px; font-family:var(--font-display); font-weight:600; font-size:clamp(1.8rem,3.4vw,2.6rem); line-height:1.12; letter-spacing:-0.02em; color:var(--text-primary); text-align:center;">Abstract</h2>
+      <p style="margin:0; font-size:1.16rem; line-height:1.75; color:var(--nv-gray-800);">
+        Dexterous robot manipulation can benefit from the abundance of human demonstrations, but transferring such
+        demonstrations to robot policies remains challenging. We present CHORD, a framework for long-horizon
+        manipulation of rigid and articulated objects with reinforcement learning. The key idea is object-centric
+        contact wrench space guidance: we represent human and robot motions by the forces and torques they can induce
+        on the object, enabling similarity to be measured by the induced instantaneous motions.
+        This guidance makes reinforcement learning more scalable for contact-rich dexterous manipulation. We further
+        introduce a large-scale simulation benchmark with 4,739 bimanual dexterous manipulation tasks, constructed from
+        motion-capture datasets and reconstructed in-house videos. Evaluated on 1,831 benchmark tasks, CHORD achieves an
+        average success rate of 82.12%, demonstrating strong scalability. CHORD also generalizes to whole-body
+        manipulation from hand-only and third-person demonstrations, achieving a 90.77% success rate, and the learned
+        policies transfer to the real world in both open-loop and closed-loop settings.
+      </p>
+    </div>
+  </section>
+
+  <!-- ============ METHOD ============ -->
+  <section id="method" style="scroll-margin-top:78px; padding:96px clamp(20px,5vw,40px); background:var(--surface-page);">
+    <div style="width:min(100%,1180px); margin:0 auto;">
+      <div data-reveal style="text-align:center; max-width:780px; margin:0 auto 48px;">
+        <h2 style="margin:0; font-family:var(--font-display); font-weight:600; font-size:clamp(1.8rem,3.4vw,2.6rem); line-height:1.12; letter-spacing:-0.02em; color:var(--text-primary);">Contact Wrench Guidance</h2>
+        <p style="margin:16px auto 0; max-width:700px; font-size:1.12rem; line-height:1.55; color:var(--nv-gray-700);">
+          Position guidance targets <em>where</em> contact occurs; wrench guidance targets <em>how</em> contact affects object motion. <span style="color:var(--nv-green-700); font-weight:600;">Hover a panel</span> to reveal the result.
+        </p>
+      </div>
+
+      <!-- interactive comparison (human / position / wrench) -->
+      <div data-reveal data-comment-anchor="mtri-interactive">
+        <div id="method-thumbs" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px;">
+          <figure data-mpanel style="position:relative; margin:0; border-radius:8px; overflow:hidden; border:1px solid var(--border-subtle); box-shadow:0 1px 3px rgba(0,0,0,.08);">
+            <img src="assets/pics/Box%20Use%20Human.png" alt="Human hand demonstration at a box contact point" style="display:block; width:100%; aspect-ratio:16/10; object-fit:cover;">
+            <figcaption style="position:absolute; left:12px; bottom:12px; padding:6px 11px; border-radius:5px; background:rgba(6,9,13,.74); color:#fff; font-size:.85rem; font-weight:600;">Human Demonstration</figcaption>
           </figure>
-
-          <figure class="method-panel method-panel-marker method-panel-interactive" tabindex="0">
-            <img src="./assets/pics/Box%20Use%20Position%20Marker.png" alt="Robot hand using a position marker at the contact point">
-            <figcaption>Position Guidance</figcaption>
-            <div class="method-callout">
-              <h3>Position Guidance</h3>
-              <img class="method-callout-image" src="./assets/pics/Box%20Use%20Position%20Result.png" alt="Position marker manipulation result">
-              <p>
-                Position guidance treats the demonstrated contact location as the target. In the box-opening example,
-                the red marker denotes the human contact, while the green heat map highlights nearby locations that
-                appear similarly plausible under a position-matching objective.
-              </p>
-              <p>
-                However, contact locations that are close in space can induce different contact normals, moment arms,
-                and force directions. As a result, matching where contact occurs may still produce unstable or
-                undesired object motion.
-              </p>
-            </div>
+          <figure data-mpanel data-select="position" tabindex="0" style="position:relative; margin:0; border-radius:8px; overflow:hidden; border:1px solid var(--border-subtle); box-shadow:0 1px 3px rgba(0,0,0,.08); cursor:pointer; outline:none; transition:transform .3s ease, box-shadow .3s ease;">
+            <img src="assets/pics/Box%20Use%20Position%20Marker.png" alt="Robot hand using a position marker at the contact point" style="display:block; width:100%; aspect-ratio:16/10; object-fit:cover;">
+            <figcaption style="position:absolute; left:12px; bottom:12px; padding:6px 11px; border-radius:5px; background:rgba(6,9,13,.74); color:#fff; font-size:.85rem; font-weight:600;">Position Guidance</figcaption>
           </figure>
-
-          <figure class="method-panel method-panel-wrench method-panel-interactive" tabindex="0">
-            <img src="./assets/pics/Box%20Use%20Wrench%20Arrow%20.png" alt="Robot hand with contact wrench arrow guidance">
-            <figcaption>Wrench Guidance</figcaption>
-            <div class="method-callout">
-              <h3>Wrench Guidance</h3>
-              <img class="method-callout-image" src="./assets/pics/Box%20Use%20Wrench%20Result.png" alt="Wrench guidance manipulation result">
-              <p>
-                Wrench guidance treats the demonstrated interaction effect as the target. CHORD represents each contact
-                with a six-dimensional wrench that combines force and torque, computed from the contact location,
-                surface normal, and moment arm to the object.
-              </p>
-              <p>
-                Matching contact wrenches asks <strong>how</strong> the human contact influenced the object's motion,
-                encouraging the robot to reproduce the force-and-torque generation responsible for the demonstrated
-                manipulation.
-              </p>
-            </div>
+          <figure data-mpanel data-select="wrench" tabindex="0" style="position:relative; margin:0; border-radius:8px; overflow:hidden; border:1px solid rgba(118,185,0,.32); box-shadow:0 1px 3px rgba(0,0,0,.08); cursor:pointer; outline:none; transition:transform .3s ease, box-shadow .3s ease;">
+            <img src="assets/pics/Box%20Use%20Wrench%20Arrow%20.png" alt="Robot hand with contact wrench arrow guidance" style="display:block; width:100%; aspect-ratio:16/10; object-fit:cover;">
+            <figcaption style="position:absolute; left:12px; bottom:12px; padding:6px 11px; border-radius:5px; background:rgba(6,9,13,.74); color:#fff; font-size:.85rem; font-weight:600;">Wrench Guidance</figcaption>
           </figure>
         </div>
-
-        <div class="method-subsection">
-          <h3 class="method-subsection-heading">Reward Formulation</h3>
-          <p class="method-subsection-tagline">
-            CHORD turns demonstrated contacts and contact wrenches into rewards for learning dexterous robot-hand
-            policies.
-          </p>
-          <figure class="method-wide-figure method-reward-map">
-            <img src="./assets/pics/Method.png" alt="Overview of CHORD reward formulation from reference contact to contact wrench reward">
-            <button class="method-hotspot method-hotspot-left" type="button" aria-label="Reference contact explanation">
-              <span class="method-hotspot-card">
-                <span class="method-hotspot-title">Extract Human Contacts</span>
-                <span class="method-hotspot-copy">
-                  Given a human demonstration, CHORD extracts the demonstrated contact events and estimates their local
-                  friction constraints. Here, we illustrate these constraints with contact friction cones.
-                </span>
-              </span>
-            </button>
-            <button class="method-hotspot method-hotspot-center-top" type="button" aria-label="Imitation reward explanation">
-              <span class="method-hotspot-card">
-                <span class="method-hotspot-title">Human Contact Wrench</span>
-                <span class="method-hotspot-copy">
-                  For each frame and each hand, CHORD computes a human contact wrench. Here, we visualize the induced
-                  wrench manifold. In the first two frames, the right hand forms a stable grasp and the manifold spans many
-                  directions, indicating rich force and torque authority. In the third frame, contact occurs primarily
-                  from below, so the manifold covers a smaller region and reflects more limited control over object
-                  motion.
-                </span>
-              </span>
-            </button>
-            <button class="method-hotspot method-hotspot-center-bottom" type="button" aria-label="Contact matching explanation">
-              <span class="method-hotspot-card">
-                <span class="method-hotspot-title">Policy Contact Wrench</span>
-                <span class="method-hotspot-copy">
-                  The blue manifolds show the wrench distributions generated by the learned policy. For the right-hand
-                  example, the learned manifold closely matches the demonstration across frames, indicating that the
-                  robot has acquired comparable force and torque generation capabilities and can induce the intended
-                  object motion.
-                </span>
-              </span>
-            </button>
-            <button class="method-hotspot method-hotspot-right" type="button" aria-label="Contact wrench reward explanation">
-              <span class="method-hotspot-card">
-                <span class="method-hotspot-title">Imitation + Contact Wrench</span>
-                <span class="method-hotspot-copy">
-                  CHORD combines imitation and contact-wrench rewards from these references to train a dexterous
-                  robot-hand policy.
-                </span>
-              </span>
-            </button>
-          </figure>
-
-          <h3 class="method-subsection-heading method-benchmark-heading">
-            Dexterous Manipulation Benchmark with Human References
-          </h3>
-          <p class="method-subsection-tagline method-benchmark-tagline">
-            The benchmark spans large-scale, long-horizon, contact-rich tasks paired with human demonstrations,
-            covering rigid, articulated, and multi-object manipulation.
-          </p>
-          <figure class="method-benchmark-figure">
-            <img src="./assets/pics/wrench_distribution_highlights.png" alt="Dexterous manipulation benchmark with human reference wrench distribution highlights">
-          </figure>
+        <p style="margin:16px 0 0; text-align:center; font-size:.95rem; color:var(--nv-gray-600);"><span style="color:var(--nv-green-700); font-weight:600;">Hover Position or Wrench</span> to see the resulting manipulation in full.</p>
+        <div id="method-detail-wrap" style="margin-top:16px; border:1px solid var(--border-subtle); border-radius:8px; background:var(--surface-card); box-shadow:0 1px 3px rgba(0,0,0,.07); overflow:hidden;">
+          <div data-detail="position" style="display:none; grid-template-columns:repeat(auto-fit,minmax(300px,1fr));">
+            <div style="background:transparent; padding:12px 0 12px 12px; display:flex; align-items:center; justify-content:flex-end;">
+              <img src="assets/pics/Box%20Use%20Position%20Result.png" alt="Position marker manipulation result" style="display:block; width:80%; height:auto; max-height:230px; object-fit:contain;">
+            </div>
+            <div style="padding:20px 28px 20px 18px; display:flex; flex-direction:column; justify-content:center;">
+              <h4 style="margin:0 0 8px; font-family:var(--font-display); font-weight:600; font-size:1.3rem; color:var(--text-primary);">Position Guidance</h4>
+              <p style="margin:0; font-size:1.02rem; line-height:1.62; color:var(--nv-gray-700);">The red marker is the human contact; the heat map shows nearby locations that look plausible under a position-matching objective. But locations close in space induce different contact normals and moment arms &mdash; matching <em>where</em> contact occurs can still produce unstable object motion.</p>
+            </div>
+          </div>
+          <div data-detail="wrench" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr));">
+            <div style="background:transparent; padding:12px 0 12px 12px; display:flex; align-items:center; justify-content:flex-end;">
+              <img src="assets/pics/Box%20Use%20Wrench%20Result.png" alt="Wrench guidance manipulation result" style="display:block; width:80%; height:auto; max-height:230px; object-fit:contain;">
+            </div>
+            <div style="padding:20px 28px 20px 18px; display:flex; flex-direction:column; justify-content:center;">
+              <h4 style="margin:0 0 8px; font-family:var(--font-display); font-weight:600; font-size:1.3rem; color:var(--text-primary);">Wrench Guidance <span style="color:var(--nv-green-700);">&middot; Ours</span></h4>
+              <p style="margin:0; font-size:1.02rem; line-height:1.62; color:var(--nv-gray-700);">CHORD represents each contact with a six-dimensional wrench combining force and torque, computed from the contact location, surface normal, and moment arm. Matching wrenches asks <strong>how</strong> the contact moves the object &mdash; reproducing the force-and-torque generation behind the demonstrated manipulation.</p>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
-  </div>
-</section>
 
-<!-- ============================================ -->
-<!-- RESULTS                                       -->
-<!-- ============================================ -->
-<section class="section is-small" id="results">
-  <div class="container is-max-widescreen">
-    <div class="columns is-centered">
-      <div class="column is-11">
-        <h2 class="title is-1 has-text-centered is-size-4-mobile">Results</h2>
-
-        <div class="results-story">
-          <p class="results-lede">
-            CHORD uses a unified contact-wrench representation to transfer human manipulation skills across
-            long-horizon tasks, diverse objects, whole-body behaviors, and real-world hardware.
+      <!-- reward formulation figure (interactive hotspots) -->
+      <div data-reveal style="margin-top:88px;">
+        <div style="text-align:center; max-width:760px; margin:0 auto 28px;">
+          <h3 style="margin:0; font-family:var(--font-display); font-weight:600; font-size:clamp(1.4rem,2.4vw,1.85rem); color:var(--text-primary);">Turning demonstrated contacts into rewards</h3>
+          <p style="margin:14px auto 0; max-width:680px; font-size:1.05rem; line-height:1.55; color:var(--nv-gray-700);">
+            CHORD converts demonstrated contacts and contact wrenches into rewards for learning dexterous robot-hand policies. <span style="color:var(--nv-green-700); font-weight:600;">Hover a numbered region</span> to explore each stage.
           </p>
         </div>
+        <figure id="reward-figure" style="position:relative; margin:0 auto; width:min(100%,1140px);">
+          <img src="assets/pics/Method.png" alt="CHORD reward formulation from reference contact to contact wrench reward" style="display:block; width:100%; height:auto; border-radius:8px; border:1px solid var(--border-subtle); background:#fff;">
 
-        <div class="result-benchmark-showcase">
-          <h3 class="result-benchmark-heading">Benchmark Scale and Performance</h3>
-          <p class="result-benchmark-subtitle">
-            Evaluation on the Dexterous Manipulation Benchmark with Human References.
-          </p>
-          <video class="result-benchmark-video" autoplay muted loop playsinline preload="metadata">
-            <source src="./assets/videos/many%20task-web.mp4" type="video/mp4">
+          <button data-hotspot="0" type="button" aria-label="Extract human contacts" style="position:absolute; left:0%; top:0%; width:17%; height:100%; padding:0; border:0; border-radius:8px; background:transparent; cursor:pointer; transition:background .2s ease;">
+            <span style="position:absolute; left:8px; top:8px; width:24px; height:24px; border-radius:999px; background:var(--nv-green); color:#000; font-weight:800; font-size:.8rem; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(0,0,0,.25);">1</span>
+          </button>
+          <button data-hotspot="1" type="button" aria-label="Human contact wrench" style="position:absolute; left:17%; top:0%; width:65%; height:50%; padding:0; border:0; border-radius:8px; background:transparent; cursor:pointer; transition:background .2s ease;">
+            <span style="position:absolute; left:8px; top:8px; width:24px; height:24px; border-radius:999px; background:var(--nv-green); color:#000; font-weight:800; font-size:.8rem; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(0,0,0,.25);">2</span>
+          </button>
+          <button data-hotspot="2" type="button" aria-label="Policy contact wrench" style="position:absolute; left:17%; top:50%; width:65%; height:50%; padding:0; border:0; border-radius:8px; background:transparent; cursor:pointer; transition:background .2s ease;">
+            <span style="position:absolute; left:8px; bottom:8px; width:24px; height:24px; border-radius:999px; background:var(--nv-green); color:#000; font-weight:800; font-size:.8rem; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(0,0,0,.25);">4</span>
+          </button>
+          <button data-hotspot="3" type="button" aria-label="Imitation and contact wrench reward" style="position:absolute; left:82%; top:0%; width:18%; height:100%; padding:0; border:0; border-radius:8px; background:transparent; cursor:pointer; transition:background .2s ease;">
+            <span style="position:absolute; right:8px; top:8px; width:24px; height:24px; border-radius:999px; background:var(--nv-green); color:#000; font-weight:800; font-size:.8rem; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(0,0,0,.25);">3</span>
+          </button>
+
+          <div data-hcard="0" style="position:absolute; left:3%; bottom:5%; width:min(280px,42%); padding:14px 16px; border-radius:8px; border-left:3px solid var(--nv-green); background:rgba(255,255,255,.97); box-shadow:0 16px 36px rgba(0,0,0,.2); text-align:left; opacity:0; pointer-events:none; transition:opacity .25s ease; z-index:6;">
+            <span style="display:block; font-weight:700; font-size:.92rem; margin-bottom:4px; color:var(--text-primary);">1 &middot; Extract Human Contacts</span>
+            <span style="display:block; font-size:.84rem; line-height:1.45; color:var(--nv-gray-700);">From a demonstration, CHORD extracts contact events and estimates local friction constraints, shown as friction cones.</span>
+          </div>
+          <div data-hcard="1" style="position:absolute; left:50%; top:4%; transform:translateX(-50%); width:min(460px,66%); padding:14px 16px; border-radius:8px; border-bottom:3px solid var(--nv-green); background:rgba(255,255,255,.97); box-shadow:0 16px 36px rgba(0,0,0,.2); text-align:left; opacity:0; pointer-events:none; transition:opacity .25s ease; z-index:6;">
+            <span style="display:block; font-weight:700; font-size:.92rem; margin-bottom:4px; color:var(--text-primary);">2 &middot; Human Contact Wrench</span>
+            <span style="display:block; font-size:.84rem; line-height:1.45; color:var(--nv-gray-700);">Per frame and hand, CHORD computes a human contact wrench. A wider manifold means richer force-and-torque authority over the object.</span>
+          </div>
+          <div data-hcard="2" style="position:absolute; left:50%; bottom:4%; transform:translateX(-50%); width:min(460px,66%); padding:14px 16px; border-radius:8px; border-top:3px solid var(--nv-green); background:rgba(255,255,255,.97); box-shadow:0 16px 36px rgba(0,0,0,.2); text-align:left; opacity:0; pointer-events:none; transition:opacity .25s ease; z-index:6;">
+            <span style="display:block; font-weight:700; font-size:.92rem; margin-bottom:4px; color:var(--text-primary);">4 &middot; Policy Contact Wrench</span>
+            <span style="display:block; font-size:.84rem; line-height:1.45; color:var(--nv-gray-700);">Blue manifolds are produced by the learned policy &mdash; closely matching the demonstration across frames.</span>
+          </div>
+          <div data-hcard="3" style="position:absolute; right:3%; bottom:5%; width:min(280px,42%); padding:14px 16px; border-radius:8px; border-right:3px solid var(--nv-green); background:rgba(255,255,255,.97); box-shadow:0 16px 36px rgba(0,0,0,.2); text-align:left; opacity:0; pointer-events:none; transition:opacity .25s ease; z-index:6;">
+            <span style="display:block; font-weight:700; font-size:.92rem; margin-bottom:4px; color:var(--text-primary);">3 &middot; Imitation + Contact Wrench</span>
+            <span style="display:block; font-size:.84rem; line-height:1.45; color:var(--nv-gray-700);">CHORD combines imitation and contact-wrench rewards to train the dexterous robot-hand policy.</span>
+          </div>
+        </figure>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============ BENCHMARK ============ -->
+  <section id="benchmark" style="scroll-margin-top:78px; padding:96px clamp(20px,5vw,40px); background:var(--surface-subtle); border-top:1px solid var(--border-subtle);">
+    <div style="width:min(100%,1180px); margin:0 auto;">
+      <div data-reveal style="text-align:center; max-width:840px; margin:0 auto 48px;">
+        <h2 style="margin:0; font-family:var(--font-display); font-weight:600; font-size:clamp(1.8rem,3.4vw,2.6rem); line-height:1.12; letter-spacing:-0.02em; color:var(--text-primary);">Dexterous Manipulation Benchmark with Human Demonstrations</h2>
+        <p style="margin:16px auto 0; max-width:960px; font-size:1.12rem; line-height:1.55; color:var(--nv-gray-700); text-wrap:balance;">
+          Large-scale, long-horizon, contact-rich tasks paired with human demonstrations spanning rigid, articulated, and multi-object manipulation.
+        </p>
+      </div>
+
+      <div data-reveal style="display:flex; justify-content:center; margin:0 auto 48px;">
+        <div style="display:flex; flex-direction:column; gap:4px; align-items:center;">
+          <span style="font-family:var(--font-display); font-weight:300; font-size:clamp(2.6rem,5vw,3.4rem); line-height:1; color:var(--nv-green-700);">4,739</span>
+          <span style="font-size:.92rem; letter-spacing:.04em; color:var(--nv-gray-600);">Simulation-ready tasks</span>
+        </div>
+      </div>
+
+      <!-- large-scale tasks reel -->
+      <figure data-reveal style="margin:0 auto 48px; width:min(100%,1080px);">
+        <div style="border-radius:8px; overflow:hidden; border:1px solid var(--border-subtle); box-shadow:0 1px 3px rgba(0,0,0,.07);">
+          <video autoplay muted loop playsinline preload="metadata" style="display:block; width:100%; aspect-ratio:16/9; object-fit:cover; background:#0b0f14;">
+            <source src="assets/videos/many%20task-web.mp4" type="video/mp4">
           </video>
-          <p class="result-benchmark-copy">
-            To evaluate at scale, we open-source 4,739 simulation-ready dexterous manipulation tasks paired with human
-            demonstrations. Across 1,831 diverse manipulation evaluations, CHORD achieves an average success rate of
-            82.12%.
-          </p>
         </div>
+      </figure>
 
-        <div class="result-subsection">
-          <h3 class="result-subsection-heading">Long-Horizon Manipulation</h3>
-          <p class="result-subsection-tagline">
-            CHORD preserves contact intent over extended manipulation sequences with dense contact events.
-          </p>
-          <div class="result-video-grid result-video-grid-four">
-            <figure class="result-video-card">
-              <video class="result-video" autoplay muted loop playsinline preload="metadata">
-                <source src="./assets/videos/sim/long/capsulemachine_one_finger-web.mp4" type="video/mp4">
+      <!-- distribution figure -->
+      <figure data-reveal style="margin:0 auto; width:min(100%,800px);">
+        <img src="assets/pics/wrench_distribution_highlights.png" alt="Benchmark wrench distribution highlights" style="display:block; width:100%; height:auto; margin:0 auto;">
+        <figcaption style="margin-top:14px; text-align:center; font-size:.9rem; line-height:1.55; color:var(--text-secondary);">Task distribution with horizon, contact events, and Ferrari-Canny epsilon metrics.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ============ CAPABILITIES ============ -->
+  <section id="capabilities" style="scroll-margin-top:78px; padding:96px clamp(20px,5vw,40px); background:var(--surface-page); border-top:1px solid var(--border-subtle);">
+    <div style="width:min(100%,1180px); margin:0 auto;">
+      <div data-reveal style="text-align:center; max-width:820px; margin:0 auto 56px;">
+        <h2 style="margin:0; font-family:var(--font-display); font-weight:600; font-size:clamp(1.8rem,3.4vw,2.6rem); line-height:1.12; letter-spacing:-0.02em; color:var(--text-primary);">Capabilities</h2>
+        <p style="margin:16px auto 0; max-width:1000px; font-size:1.12rem; line-height:1.55; color:var(--nv-gray-700); text-wrap:balance;">
+          A unified contact-wrench representation carries human manipulation skills across diverse manipulation behaviors,
+          long-horizon tasks, whole-body embodiments, and real-world hardware.
+        </p>
+      </div>
+
+      <!-- Diverse Object Interactions -->
+      <div data-reveal style="margin-bottom:64px;">
+        <div style="display:flex; align-items:baseline; gap:14px; margin-bottom:18px;">
+          <h3 style="margin:0; font-family:var(--font-display); font-weight:600; font-size:1.4rem; color:var(--text-primary);">Diverse Manipulation Behaviors</h3>
+          <span style="height:1px; flex:1; background:var(--border-default);"></span>
+        </div>
+        <p style="margin:0 0 20px; font-size:1.02rem; line-height:1.55; color:var(--nv-gray-700);">
+          Contact-wrench guidance transfers across grasping, reorientation, handovers, and tool use.
+        </p>
+        <div style="display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px;">
+          <sc-for list="{{ diverseVids }}" as="v" hint-placeholder-count="0">
+            <figure style="margin:0;">
+              <video class="dm-vid" autoplay muted loop playsinline preload="metadata" style="display:block; width:100%; aspect-ratio:16/9; object-fit:cover; border-radius:7px; background:#11151b; box-shadow:0 6px 18px rgba(0,0,0,.12);">
+                <source src="{{ v.src }}" type="video/mp4">
               </video>
-              <figcaption>Capsule Machine</figcaption>
+              <figcaption style="margin-top:10px; text-align:center; font-size:.88rem; font-weight:600; color:var(--nv-gray-700);">{{ v.cap }}</figcaption>
             </figure>
-            <figure class="result-video-card">
-              <video class="result-video" autoplay muted loop playsinline preload="metadata">
-                <source src="./assets/videos/sim/long/s01_notebook_use_01-web.mp4" type="video/mp4">
+          </sc-for>
+        </div>
+      </div>
+
+      <!-- Long-Horizon Manipulation -->
+      <div data-reveal style="margin-bottom:64px;">
+        <div style="display:flex; align-items:baseline; gap:14px; margin-bottom:18px;">
+          <h3 style="margin:0; font-family:var(--font-display); font-weight:600; font-size:1.4rem; color:var(--text-primary);">Long-Horizon Manipulation</h3>
+          <span style="height:1px; flex:1; background:var(--border-default);"></span>
+        </div>
+        <p style="margin:0 0 20px; font-size:1.02rem; line-height:1.55; color:var(--nv-gray-700); max-width:780px;">
+          CHORD preserves contact intent over extended sequences with dense contact events.
+        </p>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:16px;">
+          <sc-for list="{{ longVids }}" as="v" hint-placeholder-count="0">
+            <figure style="margin:0;">
+              <video class="dm-vid" autoplay muted loop playsinline preload="metadata" style="display:block; width:100%; aspect-ratio:16/9; object-fit:cover; border-radius:7px; background:#11151b; box-shadow:0 6px 18px rgba(0,0,0,.12);">
+                <source src="{{ v.src }}" type="video/mp4">
               </video>
-              <figcaption>Notebook</figcaption>
+              <figcaption style="margin-top:10px; text-align:center; font-size:.88rem; font-weight:600; color:var(--nv-gray-700);">{{ v.cap }}</figcaption>
             </figure>
-            <figure class="result-video-card">
-              <video class="result-video" autoplay muted loop playsinline preload="metadata">
-                <source src="./assets/videos/sim/long/s02_mixer_use_04-web.mp4" type="video/mp4">
-              </video>
-              <figcaption>Mixer</figcaption>
-            </figure>
-            <figure class="result-video-card">
-              <video class="result-video" autoplay muted loop playsinline preload="metadata">
-                <source src="./assets/videos/sim/long/s04_box_use_02-web.mp4" type="video/mp4">
-              </video>
-              <figcaption>Box</figcaption>
-            </figure>
+          </sc-for>
+        </div>
+      </div>
+
+      <!-- Large-Scale Evaluation -->
+      <div data-reveal style="margin-bottom:64px;">
+        <div style="display:flex; align-items:baseline; gap:14px; margin-bottom:18px;">
+          <h3 style="margin:0; font-family:var(--font-display); font-weight:600; font-size:1.4rem; color:var(--text-primary);">Large-Scale Evaluation</h3>
+          <span style="height:1px; flex:1; background:var(--border-default);"></span>
+        </div>
+        <p style="margin:0 0 28px; font-size:1.02rem; line-height:1.55; color:var(--nv-gray-700); max-width:820px;">
+          We open-source 4,739 simulation-ready dexterous manipulation tasks paired with human demonstrations. Across
+          1,831 diverse evaluations, CHORD reaches an average success rate of 82.12%.
+        </p>
+        <div style="display:flex; flex-wrap:wrap; gap:clamp(28px,6vw,72px);">
+          <div style="display:flex; flex-direction:column; gap:4px;">
+            <span style="font-family:var(--font-display); font-weight:300; font-size:clamp(2.4rem,5vw,3.2rem); line-height:1; color:var(--nv-green-700);">1,831</span>
+            <span style="font-size:.92rem; letter-spacing:.04em; color:var(--nv-gray-600);">Benchmark evaluations</span>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:4px;">
+            <span style="font-family:var(--font-display); font-weight:300; font-size:clamp(2.4rem,5vw,3.2rem); line-height:1; color:var(--nv-green-700);">82.12%</span>
+            <span style="font-size:.92rem; letter-spacing:.04em; color:var(--nv-gray-600);">Average success rate</span>
           </div>
         </div>
+        <p style="margin:44px 0 0; font-size:1.02rem; line-height:1.55; color:var(--nv-gray-700); max-width:820px;">
+          <span style="color:var(--nv-green-700); font-weight:600;">Hover</span> a clip to preview
+        </p>
+        <div style="margin-top:10px; display:grid; grid-template-columns:repeat(8,minmax(0,1fr)); gap:8px;">
+          <sc-for list="{{ benchGrid }}" as="g" hint-placeholder-count="0">
+            <video class="dm-vid" data-hover-play="1" muted loop playsinline preload="metadata" aria-label="Benchmark task" style="display:block; width:100%; aspect-ratio:16/9; object-fit:cover; border-radius:5px; border:1px solid var(--border-subtle); background:var(--nv-gray-50); position:relative; transition:transform .2s ease, box-shadow .2s ease;" style-hover="transform:scale(2.4); z-index:10; box-shadow:0 12px 30px rgba(0,0,0,.3);">
+              <source src="{{ g }}" type="video/mp4">
+            </video>
+          </sc-for>
+        </div>
+      </div>
 
-        <div class="result-subsection">
-          <h3 class="result-subsection-heading">Diverse Object Interactions</h3>
-          <p class="result-subsection-tagline">
-            Contact-wrench guidance transfers across grasping, reorientation, handovers, tool use, and rigid,
-            articulated, or multi-object manipulation.
+      <!-- Whole-Body Loco-Manipulation -->
+      <div data-reveal style="margin-bottom:64px;">
+        <div style="display:flex; align-items:baseline; gap:14px; margin-bottom:18px;">
+          <h3 style="margin:0; font-family:var(--font-display); font-weight:600; font-size:1.4rem; color:var(--text-primary);">Whole-Body Loco-Manipulation</h3>
+          <span style="height:1px; flex:1; background:var(--border-default);"></span>
+        </div>
+        <div style="max-width:890px;">
+          <p style="margin:0; font-size:1.05rem; line-height:1.65; color:var(--nv-gray-800);">
+            The contact-wrench representation is embodiment-agnostic: with a whole-body motion inpainting module, 
+            humanoid robots equipped with three-fingered hands can learn from hand-only and third-person-view demonstrations.
           </p>
-          <div class="result-video-grid result-video-grid-six">
-            <figure class="result-video-card">
-              <video class="result-video" autoplay muted loop playsinline preload="metadata">
-                <source src="./assets/videos/sim/diverse/grasping_1%262_hand-web.mp4" type="video/mp4">
-              </video>
-              <figcaption>Two-Hand Grasp</figcaption>
-            </figure>
-            <figure class="result-video-card">
-              <video class="result-video" autoplay muted loop playsinline preload="metadata">
-                <source src="./assets/videos/sim/diverse/pick_rotate_use_eraser-web.mp4" type="video/mp4">
-              </video>
-              <figcaption>Eraser Pick-and-Rotate</figcaption>
-            </figure>
-            <figure class="result-video-card">
-              <video class="result-video" autoplay muted loop playsinline preload="metadata">
-                <source src="./assets/videos/sim/diverse/hand_over_spatula-web.mp4" type="video/mp4">
-              </video>
-              <figcaption>Spatula Handover</figcaption>
-            </figure>
-            <figure class="result-video-card">
-              <video class="result-video" autoplay muted loop playsinline preload="metadata">
-                <source src="./assets/videos/sim/diverse/spatula_rotate-web.mp4" type="video/mp4">
-              </video>
-              <figcaption>Spatula Rotation</figcaption>
-            </figure>
-            <figure class="result-video-card">
-              <video class="result-video" autoplay muted loop playsinline preload="metadata">
-                <source src="./assets/videos/sim/diverse/milk_handover-web.mp4" type="video/mp4">
-              </video>
-              <figcaption>Milk Handover</figcaption>
-            </figure>
-            <figure class="result-video-card">
-              <video class="result-video" autoplay muted loop playsinline preload="metadata">
-                <source src="./assets/videos/sim/diverse/grasping-web.mp4" type="video/mp4">
-              </video>
-              <figcaption>Grasping</figcaption>
-            </figure>
+          <div style="margin-top:24px; display:inline-flex; flex-direction:column; gap:2px;">
+            <span style="font-family:var(--font-display); font-weight:300; font-size:clamp(2.4rem,5vw,3.2rem); line-height:1; color:var(--nv-green-700);">90.77%</span>
+            <span style="font-size:.92rem; letter-spacing:.04em; color:var(--nv-gray-600);">Whole-body success rate</span>
           </div>
         </div>
-
-        <div class="result-subsection">
-          <h3 class="result-subsection-heading">Real-World Deployment</h3>
-          <p class="result-subsection-tagline">
-            Learned policies transfer from simulation to real dexterous hands while preserving contact-driven object
-            motion.
-          </p>
-          <div class="result-video-grid result-video-grid-four">
-            <figure class="result-video-card">
-              <video class="result-video result-video-real" autoplay muted loop playsinline preload="metadata">
-                <source src="./assets/videos/real/Box-web.mp4" type="video/mp4">
-              </video>
-              <span class="result-speed-badge">3X</span>
-              <figcaption>Box</figcaption>
-            </figure>
-            <figure class="result-video-card">
-              <video class="result-video result-video-real" autoplay muted loop playsinline preload="metadata">
-                <source src="./assets/videos/real/Waffle%20iron-web.mp4" type="video/mp4">
-              </video>
-              <span class="result-speed-badge">3X</span>
-              <figcaption>Waffle Iron</figcaption>
-            </figure>
-            <figure class="result-video-card">
-              <video class="result-video result-video-real" autoplay muted loop playsinline preload="metadata">
-                <source src="./assets/videos/real/Mixer-web.mp4" type="video/mp4">
-              </video>
-              <span class="result-speed-badge">3X</span>
-              <figcaption>Mixer</figcaption>
-            </figure>
-            <figure class="result-video-card">
-              <video class="result-video result-video-real" autoplay muted loop playsinline preload="metadata">
-                <source src="./assets/videos/real/capsule%20machine-web.mp4" type="video/mp4">
-              </video>
-              <span class="result-speed-badge">3X</span>
-              <figcaption>Capsule Machine</figcaption>
-            </figure>
+        <div style="margin-top:36px;">
+          <h4 style="margin:0 0 14px; font-family:var(--font-display); font-weight:600; font-size:1.1rem; color:var(--text-primary);">Hand-Only Demonstrations</h4>
+          <div style="border-radius:8px; overflow:hidden; border:1px solid var(--border-subtle); background:var(--nv-gray-50);">
+            <video class="dm-vid" autoplay muted loop playsinline preload="metadata" style="display:block; width:100%; object-fit:contain; background:var(--nv-gray-50);">
+              <source src="assets/videos/sim/whole_body/hand_only_demo-web.mp4" type="video/mp4">
+            </video>
           </div>
         </div>
-
-        <div class="result-subsection result-table-subsection">
-          <h3 class="result-subsection-heading">Quantitative Evaluation</h3>
-          <p class="result-subsection-tagline">
-            CHORD maintains high success rates at scale and under whole-body transfer, while matching or outperforming
-            prior methods on their original metrics. Unlike methods limited to subsets of rigid, articulated, or
-            multi-object manipulation, CHORD succeeds across all three categories.
-          </p>
-          <figure class="result-scale-figure">
-            <img src="./assets/pics/scale_up_and_whole_body.png" alt="Large-scale and whole-body manipulation success rates across rigid, articulated, and multi-object tasks">
-            <figcaption>
-              CHORD success rates on <em>left:</em> 1,831 manipulation tasks across four
-              datasets, spanning single-object and multi-object tasks with rigid and articulated objects, and
-              <em>right:</em> 17 of these subtasks fully grounded on a humanoid robot equipped with articulated hands.
-            </figcaption>
-          </figure>
-          <h4 class="result-table-heading">Comparison with Prior Methods</h4>
-          <div class="result-table-wrap">
-            <table class="result-comparison-table">
-              <thead>
-                <tr>
-                  <th>Task Suite</th>
-                  <th>Metric</th>
-                  <th>Ref. Method</th>
-                  <th>Ref. Score</th>
-                  <th>Our Score</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td><code>DM</code></td>
-                  <td><code>AUC</code></td>
-                  <td>DexMachina</td>
-                  <td>0.232 &plusmn; 0.214</td>
-                  <td><span class="score-pill">0.687 &plusmn; 0.358</span></td>
-                </tr>
-                <tr>
-                  <td><code>MT</code></td>
-                  <td><code>MT-SR</code></td>
-                  <td>ManipTrans</td>
-                  <td>0.428</td>
-                  <td><span class="score-pill">0.639</span></td>
-                </tr>
-                <tr>
-                  <td><code>SP</code></td>
-                  <td><code>SP-SR</code></td>
-                  <td>Spider</td>
-                  <td>0.333 &plusmn; 0.488</td>
-                  <td><span class="score-pill">0.359 &plusmn; 0.482</span></td>
-                </tr>
-                <tr class="result-table-divider">
-                  <td><code>Ours-1</code></td>
-                  <td><code>AUC</code></td>
-                  <td>DexMachina</td>
-                  <td>0.211 &plusmn; 0.138</td>
-                  <td><span class="score-pill">0.895 &plusmn; 0.052</span></td>
-                </tr>
-                <tr>
-                  <td><code>Ours-1</code></td>
-                  <td><code>SP-SR</code></td>
-                  <td>Spider</td>
-                  <td>0.133 &plusmn; 0.327</td>
-                  <td><span class="score-pill">0.999 &plusmn; 0.000</span></td>
-                </tr>
-                <tr>
-                  <td><code>Ours-2</code></td>
-                  <td><code>SP-SR</code></td>
-                  <td>Spider</td>
-                  <td>0.533 &plusmn; 0.503</td>
-                  <td><span class="score-pill">0.982 &plusmn; 0.022</span></td>
-                </tr>
-              </tbody>
-            </table>
+        <div style="margin-top:32px;">
+          <h4 style="margin:0 0 14px; font-family:var(--font-display); font-weight:600; font-size:1.1rem; color:var(--text-primary);">Third-Person-View Demonstrations</h4>
+          <div style="border-radius:8px; overflow:hidden; border:1px solid var(--border-subtle); background:var(--nv-gray-50);">
+            <video class="dm-vid" autoplay muted loop playsinline preload="metadata" style="display:block; width:100%; object-fit:contain; background:var(--nv-gray-50);">
+              <source src="assets/videos/sim/whole_body/tpv_demo-web.mp4" type="video/mp4">
+            </video>
           </div>
-          <p class="result-table-note">
-            Scores are comparable within each row because baselines use different task suites and evaluation protocols.
-          </p>
         </div>
+      </div>
 
-        <div class="result-subsection result-evidence-subsection">
-          <h3 class="result-subsection-heading">Contact-Wrench Reward Predicts Success</h3>
-          <p class="result-subsection-tagline">
-            The contact-wrench-support reward provides a reliable proxy for downstream task completion.
-          </p>
-          <figure class="result-evidence-figure result-evidence-figure-narrow">
-            <img src="./assets/pics/contact_success_correlation.png" alt="Correlation between contact wrench reward and task success rate">
-            <figcaption>
-              Across 1,831 benchmark runs, normalized contact-wrench-support reward strongly correlates with task
-              completion (overall Pearson r = 0.798; dataset-wise r = 0.76-0.89), supporting it as both a training
-              signal and a proxy metric.
-            </figcaption>
-          </figure>
+      <!-- Real-World Deployment -->
+      <div data-reveal>
+        <div style="display:flex; align-items:baseline; gap:14px; margin-bottom:18px;">
+          <h3 style="margin:0; font-family:var(--font-display); font-weight:600; font-size:1.4rem; color:var(--text-primary);">Real-World Deployment</h3>
+          <span style="height:1px; flex:1; background:var(--border-default);"></span>
         </div>
-
-        <div class="result-subsection result-evidence-subsection">
-          <h3 class="result-subsection-heading">Long-Horizon Tracking Accuracy</h3>
-          <p class="result-subsection-tagline">
-            CHORD sustains accurate object tracking over extended manipulation sequences.
-          </p>
-          <figure class="result-evidence-figure result-evidence-figure-wide">
-            <img src="./assets/pics/horizon_auc.png" alt="Tracking accuracy across manipulation horizons for CHORD and baselines">
-            <figcaption>
-              Under the DexMachina ADD-AUC metric, CHORD maintains high object-tracking accuracy across sequences up
-              to roughly 48 seconds, while prior methods degrade as interaction horizons increase.
-            </figcaption>
-          </figure>
+        <p style="margin:0 0 20px; font-size:1.02rem; line-height:1.55; color:var(--nv-gray-700);">
+          Learned policies transfer from simulation to real dexterous hands.
+        </p>
+        <div style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px;">
+          <sc-for list="{{ realVids }}" as="v" hint-placeholder-count="0">
+            <figure style="margin:0; position:relative;">
+              <video class="dm-vid" autoplay muted loop playsinline preload="metadata" style="display:block; width:100%; aspect-ratio:16/9; object-fit:cover; border-radius:7px; background:#11151b; box-shadow:0 6px 18px rgba(0,0,0,.12);">
+                <source src="{{ v.src }}" type="video/mp4">
+              </video>
+              <span style="position:absolute; top:10px; right:10px; padding:4px 9px; border-radius:999px; background:var(--nv-green); color:var(--nv-black); font-size:.72rem; font-weight:800; letter-spacing:.04em;">3&times;</span>
+              <figcaption style="margin-top:10px; text-align:center; font-size:.88rem; font-weight:600; color:var(--nv-gray-700);">{{ v.cap }}</figcaption>
+            </figure>
+          </sc-for>
         </div>
       </div>
     </div>
-  </div>
-</section>
+  </section>
 
-<!--
-<video autoplay muted loop playsinline width="100%">
-  <source src="./static/videos/results.mp4" type="video/mp4">
-</video>
--->
-
-<!-- ============================================ -->
-<!-- AUTHORS / TEAM (disabled)                     -->
-<!-- ============================================ -->
-<!--
-<section class="section is-small">
-  <div class="container is-max-desktop">
-    <h2 class="title is-3 has-text-centered is-size-4-mobile">Our Team</h2>
-    <div class="container has-text-centered">
-      <div class="publication-authors is-flex is-justify-content-space-around is-flex-wrap-wrap">
-        <div class="author-block has-text-centered">
-          <figure class="image is-128x128" style="display:inline-block;">
-            <a href="#">
-              <img class="is-rounded" src="./static/images/author1.jpg" alt="Author One">
-            </a>
-          </figure>
-          <div><a href="#">Author One</a><sup>1</sup></div>
-        </div>
-        <div class="author-block has-text-centered">
-          <figure class="image is-128x128" style="display:inline-block;">
-            <a href="#">
-              <img class="is-rounded" src="./static/images/author2.jpg" alt="Author Two">
-            </a>
-          </figure>
-          <div><a href="#">Author Two</a><sup>1</sup></div>
-        </div>
-        <div class="author-block has-text-centered">
-          <figure class="image is-128x128" style="display:inline-block;">
-            <a href="#">
-              <img class="is-rounded" src="./static/images/author3.jpg" alt="Author Three">
-            </a>
-          </figure>
-          <div><a href="#">Author Three</a><sup>2</sup></div>
-        </div>
+  <!-- ============ RESULTS ============ -->
+  <section id="results" style="scroll-margin-top:78px; padding:96px clamp(20px,5vw,40px); background:var(--surface-subtle); border-top:1px solid var(--border-subtle);">
+    <div style="width:min(100%,1100px); margin:0 auto;">
+      <div data-reveal style="text-align:center; max-width:820px; margin:0 auto 56px;">
+        <h2 style="margin:0; font-family:var(--font-display); font-weight:600; font-size:clamp(1.8rem,3.4vw,2.6rem); line-height:1.12; letter-spacing:-0.02em; color:var(--text-primary);">Quantitative Evaluation</h2>
+        <p style="margin:16px auto 0; max-width:940px; font-size:1.12rem; line-height:1.55; color:var(--nv-gray-700); text-wrap:balance;">
+          CHORD sustains high success at scale and outperforms prior methods, succeeding across rigid, articulated, and multi-object manipulation.
+        </p>
       </div>
 
-      <div class="publication-authors" style="margin-top: 1.5rem;">
-        <span class="author-block"><sup>1</sup>Institution One,&nbsp;</span>
-        <span class="author-block"><sup>2</sup>Institution Two</span>
+      <!-- comparison table -->
+      <div data-reveal style="width:min(100%,960px); margin:0 auto;">
+        <h3 style="margin:0 0 16px; text-align:center; font-family:var(--font-display); font-weight:600; font-size:1.3rem; color:var(--text-primary);">Comparison With Prior Methods</h3>
+        <div style="overflow-x:auto; border:1px solid var(--border-subtle); border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,.07);">
+          <table style="width:100%; min-width:720px; border-collapse:collapse; font-size:1rem; color:var(--text-primary);">
+            <thead>
+              <tr style="background:var(--nv-gray-50); border-bottom:1px solid var(--border-default);">
+                <th style="padding:14px 18px; text-align:left; font-size:.8rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--nv-gray-600);">Task Suite</th>
+                <th style="padding:14px 18px; text-align:left; font-size:.8rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--nv-gray-600);">Metric</th>
+                <th style="padding:14px 18px; text-align:left; font-size:.8rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--nv-gray-600);">Ref. Method</th>
+                <th style="padding:14px 18px; text-align:right; font-size:.8rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--nv-gray-600);">Ref. Score</th>
+                <th style="padding:14px 18px; text-align:right; font-size:.8rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--nv-gray-600);">Our Score</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr style="border-bottom:1px solid var(--border-subtle);">
+                <td style="padding:13px 18px;"><code style="font-family:var(--font-mono); font-size:.86rem; padding:2px 8px; border-radius:999px; background:var(--nv-green-100); color:var(--nv-green-700); font-weight:700;">DM</code></td>
+                <td style="padding:13px 18px; font-family:var(--font-mono); font-size:.9rem; color:var(--nv-gray-700);">AUC</td>
+                <td style="padding:13px 18px;">DexMachina</td>
+                <td style="padding:13px 18px; text-align:right; white-space:nowrap; color:var(--nv-gray-600);">0.232 &plusmn; 0.214</td>
+                <td style="padding:13px 18px; text-align:right; white-space:nowrap; font-weight:700; color:var(--nv-green-700);">0.687 &plusmn; 0.358</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--border-subtle);">
+                <td style="padding:13px 18px;"><code style="font-family:var(--font-mono); font-size:.86rem; padding:2px 8px; border-radius:999px; background:var(--nv-green-100); color:var(--nv-green-700); font-weight:700;">MT</code></td>
+                <td style="padding:13px 18px; font-family:var(--font-mono); font-size:.9rem; color:var(--nv-gray-700);">MT-SR</td>
+                <td style="padding:13px 18px;">ManipTrans</td>
+                <td style="padding:13px 18px; text-align:right; white-space:nowrap; color:var(--nv-gray-600);">0.428</td>
+                <td style="padding:13px 18px; text-align:right; white-space:nowrap; font-weight:700; color:var(--nv-green-700);">0.639</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--border-subtle);">
+                <td style="padding:13px 18px;"><code style="font-family:var(--font-mono); font-size:.86rem; padding:2px 8px; border-radius:999px; background:var(--nv-green-100); color:var(--nv-green-700); font-weight:700;">SP</code></td>
+                <td style="padding:13px 18px; font-family:var(--font-mono); font-size:.9rem; color:var(--nv-gray-700);">SP-SR</td>
+                <td style="padding:13px 18px;">Spider</td>
+                <td style="padding:13px 18px; text-align:right; white-space:nowrap; color:var(--nv-gray-600);">0.333 &plusmn; 0.488</td>
+                <td style="padding:13px 18px; text-align:right; white-space:nowrap; font-weight:700; color:var(--nv-green-700);">0.359 &plusmn; 0.482</td>
+              </tr>
+              <tr style="border-top:2px solid var(--border-strong); border-bottom:1px solid var(--border-subtle);">
+                <td style="padding:13px 18px;"><code style="font-family:var(--font-mono); font-size:.86rem; padding:2px 8px; border-radius:999px; background:var(--nv-green-100); color:var(--nv-green-700); font-weight:700;">Ours-1</code></td>
+                <td style="padding:13px 18px; font-family:var(--font-mono); font-size:.9rem; color:var(--nv-gray-700);">AUC</td>
+                <td style="padding:13px 18px;">DexMachina</td>
+                <td style="padding:13px 18px; text-align:right; white-space:nowrap; color:var(--nv-gray-600);">0.211 &plusmn; 0.138</td>
+                <td style="padding:13px 18px; text-align:right; white-space:nowrap; font-weight:700; color:var(--nv-green-700);">0.895 &plusmn; 0.052</td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--border-subtle);">
+                <td style="padding:13px 18px;"><code style="font-family:var(--font-mono); font-size:.86rem; padding:2px 8px; border-radius:999px; background:var(--nv-green-100); color:var(--nv-green-700); font-weight:700;">Ours-1</code></td>
+                <td style="padding:13px 18px; font-family:var(--font-mono); font-size:.9rem; color:var(--nv-gray-700);">SP-SR</td>
+                <td style="padding:13px 18px;">Spider</td>
+                <td style="padding:13px 18px; text-align:right; white-space:nowrap; color:var(--nv-gray-600);">0.133 &plusmn; 0.327</td>
+                <td style="padding:13px 18px; text-align:right; white-space:nowrap; font-weight:700; color:var(--nv-green-700);">0.999 &plusmn; 0.000</td>
+              </tr>
+              <tr>
+                <td style="padding:13px 18px;"><code style="font-family:var(--font-mono); font-size:.86rem; padding:2px 8px; border-radius:999px; background:var(--nv-green-100); color:var(--nv-green-700); font-weight:700;">Ours-2</code></td>
+                <td style="padding:13px 18px; font-family:var(--font-mono); font-size:.9rem; color:var(--nv-gray-700);">SP-SR</td>
+                <td style="padding:13px 18px;">Spider</td>
+                <td style="padding:13px 18px; text-align:right; white-space:nowrap; color:var(--nv-gray-600);">0.533 &plusmn; 0.503</td>
+                <td style="padding:13px 18px; text-align:right; white-space:nowrap; font-weight:700; color:var(--nv-green-700);">0.982 &plusmn; 0.022</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="margin:14px auto 0; max-width:820px; text-align:center; font-size:.9rem; line-height:1.5; color:var(--text-tertiary);">
+          Scores are comparable within each row; baselines use different task suites and evaluation protocols.
+        </p>
       </div>
-    </div>
 
-    <br>
-    <pre><code>@inproceedings{chord2026,
-  title     = {Chord: [Paper Title]},
-  author    = {Author One and Author Two and Author Three},
-  year      = {2026},
-  booktitle = {[Venue]},
-}</code></pre>
-    <p>
-      If you have any questions, please contact <a href="#">[contact author]</a>.
-    </p>
-  </div>
-</section>
--->
+      <!-- per-dataset success (moved from benchmark) -->
+      <h3 data-reveal style="margin:80px auto 16px; text-align:center; font-family:var(--font-display); font-weight:600; font-size:1.3rem; color:var(--text-primary);">Large-Scale and Whole-Body Evaluation Results</h3>
+      <figure data-reveal style="margin:0 auto; width:min(100%,860px);">
+        <img src="assets/pics/scale_up_and_whole_body.png" alt="Per-dataset success rates across benchmark tasks" style="display:block; width:100%; height:auto; border-radius:8px; border:1px solid var(--border-subtle); box-shadow:0 1px 3px rgba(0,0,0,.07);">
+      </figure>
 
-<!-- ============================================ -->
-<!-- Q & A (disabled)                              -->
-<!-- ============================================ -->
-<!--
-<section class="section is-small" id="qa">
-  <div class="container is-max-desktop">
-    <div class="columns is-centered">
-      <div class="column is-four-fifths">
-        <h2 class="title is-4 has-text-centered is-size-5-mobile">Questions &amp; Answers</h2>
-
-        <div class="block">
-          <h3 class="title is-6">[First question?]</h3>
-          <p>[Answer.]</p>
-        </div>
-
-        <div class="block">
-          <h3 class="title is-6">[Second question?]</h3>
-          <p>[Answer.]</p>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
--->
-
-<!-- ============================================ -->
-<!-- FOOTER (disabled)                             -->
-<!-- ============================================ -->
-<!--
-<footer class="footer">
-  <div class="container">
-    <div class="columns is-centered">
-      <div class="column is-8">
-        <div class="content">
-          <p>
-            Website template modified from
-            <a href="https://umi-on-legs.github.io/">UMI on Legs</a>,
-            <a href="https://nerfies.github.io/">NeRFies</a>, and
-            <a href="https://huy-ha.github.io/scalingup/">Scaling Up Distilling Down</a>.
-          </p>
-          <p>
-            This website is licensed under a
-            <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/">Creative
-            Commons Attribution-ShareAlike 4.0 International License</a>.
-          </p>
-        </div>
+      <!-- evidence figures -->
+      <div data-reveal style="display:grid; grid-template-columns:minmax(0,0.803fr) minmax(0,1.197fr); gap:40px; margin-top:80px; align-items:start;">
+        <figure style="margin:0;">
+          <div style="margin:0 0 14px; text-align:center; font-family:var(--font-display); font-weight:600; font-size:1.3rem; color:var(--text-primary);">Reward Correlation</div>
+          <img src="assets/pics/contact_success_correlation.png" alt="Correlation between contact wrench reward and task success" style="display:block; width:100%; height:auto; border-radius:8px; border:1px solid var(--border-subtle); box-shadow:0 1px 3px rgba(0,0,0,.07);">
+          <figcaption style="margin-top:14px; font-size:.9rem; line-height:1.55; color:var(--text-secondary);">
+            Across 1,831 runs, normalized contact-wrench-support reward strongly correlates with task completion
+            (Pearson r = 0.798; dataset-wise r = 0.76&ndash;0.89) &mdash; a reliable training signal and proxy metric for manipulation.
+          </figcaption>
+        </figure>
+        <figure style="margin:0;">
+          <div style="margin:0 0 14px; text-align:center; font-family:var(--font-display); font-weight:600; font-size:1.3rem; color:var(--text-primary);">Tracking Horizon</div>
+          <img src="assets/pics/horizon_auc.png" alt="Tracking accuracy across manipulation horizons" style="display:block; width:100%; height:auto; border-radius:8px; border:1px solid var(--border-subtle); box-shadow:0 1px 3px rgba(0,0,0,.07);">
+          <figcaption style="margin-top:14px; font-size:.9rem; line-height:1.55; color:var(--text-secondary);">
+            Under the DexMachina ADD-AUC metric, CHORD maintains high object-tracking accuracy across sequences up to
+            roughly 48 seconds, while prior methods degrade as horizons grow.
+          </figcaption>
+        </figure>
       </div>
     </div>
-  </div>
-</footer>
--->
+  </section>
 
-<script>
-  document.querySelectorAll('.method-panel-interactive').forEach((panel) => {
-    let clearHoverTimer;
-    const peers = document.querySelectorAll('.method-panel-interactive');
+  <!-- ============ FOOTER ============ -->
+  <footer style="padding:56px clamp(20px,5vw,40px) 64px; background:var(--surface-inverse); color:rgba(255,255,255,.6);">
+    <div style="width:min(100%,1100px); margin:0 auto; display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:24px;">
+      <div style="display:flex; flex-wrap:wrap; gap:10px;">
+        <a href="chord.pdf" target="_blank" rel="noopener noreferrer" style="display:inline-flex; align-items:center; gap:7px; text-decoration:none; padding:9px 16px; border-radius:4px; background:var(--nv-green); color:var(--nv-black); font-weight:600; font-size:.9rem;">Paper</a>
+        <span style="display:inline-flex; align-items:center; gap:6px; padding:9px 16px; border-radius:4px; border:1px solid rgba(255,255,255,.2); color:rgba(255,255,255,.55); font-weight:600; font-size:.9rem; cursor:not-allowed;"><img src="assets/pics/arxiv.svg" alt="" aria-hidden="true" style="height:16px; width:auto; display:block;"> arXiv <span style="font-size:.74em;">soon</span></span>
+        <span style="display:inline-flex; align-items:center; gap:6px; padding:9px 16px; border-radius:4px; border:1px solid rgba(255,255,255,.2); color:rgba(255,255,255,.55); font-weight:600; font-size:.9rem; cursor:not-allowed;">Code <span style="font-size:.74em;">soon</span></span>
+      </div>
+    </div>
+  </footer>
 
-    const show = () => {
-      clearTimeout(clearHoverTimer);
-      peers.forEach((peer) => {
-        if (peer !== panel) peer.classList.remove('is-hovered');
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  componentDidMount() {
+    const nav = document.getElementById('chord-nav');
+    const hero = document.getElementById('chord-hero');
+    const links = Array.from(document.querySelectorAll('#chord-nav [data-sec]'));
+    const sections = links
+      .map(a => document.getElementById(a.getAttribute('data-sec')))
+      .filter(Boolean);
+
+    const setSolid = (solid) => {
+      if (!nav) return;
+      if (solid) {
+        nav.style.background = 'rgba(255,255,255,0.92)';
+        nav.style.backdropFilter = 'saturate(160%) blur(10px)';
+        nav.style.webkitBackdropFilter = 'saturate(160%) blur(10px)';
+        nav.style.boxShadow = '0 1px 0 var(--border-subtle), 0 6px 20px rgba(0,0,0,0.06)';
+        nav.setAttribute('data-solid', '1');
+      } else {
+        nav.style.background = 'transparent';
+        nav.style.backdropFilter = 'none';
+        nav.style.webkitBackdropFilter = 'none';
+        nav.style.boxShadow = 'none';
+        nav.setAttribute('data-solid', '0');
+      }
+      document.querySelectorAll('#chord-nav [data-navtext]').forEach(el => {
+        el.style.color = solid ? 'var(--text-primary)' : '#fff';
       });
-      panel.classList.add('is-hovered');
     };
 
-    const hide = () => {
-      clearHoverTimer = setTimeout(() => {
-        panel.classList.remove('is-hovered');
-      }, 180);
+    const onScroll = () => {
+      const heroH = hero ? hero.offsetHeight : 480;
+      const solid = window.scrollY > heroH - 72;
+      setSolid(solid);
+      const pos = window.scrollY + 130;
+      let current = sections.length ? sections[0].id : null;
+      sections.forEach(s => { if (s.offsetTop <= pos) current = s.id; });
+      links.forEach(a => {
+        const on = a.getAttribute('data-sec') === current;
+        a.style.color = on
+          ? 'var(--nv-green-700)'
+          : (solid ? 'var(--text-secondary)' : 'rgba(255,255,255,0.78)');
+        const ind = a.querySelector('[data-ind]');
+        if (ind) ind.style.transform = on ? 'scaleX(1)' : 'scaleX(0)';
+      });
     };
 
-    panel.addEventListener('pointerenter', show);
-    panel.addEventListener('pointerleave', hide);
-    panel.addEventListener('focusin', show);
-    panel.addEventListener('focusout', hide);
-  });
+    const onResize = () => {
+      const wrap = document.getElementById('chord-navlinks');
+      if (wrap) wrap.style.display = window.innerWidth < 1060 ? 'none' : 'flex';
+    };
+
+    // reveal-on-scroll (set hidden via JS so no-JS stays visible)
+    const revs = Array.from(document.querySelectorAll('[data-reveal]'));
+    revs.forEach(el => {
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(20px)';
+      el.style.transition = 'opacity .7s cubic-bezier(.16,1,.3,1), transform .7s cubic-bezier(.16,1,.3,1)';
+    });
+    const io = new IntersectionObserver((ents) => {
+      ents.forEach(e => {
+        if (e.isIntersecting) {
+          e.target.style.opacity = '1';
+          e.target.style.transform = 'none';
+          io.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.1, rootMargin: '0px 0px -6% 0px' });
+    revs.forEach(el => io.observe(el));
+
+    // interactive method comparison — swap the full-size detail panel on hover
+    (() => {
+      const details = {};
+      document.querySelectorAll('#method-detail-wrap [data-detail]').forEach(d => { details[d.getAttribute('data-detail')] = d; });
+      const selThumbs = Array.from(document.querySelectorAll('#method-thumbs [data-select]'));
+      const setDetail = (key) => {
+        Object.keys(details).forEach(k => { details[k].style.display = (k === key) ? 'grid' : 'none'; });
+        selThumbs.forEach(t => {
+          const on = t.getAttribute('data-select') === key;
+          t.style.boxShadow = on ? '0 14px 32px rgba(0,0,0,.16)' : '0 1px 3px rgba(0,0,0,.08)';
+          t.style.transform = on ? 'translateY(-3px)' : 'none';
+        });
+      };
+      selThumbs.forEach(t => {
+        const key = t.getAttribute('data-select');
+        t.addEventListener('mouseenter', () => setDetail(key));
+        t.addEventListener('focusin', () => setDetail(key));
+      });
+      if (selThumbs.length) setDetail('wrench');
+    })();
+
+    // interactive reward-figure hotspots
+    document.querySelectorAll('#reward-figure [data-hotspot]').forEach(btn => {
+      const idx = btn.getAttribute('data-hotspot');
+      const card = document.querySelector('#reward-figure [data-hcard="' + idx + '"]');
+      const show = () => { if (card) { card.style.opacity = '1'; card.style.pointerEvents = 'auto'; } btn.style.background = 'rgba(118,185,0,.08)'; };
+      const hide = () => { if (card) { card.style.opacity = '0'; card.style.pointerEvents = 'none'; } btn.style.background = 'transparent'; };
+      btn.addEventListener('mouseenter', show);
+      btn.addEventListener('mouseleave', hide);
+      btn.addEventListener('focus', show);
+      btn.addEventListener('blur', hide);
+    });
+
+    // ensure autoplay/looping videos actually loop (React drops valueless boolean attrs)
+    document.querySelectorAll('video:not([data-controls]):not([data-hover-play])').forEach(v => {
+      v.loop = true; v.muted = true; v.playsInline = true;
+      const tryPlay = () => { const p = v.play(); if (p && p.catch) p.catch(() => {}); };
+      tryPlay();
+      v.addEventListener('ended', () => { try { v.currentTime = 0; } catch (e) {} tryPlay(); });
+    });
+
+    // hover-only playback: these videos stay paused until hovered (keeps the grid light)
+    document.querySelectorAll('video[data-hover-play]').forEach(v => {
+      v.loop = true; v.muted = true; v.playsInline = true;
+      try { v.pause(); } catch (e) {}
+      // seek slightly past 0 so the first frame paints as a static thumbnail at rest
+      const showThumb = () => { try { v.currentTime = 0.001; } catch (e) {} };
+      if (v.readyState >= 1) showThumb(); else v.addEventListener('loadedmetadata', showThumb, { once: true });
+      v.addEventListener('mouseenter', () => { const p = v.play(); if (p && p.catch) p.catch(() => {}); });
+      v.addEventListener('mouseleave', () => { try { v.pause(); v.currentTime = 0.001; } catch (e) {} });
+    });
+
+    // re-apply controls on videos flagged with data-controls (React drops valueless boolean attrs); default to unmuted
+    document.querySelectorAll('video[data-controls]').forEach(v => { v.controls = true; v.muted = false; });
+
+    this._onScroll = onScroll;
+    this._onResize = onResize;
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onResize);
+    onResize();
+    onScroll();
+  }
+
+  componentWillUnmount() {
+    if (this._onScroll) window.removeEventListener('scroll', this._onScroll);
+    if (this._onResize) window.removeEventListener('resize', this._onResize);
+  }
+
+  renderVals() {
+    const base = 'assets/videos/';
+    const pics = 'assets/pics/';
+    return {
+      longVids: [
+        { src: base + 'sim/long/capsulemachine_one_finger-web.mp4', cap: 'Capsule Machine' },
+        { src: base + 'sim/long/notebook.mp4', cap: 'Notebook' },
+        { src: base + 'sim/long/s02_mixer_use_04-web.mp4', cap: 'Mixer' },
+        { src: base + 'sim/long/s04_box_use_02-web.mp4', cap: 'Box' },
+      ],
+      diverseVids: [
+        { src: base + 'sim/diverse/pick_rotate_use_eraser-web.mp4', cap: 'In-Hand Reorientation' },
+        { src: base + 'sim/diverse/milk_handover-web.mp4', cap: 'Handover' },
+        { src: base + 'sim/diverse/hand_over_spatula-web.mp4', cap: 'Tool Use' },
+        { src: base + 'sim/diverse/grasping-web.mp4', cap: 'Grasp' },
+        { src: base + 'sim/diverse/grasping_1%262_hand-web.mp4', cap: 'Two-Hand Grasp' },
+        { src: base + 'sim/diverse/pressing.mp4', cap: 'Pressing' },
+        { src: base + 'sim/diverse/opening.mp4', cap: 'Opening' },
+        { src: base + 'sim/diverse/turning.mp4', cap: 'Turning' },
+      ],
+      realVids: [
+        { src: base + 'real/Box-web.mp4', cap: 'Box' },
+        { src: base + 'real/Waffle%20iron-web.mp4', cap: 'Waffle Iron' },
+        { src: base + 'real/Mixer-web.mp4', cap: 'Mixer' },
+        { src: base + 'real/capsule%20machine-web.mp4', cap: 'Capsule Machine' },
+      ],
+      benchGrid: Array.from({ length: 32 }, (_, i) => base + 'sim/large_scale/bench_' + String(i + 1).padStart(2, '0') + '.mp4'),
+    };
+  }
+}
 </script>
-
 </body>
 </html>
