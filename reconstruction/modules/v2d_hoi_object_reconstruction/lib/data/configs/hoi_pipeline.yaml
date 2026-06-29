@@ -10,11 +10,32 @@ sfm:
   config_set: backpack       # CuSFM config preset (backpack | av | isaac | rgbd)
   num_threads: 1             # CPU threads for CuSFM feature matching
 
+sfm_scan_quality:
+  enabled: true              # validate CuSFM trajectory before auto stage split
+  fail_on_error: true        # stop pipeline when the two-loop scan pattern is unreliable
+  min_keyframes: 30
+  min_angle_span_deg: 600.0  # expected two-loop projected orbit coverage, with margin below 720 deg
+  max_backtracking_fraction: 0.25
+  max_translation_step_m: 2.0
+  max_rotation_step_deg: 90.0
+  robust_step_sigma: 6.0
+  large_step_floor_m: 0.25
+  max_large_step_fraction: 0.25
+
 grounding_dino:
   box_threshold: 0.3         # confidence threshold for object bbox detection
 
 depth:
   num_workers: 2             # parallel FoundationStereo depth workers
+
+mask_postprocess:
+  enabled: true              # write raw SAM2 masks to masks_raw_sam2/, cleaned masks to masks/
+  modes: [bundlesdf]         # apply to BundleSDF by default; SAM3D can opt in if needed
+  keep_largest_component: false
+  min_component_area_px: 2000
+  min_component_area_frac: 0.01
+  open_px: 0
+  erode_px: 3
 
 foundationpose:
   reference_frame: 0         # frame index used as FoundationPose registration reference

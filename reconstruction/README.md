@@ -327,7 +327,7 @@ python modules/v2d_hoi_object_reconstruction/docker/run_reconstruction.py \
 ```
 
 **Inputs:** `mapping_data_dir/` — stereo images (`front_stereo_camera_left/`, `front_stereo_camera_right/`), `frames_meta.json`, `frame_metadata.jsonl`
-**Outputs:** `job_dir/merged_recon/textured_mesh.obj` — final textured mesh; `job_dir/stage1_recon/textured_mesh.obj` — Stage-1 mesh
+**Outputs:** `job_dir/merged_recon/textured_mesh.obj` and `job_dir/merged_recon/output.glb` — final textured mesh; `job_dir/stage1_recon/textured_mesh.obj` and `job_dir/stage1_recon/output.glb` — Stage-1 mesh
 
 See [`modules/v2d_hoi_object_reconstruction/README.md`](modules/v2d_hoi_object_reconstruction/README.md) for full pipeline details and troubleshooting.
 
@@ -419,6 +419,7 @@ SDF learning and texture baking from pre-computed camera poses. Takes keyframes 
 
 **Outputs:**
 - `recon_dir/textured_mesh.obj` — final textured mesh (+ `.mtl`, `_0.png` texture atlas)
+- `recon_dir/output.glb` — self-contained GLB exported from the textured mesh
 - `recon_dir/mesh_cleaned.obj` — untextured SDF mesh
 
 **Build:** `python modules/v2d_bundlesdf/docker/build.py`

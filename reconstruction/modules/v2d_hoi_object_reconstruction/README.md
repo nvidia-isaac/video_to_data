@@ -73,14 +73,16 @@ mapping_data_dir  (images + frames_meta.json)
     ↓
 2.  CuSFM               → sfm/keyframes/frames_meta.json  (camera poses)
     ↓
-2b. Stage-1 auto-detect → stage1_detect_debug/result.json  (transition frame)
+2b. CuSFM scan quality  → sfm_scan_quality/result.json  (two-loop pose check)
+    ↓
+2c. Stage-1 auto-detect → stage1_detect_debug/result.json  (transition frame)
     ↓
 3.  Grounding DINO      → grounding_dino_bboxes.json
 4a. FoundationStereo    → depth/  (all frames, parallel workers)
 4b. SAM2                → masks/  (all frames, from reference frame)
     ↓
 5.  Stage-1 setup       → stage1_recon/  (SfM keyframes + depth symlinks)
-6.  BundleSDF NeRF      → stage1_recon/textured_mesh.obj
+6.  BundleSDF NeRF      → stage1_recon/textured_mesh.obj + output.glb
 7.  Center mesh         → mesh_input.obj
     ↓
 8.  FoundationPose      → poses/  (tracking with Stage-1 mesh)
@@ -88,7 +90,7 @@ mapping_data_dir  (images + frames_meta.json)
     ↓
 9.  World poses         → poses_world.json  (T_world_from_obj + stage detection)
 10. Merged setup        → merged_recon/  (both stages aligned)
-11. BundleSDF NeRF      → merged_recon/textured_mesh.obj
+11. BundleSDF NeRF      → merged_recon/textured_mesh.obj + output.glb
     ↓
 12. FoundationPose      → poses_final/  (tracking with final mesh)
 13. FP render           → fp_render_final/render.mp4
@@ -97,7 +99,9 @@ mapping_data_dir  (images + frames_meta.json)
 ### Results
 
 - `merged_recon/textured_mesh.obj` — final textured mesh (+ `.mtl`, `_0.png`)
+- `merged_recon/output.glb` — self-contained GLB exported from the final textured mesh
 - `stage1_recon/textured_mesh.obj` — Stage-1 mesh (bottom missing)
+- `stage1_recon/output.glb` — self-contained GLB exported from the Stage-1 mesh
 
 ### Key Options
 
@@ -117,10 +121,10 @@ mapping_data_dir  (images + frames_meta.json)
 Resume from any checkpoint by skipping completed steps:
 
 ```
---skip_prepare  --skip_sfm  --skip_stage1_detect  --skip_dino  --skip_depth  --skip_mask
+--skip_prepare  --skip_sfm  --skip_sfm_quality_check  --skip_stage1_detect  --skip_dino  --skip_depth  --skip_mask
 --skip_stage1_setup  --skip_stage1_nerf  --skip_center_mesh
 --skip_fp_tracking  --skip_fp_render  --skip_world_poses  --skip_merged_setup  --skip_full_nerf
---skip_final_fp_tracking  --skip_final_fp_render
+--skip_glb_export  --skip_final_fp_tracking  --skip_final_fp_render
 ```
 
 ### Configuration
@@ -131,6 +135,10 @@ Resume from any checkpoint by skipping completed steps:
 |---------|-----------|---------|-------------|
 | `stage1_detect` | `buffer_deg` | 10.0 | Angle buffer (°) before detected Stage-1 transition |
 | `sfm` | `config_set` | `backpack` | CuSFM preset (`backpack` \| `av` \| `isaac` \| `rgbd`) |
+| `sfm_scan_quality` | `enabled` | `true` | Validate CuSFM poses before automatic stage split |
+| `sfm_scan_quality` | `min_angle_span_deg` | 600.0 | Minimum projected orbit span for the expected two-loop scan |
+| `sfm_scan_quality` | `max_backtracking_fraction` | 0.25 | Maximum reverse angular motion fraction |
+| `sfm_scan_quality` | `max_translation_step_m` | 2.0 | Maximum allowed consecutive CuSFM translation jump |
 | `depth` | `num_workers` | 2 | Parallel FoundationStereo depth workers |
 | `foundationpose` | `reference_frame` | 0 | FP registration reference frame |
 | `foundationpose` | `weights_dir` | `null` | FP weights path; `null` = `data/weights/foundationpose` |
@@ -141,9 +149,11 @@ Resume from any checkpoint by skipping completed steps:
 |---------|-----------|---------|-------------|
 | `camera_config` | `step` | 4 | CuSFM keyframe subsampling for SDF training |
 | `nerf` | `n_step` | 3000 | SDF training steps |
+| `nerf` | `far` | `auto` | SDF training depth range, resolved from masked object depth |
 | `nerf` | `trunc` | 0.01 | TSDF truncation distance (normalized). Larger = fewer holes |
 | `nerf` | `mesh_resolution` | 0.005 | Voxel size for mesh extraction. Must be ≤ `trunc` |
 | `texture_bake` | `texture_res` | 2048 | Output texture atlas resolution |
+| `texture_bake` | `zfar` | `auto` | Texture-renderer clipping plane, resolved from camera distance |
 | `texture_bake` | `downscale` | 1.0 | Image downscale for texture baking |
 | `texture_bake` | `min_keyframe_translation` | 0.0 | Min camera translation (m) between texture keyframes |
 | `texture_bake` | `min_keyframe_rotation_deg` | 5.0 | Min camera rotation (°) between texture keyframes |
@@ -180,7 +190,9 @@ mapping_data_dir  (images + frames_meta.json)
     ↓
 2.  CuSFM               → sfm/keyframes/frames_meta.json  (camera poses for frame selection)
     ↓
-2b. Stage-1 auto-detect → stage1_detect_debug/result.json  (exclude transition frames)
+2b. CuSFM scan quality  → sfm_scan_quality/result.json  (two-loop pose check)
+    ↓
+2c. Stage-1 auto-detect → stage1_detect_debug/result.json  (exclude transition frames)
     ↓
 3.  Grounding DINO      → grounding_dino_bboxes.json
 4b. SAM2                → masks/  (all frames — required for SRT scale)
@@ -193,6 +205,8 @@ S3. SRT scale           → sam3d/<frame_id>/srt/srt_result.json + output_scaled
 S4. Render debug        → sam3d/<frame_id>/render_debug.jpg
 S5. Render video        → sam3d/<frame_id>/render_video.mp4
                           (textured mesh overlaid on Stage-1 keyframes via open3d)
+S6. Select best         → sam3d/best/best_frame.json + output_scaled.glb
+                          (suggested candidate; still inspect per-frame videos)
 ```
 
 ### Results
@@ -202,6 +216,8 @@ S5. Render video        → sam3d/<frame_id>/render_video.mp4
 - `sam3d/<frame_id>/srt/srt_result.json` — estimated scale, rotation, translation
 - `sam3d/<frame_id>/render_debug.jpg` — SAM3D mesh overlaid on source image (single frame)
 - `sam3d/<frame_id>/render_video.mp4` — textured mesh overlaid on all Stage-1 keyframes
+- `sam3d/best/best_frame.json` — ranked candidate frames and selection score
+- `sam3d/best/output_scaled.glb` — copied suggested best aligned mesh
 
 ### Key Options
 
@@ -214,9 +230,45 @@ S5. Render video        → sam3d/<frame_id>/render_video.mp4
 ### Skip Flags (SAM3D)
 
 ```
---skip_prepare  --skip_sfm  --skip_stage1_detect  --skip_dino  --skip_depth  --skip_mask
+--skip_prepare  --skip_sfm  --skip_sfm_quality_check  --skip_stage1_detect  --skip_dino  --skip_depth  --skip_mask
 --skip_select_frames  --skip_sam3d  --skip_srt_scale  --skip_render_debug  --skip_render_video
+--skip_select_best_mesh
 ```
+
+---
+
+## Quality Envelope and Limitations
+
+The current generated-mesh inventory is a practical guide, not a formal
+benchmark. In general, the pipeline works best on rigid, opaque household
+objects with enough visible surface area and texture for segmentation, stereo
+depth, and camera tracking: boxes, bottles, cans, balls, mugs, toy tools, and
+similar tabletop or carryable objects.
+
+Use extra visual QA for these cases:
+
+- **Thin or high-aspect-ratio geometry** — hoops, rackets, swords, canes, chair
+  legs, handles, and tool tips are easy to miss, thicken, fuse to nearby
+  surfaces, or reconstruct with holes.
+- **Large support-like objects** — desks, tables, platforms, crates, and large
+  boxes need broad view coverage. Partial views often leave missing backs,
+  undersides, or weak texture alignment.
+- **Reflective, dark, transparent, or textureless surfaces** — depth and SfM can
+  become unstable, and masks may leak onto background or hands.
+- **Occluded hand-object interaction frames** — hands can hide important object
+  surfaces; BundleSDF quality depends on clean masks and coherent stereo depth
+  across the selected scan frames.
+- **Two-stage alignment failures** — BundleSDF final meshes depend on
+  FoundationPose staying locked between the stationary and rotated stages. Drift
+  usually shows up in `fp_render/render.mp4` or `poses_world_debug.png`.
+- **SAM3D scale and back-side geometry** — SAM3D is useful as a quick fallback
+  and for representative-frame meshes, but scale is estimated after inference
+  and unseen geometry can be less reliable. Check `render_debug.jpg` and
+  `render_video.mp4` before treating the mesh as final.
+
+For production assets, prefer an available scanner mesh as the geometric
+reference. Treat HOI-generated meshes as requiring inspection with the overlay,
+spin, point-cloud, and chamfer tools before accepting them.
 
 ---
 
@@ -244,6 +296,13 @@ If Stage-1 mesh is bad, check inputs in order:
    - Increase `nerf.trunc` (default `0.01`, try `0.02`)
    - Decrease `nerf.mesh_resolution`, must stay ≤ `trunc` (default `0.005`, try `0.003`)
    - Increase `texture_bake.texture_res` for sharper texture (default `2048`, try `4096`)
+
+4. **No zero surface** — If BundleSDF logs
+   `Surface level must be within volume data range`, inspect
+   `stage1_recon/resolved_config.yaml`.
+   - `nerf.far` must cover the masked object depth range during SDF training.
+   - The default config resolves `nerf.far: auto` from masked depth; if using a custom config, use `nerf.far: auto` or set an explicit larger value.
+   - This is separate from `texture_bake.zfar`, which only affects texture rendering after a mesh exists.
 
 If Stage-1 is good but final mesh is bad, the problem is in two-stage alignment:
 

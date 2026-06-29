@@ -336,6 +336,120 @@ def export_scaled_glb(
     out_path.write_bytes(bytes(out_buf))
 
 
+def export_anisotropic_scaled_glb(
+    glb_path: Path,
+    out_path: Path,
+    *,
+    orientation_matrix: NDArray[np.float64],
+    rotation_matrix: NDArray[np.float64],
+    scale_vec: NDArray[np.float64],
+    mesh_center: NDArray[np.float64],
+    translation: NDArray[np.float64],
+) -> None:
+    """Write an aligned GLB with local-axis anisotropic scale."""
+    data = bytearray(glb_path.read_bytes())
+    magic, version, _ = struct.unpack_from("<III", data, 0)
+    if magic != 0x46546C67:
+        raise ValueError(f"Bad GLB magic in {glb_path}")
+    c0_len, _ = struct.unpack_from("<II", data, 12)
+    gltf = json.loads(bytes(data[20: 20 + c0_len]).decode("utf-8").strip().rstrip("\x00"))
+    bin_chunk_offset = 20 + c0_len
+    bin_start = bin_chunk_offset + 8
+
+    scale_vec = np.asarray(scale_vec, dtype=np.float64).reshape(3)
+    mc = np.asarray(mesh_center, dtype=np.float64).reshape(1, 3)
+    t = np.asarray(translation, dtype=np.float64).reshape(1, 3)
+    linear = (
+        np.asarray(rotation_matrix, dtype=np.float64)
+        @ np.asarray(orientation_matrix, dtype=np.float64)
+        @ np.diag(scale_vec)
+    )
+    normal_linear = np.linalg.inv(linear).T
+
+    def _patch_vec3(accessor_idx: int, transform_fn) -> None:
+        acc = gltf["accessors"][accessor_idx]
+        if acc["type"] != "VEC3" or acc["componentType"] != 5126:
+            return
+        bv = gltf["bufferViews"][acc["bufferView"]]
+        byte_off = bin_start + bv.get("byteOffset", 0) + acc.get("byteOffset", 0)
+        stride = bv.get("byteStride", 12)
+        count = acc["count"]
+        pts = np.empty((count, 3), dtype=np.float32)
+        for i in range(count):
+            pts[i] = struct.unpack_from("<3f", data, byte_off + i * stride)
+        pts_out = transform_fn(pts.astype(np.float64)).astype(np.float32)
+        for i in range(count):
+            struct.pack_into("<3f", data, byte_off + i * stride, *pts_out[i].tolist())
+        acc["min"] = pts_out.min(axis=0).tolist()
+        acc["max"] = pts_out.max(axis=0).tolist()
+
+    def _xform_pos(pts):
+        return (linear @ (pts - mc).T).T + t
+
+    def _xform_nrm(nrm):
+        n = (normal_linear @ nrm.T).T
+        norms = np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
+        return n / norms
+
+    for mesh_obj in gltf.get("meshes", []):
+        for prim in mesh_obj.get("primitives", []):
+            attrs = prim.get("attributes", {})
+            if "POSITION" in attrs:
+                _patch_vec3(attrs["POSITION"], _xform_pos)
+            if "NORMAL" in attrs:
+                _patch_vec3(attrs["NORMAL"], _xform_nrm)
+
+    new_json = json.dumps(gltf, separators=(",", ":")).encode("utf-8")
+    new_json += b" " * ((4 - len(new_json) % 4) % 4)
+    out_buf = bytearray()
+    out_buf += struct.pack("<III", magic, version, 0)
+    out_buf += struct.pack("<II", len(new_json), 0x4E4F534A)
+    out_buf += new_json
+    out_buf += bytes(data[bin_chunk_offset:])
+    struct.pack_into("<I", out_buf, 8, len(out_buf))
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_bytes(bytes(out_buf))
+
+
+def _load_sam3d_orientation_prior(
+    glb_path: Path,
+    poses: Dict[str, NDArray[np.float64]],
+    stage1_end_frame: Optional[int],
+) -> Optional[Tuple[str, Path, NDArray[np.float64]]]:
+    """Return SAM3D object-to-world orientation prior for a Stage-1 source frame."""
+    source_frame = glb_path.parent.name
+    if not source_frame.isdigit():
+        print(f"[srt] SAM3D prior unavailable: cannot infer frame id from {glb_path.parent}")
+        return None
+    if stage1_end_frame is not None and int(source_frame) > int(stage1_end_frame):
+        print(
+            f"[srt] SAM3D prior skipped for {source_frame}: source frame is after "
+            f"stage1_end_frame={stage1_end_frame}"
+        )
+        return None
+    if source_frame not in poses:
+        print(f"[srt] SAM3D prior unavailable: source frame {source_frame} not in SfM poses")
+        return None
+
+    transform_path = glb_path.parent / "transform.json"
+    if not transform_path.exists():
+        print(f"[srt] SAM3D prior unavailable: {transform_path} not found")
+        return None
+
+    with open(transform_path) as f:
+        transform = json.load(f)
+    q_wxyz = transform.get("rotation")
+    if not isinstance(q_wxyz, list) or len(q_wxyz) != 4:
+        print(f"[srt] SAM3D prior unavailable: invalid rotation in {transform_path}")
+        return None
+
+    w, x, y, z = [float(v) for v in q_wxyz]
+    r_obj_to_src_cam = Rotation.from_quat([x, y, z, w]).as_matrix()
+    r_world_from_src_cam = np.linalg.inv(poses[source_frame])[:3, :3]
+    orient_prior = r_world_from_src_cam @ r_obj_to_src_cam
+    return source_frame, transform_path, orient_prior
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # View building
 # ─────────────────────────────────────────────────────────────────────────────
@@ -702,6 +816,7 @@ def optimize_srt(
     iou_weight: float = 2.0,
     depth_weight: float = 1.0,
     maxiter: int = 120,
+    use_bounds: bool = True,
 ) -> Dict[str, object]:
     rng = np.random.default_rng(0)
     log_s0 = math.log(max(float(s_init), 1e-12))
@@ -760,6 +875,9 @@ def optimize_srt(
                   (-rot_bound, rot_bound),
                   (-rot_bound, rot_bound)]
 
+    if not use_bounds:
+        bounds = None
+
     res = minimize(_obj, x0, method="Powell", bounds=bounds, options={"maxiter": maxiter})
     best_x = tracker["best_x"] if tracker["best_x"] is not None else res.x
 
@@ -785,6 +903,172 @@ def optimize_srt(
         "rotation_matrix": R_mat.tolist(),
         "total_loss": final_loss,
         "optimizer_nfev": int(res.nfev),
+    }
+
+
+def _transform_anisotropic_vertices(
+    vertices: NDArray[np.float64],
+    mesh_center: NDArray[np.float64],
+    scale_vec: NDArray[np.float64],
+    orient: NDArray[np.float64],
+    rotvec: NDArray[np.float64],
+    translation: NDArray[np.float64],
+) -> NDArray[np.float64]:
+    v = (vertices - mesh_center.reshape(1, 3)) * scale_vec.reshape(1, 3)
+    v = v @ orient.T
+    if np.any(rotvec != 0):
+        v = (Rotation.from_rotvec(rotvec).as_matrix() @ v.T).T
+    return v + translation.reshape(1, 3)
+
+
+def evaluate_anisotropic_srt(
+    vertices: NDArray[np.float64],
+    views: Sequence[FrameView],
+    *,
+    scale_vec: NDArray[np.float64],
+    orient: NDArray[np.float64],
+    rotvec: NDArray[np.float64],
+    translation: NDArray[np.float64],
+    mesh_center: NDArray[np.float64],
+    dt_clip: float = 20.0,
+    huber_delta: float = 3.0,
+    coverage_weight: float = 0.5,
+    iou_weight: float = 2.0,
+    depth_weight: float = 1.0,
+    max_pts: int = 25000,
+    max_boundary: int = 5000,
+    rng: Optional[np.random.Generator] = None,
+) -> float:
+    if rng is None:
+        rng = np.random.default_rng(0)
+
+    pts_w = _transform_anisotropic_vertices(vertices, mesh_center, scale_vec, orient, rotvec, translation)
+    pts_h = np.hstack([pts_w, np.ones((pts_w.shape[0], 1), dtype=np.float64)])
+
+    losses: List[float] = []
+    for view in views:
+        view_dt_clip = max(dt_clip, 0.1 * view.mask_extent) if view.mask_extent > 0 else dt_clip
+        pts_c = (view.world_to_cam @ pts_h.T).T[:, :3]
+        u, vv, inb = _project(pts_c, view.intrinsics)
+        if not np.any(inb):
+            losses.append(float(view_dt_clip))
+            continue
+
+        ui_all, vi_all = u[inb], vv[inb]
+        zi_all = pts_c[inb, 2].astype(np.float32)
+
+        ui, vi, zi = ui_all, vi_all, zi_all
+        if ui.size > max_pts:
+            idx = rng.choice(ui.size, size=max_pts, replace=False)
+            ui, vi, zi = ui[idx], vi[idx], zi[idx]
+
+        dt_vals = np.minimum(_bilinear(view.dt_to_fg, ui, vi), view_dt_clip)
+        view_loss = float(np.mean(_huber(dt_vals, huber_delta)))
+
+        if coverage_weight > 0 and view.mask_boundary_uv.shape[0] > 0 and ui.size > 0:
+            bnd = view.mask_boundary_uv
+            if bnd.shape[0] > max_boundary:
+                bnd = bnd[rng.choice(bnd.shape[0], size=max_boundary, replace=False)]
+            tree = cKDTree(np.stack([ui, vi], axis=1).astype(np.float64))
+            dists, _ = tree.query(bnd.astype(np.float64), k=1, workers=-1)
+            cov_dt = np.minimum(dists.astype(np.float32), view_dt_clip)
+            view_loss += coverage_weight * float(np.mean(_huber(cov_dt, huber_delta)))
+
+        if iou_weight > 0 and ui_all.size > 0:
+            view_loss += iou_weight * _raster_iou(ui_all, vi_all, view.mask_u8)
+
+        if depth_weight > 0 and view.depth is not None and ui.size > 0:
+            depth_obs = _bilinear(view.depth, ui, vi)
+            valid_depth = (depth_obs > 0.01) & np.isfinite(depth_obs)
+            if np.any(valid_depth):
+                focal = (view.intrinsics.fx + view.intrinsics.fy) * 0.5
+                depth_err_px = (
+                    np.abs(zi[valid_depth] - depth_obs[valid_depth])
+                    * focal
+                    / np.maximum(depth_obs[valid_depth], 0.01)
+                )
+                depth_err_px = np.minimum(depth_err_px, view_dt_clip)
+                view_loss += depth_weight * float(np.mean(_huber(depth_err_px, huber_delta)))
+
+        losses.append(view_loss)
+
+    return float(np.mean(losses))
+
+
+def optimize_anisotropic_srt(
+    vertices: NDArray[np.float64],
+    views: Sequence[FrameView],
+    orient: NDArray[np.float64],
+    mesh_center: NDArray[np.float64],
+    initial_result: Dict[str, object],
+    *,
+    iou_weight: float = 2.0,
+    depth_weight: float = 1.0,
+    maxiter: int = 120,
+) -> Dict[str, object]:
+    scale0 = np.asarray(initial_result["scale"], dtype=np.float64)
+    if scale0.ndim == 0:
+        scale0 = np.repeat(float(scale0), 3)
+    if scale0.shape != (3,):
+        raise ValueError(f"Expected scalar or 3-vector initial scale, got {scale0}")
+    translation0 = np.asarray(initial_result["translation"], dtype=np.float64)
+    rotvec0 = np.asarray(initial_result["rotvec"], dtype=np.float64)
+    x0 = np.concatenate([np.log(np.maximum(scale0, 1e-12)), translation0, rotvec0])
+
+    rng = np.random.default_rng(0)
+    tracker: Dict = {"n": 0, "best_loss": float("inf"), "best_x": None}
+
+    def _obj(x):
+        n = tracker["n"]
+        tracker["n"] = n + 1
+        with np.errstate(over="ignore", invalid="ignore"):
+            scale_vec = np.exp(x[:3])
+        if not np.all(np.isfinite(scale_vec)) or np.any(scale_vec <= 0):
+            return 1e9
+        translation = np.asarray(x[3:6], dtype=np.float64)
+        rotvec = np.asarray(x[6:9], dtype=np.float64)
+        loss = evaluate_anisotropic_srt(
+            vertices, views, scale_vec=scale_vec, orient=orient, rotvec=rotvec,
+            translation=translation, mesh_center=mesh_center, iou_weight=iou_weight,
+            depth_weight=depth_weight, rng=rng,
+        )
+        if loss < tracker["best_loss"]:
+            tracker["best_loss"] = loss
+            tracker["best_x"] = x.copy()
+        if n % 20 == 0:
+            rv_deg = float(np.linalg.norm(rotvec) * 180.0 / math.pi)
+            print(
+                f"  [opt_aniso_str] eval={n:04d} "
+                f"scales={scale_vec[0]:.4f},{scale_vec[1]:.4f},{scale_vec[2]:.4f} "
+                f"rv_deg={rv_deg:.2f} loss={loss:.6f} best={tracker['best_loss']:.6f}"
+            )
+        return loss
+
+    start_loss = _obj(x0.copy())
+    print(f"  [opt_aniso_str] start_loss={start_loss:.6f}")
+    res = minimize(_obj, x0, method="Powell", bounds=None, options={"maxiter": maxiter})
+    best_x = tracker["best_x"] if tracker["best_x"] is not None else res.x
+    scale_vec = np.exp(best_x[:3])
+    translation = np.asarray(best_x[3:6], dtype=np.float64)
+    rotvec = np.asarray(best_x[6:9], dtype=np.float64)
+    r_mat = Rotation.from_rotvec(rotvec).as_matrix()
+    final_loss = evaluate_anisotropic_srt(
+        vertices, views, scale_vec=scale_vec, orient=orient, rotvec=rotvec,
+        translation=translation, mesh_center=mesh_center, iou_weight=iou_weight,
+        depth_weight=depth_weight, rng=rng,
+    )
+    return {
+        "scale": scale_vec.tolist(),
+        "translation": translation.tolist(),
+        "rotvec": rotvec.tolist(),
+        "rotvec_degrees": float(np.linalg.norm(rotvec) * 180.0 / math.pi),
+        "rotation_matrix": r_mat.tolist(),
+        "total_loss": final_loss,
+        "best_tracked_loss": tracker["best_loss"],
+        "start_loss": start_loss,
+        "optimizer_nfev": int(res.nfev),
+        "optimizer_success": bool(res.success),
+        "optimizer_message": str(res.message),
     }
 
 
@@ -821,6 +1105,54 @@ def _write_debug_overlays(
         h, w = view.mask_u8.shape[:2]
 
         # Base: image if available, else dark canvas
+        if images_dir is not None:
+            img_path = images_dir / f"{view.frame_name}.jpg"
+            canvas = cv2.imread(str(img_path)) if img_path.exists() else None
+        else:
+            canvas = None
+        if canvas is None:
+            canvas = np.full((h, w, 3), 40, dtype=np.uint8)
+
+        binary = (view.mask_u8 > 127).astype(np.uint8) * 255
+        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(canvas, contours, -1, (0, 0, 255), 2)
+
+        ui, vi_vis = u[inb], vv[inb]
+        if ui.size > MAX_PTS:
+            idx = rng.choice(ui.size, MAX_PTS, replace=False)
+            ui, vi_vis = ui[idx], vi_vis[idx]
+        for uu, vvi in zip(ui, vi_vis):
+            cv2.circle(canvas, (int(uu), int(vvi)), 1, (255, 255, 0), -1)
+
+        cv2.putText(canvas, f"{view.frame_name}  N={int(ui.size)}",
+                    (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+        cv2.imwrite(str(debug_dir / f"{view.frame_name}.jpg"), canvas)
+
+
+def _write_anisotropic_debug_overlays(
+    vertices: NDArray[np.float64],
+    views: Sequence[FrameView],
+    orient: NDArray[np.float64],
+    rotvec: NDArray[np.float64],
+    scale_vec: NDArray[np.float64],
+    translation: NDArray[np.float64],
+    mesh_center: NDArray[np.float64],
+    output_dir: Path,
+    images_dir: Optional[Path] = None,
+) -> None:
+    rng = np.random.default_rng(0)
+    debug_dir = output_dir / "debug"
+    debug_dir.mkdir(parents=True, exist_ok=True)
+
+    pts_w = _transform_anisotropic_vertices(vertices, mesh_center, scale_vec, orient, rotvec, translation)
+    pts_h = np.hstack([pts_w, np.ones((pts_w.shape[0], 1))])
+
+    MAX_PTS = 30000
+    for view in views:
+        pts_c = (view.world_to_cam @ pts_h.T).T[:, :3]
+        u, vv, inb = _project(pts_c, view.intrinsics)
+        h, w = view.mask_u8.shape[:2]
+
         if images_dir is not None:
             img_path = images_dir / f"{view.frame_name}.jpg"
             canvas = cv2.imread(str(img_path)) if img_path.exists() else None
@@ -938,30 +1270,68 @@ def estimate_srt_for_frame(
     print(f"[srt] Initial scale estimate: {s_init:.4f}")
     print(f"[srt] Estimated object center: {object_center}")
 
-    # Axis search
-    print("[srt] Running axis orientation search …")
-    top_orients = run_axis_search(vertices, views, mesh_center, object_center, s_init)
-
-    # Optimise for each top orientation, pick best
+    prior = _load_sam3d_orientation_prior(glb_path, poses, stage1_end_frame)
     best_result: Optional[dict] = None
-    best_loss = float("inf")
     best_orient: Optional[NDArray] = None
+    best_key: Optional[str] = None
+    is_anisotropic = False
 
-    for rank, (key, orient_mat, _) in enumerate(top_orients):
-        print(f"\n[srt] Optimising orientation #{rank + 1}: {key}")
-        result = optimize_srt(
-            vertices, views, orient_mat, mesh_center, object_center, s_init,
-            mode=mode, iou_weight=iou_weight, depth_weight=depth_weight,
-            maxiter=maxiter,
+    if prior is not None:
+        source_frame, transform_path, orient_prior = prior
+        print(
+            f"[srt] Using SAM3D/SfM orientation prior from frame {source_frame} "
+            f"({transform_path.name})"
         )
-        print(f"  → loss={result['total_loss']:.6f}  scale={result['scale']:.4f}")
-        if result["total_loss"] < best_loss:
-            best_loss = result["total_loss"]
-            best_result = result
-            best_orient = orient_mat
+        uniform_result = optimize_srt(
+            vertices, views, orient_prior, mesh_center, object_center, s_init,
+            mode="str", iou_weight=iou_weight, depth_weight=depth_weight,
+            maxiter=maxiter, use_bounds=False,
+        )
+        print(
+            f"[srt] uniform STR prior result: loss={uniform_result['total_loss']:.6f} "
+            f"scale={float(uniform_result['scale']):.4f}"
+        )
+        best_result = optimize_anisotropic_srt(
+            vertices, views, orient_prior, mesh_center, uniform_result,
+            iou_weight=iou_weight, depth_weight=depth_weight, maxiter=maxiter,
+        )
+        best_result["uniform_init_result"] = uniform_result
+        best_result["orientation_source"] = "sam3d_transform_world"
+        best_result["source_frame"] = source_frame
+        best_result["transform_path"] = str(transform_path)
+        best_result["srt_strategy"] = "sam3d_prior_uniform_str_then_anisotropic_str"
+        best_result["scale_axes"] = "mesh_local"
+        best_orient = orient_prior
+        best_key = "sam3d_transform_world"
+        is_anisotropic = True
+        print(
+            f"[srt] anisotropic STR result: loss={best_result['total_loss']:.6f} "
+            f"scale={best_result['scale']}"
+        )
+    else:
+        # Fallback for Stage-2 source frames or older outputs without SAM3D transforms.
+        print("[srt] Running axis orientation search …")
+        top_orients = run_axis_search(vertices, views, mesh_center, object_center, s_init)
+
+        best_loss = float("inf")
+        for rank, (key, orient_mat, _) in enumerate(top_orients):
+            print(f"\n[srt] Optimising orientation #{rank + 1}: {key}")
+            result = optimize_srt(
+                vertices, views, orient_mat, mesh_center, object_center, s_init,
+                mode=mode, iou_weight=iou_weight, depth_weight=depth_weight,
+                maxiter=maxiter,
+            )
+            print(f"  → loss={result['total_loss']:.6f}  scale={result['scale']:.4f}")
+            if result["total_loss"] < best_loss:
+                best_loss = result["total_loss"]
+                best_result = result
+                best_orient = orient_mat
+                best_key = key
 
     assert best_result is not None
-    best_result["orientation_key"] = top_orients[0][0]
+    assert best_orient is not None
+    assert best_key is not None
+    best_result["orientation_key"] = best_key
     best_result["mesh_center"] = mesh_center.tolist()
     best_result["num_views"] = len(views)
 
@@ -973,27 +1343,47 @@ def estimate_srt_for_frame(
 
     # Export scaled GLB
     out_glb = output_dir / "output_scaled.glb"
-    export_scaled_glb(
-        glb_path, out_glb,
-        orientation_matrix=best_orient,
-        rotation_matrix=np.array(best_result["rotation_matrix"]),
-        scale=best_result["scale"],
-        mesh_center=mesh_center,
-        translation=np.array(best_result["translation"]),
-    )
+    if is_anisotropic:
+        export_anisotropic_scaled_glb(
+            glb_path, out_glb,
+            orientation_matrix=best_orient,
+            rotation_matrix=np.array(best_result["rotation_matrix"]),
+            scale_vec=np.array(best_result["scale"], dtype=np.float64),
+            mesh_center=mesh_center,
+            translation=np.array(best_result["translation"]),
+        )
+    else:
+        export_scaled_glb(
+            glb_path, out_glb,
+            orientation_matrix=best_orient,
+            rotation_matrix=np.array(best_result["rotation_matrix"]),
+            scale=best_result["scale"],
+            mesh_center=mesh_center,
+            translation=np.array(best_result["translation"]),
+        )
     print(f"[srt] Scaled mesh saved → {out_glb}")
 
     # Debug overlays
     if debug:
         images_dir = job_dir / "left"
-        _write_debug_overlays(
-            vertices, views, best_orient,
-            np.array(best_result["rotvec"]),
-            best_result["scale"],
-            np.array(best_result["translation"]),
-            mesh_center, output_dir,
-            images_dir=images_dir if images_dir.is_dir() else None,
-        )
+        if is_anisotropic:
+            _write_anisotropic_debug_overlays(
+                vertices, views, best_orient,
+                np.array(best_result["rotvec"]),
+                np.array(best_result["scale"], dtype=np.float64),
+                np.array(best_result["translation"]),
+                mesh_center, output_dir,
+                images_dir=images_dir if images_dir.is_dir() else None,
+            )
+        else:
+            _write_debug_overlays(
+                vertices, views, best_orient,
+                np.array(best_result["rotvec"]),
+                best_result["scale"],
+                np.array(best_result["translation"]),
+                mesh_center, output_dir,
+                images_dir=images_dir if images_dir.is_dir() else None,
+            )
         print(f"[srt] Debug overlays → {output_dir / 'debug'}/")
 
     return best_result
