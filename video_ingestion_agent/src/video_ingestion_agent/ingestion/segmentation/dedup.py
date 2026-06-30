@@ -160,7 +160,8 @@ class ClipDeduplicator:
         fallback = self._merge_heuristic(prev, clip)
 
         try:
-            raw = self.model.generate_text(conversation, max_new_tokens=512, temperature=0.0)
+            # Headroom for a <think> trace before the merge JSON (reasoning models).
+            raw = self.model.generate_text(conversation, max_new_tokens=4096, temperature=0.0)
             data = _parse_llm_json(raw)
         except Exception:
             logger.warning(

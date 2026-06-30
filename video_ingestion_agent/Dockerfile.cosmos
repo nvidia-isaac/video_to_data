@@ -1,0 +1,72 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Dockerfile for Video Ingestion Agent — Cosmos3 Reasoner variant.
+#
+# Serves only the Cosmos3-Nano Reasoner (VLM) tower via vLLM (`--hf-overrides`,
+# added automatically by scripts/serve.py); the diffusion generator tower is
+# never loaded (~8B-tier footprint).
+#
+# Single venv: vllm-cosmos3 pulls torch 2.11+cu130 and transformers 5.x; the
+# pipeline is installed on top of that (transformers 5.x works for SigLIP via
+# the get_*_features pooler_output handling in the code). vLLM server and the
+# pipeline therefore share one environment.
+#
+# Validated: python 3.13 / torch 2.11.0+cu130 / vllm 0.21.0 / vllm-cosmos3 0.1.0.
+# Weights are NOT bundled (downloaded at runtime via HF_TOKEN).
+#
+# Build: docker build -f Dockerfile.cosmos -t video_ingestion_agent:cosmos3 .
+# For a CUDA 12.8 node (unvalidated): --build-arg CUDA_VERSION=12.8.1
+#   --build-arg TORCH_BACKEND=cu128 --build-arg VLLM_VERSION=0.19.1
+
+ARG CUDA_VERSION=13.0.1
+ARG BASE_IMAGE=nvidia/cuda:${CUDA_VERSION}-cudnn-devel-ubuntu24.04
+FROM ${BASE_IMAGE}
+
+# Same deps as the default Dockerfile, plus ninja-build: vllm-cosmos3 shells out
+# to `ninja` for kernel JIT at engine init, else EngineCore dies with
+# `FileNotFoundError: 'ninja'` during model load.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3 python3-venv python3-pip python3-dev python-is-python3 \
+        build-essential ninja-build \
+        ffmpeg \
+        ca-certificates curl git \
+        libgl1 libglib2.0-0 libxcb1 libsm6 libxext6 libxrender1 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Triton needs ptxas to JIT vLLM's CUDA kernels.
+ENV TRITON_PTXAS_PATH=/usr/local/cuda/bin/ptxas
+
+# uv for fast installs.
+RUN pip install --no-cache-dir --break-system-packages uv
+
+WORKDIR /workspace/video_ingestion_agent
+
+ARG VLLM_VERSION=0.21.0
+ARG TORCH_BACKEND=cu130
+ARG VLLM_COSMOS3_GIT=git+https://github.com/NVIDIA/cosmos-framework.git#subdirectory=packages/vllm-cosmos3
+
+# 1. Cosmos vLLM stack FIRST — pins torch 2.11+cu130 + transformers 5.x.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv venv .venv --python 3.13 --seed --managed-python && \
+    VIRTUAL_ENV=.venv uv pip install --torch-backend=${TORCH_BACKEND} \
+        "vllm==${VLLM_VERSION}" \
+        "vllm-cosmos3 @ ${VLLM_COSMOS3_GIT}" \
+        openai
+
+# 2. Pipeline package ON TOP — its deps (transformers>=4.40, torch>=2.0) are
+#    already satisfied by step 1, so the cu130 torch / transformers 5.x are kept.
+#    No `[server]` extra: vLLM is already provided by vllm-cosmos3.
+COPY pyproject.toml uv.lock README.md ./
+COPY src/ src/
+RUN --mount=type=cache,target=/root/.cache/uv \
+    VIRTUAL_ENV=.venv uv pip install --torch-backend=${TORCH_BACKEND} \
+        -e ".[local,benchmark,webapp]"
+
+ENV VIRTUAL_ENV="/workspace/video_ingestion_agent/.venv"
+ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
+
+# Remaining project files (scripts, configs, osmo_workflows, ...).
+# .venv/ is in .dockerignore so the COPY won't clobber the venv.
+COPY . /workspace/video_ingestion_agent/

@@ -127,7 +127,8 @@ class EntityExtractor:
             model = self._get_model()
             response = model.generate_text(
                 conversation=conversation,
-                max_new_tokens=2048,
+                # Headroom for a <think> trace before the JSON (reasoning models).
+                max_new_tokens=4096,
                 temperature=0.0,
             )
 

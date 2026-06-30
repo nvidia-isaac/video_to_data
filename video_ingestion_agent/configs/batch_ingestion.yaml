@@ -9,8 +9,7 @@
 # Model Configuration
 # ============================================================
 models:
-  # Visual language model for segmentation and verification
-  vlm_model: "Qwen/Qwen3-VL-8B-Instruct"
+  vlm_model: "Qwen/Qwen3-VL-8B-Instruct" # or "nvidia/Cosmos3-Nano"
   vlm_backend: "vllm"  # "local", "api", or "vllm"
   vlm_fps: 4             # Frame sampling rate for VLM
 
@@ -30,7 +29,10 @@ models:
   # vLLM backend settings (only used when vlm_backend: "vllm")
   vllm_url: "http://localhost:8000/v1"
   vllm_local_media: true  # Use file:// URLs (fastest, requires same machine)
-  vllm_tp_size: 8         # Tensor parallel across 8 GPUs (OSMO H100 node)
+  # Set to the node's GPU count: one shared vLLM server serves all workers, so
+  # it must span every GPU. (DP replicas would beat TP for an 8B model, but
+  # serve.py only wires --tensor-parallel-size.)
+  vllm_tp_size: 8
 
 # ============================================================
 # Paths

@@ -210,7 +210,8 @@ class VisualExtractor:
                 caption = vlm_model._model.generate_from_frames(
                     frames=images,
                     prompt=self.vlm_prompt,
-                    max_new_tokens=512,
+                    # Headroom for a <think> trace before the caption (reasoning models).
+                    max_new_tokens=2048,
                     temperature=0.0,
                 )
             else:
@@ -226,7 +227,8 @@ class VisualExtractor:
                 ]
                 caption = vlm_model.generate_text(
                     conversation=conversation,
-                    max_new_tokens=512,
+                    # Headroom for a <think> trace before the caption (reasoning models).
+                    max_new_tokens=2048,
                     temperature=0.0,
                 )
 
@@ -288,6 +290,9 @@ class VisualExtractor:
                 # Extract embeddings
                 with torch.no_grad():
                     outputs = self.embedding_model.get_image_features(**inputs)
+                    # transformers >=5 returns a ModelOutput, not a tensor
+                    if hasattr(outputs, "pooler_output"):
+                        outputs = outputs.pooler_output
                     # Normalize embeddings
                     batch_embeddings = outputs / outputs.norm(dim=-1, keepdim=True)
                     batch_embeddings = batch_embeddings.cpu().numpy()
@@ -326,6 +331,9 @@ class VisualExtractor:
 
         with torch.no_grad():
             outputs = self.embedding_model.get_image_features(**inputs)
+            # transformers >=5 returns a ModelOutput, not a tensor
+            if hasattr(outputs, "pooler_output"):
+                outputs = outputs.pooler_output
             embedding = outputs / outputs.norm(dim=-1, keepdim=True)
             embedding = embedding.cpu().numpy()[0]
 

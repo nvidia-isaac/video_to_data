@@ -98,6 +98,8 @@ def start_server(
     parsed = urlparse(api_url)
     port = parsed.port or 8000
 
+    is_cosmos3 = "cosmos3" in model_name.lower()
+
     # Build command
     cmd = [
         "vllm",
@@ -113,9 +115,28 @@ def start_server(
         str(gpu_memory_utilization),
         "--media-io-kwargs",
         '{"video": {"num_frames": -1}}',
-        "--mm-processor-kwargs",
-        '{"min_pixels": 262144, "max_pixels": 8388608}',
     ]
+
+    if is_cosmos3:
+        # Load only the Reasoner (VLM) tower of the Cosmos3 Omni model
+        # (requires the vllm-cosmos3 plugin).
+        cmd.extend(
+            [
+                "--hf-overrides",
+                '{"architectures": ["Cosmos3ReasonerForConditionalGeneration"]}',
+                "--mm-encoder-tp-mode",
+                "data",
+                "--async-scheduling",
+            ]
+        )
+    else:
+        # Qwen3-VL processor knobs (invalid for Cosmos3).
+        cmd.extend(
+            [
+                "--mm-processor-kwargs",
+                '{"min_pixels": 262144, "max_pixels": 8388608}',
+            ]
+        )
 
     if tensor_parallel_size > 1:
         cmd.extend(["--tensor-parallel-size", str(tensor_parallel_size)])
