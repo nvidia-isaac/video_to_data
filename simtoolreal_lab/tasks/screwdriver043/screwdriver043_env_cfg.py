@@ -22,19 +22,26 @@ from ..screwdriver.screwdriver_env_cfg import ScrewdriverEnvCfg
 SCREWDRIVER_043_USD = f"{ASSETS}/043_screwdriver_aligned_sdf/043_screwdriver_aligned_sdf.usd"
 # screw with an SDF collider so the CONCAVE cross slot is preserved (convexDecomp fills it; 'none'
 # removes collision) -- lets the tip physically drop into the cross.
-SCREW_NEW_USD = f"{ASSETS}/screw_new_sdf/screw_new_sdf.usd"
+# DEFAULT = the 60%-WIDER cross slot (screw_new_wideslot_sdf): the original slot was already well-
+# matched, but the wider slot + a slightly-lower tip seat (clearance -0.002 below) lets the perfect
+# trajectory tighten to ~-166deg. (Original narrow slot: screw_new_sdf / screw_assembly043.)
+SCREW_NEW_USD = f"{ASSETS}/screw_new_wideslot_sdf/screw_new_wideslot_sdf.usd"
 THREAD_TEST_USD = f"{ASSETS}/thread_test/thread_test.usd"
-# physical articulation: 50% thread_test FIXED base + cross-slot screw on a revolute joint (SDF)
-SCREW_ASM_043_USD = f"{ASSETS}/screw_assembly043/screw_assembly043.usd"
+# physical articulation: 50% thread_test FIXED base + WIDER cross-slot screw on a revolute joint (SDF)
+SCREW_ASM_043_USD = f"{ASSETS}/screw_assembly043_wideslot/screw_assembly043_wideslot.usd"
 
 
 @configclass
 class Screwdriver043EnvCfg(ScrewdriverEnvCfg):
+    # cross-slot (Phillips) goal generator: minimal-rotation tip-down + nearest-arm (mod 90deg) roll snap
+    goal_generator_module: str = "simtoolreal_lab.tasks.screwdriver043.tighten_traj043"
+
     # tool = 043 (phillips) screwdriver  (mirror the 044 object_cfg, just swap the USD)
     object_cfg: RigidObjectCfg = RigidObjectCfg(
         prim_path="/World/envs/env_.*/Object",
         spawn=sim_utils.UsdFileCfg(
             usd_path=SCREWDRIVER_043_USD,
+            scale=(1.2, 1.2, 1.2),   # +20% bigger tip; screw/slot go +50% so the slot/tip ratio improves
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 solver_position_iteration_count=8, solver_velocity_iteration_count=0,
                 max_angular_velocity=1000.0, max_depenetration_velocity=1000.0,
@@ -49,38 +56,43 @@ class Screwdriver043EnvCfg(ScrewdriverEnvCfg):
         prim_path="/World/envs/env_.*/Screw",
         spawn=sim_utils.UsdFileCfg(
             usd_path=SCREW_NEW_USD,
-            scale=(0.00664, 0.00664, 0.00664),   # 60% smaller than the 0.0166 first guess
+            scale=(0.012948, 0.012948, 0.012948),   # +50% bigger (was 0.008632) -> bigger slot, tip fits w/ clearance
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
         ),
-        # this mesh's origin IS its shaft axis (xz-centered). The thread_test is shrunk 50% below,
-        # which moves its hole (mesh-x~5.9) to world x = 0.0475 + 5.9*0.0025 = 0.0623 and lowers the
-        # bar top to z = 0.53 + 10mm*0.0025 = 0.555. So pos.xy = the new hole (0.0623, 0), z puts the
-        # head on the new bar top (head bottom @ 0.555); rot +90deg about x stands it head-up.
+        # this mesh's origin IS its shaft axis (xz-centered). The thread_test (scale 0.004875) puts its
+        # hole (mesh-x~5.9) at world x = 0.0475 + 5.9*0.004875 = 0.0763 and the bar top at
+        # z = 0.53 + 10mm*0.004875 = 0.57875. pos.xy = the hole (0.0763, 0); z seats the head bottom
+        # (mesh-y 0.07) on the bar top (0.5778 + 0.07*0.012948 = 0.57875); rot +90deg about x stands it up.
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(0.0623, 0.0, 0.5545),
+            pos=(0.0763, 0.0, 0.5778),
             rot=(0.70710678, 0.70710678, 0.0, 0.0),
         ),
     )
 
-    # thread_test shrunk 50% (scale 0.005 -> 0.0025): bar ~15.75 x 4 x 2.5 cm; base still on the
-    # table (z=0.53, mesh origin at the bottom face); bar top now z=0.555. The screw above tracks it.
+    # thread_test scale 0.004875 (50% then +30% then +50%): bar ~30 x 7.8 x 4.9 cm; base on the table
+    # (z=0.53, mesh origin at the bottom face); bar top now z=0.57875. The screw above tracks it.
     thread_test_cfg: RigidObjectCfg = RigidObjectCfg(
         prim_path="/World/envs/env_.*/ThreadTest",
         spawn=sim_utils.UsdFileCfg(
             usd_path=THREAD_TEST_USD,
-            scale=(0.0025, 0.0025, 0.0025),
+            scale=(0.004875, 0.004875, 0.004875),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0475, 0.0, 0.53)),
     )
 
-    # cross-slot geometry for the goal generator. The new screw's CROSS slot sits ~4.5mm above the
-    # screw root (root @ z=0.5545, slot @ z~0.559); tip target a hair into the slot. (The inherited
-    # flat-screw offset/clearance assume a much larger screw and would drive the tip below the bar.)
-    screw_head_offset_nominal: tuple = (0.0, 0.0, 0.0045)   # head/slot rel. to screw root (slot @ z~0.559)
-    # tip target = head + clearance; the cross slot is shallow (~1mm, bottom z=0.5588), so the tip must
-    # seat IN the channels (tip target ~0.5584), NOT below them. Validated depth for real torque transfer.
-    screw_contact_clearance: float = -0.0006
+    # cross-slot geometry for the goal generator. With the +50% screw, the CROSS slot sits ~9mm above
+    # the screw root (root @ z=0.5778, slot @ z~0.587). Slot is now ~2mm deep + wider -> the (only +20%)
+    # tip fits with clearance, so the first contact is gentle (no wedge/sudden snap).
+    screw_head_offset_nominal: tuple = (0.0, 0.0, 0.0091)   # head/slot rel. to screw root (slot @ z~0.587)
+    # tip target = head + clearance. The screw head is flat-ish out to r~5mm and the tip taper is wide,
+    # so the tip first TOUCHES at the head top (z~0.5884); driving it deeper (the old -0.0012 -> tip_z
+    # 0.5857) forced it ~2.3mm INTO the solid head -> the sudden-rotation-at-first-contact. Seat the
+    # tip AT the slot level instead (tip_z ~0.5875): clearance +0.0006 (head 0.5869 + 0.0006).
+    # seat the tip ~2.6mm LOWER than the slot level (was +0.0006): the 60%-wider slot's walls are out
+    # of reach at the normal depth, but a little deeper the tip catches them (slot tapers). -0.002 gives
+    # a clean ~-166deg tighten under the perfect trajectory; -0.003 a touch more; deeper over-seats.
+    screw_contact_clearance: float = -0.002
 
     # PHYSICAL screw articulation for --physical_screw (cross-slot screw revolute-jointed to the 50%
     # thread_test base). Same pattern as the 044 screw_asm_cfg, swapping in the 043 assembly.

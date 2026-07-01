@@ -1,0 +1,20 @@
+# Build context filter for osmo/Dockerfile (COPY . -> /home/cning/simtoolreal_isaaclab).
+# Keep: code, .git (enables runtime `git pull`), assets/usd + assets/urdf (~262 MB).
+
+# Source meshes used only by convert_object.py to GENERATE usd/ — not loaded at runtime (~5.1 GB).
+assets/obj
+assets/ycb
+
+# Huge dirs NOT needed in the runtime image (datasets = 520G of BC HDF5s;
+# Isaac-GR00T = 13G repo that runs in its own venv, not this image).
+datasets
+Isaac-GR00T
+
+# Generated / large / irrelevant.
+logs
+videos
+osmo
+*_result.txt
+verify_assets.txt
+**/__pycache__
+*.pyc

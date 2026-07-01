@@ -25,6 +25,10 @@ parser.add_argument(
     help="enable domain randomization (default: on; use --no-domain_randomization to disable)",
 )
 parser.add_argument("--run_name", type=str, default=None, help="override the rl_games run name (must start with '00_' for SAPG)")
+parser.add_argument("--checkpoint", type=str, default=None, help="resume/continue training from this rl_games checkpoint")
+parser.add_argument("--resume_mode", choices=["resume", "weights"], default="weights",
+                    help="'weights' = load model+normalizers into a FRESH train loop (robust; fresh optimizer/reset); "
+                         "'resume' = full state incl. optimizer/epoch (can flake with ResetNeeded on the Isaac Lab wrapper)")
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 
@@ -89,6 +93,8 @@ def main():
     agent_cfg["params"]["seed"] = args_cli.seed
     if args_cli.run_name is not None:
         agent_cfg["params"]["config"]["name"] = args_cli.run_name
+    if args_cli.checkpoint is not None:               # resume/continue from a checkpoint
+        print(f"[train] resuming from checkpoint: {args_cli.checkpoint}", flush=True)
 
     # auto-scale SAPG structure to the env count (matches original ratios at any scale):
     # 6 blocks, minibatch = batch/4. Also keeps OOM-fallback env counts consistent.
@@ -108,7 +114,11 @@ def main():
     runner = Runner(IsaacAlgoObserver())
     runner.load(agent_cfg)
     runner.reset()
-    runner.run({"train": True, "play": False})
+    # the SAPG fork's run_train restores from args["checkpoint"]; checkpoint_load_mode 'weights' loads
+    # the model + obs/value normalizers into a fresh train loop (fresh optimizer + proper initial reset),
+    # 'resume' loads the full state. None/'' checkpoint -> fresh run (no restore).
+    runner.run({"train": True, "play": False,
+                "checkpoint": args_cli.checkpoint, "checkpoint_load_mode": args_cli.resume_mode})
 
     env.close()
     simulation_app.close()

@@ -58,7 +58,7 @@ parser.add_argument("--screwdriver_usd", type=str, default=f"{ASSETS_USD}/044_sc
 parser.add_argument("--per_env_cam", action="store_true", help="attach ONE TiledCamera per sub-env and record a clip per env in a SINGLE rollout (no re-render). Logs render FPS. Camera framing uses --cam_eye/--cam_lookat (env-local).")
 parser.add_argument("--cam_width", type=int, default=1280, help="per-env camera width (default = current single-cam res)")
 parser.add_argument("--cam_height", type=int, default=720, help="per-env camera height")
-parser.add_argument("--per_env_cam_fps", type=int, default=30, help="playback fps for the per-env clips")
+parser.add_argument("--per_env_cam_fps", type=int, default=60, help="playback fps for the per-env clips. 60 = real-time (matches the 60 Hz control rate); 30 = 2x slow-motion.")
 parser.add_argument("--success_tolerance", type=float, default=None, help="(demo) override success_tolerance. Default 0.01 -> kp_tol=0.015m. e.g. 0.005 -> kp_tol=0.0075m (2x stricter: tip must get closer, hovering above the slot no longer counts).")
 parser.add_argument("--per_env_cam_record", type=str, default="", help="comma list of env indices to WRITE clips for (default empty = all envs). All cameras still render (keeps the rollout RNG-identical), but only these envs are encoded -- use to cheaply reproduce one env's clip.")
 parser.add_argument("--screw_turns", action="store_true", help="(screwdriver env) the screw turns + sinks as the screwdriver tightens it (kinematic coupling: screw tracks the driver's rotation about its axis while the tip is engaged).")
@@ -66,6 +66,8 @@ parser.add_argument("--physical_screw", action="store_true", help="(screwdriver 
 parser.add_argument("--screw_damping", type=float, default=0.0005, help="(physical screw) revolute-joint velocity damping (stops free coasting). Keep small (contact torque is tiny).")
 parser.add_argument("--screw_friction", type=float, default=0.0005, help="(physical screw) revolute-joint static/Coulomb friction (mimics thread friction).")
 parser.add_argument("--screw_armature", type=float, default=0.0, help="(physical screw) revolute-joint added inertia.")
+parser.add_argument("--shrink_screw", type=float, default=1.0, help="(screwdriver env) scale the screw + thread_test (and the physical assembly) by this factor, repositioning the screw to stay seated. e.g. 0.75 = 25%% smaller. 1.0 = unchanged.")
+parser.add_argument("--wide_slot", action="store_true", help="(screwdriver043 env) use the 60%%-WIDER cross-slot screw (screw_new_wideslot_sdf + screw_assembly043_wideslot): same screw size, only the slot is wider so the tip seats more easily.")
 parser.add_argument("--responsive_goals", action="store_true", help="(screwdriver env) closed-loop goal: follows the screw's current rotation, re-inserts from the top if the tip is out of the slot, rotates if it's in. Replaces the fixed tighten_traj (kept as backup). Runs full --steps (no success-reset).")
 parser.add_argument("--seed", type=int, default=0, help="seed for reproducible env resets across runs")
 parser.add_argument("--zero_action", action="store_true", help="DEBUG: ignore policy, apply zero actions (isolate physics stability)")
@@ -177,6 +179,20 @@ def main():
             env_cfg.screw_joint_armature = args_cli.screw_armature
         elif args_cli.screw_turns:
             env_cfg.screw_turns_with_driver = True
+        if args_cli.shrink_screw != 1.0:
+            # shrink the screw + thread_test (and the physical assembly) by F, keeping the thread_test
+            # anchor fixed so the screw stays seated; head_offset/clearance/goal-target scale too.
+            F = args_cli.shrink_screw
+            sc = env_cfg.screw_cfg.spawn; sc.scale = tuple(s * F for s in sc.scale)
+            tt = env_cfg.thread_test_cfg.spawn; tt.scale = tuple(s * F for s in tt.scale)
+            ttp = env_cfg.thread_test_cfg.init_state.pos
+            sp = env_cfg.screw_cfg.init_state.pos
+            env_cfg.screw_cfg.init_state.pos = tuple(ttp[i] + F * (sp[i] - ttp[i]) for i in range(3))
+            env_cfg.screw_head_offset_nominal = tuple(h * F for h in env_cfg.screw_head_offset_nominal)
+            env_cfg.screw_contact_clearance *= F
+            env_cfg.screw_asm_cfg.spawn.scale = (F, F, F)   # physical assembly (revolute screw) shrinks too
+            print(f"[deploy] shrink_screw={F}: screw scale={sc.scale}, thread_test scale={tt.scale}, "
+                  f"screw pos={env_cfg.screw_cfg.init_state.pos}", flush=True)
     elif args_cli.env == "screwdriver043":
         # Screwdriver043Env: 043 PHILLIPS screwdriver + a CROSS-slot screw in the (50%) thread_test.
         # Same env logic as ScrewdriverEnv, but the per-env goals come from the CROSS-slot generator
@@ -184,6 +200,10 @@ def main():
         from simtoolreal_lab.tasks.screwdriver043.screwdriver043_env_cfg import Screwdriver043EnvCfg
         env_cfg = Screwdriver043EnvCfg()
         args_cli.task = "Isaac-SimToolReal-Screwdriver043-Direct-v0"
+        if args_cli.wide_slot:   # 60%-wider cross slot (same screw size/pos -> head_offset/clearance unchanged)
+            env_cfg.screw_cfg.spawn.usd_path = f"{ASSETS_USD}/screw_new_wideslot_sdf/screw_new_wideslot_sdf.usd"
+            env_cfg.screw_asm_cfg.spawn.usd_path = f"{ASSETS_USD}/screw_assembly043_wideslot/screw_assembly043_wideslot.usd"
+            print("[deploy] WIDE SLOT: 60%-wider cross slot (screw_new_wideslot_sdf + screw_assembly043_wideslot)", flush=True)
         env_cfg.randomize_layout = args_cli.randomize_layout
         env_cfg.pretrained_object_scale = (2.5, 0.75, 0.75)  # aligned-043 == aligned-044 extent
         # base placeholder trajectory (74 goals); per-env CROSS goals override under randomize_layout
@@ -201,6 +221,20 @@ def main():
             env_cfg.screw_joint_armature = args_cli.screw_armature
         elif args_cli.screw_turns:
             env_cfg.screw_turns_with_driver = True  # kinematic coupling: cross screw turns with driver
+        if args_cli.shrink_screw != 1.0:
+            # scale the screw + thread_test (and the physical assembly) by F (>1 = ENLARGE), keeping
+            # the thread_test anchor fixed so the screw stays seated; head_offset/clearance scale too.
+            F = args_cli.shrink_screw
+            sc = env_cfg.screw_cfg.spawn; sc.scale = tuple(s * F for s in sc.scale)
+            tt = env_cfg.thread_test_cfg.spawn; tt.scale = tuple(s * F for s in tt.scale)
+            ttp = env_cfg.thread_test_cfg.init_state.pos
+            sp = env_cfg.screw_cfg.init_state.pos
+            env_cfg.screw_cfg.init_state.pos = tuple(ttp[i] + F * (sp[i] - ttp[i]) for i in range(3))
+            env_cfg.screw_head_offset_nominal = tuple(h * F for h in env_cfg.screw_head_offset_nominal)
+            env_cfg.screw_contact_clearance *= F
+            env_cfg.screw_asm_cfg.spawn.scale = (F, F, F)
+            print(f"[deploy] shrink_screw={F}: screw scale={sc.scale}, thread_test scale={tt.scale}, "
+                  f"screw pos={env_cfg.screw_cfg.init_state.pos}", flush=True)
     else:
         env_cfg = SimToolRealEnvCfg()
         # select the DexToolBench object + its trajectory task (default claw_hammer / swing_down)
@@ -228,6 +262,14 @@ def main():
     env_cfg.target_volume_min = TARGET_VOLUME_MIN
     env_cfg.target_volume_max = TARGET_VOLUME_MAX
 
+    # ORIGINAL eval/demo robot init (dextoolbench/eval_interactive.py), applied to ALL envs +
+    # both numeric eval and --demo: startArmHigher (hand starts ABOVE the table) + NO arm/finger
+    # reset DOF noise -- otherwise the lower default pose + 0.1 rad noise clips the arm into the table.
+    env_cfg.reset_dof_pos_noise_arm = 0.0
+    env_cfg.reset_dof_pos_noise_fingers = 0.0
+    env_cfg.robot_cfg.init_state.joint_pos["iiwa14_joint_2"] = 1.571 - math.radians(10)  # startArmHigher
+    env_cfg.robot_cfg.init_state.joint_pos["iiwa14_joint_4"] = 1.376 + math.radians(10)  # startArmHigher
+
     if args_cli.demo:
         # Reproduce eval_interactive.py exactly: fixed object init from the trajectory start_pose
         # (env loads it when demo_mode), fixed-size-keypoint success @ evalSuccessTolerance, no noise.
@@ -237,16 +279,12 @@ def main():
         env_cfg.use_fixed_goal_trajectory = True
         env_cfg.success_tolerance = args_cli.success_tolerance if args_cli.success_tolerance is not None else 0.01  # evalSuccessTolerance (-> kp_tol = tol*1.5)
         env_cfg.success_steps = 1          # successSteps
-        # deterministic init: no reset noise
+        # deterministic demo init: also zero the OBJECT position + dof-vel noise (fixed object init).
+        # (arm/finger dof noise + startArmHigher are already applied above for all eval/demo runs.)
         env_cfg.reset_position_noise_x = 0.0
         env_cfg.reset_position_noise_y = 0.0
         env_cfg.reset_position_noise_z = 0.0
-        env_cfg.reset_dof_pos_noise_arm = 0.0
-        env_cfg.reset_dof_pos_noise_fingers = 0.0
         env_cfg.reset_dof_vel_noise = 0.0
-        # startArmHigher: arm joint_2 -= 10deg, joint_4 += 10deg (absolute, to avoid double-apply)
-        env_cfg.robot_cfg.init_state.joint_pos["iiwa14_joint_2"] = 1.571 - math.radians(10)
-        env_cfg.robot_cfg.init_state.joint_pos["iiwa14_joint_4"] = 1.376 + math.radians(10)
         # episode ends after all trajectory goals reached (max_consecutive_successes = #goals)
         with open(env_cfg.trajectory_path) as _f:
             env_cfg.max_consecutive_successes = len(_json.load(_f)["goals"])
@@ -481,6 +519,12 @@ def main():
     phys = getattr(base, "screw_asm", None) is not None
     # physical screw -> rank by how much the screw was turned (net rotation); else by goals reached
     rank_metric = screw_total.abs() if phys else peak_succ
+    if phys:   # distribution of NET screw rotation across envs (compare across friction levels)
+        _deg = screw_total.abs() * 180 / _mm.pi
+        emit(f"SCREW_DIST: mean={_deg.mean().item():.0f}deg median={_deg.median().item():.0f}deg "
+             f"max={_deg.max().item():.0f}deg | n>45={int((_deg>45).sum().item())} "
+             f"n>90={int((_deg>90).sum().item())} n>180={int((_deg>180).sum().item())} "
+             f"n>360={int((_deg>360).sum().item())} of {base.num_envs}")
     topk = torch.topk(rank_metric, k)
     emit(f"TOP{k}_ENVS (by {'screw rotation' if phys else 'goals reached'}):")
     for rank, (val, idx) in enumerate(zip(topk.values.tolist(), topk.indices.tolist())):

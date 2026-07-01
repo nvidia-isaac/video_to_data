@@ -18,7 +18,7 @@ from scipy.spatial.transform import Rotation as R, Slerp
 # aligned-043 local geometry (identical to the aligned-044 convention)
 TOOL = np.array([1.0, 0.0, 0.0])   # origin -> tip
 BLADE = np.array([0.0, 0.0, 1.0])  # one tip cross-arm (the other is +90deg; 4-fold symmetric)
-TIP = np.array([0.134, 0.0, 0.0])  # body-origin -> tip
+TIP = np.array([0.1608, 0.0, 0.0])  # body-origin -> tip (0.134 * 1.2: screwdriver spawned at scale 1.2)
 
 N_LIFT, N_REORIENT, N_OVER, N_LOWER, N_TURN = 10, 18, 12, 10, 24
 T = N_LIFT + N_REORIENT + N_OVER + N_LOWER + N_TURN  # 74 (matches the flat generator)

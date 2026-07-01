@@ -4,8 +4,22 @@ videos/
 *_result.txt
 verify_assets.txt
 
+# osmo related
+osmo/
+
 # Large assets (meshes / USDs) — regenerate via convert_object.py or download separately
 assets/
+
+# Large datasets / checkpoints / caches — NEVER commit (these ballooned .git to 400GB+ when an
+# auto `git add -A` (e.g. VS Code Copilot Chat) staged them). Keep them out of git entirely.
+datasets/
+*.hdf5
+*.pt
+*.pth
+*.dat
+**/.framecache_*/
+*_lerobot/
+dinov3_*.pth
 
 # Python caches
 __pycache__/

@@ -1,0 +1,4 @@
+[submodule "Isaac-GR00T"]
+	path = Isaac-GR00T
+	url = git@github.com:TritiumR/Isaac-GR00T-V2D.git
+	branch = simtoolreal
