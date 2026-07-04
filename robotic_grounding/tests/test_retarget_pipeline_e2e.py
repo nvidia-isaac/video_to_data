@@ -398,7 +398,7 @@ class TestRetargetPipelineE2E(unittest.TestCase):
             [
                 str(self.scripts_dir / "rsl_rl/dummy_agent.py"),
                 "--task",
-                "Sharpa-V2P-v0-Play",
+                "Sharpa-V2D-v0-Play",
                 "--motion_file",
                 str(seq_dirs[0]),
                 "--num_envs",

@@ -163,7 +163,7 @@ def _inject_scene_objects(
         for name, height, radius, translate in cylinders:
             pos = np.array([float(x.strip()) for x in translate.split(",")])
 
-            # Transform from V2P frame to G1 viewer frame
+            # Transform from V2D frame to G1 viewer frame
             if support_transform is not None:
                 src_mid = support_transform["src_midpoint"]
                 r_yaw = Rotation.from_euler("z", support_transform["delta_yaw"])

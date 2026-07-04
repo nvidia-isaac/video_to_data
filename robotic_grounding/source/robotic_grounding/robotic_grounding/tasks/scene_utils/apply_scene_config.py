@@ -31,7 +31,7 @@ from robotic_grounding.tasks.scene_utils.scene_config import (
     ObjectConfig,
     SceneConfig,
 )
-from robotic_grounding.tasks.v2p.mdp.actions import (
+from robotic_grounding.tasks.v2d.mdp.actions import (
     VirtualArticulatedObjectControlCfg,
     VirtualRigidObjectControlCfg,
 )
@@ -412,7 +412,7 @@ def apply_scene_config(
 ) -> Any:
     """Apply scene config: objects + robot + commands + contacts.
 
-    Supports both dual-hands (V2P) and whole-body envs. Skips commands/contacts
+    Supports both dual-hands (V2D) and whole-body envs. Skips commands/contacts
     if the env_cfg doesn't have the required fields (e.g. scene viewer).
     """
     apply_scene_objects(env_cfg, scene_config)
@@ -423,7 +423,7 @@ def apply_scene_config(
     )
     is_whole_body = hasattr(env_cfg, "commands") and hasattr(env_cfg.commands, "motion")
 
-    # V2P dual-hands: spawn robot + configure commands/contacts
+    # V2D dual-hands: spawn robot + configure commands/contacts
     if is_dual_hands:
         if scene_config.robot_name:
             apply_scene_robot(

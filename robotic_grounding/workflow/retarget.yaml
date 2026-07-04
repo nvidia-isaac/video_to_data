@@ -339,7 +339,7 @@ workflow:
                 REL_SEQ=${SEQ_DIR#${PROCESSED_DIR}/}
                 OUTPUT_SEQ_DIR=${OUTPUT}/{{dataset}}_processed/${REL_SEQ}
                 timeout --signal=KILL 300 python scripts/rsl_rl/dummy_agent.py \
-                  --task Sharpa-V2P-v0-Play \
+                  --task Sharpa-V2D-v0-Play \
                   --motion_file ${SEQ_DIR} \
                   --num_envs 1 --headless \
                   --record_video --output_dir ${TMP_VID} --video_length 300 \

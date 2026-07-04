@@ -3,7 +3,7 @@
 """MuJoCo-side qpos assembly + scoring for the G1 whole-body planner.
 
 Owns the constants and helpers that turn the model's chunked-AR output
-(`planned_qpos`) plus per-side V2P finger data into a single
+(`planned_qpos`) plus per-side V2D finger data into a single
 `(T, model.nq)` qpos trajectory: body-joint name → qpos-index mapping,
 finger-joint resolution, root-component pinning, and an FK-based wrist
 tracking error used to score heading-offset candidates.
@@ -107,7 +107,7 @@ def wrist_ee_error_from_qpos(
     ref_data: dict,
     model: mujoco.MjModel,
 ) -> float:
-    """Mean L2 distance from FK'd wrist_yaw_link bodies to V2P wrist targets.
+    """Mean L2 distance from FK'd wrist_yaw_link bodies to V2D wrist targets.
 
     Used to score heading-offset candidates during the local search.
     """

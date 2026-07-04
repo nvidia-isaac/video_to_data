@@ -73,6 +73,11 @@ LOADED_SAVE_DIR = HUMAN_MOTION_DATA_DIR / "hot3d" / "hot3d_loaded"
 HOT3D_MESH_DIR = MESHES_DIR / "hot3d"
 HOT3D_URDF_DIR = MESHES_DIR.parent / "urdfs" / "hot3d"
 HOT3D_FPS = 30.0
+# Lift the whole reconstructed scene so the support surface (table) sits this many
+# metres above z=0 instead of at the floor. Matches TACO-style elevated tables and
+# keeps the support disk above the ground threshold (a table at z=0 gets filtered as
+# the ground plane, leaving no support surface).
+HOT3D_TABLE_HEIGHT_M = 1.0
 
 # Quest3 world frame is Y-UP; Aria world frame is Z-UP (our pipeline convention).
 # Rotate 90° around X to bring Quest3 data into Z-UP:
@@ -320,7 +325,7 @@ class Hot3DDatasetLoader(DatasetLoaderBase):
         # The PCA MANO layers need the assets dir from --mano_model_dir, which is
         # only available once run() sets self._args. Build them lazily on first
         # use (see _ensure_mano_layers) instead of hardcoding a baked-in path —
-        # the OSMO load fetches MANO from swift at runtime.
+        # the MANO model dir is provided at runtime via --mano_model_dir.
         self._right_mano_layer: ManoLayer | None = None
         self._left_mano_layer: ManoLayer | None = None
         self._right_components: np.ndarray | None = None
@@ -454,7 +459,8 @@ class Hot3DDatasetLoader(DatasetLoaderBase):
         # We need the scene centre BEFORE applying yaw so we can use it to determine
         # the per-sequence yaw normalisation (direction from headset to workspace).
         #
-        # Z: min object z  →  table surface at z=0 after scene-offset subtraction.
+        # Z: min object z  →  table surface lifted to HOT3D_TABLE_HEIGHT_M after
+        #    scene-offset subtraction (see scene_offset z component below).
         # XY: mean of all object + wrist positions  →  interaction near xy origin.
         all_positions_Rc: list[np.ndarray] = []
         all_obj_z_Rc: list[float] = []
@@ -501,8 +507,15 @@ class Hot3DDatasetLoader(DatasetLoaderBase):
         # Since R_yaw is a pure Z-rotation, z is unchanged: z_table stays the same.
         # Only the xy centroid rotates:  scene_center_xy_Rt = R_yaw[:2,:2] @ scene_center_xy.
         scene_center_xy_Rt = (R_yaw[:2, :2] @ scene_center_xy).astype(np.float32)
+        # Subtract (z_table - H) so the table maps to +H (HOT3D_TABLE_HEIGHT_M), not 0:
+        #   z_new = z - (z_table - H)  =>  min object z (table) -> H.
         scene_offset = np.array(
-            [scene_center_xy_Rt[0], scene_center_xy_Rt[1], z_table], dtype=np.float32
+            [
+                scene_center_xy_Rt[0],
+                scene_center_xy_Rt[1],
+                z_table - HOT3D_TABLE_HEIGHT_M,
+            ],
+            dtype=np.float32,
         )
 
         # Cache for load_object_data

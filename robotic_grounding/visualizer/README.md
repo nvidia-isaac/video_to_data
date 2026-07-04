@@ -8,6 +8,7 @@ No external Python dependencies — stdlib only.
 
 ---
 
+<!-- INTERNAL-ONLY:START — remove before public release (TODO(public-release)) -->
 ## Downloading Dataset Recordings
 
 Recordings are stored in OSMO (`isaac/v2d_{name}_retarget_exp_200`). The sync
@@ -34,7 +35,9 @@ Requires the `osmo` CLI to be on PATH and authenticated:
 ```bash
 osmo login https://us-west-2-aws.osmo.nvidia.com/
 ```
+
 ---
+<!-- INTERNAL-ONLY:END -->
 
 ## Quick Start
 
@@ -49,7 +52,7 @@ Options:
 python serve.py --port 9000
 python serve.py --host 127.0.0.1
 python serve.py --data-dir /path/to/external/data   # override data directory
-python serve.py --html-dir /path/to/v2d_arctic_retarget_exp_200   # serve a single html output dir directly
+python serve.py --html-dir /path/to/v2d_arctic_retarget   # serve a single html output dir directly
 ```
 
 `--html-dir` accepts a directory that has `recordings/` and `viser-client/` **directly inside** (i.e. the output of `vis_retargeted.py`). It can be repeated to mount multiple directories alongside the standard datasets. Each mount appears as an additional dataset in the sidebar.
@@ -62,13 +65,13 @@ The server auto-discovers any directory matching `v2d_{name}_retarget*/`:
 
 ```
 <data-dir>/
-  v2d_arctic_retarget_exp_200/
+  v2d_arctic_retarget/
     arctic_html/
       recordings/
         *.viser          ← 3D playback file (required)
         *.mp4            ← camera feed video (optional)
       viser-client/      ← static viser SPA (copy from any existing dataset)
-  v2d_taco_retarget_exp_200/
+  v2d_taco_retarget/
     ...
 ```
 
@@ -97,7 +100,7 @@ python scripts/retarget/vis_retargeted.py \
     --dataset arctic \
     --save_html \
     --save_mp4 \
-    --html_dir /workspace/video_to_data/robotic_grounding/visualizer/datasets/v2d_arctic_retarget_exp_200/arctic_html
+    --html_dir /workspace/video_to_data/robotic_grounding/visualizer/datasets/v2d_arctic_retarget/arctic_html
 
 # Or a single sequence:
 python scripts/retarget/vis_retargeted.py \
@@ -105,7 +108,7 @@ python scripts/retarget/vis_retargeted.py \
     --sequence_id arctic_s01_scissors_use_01 \
     --save_html \
     --save_mp4 \
-    --html_dir /workspace/video_to_data/robotic_grounding/visualizer/datasets/v2d_arctic_retarget_exp_200/arctic_html
+    --html_dir /workspace/video_to_data/robotic_grounding/visualizer/datasets/v2d_arctic_retarget/arctic_html
 ```
 
 `--save_html` records the animation to a `.viser` file and copies the viser JS
@@ -152,6 +155,7 @@ python robotic_grounding/visualizer/serve.py \
 
 ---
 
+<!-- INTERNAL-ONLY:START — remove before public release (TODO(public-release)) -->
 ## Current Datasets
 
 | Dataset | Sequences | Avg .viser size |
@@ -168,6 +172,7 @@ python robotic_grounding/visualizer/serve.py \
 > only happens once per week.
 
 ---
+<!-- INTERNAL-ONLY:END -->
 
 ## Technical Notes
 

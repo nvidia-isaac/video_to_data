@@ -593,6 +593,36 @@ fetch('/api/datasets')
 class Handler(BaseHTTPRequestHandler):
     """HTTP request handler for the gallery server."""
 
+    # Byte substitutions applied in-memory to the viser-client JS bundle to fix
+    # two upstream viser bugs that make the scene go permanently blank on loop
+    # (most visibly when support surfaces / objects are present). Patched at
+    # serve time so the fix survives bundle regeneration and bypasses any
+    # immutable-cached old bundle the browser stored.
+    #
+    # Bug 1 — removeSceneNode crash: ``u.children`` is undefined for leaf nodes.
+    _VISER_BUG = b"u&&u.children.forEach(a)"
+    _VISER_FIX = b"u&&u.children&&u.children.forEach(a)"
+
+    # Bug 2 — SetPosition/SetOrientation preserve "waitForMakeObject"
+    # poseUpdateState when a FrameMessage precedes them on the same frame, so
+    # the position-update useFrame (which only runs on "needsUpdate") never
+    # fires and the node never moves after the loop reset. Fix: always return
+    # "needsUpdate" from the SetPosition/SetOrientation handlers.
+    _VISER_BUG2 = (
+        b'case"SetOrientationMessage":{const v=t.useSceneTree.getState()[y.name]'
+        b',m=v?.poseUpdateState!=="waitForMakeObject"?"needsUpdate":v?.poseUpdateState||"needsUpdate"'
+        b";return{targetNode:y.name,updates:{wxyz:y.wxyz,poseUpdateState:m}}}"
+        b'case"SetPositionMessage":{const v=t.useSceneTree.getState()[y.name]'
+        b',m=v?.poseUpdateState!=="waitForMakeObject"?"needsUpdate":v?.poseUpdateState||"needsUpdate"'
+        b";return{targetNode:y.name,updates:{position:y.position,poseUpdateState:m}}}"
+    )
+    _VISER_FIX2 = (
+        b'case"SetOrientationMessage":'
+        b'return{targetNode:y.name,updates:{wxyz:y.wxyz,poseUpdateState:"needsUpdate"}};'
+        b'case"SetPositionMessage":'
+        b'return{targetNode:y.name,updates:{position:y.position,poseUpdateState:"needsUpdate"}};'
+    )
+
     def do_GET(self) -> None:
         """Serve gallery HTML, dataset API, and static files."""
         raw_path = unquote(urlparse(self.path).path).lstrip("/")
@@ -645,10 +675,38 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send_file(self, file_path: Path) -> None:
         mime = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+        name = file_path.name
+
+        # Viser-client JS bundles are patched in-memory (see _VISER_BUG*). Serve
+        # them no-cache + ETag so browsers revalidate and pick up the fix even
+        # if they previously cached the unpatched immutable bundle. Without this
+        # the scene goes permanently blank when the recording loops.
+        if (
+            name.endswith(".js")
+            and "viser-client" in str(file_path)
+            and re.search(r"-[A-Za-z0-9]{8,}\.js$", name)
+        ):
+            data = file_path.read_bytes()
+            data = data.replace(self._VISER_BUG, self._VISER_FIX)
+            data = data.replace(self._VISER_BUG2, self._VISER_FIX2)
+            etag = '"' + hashlib.md5(data, usedforsecurity=False).hexdigest() + '"'
+            if self.headers.get("If-None-Match") == etag:
+                self.send_response(304)
+                self.send_header("ETag", etag)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", mime)
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("ETag", etag)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+
         size = file_path.stat().st_size
 
         # Immutable assets (hash in name) get a long cache lifetime
-        name = file_path.name
         if re.search(r"-[A-Za-z0-9]{8,}\.(js|css|wasm)$", name):
             cache = "public, max-age=31536000, immutable"
         elif file_path.suffix in (".viser", ".mp4", ".hdr", ".ttf"):

@@ -23,15 +23,8 @@ the raw dataset. Robot meshes (g1, sharpa_wave, …) remain committed under
 
 ## Why swift URLs (not OSMO datasets)
 
-Both workflows publish via swift `url:` outputs rather than versioned OSMO
-`dataset:` outputs:
-
-- The OSMO **`isaac` dataset bucket is read-only** (`dataset:` writes are
-  rejected), so workflows write to the team's swift `AUTH_team-isaac` path
-  instead.
-- It keeps the two stages **consistent** — the reconstruction load workflow
-  (`loaded_output_url`) and the RG retarget workflow (`output_url`) both write
-  swift prefixes with the same `…/{dataset}/…` layout.
+OSMO's versioned `dataset:` output type has been deprecated, so both
+workflows publish via swift `url:` outputs instead.
 
 **Tradeoff — no automatic per-run versioning.** A swift `url:` output overwrites
 the prefix in place; there's no rollback-by-version like an OSMO dataset gave.
@@ -111,3 +104,33 @@ The downloaded layout matches what the training scripts expect — the
 > `sync_css_data.py` currently knows `loaded` / `processed` / `support_surfaces`;
 > for `urdfs` / `html` / `videos` use the `aws s3 sync` form above until a
 > `--component` is added.
+
+## Uploading object assets to CSS
+
+The reconstruction `v2d_{dataset}_load` workflow fetches per-dataset object
+assets (rigid URDFs + meshes) from swift at runtime, so the loader image stays
+lean. After regenerating or adding meshes, push them up with
+`upload_object_assets.py`, which walks the committed
+`assets/{urdfs,meshes}/{dataset}` trees and `aws s3 sync`s them to
+`…/{dataset}/object_assets/{urdfs,meshes}/{dataset}/` (preserving the
+`../../meshes/...` sibling refs inside the URDFs).
+
+```bash
+source scripts/setup_css_env.sh
+
+# Upload one dataset's object assets (URDFs + meshes)
+python scripts/upload_object_assets.py --dataset taco
+
+# Preview without writing
+python scripts/upload_object_assets.py --dataset taco --dry-run
+```
+
+Only works for datasets whose meshes are committed (`arctic`, `taco`, `oakink2`,
+`hot3d`). `h2o` / `grab` / `dexycb` keep object meshes inside the raw dataset on
+CSS, fetched by the load workflow's `mesh_dir` pointing at the raw tree.
+
+To pull the same assets back down locally (the inverse of upload), use:
+
+```bash
+python scripts/fetch_object_assets.py --dataset taco
+```

@@ -85,12 +85,12 @@ from robotic_grounding.assets.policies.grasp import (  # noqa: E402, PLC0415
     G1GraspPolicy,
     GraspPolicyCfg,
 )
-from robotic_grounding.tasks.v2p_whole_body import (  # noqa: E402, PLC0415
+from robotic_grounding.tasks.v2d_whole_body import (  # noqa: E402, PLC0415
     G1_SONIC_JOINT_NAMES,
     G1SonicEEEnvCfg,
     G1SonicEnvCfg,
 )
-from robotic_grounding.tasks.v2p_whole_body.mdp.actions import (  # noqa: E402, PLC0415
+from robotic_grounding.tasks.v2d_whole_body.mdp.actions import (  # noqa: E402, PLC0415
     SONICActionCfg,
     SONICActionType,
     SonicPolicy,

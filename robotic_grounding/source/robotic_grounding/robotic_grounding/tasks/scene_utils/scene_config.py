@@ -12,7 +12,7 @@ import pyarrow.parquet as pq
 from scipy.spatial.transform import Rotation as R
 
 from robotic_grounding.assets import ASSET_DIR
-from robotic_grounding.assets.object_registry import get_object_spec
+from robotic_grounding.assets.object_registry import is_articulated
 
 HUMAN_MOTION_DATA_DIR = os.path.join(ASSET_DIR, "human_motion_data")
 URDF_DIR = os.path.join(ASSET_DIR, "urdfs")
@@ -116,9 +116,17 @@ class SceneConfig:
         if not Path(motion_file).is_absolute():
             motion_file = str(Path.cwd() / motion_file)
 
+        # A relative path may be given against the data root — including the full
+        # ".../sequence_id=.../robot_name=..." partition form.
+        if not Path(motion_file).exists() and not Path(raw_path).is_absolute():
+            under_root = os.path.join(HUMAN_MOTION_DATA_DIR, raw_path.strip("/"))
+            if Path(under_root).exists():
+                motion_file = under_root
+
+        # Bare dataset/dataset_retargeted/sequence_id/robot_name shorthand.
         if not Path(motion_file).exists():
             parts = raw_path.strip("/").split("/")
-            if len(parts) == 4:
+            if len(parts) == 4 and not any("=" in p for p in parts):
                 dataset, dataset_retargeted, seq_id, robot = parts
                 motion_file = os.path.join(
                     HUMAN_MOTION_DATA_DIR,
@@ -172,16 +180,14 @@ class SceneConfig:
             data.get("safe_object_name", [None])[0]
             or data.get("object_name", [None])[0]
         )
-        if obj_name:
-            spec = get_object_spec(obj_name)
-            if spec and spec.urdf_path:
-                body_names = (
-                    data.get("safe_object_body_names", [[]])[0]
-                    or data.get("object_body_names", [[]])[0]
-                    or []
-                )
-                if body_names != ["object"]:
-                    return "articulated"
+        if is_articulated(obj_name):
+            body_names = (
+                data.get("safe_object_body_names", [[]])[0]
+                or data.get("object_body_names", [[]])[0]
+                or []
+            )
+            if body_names != ["object"]:
+                return "articulated"
         return "rigid"
 
     @classmethod
@@ -194,7 +200,7 @@ class SceneConfig:
         For rigid objects (TACO/OakInk2), builds one ObjectConfig per body.
         """
         if object_type == "articulated":
-            return [cls._build_articulated_object(data)]
+            return [cls._build_articulated_object(data, motion_file)]
 
         body_names = (
             data.get("safe_object_body_names", [[]])[0]
@@ -214,22 +220,14 @@ class SceneConfig:
 
         for i, body_name in enumerate(body_names):
 
-            # Try registry first (for first body with known object name)
-            if i == 0 and obj_name:
-                spec = get_object_spec(obj_name)
-                if spec and (spec.rigid_urdf_path or spec.usd_path):
-                    asset_path = spec.rigid_urdf_path or spec.usd_path
-                    obj = ObjectConfig(
-                        name=body_name,
-                        usd_path=asset_path,
-                        scale=spec.scale,
-                    )
-                    _load_body_pose(data, obj, i)
-                    objects.append(obj)
-                    continue
-
             # Resolve from parquet urdf_paths
             urdf_path = urdf_paths[i] if i < len(urdf_paths) else None
+
+            # Re-root a baked /data/object_assets path under the motion file's dataset root
+            if urdf_path and not Path(urdf_path).exists():
+                urdf_path = (
+                    cls._reroot_object_asset(urdf_path, dataset_root) or urdf_path
+                )
 
             # Fallback: derive URDF path from mesh path by convention
             # e.g. meshes/hot3d/12345.glb -> urdfs/hot3d/12345_rigid.urdf
@@ -319,6 +317,26 @@ class SceneConfig:
         return None
 
     @staticmethod
+    def _reroot_object_asset(path: str | None, dataset_root: Path | None) -> str | None:
+        """Re-root a path with an ``object_assets`` segment under the dataset root.
+
+        Matches ``object_assets`` as a path *component*, not a substring, so a
+        baked absolute path (``/data/object_assets/...``), a dataset-relative
+        path (``arctic/object_assets/...``) and a bare-relative path
+        (``object_assets/...``) all re-root the same way — and it stays correct
+        if the stored paths later become relative. Returns the re-rooted path
+        only if it exists.
+        """
+        if not path or dataset_root is None:
+            return None
+        parts = Path(path).parts
+        if "object_assets" not in parts:
+            return None
+        idx = parts.index("object_assets")
+        candidate = Path(dataset_root).joinpath(*parts[idx:])
+        return str(candidate) if candidate.exists() else None
+
+    @staticmethod
     def _validate_assets(data: dict, motion_file: str) -> None:
         """Check that required asset files exist before building the scene.
 
@@ -343,7 +361,7 @@ class SceneConfig:
 
         for p in urdf_paths:
             if p and not Path(p).exists():
-                resolved = (
+                resolved = SceneConfig._reroot_object_asset(p, dataset_root) or (
                     SceneConfig._find_asset_in_dataset(Path(p).name, dataset_root)
                     if dataset_root
                     else None
@@ -352,7 +370,13 @@ class SceneConfig:
                     missing.append(f"URDF: {p}")
         for p in mesh_paths:
             if p and not Path(p).exists():
-                missing.append(f"Mesh: {p}")
+                resolved = SceneConfig._reroot_object_asset(p, dataset_root) or (
+                    SceneConfig._find_asset_in_dataset(Path(p).name, dataset_root)
+                    if dataset_root
+                    else None
+                )
+                if not resolved:
+                    missing.append(f"Mesh: {p}")
 
         if missing:
             raise FileNotFoundError(
@@ -361,9 +385,11 @@ class SceneConfig:
                 + "\n\nFix: python scripts/generate_rigid_urdfs.py --dataset <name>"
             )
 
-    @staticmethod
-    def _build_articulated_object(data: dict) -> ArticulatedObjectConfig:
-        """Build an articulated object from parquet data and the object registry."""
+    @classmethod
+    def _build_articulated_object(
+        cls, data: dict, motion_file: str = ""
+    ) -> ArticulatedObjectConfig:
+        """Build an articulated object, resolving its URDF from the dataset assets."""
         obj_name = (
             data.get("safe_object_name", [None])[0]
             or data.get("object_name", [None])[0]
@@ -371,13 +397,49 @@ class SceneConfig:
         if not obj_name:
             raise ValueError("Could not discover object_name from parquet")
 
-        spec = get_object_spec(obj_name)
-        if not spec or not spec.urdf_path:
-            raise ValueError(f"No urdf_path for '{obj_name}' — add to object registry")
+        mesh_paths = data.get("object_mesh_paths", [[]])[0] or []
+        dataset_root = (
+            cls._dataset_root_from_motion_file(motion_file) if motion_file else None
+        )
+        urdf_path = (
+            cls._articulated_urdf_from_mesh_path(mesh_paths[0]) if mesh_paths else None
+        )
+        if urdf_path and not Path(urdf_path).exists():
+            urdf_path = cls._reroot_object_asset(urdf_path, dataset_root) or urdf_path
+        if not urdf_path or not Path(urdf_path).exists():
+            raise FileNotFoundError(
+                f"Articulated URDF for '{obj_name}' not found (derived: {urdf_path}). "
+                "Expected object_assets/urdfs/<dataset>/<object>.urdf."
+            )
 
-        obj = ArticulatedObjectConfig(name=obj_name, urdf_path=spec.urdf_path)
+        obj = ArticulatedObjectConfig(name=obj_name, urdf_path=urdf_path)
         _load_articulated_poses(data, obj)
         return obj
+
+    @staticmethod
+    def _articulated_urdf_from_mesh_path(mesh_path: str | None) -> str | None:
+        """Map a baked object mesh path to its sibling articulated URDF path.
+
+        ``.../object_assets/meshes/<ds>/<obj>/x.obj`` maps to
+        ``.../object_assets/urdfs/<ds>/<obj>.urdf``.
+
+        Anchors on the ``object_assets`` path component rather than a fixed
+        parent depth, so it derives the same URDF whether the mesh path is
+        absolute or relative. Returns None if the path doesn't carry the
+        expected ``object_assets/meshes/<ds>/<obj>/`` layout (a shorter/relative
+        path no longer raises IndexError).
+        """
+        if not mesh_path:
+            return None
+        parts = Path(mesh_path).parts
+        if "object_assets" not in parts:
+            return None
+        idx = parts.index("object_assets")
+        tail = parts[idx + 1 :]  # (meshes, <ds>, <obj>, <file>)
+        if len(tail) < 4 or tail[0] != "meshes":
+            return None
+        base = Path(*parts[: idx + 1])  # up to and including object_assets
+        return str(base / "urdfs" / tail[1] / f"{tail[2]}.urdf")
 
     @staticmethod
     def _build_fixed_objects(motion_file: str) -> list[ObjectConfig]:

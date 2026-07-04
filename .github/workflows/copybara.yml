@@ -1,0 +1,93 @@
+name: Copybara mirror to public
+
+# Mirrors this internal repo to github.com/nvidia-isaac/video_to_data,
+# stripping CSS/PDX scripts and internal-only docs (see copy.bara.sky).
+#
+# First-ever push must be run once manually with --init-history:
+#   java -jar copybara_deploy.jar migrate copy.bara.sky default main --init-history
+# This workflow is manual-only: trigger it from the Actions tab or with
+#   gh workflow run copybara.yml
+# Optionally pass a source ref (defaults to main).
+#
+# Every run requires a mirror message (no default), passed straight through
+# to Copybara's --force-message flag (see copy.bara.sky's header).
+#
+# Auth model: the internal origin is read via the built-in GITHUB_TOKEN
+# (url.insteadOf rewrite below); COPYBARA_SSH_KEY is a deploy key with WRITE
+# access on the public repo, used only for the destination push.
+
+on:
+  workflow_dispatch:
+    inputs:
+      workflow:
+        description: Copybara workflow to run (default -> public, smoke -> scratch repo)
+        required: false
+        default: default
+        type: choice
+        options:
+          - default
+          - smoke
+      source_ref:
+        description: Origin ref to mirror
+        required: false
+        default: main
+      message:
+        description: Mirror commit message (required, no default)
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: copybara-mirror
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Fetch and verify Copybara jar
+        env:
+          VER: v20260629
+          SHA256: 0e6e61c9252155f5b083d940817881fdf66779daff4745651b8e218ba32cf957
+        run: |
+          curl -sSL -o copybara_deploy.jar \
+            "https://github.com/google/copybara/releases/download/${VER}/copybara_deploy.jar"
+          echo "${SHA256}  copybara_deploy.jar" | sha256sum -c -
+
+      - name: Configure git auth
+        env:
+          # Deploy key with WRITE access on the public repo (destination push).
+          COPYBARA_SSH_KEY: ${{ secrets.COPYBARA_SSH_KEY }}
+        run: |
+          # SSH key -> public repo push.
+          mkdir -p ~/.ssh
+          echo "${COPYBARA_SSH_KEY}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          git config --global user.name "NVIDIA V2D Team"
+          git config --global user.email "michalin@nvidia.com"
+          # GITHUB_TOKEN -> internal origin read (rewrite its SSH URL to HTTPS).
+          git config --global \
+            url."https://x-access-token:${{ github.token }}@github.com/nvidia-isaac/video_to_data_internal".insteadOf \
+            "git@github.com:nvidia-isaac/video_to_data_internal"
+
+      - name: Run Copybara
+        env:
+          CB_WORKFLOW: ${{ inputs.workflow }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+          MESSAGE: ${{ inputs.message }}
+        run: |
+          if [ -z "${MESSAGE// /}" ]; then
+            echo "::error::message input must not be empty" >&2
+            exit 1
+          fi
+          java -jar copybara_deploy.jar migrate copy.bara.sky "${CB_WORKFLOW}" "${SOURCE_REF}" \
+            --force-message "${MESSAGE}"

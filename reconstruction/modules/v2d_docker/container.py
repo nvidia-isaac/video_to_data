@@ -65,7 +65,7 @@ def run_in_container(
 
     cmd = ["docker", "run", "--rm"]
     if gpus:
-        cmd += ["--gpus", "all"]
+        cmd += ["--runtime=nvidia", "--gpus", "all"]
     cmd += [
         "--user", f"{os.getuid()}:{os.getgid()}",
         "-e", "HOME=/tmp",

@@ -57,12 +57,6 @@ parser.add_argument(
     help="Run in real-time, if possible.",
 )
 parser.add_argument(
-    "--eval_episodes",
-    type=int,
-    default=None,
-    help="If set, collect this many completed episodes, print aggregate stats, then exit.",
-)
-parser.add_argument(
     "--scene_config",
     type=str,
     default=None,
@@ -73,18 +67,6 @@ parser.add_argument(
     type=str,
     default=None,
     help="Motion file to load.",
-)
-parser.add_argument(
-    "--motion_start_frame",
-    type=int,
-    default=None,
-    help="First frame of the source motion to use (inclusive). 0 = beginning.",
-)
-parser.add_argument(
-    "--motion_end_frame",
-    type=int,
-    default=None,
-    help="One past the last frame to use. -1 means end of sequence.",
 )
 parser.add_argument(
     "--wandb_id",
@@ -152,34 +134,12 @@ except ImportError:
 
 import isaaclab_tasks  # noqa: F401
 import robotic_grounding.tasks  # noqa: F401
+import robotic_grounding.tasks.v2d.mdp as mdp
 from robotic_grounding.tasks.scene_utils import SceneConfig, apply_scene_config
 from viewer_utils import autoframe_viewer
 
 from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import hydra_task_config
-
-# PLACEHOLDER: Extension template (do not remove this comment)
-
-
-def _apply_eval_defaults(env_cfg) -> None:
-    """Force deterministic eval behaviour: frame 0 reset, VOC fully off.
-
-    Eval should reproduce the policy's behaviour against the reference
-    trajectory, not exercise the training-time exploration helpers. We:
-    - Reset every env to frame 0 (`always_reset_to_first_frame`).
-    - Zero out the virtual-object-control scale + reset target so the policy
-      drives the object on its own.
-    - Disable the curriculum entirely so it cannot bump VOC back up the way
-      it does at training step 0 (see G1SonicReconBodyVOCCurriculumCfg).
-    """
-    if hasattr(env_cfg, "commands") and hasattr(env_cfg.commands, "motion"):
-        motion_cfg = env_cfg.commands.motion
-        motion_cfg.always_reset_to_first_frame = True
-        motion_cfg.initial_virtual_object_control_curriculum_scale = 0.0
-        motion_cfg.voc_reset_scale = 0.0
-        motion_cfg.voc_decay_steps = 0
-    if hasattr(env_cfg, "curriculum"):
-        env_cfg.curriculum = None
 
 
 @hydra_task_config(args_cli.task, args_cli.agent)
@@ -215,15 +175,16 @@ def main(
         )
         autoframe_viewer(env_cfg, scene_config.motion_file)
 
-    # Apply optional motion frame range overrides.
-    if hasattr(env_cfg, "commands") and hasattr(env_cfg.commands, "motion"):
-        if args_cli.motion_start_frame is not None:
-            env_cfg.commands.motion.motion_start_frame = args_cli.motion_start_frame
-        if args_cli.motion_end_frame is not None:
-            env_cfg.commands.motion.motion_end_frame = args_cli.motion_end_frame
-
     # Eval-mode safety: deterministic reset + VOC off.
-    _apply_eval_defaults(env_cfg)
+    cmd = getattr(
+        getattr(env_cfg, "commands", None), "dual_hands_object_tracking_command", None
+    )
+    if cmd is not None:
+        cmd.always_reset_to_first_frame = True
+        cmd.initial_virtual_object_control_curriculum_scale = 0.0
+        cmd.virtual_object_control_decay_steps = 0
+    if hasattr(env_cfg, "curriculum"):
+        env_cfg.curriculum = None
 
     # set the environment seed
     # note: certain randomizations occur in the environment initialization so we set the seed here
@@ -337,26 +298,6 @@ def main(
     obs = env.get_observations()
     timestep = 0
 
-    # eval_episodes tracking
-    eval_episodes = args_cli.eval_episodes
-    if eval_episodes is not None:
-        num_envs = env.unwrapped.num_envs
-        _cmd = env.unwrapped.command_manager.get_term(
-            "dual_hands_object_tracking_command"
-        )
-        _warmup = getattr(_cmd.cfg, "virtual_object_control_decay_steps", 20)
-        my_ep_len = torch.zeros(
-            num_envs, dtype=torch.float32, device=env.unwrapped.device
-        )
-        # Snapshot tracking_lengths at episode start; updated on each reset so we always
-        # record the length that belonged to the episode that just completed, not the next one.
-        # (IsaacLab resets terminated envs inside env.step before returning dones=True, so
-        # reading tracking_lengths after step gives the NEW episode's length, not the old one.)
-        # Note: tracking_lengths is in trajectory frames (random start offset applied), while
-        # ep_len includes the warm-start steps. Ratio = min(ep_len - warmup, track_len) / track_len.
-        my_ep_tracking_len = _cmd.tracking_lengths.clone().float().squeeze(-1)
-        completed: list[tuple[float, float]] = []  # (episode_length, tracking_length)
-
     # simulate environment
     while simulation_app.is_running():
         start_time = time.time()
@@ -366,15 +307,6 @@ def main(
             actions = policy(obs)
             # env stepping
             obs, _, dones, _ = env.step(actions)
-            # log which termination fired
-            if dones.any():
-                term_mgr = env.unwrapped.termination_manager
-                term_dones = term_mgr._term_dones  # (E, num_terms)
-                for i, name in enumerate(term_mgr.active_terms):
-                    if term_dones[:, i].any():
-                        print(
-                            f"[TERM] {name}: {term_dones[:, i].sum().item():.0f} envs"
-                        )
             # reset recurrent states for episodes that have terminated
             policy_nn.reset(dones)
         if args_cli.video:
@@ -383,50 +315,10 @@ def main(
             if timestep == args_cli.video_length:
                 break
 
-        if eval_episodes is not None:
-            my_ep_len += 1
-            done_mask = dones.bool()
-            if done_mask.any():
-                done_ids = done_mask.nonzero(as_tuple=False).squeeze(-1)
-                for i in done_ids:
-                    ep_len = my_ep_len[i].item()
-                    track_len = my_ep_tracking_len[i].item()
-                    completed.append((ep_len, track_len))
-                    my_ep_len[i] = 0.0
-                    # Update tracking_length snapshot for the new episode that just started
-                    my_ep_tracking_len[i] = _cmd.tracking_lengths[i].float()
-            if len(completed) >= eval_episodes:
-                break
-
         # time delay for real-time evaluation
         sleep_time = dt - (time.time() - start_time)
         if args_cli.real_time and sleep_time > 0:
             time.sleep(sleep_time)
-
-    if eval_episodes is not None and completed:
-        data = completed[:eval_episodes]
-        lens = [e[0] for e in data]
-        traj_len = _cmd.retargeted_horizon
-        # Ratio = post-warmup steps / post-warmup trajectory length so a perfectly
-        # completing episode always gives ratio = 1.0.
-        _usable = max(traj_len - _warmup, 1)
-        ratios = [min(max(e[0] - _warmup, 0), _usable) / _usable for e in data]
-        full = sum(1 for r in ratios if r >= 0.99)
-        mean_len = sum(lens) / len(lens)
-        std_len = (
-            sum((x - mean_len) ** 2 for x in lens) / max(len(lens) - 1, 1)
-        ) ** 0.5
-        mean_ratio = sum(ratios) / len(ratios)
-        std_ratio = (
-            sum((x - mean_ratio) ** 2 for x in ratios) / max(len(ratios) - 1, 1)
-        ) ** 0.5
-        print("\n[eval] ===== Eval Summary =====")
-        print(
-            f"  Episodes:         {len(data)}  (full trajectory: {traj_len} steps, warmup: {_warmup})"
-        )
-        print(f"  Episode length:   mean={mean_len:.1f}  std={std_len:.1f}  steps")
-        print(f"  Completion ratio: mean={mean_ratio:.3f}  std={std_ratio:.3f}")
-        print(f"  Full completions: {full}/{len(data)}  ({100*full/len(data):.0f}%)")
 
     # close the simulator
     env.close()

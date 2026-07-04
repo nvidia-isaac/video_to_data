@@ -20,13 +20,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from experiments.utils import (  # noqa: E402
-    DEFAULT_OSMO_IMAGE_LATEST,
-    DEFAULT_OSMO_IMAGE_REPO,
-    get_internal_config_value,
-    require_internal_config_value,
-)
-
 
 def run_command(cmd: str, check: bool = True) -> subprocess.CompletedProcess:
     """Run a shell command and return the result."""
@@ -87,7 +80,7 @@ def main() -> None:
 
     # Get the repository root directory (assuming script is in scripts/)
     os.chdir(REPO_ROOT)
-    pool = args.pool or get_internal_config_value("osmo", "runner_default_pool")
+    pool = args.pool
     if pool is None:
         raise SystemExit(
             "OSMO pool is required. Pass --pool or provide osmo.runner_default_pool "
@@ -102,9 +95,7 @@ def main() -> None:
             image_version = image_name.split(":")[-1]
         else:
             image_version = args.experiment_name
-            image_repo = DEFAULT_OSMO_IMAGE_REPO or require_internal_config_value(
-                "osmo", "image_repo"
-            )
+            image_repo = "robotic-grounding"
             image_name = f"{image_repo}:{image_version}"
 
         print(f"\nBuilding Docker image: {image_name} ...")
@@ -132,9 +123,7 @@ def main() -> None:
         image_name = args.image
         print(f"Using existing Docker image: {image_name}")
     else:
-        image_name = DEFAULT_OSMO_IMAGE_LATEST or require_internal_config_value(
-            "osmo", "image_latest"
-        )
+        image_name = "latest"
         print(f"Using default Docker image: {image_name}")
 
     # Use provided image

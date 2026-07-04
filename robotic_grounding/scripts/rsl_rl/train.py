@@ -33,12 +33,6 @@ parser.add_argument(
     help="Interval between video recordings (in steps).",
 )
 parser.add_argument(
-    "--eval_video_only",
-    action="store_true",
-    default=False,
-    help="Record video during eval only; suppress interval-based and curriculum-triggered training videos.",
-)
-parser.add_argument(
     "--num_envs", type=int, default=None, help="Number of environments to simulate."
 )
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
@@ -65,12 +59,6 @@ parser.add_argument(
     action="store_true",
     default=False,
     help="Make the last layer of the actor network a zero layer.",
-)
-parser.add_argument(
-    "--eval_episodes_per_save",
-    type=int,
-    default=0,
-    help="Number of completed episodes to collect for eval after each checkpoint save (0 to disable).",
 )
 parser.add_argument(
     "--set-std",
@@ -195,12 +183,10 @@ from isaaclab_rl.rsl_rl import RslRlBaseRunnerCfg, RslRlVecEnvWrapper
 import isaaclab_tasks  # noqa: F401
 import robotic_grounding.tasks  # noqa: F401
 from robotic_grounding.tasks.scene_utils import SceneConfig, apply_scene_config
-from robotic_grounding.tasks.v2p_whole_body.utils import WandbVideoUploader
-from viewer_utils import autoframe_viewer
+from robotic_grounding.tasks.v2d_whole_body.utils import WandbVideoUploader
 
 from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import hydra_task_config
-from eval_callback import EvalCallback
 
 # import logger
 logger = logging.getLogger(__name__)
@@ -235,14 +221,12 @@ def main(
         apply_scene_config(
             env_cfg, scene_config, use_primitive_urdfs=args_cli.use_primitive_urdfs
         )
-        autoframe_viewer(env_cfg, scene_config.motion_file)
     elif args_cli.scene_config is not None:
         env_cfg.scene_config_path = args_cli.scene_config
         scene_config = SceneConfig.from_yaml(args_cli.scene_config)
         apply_scene_config(
             env_cfg, scene_config, use_primitive_urdfs=args_cli.use_primitive_urdfs
         )
-        autoframe_viewer(env_cfg, scene_config.motion_file)
 
     # set max iterations
     agent_cfg.max_iterations = (
@@ -330,46 +314,15 @@ def main(
 
     # wrap for video recording
     if args_cli.video:
-        _base_env = env  # capture reference before RecordVideo wrapping
-        # Mutable reference so _video_step_trigger can see the RecordVideo wrapper
-        # after it is created below (closures capture variables, not values).
-        _record_video_ref = [None]
-
-        def _video_step_trigger(step: int) -> bool:
-            # Use .unwrapped to reach the actual Isaac env: gym.make() wraps it in
-            # OrderEnforcing, and setting an attribute on that wrapper would create a
-            # shadow that permanently masks subsequent writes to the inner Isaac env.
-            _isaac_env = _base_env.unwrapped
-            # Eval-triggered recording — always honored, even with --eval_video_only.
-            eval_pending = getattr(_isaac_env, "eval_video_trigger_pending", False)
-            if eval_pending:
-                _isaac_env.eval_video_trigger_pending = False
-                return True
-            # Training-triggered recording (curriculum pre-decay + interval).
-            # Suppressed entirely by --eval_video_only.
-            if args_cli.eval_video_only:
-                return False
-            pending = getattr(_isaac_env, "video_trigger_pending", False)
-            if pending:
-                _isaac_env.video_trigger_pending = False
-                return True
-            # Only fire the interval trigger when not already recording, to avoid
-            # prematurely cutting an in-progress eval recording.
-            _rv = _record_video_ref[0]
-            if _rv is not None and _rv.recording:
-                return False
-            return step % args_cli.video_interval == 0
-
         video_kwargs = {
             "video_folder": os.path.join(log_dir, "videos", "train"),
-            "step_trigger": _video_step_trigger,
+            "step_trigger": lambda step: step % args_cli.video_interval == 0,
             "video_length": args_cli.video_length,
             "disable_logger": True,
         }
         print("[INFO] Recording videos during training.")
         print_dict(video_kwargs, nesting=4)
         env = gym.wrappers.RecordVideo(env, **video_kwargs)
-        _record_video_ref[0] = env  # fill the reference now that the wrapper exists
 
     start_time = time.time()
 
@@ -409,53 +362,7 @@ def main(
     dump_yaml(os.path.join(log_dir, "params", "env.yaml"), env_cfg)
     dump_yaml(os.path.join(log_dir, "params", "agent.yaml"), agent_cfg)
 
-    # setup eval callback: run inference episodes at startup, before every VOC
-    # decay, and at most every 1000 training iterations as a fallback.
-    if args_cli.eval_episodes_per_save > 0:
-        _eval_cb = EvalCallback(
-            runner=runner,
-            env=env,
-            eval_episodes=args_cli.eval_episodes_per_save,
-            log_video=args_cli.video,
-        )
-
-        # Tell the curriculum to defer each VOC decay until after eval.
-        _eval_cb._isaac_env.pre_decay_eval_enabled = True
-        _eval_cb._isaac_env.pre_decay_eval_pending = False
-
-        # Hook runner.log (called every iteration, after rollout+update) to fire eval
-        # when a pre-decay eval is pending OR every 1000 iters as a fallback.
-        _orig_log = runner.log
-        _last_eval_iter: list[int] = [0]
-
-        def _monitored_log(locs, width=80, pad=35):
-            it = locs.get("it", 0)
-            pre_decay = getattr(_eval_cb._isaac_env, "pre_decay_eval_pending", False)
-            should_eval = pre_decay or (it - _last_eval_iter[0] >= 1000)
-            if should_eval:
-                try:
-                    _eval_cb(f"model_{it}.pt")
-                except Exception as exc:
-                    print(f"[eval] WARNING: eval callback raised an exception: {exc}")
-                _last_eval_iter[0] = it
-            _orig_log(locs, width=width, pad=pad)
-
-        runner.log = _monitored_log
-
-        # Fire one eval immediately at startup (after wandb is initialised).
-        _orig_learn = runner.learn
-
-        def _learn_with_startup_eval(num_learning_iterations, **kw):
-            runner._prepare_logging_writer()
-            try:
-                _eval_cb("model_startup.pt")
-            except Exception as exc:
-                print(f"[eval] WARNING: startup eval failed: {exc}")
-            return _orig_learn(num_learning_iterations, **kw)
-
-        runner.learn = _learn_with_startup_eval
-
-    # setup video uploader for wandb (train folder only; eval videos logged directly by _EvalCallback)
+    # setup video uploader for wandb
     video_uploader = None
     if args_cli.video and agent_cfg.logger == "wandb":
         video_folder = os.path.join(log_dir, "videos", "train")
@@ -464,7 +371,6 @@ def main(
             video_folder,
             check_interval=60.0,
             num_steps_per_env=agent_cfg.num_steps_per_env,
-            wandb_key="train/video",
         )
         video_uploader.start()
 

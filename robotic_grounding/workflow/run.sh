@@ -119,8 +119,8 @@ case "$CMD" in
 
             # WANDB_API_KEY: use env if set (must be exported), else read from host home
             WANDB_API_KEY_VALUE="${WANDB_API_KEY}"
-            if [ -z "${WANDB_API_KEY_VALUE}" ] && [ -f "${HOME}/.wand_api_key" ]; then
-                WANDB_API_KEY_VALUE=$(cat "${HOME}/.wand_api_key")
+            if [ -z "${WANDB_API_KEY_VALUE}" ] && [ -f "${HOME}/.wandb_api_key" ]; then
+                WANDB_API_KEY_VALUE=$(cat "${HOME}/.wandb_api_key")
             fi
             WANDB_API_KEY_ENV=""
             if [ -n "${WANDB_API_KEY_VALUE}" ]; then

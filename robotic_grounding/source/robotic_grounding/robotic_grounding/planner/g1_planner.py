@@ -2,14 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 """G1 whole-body planner: EE targets → full-body motion via learned model.
 
-Generates planned whole-body motion from V2P retargeted hand/object trajectories.
+Generates planned whole-body motion from V2D retargeted hand/object trajectories.
 Outputs a Hive-partitioned parquet with body qpos, EE targets, hand keypoints,
 contacts, and scene metadata.
 
 Usage:
     MUJOCO_GL=egl python -m robotic_grounding.planner.g1_planner \
-        --v2p_parquet /path/to/arctic_processed \
-        --v2p_sequence box_grab \
+        --v2d_parquet /path/to/arctic_processed \
+        --v2d_sequence box_grab \
         --output /path/to/planner_processed
 """
 
@@ -41,12 +41,10 @@ from robotic_grounding.planner.utils.qpos import (
     build_full_qpos,
     wrist_ee_error_from_qpos,
 )
-from robotic_grounding.planner.utils.transforms import (
-    apply_local_frame_fix,
-    transform_reference,
-)
+from robotic_grounding.planner.utils.transforms import transform_reference
 from robotic_grounding.planner.utils.validation import (
     assert_motion_parquet_invariants,
+    find_object_assets_root,
     warn_missing_urdf_mesh_deps,
     warn_reference_issues,
 )
@@ -131,7 +129,7 @@ def _trim_motion_data_range(
     end_frame = n_frames if end_frame is None else min(n_frames, int(end_frame))
     if start_frame >= end_frame:
         raise ValueError(
-            f"V2P trim range [{start_frame}, {end_frame}) is empty for reference "
+            f"V2D trim range [{start_frame}, {end_frame}) is empty for reference "
             f"length {n_frames}"
         )
     for attr, value in vars(motion).items():
@@ -183,7 +181,7 @@ def _first_hand_object_contact_frame(
     return first
 
 
-def load_v2p_reference(
+def load_v2d_reference(
     parquet_folder: str,
     filters: list,
     trajectory_id: int = 0,
@@ -194,7 +192,7 @@ def load_v2p_reference(
     pre_contact_frames: int = 0,
     end_after_last_contact_frames: int = -1,
 ) -> dict[str, Any]:
-    """Load and interpolate V2P retargeted reference data."""
+    """Load and interpolate V2D retargeted reference data."""
     if robot_type != "dex3":
         raise ValueError(f"Unsupported robot_type={robot_type!r}; expected 'dex3'.")
     data_class = ManoDex3Data
@@ -212,7 +210,7 @@ def load_v2p_reference(
             motion
         )
         if first_contact_frame is None:
-            print("  WARNING: no hand-object contact detected; using v2p_start_frame")
+            print("  WARNING: no hand-object contact detected; using v2d_start_frame")
         else:
             contact_start = max(0, first_contact_frame - int(pre_contact_frames))
             effective_start_frame = max(effective_start_frame, contact_start)
@@ -222,7 +220,7 @@ def load_v2p_reference(
         )
     if int(end_after_last_contact_frames) >= 0:
         if last_contact_frame is None:
-            print("  WARNING: no hand-object contact detected; not trimming V2P end")
+            print("  WARNING: no hand-object contact detected; not trimming V2D end")
         else:
             effective_end_frame = min(
                 n_frames, last_contact_frame + int(end_after_last_contact_frames) + 1
@@ -282,10 +280,11 @@ def save_planner_parquet(
     ref_raw: dict[str, Any],
     robot_type: str,
     sequence_id: str,
+    object_assets_root: str | Path | None = None,
 ) -> int:
     """Save planner output as a `motion_v1` Hive-partitioned parquet.
 
-    Embeds: body qpos (from planner), EE/object/finger/contact data (from V2P).
+    Embeds: body qpos (from planner), EE/object/finger/contact data (from V2D).
     """
     T = full_qpos.shape[0]
     T_ref = ref_data["left_pos"].shape[0]
@@ -389,13 +388,17 @@ def save_planner_parquet(
     print(f"  Saved {partition_dir} ({T_use} frames)")
     # Hard-fail before training ever sees the parquet so silent data
     # corruption can't make it past planning.
-    assert_motion_parquet_invariants(partition_dir, robot_type=robot_type)
+    assert_motion_parquet_invariants(
+        partition_dir, robot_type=robot_type, object_assets_root=object_assets_root
+    )
     return T_use
 
 
 def main() -> None:
     """Run the full planner pipeline end-to-end from the CLI args."""
     args = parse_args()
+    # Root for re-rooting the parquet's baked /data/object_assets/... paths.
+    object_assets_root = find_object_assets_root(args.v2d_parquet)
     hold_start_s = 0.0 if args.no_approach else args.hold_start_s
     interp_s = 0.0 if args.no_approach else args.interp_s
     hold_end_s = 0.0 if args.no_approach else args.hold_end_s
@@ -410,44 +413,49 @@ def main() -> None:
         f"  Left: {np.round(nom['left_pos'], 3)}  Right: {np.round(nom['right_pos'], 3)}"
     )
 
-    # Step 2: Load V2P reference
-    print("\nStep 2: Load V2P reference")
+    # Step 2: Load V2D reference
+    print("\nStep 2: Load V2D reference")
     filters = [
-        ("robot_name", "=", args.v2p_robot_name),
-        ("sequence_id", "contains", args.v2p_sequence),
+        ("robot_name", "=", args.v2d_robot_name),
+        ("sequence_id", "contains", args.v2d_sequence),
     ]
-    ref_raw = load_v2p_reference(
-        args.v2p_parquet,
+    ref_raw = load_v2d_reference(
+        args.v2d_parquet,
         filters,
-        trajectory_id=args.v2p_trajectory_id,
+        trajectory_id=args.v2d_trajectory_id,
         target_fps=args.target_fps,
         robot_type=args.robot,
-        start_frame=args.v2p_start_frame,
-        start_at_first_contact=args.v2p_start_at_first_contact,
-        pre_contact_frames=args.v2p_pre_contact_frames,
-        end_after_last_contact_frames=args.v2p_end_after_last_contact_frames,
+        start_frame=args.v2d_start_frame,
+        start_at_first_contact=args.v2d_start_at_first_contact,
+        pre_contact_frames=args.v2d_pre_contact_frames,
+        end_after_last_contact_frames=args.v2d_end_after_last_contact_frames,
     )
     if ref_raw.get("first_contact_frame") is not None:
         print(
             "  first hand-object contact: "
             f"frame {ref_raw['first_contact_frame']} "
-            f"(keeping {args.v2p_pre_contact_frames} pre-contact frames)"
+            f"(keeping {args.v2d_pre_contact_frames} pre-contact frames)"
         )
     if ref_raw.get("last_contact_frame") is not None:
         print(f"  last hand-object contact: frame {ref_raw['last_contact_frame']}")
     if ref_raw.get("start_frame", 0):
-        print(f"  dropped leading {ref_raw['start_frame']} interpolated V2P frames")
+        print(f"  dropped leading {ref_raw['start_frame']} interpolated V2D frames")
     if ref_raw.get("end_frame") is not None:
         print(
-            "  trimmed V2P end at interpolated frame "
+            "  trimmed V2D end at interpolated frame "
             f"{ref_raw['end_frame']} "
-            f"(keeping {args.v2p_end_after_last_contact_frames} post-contact frames)"
+            f"(keeping {args.v2d_end_after_last_contact_frames} post-contact frames)"
         )
     print(f"  {ref_raw['left_pos'].shape[0]} frames at {ref_raw['fps']}fps")
     # Reference-owned checks: warn if input motion or workspace assets are
     # missing fields the planner can't produce on its own. Issues here belong
     # to the upstream retargeting / asset pipeline, not this script.
-    warn_reference_issues(ref_raw.get("_motion_data"), ref_raw, args.robot)
+    warn_reference_issues(
+        ref_raw.get("_motion_data"),
+        ref_raw,
+        args.robot,
+        object_assets_root=object_assets_root,
+    )
     heading_frame = 0
     if args.heading_align_frame == "first_contact":
         first_contact_ref = ref_raw.get("first_contact_frame_in_reference")
@@ -616,7 +624,7 @@ def main() -> None:
 
     # Step 8: Save parquet
     print("\nStep 8: Save parquet")
-    sequence_id = args.v2p_sequence
+    sequence_id = args.v2d_sequence
     # Try to extract full sequence ID from the parquet data
     motion = ref_raw.get("_motion_data")
     if motion and hasattr(motion, "sequence_id") and motion.sequence_id:
@@ -635,6 +643,7 @@ def main() -> None:
         ref_raw,
         args.robot,
         sequence_id,
+        object_assets_root=object_assets_root,
     )
 
     # Step 8b: Reconstruct support surface USD for the transformed object
@@ -651,6 +660,7 @@ def main() -> None:
         sequence_id=sequence_id,
         output_override=str(support_usda),
         schema="motion_v1",
+        object_assets_root=object_assets_root,
     )
 
     # Step 9: Viewer — show the FULL trajectory (warmup + reference)
@@ -670,7 +680,7 @@ def main() -> None:
             fix_root_components=args.fix_root,
         )
 
-        # Discover object mesh and support surface from V2P parquet
+        # Discover object mesh and support surface from V2D parquet
         object_mesh_path = None
         support_usda_path = None
         resolved_mesh_paths: list[str] = []
@@ -713,16 +723,8 @@ def main() -> None:
                 if os.path.exists(tex):
                     object_mesh_path = tex
 
-            # Discover support USDA — walk up from parquet to find reconstructed_stage/
-            v2p_path = Path(args.v2p_parquet).resolve()
-            if sequence_id:
-                for parent in [v2p_path] + list(v2p_path.parents):
-                    candidate = (
-                        parent / "reconstructed_stage" / f"{sequence_id}_support.usda"
-                    )
-                    if candidate.exists():
-                        support_usda_path = str(candidate)
-                        break
+            if support_usda.exists():
+                support_usda_path = str(support_usda)
 
         if resolved_mesh_paths:
             print(f"  Object meshes ({len(resolved_mesh_paths)}):")
@@ -733,16 +735,7 @@ def main() -> None:
         if support_usda_path:
             print(f"  Support: {support_usda_path}")
 
-        # Build support transform: same yaw + offset as applied to EE/object
         support_xform = None
-        if support_usda_path:
-            source = apply_local_frame_fix(ref_raw, robot_type=args.robot)
-            src_midpoint = 0.5 * (source["left_pos"][0] + source["right_pos"][0])
-            support_xform = {
-                "delta_yaw": ref_data["delta_yaw"],
-                "offset": ref_data["offset"],
-                "src_midpoint": src_midpoint,
-            }
 
         obj_pos_vis = ref_data.get("object_pos_all", ref_data.get("object_pos"))
         obj_quat_vis = ref_data.get("object_quat_all", ref_data.get("object_quat"))

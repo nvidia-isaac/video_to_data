@@ -12,9 +12,7 @@ from __future__ import annotations
 import argparse
 
 # CLI defaults for the planner's nominal-hold + interp + hold-start
-# approach segment. Mirror the constants `g1_planner.main` uses at runtime;
-# duplicated here as literals so this module has no dependency on
-# `g1_planner.py` and stays free of circular-import gymnastics.
+# approach segment.
 _HOLD_START_S = 5.0
 _INTERP_DURATION_S = 5.0
 _HOLD_END_S = 5.0
@@ -25,40 +23,40 @@ def parse_args() -> argparse.Namespace:
     """Build the planner CLI parser and return the parsed namespace."""
     parser = argparse.ArgumentParser(description="G1 whole-body planner")
     parser.add_argument("--robot", choices=["dex3"], default="dex3")
-    parser.add_argument("--v2p_parquet", required=True)
-    parser.add_argument("--v2p_robot_name", default="dex3")
-    parser.add_argument("--v2p_sequence", default="box_grab")
-    parser.add_argument("--v2p_trajectory_id", type=int, default=0)
+    parser.add_argument("--v2d_parquet", required=True)
+    parser.add_argument("--v2d_robot_name", default="dex3")
+    parser.add_argument("--v2d_sequence", default="box_grab")
+    parser.add_argument("--v2d_trajectory_id", type=int, default=0)
     parser.add_argument(
-        "--v2p_start_frame",
+        "--v2d_start_frame",
         type=int,
         default=0,
         help=(
-            "Drop this many frames from the interpolated V2P reference before "
+            "Drop this many frames from the interpolated V2D reference before "
             "building the planner warmup/interp trajectory. Useful for skipping "
             "dataset-specific T-pose/approach lead-ins."
         ),
     )
     parser.add_argument(
-        "--v2p_start_at_first_contact",
+        "--v2d_start_at_first_contact",
         action="store_true",
         help=(
             "Start the reference at the first detected hand-object contact "
-            "minus --v2p_pre_contact_frames."
+            "minus --v2d_pre_contact_frames."
         ),
     )
     parser.add_argument(
-        "--v2p_pre_contact_frames",
+        "--v2d_pre_contact_frames",
         type=int,
         default=10,
-        help="Number of interpolated V2P frames to keep before first contact.",
+        help="Number of interpolated V2D frames to keep before first contact.",
     )
     parser.add_argument(
-        "--v2p_end_after_last_contact_frames",
+        "--v2d_end_after_last_contact_frames",
         type=int,
         default=-1,
         help=(
-            "If >= 0, truncate the interpolated V2P reference after the last "
+            "If >= 0, truncate the interpolated V2D reference after the last "
             "detected hand-object contact plus this many frames. A value of 0 "
             "keeps through the last contact frame."
         ),
@@ -72,7 +70,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help=(
             "Disable the planner's nominal hold/interp/hold approach segment. "
-            "The generated trajectory starts directly at the V2P reference."
+            "The generated trajectory starts directly at the V2D reference."
         ),
     )
     parser.add_argument(

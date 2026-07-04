@@ -533,7 +533,7 @@ docker exec robotic-grounding-latest-gpu0 python scripts/validate_training_asset
 
 # 3-iteration training run
 docker exec robotic-grounding-latest-gpu0 python scripts/rsl_rl/train.py \
-  --task Sharpa-V2P-v0 --headless \
+  --task Sharpa-V2D-v0 --headless \
   --motion_file <dataset>/<dataset>_processed/<seq_id>/sharpa_wave \
   --max_iterations 3 --num_envs 8
 ```

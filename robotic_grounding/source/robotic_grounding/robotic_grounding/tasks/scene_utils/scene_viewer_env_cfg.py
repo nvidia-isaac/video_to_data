@@ -30,7 +30,7 @@ from robotic_grounding.tasks.scene_utils.replay_data import (
     SingleRobotTrajectory,
     load_replay_trajectory,
 )
-from robotic_grounding.tasks.v2p import mdp
+from robotic_grounding.tasks.v2d import mdp
 
 
 def _dummy_obs(env: object) -> torch.Tensor:

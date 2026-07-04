@@ -95,25 +95,52 @@ See [reconstruction/README.md](reconstruction/README.md) for the complete module
 
 ### Robotic Grounding (data → RL policy)
 
+**Quick start:** the from-scratch setup & run guide is
+[robotic_grounding/docs/SETUP.md](robotic_grounding/docs/SETUP.md) — it covers the two
+Docker images, downloading each dataset from its original public source, the directory
+layout, and how to run the full hand→robot retargeting pipeline.
+
+Throughout, `<HMD>` (human-motion-data root) is a directory you choose — e.g.
+`~/datasets/human_motion_data` — that holds `mano/` and one subdirectory per dataset
+(`taco/`, `hot3d/`, …); see [docs/SETUP.md §4](robotic_grounding/docs/SETUP.md).
+
 ```bash
 cd robotic_grounding
 
-# One-time host setup (git-lfs, pre-commit)
+# One-time host setup (git-lfs, pre-commit) + robot assets (LFS)
 bash workflow/setup_deps.sh
+git lfs pull
 
-# Build + enter the Isaac Lab container
-./workflow/run.sh build  [version]
-./workflow/run.sh start  [version] [gpu_id]
+# Build both pipeline images (loader + robotic-grounding) in one shot
+python scripts/run_pipeline_docker.py --build-only
 
-# Inside the container — train a policy
-python scripts/rsl_rl/train.py --task Sharpa-V2P-v0
+# Run the full pipeline on a dataset (download it first per docs/SETUP.md §6).
+# <HMD> is the data root holding mano/ and each <dataset>/.
+python scripts/run_pipeline_docker.py taco \
+    --hmd <HMD> --mano-dir <HMD>/mano --max-sequences 2     # small smoke test
+```
+
+Reproduce the sequences end-to-end (arctic / hot3d / taco) in a self-contained
+workspace — see [robotic_grounding/docs/EXAMPLE_SEQUENCES.md](robotic_grounding/docs/EXAMPLE_SEQUENCES.md)
+for the sequence list and prerequisites:
+
+```bash
+HMD=<HMD> ./run_example_sequences.sh        # → RL-ready parquets under <HMD>/example_sequences/<ds>/<ds>_processed/
+```
+
+Then enter the Isaac Lab container and train a policy on the retargeted motion:
+
+```bash
+./workflow/run.sh build
+./workflow/run.sh start [version] [gpu_id]              # build + enter the container
+python scripts/rsl_rl/train.py --task Sharpa-V2D-v0    # inside the container
 ```
 
 See [robotic_grounding/README.md](robotic_grounding/README.md) for retargeting, debug environments, and task definitions.
 
 ### Visualizer (retargeting gallery)
 
-Browse retargeted sequences as 3D animations at **http://10.111.83.14:8080/**
+Browse retargeted sequences as interactive 3D animations in your browser.
 
 See [robotic_grounding/README.md#visualizer](robotic_grounding/README.md#visualizer) for setup instructions.
 

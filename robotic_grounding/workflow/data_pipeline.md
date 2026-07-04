@@ -9,9 +9,9 @@ Two parquet formats are in use today:
   bimanual format used by `soma_to_g1`, `arctic_to_dex3`, and the
   `g1_planner` output. See
   [../source/robotic_grounding/robotic_grounding/motion_schema/README.md](../source/robotic_grounding/robotic_grounding/motion_schema/README.md).
-- **`ManoSharpaData`** — the legacy dual-hand V2P retarget pipeline described
+- **`ManoSharpaData`** — the legacy dual-hand V2D retarget pipeline described
   below. Still used end-to-end by arctic/taco/oakink2/hot3d/h2o/grab/dexycb
-  loaders and the dual-hand v2p tracking command. Not on `motion_v1` yet.
+  loaders and the dual-hand v2d tracking command. Not on `motion_v1` yet.
 
 ## Pipeline Overview
 
@@ -321,7 +321,7 @@ aws s3 sync \
 **Command:**
 ```bash
 python scripts/rsl_rl/train.py \
-  --task Sharpa-V2P-v0 \
+  --task Sharpa-V2D-v0 \
   --headless \
   --motion_file <dataset>/<dataset>_processed/<sequence_id>/sharpa_wave \
   --num_envs 8

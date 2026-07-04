@@ -24,7 +24,7 @@ try:
     _USD_AVAILABLE = True
 except ImportError:
     _USD_AVAILABLE = False
-from robotic_grounding.retarget import HUMAN_MOTION_DATA_DIR
+from robotic_grounding.retarget import HUMAN_MOTION_DATA_DIR, MESHES_DIR
 from robotic_grounding.retarget.data_logger import (
     ManoDex3Data,
     ManoSharpaData,
@@ -69,6 +69,28 @@ def distance_to_color(d: float) -> tuple[int, int, int]:
     return (r, g, 0)
 
 
+def resolve_object_mesh_path(path: str | None) -> str | None:
+    """Resolve an object-mesh path, tolerating paths baked by another container.
+
+    The LOAD stage records loader-container-absolute paths in object_mesh_paths
+    (e.g. ``/data/object_assets/meshes/<ds>/NNN_cm.obj``). Those don't exist in
+    the visualization container, so fall back to the in-repo ``MESHES_DIR`` using
+    the sub-path after ``meshes/``, then a basename search. Returns None if the
+    mesh can't be found anywhere.
+    """
+    if not path:
+        return None
+    if Path(path).exists():
+        return path
+    parts = Path(path).parts
+    if "meshes" in parts:
+        cand = MESHES_DIR.joinpath(*parts[parts.index("meshes") + 1 :])
+        if cand.exists():
+            return str(cand)
+    matches = list(MESHES_DIR.rglob(Path(path).name))
+    return str(matches[0]) if matches else None
+
+
 def load_object_meshes_from_paths(
     viser_server: viser.ViserServer,
     object_mesh_paths: list[str],
@@ -80,12 +102,14 @@ def load_object_meshes_from_paths(
     """
     handles: dict[str, Any] = {}
     for part, path in zip(object_body_names, object_mesh_paths, strict=True):
-        if not path or not Path(path).exists():
+        resolved = resolve_object_mesh_path(path)
+        if resolved is None:
+            print(f"  [viser] skip object {part}: mesh not found ({path})")
             continue
-        mesh = trimesh.load(path)
+        mesh = trimesh.load(resolved)
         if isinstance(mesh, trimesh.Scene):
             mesh = mesh.to_geometry()
-        if path.endswith("_cm.obj"):
+        if resolved.endswith("_cm.obj"):
             mesh.vertices *= 0.01
         # Use a FrameHandle parent so per-frame position updates are sent as
         # full add_frame messages — property-setter updates on mesh handles are
@@ -360,14 +384,24 @@ def visualize_one_trajectory(
         video_renderer.add_robot("right", right_kinematics)
         video_renderer.add_robot("left", left_kinematics)
         for obj_idx, obj_name in enumerate(logger_data.object_body_names):
-            if obj_idx < len(object_mesh_paths) and object_mesh_paths[obj_idx]:
-                try:
-                    obj_mesh = trimesh.load(object_mesh_paths[obj_idx], force="mesh")
-                    if getattr(logger_data, "dataset", None) == "taco":
-                        obj_mesh.vertices *= 0.01
-                    video_renderer.add_object(obj_name, obj_mesh)
-                except Exception as e:  # noqa: BLE001
-                    print(f"  [mp4] skip object {obj_name}: {e}")
+            resolved = (
+                resolve_object_mesh_path(object_mesh_paths[obj_idx])
+                if obj_idx < len(object_mesh_paths)
+                else None
+            )
+            if not resolved:
+                print(f"  [mp4] skip object {obj_name}: mesh not found")
+                continue
+            try:
+                obj_mesh = trimesh.load(resolved, force="mesh")
+                # Scale by the _cm.obj suffix (same as the viser path) — the
+                # logger schema has no `dataset` field, so a dataset=="taco"
+                # check silently never fires and leaves cm meshes 100x too big.
+                if resolved.endswith("_cm.obj"):
+                    obj_mesh.vertices *= 0.01
+                video_renderer.add_object(obj_name, obj_mesh)
+            except Exception as e:  # noqa: BLE001
+                print(f"  [mp4] skip object {obj_name}: {e}")
         # Auto-fit the camera to the trajectory: use object positions + robot
         # wrist positions across every frame so the subject stays in frame.
         # Filter outliers (e.g., hidden hands placed at z=-100) by excluding
