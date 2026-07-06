@@ -24,10 +24,10 @@ size_bin: 1<n<10
 ## Dataset Description: <br>
 This sample dataset contains five post-processed examples from the HOI dataset, retargeted to the G1 robot.
 These examples serve as quick-start demonstrations for third-person-view whole-body loco-manipulation training,
-allowing users to test-run the code release. It contains the following elements
-- USDs of reconstructed supporting surfaces, which are generated using the script reconstruct_support_surfaces.py in this repo.
-- Object asset files including .obj, .urdf, .png and .mtl, which are generated using the reconstruction pipeline in V2D from the raw HOI dataset.
-- Parquet files of the retargeted motion for G1 from the raw HOI dataset
+allowing users to test-run the code release. It contains the following elements:
+- USD files of reconstructed supporting surfaces, generated using the reconstruct_support_surfaces.py script in this repo.
+- Object asset files including .obj, .urdf, .png and .mtl, generated from the raw HOI dataset using the reconstruction pipeline in V2D.
+- Parquet files containing the retargeted G1 motion data from the raw HOI dataset.
 
 <br>
 
@@ -50,10 +50,10 @@ This dataset is ideal for training HOI reconstruction models like [CARI4D](https
 
 ## Dataset Characterization <br>
 ** Data Collection Method<br>
-* Human - The HOI sequences are performed and recorded by human operators. <br>
+* Manually-Collected - The HOI sequences are performed and recorded by human operators. <br>
 
 ** Labeling Method<br>
-* Hybrid: human, automated - HOI sequences are ingested and processed by an automated pipeline to generate pose annotations. Human annotators label segments where pose annotations do not meet standards. <br>
+* Hybrid: Manually-Labeled, Automated - HOI sequences are ingested and processed by an automated pipeline to generate pose annotations. Human annotators label segments where pose annotations do not meet standards. <br>
 
 ## Dataset Format <br>
 | Property | Value |
