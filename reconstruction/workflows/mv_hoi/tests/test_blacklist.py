@@ -1030,6 +1030,114 @@ def test_refresh_waiting_updates_multiple_workflows(monkeypatch, tmp_path):
     assert failed["details"] == "task_failed: solve_calibration"
 
 
+def test_osmo_query_marks_missing_workflow(monkeypatch):
+    def fake_run(_cmd, capture_output, text):
+        assert capture_output
+        assert text
+        return subprocess.CompletedProcess(
+            _cmd,
+            1,
+            stdout=(
+                "Server responded with status code 400\n"
+                "{\n"
+                '  "message": "Workflow missing-workflow is not found.",\n'
+                '  "code": 400\n'
+                "}\n"
+            ),
+            stderr=(
+                "WARNING: New client 6.3.1 available.\n"
+                "Current version: 6.2.10.fa46f7f09.\n"
+                "Please run the following command:\n"
+                "curl -fsSL https://us-west-2-aws.osmo.nvidia.com/cli/install.sh | bash\n"
+            ),
+        )
+
+    monkeypatch.setattr(query.subprocess, "run", fake_run)
+
+    info = query.osmo_query("missing-workflow")
+
+    assert info["status"] == "UNKNOWN"
+    assert info["tasks"] == {}
+    assert info["not_found"]
+    assert "Workflow missing-workflow is not found." in info["error"]
+
+
+def test_osmo_query_does_not_mark_other_400_errors_as_missing(monkeypatch):
+    def fake_run(_cmd, capture_output, text):
+        assert capture_output
+        assert text
+        return subprocess.CompletedProcess(
+            _cmd,
+            1,
+            stdout=(
+                "Server responded with status code 400\n"
+                "{\n"
+                '  "message": "Invalid workflow query request.",\n'
+                '  "code": 400\n'
+                "}\n"
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(query.subprocess, "run", fake_run)
+
+    info = query.osmo_query("bad-request")
+
+    assert info["status"] == "UNKNOWN"
+    assert not info["not_found"]
+
+
+def test_refresh_waiting_fails_ambiguous_placeholder_when_not_found(
+    monkeypatch, tmp_path,
+):
+    db_path = _db_path(tmp_path)
+    db.insert_version("1.0.0", db_path=db_path)
+    db.insert_workflow(
+        sequence_name="sequence_ambiguous",
+        dataset="dataset_a",
+        pipeline_type="mv_calibration",
+        pipeline_version="1.0.0",
+        workflow_name="wf-ambiguous",
+        osmo_workflow_id="wf-ambiguous-1",
+        status="WAITING_WF",
+        details="submit_ambiguous: exit 10: Error message: Status Code: 503",
+        db_path=db_path,
+    )
+    db.insert_workflow(
+        sequence_name="sequence_normal",
+        dataset="dataset_a",
+        pipeline_type="mv_calibration",
+        pipeline_version="1.0.0",
+        workflow_name="wf-normal",
+        osmo_workflow_id="wf-normal-1",
+        status="WAITING_WF",
+        details="workflow_running",
+        db_path=db_path,
+    )
+    monkeypatch.setattr(
+        query,
+        "osmo_query",
+        lambda _workflow_id: {
+            "status": "UNKNOWN",
+            "tasks": {},
+            "not_found": True,
+            "error": "workflow not found",
+        },
+    )
+
+    query.refresh_waiting(
+        "dataset_a", pipeline_type="mv_calibration", db_path=db_path,
+    )
+
+    ambiguous = db.get_workflow("wf-ambiguous", db_path=db_path)
+    assert ambiguous["status"] == "FAIL"
+    assert ambiguous["details"] == "submit_ambiguous_not_found"
+
+    normal = db.get_workflow("wf-normal", db_path=db_path)
+    assert normal["status"] == "WAITING_WF"
+    assert normal["details"] == "workflow_running"
+
+
 def test_refresh_waiting_keeps_reconstruction_completed_in_waiting_qc(
     monkeypatch, tmp_path,
 ):

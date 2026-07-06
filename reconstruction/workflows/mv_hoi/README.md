@@ -299,6 +299,8 @@ If `osmo workflow submit` returns an ambiguous transient error such as a read
 timeout, `submit.py` records a `WAITING_WF` placeholder with details starting
 `submit_ambiguous:` and assumes the OSMO ID is `<workflow_name>-1`. Auto mode
 then stops for that run to avoid duplicate submissions while OSMO catches up.
+On a later refresh, if OSMO reports the assumed workflow ID as missing, the
+placeholder is marked `FAIL` with details `submit_ambiguous_not_found`.
 
 Manual mode submits one named sequence. It does not prompt for confirmation.
 If the latest row is active or already complete, it skips unless `--force` is

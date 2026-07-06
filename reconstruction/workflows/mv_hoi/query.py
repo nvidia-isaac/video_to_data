@@ -53,17 +53,60 @@ def load_config() -> dict:
 
 # OSMO helpers (read-side)
 
+def _osmo_error_text(result: subprocess.CompletedProcess) -> str:
+    return "\n".join(
+        part.strip() for part in (result.stdout, result.stderr) if part and part.strip()
+    )
+
+
+def _json_dicts_in_text(text: str) -> list[dict]:
+    decoder = json.JSONDecoder()
+    payloads: list[dict] = []
+    for index, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            payload, _ = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            payloads.append(payload)
+    return payloads
+
+
+def _is_osmo_not_found_error(text: str) -> bool:
+    lower = text.lower()
+    for payload in _json_dicts_in_text(text):
+        code = payload.get("code")
+        message = str(payload.get("message", "")).lower()
+        if str(code) == "400" and "workflow " in message and " is not found" in message:
+            return True
+
+    return (
+        "server responded with status code 400" in lower
+        and "workflow " in lower
+        and " is not found" in lower
+    )
+
+
 def osmo_query(workflow_name: str) -> dict:
     """Query OSMO workflow status via JSON output.
 
-    Returns {"status": str, "tasks": {name: status}}.
+    Returns {"status": str, "tasks": {name: status}}. For query failures,
+    includes error text and whether OSMO reported the workflow as missing.
     """
     cmd = [
         "osmo", "workflow", "query", workflow_name, "--format-type", "json",
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        return {"status": "UNKNOWN", "tasks": {}}
+        error = _osmo_error_text(result)
+        return {
+            "status": "UNKNOWN",
+            "tasks": {},
+            "error": error,
+            "not_found": _is_osmo_not_found_error(error),
+        }
 
     data = json.loads(result.stdout)
     status = data.get("status", "UNKNOWN")
@@ -147,6 +190,10 @@ def _query_export_workflow(export_id: str) -> tuple[str, dict]:
     return export_id, osmo_query(export_id)
 
 
+def _is_ambiguous_submit_placeholder(workflow: dict) -> bool:
+    return (workflow.get("details") or "").startswith("submit_ambiguous:")
+
+
 def _query_waiting_workflows(
     workflows: list[dict],
     max_workers: int,
@@ -223,7 +270,15 @@ def refresh_waiting(
     )
     for wf, info in _query_waiting_workflows(workflows, max_workers=max_workers):
         wf_status = info["status"]
-        if wf_status == "COMPLETED":
+        if info.get("not_found") and _is_ambiguous_submit_placeholder(wf):
+            update_workflow(
+                wf["workflow_name"],
+                status="FAIL",
+                details="submit_ambiguous_not_found",
+                db_path=db_path,
+                table=table,
+            )
+        elif wf_status == "COMPLETED":
             completed_status = (
                 "PASS" if wf["pipeline_type"] == CALIBRATION_PIPELINE else "WAITING_QC"
             )
