@@ -201,6 +201,12 @@ def main() -> None:
         default=None,
         help="Regex pattern to filter sequences.",
     )
+    parser.add_argument(
+        "--max_sequences",
+        type=int,
+        default=None,
+        help="Evaluate at most the first N sequences (after other filters).",
+    )
     args = parser.parse_args()
 
     # Discover checks
@@ -237,6 +243,8 @@ def main() -> None:
     if args.sequence_pattern:
         pat = re.compile(args.sequence_pattern)
         sequences = [(sid, p) for sid, p in sequences if pat.match(sid)]
+    if args.max_sequences is not None:
+        sequences = sequences[: args.max_sequences]
 
     # Run checks
     results: list[dict] = []
