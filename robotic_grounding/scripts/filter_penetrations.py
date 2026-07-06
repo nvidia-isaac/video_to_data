@@ -52,6 +52,15 @@ from scipy.spatial.transform import Rotation
 
 log = logging.getLogger(__name__)
 
+try:
+    from robotic_grounding.planner.utils.validation import (
+        find_object_assets_root,
+        reroot_object_asset,
+    )
+except ImportError:  # optional when the script is run outside the installed package
+    find_object_assets_root = None  # type: ignore[assignment]
+    reroot_object_asset = None  # type: ignore[assignment]
+
 # ---------------------------------------------------------------------------
 # URDF paths for sharpa_wave primitive collision geometry
 # ---------------------------------------------------------------------------
@@ -205,7 +214,29 @@ def _remap_mesh_path(path: str) -> str:
     return path
 
 
-def _load_hull(mesh_path: str, cache: dict) -> tuple[trimesh.Trimesh | None, float]:
+def _resolve_mesh_path(mesh_path: str, seq_dir: Path | None = None) -> str:
+    """Resolve a stored object-mesh path to an existing local file.
+
+    Order: (1) the path as-is, (2) the legacy ``/workspace`` container-prefix
+    remap, (3) re-root under the dataset's ``object_assets`` root via the shared
+    ``reroot_object_asset`` helper (when the sequence dir is known). Returns the
+    path unchanged if none resolve, and the caller warns.
+    """
+    if os.path.exists(mesh_path):
+        return mesh_path
+    remapped = _remap_mesh_path(mesh_path)
+    if os.path.exists(remapped):
+        return remapped
+    if seq_dir is not None and reroot_object_asset is not None:
+        rerooted = reroot_object_asset(mesh_path, find_object_assets_root(seq_dir))
+        if rerooted is not None:
+            return str(rerooted)
+    return mesh_path
+
+
+def _load_hull(
+    mesh_path: str, cache: dict, seq_dir: Path | None = None
+) -> tuple[trimesh.Trimesh | None, float]:
     """Load mesh and return (convex_hull, hull_volume_ratio).
 
     hull_volume_ratio = hull.volume / mesh.volume.  A ratio >> 1 means the
@@ -216,7 +247,7 @@ def _load_hull(mesh_path: str, cache: dict) -> tuple[trimesh.Trimesh | None, flo
     key = os.path.basename(mesh_path)
     if key in cache:
         return cache[key]
-    local_path = _remap_mesh_path(mesh_path)
+    local_path = _resolve_mesh_path(mesh_path, seq_dir)
     if not os.path.exists(local_path):
         log.warning("Mesh not found: %s", local_path)
         cache[key] = (None, 0.0)
@@ -389,7 +420,7 @@ def _check_sequence(
     # produce massive false positives with the convex hull signed_distance check.
     hull_entries: list[tuple[trimesh.Trimesh | None, float]] = []
     for mp in obj_mesh_paths:
-        hull, ratio = _load_hull(mp, hull_cache)
+        hull, ratio = _load_hull(mp, hull_cache, seq_dir)
         if ratio > hull_ratio_max:
             hull_entries.append((None, ratio))  # skip this body
         else:
@@ -744,7 +775,7 @@ def check(
     hull_cache: dict = {}
     hull_entries: list[tuple] = []
     for mp in obj_mesh_paths:
-        hull, ratio = _load_hull(mp, hull_cache)
+        hull, ratio = _load_hull(mp, hull_cache, seq_dir)
         hull_entries.append((None, ratio) if ratio > hull_ratio_max else (hull, ratio))
 
     max_ho_pen = 0.0
