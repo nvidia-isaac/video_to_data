@@ -44,6 +44,16 @@ DEFAULT_PARTITION_COLS = ["sequence_id", "robot_name"]
 # ported loaders' ``from ...dataset_loader_base import make_usd_safe`` keep working.
 
 
+def _object_assets_relative(path: str) -> str:
+    """Return an object-asset path relative to (and including) the ``object_assets``
+    segment, or the path unchanged when it has no such segment.
+    """
+    parts = Path(path).parts
+    if "object_assets" in parts:
+        return str(Path(*parts[parts.index("object_assets") :]))
+    return path
+
+
 @dataclass
 class SequenceInfo:
     """Metadata for one sequence to process."""
@@ -578,8 +588,14 @@ class DatasetLoaderBase(ABC):
                     safe_object_body_names=[
                         make_usd_safe(name) for name in sequence_info.object_body_names
                     ],
-                    object_mesh_paths=self.get_object_mesh_paths(sequence_info),
-                    object_urdf_paths=self.get_object_urdf_paths(sequence_info),
+                    object_mesh_paths=[
+                        _object_assets_relative(p)
+                        for p in self.get_object_mesh_paths(sequence_info)
+                    ],
+                    object_urdf_paths=[
+                        _object_assets_relative(p)
+                        for p in self.get_object_urdf_paths(sequence_info)
+                    ],
                     object_mesh_radius=object_mesh_radius,
                     mano_link_names=list(MANO_HAND_LINKS.keys()),
                 )
