@@ -1,0 +1,485 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reconstruction Docs &mdash; Video to Data</title>
+  <meta name="description" content="Placeholder documentation for the Video to Data reconstruction package.">
+  <script>
+    (function () {
+      var mode = localStorage.getItem("mode") || "";
+      if (!mode) {
+        mode = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      }
+      document.documentElement.dataset.theme = mode;
+    })();
+  </script>
+  <style>
+    @font-face {
+      font-family: NVIDIA;
+      font-stretch: 25% 151%;
+      font-style: normal;
+      font-weight: 100 1000;
+      font-display: swap;
+      src: url(https://images.nvidia.com/etc/designs/nvidiaGDC/clientlibs_base/fonts/nvidia-sans/GLOBAL/var/NVIDIASansVF_W_Wght.woff2) format("woff2-variations");
+    }
+    @font-face {
+      font-family: RobotoMono;
+      font-stretch: 25% 151%;
+      font-style: normal;
+      font-weight: 100 1000;
+      font-display: swap;
+      src: url(https://images.nvidia.com/etc/designs/nvidiaGDC/clientlibs_base/fonts/Roboto_Mono/RobotoMono-VariableFont_wght.ttf) format("truetype-variations");
+    }
+    :root,
+    html[data-theme="light"] {
+      --nv-green: #76b900;
+      --nv-green-dark: #004831;
+      --bg: #fff;
+      --surface: #f7f7f7;
+      --border: #e5e5e5;
+      --text: #1a1a1a;
+      --text-muted: #666;
+      --heading: #000;
+      --primary: var(--nv-green-dark);
+      --accent: var(--nv-green);
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 16px rgba(0, 0, 0, 0.04);
+    }
+    html[data-theme="dark"] {
+      --bg: #111;
+      --surface: #1a1a1a;
+      --border: #2a2a2a;
+      --text: #eee;
+      --text-muted: #999;
+      --heading: #fff;
+      --primary: var(--nv-green);
+      --accent: var(--nv-green);
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.4);
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html { color-scheme: light dark; -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      font-family: NVIDIA, Arial, Helvetica, sans-serif;
+      font-size: 1rem;
+      line-height: 1.6;
+      color: var(--text);
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
+    }
+    code, kbd, pre { font-family: RobotoMono, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    a { color: var(--text); text-decoration-color: var(--accent); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+    a:hover { text-decoration-thickness: 3px; }
+    h1, h2, h3, p { margin: 0; }
+    h1, h2, h3 { color: var(--heading); font-weight: 700; line-height: 1.2; }
+    .header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      min-height: 3.75rem;
+      padding: 0 1.5rem;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: saturate(140%) blur(8px);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      color: var(--heading);
+      font-weight: 700;
+      text-decoration: none;
+      min-width: 0;
+    }
+    .brand-mark {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.8rem;
+      height: 1.8rem;
+      color: #000;
+      background: var(--accent);
+      border-radius: 0.35rem;
+      font-weight: 800;
+      line-height: 1;
+      flex: 0 0 auto;
+    }
+    .brand .divider { width: 1px; height: 1.4rem; background: var(--border); flex: 0 0 auto; }
+    .brand .project { font-size: 1rem; letter-spacing: 0.01em; white-space: nowrap; }
+    .brand .project .muted { color: var(--text-muted); font-weight: 400; }
+    .header-spacer { flex: 1; }
+    .top-link {
+      color: var(--text-muted);
+      font-size: 0.92rem;
+      font-weight: 600;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .top-link:hover { color: var(--accent); }
+    .icon-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 2.25rem;
+      height: 2.25rem;
+      padding: 0;
+      border: 1px solid transparent;
+      border-radius: 0.5rem;
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+      flex: 0 0 auto;
+    }
+    .icon-btn:hover { background: var(--surface); border-color: var(--border); color: var(--accent); }
+    .icon-btn svg { width: 1.15rem; height: 1.15rem; }
+    .icon-btn .icon-mode-light { display: none; }
+    .icon-btn .icon-mode-dark { display: inline; }
+    html[data-theme="dark"] .icon-btn .icon-mode-light { display: inline; }
+    html[data-theme="dark"] .icon-btn .icon-mode-dark { display: none; }
+    main {
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 3.5rem 1.5rem 4rem;
+    }
+    .crumb {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      margin-bottom: 1rem;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      text-decoration: none;
+    }
+    .crumb:hover { color: var(--accent); text-decoration: none; }
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(17rem, 22rem);
+      gap: 2rem;
+      align-items: end;
+      padding-bottom: 3rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .eyebrow {
+      display: inline-block;
+      margin: 0 0 0.75rem;
+      padding: 0.25rem 0.6rem;
+      font-size: 0.78rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--primary);
+      background: color-mix(in srgb, var(--accent) 14%, transparent);
+      border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+      border-radius: 999px;
+      font-weight: 600;
+    }
+    h1 { font-size: clamp(2.2rem, 5vw, 3.4rem); letter-spacing: -0.02em; margin-bottom: 1rem; }
+    .lede { font-size: 1.125rem; color: var(--text-muted); max-width: 62ch; }
+    .status {
+      padding: 1.1rem 1.2rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      box-shadow: var(--shadow);
+    }
+    .status h2 { font-size: 1rem; margin-bottom: 0.5rem; }
+    .status p { color: var(--text-muted); font-size: 0.95rem; }
+    .hero-media {
+      margin: 0;
+      overflow: hidden;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      box-shadow: var(--shadow);
+    }
+    .hero-media img {
+      display: block;
+      width: 100%;
+      height: auto;
+      background: #c7c7c7;
+    }
+    .hero-media figcaption {
+      padding: 0.65rem 0.8rem;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      line-height: 1.4;
+      border-top: 1px solid var(--border);
+    }
+    .content {
+      display: grid;
+      grid-template-columns: 15rem minmax(0, 1fr);
+      gap: 2.5rem;
+      margin-top: 2.5rem;
+    }
+    .toc {
+      position: sticky;
+      top: 5rem;
+      align-self: start;
+      padding: 1rem 0;
+      border-right: 1px solid var(--border);
+    }
+    .toc a {
+      display: block;
+      padding: 0.4rem 1rem 0.4rem 0;
+      color: var(--text-muted);
+      font-size: 0.92rem;
+      text-decoration: none;
+    }
+    .toc a:hover { color: var(--accent); }
+    .doc-section + .doc-section {
+      margin-top: 3rem;
+      padding-top: 3rem;
+      border-top: 1px solid var(--border);
+    }
+    .doc-section h2 { font-size: 1.55rem; margin-bottom: 1rem; }
+    .doc-section h2::after {
+      content: "";
+      display: block;
+      width: 2.25rem;
+      height: 3px;
+      margin-top: 0.5rem;
+      background: var(--accent);
+      border-radius: 2px;
+    }
+    .doc-section p { color: var(--text-muted); max-width: 72ch; }
+    .doc-section p + p,
+    .doc-section p + .callout,
+    .doc-section .cards + p { margin-top: 1rem; }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.9rem;
+      margin-top: 1rem;
+    }
+    .card {
+      padding: 1rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+    }
+    .card h3 { font-size: 1rem; margin-bottom: 0.4rem; }
+    .card p { font-size: 0.94rem; }
+    .callout {
+      padding: 1rem 1.1rem;
+      border-left: 4px solid var(--accent);
+      background: color-mix(in srgb, var(--accent) 8%, transparent);
+    }
+    .callout p { color: var(--text); }
+    .link-list {
+      list-style: none;
+      display: grid;
+      gap: 0.65rem;
+      padding: 0;
+      margin: 1rem 0 0;
+    }
+    .link-list a { display: inline-flex; align-items: center; gap: 0.45rem; font-weight: 600; }
+    code {
+      color: var(--heading);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 0.3rem;
+      padding: 0.08rem 0.28rem;
+      font-size: 0.9em;
+    }
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 1.5rem;
+      color: var(--text-muted);
+      font-size: 0.875rem;
+    }
+    footer .inner {
+      max-width: 1040px;
+      margin: 0 auto;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      justify-content: space-between;
+    }
+    footer a { color: var(--text-muted); }
+    footer a:hover { color: var(--accent); }
+    @media (max-width: 800px) {
+      .header { padding: 0 1rem; }
+      .brand .project { font-size: 0.92rem; }
+      .top-link { display: none; }
+      main { padding: 2.5rem 1rem 3rem; }
+      .hero,
+      .content,
+      .cards { grid-template-columns: 1fr; }
+      .hero { gap: 1.25rem; }
+      .toc {
+        position: static;
+        display: flex;
+        gap: 0.5rem;
+        overflow-x: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--border);
+        padding: 0 0 1rem;
+      }
+      .toc a {
+        flex: 0 0 auto;
+        padding: 0.35rem 0.65rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="header">
+    <a class="brand" href="../" aria-label="Video to Data home">
+      <span class="brand-mark">V</span>
+      <span class="divider" aria-hidden="true"></span>
+      <span class="project">Video to Data <span class="muted">/ Reconstruction</span></span>
+    </a>
+
+    <span class="header-spacer"></span>
+
+    <a class="top-link" href="../">Docs home</a>
+    <a class="top-link" href="https://github.com/nvidia-isaac/video_to_data/tree/main/reconstruction" target="_blank" rel="noopener">GitHub</a>
+
+    <button class="icon-btn" id="theme-toggle" type="button" aria-label="Toggle color theme" title="Toggle color theme">
+      <svg class="icon-mode-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="4"/>
+        <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+      </svg>
+      <svg class="icon-mode-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
+    </button>
+  </header>
+
+  <main>
+    <a class="crumb" href="../">&larr; Video to Data docs</a>
+
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Package Docs</p>
+        <h1>Reconstruction</h1>
+        <p class="lede">
+          Turn human demonstration video into geometric reconstructions with
+          the reconstruction components available in Video to Data.
+        </p>
+      </div>
+      <figure class="hero-media">
+        <img src="./airplane.png" alt="Egocentric reconstruction output showing a source camera view and reconstructed hand-object scene from top, side, and front world views.">
+        <figcaption>Ego-centric hand-object reconstruction output for the sample airplane clip.</figcaption>
+      </figure>
+    </section>
+
+    <div class="content">
+      <nav class="toc" aria-label="Page sections">
+        <a href="#overview">Overview</a>
+        <a href="#ego-pipeline">Ego Pipeline</a>
+        <a href="#outputs">Outputs</a>
+        <a href="#next">Next Steps</a>
+      </nav>
+
+      <div>
+        <section class="doc-section" id="overview">
+          <h2>Overview</h2>
+          <p>
+            Video to Data includes a variety of reconstruction packages for
+            recovering human, hand, and object trajectories from demonstration
+            video. These outputs can be used by downstream tasks such as motion
+            retargeting, robot simulation, policy training, and dataset analysis.
+          </p>
+          <p>
+            The reconstruction stack is modular: depth estimation,
+            segmentation, mesh generation, object pose tracking, hand/body
+            reconstruction, calibration, and visualization are separate tools
+            with file-based inputs and outputs. That makes pipelines easier to
+            resume, debug, compare, and extend as better models become available.
+          </p>
+        </section>
+
+        <section class="doc-section" id="ego-pipeline">
+          <h2>Ego-Centric Pipeline</h2>
+          <p>
+            The current first-class workflow is
+            <code>modules/v2d_pipelines/run_v2d_ego_e2e.py</code>. Given an MP4
+            and a text prompt for the held object, it runs an end-to-end
+            egocentric hand-object reconstruction flow. The pipeline first
+            undistorts footage into a pinhole camera model, then estimates the
+            object, hands, depth, pose trajectory, and final alignment.
+          </p>
+          <div class="cards">
+            <article class="card">
+              <h3>Object Path</h3>
+              <p>Grounding DINO locates the prompted object, SAM2 tracks its mask, SAM3D builds a textured mesh, and FoundationPose estimates a smoothed 6D pose trajectory.</p>
+            </article>
+            <article class="card">
+              <h3>Hand Path</h3>
+              <p>Ego hand reconstruction recovers hand motion, converts hand records and intrinsics into pipeline formats, and re-expresses tracks for alignment.</p>
+            </article>
+            <article class="card">
+              <h3>Depth Alignment</h3>
+              <p>MoGe depth provides the metric cues for mesh scale estimation, object tracking, EKF smoothing, and hand-object alignment.</p>
+            </article>
+            <article class="card">
+              <h3>Inspection Renders</h3>
+              <p>The pipeline writes overlay and multi-view videos so object poses, hand tracks, and alignment quality can be checked without opening raw artifacts manually.</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="doc-section" id="outputs">
+          <h2>What It Produces</h2>
+          <p>
+            A run produces a structured output directory with extracted frames,
+            depth maps, camera intrinsics, object masks, a textured object mesh,
+            raw and smoothed object poses, hand reconstruction records, aligned
+            hand tracks, and rendered diagnostic videos. The key reusable
+            outputs are the scale-corrected object mesh, the smoothed per-frame
+            object poses, and the depth-aligned hand records.
+          </p>
+          <div class="callout">
+            <p>
+              The pipeline is resumable: each step checks for its existing
+              artifacts and skips completed work, which is important for long GPU
+              reconstruction jobs and model-comparison runs.
+            </p>
+          </div>
+        </section>
+
+        <section class="doc-section" id="next">
+          <h2>Next Steps</h2>
+          <p>
+            The full setup guide still lives in the repository while this web
+            page is expanded with installation steps, diagrams, examples, and
+            generated references for module entry points.
+          </p>
+          <ul class="link-list">
+            <li><a href="https://github.com/nvidia-isaac/video_to_data/blob/main/reconstruction/docs/ego_e2e_setup.md" target="_blank" rel="noopener">Egocentric E2E setup guide &rarr;</a></li>
+            <li><a href="https://github.com/nvidia-isaac/video_to_data/tree/main/reconstruction/modules" target="_blank" rel="noopener">Browse modules &rarr;</a></li>
+          </ul>
+        </section>
+      </div>
+    </div>
+
+  </main>
+
+  <footer>
+    <div class="inner">
+      <span>Copyright &copy; 2025&ndash;2026, NVIDIA Corporation.</span>
+      <span><a href="https://github.com/nvidia-isaac/video_to_data" target="_blank" rel="noopener">github.com/nvidia-isaac/video_to_data</a></span>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      var btn = document.getElementById("theme-toggle");
+      btn.addEventListener("click", function () {
+        var current = document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+        var next = current === "dark" ? "light" : "dark";
+        document.documentElement.dataset.theme = next;
+        localStorage.setItem("mode", next);
+      });
+    })();
+  </script>
+
+</body>
+</html>

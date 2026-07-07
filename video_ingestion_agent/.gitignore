@@ -75,6 +75,8 @@ data/benchmark/
 *.mkv
 *.wav
 *.mp3
+# Keep the demo video embedded on the docs homepage (overrides *.mp4 above; <1MB, non-LFS so the multiversion docs build copies real bytes).
+!docs/images/v2d_video_agent_integration_e2e.mp4
 
 # Model checkpoints
 checkpoints/

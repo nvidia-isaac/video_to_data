@@ -1,23 +1,41 @@
-# Video to Data
+# Video to Data (V2D)
 
-Monorepo for **Video to Data (V2D)** — an end-to-end pipeline that converts human demonstration videos into simulation-ready assets and physics-grounded robot training data.
+> An end-to-end pipeline that converts human demonstration videos into simulation-ready assets and physics-grounded robot training data.
 
-## End-to-End Workflow
+**[Documentation](https://nvidia-isaac.github.io/video_to_data/)** · **[Robotic Grounding Project Page](https://nvidia-isaac.github.io/video_to_data/chord/)** · **[Robotic Grounding Tech Report](https://nvidia-isaac.github.io/video_to_data/chord/chord.pdf)**
 
-```
- ┌───────────────┐   ┌──────────────────────┐   ┌──────────────────────┐   ┌────────────────────────────┐
- │ Human demo    │ → │ 1. Video Ingestion   │ → │ 2. Reconstruction    │ → │ 3. Robotic Grounding       │
- │ video / rosbag│   │    Agent             │   │ depth · masks ·      │   │ retargeting → Isaac Lab    │
- │               │   │ action segments ·    │   │ meshes · 6D pose ·   │   │ RL training (RSL-RL PPO)   │
- │               │   │ entity graph ·       │   │ SMPL body            │   │                            │
- │               │   │ visual embeddings    │   │                      │   │                            │
- └───────────────┘   └──────────────────────┘   └──────────────────────┘   └────────────────────────────┘
-                       video_ingestion_agent/      reconstruction/             robotic_grounding/
-```
+![Video to Data pipeline — from human demonstration video through ingestion, reconstruction, and robotic grounding in Isaac Lab to a physics-grounded policy, dataset, and real-robot deployment](docs/figures/v2d_overview.png)
+
+---
+
+## Contents
+
+- [Overview](#overview)
+- [Demos](#demos)
+- [Packages](#packages)
+- [Prerequisites](#prerequisites)
+- [Quickstart](#quickstart)
+  - [Video Ingestion Agent](#video-ingestion-agent-video--queryable-action-database)
+  - [Reconstruction](#reconstruction-video--3d-data)
+  - [Robotic Grounding](#robotic-grounding-data--rl-policy)
+- [Design philosophy](#design-philosophy)
+- [Contributing](#contributing)
+
+---
+
+## Overview
+
+Video to Data (V2D) turns raw human demonstrations into robot-ready training data through three composable stages. Each stage runs independently and writes its artifacts to disk, so you can stop, inspect, cache, and recompose the pipeline at any boundary.
 
 1. **Video Ingestion Agent** — a LangGraph-driven agentic workflow that segments demonstration videos into temporally-bounded action clips, extracts an entity-relation scene graph, and stores per-frame SigLIP-2 embeddings. The result is a queryable action database (`graph.db` + `vector.db`) that lets downstream stages select which clips to process via natural-language retrieval, instead of brute-forcing the full video.
 2. **Reconstruction** — containerized vision modules turn the selected RGB (or stereo) clips into per-frame depth, object masks, textured meshes, 6-DoF object poses, and SMPL human body parameters. Multi-view pipelines (`run_mv_hoi_reconstruction`, `run_mv_calibration`) orchestrate the full reconstruction from a rosbag.
 3. **Robotic Grounding** — human motion (e.g. Arctic) is retargeted onto the target robot embodiment (Sharpa), then the reconstructed scene and retargeted motion drive Isaac Lab environments trained with RSL-RL PPO to produce deployable policies.
+
+## Demos
+
+The pipeline in action — from a raw human demonstration, to grounded policies trained in Isaac Lab, to deployment on a physical robot.
+
+<img src="docs/figures/human.gif" width="270" alt="Raw human demonstration"> <img src="docs/figures/sim.gif" width="270" alt="Grounded robot policies in Isaac Lab"> <img src="docs/figures/real.gif" width="270" alt="Deploy to real robot">
 
 ## Packages
 
@@ -144,7 +162,7 @@ Browse retargeted sequences as interactive 3D animations in your browser.
 
 See [robotic_grounding/README.md#visualizer](robotic_grounding/README.md#visualizer) for setup instructions.
 
-## Design Philosophy
+## Design philosophy
 
 - **Host orchestration, containerized inference.** The host runs thin Python wrappers that `docker run` each module; all ML dependencies live inside their respective images. No CUDA or PyTorch is ever installed on the host.
 - **Typed contracts between packages.** Modules communicate through strongly-typed dataclasses in [`v2d_common`](reconstruction/modules/v2d_common/) (`DepthImage`, `CameraIntrinsics`, `Transform3d`, `BoundingBox`, `Mask`) — never raw arrays across package boundaries.
