@@ -5,23 +5,15 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "v2d-gsplat-refinement-lib"
+name = "v2d-geocalib-docker"
 version = "0.1.0"
-description = "Joint hand+object pose refinement via Gaussian splatting"
+description = "Docker orchestration scripts for GeoCalib"
 requires-python = ">=3.10"
-dependencies = [
-    "numpy",
-    "Pillow",
-    "trimesh",
-    "rtree",
-    "imageio",
-    "imageio-ffmpeg",
-    "tqdm",
-    "v2d-common",
-]
+dependencies = ["v2d-docker"]
 
 [tool.setuptools]
-packages = ["v2d.gsplat_refinement.lib"]
+packages = ["v2d.geocalib.docker"]
 
 [tool.setuptools.package-dir]
-"v2d.gsplat_refinement.lib" = "."
+"v2d.geocalib.docker" = "."
+

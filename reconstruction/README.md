@@ -47,6 +47,7 @@ run_video_to_depth(
 |---------|-------|-------------|-------|---------|
 | **v2d_unidepth** | `run_image_to_depth`, `run_video_to_depth`, `run_download_weights`, `run_shell` | Monocular depth estimation | `python -m v2d.unidepth.docker.build` | `python -m v2d.unidepth.docker.run_<tool> --args` |
 | **v2d_moge** | `run_image_to_depth`, `run_video_to_depth`, `run_download_weights`, `run_shell` | Video-to-depth (Midas + MoG) | `python -m v2d.moge.docker.build` | `python -m v2d.moge.docker.run_<tool> --args` |
+| **v2d_geocalib** | `run_video_to_calibration`, `run_download_weights` | GeoCalib camera intrinsics + gravity estimation | `python -m v2d.geocalib.docker.build` | `python -m v2d.geocalib.docker.run_<tool> --args` |
 | **v2d_sam2** | `run_video_to_masks`, `run_mv_videos_to_masks`, `run_annotate`, `run_download_weights`, `run_shell` | SAM2 video segmentation (single + multi-view) | `python -m v2d.sam2.docker.build` | `python -m v2d.sam2.docker.run_<tool> --args` |
 | **v2d_sam3d** | `run_image_to_mesh`, `run_render_debug_image`, `run_download_weights`, `run_shell` | 3D mesh from image+mask | `python -m v2d.sam3d.docker.build` | `python -m v2d.sam3d.docker.run_<tool> --args` |
 | **v2d_grounding_dino** | `run_image_to_object_bboxes`, `run_image_list_to_object_bboxes`, `run_video_to_object_bboxes`, `run_mv_image_list_to_object_bboxes`, `run_download_weights`, `run_shell` | Text-guided object detection (single + multi-view) | `python -m v2d.grounding_dino.docker.build` | `python -m v2d.grounding_dino.docker.run_<tool> --args` |
@@ -148,6 +149,12 @@ python -m v2d.moge.docker.build
 ### 3. Download weights
 
 Run `run_download_weights` for each module that requires model weights (e.g. via `python -m v2d.sam3d.docker.run_download_weights --output_dir data/weights/sam3d`).
+
+For GeoCalib, pre-warm the torch hub cache before using `--run_geocalib` or `--gravity_align`:
+
+```bash
+python -m v2d.geocalib.docker.run_download_weights --output_dir data/weights/geocalib
+```
 
 ### Design pattern: host orchestration, containerized inference
 

@@ -13,6 +13,7 @@ dependencies = [
     "numpy",
     "opencv-python",
     "trimesh",
+    "Pillow",
     "OpenEXR",
 ]
 # Other runtime dependencies are local packages installed via scripts/install_packages.sh

@@ -13,10 +13,33 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from PIL import Image
 
 from v2d.common.video import FrameWriter
 
 _predictor = None
+
+
+def _resolve_prompt_mask_path(mask_path: str, prompts_path: str) -> Path:
+    path = Path(mask_path)
+    if not path.is_absolute():
+        path = Path(prompts_path).resolve().parent / path
+    return path
+
+
+def _validate_prompt(prompt) -> None:
+    prompt_types = sum([
+        bool(prompt.mask_path),
+        prompt.box is not None,
+        bool(prompt.points),
+    ])
+    if prompt_types != 1:
+        raise ValueError(
+            "Each SAM2 prompt must provide exactly one of mask_path, box, or "
+            f"points. Got object_id={prompt.object_id}, "
+            f"frame_index={prompt.frame_index}."
+        )
+
 
 def _get_predictor(weights_dir: str):
     global _predictor
@@ -61,6 +84,18 @@ def video_to_masks(
         inference_state = predictor.init_state(video_path)
 
         for prompt in prompts.prompts:
+            _validate_prompt(prompt)
+            if prompt.mask_path:
+                mask_path = _resolve_prompt_mask_path(prompt.mask_path, prompts_path)
+                mask = np.asarray(Image.open(mask_path).convert("L")) > 0
+                predictor.add_new_mask(
+                    inference_state=inference_state,
+                    frame_idx=prompt.frame_index,
+                    obj_id=prompt.object_id,
+                    mask=mask,
+                )
+                continue
+
             box = [prompt.box.x0, prompt.box.y0, prompt.box.x1, prompt.box.y1] if prompt.box else None
             points = [[p.x, p.y] for p in prompt.points] if prompt.points else None
             point_labels = prompt.point_labels if prompt.point_labels else None

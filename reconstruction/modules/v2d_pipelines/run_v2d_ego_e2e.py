@@ -65,7 +65,8 @@ Output directory layout:
   │                                    #   (cam_t, intrinsics, hand_scale,
   │                                    #   diagnostics.cam_t_pre_dz)
   ├── render_aligned_{ds}.mp4      # 2×2 grid render of depth-aligned hands
-  └── render_unaligned_{ds}.mp4    # Same renderer, projects diagnostics.cam_t_pre_dz
+  ├── render_unaligned_{ds}.mp4    # Same renderer, projects diagnostics.cam_t_pre_dz
+  └── result/                      # Portable final bundle: result.npz + mesh assets
 
 Usage:
     python modules/v2d_pipelines/run_v2d_ego_e2e.py \\
@@ -94,6 +95,7 @@ import trimesh
 
 from v2d.anycalib.docker.run_video_to_calibration import run_video_to_calibration
 from v2d.common.datatypes import BoundingBox, Sam2Prompt, Sam2Prompts
+from v2d.common.result_bundle import write_result_bundle
 from v2d.common.utils import extract_images
 from v2d.depth.lib.stabilize_intrinsics import stabilize_intrinsics
 from v2d.foundation_pose.docker.run_ekf_smoothing import run_ekf_smoothing
@@ -684,8 +686,38 @@ def run_v2d_ego_e2e(
             dev              = dev,
         )
 
+    # -----------------------------------------------------------------------
+    # Final: packaged result/ folder (mesh + textures + result.npz)
+    # -----------------------------------------------------------------------
+    result_dir = f"{output_dir}/result"
+    result_npz = f"{result_dir}/result.npz"
+    result_mesh = f"{result_dir}/mesh.obj"
+    final_hand_left = os.path.join(hamer_aligned_dir, "2")
+    final_hand_right = os.path.join(hamer_aligned_dir, "3")
+    if not _step(f"Package result/ ({ds})",
+                 os.path.exists(result_npz) and os.path.exists(result_mesh)):
+        write_result_bundle(
+            result_dir=result_dir,
+            frames_dir=frames_dir,
+            intrinsics_path=active_intrinsics,
+            mesh_path=mesh_scaled,
+            object_poses_dir=poses_smooth_dir,
+            object_scale=1.0,
+            camera_to_world_dir=None,
+            left_hand_dir=final_hand_left,
+            right_hand_dir=final_hand_right,
+            source_manifest={
+                "pipeline": "ego_e2e",
+                "depth_source": ds,
+                "object_id": OBJECT_ID,
+                "left_hand_id": 2,
+                "right_hand_id": 3,
+            },
+        )
+
     print(f"\n{'='*60}")
     print(f"  Done!  (depth_source={depth_source})")
+    print(f"  Result bundle:         {result_dir}/")
     print(f"  Aligned hand tracks:   {hamer_aligned_dir}/")
     print(f"  Scaled mesh:           {mesh_scaled}")
     print(f"  Smoothed poses:        {poses_smooth_dir}/")

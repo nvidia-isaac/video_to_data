@@ -5,23 +5,20 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "v2d-gsplat-refinement-lib"
+name = "v2d-geocalib-lib"
 version = "0.1.0"
-description = "Joint hand+object pose refinement via Gaussian splatting"
+description = "GeoCalib-based monocular calibration and gravity estimation"
 requires-python = ">=3.10"
 dependencies = [
     "numpy",
-    "Pillow",
-    "trimesh",
-    "rtree",
-    "imageio",
-    "imageio-ffmpeg",
-    "tqdm",
+    "opencv-python",
+    "geocalib @ git+https://github.com/cvg/GeoCalib.git",
     "v2d-common",
 ]
 
 [tool.setuptools]
-packages = ["v2d.gsplat_refinement.lib"]
+packages = ["v2d.geocalib.lib"]
 
 [tool.setuptools.package-dir]
-"v2d.gsplat_refinement.lib" = "."
+"v2d.geocalib.lib" = "."
+

@@ -15,6 +15,7 @@ pip install -e modules/v2d_common \
   -e modules/v2d_depth \
   -e modules/v2d_viz \
   -e modules/v2d_anycalib/docker \
+  -e modules/v2d_geocalib/docker \
   -e modules/v2d_bundlesdf/docker \
   -e modules/v2d_cusfm/docker \
   -e modules/v2d_depth_anything/docker \

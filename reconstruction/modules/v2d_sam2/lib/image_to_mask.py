@@ -53,6 +53,13 @@ def _build_predictor(checkpoint_dir):
     return SAM2ImagePredictor(model)
 
 
+def _resolve_prompt_mask_path(mask_path: str, prompts_path: str) -> Path:
+    path = Path(mask_path)
+    if not path.is_absolute():
+        path = Path(prompts_path).resolve().parent / path
+    return path
+
+
 def mask_reference_frame(image_path: str, prompts_path: str, masks_dir: str):
     data_dir = os.environ.get("DATA_DIR", "/data")
     checkpoint_dir = os.environ.get(
@@ -65,25 +72,30 @@ def mask_reference_frame(image_path: str, prompts_path: str, masks_dir: str):
 
     # Find prompt for reference frame (frame_index 0 or the first prompt)
     prompt = prompts.prompts[0]
-    points = np.array([[p.x, p.y] for p in prompt.points]) if prompt.points else None
-    point_labels = np.array(prompt.point_labels) if prompt.point_labels else None
-    box = np.array([prompt.box.x0, prompt.box.y0, prompt.box.x1, prompt.box.y1]) \
-        if prompt.box else None
+    if prompt.mask_path:
+        mask_path = _resolve_prompt_mask_path(prompt.mask_path, prompts_path)
+        mask = np.asarray(Image.open(mask_path).convert("L")) > 0
+        scores = [1.0]
+    else:
+        points = np.array([[p.x, p.y] for p in prompt.points]) if prompt.points else None
+        point_labels = np.array(prompt.point_labels) if prompt.point_labels else None
+        box = np.array([prompt.box.x0, prompt.box.y0, prompt.box.x1, prompt.box.y1]) \
+            if prompt.box else None
 
-    image = np.array(Image.open(image_path).convert("RGB"))
+        image = np.array(Image.open(image_path).convert("RGB"))
 
-    predictor = _build_predictor(checkpoint_dir)
-    with torch.inference_mode():
-        predictor.set_image(image)
-        masks, scores, _ = predictor.predict(
-            point_coords=points,
-            point_labels=point_labels,
-            box=box,
-            multimask_output=False,
-        )
+        predictor = _build_predictor(checkpoint_dir)
+        with torch.inference_mode():
+            predictor.set_image(image)
+            masks, scores, _ = predictor.predict(
+                point_coords=points,
+                point_labels=point_labels,
+                box=box,
+                multimask_output=False,
+            )
 
-    # masks shape: (1, H, W) — take best mask
-    mask = masks[0].astype(bool)
+        # masks shape: (1, H, W) - take best mask
+        mask = masks[0].astype(bool)
 
     obj_id = prompt.object_id
     obj_dir = os.path.join(masks_dir, str(obj_id))

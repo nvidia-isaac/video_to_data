@@ -204,6 +204,7 @@ def save_hand_poses(track: HandPoseTrack, track_dir: str) -> None:
     hp = track.hand_pose.detach().cpu().tolist()
     be = track.betas.detach().cpu().tolist()
     ct = track.cam_t.detach().cpu().tolist()
+    hand_scale = float(track.hand_scale)
     for i, fidx in enumerate(track.frame_indices):
         rec = dict(track.raw_records[i])  # shallow copy preserves diagnostics etc.
         rec["mano"] = {
@@ -212,6 +213,7 @@ def save_hand_poses(track: HandPoseTrack, track_dir: str) -> None:
             "betas":         be[i],
         }
         rec["cam_t"] = ct[i]
+        rec["hand_scale"] = hand_scale
         with open(os.path.join(track_dir, f"{fidx:06d}.json"), "w") as fh:
             json.dump(rec, fh, indent=2)
 

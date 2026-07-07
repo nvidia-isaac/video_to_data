@@ -98,6 +98,11 @@ def run_refine(
     hand_anchor_mode:   str = "vertex",
     face_normal_thin_factor_obj:  float = 0.25,
     face_normal_thin_factor_hand: float = 0.25,
+    init_opacity_obj:   float = 0.9,
+    init_opacity_hand:  float = 0.9,
+    init_opacity_bg:    float = 0.9,
+    init_opacity_wrist: float = 0.5,
+    init_gaussian_scale_factor: float = 1.0,
     init_hand_color_from_mask: bool = True,
     smooth_obj_in_world:       bool = False,
     smooth_hand_in_world:      bool = False,
@@ -271,6 +276,11 @@ def run_refine(
         "hand_anchor_mode":            hand_anchor_mode,
         "face_normal_thin_factor_obj":  face_normal_thin_factor_obj,
         "face_normal_thin_factor_hand": face_normal_thin_factor_hand,
+        "init_opacity_obj":             init_opacity_obj,
+        "init_opacity_hand":            init_opacity_hand,
+        "init_opacity_bg":              init_opacity_bg,
+        "init_opacity_wrist":           init_opacity_wrist,
+        "init_gaussian_scale_factor":   init_gaussian_scale_factor,
         # Lib accepts only the negated form (--no_init_hand_color_from_mask)
         # because the lib default is True. Flip the polarity so the
         # container emits nothing in the default case and emits the flag
@@ -469,6 +479,11 @@ if __name__ == "__main__":
                    help="Anchor mode for hand Gaussians (same options).")
     p.add_argument("--face_normal_thin_factor_obj",  type=float, default=0.25)
     p.add_argument("--face_normal_thin_factor_hand", type=float, default=0.25)
+    p.add_argument("--init_opacity_obj", type=float, default=0.9)
+    p.add_argument("--init_opacity_hand", type=float, default=0.9)
+    p.add_argument("--init_opacity_bg", type=float, default=0.9)
+    p.add_argument("--init_opacity_wrist", type=float, default=0.5)
+    p.add_argument("--init_gaussian_scale_factor", type=float, default=1.0)
     p.add_argument("--no_init_hand_color_from_mask",
                    dest="init_hand_color_from_mask",
                    action="store_false",
@@ -651,6 +666,11 @@ if __name__ == "__main__":
         hand_anchor_mode             = args.hand_anchor_mode,
         face_normal_thin_factor_obj  = args.face_normal_thin_factor_obj,
         face_normal_thin_factor_hand = args.face_normal_thin_factor_hand,
+        init_opacity_obj             = args.init_opacity_obj,
+        init_opacity_hand            = args.init_opacity_hand,
+        init_opacity_bg              = args.init_opacity_bg,
+        init_opacity_wrist           = args.init_opacity_wrist,
+        init_gaussian_scale_factor   = args.init_gaussian_scale_factor,
         init_hand_color_from_mask    = args.init_hand_color_from_mask,
         smooth_obj_in_world          = args.smooth_obj_in_world,
         smooth_hand_in_world         = args.smooth_hand_in_world,
