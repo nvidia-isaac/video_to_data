@@ -3,7 +3,7 @@
 End-to-end reproduction of the **ReconHand** whole-body pipeline on three
 hand-object sequences. Starting from MANO reference motion, each sequence is
 retargeted to the Dex3 hands, planned into a whole-body G1 trajectory, and used
-to train a SONIC + RL-residual policy in two stages.
+to train a SONIC + RL-residual policy in three stages.
 
 Pipeline:
 ```
@@ -12,6 +12,8 @@ MANO reference  ──(1) retarget──▶  Dex3 EE motion  ──(2) plan─�
                                               (3) train stage 1 — no-collision warm-up
                                                      │
                                               (4) train stage 2 — contact grounding (resume)
+                                                     │
+                                              (5) train stage 3 — full-sequence finetune (resume)
 ```
 
 The planner writes each plan **under the dataset dir** (`<ds>/planner_processed/…`), so
@@ -137,59 +139,17 @@ python scripts/replay_motion_viser.py \
 
 ## 3. Train — stage 1 (no-collision warm-up)
 
-Robot↔object collisions are **off** (support surfaces stay solid); the
-virtual-object controller is always on; only hand-keypoint and finger-joint
-tracking rewards are active. `--zero-actor` starts residuals at zero so the
-policy departs cleanly from the SONIC prior.
+`SonicG1-ReconHand-Stage1-v0` bakes the warm-up recipe: robot↔object collisions
+off (support surfaces stay solid), VOC always on, hand-keypoint + finger-joint
+tracking rewards only, upper-body residuals. `--zero-actor` starts residuals at
+zero so the policy departs cleanly from the SONIC prior.
 
 ```bash
-STAGE1_OVERRIDES="\
-env.episode_length_s=10.0 \
-env.commands.motion.always_reset_to_first_frame=false \
-env.events.reset_to_trajectory_frame.params.trajectory_time_index=[0,999999] \
-env.commands.motion.initial_virtual_object_control_curriculum_scale=1.0 \
-env.commands.motion.voc_reset_scale=1.0 \
-env.commands.motion.voc_decay_steps=0 \
-env.commands.motion.reset_freeze_steps=50 \
-env.commands.motion.reset_shoulder_spread=0.5 \
-env.events.setup_collision_groups.params.disable_robot_to_object_collisions=true \
-env.events.setup_collision_groups.params.disable_robot_to_fixed_object_collisions=false \
-env.actions.joint_pos.residual_scale=0.5 \
-env.actions.joint_pos.use_tanh=false \
-env.actions.joint_pos.finger_residual=true \
-env.actions.joint_pos.finger_residual_scale=0.15 \
-env.actions.joint_pos.residual_joint_names=[waist_yaw_joint,waist_roll_joint,waist_pitch_joint,left_shoulder_pitch_joint,left_shoulder_roll_joint,left_shoulder_yaw_joint,left_elbow_joint,left_wrist_roll_joint,left_wrist_pitch_joint,left_wrist_yaw_joint,right_shoulder_pitch_joint,right_shoulder_roll_joint,right_shoulder_yaw_joint,right_elbow_joint,right_wrist_roll_joint,right_wrist_pitch_joint,right_wrist_yaw_joint] \
-env.rewards.termination_penalty.weight=-100.0 \
-env.rewards.motion_hand_keypoints_gaussian_exp.weight=1.0 \
-env.rewards.motion_hand_keypoints_gaussian_exp.params.std=0.1 \
-env.rewards.motion_finger_joint_pos_gaussian_exp.weight=1.0 \
-env.rewards.motion_finger_joint_pos_gaussian_exp.params.std=1.0 \
-env.rewards.motion_object_keypoints_tracking_exp.weight=0.0 \
-env.rewards.motion_contact_tracking_gaussian_exp.weight=0.0 \
-env.rewards.contact_wrench_support_reward.weight=0.0 \
-env.rewards.unintended_contact_penalty.weight=0.0 \
-env.rewards.missed_contact_penalty.weight=0.0 \
-env.rewards.action_rate.weight=-0.01 \
-env.rewards.action_l2.weight=-0.001 \
-env.rewards.joint_pos_limit.weight=-0.01 \
-env.terminations.anchor_pos_error.params.threshold=0.7 \
-env.terminations.anchor_quat_error.params.threshold=1.5 \
-env.terminations.hand_wrist_away.params.threshold=0.15 \
-agent.algorithm.max_grad_norm=0.1 \
-agent.algorithm.entropy_coef=0.0001 \
-agent.algorithm.schedule=adaptive \
-agent.algorithm.desired_kl=0.02 \
-agent.algorithm.learning_rate=5e-4 \
-agent.policy.init_noise_std=0.5 \
-agent.policy.actor_hidden_dims=[1024,512,256,128] \
-agent.policy.critic_hidden_dims=[1024,512,256,128]"
-
 python scripts/rsl_rl/train.py --headless \
-  --task SonicG1-ReconHand-EpisodeTimeout-v0 \
+  --task SonicG1-ReconHand-Stage1-v0 \
   --motion_file arctic/planner_processed/dataset_s09_espressomachine_use_02/g1_dex3 \
-  --num_envs 4096 --max_iterations 5000 --zero-actor \
-  --video --logger wandb --run_name espresso_stage1 \
-  $STAGE1_OVERRIDES
+  --num_envs 4096 --zero-actor \
+  --video --logger tensorboard --run_name espresso_stage1
 ```
 
 Repeat with `--motion_file taco/planner_processed/taco_skim_off__spoon__pan_20230926_011/g1_dex3`
@@ -198,55 +158,46 @@ Stage-1 checkpoints land in `logs/rsl_rl/<experiment>/<timestamp>_<run_name>/mod
 
 ## 4. Train — stage 2 (contact grounding)
 
-Resume from the stage-1 checkpoint, turn robot↔object collisions **on**, decay
-the virtual-object controller to zero over a fixed schedule, and enable the
-contact rewards (wrench-support + unintended/missed-contact penalties). Stage 2
-is stage 1 plus the deltas below (later overrides win, so append them after
-`$STAGE1_OVERRIDES`). **`--zero-actor` is omitted** — it would wipe the resumed
-actor weights.
+`SonicG1-ReconHand-Stage2-v0` turns robot↔object collisions **on**, decays the
+virtual-object controller to zero over a fixed-timestep curriculum, and enables
+the contact rewards (wrench-support + unintended/missed-contact). Resume from the
+stage-1 checkpoint; **omit `--zero-actor`** — it would wipe the resumed actor.
 
 ```bash
-STAGE2_DELTAS="\
-env.events.setup_collision_groups.params.disable_robot_to_object_collisions=false \
-env.commands.motion.initial_virtual_object_control_curriculum_scale=0.5 \
-env.commands.motion.voc_decay_steps=10 \
-env.curriculum.fixed_timestep_curriculum.params.num_steps_per_env=24 \
-env.curriculum.fixed_timestep_curriculum.params.timestep_schedule=[5000,10000,15000,20000] \
-env.curriculum.fixed_timestep_curriculum.params.virtual_object_control_scale_factor=[0.5,0.1,0.02,0.004,0.0] \
-env.curriculum.fixed_timestep_curriculum.params.reward_weight_schedules.motion_object_keypoints_tracking_exp=[0.0,0.4,0.48,0.496,0.5] \
-env.curriculum.fixed_timestep_curriculum.params.reward_weight_schedules.motion_hand_keypoints_gaussian_exp=[0.10,0.10,0.10,0.10,0.10] \
-env.curriculum.fixed_timestep_curriculum.params.reward_weight_schedules.motion_finger_joint_pos_gaussian_exp=[0.10,0.10,0.10,0.10,0.10] \
-env.curriculum.fixed_timestep_curriculum.params.reward_weight_schedules.motion_contact_tracking_gaussian_exp=[0.10,0.10,0.10,0.10,0.10] \
-env.curriculum.fixed_timestep_curriculum.params.reward_weight_schedules.contact_wrench_support_reward=[5.0,5.0,5.0,5.0,5.0] \
-env.curriculum.fixed_timestep_curriculum.params.reward_weight_schedules.unintended_contact_penalty=[-2.5,-2.5,-2.5,-2.5,-2.5] \
-env.curriculum.fixed_timestep_curriculum.params.reward_weight_schedules.missed_contact_penalty=[-5.0,-5.0,-5.0,-5.0,-5.0] \
-env.rewards.motion_hand_keypoints_gaussian_exp.weight=0.10 \
-env.rewards.motion_finger_joint_pos_gaussian_exp.weight=0.10 \
-env.rewards.motion_contact_tracking_gaussian_exp.weight=0.10 \
-env.rewards.contact_wrench_support_reward.weight=5.0 \
-env.rewards.unintended_contact_penalty.weight=-2.5 \
-env.rewards.missed_contact_penalty.weight=-5.0 \
-env.terminations.object_pos_error.params.threshold=0.15 \
-env.terminations.object_quat_error.params.threshold=1.0"
-
 python scripts/rsl_rl/train.py --headless \
-  --task SonicG1-ReconHand-EpisodeTimeout-v0 \
+  --task SonicG1-ReconHand-Stage2-v0 \
   --motion_file arctic/planner_processed/dataset_s09_espressomachine_use_02/g1_dex3 \
-  --num_envs 4096 --max_iterations 50000 \
-  --video --logger wandb --run_name espresso_stage2 \
-  agent.resume=true agent.load_checkpoint=logs/rsl_rl/<experiment>/<stage1_run>/model_4999.pt \
-  $STAGE1_OVERRIDES $STAGE2_DELTAS
+  --num_envs 4096 \
+  --video --logger tensorboard --run_name espresso_stage2 \
+  agent.resume=true agent.load_checkpoint=logs/rsl_rl/<experiment>/<stage1_run>/model_4999.pt
 ```
 
-Point `agent.load_checkpoint` at each sequence's own stage-1 checkpoint. The
-curriculum's `num_steps_per_env` must match the PPO runner's (24).
+Point `agent.load_checkpoint` at each sequence's own stage-1 checkpoint.
+
+## 5. Train — stage 3 (full-sequence finetune)
+
+`SonicG1-ReconHand-Stage3-v0` finetunes on the full trajectory: full-length
+episodes (trajectory-end timeout), VOC off, curriculum disabled, object-keypoint
+tracking weighted 10×. Resume from the stage-2 checkpoint.
+
+```bash
+python scripts/rsl_rl/train.py --headless \
+  --task SonicG1-ReconHand-Stage3-v0 \
+  --motion_file arctic/planner_processed/dataset_s09_espressomachine_use_02/g1_dex3 \
+  --num_envs 4096 \
+  --video --logger tensorboard --run_name espresso_stage3 \
+  agent.resume=true agent.load_checkpoint=logs/rsl_rl/<experiment>/<stage2_run>/model_<N>.pt
+```
+
+Each stage's iteration budget is baked into its task (stage 1/3: 5000,
+stage 2: 50000); pass `--max_iterations` to override.
 
 ## Local smoke
 
 To validate the pipeline end-to-end without a full run, shrink any train command:
 `--num_envs 256 --max_iterations 8 --logger tensorboard` (drop `--video`). A pass
 shows a non-zero `virtual_object_controller_scale_factor`, a climbing mean
-reward, and no override or PhysX-buffer errors. Smoke both a taco (rigid) and the
+reward, and no missing-asset or PhysX-buffer errors. Smoke both a taco (rigid) and the
 espresso (articulated) sequence — they exercise different object-load paths.
 
 ## Eval

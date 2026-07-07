@@ -67,3 +67,24 @@ class G1SonicReconHandRslRlPpoCfg(G1SonicRslRlPpoCfg):
         desired_kl=0.02,
         max_grad_norm=0.1,
     )
+
+
+@configclass
+class G1SonicReconHandStage1RslRlPpoCfg(G1SonicReconHandRslRlPpoCfg):
+    """Stage 1 (no-collision warm-up)."""
+
+    max_iterations = 5_000
+
+
+@configclass
+class G1SonicReconHandStage2RslRlPpoCfg(G1SonicReconHandRslRlPpoCfg):
+    """Stage 2 (contact grounding) — resumes from a stage-1 checkpoint."""
+
+    max_iterations = 50_000
+
+
+@configclass
+class G1SonicReconHandStage3RslRlPpoCfg(G1SonicReconHandRslRlPpoCfg):
+    """Stage 3 (full-sequence finetune) — additional iters on resume."""
+
+    max_iterations = 5_000

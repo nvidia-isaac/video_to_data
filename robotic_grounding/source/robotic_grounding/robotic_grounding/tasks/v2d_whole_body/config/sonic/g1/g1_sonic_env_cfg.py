@@ -79,6 +79,11 @@ G1_SONIC_JOINT_NAMES = [
     "right_wrist_yaw_joint",
 ]
 
+# Joints the ReconHand policy adds residuals to: the SONIC joints minus the 12
+# leg joints, so the legs stay on the SONIC prior and residuals shape the torso
+# and arms.
+RECON_HAND_RESIDUAL_JOINT_NAMES = G1_SONIC_JOINT_NAMES[12:]
+
 
 # ---------------------------------------------------------------------------
 # Observation groups
@@ -648,11 +653,11 @@ class G1SonicReconHandRewardsCfg(G1SonicRewardsCfg):
         weight=0.0,
         params={"command_name": "motion"},
     )
-    action_rate = RewTerm(func=il_mdp.action_rate_l2, weight=-0.001)
-    action_l2 = RewTerm(func=il_mdp.action_l2, weight=-0.0001)
+    action_rate = RewTerm(func=il_mdp.action_rate_l2, weight=-0.01)
+    action_l2 = RewTerm(func=il_mdp.action_l2, weight=-0.001)
     joint_pos_limit = RewTerm(
         func=il_mdp.joint_pos_limits,
-        weight=0.0,
+        weight=-0.01,
         params={"asset_cfg": SceneEntityCfg("robot", joint_names=[".*"])},
     )
 
@@ -764,6 +769,9 @@ class G1SonicReconHandEnvCfg(G1SonicEnvCfg):
         ]
         self.commands.motion.fingertip_body_name = ".*_(thumb_2|index_1|middle_1)_link"
         self.commands.motion.finger_joint_names = G1_HAND_JOINT_NAMES
+        self.actions.joint_pos.residual_joint_names = list(
+            RECON_HAND_RESIDUAL_JOINT_NAMES
+        )
         self.commands.motion.reset_freeze_steps = 50
         self.commands.motion.initial_virtual_object_control_curriculum_scale = 1.0
         self.commands.motion.reset_shoulder_spread = 0.5
@@ -791,3 +799,82 @@ class G1SonicReconHandEpisodeTimeoutEnvCfg(G1SonicReconHandEnvCfg):
     terminations: G1SonicReconHandEpisodeTimeoutTerminationsCfg = (
         G1SonicReconHandEpisodeTimeoutTerminationsCfg()
     )  # type: ignore[assignment]
+
+
+def _apply_contact_rewards(cfg: G1SonicReconHandEnvCfg) -> None:
+    """Contact-grounding reward mix + object terminations (stages 2 and 3)."""
+    cfg.rewards.motion_hand_keypoints_gaussian_exp.weight = 0.10
+    cfg.rewards.motion_finger_joint_pos_gaussian_exp.weight = 0.10
+    cfg.rewards.motion_contact_tracking_gaussian_exp.weight = 0.10
+    cfg.rewards.contact_wrench_support_reward.weight = 5.0
+    cfg.rewards.unintended_contact_penalty.weight = -2.5
+    cfg.rewards.missed_contact_penalty.weight = -5.0
+    cfg.terminations.object_pos_error.params["threshold"] = 0.15
+    cfg.terminations.object_quat_error.params["threshold"] = 1.0
+
+
+@configclass
+class G1SonicReconHandStage1EnvCfg(G1SonicReconHandEpisodeTimeoutEnvCfg):
+    """Stage 1 — no-collision warm-up.
+
+    Robot↔object collisions off (support surfaces stay solid), VOC always on,
+    only hand-keypoint and finger-joint tracking rewards. Train with --zero-actor.
+    """
+
+    def __post_init__(self) -> None:
+        """Apply the no-collision warm-up deltas."""
+        super().__post_init__()
+        self.episode_length_s = 10.0
+        self.commands.motion.voc_decay_steps = 0
+        self.events.setup_collision_groups.params[
+            "disable_robot_to_object_collisions"
+        ] = True
+
+
+@configclass
+class G1SonicReconHandStage2EnvCfg(G1SonicReconHandStage1EnvCfg):
+    """Stage 2 — contact grounding (resume from stage 1).
+
+    Robot↔object collisions on, VOC decays 0.5→0 over a fixed-timestep
+    curriculum, and contact wrench-support + unintended/missed-contact rewards
+    are enabled; object-keypoint weight ramps in over the curriculum.
+    """
+
+    def __post_init__(self) -> None:
+        """Apply the contact-grounding stage deltas."""
+        super().__post_init__()
+        self.events.setup_collision_groups.params[
+            "disable_robot_to_object_collisions"
+        ] = False
+        self.commands.motion.initial_virtual_object_control_curriculum_scale = 0.5
+        self.commands.motion.voc_decay_steps = 10
+        _apply_contact_rewards(self)
+        sched = self.curriculum.fixed_timestep_curriculum.params
+        sched["timestep_schedule"] = [5000, 10000, 15000, 20000]
+        sched["virtual_object_control_scale_factor"] = [0.5, 0.1, 0.02, 0.004, 0.0]
+        rw = sched["reward_weight_schedules"]
+        rw["motion_object_keypoints_tracking_exp"] = [0.0, 0.4, 0.48, 0.496, 0.5]
+        rw["motion_hand_keypoints_gaussian_exp"] = [0.10] * 5
+        rw["motion_finger_joint_pos_gaussian_exp"] = [0.10] * 5
+        rw["motion_contact_tracking_gaussian_exp"] = [0.10] * 5
+        rw["contact_wrench_support_reward"] = [5.0] * 5
+        rw["unintended_contact_penalty"] = [-2.5] * 5
+        rw["missed_contact_penalty"] = [-5.0] * 5
+
+
+@configclass
+class G1SonicReconHandStage3EnvCfg(G1SonicReconHandEnvCfg):
+    """Stage 3 — full-sequence finetune (resume from stage 2).
+
+    Full-length episodes (trajectory-end timeout, so it extends the base
+    ReconHand env rather than the fixed episode-length variant), VOC off,
+    curriculum disabled, object-keypoint tracking weighted 10x.
+    """
+
+    def __post_init__(self) -> None:
+        """Apply the full-sequence finetune deltas."""
+        super().__post_init__()
+        _apply_contact_rewards(self)
+        self.commands.motion.always_reset_to_first_frame = True
+        self.commands.motion.initial_virtual_object_control_curriculum_scale = 0.0
+        self.rewards.motion_object_keypoints_tracking_exp.weight = 5.0

@@ -87,19 +87,19 @@ DRY_RUN=1  HMD=~/datasets/human_motion_data ./run_example_sequences.sh   # print
 **Asset/scene smoke test — dummy agent (zero actions):**
 ```bash
 python scripts/rsl_rl/dummy_agent.py --task Sharpa-V2D-v0-Play \
-  --motion_file arctic/arctic_processed/arctic_s01_box_grab_01/sharpa_wave \
+  --motion_file arctic/arctic_processed/dataset_s07_box_grab_01/sharpa_wave \
   --num_envs 1 --use_primitive_urdfs                      # add --headless --record_video for CI
 ```
 
 **Train / evaluate (Sharpa floating-hand):**
 ```bash
 python scripts/rsl_rl/train.py --headless --task Sharpa-V2D-v0 \
-  --motion_file arctic/arctic_processed/arctic_s01_box_grab_01/sharpa_wave \
+  --motion_file arctic/arctic_processed/dataset_s07_box_grab_01/sharpa_wave \
   --num_envs 1 --max_iterations 1 --logger tensorboard --run_name smoke --use_primitive_urdfs
 
 CHECKPOINT=$(find logs/rsl_rl -path '*smoke*/model_*.pt' | sort -V | tail -1)
 python scripts/rsl_rl/eval.py --headless --task Sharpa-V2D-v0 \
-  --motion_file arctic/arctic_processed/arctic_s01_box_grab_01/sharpa_wave \
+  --motion_file arctic/arctic_processed/dataset_s07_box_grab_01/sharpa_wave \
   --num_envs 1 --checkpoint "$CHECKPOINT" --eval_episodes 1 --use_primitive_urdfs
 ```
 
@@ -127,7 +127,7 @@ ending in `-Play` are the evaluation/playback variants.
 ## Motion-file shorthand & the asset-free flag
 
 - **Shorthand:** RL scripts accept `--motion_file <dataset>/<dataset>_processed/<sequence_id>/<robot_name>`
-  (e.g. `arctic/arctic_processed/arctic_s01_box_grab_01/sharpa_wave`). It resolves under
+  (e.g. `arctic/arctic_processed/dataset_s07_box_grab_01/sharpa_wave`). It resolves under
   `source/robotic_grounding/robotic_grounding/assets/human_motion_data/` inside the container. You can
   also pass an absolute path to a Parquet partition.
 - **`--use_primitive_urdfs`:** replaces per-object URDFs with primitive collision shapes so

@@ -62,7 +62,7 @@ For agent-oriented checks, use this quick path before opening a merge request. C
 
 ### Assets and dummy agent
 
-Motion data resolves under `source/robotic_grounding/robotic_grounding/assets/human_motion_data/`. The safest local shorthand is `<dataset>/<dataset>_processed/<sequence_id>/sharpa_wave`, for example `arctic/arctic_processed/arctic_s01_box_grab_01/sharpa_wave`.
+Motion data resolves under `source/robotic_grounding/robotic_grounding/assets/human_motion_data/`. The safest local shorthand is `<dataset>/<dataset>_processed/<sequence_id>/sharpa_wave`, for example `arctic/arctic_processed/dataset_s07_box_grab_01/sharpa_wave`.
 
 Generate the retargeted motion + object assets by running the pipeline on a dataset you
 downloaded per [docs/SETUP.md](docs/SETUP.md):
@@ -91,7 +91,7 @@ Run a GUI dummy-agent smoke test inside the container:
 ```bash
 python scripts/rsl_rl/dummy_agent.py \
   --task Sharpa-V2D-v0-Play \
-  --motion_file arctic/arctic_processed/arctic_s01_box_grab_01/sharpa_wave \
+  --motion_file arctic/arctic_processed/dataset_s07_box_grab_01/sharpa_wave \
   --num_envs 1 \
   --use_primitive_urdfs
 ```
@@ -102,7 +102,7 @@ Run the same check headless with a short MP4:
 python scripts/rsl_rl/dummy_agent.py \
   --headless \
   --task Sharpa-V2D-v0-Play \
-  --motion_file arctic/arctic_processed/arctic_s01_box_grab_01/sharpa_wave \
+  --motion_file arctic/arctic_processed/dataset_s07_box_grab_01/sharpa_wave \
   --num_envs 1 \
   --use_primitive_urdfs \
   --record_video \
@@ -253,15 +253,20 @@ for all three example sequences and the two-stage training recipe.
 ## RL training
 
 Commands in this section assume you are inside the container from the
-`robotic_grounding/` package root. These commands do not require W&B or OSMO
-when the motion data is already present locally.
+`robotic_grounding/` package root.
+
+### Smoke tests
+
+Short runs that verify the env builds, assets load, and training steps — no W&B
+or OSMO needed when the motion data is present locally. Keep them on
+`--logger tensorboard`.
 
 ```bash
 # Run a real one-iteration train smoke test.
 python scripts/rsl_rl/train.py \
   --headless \
   --task Sharpa-V2D-v0 \
-  --motion_file arctic/arctic_processed/arctic_s01_box_grab_01/sharpa_wave \
+  --motion_file arctic/arctic_processed/dataset_s07_box_grab_01/sharpa_wave \
   --num_envs 1 \
   --max_iterations 1 \
   --logger tensorboard \
@@ -275,16 +280,16 @@ CHECKPOINT=$(find logs/rsl_rl -path '*smoke_train*/model_*.pt' | sort -V | tail 
 python scripts/rsl_rl/eval.py \
   --headless \
   --task Sharpa-V2D-v0 \
-  --motion_file arctic/arctic_processed/arctic_s01_box_grab_01/sharpa_wave \
+  --motion_file arctic/arctic_processed/dataset_s07_box_grab_01/sharpa_wave \
   --num_envs 1 \
   --checkpoint "$CHECKPOINT" \
   --use_primitive_urdfs
 
-# Whole-body (ReconHand) eight-iteration train smoke
+# Whole-body (ReconHand) eight-iteration train smoke, stage-1 recipe
 # (see Retargeting -> Whole-body planning)
 python scripts/rsl_rl/train.py \
   --headless \
-  --task SonicG1-ReconHand-EpisodeTimeout-v0 \
+  --task SonicG1-ReconHand-Stage1-v0 \
   --motion_file arctic/planner_processed/dataset_s09_espressomachine_use_02/g1_dex3 \
   --num_envs 256 \
   --max_iterations 8 \
@@ -308,11 +313,35 @@ python scripts/rsl_rl/dummy_agent.py  # Run an environment with zero actions.
 python scripts/rsl_rl/eval.py         # Evaluate a trained checkpoint and export policy.
 ```
 
-See the `Agent Smoke Tests` section above for the required asset layout, dummy-agent commands, and OSMO setup guidance.
+See the `Agent Smoke Tests` section above for the required asset layout and dummy-agent commands.
 
-For the full two-stage ReconHand training recipe (warm-up → contact grounding) across all example sequences, see [`v2d_whole_body/EXAMPLE_SEQUENCES.md`](source/robotic_grounding/robotic_grounding/tasks/v2d_whole_body/EXAMPLE_SEQUENCES.md).
+### Full training
 
-For third-person-video (TPV) whole-body training — the `SonicG1-ReconBody-v0` env tracking a body-accurate SOMA reconstruction — see the [whole-body task README](source/robotic_grounding/robotic_grounding/tasks/v2d_whole_body/README.md#running). Retarget SOMA sequences first via the [Retargeting](#retargeting) section.
+Full training uses the real object assets (the pipeline's `urdf` stage). Drop
+the smoke overrides (`--num_envs 1`,
+`--max_iterations 1`, `--use_primitive_urdfs`, `agent.num_steps_per_env`,
+`agent.save_interval`) and let each task's PPO cfg drive iterations and batching.
+
+Floating-hand (Sharpa):
+```bash
+python scripts/rsl_rl/train.py \
+  --headless --task Sharpa-V2D-v0 \
+  --motion_file arctic/arctic_processed/dataset_s07_box_grab_01/sharpa_wave \
+  --num_envs 4096 --logger tensorboard --video --run_name box_grab
+```
+
+Whole-body ReconBody / TPV (retarget SOMA first via [Retargeting](#retargeting);
+more in the [whole-body task README](source/robotic_grounding/robotic_grounding/tasks/v2d_whole_body/README.md#running)):
+```bash
+python scripts/rsl_rl/train.py \
+  --headless --task SonicG1-ReconBody-v0 \
+  --motion_file whole_body/soma/apple_pick_optimized/g1 \
+  --num_envs 4096 --logger tensorboard --video --run_name recon_body_apple
+```
+
+Whole-body ReconHand — the three-stage retarget → plan → train recipe
+(warm-up → contact grounding → finetune), documented per sequence in
+[`v2d_whole_body/EXAMPLE_SEQUENCES.md`](source/robotic_grounding/robotic_grounding/tasks/v2d_whole_body/EXAMPLE_SEQUENCES.md).
 
 ## RL Tasks
 - `Sharpa-V2D-v0-Play`
@@ -320,6 +349,9 @@ For third-person-video (TPV) whole-body training — the `SonicG1-ReconBody-v0` 
 - `SonicG1-ReconBody-v0`
 - `SonicG1-ReconHand-v0`
 - `SonicG1-ReconHand-EpisodeTimeout-v0`
+- `SonicG1-ReconHand-Stage1-v0` — no-collision warm-up
+- `SonicG1-ReconHand-Stage2-v0` — contact grounding
+- `SonicG1-ReconHand-Stage3-v0` — full-sequence finetune
 
 ## Visualizer
 

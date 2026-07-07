@@ -9,6 +9,7 @@ Whole-body humanoid manipulation environments using SONIC controller with RL res
 | `SonicG1-v0` | `G1SonicEnvCfg` | Base G1 env. JOINT_RESIDUAL action, unified observation space, all reward weights at zero. For custom reward configs via Hydra. |
 | `SonicG1-ReconBody-v0` | `G1SonicReconBodyEnvCfg` | Body-accurate reference (MHR/third-person video). Rewards: anchor, joint, object, EE tracking + force closure. Residual scale 0.15. |
 | `SonicG1-ReconHand-v0` | `G1SonicReconHandEnvCfg` | Hand-accurate reference (planner pipeline). Rewards: hand keypoints, finger joints, contact tracking. Residual scale 0.5 (from exp201). |
+| `SonicG1-ReconHand-Stage{1,2,3}-v0` | `G1SonicReconHandStage{1,2,3}EnvCfg` | Staged ReconHand training recipe baked into tasks: (1) no-collision warm-up, (2) contact grounding, (3) full-sequence finetune. See [`EXAMPLE_SEQUENCES.md`](EXAMPLE_SEQUENCES.md). |
 
 ## Architecture
 
@@ -57,7 +58,7 @@ The parquet uses the unified `motion_v1` schema (see `robotic_grounding.motion_s
 python scripts/rsl_rl/train.py --headless \
     --task SonicG1-ReconBody-v0 \
     --motion_file whole_body/soma/sequence_id=apple_pick_optimized/robot_name=g1 \
-    --num_envs 4096 --logger wandb --video
+    --num_envs 4096 --logger tensorboard --video
 
 # Eval with checkpoint
 python scripts/rsl_rl/eval.py --headless \
