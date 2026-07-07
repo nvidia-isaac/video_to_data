@@ -66,9 +66,14 @@ class TestTrainE2E(unittest.TestCase):
         ]
 
     def get_motion_files_to_test(self) -> list[str]:
-        """Get motion files to test for training."""
+        """Get motion files to test for training.
+
+        Uses the fully synthetic, license-free ``synthbox`` fixture (an
+        articulated box opened by two hands) instead of any third-party
+        dataset — see ``scripts/make_synthbox_fixtures.py``.
+        """
         return [
-            "taco/taco_processed/taco_empty__kettle__plate_20231031_060/sharpa_wave",
+            "synthbox/synthbox_processed/synthbox_box_open_000/sharpa_wave",
         ]
 
     def _get_env_vars(self) -> dict:
