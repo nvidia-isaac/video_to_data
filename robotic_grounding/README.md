@@ -62,6 +62,11 @@ For agent-oriented checks, use this quick path before opening a merge request. C
 
 ### Assets and dummy agent
 
+| Floating hands — Sharpa | Whole body — ReconHand | Whole body — ReconBody |
+| :---: | :---: | :---: |
+| ![Sharpa box-grab dummy-agent replay](../docs/chord/assets/videos/dummy_agent_sharpa_box_grab.webp) | ![ReconHand espresso-use dummy-agent replay](../docs/chord/assets/videos/dummy_agent_espresso_use.webp) | ![ReconBody apple-pick dummy-agent replay](../docs/chord/assets/videos/dummy_agent_apple.webp) |
+| *Box grab, zero-action dummy agent* | *Espresso use, zero-action dummy agent* | *Apple pick, zero-action dummy agent* |
+
 Motion data resolves under `source/robotic_grounding/robotic_grounding/assets/human_motion_data/`. The safest local shorthand is `<dataset>/<dataset>_processed/<sequence_id>/sharpa_wave`, for example `arctic/arctic_processed/dataset_s07_box_grab_01/sharpa_wave`.
 
 Generate the retargeted motion + object assets by running the pipeline on a dataset you
@@ -129,6 +134,11 @@ python scripts/rsl_rl/dummy_agent.py \
 Use the [RL training](#rl-training) section below for a local `train.py` one-iteration smoke test. If W&B is not configured, keep local smoke tests on TensorBoard by passing `--logger tensorboard`.
 
 ## Retargeting
+
+| Floating hands — Sharpa | Floating hands — Dex3 | Whole body — G1 |
+| :---: | :---: | :---: |
+| ![Sharpa box-grab retargeting in Viser](../docs/chord/assets/videos/retarget_sharpa.webp) | ![Dex3 espresso-use retargeting in Viser](../docs/chord/assets/videos/retarget_dex3.webp) | ![G1 apple-pick retargeting in Viser](../docs/chord/assets/videos/retarget_g1.webp) |
+| *Box-grab retargeting in Viser* | *Espresso-use retargeting in Viser* | *Apple-pick retargeting in Viser* |
 
 The full hand→robot retargeting pipeline is driven from the **host** by
 `scripts/run_pipeline_docker.py`, which runs each stage in the right Docker image
@@ -251,6 +261,11 @@ Writes `arctic/planner_processed/sequence_id=<seq>/robot_name=g1_dex3/` and
 for all three example sequences and the two-stage training recipe.
 
 ## RL training
+
+| Floating hands — Sharpa | Whole body — ReconHand | Whole body — ReconBody |
+| :---: | :---: | :---: |
+| ![Sharpa box-grab trained-policy rollout](../docs/chord/assets/videos/train_sharpa_box_grab.webp) | ![ReconHand espresso-use trained-policy rollout](../docs/chord/assets/videos/train_espresso_use.webp) | ![ReconBody apple-pick trained-policy rollout](../docs/chord/assets/videos/train_apple.webp) |
+| *Box-grab trained-policy rollout* | *Espresso-use trained-policy rollout* | *Apple-pick trained-policy rollout* |
 
 Commands in this section assume you are inside the container from the
 `robotic_grounding/` package root.
