@@ -10,7 +10,225 @@ Two reconstruction modes:
 
 ## Data Collection
 
-_Coming soon._
+### Capture hardware
+
+The reference data was collected with a backpack-based capture rig whose main
+components are a **Hawk stereo camera** and an **NVIDIA Orin** compute and
+recording unit. This hardware is not a pipeline requirement. Input may originate
+from stereo videos, image sequences, or another capture format as long as it is
+converted to synchronized left/right JPEG keyframes and calibration metadata in
+the HOI reconstruction layout described in
+[Input Data Format](#input-data-format).
+
+### Preparing the input dataset
+
+The base image and metadata format is defined by public
+[PyCuSFM](https://github.com/nvidia-isaac/pyCuSFM). This module consumes a
+stricter, single-stereo-pair profile of PyCuSFM's `frames_meta.json` contract.
+See the public [PyCuSFM input
+tutorial](https://github.com/nvidia-isaac/pyCuSFM/blob/main/docs/tutorial.md#raw-data-requirements)
+for the underlying `KeyframesMetadataCollection` format.
+
+For source videos or another capture format:
+
+1. Extract synchronized left and right frames as JPEG images under
+   `front_stereo_camera_left/` and `front_stereo_camera_right/`. Preserve
+   nanosecond capture timestamps in the filenames when available.
+2. Create a PyCuSFM generator YAML containing the real image dimensions,
+   rectified pinhole intrinsics, camera-to-rig transforms, sensor names, and
+   stereo baseline. Do not infer or copy calibration from the example dataset.
+3. Use PyCuSFM's public [keyframe metadata
+   generator](https://github.com/nvidia-isaac/pyCuSFM/blob/main/pycusfm/generate_frame_meta.py)
+   in stereo-images mode:
+
+```bash
+python pycusfm/generate_frame_meta.py \
+  --images /path/to/mapping_data_dir \
+  --config /path/to/camera_config.yaml \
+  --output /path/to/mapping_data_dir/frames_meta.json
+```
+
+Add `--use-pseudo-timestamps` when synchronized image sequences have no capture
+timestamps. The generator assigns synchronization IDs and emits the CuSFM
+metadata structure. For rectified pinhole input, empty or zero distortion
+coefficients cause it to emit the 3×4 `projection_matrix` required by this HOI
+pipeline.
+
+Finally, validate the generated JSON against
+[`schemas/frames_meta.schema.json`](schemas/frames_meta.schema.json), check the
+cross-field invariants below, and compare the directory structure with
+[`assets/basketball_example/`](assets/basketball_example/). A custom converter
+is also compatible if it produces the same contract with correct
+synchronization and calibration.
+
+Before a scan, verify that both stereo feeds are clear and synchronized, the
+recording frame rate is stable (the reference collection uses 30 FPS), and the
+capture system has enough free storage.
+
+### Object scanning guidelines
+
+Choose a rigid, opaque object with matte surfaces and visible texture whenever
+possible. Transparent or reflective materials, nearly textureless surfaces,
+very dark objects, and objects that deform while handled are substantially more
+difficult to reconstruct. Use diffuse, stable lighting and a stationary,
+feature-rich background; clean the object and make sure it can rest securely in
+both scan orientations.
+
+Use one continuous two-round recording to obtain six-face coverage:
+
+1. Place the object near the center of the capture area with approximately
+   20–30 cm of clearance. Keep it fully in frame, typically from a distance of
+   50–100 cm.
+2. Walk slowly through a full 360-degree pass at roughly the object's
+   mid-height. Keep the camera aimed at the object, maintain a consistent
+   distance, and target 50–70% overlap between consecutive views. A typical
+   pass takes 20–40 seconds.
+3. Without stopping the recording, rotate the object about 90 degrees to expose
+   its previously hidden bottom face. Brief hand occlusion is expected; touch
+   edges or the base where possible and keep most of the object and background
+   visible.
+4. Complete a second 360-degree pass around the new orientation, concentrating
+   on the newly exposed face and its adjacent surfaces. Confirm that all six
+   faces and any concave or easily missed areas have coverage, then stop and
+   verify the capture was saved.
+
+Move smoothly to limit motion blur and avoid abrupt changes in distance or
+lighting.
+
+---
+
+## Input Data Format
+
+`--mapping_data_dir` must point to a synchronized stereo dataset in this layout:
+
+```text
+mapping_data_dir/
+├── frames_meta.json                         # required
+├── frame_metadata.jsonl                     # optional compatibility metadata; not consumed
+├── front_stereo_camera_left/
+│   └── <timestamp_ns>.jpeg
+└── front_stereo_camera_right/
+    └── <timestamp_ns>.jpeg
+```
+
+The bundled [`assets/basketball_example/`](assets/basketball_example/) is the
+reference dataset (203 synchronized stereo pairs at 960×600). JPEG is the
+known-good input format. Metadata image paths are relative to
+`mapping_data_dir`.
+
+The reference directory also contains a `stereo.edex` source artifact, but it
+is not part of this module's input contract and the current reconstruction path
+does not read it. `frames_meta.json` is the calibration source of truth: its
+camera entries provide the rectified projection matrices and image dimensions,
+and its first `stereo_pair` entry provides the baseline.
+
+This is a **CuSFM-compatible HOI stereo profile**. CuSFM determines the core
+`frames_meta.json` representation, relative image paths, timestamp units,
+camera parameter map, and synchronization IDs. The HOI wrapper additionally
+requires one usable stereo pair, the sensor names shown below, rectified 3×4
+projection matrices, and a positive baseline. JPEG is the currently tested
+image format for the complete HOI pipeline even though CuSFM itself accepts
+additional image formats.
+
+### `frames_meta.json` (required)
+
+This file is the pipeline's input contract:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `keyframes_metadata` | yes | One entry per camera image: camera ID, synchronized sample ID, relative image path, and timestamp in microseconds. |
+| `camera_params_id_to_camera_params` | yes | Camera definitions keyed by ID, including sensor name, image dimensions, and calibration matrices. |
+| `stereo_pair` | yes | Left/right camera IDs and physical stereo baseline in meters. The pipeline uses the first pair. |
+| `initial_pose_type` | yes | CuSFM pose interpretation, normally `"EGO_MOTION"` for sequential stereo input. |
+| `camera_params_id_to_session_name` | no | Producer/session metadata; not interpreted here. |
+
+Minimal structural example (projection values abbreviated):
+
+```json
+{
+  "initial_pose_type": "EGO_MOTION",
+  "keyframes_metadata": [
+    {
+      "id": "0",
+      "camera_params_id": "0",
+      "synced_sample_id": "5",
+      "image_name": "front_stereo_camera_left/1771445398921412053.jpeg",
+      "timestamp_microseconds": "1771445398921412"
+    },
+    {
+      "id": "1",
+      "camera_params_id": "1",
+      "synced_sample_id": "5",
+      "image_name": "front_stereo_camera_right/1771445398921412053.jpeg",
+      "timestamp_microseconds": "1771445398921412"
+    }
+  ],
+  "camera_params_id_to_camera_params": {
+    "0": {
+      "sensor_meta_data": {"sensor_name": "front_stereo_camera_left"},
+      "calibration_parameters": {
+        "image_width": 960,
+        "image_height": 600,
+        "projection_matrix": {
+          "row_count": 3,
+          "column_count": 4,
+          "data": [426.2, 0, 473.2, 0, 0, 426.2, 278.4, 0, 0, 0, 1, 0]
+        }
+      }
+    },
+    "1": {
+      "sensor_meta_data": {"sensor_name": "front_stereo_camera_right"},
+      "calibration_parameters": {
+        "image_width": 960,
+        "image_height": 600,
+        "projection_matrix": {
+          "row_count": 3,
+          "column_count": 4,
+          "data": [426.2, 0, 473.2, 0, 0, 426.2, 278.4, 0, 0, 0, 1, 0]
+        }
+      }
+    }
+  },
+  "stereo_pair": [{
+    "left_camera_param_id": "0",
+    "right_camera_param_id": "1",
+    "baseline_meters": 0.14956
+  }]
+}
+```
+
+Important invariants:
+
+- Left and right entries pair by equal `synced_sample_id`; incomplete pairs are
+  dropped.
+- Camera IDs in frame and stereo-pair entries must reference keys in
+  `camera_params_id_to_camera_params`.
+- Sensor names must be `front_stereo_camera_left` and
+  `front_stereo_camera_right`; current frame indexing relies on these names.
+- `timestamp_microseconds` is a decimal string. Timestamp-based filenames use
+  nanoseconds, but `image_name` is the authoritative path.
+- `projection_matrix.data` is a row-major 3×4 rectified projection matrix. The
+  pipeline reads `fx`, `fy`, `cx`, and `cy` from indices 0, 5, 2, and 6.
+- `baseline_meters` is in meters and must be positive.
+
+See the machine-readable
+[`schemas/frames_meta.schema.json`](schemas/frames_meta.schema.json). JSON
+Schema cannot verify cross-field references, stereo pairing, image existence,
+or calibration accuracy.
+
+### `frame_metadata.jsonl` (optional compatibility metadata)
+
+The current `run_reconstruction.py` path does not read this file, but some
+dataset producers and older tools emit it. Each non-empty line is one
+synchronized-frame JSON record:
+
+```json
+{"frame_id":0,"cams":[{"id":0,"filename":"front_stereo_camera_left/1771445398921412053.jpeg","timestamp":1771445398921412000},{"id":1,"filename":"front_stereo_camera_right/1771445398921412053.jpeg","timestamp":1771445398921412000}]}
+```
+
+`timestamp` is in nanoseconds. Validate each line independently against
+[`schemas/frame_metadata_record.schema.json`](schemas/frame_metadata_record.schema.json).
+A JSONL file as a whole is not a single JSON value.
 
 ---
 
