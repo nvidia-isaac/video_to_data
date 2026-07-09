@@ -20,6 +20,7 @@ from __future__ import annotations
 import itertools
 import json
 import math
+import os
 import struct
 from dataclasses import dataclass
 from pathlib import Path
@@ -624,7 +625,11 @@ def evaluate_srt(
             if bnd.shape[0] > max_boundary:
                 bnd = bnd[rng.choice(bnd.shape[0], size=max_boundary, replace=False)]
             tree = cKDTree(np.stack([ui, vi], axis=1).astype(np.float64))
-            dists, _ = tree.query(bnd.astype(np.float64), k=1, workers=-1)
+            dists, _ = tree.query(
+                bnd.astype(np.float64),
+                k=1,
+                workers=int(os.environ.get("V2D_SRT_CKDTREE_WORKERS", "-1")),
+            )
             cov_dt = np.minimum(dists.astype(np.float32), view_dt_clip)
             view_loss += coverage_weight * float(np.mean(_huber(cov_dt, huber_delta)))
 
@@ -970,7 +975,11 @@ def evaluate_anisotropic_srt(
             if bnd.shape[0] > max_boundary:
                 bnd = bnd[rng.choice(bnd.shape[0], size=max_boundary, replace=False)]
             tree = cKDTree(np.stack([ui, vi], axis=1).astype(np.float64))
-            dists, _ = tree.query(bnd.astype(np.float64), k=1, workers=-1)
+            dists, _ = tree.query(
+                bnd.astype(np.float64),
+                k=1,
+                workers=int(os.environ.get("V2D_SRT_CKDTREE_WORKERS", "-1")),
+            )
             cov_dt = np.minimum(dists.astype(np.float32), view_dt_clip)
             view_loss += coverage_weight * float(np.mean(_huber(cov_dt, huber_delta)))
 
@@ -1190,6 +1199,7 @@ def estimate_srt_for_frame(
     max_views: int = 100,
     mode: str = "str",
     maxiter: int = 120,
+    top_k: int = 5,
     iou_weight: float = 2.0,
     depth_weight: float = 1.0,
     use_depth: bool = False,
@@ -1210,6 +1220,8 @@ def estimate_srt_for_frame(
         max_views:         Cap on number of views (0 = all).
         mode:              's' scale-only, 'st' scale+translation, 'str' all DOF.
         maxiter:           Powell optimiser iterations.
+        top_k:             Axis orientations receiving full optimisation when
+                           the SAM3D orientation prior is unavailable.
         iou_weight:        Weight for rasterised silhouette IoU loss.
         depth_weight:      Weight for depth loss (only when use_depth=True and depth available).
         use_depth:         If True, load depth maps from job_dir/depth/.
@@ -1311,7 +1323,14 @@ def estimate_srt_for_frame(
     else:
         # Fallback for Stage-2 source frames or older outputs without SAM3D transforms.
         print("[srt] Running axis orientation search …")
-        top_orients = run_axis_search(vertices, views, mesh_center, object_center, s_init)
+        top_orients = run_axis_search(
+            vertices,
+            views,
+            mesh_center,
+            object_center,
+            s_init,
+            top_k=top_k,
+        )
 
         best_loss = float("inf")
         for rank, (key, orient_mat, _) in enumerate(top_orients):

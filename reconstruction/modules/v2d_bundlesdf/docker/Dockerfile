@@ -149,17 +149,23 @@ RUN cd / && \
     make -j$(nproc) && make install && \
     cd / && rm -rf /yaml-cpp
 
-# Clone 3d-object-reconstruction from the public GitHub repo (V1).
+# Clone a tested, Apache-2.0-licensed 3d-object-reconstruction revision from
+# the public GitHub repo (V1). Keep this pinned so release builds do not change
+# when upstream main advances.
 # To upgrade to V2 (internal dev branch) when released, replace with:
 #   ARG GITLAB_TOKEN
 #   RUN git clone --branch dev/bundlefusion-replacement-and-texture-refinement --depth 1 \
 #       https://oauth2:${GITLAB_TOKEN}@gitlab-master.nvidia.com/metropolis-perf/3d-reconstruction/3d-object-reconstruction-github.git \
 #       /workspace/3d-object-reconstruction
-RUN git clone \
-        --branch main \
-        --depth 1 \
-        https://github.com/NVIDIA/3DObjectReconstruction.git \
-        /workspace/3d-object-reconstruction
+ARG OBJECT_RECONSTRUCTION_COMMIT=e7aa98dc2dcc92de9cebb6f2a991fa6d2aa6f284
+RUN git init /workspace/3d-object-reconstruction && \
+    git -C /workspace/3d-object-reconstruction remote add origin \
+        https://github.com/NVIDIA/3DObjectReconstruction.git && \
+    git -C /workspace/3d-object-reconstruction fetch --depth 1 origin \
+        ${OBJECT_RECONSTRUCTION_COMMIT} && \
+    git -C /workspace/3d-object-reconstruction checkout --detach FETCH_HEAD && \
+    test "$(git -C /workspace/3d-object-reconstruction rev-parse HEAD)" = \
+        "${OBJECT_RECONSTRUCTION_COMMIT}"
 
 # Fix upstream texture-baking clipping in 3d-object-reconstruction.
 # The renderer now accepts an optional config-driven zfar. Old configs still get
@@ -170,9 +176,9 @@ import pathlib
 f = pathlib.Path("/workspace/3d-object-reconstruction/src/nvidia/objectreconstruction/networks/nerf_runner.py")
 src = f.read_text()
 
-old = "def build_texture_from_images(mesh, reader, poses, Height, Width, K, sc_factor, far, tex_res,alpha=1.5,beta=0.5,adjust_brightness=True,debug_dir=None):"
-new = "def build_texture_from_images(mesh, reader, poses, Height, Width, K, sc_factor, far, tex_res, alpha=1.5, beta=0.5, adjust_brightness=True, debug_dir=None, texture_zfar=None, texture_zfar_camera_distance_margin=2.0):"
-assert old in src, "build_texture_from_images signature anchor not found in nerf_runner.py"
+old = "def build_texture_from_images(mesh, reader, poses, Height, Width, K, sc_factor, far, tex_res, debug_dir=None, config=None,logger: logging.Logger = logger):"
+new = "def build_texture_from_images(mesh, reader, poses, Height, Width, K, sc_factor, far, tex_res, debug_dir=None, config=None, texture_zfar=None, texture_zfar_camera_distance_margin=2.0, logger: logging.Logger = logger):"
+assert old in src, "pinned build_texture_from_images signature not found in nerf_runner.py"
 src = src.replace(old, new, 1)
 
 old = "    renderer = ModelRendererOffscreen([], cam_K=K, H=Height, W=Width, zfar=far*sc_factor)"
@@ -202,18 +208,18 @@ f = pathlib.Path("/workspace/3d-object-reconstruction/src/nvidia/objectreconstru
 src = f.read_text()
 
 old = (
-    "            sc_factor=sc_factor, far=reader.far, \n"
-    "            tex_res=cfg_texture['texture_res'],debug_dir=self.debug_dir\n"
+    "            config=cfg_texture['color_fusion'] if 'color_fusion' in cfg_texture else None,\n"
+    "            logger=self.logger\n"
     "        )"
 )
 new = (
-    "            sc_factor=sc_factor, far=reader.far,\n"
-    "            tex_res=cfg_texture['texture_res'], debug_dir=self.debug_dir,\n"
+    "            config=cfg_texture['color_fusion'] if 'color_fusion' in cfg_texture else None,\n"
     "            texture_zfar=self.cfg_nerf.get('texture_zfar'),\n"
     "            texture_zfar_camera_distance_margin=self.cfg_nerf.get('texture_zfar_camera_distance_margin', 2.0),\n"
+    "            logger=self.logger\n"
     "        )"
 )
-assert old in src, "texture zfar call anchor not found in nvbundlesdf.py"
+assert old in src, "pinned texture zfar call anchor not found in nvbundlesdf.py"
 src = src.replace(old, new, 1)
 
 f.write_text(src)

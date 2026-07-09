@@ -36,6 +36,11 @@ def resolve_bundlesdf_config(
     texture_bake = config.setdefault("texture_bake", {})
     auto_tune = config.get("auto_tune", {}) or {}
 
+    # Newer upstream releases require these keys even when USD export is not
+    # used. Preserve the previous V2D behavior unless explicitly enabled.
+    texture_bake.setdefault("export_usd", False)
+    texture_bake.setdefault("export_usdz", False)
+
     _resolve_texture_zfar(texture_bake, nerf, logger)
     _resolve_sdf_far_policy(config, output_path, auto_tune, logger)
     _resolve_sdf_resolution_policy(config, output_path, auto_tune, logger)

@@ -53,7 +53,9 @@ Usage:
     # SAM3D mode:
     python run_reconstruction.py \\
         --mapping_data_dir ... --job_dir ... --prompt "bowl" \\
-        --mode sam3d [--sam3d_use_depth] [--sam3d_bin_deg 60] [--sam3d_seed 42]
+        --mode sam3d [--sam3d_use_depth] [--sam3d_bin_deg 60] [--sam3d_seed 42] \\
+        [--sam3d_srt_max_views 25] [--sam3d_srt_maxiter 60] \\
+        [--sam3d_srt_top_k 1] [--sam3d_srt_parallel 8]
 
 Skip flags (BundleSDF):
     --skip_prepare  --skip_sfm  --skip_sfm_quality_check  --skip_stage1_detect  --skip_dino  --skip_depth  --skip_mask
@@ -102,7 +104,7 @@ from v2d_hoi_object_reconstruction.lib.select_sam3d_frames import (
     select_frames_fallback,
 )
 from v2d_hoi_object_reconstruction.lib.select_sam3d_best import select_best_sam3d_frame
-from v2d_hoi_object_reconstruction.lib.scale_mesh_srt import estimate_srt_for_frame
+from v2d_hoi_object_reconstruction.docker._sam3d_srt import SRTConfig, run_srt_candidates
 
 
 # ── Image names ────────────────────────────────────────────────────────────────
@@ -321,6 +323,20 @@ def main():
                         help="SAM3D mode: azimuthal bin size for frame selection (default: 60°)")
     parser.add_argument("--sam3d_seed", type=int, default=42,
                         help="SAM3D mode: random seed passed to SAM3D (default: 42)")
+    parser.add_argument("--sam3d_srt_max_views", type=int, default=25,
+                        help="SAM3D mode: maximum silhouette views per SRT candidate "
+                             "(default: 25; OSMO fast path)")
+    parser.add_argument("--sam3d_srt_maxiter", type=int, default=60,
+                        help="SAM3D mode: Powell iterations per SRT optimisation "
+                             "(default: 60; OSMO fast path)")
+    parser.add_argument("--sam3d_srt_top_k", type=int, default=1,
+                        help="SAM3D mode: axis orientations fully optimised when no "
+                             "orientation prior is available (default: 1; OSMO fast path)")
+    parser.add_argument("--sam3d_srt_parallel", type=int, default=8,
+                        help="SAM3D mode: parallel SRT candidate workers "
+                             "(default: 8; OSMO fast path)")
+    parser.add_argument("--sam3d_force_srt", action="store_true",
+                        help="SAM3D mode: recompute complete SRT candidates instead of resuming")
 
     # Skip flags
     parser.add_argument("--skip_prepare",        action="store_true")
@@ -365,6 +381,15 @@ def main():
 
     args = parser.parse_args()
 
+    for name in (
+        "sam3d_srt_max_views",
+        "sam3d_srt_maxiter",
+        "sam3d_srt_top_k",
+        "sam3d_srt_parallel",
+    ):
+        if getattr(args, name) < 1:
+            parser.error(f"--{name} must be at least 1")
+
     # ── Load pipeline config ───────────────────────────────────────────────────
     import yaml as _yaml
     _pipeline_cfg_path = args.pipeline_config or _DEFAULT_PIPELINE_CONFIG_HOST
@@ -383,7 +408,7 @@ def main():
     ref_frame_cfg      = args.reference_frame    if args.reference_frame is not None \
                          else _pcfg_get("foundationpose", "reference_frame", 0)
     num_depth_workers  = args.num_depth_workers  if args.num_depth_workers is not None \
-                         else _pcfg_get("depth", "num_workers", 2)
+                         else _pcfg_get("depth", "num_workers", 1)
     fp_weights_dir_cfg = args.fp_weights_dir     if args.fp_weights_dir is not None \
                          else _pcfg_get("foundationpose", "weights_dir")
     sfm_quality_cfg = _pcfg.get("sfm_scan_quality") or {}
@@ -663,7 +688,7 @@ def main():
             _run_gpu(
                 IMAGE_GROUNDING_DINO,
                 [
-                    "python", "/workspace/v2d_grounding_dino/lib/image_to_object_bboxes.py",
+                    "python", "-m", "v2d.grounding_dino.lib.image_to_object_bboxes",
                     "--image_path",    c_ref_frame,
                     "--output_path",   c_dino_bboxes,
                     "--prompt",        args.prompt,
@@ -1076,30 +1101,22 @@ def main():
 
         # ── Step S3: SRT scale estimation ─────────────────────────────────────
         if not args.skip_srt_scale:
-            for frame_id in selected_frames:
-                glb_path = sam3d_dir / frame_id / "mesh.glb"
-                if not glb_path.exists():
-                    print(f"[warning] SAM3D output not found for frame {frame_id}: {glb_path}",
-                          file=sys.stderr)
-                    continue
-                srt_out = sam3d_dir / frame_id / "srt"
-                print(f"[pipeline] SRT scale estimation for frame {frame_id}")
-                t0 = time.time()
-                srt_result = estimate_srt_for_frame(
-                    job_dir=Path(job_dir),
-                    glb_path=glb_path,
-                    output_dir=srt_out,
-                    use_depth=args.sam3d_use_depth,
-                    stage1_end_frame=stage1_end_frame,
-                )
-                elapsed = time.time() - t0
-                _timings[f"srt_{frame_id}"] = elapsed
-                scale = srt_result.get("scale", float("nan"))
-                if isinstance(scale, list):
-                    scale_str = "[" + ", ".join(f"{float(v):.4f}" for v in scale) + "]"
-                else:
-                    scale_str = f"{float(scale):.4f}"
-                print(f"[pipeline] SRT {frame_id} done in {elapsed:.1f}s  scale={scale_str}")
+            srt_config = SRTConfig(
+                max_views=args.sam3d_srt_max_views,
+                maxiter=args.sam3d_srt_maxiter,
+                top_k=args.sam3d_srt_top_k,
+                parallel=args.sam3d_srt_parallel,
+            )
+            srt_outcomes = run_srt_candidates(
+                Path(job_dir),
+                selected_frames,
+                use_depth=args.sam3d_use_depth,
+                stage1_end_frame=stage1_end_frame,
+                config=srt_config,
+                force=args.sam3d_force_srt,
+            )
+            for outcome in srt_outcomes:
+                _timings[f"srt_{outcome.frame_id}"] = outcome.elapsed
 
         # ── Step S4: Render debug images ──────────────────────────────────────
         # Uses the original SAM3D transform/intrinsics so the mesh renders back

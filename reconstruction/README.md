@@ -246,7 +246,7 @@ Segment Anything Model 2 for video segmentation.
 | `run_download_weights` | `run_download(output_dir, dev=False)` | Download SAM3D model weights |
 | `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
 
-**Build:** `python -m v2d.sam3d.docker.build`  
+**Build:** `python -m v2d.sam3d.docker.build` (includes EGL/Pyrender for headless overlay videos)
 **Execute:** `python -m v2d.sam3d.docker.run_image_to_mesh --image_path ... --mask_path ... --mesh_path ... --transform_path ... --intrinsics_path ... --weights_dir ...`
 
 ---

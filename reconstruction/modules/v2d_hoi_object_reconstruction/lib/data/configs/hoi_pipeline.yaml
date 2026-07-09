@@ -26,7 +26,7 @@ grounding_dino:
   box_threshold: 0.3         # confidence threshold for object bbox detection
 
 depth:
-  num_workers: 2             # parallel FoundationStereo depth workers
+  num_workers: 1             # safe default; opt in to parallel workers explicitly
 
 mask_postprocess:
   enabled: true              # write raw SAM2 masks to masks_raw_sam2/, cleaned masks to masks/

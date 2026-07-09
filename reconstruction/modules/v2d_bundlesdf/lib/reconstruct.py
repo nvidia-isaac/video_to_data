@@ -254,6 +254,10 @@ def main():
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     )
     logger = logging.getLogger(__name__)
+    # Upstream 3DObjectReconstruction uses a non-standard ``progress`` logging
+    # method. Map it to INFO when integrating with Python's standard logger.
+    if not hasattr(logger, "progress"):
+        logger.progress = logger.info
 
     try:
         output_path = Path(args.output_path)

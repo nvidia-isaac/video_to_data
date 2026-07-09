@@ -246,6 +246,11 @@ A JSONL file as a whole is not a single JSON value.
 ./scripts/build_containers.sh
 ```
 
+The `v2d_sam3d` image built from this tree includes the EGL/GLVND loader and
+Pyrender required for headless overlay-video rendering. Rebuild that image
+after changing `v2d_sam3d` code or Docker dependencies; model weights remain a
+separate runtime download.
+
 ### 3. Download model weights
 
 ```bash
@@ -357,7 +362,7 @@ Resume from any checkpoint by skipping completed steps:
 | `sfm_scan_quality` | `min_angle_span_deg` | 600.0 | Minimum projected orbit span for the expected two-loop scan |
 | `sfm_scan_quality` | `max_backtracking_fraction` | 0.25 | Maximum reverse angular motion fraction |
 | `sfm_scan_quality` | `max_translation_step_m` | 2.0 | Maximum allowed consecutive CuSFM translation jump |
-| `depth` | `num_workers` | 2 | Parallel FoundationStereo depth workers |
+| `depth` | `num_workers` | 1 | FoundationStereo depth workers; increase explicitly for multi-GPU hosts |
 | `foundationpose` | `reference_frame` | 0 | FP registration reference frame |
 | `foundationpose` | `weights_dir` | `null` | FP weights path; `null` = `data/weights/foundationpose` |
 
@@ -444,6 +449,18 @@ S6. Select best         → sam3d/best/best_frame.json + output_scaled.glb
 | `--sam3d_use_depth` | off | Use FoundationStereo depth as extra loss in SRT scale estimation |
 | `--sam3d_bin_deg DEG` | 60.0 | Azimuthal bin size for frame selection |
 | `--sam3d_seed N` | 42 | Random seed for SAM3D inference |
+| `--sam3d_srt_max_views N` | 25 | Maximum silhouette views per SRT candidate |
+| `--sam3d_srt_maxiter N` | 60 | Powell iterations per SRT optimisation |
+| `--sam3d_srt_top_k N` | 1 | Axis orientations fully optimised when no SAM3D orientation prior is available |
+| `--sam3d_srt_parallel N` | 8 | Candidate-level SRT workers; each worker caps native numerical threads to one |
+| `--sam3d_force_srt` | off | Recompute candidates that already have a valid result and scaled mesh |
+
+The SRT defaults match the OSMO fast path. Candidates are independent and run
+in parallel. A resumed run automatically reuses a candidate when both
+`srt_result.json` and `output_scaled.glb` are valid; use `--sam3d_force_srt` to
+deliberately recompute them. The underlying library retains its higher-cost
+100-view, 120-iteration, top-5 defaults for direct callers that need the full
+accuracy reference.
 
 ### Skip Flags (SAM3D)
 
@@ -549,6 +566,20 @@ If the mesh appears sliced at a fixed distance, the zfar clipping plane is too c
 ```bash
 docker build -t v2d_bundlesdf modules/v2d_bundlesdf/docker/
 ```
+
+### SAM3D: `libEGL.so.1` missing during overlay-video rendering
+
+If SRT completes but `render_textured_video` exits with code 139 and reports
+`Could not find library libEGL.so.1`, the local `v2d_sam3d` image predates the
+EGL/Pyrender renderer dependencies. Rebuild only that image:
+
+```bash
+python modules/v2d_sam3d/docker/build.py
+```
+
+Then rerun the same job with the documented skip flags. Complete SRT
+candidates are reused automatically, so rebuilding the renderer does not
+require regenerating meshes or scale results.
 
 ### Internal: cross-container symlinks
 
