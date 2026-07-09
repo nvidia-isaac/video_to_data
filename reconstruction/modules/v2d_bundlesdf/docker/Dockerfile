@@ -245,8 +245,14 @@ RUN pip3 install -U pip && pip3 install --no-cache-dir \
 RUN update-alternatives --install /usr/bin/python python /usr/bin/python3 1 && \
     update-alternatives --install /usr/bin/pip pip /usr/bin/pip3 1
 
-# Install BundleSDF CUDA extension
-RUN git clone --branch nvbundlesdf --depth 1 https://github.com/NVLabs/BundleSDF.git /BundleSDF
+# Install BundleSDF CUDA extension. Keep this pinned so release builds do not
+# change when upstream nvbundlesdf advances.
+ARG BUNDLESDF_COMMIT=56f21198759558f921c5e74e247c7a6dbf611d66
+RUN git init /BundleSDF && \
+    git -C /BundleSDF remote add origin https://github.com/NVLabs/BundleSDF.git && \
+    git -C /BundleSDF fetch --depth 1 origin ${BUNDLESDF_COMMIT} && \
+    git -C /BundleSDF checkout --detach FETCH_HEAD && \
+    test "$(git -C /BundleSDF rev-parse HEAD)" = "${BUNDLESDF_COMMIT}"
 RUN cp -r /BundleSDF/mycuda /customize_cuda && \
     cd /customize_cuda && \
     TORCH_CUDA_ARCH_LIST="7.0;7.5;8.0;8.6;9.0" FORCE_CUDA=1 pip install . --no-build-isolation
