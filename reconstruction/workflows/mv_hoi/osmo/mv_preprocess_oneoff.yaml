@@ -1,0 +1,126 @@
+# MV HOI Preprocess OSMO Workflow.
+#
+# Usage:
+#   osmo workflow submit reconstruction/workflows/mv_hoi/osmo/mv_preprocess_oneoff.yaml \
+#     --set rosbag_url=swift://... \
+#     --set extrinsics_url=swift://.../calibrate_extrinsics \
+#     --set swift_output_base=swift://.../<dataset>/data_output/<seq> \
+#     --pool <pool>
+#
+# This one-off workflow stages calibration but intentionally has no mesh URL input.
+# Use mv_preprocess.yaml when both extrinsics and mesh should be staged.
+
+workflow:
+  name: {{workflow_name}}
+  resources:
+    default:
+      cpu: 8
+      gpu: 1
+      memory: 64Gi
+      storage: 100Gi
+    cpu_large:
+      cpu: 32
+      gpu: 0
+      memory: 64Gi
+      storage: 100Gi
+
+  tasks:
+
+  - name: rosbag_to_edex
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_rosbag:{{image_tag}}
+    resource: cpu_large
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - url: {{rosbag_url}}
+    outputs:
+    - url: {{swift_output_base}}/rosbag_to_edex/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.rosbag.lib.rosbag_to_edex \
+          --config_path /tmp/rosbag_config.yaml \
+          --rosbag_path {{input:0}} \
+          --output_path {{output}} \
+          --no_extrinsics
+        if [ -f "{{input:0}}/hoi_metadata.yaml" ]; then
+          cp "{{input:0}}/hoi_metadata.yaml" "{{output}}/hoi_metadata.yaml"
+        fi
+    - path: /tmp/rosbag_config.yaml
+      contents: |-
+        camera_info_topics:
+          - /front_stereo_camera/left/camera_info
+          - /front_stereo_camera/right/camera_info
+          - /back_stereo_camera/left/camera_info
+          - /back_stereo_camera/right/camera_info
+          - /left_stereo_camera/left/camera_info
+          - /left_stereo_camera/right/camera_info
+          - /right_stereo_camera/left/camera_info
+          - /right_stereo_camera/right/camera_info
+        image_topics:
+          - /front_stereo_camera/left/image_compressed
+          - /front_stereo_camera/right/image_compressed
+          - /back_stereo_camera/left/image_compressed
+          - /back_stereo_camera/right/image_compressed
+          - /left_stereo_camera/left/image_compressed
+          - /left_stereo_camera/right/image_compressed
+          - /right_stereo_camera/left/image_compressed
+          - /right_stereo_camera/right/image_compressed
+        rig_frame: base_link
+        imu_frame: front_stereo_camera_imu
+        output_width: 1920
+        output_height: 1200
+        pack_h5: true
+        remove_pngs_after_pack: true
+
+  - name: mv_preprocess
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_preprocess:{{image_tag}}
+    resource: cpu_large
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: rosbag_to_edex
+    - url: {{extrinsics_url}}
+    outputs:
+    - url: {{swift_output_base}}/mv_preprocess/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+
+        EXTRA_ARGS=()
+        if [ -f "{{input:0}}/hoi_metadata.yaml" ]; then
+          EXTRA_ARGS+=(--hoi_metadata_path "{{input:0}}/hoi_metadata.yaml")
+        else
+          echo "No hoi_metadata.yaml found; skipping metadata/bbox/prompt forwarding"
+        fi
+
+        EXTRINSICS={{input:1}}/edex
+        if [ ! -f "$EXTRINSICS" ]; then
+          echo "ERROR: extrinsics_url was provided but $EXTRINSICS was not found"
+          ls -laR {{input:1}} || true
+          exit 1
+        fi
+        echo "Using extrinsics: $EXTRINSICS"
+        EXTRA_ARGS+=(--extrinsics_camera_params_path "$EXTRINSICS")
+
+        echo "No mesh input in this workflow; skipping object mesh pinning"
+
+        python -m v2d.mv.preprocess.lib.mv_preprocess \
+          --rgb_dir {{input:0}}/images \
+          --output_dir {{output}} \
+          --camera_params_path {{input:0}}/edex \
+          --config_path /tmp/preprocess_config.yaml \
+          "${EXTRA_ARGS[@]}"
+    - path: /tmp/preprocess_config.yaml
+      contents: |-
+        input_suffix: ".h5"
+        output_image_path_template: "${output_dir}/images/{cam_name}.h5"
+
+default-values:
+  workflow_name: v2d_mv_preprocess
+  image_tag: latest
+  rosbag_url: ???
+  extrinsics_url: ???
+  swift_output_base: ???

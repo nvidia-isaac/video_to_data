@@ -21,6 +21,16 @@ def _dataset_cfg() -> dict:
                     },
                 },
             },
+            config_utils.PREPROCESS_PIPELINE: {
+                "input_path": "data",
+                "output_path": "data_output",
+                "max_concurrent": 9,
+                "workflows": {
+                    config_utils.PREPROCESS_WORKFLOW: {
+                        "workflow_yaml": "osmo/mv_preprocess.yaml",
+                    },
+                },
+            },
             config_utils.RECON_PIPELINE: {
                 "input_path": "data",
                 "output_path": "data_output",
@@ -54,6 +64,13 @@ def test_config_helpers_resolve_pipeline_paths_and_workflows():
     assert (
         config_utils.get_pipeline_output_path(
             dataset_cfg,
+            config_utils.PREPROCESS_PIPELINE,
+        )
+        == "data_output"
+    )
+    assert (
+        config_utils.get_pipeline_output_path(
+            dataset_cfg,
             config_utils.RECON_PIPELINE,
         )
         == "data_output"
@@ -61,6 +78,13 @@ def test_config_helpers_resolve_pipeline_paths_and_workflows():
     assert (
         config_utils.get_pipeline_export_path(dataset_cfg)
         == "data_export"
+    )
+    assert (
+        config_utils.get_pipeline_max_concurrent(
+            dataset_cfg,
+            config_utils.PREPROCESS_PIPELINE,
+        )
+        == 9
     )
     assert (
         config_utils.get_pipeline_max_concurrent(
@@ -97,6 +121,13 @@ def test_apply_test_mode_updates_outputs_but_not_inputs():
             config_utils.CALIBRATION_PIPELINE,
         )
         == "calibration_output_test"
+    )
+    assert (
+        config_utils.get_pipeline_output_path(
+            dataset_cfg,
+            config_utils.PREPROCESS_PIPELINE,
+        )
+        == "data_output_test"
     )
     assert (
         config_utils.get_pipeline_output_path(

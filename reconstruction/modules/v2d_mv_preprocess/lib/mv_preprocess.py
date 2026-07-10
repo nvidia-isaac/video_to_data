@@ -7,7 +7,6 @@ import shutil
 from pathlib import Path
 
 import cv2
-import imageio.v3 as iio
 import numpy as np
 import yaml
 
@@ -148,10 +147,14 @@ def mv_preprocess(
             output_prompt_path=output_prompt_path,
             frame_count=frame_count,
         )
+    else:
+        logger.info("No hoi_metadata_path provided; skipping metadata, bbox, and prompt outputs")
 
     if extrinsics_camera_params_path is not None:
         logger.info(f"Merging extrinsics from {extrinsics_camera_params_path}")
         rig.merge_extrinsics(extrinsics_camera_params_path)
+    else:
+        logger.info("No extrinsics_camera_params_path provided; skipping extrinsics merge")
 
     rig.save_camera_params(
         source_path=camera_params_path,
@@ -169,6 +172,8 @@ def mv_preprocess(
             ignore=shutil.ignore_patterns("output.glb"),
         )
         logger.info(f"Pinned object template from {mesh_path.parent} to {output_mesh_dir}")
+    else:
+        logger.info("No mesh_path provided; skipping object mesh pinning")
 
     frame_meta = camera_params_path.parent / "frame_metadata.jsonl"
     if frame_meta.exists():
@@ -201,10 +206,14 @@ def remap_hoi_bboxes(
         frame_count: Optional total frame count to add to the copied metadata.
     """
     with open(hoi_metadata_path) as f:
-        meta = yaml.safe_load(f)
+        meta = yaml.safe_load(f) or {}
 
-    obj_bboxes = meta.get("object", {}).get("bbox", {})
-    obj_id = meta.get("object", {}).get("id", "object")
+    object_meta = meta.get("object") or {}
+    if not isinstance(object_meta, dict):
+        object_meta = {}
+
+    obj_bboxes = object_meta.get("bbox") or {}
+    obj_id = object_meta.get("id", "object")
 
     if not obj_bboxes:
         logger.warning("No object bboxes found in hoi_metadata.yaml, skipping remap")
@@ -213,6 +222,8 @@ def remap_hoi_bboxes(
             if cam_name not in pipelines:
                 logger.warning(f"No pipeline for camera '{cam_name}', skipping bbox remap")
                 continue
+            if cam_name not in labeled_bbox_paths:
+                raise ValueError(f"No labeled bbox output path configured for camera '{cam_name}'")
 
             x, y, w, h = xywh
             corners = np.array([[x, y], [x + w, y + h]], dtype=np.float64)
@@ -221,16 +232,20 @@ def remap_hoi_bboxes(
             x1, y1 = remapped[1]
 
             bbox = BoundingBox(x0=float(x0), y0=float(y0), x1=float(x1), y1=float(y1))
-            detection = [{"label": obj_id, "box": bbox.to_dict()}]
+            detection = [{"label": obj_id, "confidence": 1.0, "box": bbox.to_dict()}]
 
             out_path = output_image_dirs[cam_name]
+            source = None
             try:
                 source = FrameSource.from_path(out_path)
                 frame_stem = source.stems[0] if source.n_frames > 0 else "000000"
-                first_img = source[0] if source.n_frames > 0 else None
+                vis_img = source[0] if source.n_frames > 0 else None
             except (ValueError, FileNotFoundError):
                 frame_stem = "000000"
-                first_img = None
+                vis_img = None
+            finally:
+                if source is not None:
+                    source.close()
 
             results = {frame_stem: detection}
 
@@ -240,8 +255,8 @@ def remap_hoi_bboxes(
                 json.dump(results, f, indent=2)
             logger.info(f"Saved remapped bbox to {json_path}")
 
-            if first_img is not None:
-                img_bgr = cv2.cvtColor(first_img, cv2.COLOR_RGB2BGR)
+            if vis_img is not None:
+                img_bgr = cv2.cvtColor(vis_img, cv2.COLOR_RGB2BGR)
                 pt1 = (int(round(x0)), int(round(y0)))
                 pt2 = (int(round(x1)), int(round(y1)))
                 cv2.rectangle(img_bgr, pt1, pt2, (0, 255, 0), 2)
@@ -256,7 +271,7 @@ def remap_hoi_bboxes(
                 logger.warning(f"No frames found in {out_path}, skipping visualization")
 
     meta_copy = copy.deepcopy(meta)
-    if "object" in meta_copy and "bbox" in meta_copy["object"]:
+    if isinstance(meta_copy.get("object"), dict) and "bbox" in meta_copy["object"]:
         del meta_copy["object"]["bbox"]
     if frame_count is not None:
         meta_copy["frame_count"] = frame_count
@@ -267,10 +282,11 @@ def remap_hoi_bboxes(
     logger.info(f"Copied hoi_metadata (without bbox) to {output_hoi_metadata_path}")
 
     if output_prompt_path is not None:
-        prompt = meta.get("object", {}).get("prompt", "")
-        output_prompt_path.parent.mkdir(parents=True, exist_ok=True)
-        output_prompt_path.write_text(prompt)
-        logger.info(f"Wrote object prompt to {output_prompt_path}")
+        prompt = object_meta.get("prompt", "")
+        if prompt:
+            output_prompt_path.parent.mkdir(parents=True, exist_ok=True)
+            output_prompt_path.write_text(prompt)
+            logger.info(f"Wrote object prompt to {output_prompt_path}")
 
 
 def mv_preprocess_from_config(cfg):

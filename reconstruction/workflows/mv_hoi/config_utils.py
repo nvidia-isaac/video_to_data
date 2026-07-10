@@ -8,8 +8,10 @@ import yaml
 
 
 CALIBRATION_PIPELINE = "mv_calibration"
+PREPROCESS_PIPELINE = "mv_preprocess"
 RECON_PIPELINE = "mv_hoi_reconstruction"
 CALIBRATION_WORKFLOW = "calibration"
+PREPROCESS_WORKFLOW = "preprocess"
 RECONSTRUCTION_WORKFLOW = "reconstruction"
 EXPORT_WORKFLOW = "export"
 
@@ -57,6 +59,10 @@ def apply_test_mode(dataset_cfg: dict) -> None:
     pipelines[CALIBRATION_PIPELINE]["output_path"] = append_test_suffix(
         pipelines[CALIBRATION_PIPELINE]["output_path"]
     )
+    if PREPROCESS_PIPELINE in pipelines:
+        pipelines[PREPROCESS_PIPELINE]["output_path"] = append_test_suffix(
+            pipelines[PREPROCESS_PIPELINE]["output_path"]
+        )
     pipelines[RECON_PIPELINE]["output_path"] = append_test_suffix(
         pipelines[RECON_PIPELINE]["output_path"]
     )
@@ -64,4 +70,3 @@ def apply_test_mode(dataset_cfg: dict) -> None:
         pipelines[RECON_PIPELINE]["export_path"]
     )
     dataset_cfg["mesh_base"] = append_test_suffix(dataset_cfg["mesh_base"])
-

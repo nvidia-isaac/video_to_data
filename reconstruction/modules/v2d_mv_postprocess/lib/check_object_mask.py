@@ -1,14 +1,14 @@
 """Check that SAM2 object masks are contained within labeled bboxes.
 
 For each camera, derives the tight bounding box of the SAM2 mask (object 0,
-first frame) and checks what fraction of it falls inside the labeled bbox
+matching labeled frame) and checks what fraction of it falls inside the labeled bbox
 (expanded by ``--bbox_padding`` of its size for wiggle room).  The metric is
 ``containment = intersection_area / mask_bbox_area``.  A value of 1.0 means
 the mask bbox is fully inside the padded label bbox.  This tolerates occlusion
 (mask smaller than label) and objects with negative space.
 
 Exits non-zero if there are valid mask/bbox comparisons and the average
-containment across cameras is below ``--min_containment``. If no first-frame
+containment across cameras is below ``--min_containment``. If no matching-frame
 SAM2 masks are available to compare, the check is marked INCONCLUSIVE and exits
 successfully rather than treating missing visibility as a mask-quality failure.
 
@@ -71,6 +71,21 @@ def _containment(
     return inter / inner_area if inner_area > 0 else 0.0
 
 
+def _find_frame_index(mask_source: FrameSource, frame_key: str) -> int | None:
+    if frame_key in mask_source.stems:
+        return mask_source.stems.index(frame_key)
+    try:
+        frame_idx = int(frame_key)
+    except ValueError:
+        return None
+    padded_frame_key = f"{frame_idx:06d}"
+    if padded_frame_key in mask_source.stems:
+        return mask_source.stems.index(padded_frame_key)
+    if 0 <= frame_idx < mask_source.n_frames:
+        return frame_idx
+    return None
+
+
 def check_object_mask(
     mask_dir: str,
     labeled_bbox_dir: str,
@@ -90,10 +105,10 @@ def check_object_mask(
         if not bbox_data:
             skipped_cameras[cam_name] = "no labeled bbox data"
             continue
-        first_frame_key = sorted(bbox_data.keys())[0]
-        detections = bbox_data[first_frame_key]
+        label_frame_key = sorted(bbox_data.keys())[0]
+        detections = bbox_data[label_frame_key]
         if not detections:
-            skipped_cameras[cam_name] = f"no labeled detections in frame {first_frame_key}"
+            skipped_cameras[cam_name] = f"no labeled detections in frame {label_frame_key}"
             continue
         bbox = detections[0]["box"]
 
@@ -119,25 +134,34 @@ def check_object_mask(
         if mask_source.n_frames == 0:
             print(f"  {cam_name}: no mask frames found, skipping")
             skipped_cameras[cam_name] = "no mask frames"
+            mask_source.close()
             continue
 
-        sam_mask = mask_source[0] > 127
+        mask_frame_idx = _find_frame_index(mask_source, label_frame_key)
+        if mask_frame_idx is None:
+            print(f"  {cam_name}: no SAM2 mask frame for label frame {label_frame_key}, skipping")
+            skipped_cameras[cam_name] = f"no SAM2 mask frame {label_frame_key}"
+            mask_source.close()
+            continue
+
+        sam_mask = mask_source[mask_frame_idx] > 127
+        mask_source.close()
         mask_bbox = _mask_to_bbox(sam_mask)
         if mask_bbox is None:
             print(f"  {cam_name}: empty SAM2 mask, skipping")
-            skipped_cameras[cam_name] = "empty first-frame SAM2 mask"
+            skipped_cameras[cam_name] = f"empty SAM2 mask in frame {label_frame_key}"
             continue
 
         label_box = (bbox["x0"], bbox["y0"], bbox["x1"], bbox["y1"])
         padded_label = _pad_bbox(label_box, bbox_padding)
         cont = _containment(mask_bbox, padded_label)
         per_camera[cam_name] = round(cont, 4)
-        print(f"  {cam_name}: containment = {cont:.4f}")
+        print(f"  {cam_name}: containment = {cont:.4f} (frame {label_frame_key})")
 
     if not per_camera:
         avg_cont = 0.0
         status = "INCONCLUSIVE"
-        reason = "no first-frame SAM2 masks available to compare against labeled bboxes"
+        reason = "no matching-frame SAM2 masks available to compare against labeled bboxes"
         print(f"WARNING: {reason}")
     else:
         avg_cont = sum(per_camera.values()) / len(per_camera)

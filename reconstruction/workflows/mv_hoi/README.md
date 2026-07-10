@@ -61,7 +61,7 @@ One row per published image set. Version is semver and strictly increasing.
 | `created_at` | Timestamp                              |
 
 ### `pipelines`
-One row per calibration or reconstruction pipeline submission. Existing DBs
+One row per calibration, preprocess, or reconstruction pipeline submission. Existing DBs
 with legacy `workflows` / `workflows_test` tables are migrated in place by
 `init_db()`.
 
@@ -70,7 +70,7 @@ with legacy `workflows` / `workflows_test` tables are migrated in place by
 | `id`               | PK                                                            |
 | `sequence_name`    | Swift sequence directory name                                 |
 | `dataset`          | Key from `config.yaml` → `datasets`                           |
-| `pipeline_type`    | `mv_calibration` or `mv_hoi_reconstruction`                   |
+| `pipeline_type`    | `mv_calibration`, `mv_preprocess`, or `mv_hoi_reconstruction`  |
 | `pipeline_version` | Which `pipeline_versions.version` was used                    |
 | `workflow_name`    | Locally-generated primary OSMO workflow name                  |
 | `osmo_workflow_id` | ID returned by primary `osmo workflow submit`                 |
@@ -150,11 +150,13 @@ at a time with up to the configured export `batch_size`. The launcher checks
 only the oldest sequence-name batch of `WAITING_QC` rows, so not-yet-completed
 QC for older rows will hold newer rows back instead of being skipped.
 
-`SKIPPED` rows are created by `submit.py` when reconstruction prerequisites are
-missing. Current skip reasons include missing `hoi_metadata.yaml`, missing
-`calib_seq_name`, missing calibration output for the referenced calibration
-sequence, missing object id, and missing object mesh. A repeated identical
-`SKIPPED` reason for the latest row is not inserted again.
+`SKIPPED` rows are created by `submit.py` when pipeline prerequisites are
+missing. Current preprocess skip reasons include missing `hoi_metadata.yaml`,
+missing `calib_seq_name`, missing calibration output for the referenced
+calibration sequence, missing object id, and missing object mesh. Reconstruction
+skip reasons are resolved from the completed `mv_preprocess` folder, including
+missing labels or bbox source. A repeated identical `SKIPPED` reason for the
+latest row is not inserted again.
 
 ## Workflow Structure
 
@@ -172,10 +174,10 @@ rosbag_to_edex -> calibrate_extrinsics
 rosbag. `calibrate_extrinsics` writes the calibrated EDEX output consumed by
 reconstruction sequences through `hoi_metadata.yaml`'s `calib_seq_name`.
 
-### Reconstruction
+### Preprocess
 
-The reconstruction pipeline scans `swift_base/data/<sequence>/`, writes to
-`swift_base/data_output/<sequence>/`, and runs `osmo/mv_hoi_reconstruction.yaml`.
+The preprocess pipeline scans `swift_base/data/<sequence>/`, writes to
+`swift_base/data_output/<sequence>/`, and runs `osmo/mv_preprocess.yaml`.
 Before submission, `submit.py` requires:
 
 - `hoi_metadata.yaml` in the input sequence
@@ -183,9 +185,37 @@ Before submission, `submit.py` requires:
 - object id from `object.id`, `object_id`, or `object_name`
 - object mesh under `mesh_base/<object_id>/.../output_aligned.glb`
 
+The OSMO workflow is:
+
+```
+rosbag_to_edex -> mv_preprocess
+```
+
+Manual labeling happens after this pipeline finishes by writing
+`object_bbox_source.txt` and `labeled_bboxes/*.json` under the generated
+`mv_preprocess` folder.
+
+For one-off rectification runs outside DB bookkeeping, `osmo/mv_preprocess_oneoff.yaml`
+can be submitted directly with `rosbag_url`, `extrinsics_url`, and
+`swift_output_base`. It stages calibration extrinsics but has no mesh URL input,
+so it skips object mesh pinning. Such outputs are useful for labeling, but will
+not satisfy reconstruction until metadata, labels/prompt, and
+`object_mesh/output_aligned.glb` are present. Use `osmo/mv_preprocess.yaml` for
+direct runs that should stage both calibration and mesh inputs.
+
+### Reconstruction
+
+The reconstruction pipeline also writes to `swift_base/data_output/<sequence>/`
+and runs `osmo/mv_hoi_reconstruction.yaml`. Before submission, `submit.py`
+requires the existing `mv_preprocess` folder to contain:
+
+- `hoi_metadata.yaml`, `edex`, `images`, and `object_mesh/output_aligned.glb`
+- `labeled_bboxes/*.json`
+- either `object_bbox_source.txt` containing `manual_labeled_bboxes`, or a
+  nonempty `prompt.txt` for GroundingDINO
+
 The OSMO workflow is grouped as:
 
-- Input/preprocess: `rosbag_to_edex`, then `mv_preprocess`
 - Object branch: `grounding_dino`, `sam2_object_masks`, `check_object_mask`, `foundation_pose`
 - Human branch: `detectron2`, `sam2_human_masks`, `sam3d_body`
 - Derived exports/evals: `export_soma`, `estimate_ground_plane`, `export_fused_pointcloud`, object/human chamfer, and report-only object/human silhouette-mask metrics
@@ -222,6 +252,13 @@ datasets:
         workflows:
           calibration:
             workflow_yaml: osmo/mv_calibration.yaml
+      mv_preprocess:
+        input_path: data
+        output_path: data_output
+        max_concurrent: 40
+        workflows:
+          preprocess:
+            workflow_yaml: osmo/mv_preprocess.yaml
       mv_hoi_reconstruction:
         input_path: data
         output_path: data_output
@@ -288,6 +325,7 @@ Auto mode scans Swift for sequences and submits up to `max_concurrent`:
 # WAITING_QC / WAITING_EXPORT / FAIL. Use --retry_failed to include failed
 # sequences. Use --force to ignore latest status and blacklist checks.
 python submit.py --dataset sc_office_4exo_1 --pipeline mv_hoi_reconstruction
+python submit.py --dataset sc_office_4exo_1 --pipeline mv_preprocess
 python submit.py --dataset sc_office_4exo_1 --pipeline mv_hoi_reconstruction --retry_failed
 python submit.py --dataset sc_office_4exo_1 --pipeline mv_hoi_reconstruction --refresh-workers 16
 
@@ -318,6 +356,7 @@ passed:
 
 ```bash
 python submit.py --dataset sc_office_4exo_1 --pipeline mv_hoi_reconstruction --sequence <name>
+python submit.py --dataset sc_office_4exo_1 --pipeline mv_preprocess --sequence <name>
 ```
 
 `--force` bypasses latest-status and blacklist skip checks. It only cancels

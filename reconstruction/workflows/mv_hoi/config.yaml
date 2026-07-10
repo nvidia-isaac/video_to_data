@@ -10,6 +10,13 @@ datasets:
         workflows:
           calibration:
             workflow_yaml: osmo/mv_calibration.yaml
+      mv_preprocess:
+        input_path: data
+        output_path: data_output
+        max_concurrent: 40
+        workflows:
+          preprocess:
+            workflow_yaml: osmo/mv_preprocess.yaml
       mv_hoi_reconstruction:
         input_path: data
         output_path: data_output

@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import json
+import math
 import os
 import subprocess
 import sys
@@ -37,6 +39,8 @@ from db import (
 from config_utils import (
     CALIBRATION_PIPELINE,
     CALIBRATION_WORKFLOW,
+    PREPROCESS_PIPELINE,
+    PREPROCESS_WORKFLOW,
     RECON_PIPELINE,
     RECONSTRUCTION_WORKFLOW,
     apply_test_mode,
@@ -50,6 +54,8 @@ from query import DEFAULT_REFRESH_WORKERS, osmo_cancel, refresh_workflow_states
 
 DB_PATH = os.path.join(SCRIPT_DIR, "processing.db")
 TABLE = PIPELINES_TABLE
+OBJECT_BBOX_SOURCE_MARKER = "object_bbox_source.txt"
+OBJECT_BBOX_SOURCE_MANUAL = "manual_labeled_bboxes"
 
 
 @dataclass(frozen=True)
@@ -140,6 +146,59 @@ def list_sequences(client, bucket: str, prefix: str) -> list[str]:
 def path_exists(client, bucket: str, prefix: str) -> bool:
     resp = client.list_objects_v2(Bucket=bucket, Prefix=prefix, MaxKeys=1)
     return resp.get("KeyCount", 0) > 0
+
+
+def object_exists(client, bucket: str, key: str) -> bool:
+    resp = client.list_objects_v2(Bucket=bucket, Prefix=key, MaxKeys=1)
+    return any(obj["Key"] == key for obj in resp.get("Contents", []))
+
+
+def prefix_has_json_files(client, bucket: str, prefix: str) -> bool:
+    if not prefix.endswith("/"):
+        prefix += "/"
+    resp = client.list_objects_v2(Bucket=bucket, Prefix=prefix, MaxKeys=100)
+    return any(obj["Key"].endswith(".json") for obj in resp.get("Contents", []))
+
+
+def get_s3_text(client, bucket: str, key: str) -> str | None:
+    try:
+        resp = client.get_object(Bucket=bucket, Key=key)
+    except Exception:
+        return None
+    data = resp["Body"].read()
+    if isinstance(data, bytes):
+        return data.decode("utf-8")
+    return data
+
+
+def edex_has_camera_transforms(edex_text: str | None) -> bool:
+    if not edex_text:
+        return False
+    try:
+        edex = json.loads(edex_text)
+    except (TypeError, json.JSONDecodeError):
+        return False
+    header = edex[0] if isinstance(edex, list) and edex else edex
+    if not isinstance(header, dict):
+        return False
+    cameras = header.get("cameras")
+    if not isinstance(cameras, list) or not cameras:
+        return False
+    for camera in cameras:
+        if not isinstance(camera, dict):
+            return False
+        transform = camera.get("transform")
+        if not isinstance(transform, list) or len(transform) != 3:
+            return False
+        for row in transform:
+            if not isinstance(row, list) or len(row) != 4:
+                return False
+            for value in row:
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    return False
+                if not math.isfinite(float(value)):
+                    return False
+    return True
 
 
 def get_hoi_metadata(client, bucket: str, seq_prefix: str) -> dict | None:
@@ -339,11 +398,12 @@ def submit_sequence(
         return None
     workflow_name = _generate_workflow_name(pipeline_type, version)
 
-    workflow_key = (
-        CALIBRATION_WORKFLOW
-        if pipeline_type == CALIBRATION_PIPELINE
-        else RECONSTRUCTION_WORKFLOW
-    )
+    if pipeline_type == CALIBRATION_PIPELINE:
+        workflow_key = CALIBRATION_WORKFLOW
+    elif pipeline_type == PREPROCESS_PIPELINE:
+        workflow_key = PREPROCESS_WORKFLOW
+    else:
+        workflow_key = RECONSTRUCTION_WORKFLOW
     workflow_cfg = get_workflow_cfg(dataset_cfg, pipeline_type, workflow_key)
     workflow_yaml = workflow_cfg["workflow_yaml"]
 
@@ -351,7 +411,17 @@ def submit_sequence(
         "workflow_name": workflow_name,
     }
 
-    if pipeline_type == RECON_PIPELINE:
+    if pipeline_type == PREPROCESS_PIPELINE:
+        latest_recon = get_latest_workflow(
+            sequence_name, dataset_name, RECON_PIPELINE, db_path=DB_PATH, table=TABLE,
+        )
+        if latest_recon and latest_recon["status"] == "PASS" and not force:
+            reason = "mv_hoi_reconstruction already PASS"
+            return _handle_prereq_skip(
+                sequence_name, dataset_name, pipeline_type, version, workflow_name,
+                reason, latest, dry_run=dry_run, log=log_prereq_skips,
+            )
+
         input_path = get_pipeline_input_path(dataset_cfg, pipeline_type)
         output_path = get_pipeline_output_path(dataset_cfg, pipeline_type)
         set_vars["rosbag_url"] = (
@@ -419,6 +489,79 @@ def submit_sequence(
         set_vars["mesh_url"] = mesh_url
 
         # Output base
+        set_vars["swift_output_base"] = (
+            f"{swift_base}/{output_path}/{sequence_name}"
+        )
+
+    elif pipeline_type == RECON_PIPELINE:
+        preprocess_output_path = get_pipeline_output_path(
+            dataset_cfg, PREPROCESS_PIPELINE,
+        )
+        output_path = get_pipeline_output_path(dataset_cfg, pipeline_type)
+        preprocess_pfx = (
+            f"{base_pfx}/{preprocess_output_path}/{sequence_name}/mv_preprocess"
+        )
+
+        required_paths = [
+            ("hoi_metadata.yaml", f"{preprocess_pfx}/hoi_metadata.yaml"),
+            ("edex", f"{preprocess_pfx}/edex"),
+            ("images", f"{preprocess_pfx}/images/"),
+            ("videos", f"{preprocess_pfx}/videos/"),
+        ]
+        for label, prefix in required_paths:
+            if not path_exists(s3, bucket, prefix):
+                reason = f"mv_preprocess missing {label}"
+                return _handle_prereq_skip(
+                    sequence_name, dataset_name, pipeline_type, version, workflow_name,
+                    reason, latest, dry_run=dry_run, log=log_prereq_skips,
+                )
+
+        edex_text = get_s3_text(s3, bucket, f"{preprocess_pfx}/edex")
+        if not edex_has_camera_transforms(edex_text):
+            reason = "mv_preprocess edex missing calibrated camera transforms"
+            return _handle_prereq_skip(
+                sequence_name, dataset_name, pipeline_type, version, workflow_name,
+                reason, latest, dry_run=dry_run, log=log_prereq_skips,
+            )
+
+        mesh_key = f"{preprocess_pfx}/object_mesh/output_aligned.glb"
+        if not object_exists(s3, bucket, mesh_key):
+            reason = "mv_preprocess missing object_mesh/output_aligned.glb"
+            return _handle_prereq_skip(
+                sequence_name, dataset_name, pipeline_type, version, workflow_name,
+                reason, latest, dry_run=dry_run, log=log_prereq_skips,
+            )
+
+        if not prefix_has_json_files(s3, bucket, f"{preprocess_pfx}/labeled_bboxes"):
+            reason = "mv_preprocess missing labeled_bboxes/*.json"
+            return _handle_prereq_skip(
+                sequence_name, dataset_name, pipeline_type, version, workflow_name,
+                reason, latest, dry_run=dry_run, log=log_prereq_skips,
+            )
+
+        marker = get_s3_text(
+            s3, bucket, f"{preprocess_pfx}/{OBJECT_BBOX_SOURCE_MARKER}",
+        )
+        if marker is not None:
+            marker = marker.strip()
+            if marker != OBJECT_BBOX_SOURCE_MANUAL:
+                reason = f"unknown object bbox source marker: {marker}"
+                return _handle_prereq_skip(
+                    sequence_name, dataset_name, pipeline_type, version, workflow_name,
+                    reason, latest, dry_run=dry_run, log=log_prereq_skips,
+                )
+        else:
+            prompt = get_s3_text(s3, bucket, f"{preprocess_pfx}/prompt.txt")
+            if prompt is None or not prompt.strip():
+                reason = "mv_preprocess missing manual marker or nonempty prompt.txt"
+                return _handle_prereq_skip(
+                    sequence_name, dataset_name, pipeline_type, version, workflow_name,
+                    reason, latest, dry_run=dry_run, log=log_prereq_skips,
+                )
+
+        set_vars["mv_preprocess_url"] = (
+            f"{swift_base}/{preprocess_output_path}/{sequence_name}/mv_preprocess/"
+        )
         set_vars["swift_output_base"] = (
             f"{swift_base}/{output_path}/{sequence_name}"
         )

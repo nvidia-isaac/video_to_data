@@ -1,4 +1,6 @@
 import io
+import json
+import re
 import subprocess
 import sys
 import types
@@ -6,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
+import yaml
 
 WORKFLOW_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(WORKFLOW_DIR))
@@ -60,6 +63,16 @@ def _dataset_cfg() -> dict:
                 "max_concurrent": 10,
                 "workflows": {
                     "calibration": {"workflow_yaml": "osmo/mv_calibration.yaml"},
+                },
+            },
+            "mv_preprocess": {
+                "input_path": "data",
+                "output_path": "data_output",
+                "max_concurrent": 10,
+                "workflows": {
+                    "preprocess": {
+                        "workflow_yaml": "osmo/mv_preprocess.yaml",
+                    },
                 },
             },
             "mv_hoi_reconstruction": {
@@ -221,7 +234,7 @@ def test_generate_workflow_name_includes_microseconds(monkeypatch):
         ),
     ],
 )
-def test_submit_sequence_records_reconstruction_prereq_skips(
+def test_submit_sequence_records_preprocess_prereq_skips(
     monkeypatch, tmp_path, reason, metadata, calibration_exists, mesh_url,
 ):
     db_path = _db_path(tmp_path)
@@ -259,7 +272,7 @@ def test_submit_sequence_records_reconstruction_prereq_skips(
         "sequence_a",
         "dataset_a",
         _dataset_cfg(),
-        "mv_hoi_reconstruction",
+        "mv_preprocess",
     )
 
     assert result.prereq_skipped
@@ -294,13 +307,13 @@ def test_submit_sequence_does_not_duplicate_same_skip_reason(monkeypatch, tmp_pa
             "sequence_a",
             "dataset_a",
             _dataset_cfg(),
-            "mv_hoi_reconstruction",
+            "mv_preprocess",
         )
         assert result.prereq_skipped
 
     rows = db.get_workflows_by_dataset(
         "dataset_a",
-        pipeline_type="mv_hoi_reconstruction",
+        pipeline_type="mv_preprocess",
         db_path=db_path,
     )
     assert [row["workflow_name"] for row in rows] == ["wf-skipped-1"]
@@ -335,13 +348,13 @@ def test_submit_sequence_records_new_skip_when_reason_changes(monkeypatch, tmp_p
             "sequence_a",
             "dataset_a",
             _dataset_cfg(),
-            "mv_hoi_reconstruction",
+            "mv_preprocess",
         )
         assert result.prereq_skipped
 
     rows = db.get_workflows_by_dataset(
         "dataset_a",
-        pipeline_type="mv_hoi_reconstruction",
+        pipeline_type="mv_preprocess",
         db_path=db_path,
     )
     assert [row["workflow_name"] for row in rows] == [
@@ -360,7 +373,7 @@ def test_submit_sequence_submits_after_previous_skip_when_prereqs_pass(
     db.insert_workflow(
         sequence_name="sequence_a",
         dataset="dataset_a",
-        pipeline_type="mv_hoi_reconstruction",
+        pipeline_type="mv_preprocess",
         pipeline_version="1.0.0",
         workflow_name="wf-skipped",
         status="SKIPPED",
@@ -386,7 +399,172 @@ def test_submit_sequence_submits_after_previous_skip_when_prereqs_pass(
         "resolve_mesh_url",
         lambda *_args, **_kwargs: "swift://mesh/box/",
     )
-    monkeypatch.setattr(submit, "osmo_submit", lambda *_args, **_kwargs: "osmo-submit")
+    submitted = []
+    monkeypatch.setattr(
+        submit,
+        "osmo_submit",
+        lambda workflow_yaml, pool, set_vars, **_kwargs: (
+            submitted.append((workflow_yaml, pool, set_vars)) or "osmo-submit"
+        ),
+    )
+
+    result = submit.submit_sequence(
+        "sequence_a",
+        "dataset_a",
+        _dataset_cfg(),
+        "mv_preprocess",
+    )
+
+    assert result.workflow_name == "wf-submit"
+    latest = db.get_latest_workflow(
+        "sequence_a",
+        "dataset_a",
+        "mv_preprocess",
+        db_path=db_path,
+    )
+    assert latest["workflow_name"] == "wf-submit"
+    assert latest["status"] == "WAITING_WF"
+    assert submitted[0][0] == "osmo/mv_preprocess.yaml"
+    assert submitted[0][2]["rosbag_url"].endswith("/data/sequence_a/")
+    assert submitted[0][2]["extrinsics_url"].endswith(
+        "/calibration_output/calib_a/calibrate_extrinsics"
+    )
+    assert submitted[0][2]["mesh_url"] == "swift://mesh/box/"
+    assert submitted[0][2]["swift_output_base"].endswith("/data_output/sequence_a")
+
+
+def test_submit_sequence_skips_preprocess_when_reconstruction_already_passed(
+    monkeypatch, tmp_path,
+):
+    db_path = _db_path(tmp_path)
+    db.insert_version("1.0.0", db_path=db_path)
+    db.insert_workflow(
+        sequence_name="sequence_a",
+        dataset="dataset_a",
+        pipeline_type="mv_hoi_reconstruction",
+        pipeline_version="1.0.0",
+        workflow_name="wf-recon-pass",
+        status="PASS",
+        db_path=db_path,
+    )
+
+    monkeypatch.setattr(submit, "DB_PATH", db_path)
+    monkeypatch.setattr(submit, "_generate_workflow_name", lambda *_args: "wf-preprocess")
+    monkeypatch.setattr(
+        submit,
+        "get_s3_client",
+        lambda *_args, **_kwargs: (object(), "bucket", "root"),
+    )
+    monkeypatch.setattr(
+        submit,
+        "osmo_submit",
+        lambda *_args, **_kwargs: pytest.fail("OSMO should not be submitted"),
+    )
+
+    result = submit.submit_sequence(
+        "sequence_a",
+        "dataset_a",
+        _dataset_cfg(),
+        "mv_preprocess",
+    )
+
+    assert result.prereq_skipped
+    row = db.get_workflow("wf-preprocess", db_path=db_path)
+    assert row["status"] == "SKIPPED"
+    assert row["details"] == "skipped: mv_hoi_reconstruction already PASS"
+
+
+_DEFAULT_EDEX_TEXT = object()
+
+
+def _stub_reconstruction_prereqs(
+    monkeypatch,
+    *,
+    missing: str | None = None,
+    marker: str | None = None,
+    prompt: str | None = "a tall blue trash can",
+    edex_text=_DEFAULT_EDEX_TEXT,
+) -> None:
+    if edex_text is _DEFAULT_EDEX_TEXT:
+        edex_text = json.dumps([
+            {
+                "frame_start": 0,
+                "frame_end": 1,
+                "cameras": [
+                    {"transform": [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]]},
+                    {"transform": [[1, 0, 0, 1], [0, 1, 0, 0], [0, 0, 1, 0]]},
+                ],
+            },
+            {"sequence": []},
+        ])
+
+    def fake_path_exists(_client, _bucket, prefix):
+        if prefix.endswith("/hoi_metadata.yaml"):
+            return missing != "hoi_metadata.yaml"
+        if prefix.endswith("/edex"):
+            return missing != "edex"
+        if prefix.endswith("/images/"):
+            return missing != "images"
+        if prefix.endswith("/videos/"):
+            return missing != "videos"
+        return True
+
+    def fake_get_s3_text(_client, _bucket, key):
+        if key.endswith("/edex"):
+            return edex_text
+        if key.endswith("/object_bbox_source.txt"):
+            return marker
+        if key.endswith("/prompt.txt"):
+            return prompt
+        return None
+
+    monkeypatch.setattr(submit, "path_exists", fake_path_exists)
+    monkeypatch.setattr(
+        submit,
+        "object_exists",
+        lambda *_args, **_kwargs: missing != "object_mesh/output_aligned.glb",
+    )
+    monkeypatch.setattr(
+        submit,
+        "prefix_has_json_files",
+        lambda *_args, **_kwargs: missing != "labeled_bboxes/*.json",
+    )
+    monkeypatch.setattr(submit, "get_s3_text", fake_get_s3_text)
+
+
+@pytest.mark.parametrize(
+    ("missing", "reason"),
+    [
+        ("hoi_metadata.yaml", "mv_preprocess missing hoi_metadata.yaml"),
+        ("edex", "mv_preprocess missing edex"),
+        ("images", "mv_preprocess missing images"),
+        ("videos", "mv_preprocess missing videos"),
+        (
+            "object_mesh/output_aligned.glb",
+            "mv_preprocess missing object_mesh/output_aligned.glb",
+        ),
+        ("labeled_bboxes/*.json", "mv_preprocess missing labeled_bboxes/*.json"),
+    ],
+)
+def test_submit_sequence_records_reconstruction_preprocess_prereq_skips(
+    monkeypatch, tmp_path, missing, reason,
+):
+    db_path = _db_path(tmp_path)
+    db.insert_version("1.0.0", db_path=db_path)
+
+    monkeypatch.setattr(submit, "DB_PATH", db_path)
+    monkeypatch.setattr(submit, "_generate_workflow_name", lambda *_args: "wf-skipped")
+    monkeypatch.setattr(
+        submit,
+        "get_s3_client",
+        lambda *_args, **_kwargs: (object(), "bucket", "root"),
+    )
+    _stub_reconstruction_prereqs(monkeypatch, missing=missing)
+    monkeypatch.setattr(
+        submit,
+        "osmo_submit",
+        lambda *_args, **_kwargs: pytest.fail("OSMO should not be submitted"),
+    )
 
     result = submit.submit_sequence(
         "sequence_a",
@@ -395,15 +573,202 @@ def test_submit_sequence_submits_after_previous_skip_when_prereqs_pass(
         "mv_hoi_reconstruction",
     )
 
-    assert result.workflow_name == "wf-submit"
-    latest = db.get_latest_workflow(
+    assert result.prereq_skipped
+    row = db.get_workflow("wf-skipped", db_path=db_path)
+    assert row["details"] == f"skipped: {reason}"
+
+
+@pytest.mark.parametrize(
+    "edex_text",
+    [
+        None,
+        "not json",
+        json.dumps([{"cameras": []}]),
+        json.dumps([{"cameras": [{"transform": None}]}]),
+        json.dumps([{"cameras": [{"transform": [[1, 0, 0]]}]}]),
+        json.dumps([{"cameras": [{"transform": [[1, 0, 0, True], [0, 1, 0, 0], [0, 0, 1, 0]]}]}]),
+    ],
+)
+def test_submit_sequence_skips_reconstruction_without_calibrated_edex_transforms(
+    monkeypatch, tmp_path, edex_text,
+):
+    db_path = _db_path(tmp_path)
+    db.insert_version("1.0.0", db_path=db_path)
+
+    monkeypatch.setattr(submit, "DB_PATH", db_path)
+    monkeypatch.setattr(submit, "_generate_workflow_name", lambda *_args: "wf-skipped")
+    monkeypatch.setattr(
+        submit,
+        "get_s3_client",
+        lambda *_args, **_kwargs: (object(), "bucket", "root"),
+    )
+    _stub_reconstruction_prereqs(monkeypatch, edex_text=edex_text)
+    monkeypatch.setattr(
+        submit,
+        "osmo_submit",
+        lambda *_args, **_kwargs: pytest.fail("OSMO should not be submitted"),
+    )
+
+    result = submit.submit_sequence(
         "sequence_a",
         "dataset_a",
+        _dataset_cfg(),
         "mv_hoi_reconstruction",
-        db_path=db_path,
     )
-    assert latest["workflow_name"] == "wf-submit"
-    assert latest["status"] == "WAITING_WF"
+
+    assert result.prereq_skipped
+    row = db.get_workflow("wf-skipped", db_path=db_path)
+    assert row["details"] == (
+        "skipped: mv_preprocess edex missing calibrated camera transforms"
+    )
+
+
+@pytest.mark.parametrize(
+    ("marker", "prompt"),
+    [
+        ("manual_labeled_bboxes", None),
+        (None, "a tall blue trash can"),
+    ],
+)
+def test_submit_sequence_accepts_manual_or_grounding_dino_bbox_sources(
+    monkeypatch, tmp_path, marker, prompt,
+):
+    db_path = _db_path(tmp_path)
+    db.insert_version("1.0.0", db_path=db_path)
+    submitted = []
+
+    monkeypatch.setattr(submit, "DB_PATH", db_path)
+    monkeypatch.setattr(submit, "_generate_workflow_name", lambda *_args: "wf-recon")
+    monkeypatch.setattr(
+        submit,
+        "get_s3_client",
+        lambda *_args, **_kwargs: (object(), "bucket", "root"),
+    )
+    _stub_reconstruction_prereqs(monkeypatch, marker=marker, prompt=prompt)
+    monkeypatch.setattr(
+        submit,
+        "osmo_submit",
+        lambda workflow_yaml, pool, set_vars, **_kwargs: (
+            submitted.append((workflow_yaml, pool, set_vars)) or "osmo-recon"
+        ),
+    )
+
+    result = submit.submit_sequence(
+        "sequence_a",
+        "dataset_a",
+        _dataset_cfg(),
+        "mv_hoi_reconstruction",
+    )
+
+    assert result.workflow_name == "wf-recon"
+    set_vars = submitted[0][2]
+    assert submitted[0][0] == "osmo/mv_hoi_reconstruction.yaml"
+    assert set_vars["mv_preprocess_url"].endswith(
+        "/data_output/sequence_a/mv_preprocess/"
+    )
+    assert set_vars["swift_output_base"].endswith("/data_output/sequence_a")
+    assert "rosbag_url" not in set_vars
+    assert "extrinsics_url" not in set_vars
+    assert "mesh_url" not in set_vars
+
+
+@pytest.mark.parametrize(
+    ("marker", "prompt", "reason"),
+    [
+        (
+            None,
+            None,
+            "mv_preprocess missing manual marker or nonempty prompt.txt",
+        ),
+        (
+            "grounding_dino",
+            "a tall blue trash can",
+            "unknown object bbox source marker: grounding_dino",
+        ),
+    ],
+)
+def test_submit_sequence_skips_reconstruction_without_valid_bbox_source(
+    monkeypatch, tmp_path, marker, prompt, reason,
+):
+    db_path = _db_path(tmp_path)
+    db.insert_version("1.0.0", db_path=db_path)
+
+    monkeypatch.setattr(submit, "DB_PATH", db_path)
+    monkeypatch.setattr(submit, "_generate_workflow_name", lambda *_args: "wf-skipped")
+    monkeypatch.setattr(
+        submit,
+        "get_s3_client",
+        lambda *_args, **_kwargs: (object(), "bucket", "root"),
+    )
+    _stub_reconstruction_prereqs(monkeypatch, marker=marker, prompt=prompt)
+    monkeypatch.setattr(
+        submit,
+        "osmo_submit",
+        lambda *_args, **_kwargs: pytest.fail("OSMO should not be submitted"),
+    )
+
+    result = submit.submit_sequence(
+        "sequence_a",
+        "dataset_a",
+        _dataset_cfg(),
+        "mv_hoi_reconstruction",
+    )
+
+    assert result.prereq_skipped
+    row = db.get_workflow("wf-skipped", db_path=db_path)
+    assert row["details"] == f"skipped: {reason}"
+
+
+def test_mv_preprocess_oneoff_workflow_requires_extrinsics_but_no_mesh_url():
+    workflow_path = WORKFLOW_DIR / "osmo" / "mv_preprocess_oneoff.yaml"
+    raw_workflow = workflow_path.read_text()
+    workflow = yaml.safe_load(
+        re.sub(r"\{\{[^}]+\}\}", "placeholder", raw_workflow)
+    )
+
+    defaults = workflow["default-values"]
+    assert defaults["extrinsics_url"] == "???"
+    assert "mesh_url" not in defaults
+
+    mv_preprocess_task = next(
+        task for task in workflow["workflow"]["tasks"]
+        if task["name"] == "mv_preprocess"
+    )
+    assert mv_preprocess_task["name"] == "mv_preprocess"
+    assert mv_preprocess_task["inputs"] == [
+        {"task": "rosbag_to_edex"},
+        {"url": "placeholder"},
+    ]
+    assert "{{input:1}}" in raw_workflow
+    assert "{{input:2}}" not in raw_workflow
+    assert 'EXTRA_ARGS+=(--extrinsics_camera_params_path "$EXTRINSICS")' in raw_workflow
+    assert "--mesh_path" not in raw_workflow
+    assert "No mesh input in this workflow" in raw_workflow
+    assert 'EXTRA_ARGS+=(--hoi_metadata_path "{{input:0}}/hoi_metadata.yaml")' in raw_workflow
+
+
+def test_mv_preprocess_workflow_requires_extrinsics_and_mesh_urls():
+    workflow_path = WORKFLOW_DIR / "osmo" / "mv_preprocess.yaml"
+    raw_workflow = workflow_path.read_text()
+    workflow = yaml.safe_load(
+        re.sub(r"\{\{[^}]+\}\}", "placeholder", raw_workflow)
+    )
+
+    defaults = workflow["default-values"]
+    assert defaults["extrinsics_url"] == "???"
+    assert defaults["mesh_url"] == "???"
+
+    mv_preprocess_task = next(
+        task for task in workflow["workflow"]["tasks"]
+        if task["name"] == "mv_preprocess"
+    )
+    assert mv_preprocess_task["inputs"] == [
+        {"task": "rosbag_to_edex"},
+        {"url": "placeholder"},
+        {"url": "placeholder"},
+    ]
+    assert 'EXTRA_ARGS+=(--extrinsics_camera_params_path "$EXTRINSICS")' in raw_workflow
+    assert 'EXTRA_ARGS+=(--mesh_path "$MESH")' in raw_workflow
 
 
 def test_submit_sequence_skips_blacklisted_manual_sequence(
@@ -1166,4 +1531,35 @@ def test_refresh_waiting_keeps_reconstruction_completed_in_waiting_qc(
 
     row = db.get_workflow("wf-recon-done", db_path=db_path)
     assert row["status"] == "WAITING_QC"
+    assert row["details"] == "workflow_completed"
+
+
+def test_refresh_waiting_marks_preprocess_completed_as_pass(
+    monkeypatch, tmp_path,
+):
+    db_path = _db_path(tmp_path)
+    db.insert_version("1.0.0", db_path=db_path)
+    db.insert_workflow(
+        sequence_name="sequence_done",
+        dataset="dataset_a",
+        pipeline_type="mv_preprocess",
+        pipeline_version="1.0.0",
+        workflow_name="wf-preprocess-done",
+        osmo_workflow_id="osmo-preprocess-done",
+        status="WAITING_WF",
+        db_path=db_path,
+    )
+
+    monkeypatch.setattr(
+        query,
+        "osmo_query",
+        lambda _workflow_id: {"status": "COMPLETED", "tasks": {}},
+    )
+
+    query.refresh_waiting(
+        "dataset_a", pipeline_type="mv_preprocess", db_path=db_path,
+    )
+
+    row = db.get_workflow("wf-preprocess-done", db_path=db_path)
+    assert row["status"] == "PASS"
     assert row["details"] == "workflow_completed"

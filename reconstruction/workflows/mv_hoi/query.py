@@ -39,7 +39,7 @@ from db import (
     update_workflow,
     upsert_blacklisted_sequence,
 )
-from config_utils import CALIBRATION_PIPELINE, RECON_PIPELINE
+from config_utils import CALIBRATION_PIPELINE, PREPROCESS_PIPELINE, RECON_PIPELINE
 
 DB_PATH = os.path.join(SCRIPT_DIR, "processing.db")
 TABLE = PIPELINES_TABLE
@@ -280,7 +280,9 @@ def refresh_waiting(
             )
         elif wf_status == "COMPLETED":
             completed_status = (
-                "PASS" if wf["pipeline_type"] == CALIBRATION_PIPELINE else "WAITING_QC"
+                "PASS"
+                if wf["pipeline_type"] in (CALIBRATION_PIPELINE, PREPROCESS_PIPELINE)
+                else "WAITING_QC"
             )
             update_workflow(wf["workflow_name"], status=completed_status,
                            details="workflow_completed", db_path=db_path,
