@@ -10,7 +10,7 @@
 # Base Stage
 ##############################################################
 
-FROM nvcr.io/nvidia/isaac-lab:2.3.1 AS base
+FROM nvcr.io/nvidia/isaac-lab:2.3.2 AS base
 
 # Set working directory
 WORKDIR /workspace/video_to_data/robotic_grounding
@@ -37,7 +37,8 @@ RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
     viser==1.0.15 \
     dearpygui \
     scipy \
-    scikit-learn
+    scikit-learn \
+    tzdata
 
 # GPL hand-model deps (chumpy + MANO layers) removed — the Stage-1 dataset load
 # (raw -> loaded Parquet via hand FK) moved to reconstruction's
