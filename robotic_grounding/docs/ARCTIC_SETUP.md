@@ -18,30 +18,43 @@ ArtiGrasp rsc/arctic (URDFs+meshes) ┘─[arrange]→ <HMD>/arctic/{dataset,obj
 
 ## 1. Download
 
-> **Downloading by hand?** From the portal's Download page you only need **`raw_seqs.zip`**
-> (~215 MB, "Raw GT sequences in world coordinate") — the per-frame MANO + object motion.
-> **Do NOT download the image archives** (full 2K images ~649 GB, cropped ~116 GB, image
-> features ~14 GB) or the splits/meta/backgrounds; they are unused. Object URDFs + meshes
-> come from ArtiGrasp (next subsection), not the portal. Place files as shown in §2 — the
-> pipeline only needs them on disk, not any particular download method.
+You need two things: the **raw motion sequences** (`raw_seqs`, ~215 MB — per-frame MANO +
+object motion; the **only** ARCTIC file the pipeline uses) and the **articulated URDFs +
+meshes** (from ArtiGrasp, not ARCTIC — next subsection). **Do NOT download ARCTIC's image
+archives** (full 2K ~649 GB, cropped ~116 GB, features ~14 GB) or the splits/meta/backgrounds;
+they are unused. Place files as shown in §2 — the pipeline only needs them on disk.
 
-**Motion (MPI portal — credentialed).** Register at **https://arctic.is.tue.mpg.de**
-(plus MANO/SMPL-X accounts). MPI's `download.php` authenticates by **POSTing
-username/password to the file URL** — plain `curl` fails because the 302 drops the session,
-so use `requests` (TLS verify ON). Only `raw_seqs` (the per-frame MANO + object motion) is
-needed:
-```python
-# download_arctic.py — run with ARCTIC_USERNAME / ARCTIC_PASSWORD in the env
-import os, requests
-U, P = os.environ["ARCTIC_USERNAME"], os.environ["ARCTIC_PASSWORD"]
-REL = "arctic_release/<release_hash>/v1_0/data"   # from the portal's Download page
-for fn in ["raw_seqs.zip"]:                       # raw_seqs = motion (MANO + object)
-    url = f"https://download.is.tue.mpg.de/download.php?domain=arctic&resume=1&sfile={REL}/{fn}"
-    r = requests.post(url, data={"username": U, "password": P}, stream=True)  # verify ON
-    assert r.status_code == 200 and r.headers["content-type"] != "text/html", (fn, r.status_code)
-    with open(os.path.expanduser(f"~/arctic_download/{fn}"), "wb") as f:
-        for c in r.iter_content(1 << 20): f.write(c)
+**Motion (`raw_seqs`) — via the ARCTIC repo's download scripts (credentialed).**
+First register at **https://arctic.is.tue.mpg.de** (plus MANO/SMPL-X accounts) to obtain a
+username/password. ARCTIC has **no post-login "Download page"** — the portal redirects to the
+public GitHub repo, whose `bash/` scripts are the actual download path. They POST your
+credentials to MPI's `download.php` (a plain `curl` fails — the 302 drops the POST session).
+Fetch just the small archives (which include `raw_seqs`), **not** the images:
+```bash
+# Host, OUTSIDE the container — this is third-party ARCTIC tooling in its own venv.
+git clone --no-checkout --depth 1 https://github.com/zc-alexfan/arctic.git ~/arctic
+cd ~/arctic
+git sparse-checkout init --cone
+git sparse-checkout set bash docs scripts_data
+git checkout master
+python3 -m venv ~/venvs/arctic && source ~/venvs/arctic/bin/activate
+pip install setuptools loguru requests tqdm
+export ARCTIC_USERNAME=<email> ARCTIC_PASSWORD=<password>
+chmod +x ./bash/*.sh
+./bash/download_misc.sh            # fetches raw_seqs (+ small misc) — NOT the image archives
+python scripts_data/checksum.py    # verifies each zip is real, not an HTML login/error page
+python scripts_data/unzip_download.py
+mv unpack data
 ```
+Raw sequences land at
+`~/arctic/data/arctic_data/data/raw_seqs/s01..s10/<obj>_<action>_<seq>.{mano,object}.npy`;
+§2 copies them into `$HMD/arctic/dataset/`.
+
+> **Why not download `raw_seqs.zip` by hand from the portal?** You can't — there is no
+> post-login Download page: `arctic.is.tue.mpg.de` redirects to the GitHub repo, which does
+> **not** contain `raw_seqs.zip`. The `bash/` scripts above are the only working path, and
+> their `checksum.py` step catches a bad-credential HTML response instead of silently writing
+> it to disk as a corrupt zip.
 
 **Articulated URDFs + meshes (ArtiGrasp — public, no login).** The published ArtiGrasp
 project ships the articulated URDFs **and** the matching decimated meshes
@@ -82,9 +95,11 @@ relative/absolute path prefix), don't rewrite the filenames — inject a
 ```bash
 ARTI=~/artigrasp/rsc/arctic
 DEST=$HMD/arctic/object_assets
-OBJECTS="box capsulemachine espressomachine ketchup laptop microwave mixer notebook phone waffleiron"
+# array (not a space-string) so this works in zsh too — zsh does NOT word-split an
+# unquoted scalar, so `for obj in $OBJECTS` would iterate once over the whole string.
+OBJECTS=(box capsulemachine espressomachine ketchup laptop microwave mixer notebook phone waffleiron)
 mkdir -p "$DEST/urdfs/arctic"
-for obj in $OBJECTS; do
+for obj in "${OBJECTS[@]}"; do
   mkdir -p "$DEST/meshes/arctic/$obj"
   cp "$ARTI/$obj"/{top,bottom}_watertight_tiny.obj "$ARTI/$obj"/{top,bottom}_watertight_tiny.stl \
      "$DEST/meshes/arctic/$obj/"
@@ -109,6 +124,19 @@ $HMD/arctic/
 ```
 
 ## 3. Run the pipeline (host orchestrator, Pattern A)
+
+> **Complete the one-time host setup first** ([`SETUP.md`](SETUP.md) §2–3). Without the host
+> `v2d` packages the orchestrator aborts immediately with
+> `ModuleNotFoundError: No module named 'v2d'` (`command failed (exit 1); aborting.`):
+> ```bash
+> cd <repo>/reconstruction
+> pip install -e modules/v2d_common -e modules/v2d_docker -e modules/v2d_task_library_loader/docker
+> cd ../robotic_grounding
+> python scripts/run_pipeline_docker.py --build-only    # builds BOTH Docker images
+> ```
+
+This command is the **actual pipeline execution** (LOAD → PROCESSED → SUPPORT → VIS), not a
+data-layout check:
 ```bash
 cd <repo>/robotic_grounding
 python scripts/run_pipeline_docker.py arctic \
@@ -134,8 +162,10 @@ python scripts/run_pipeline_docker.py arctic \
 - Loader contract: each object's URDF must expose body **`top`** and joint **`rotation`**
   (ArtiGrasp's URDFs match); object part names are `bottom` (root) and `top`.
 - Support reconstruction uses only the **root body** for articulated objects.
-- MPI `download.php`: POST creds with `requests` (TLS verify ON); plain `curl` fails
-  because the 302 drops the POST session.
+- ARCTIC has **no post-login Download page** — fetch `raw_seqs` with the ARCTIC repo's
+  `bash/download_misc.sh` (§1), which POSTs your creds to MPI `download.php`. A plain `curl`
+  fails because the 302 drops the POST session; `scripts_data/checksum.py` catches an HTML
+  login/error page before it's mistaken for a valid zip.
 
 ## Citation
 If you use this dataset, please cite the original work:
