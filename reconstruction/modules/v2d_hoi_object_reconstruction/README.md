@@ -234,6 +234,20 @@ A JSONL file as a whole is not a single JSON value.
 
 ## Environment Setup
 
+### GPU compatibility
+
+The v0.2 containers require NVIDIA Container Toolkit and an NVIDIA GPU with at
+least 24 GB of VRAM. Development and local validation used RTX A6000 and L40S
+GPUs. VRAM capacity alone does not indicate compatibility.
+
+Blackwell GPUs with compute capability 12.0 (`sm_120`), including the NVIDIA
+RTX PRO 6000 Blackwell, are not supported by the current CUDA/PyTorch images and
+native CUDA extensions. On these GPUs, a pipeline stage may fail with `no
+kernel image is available for execution on the device` or a similar CUDA
+architecture error. Run the pipeline on a validated GPU. Blackwell support
+requires rebuilding the images and native CUDA extensions with a toolchain and
+architecture targets that support `sm_120`.
+
 ### 1. Install host packages (from `reconstruction/`)
 
 ```bash
