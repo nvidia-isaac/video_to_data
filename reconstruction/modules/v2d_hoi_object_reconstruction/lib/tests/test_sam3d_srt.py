@@ -3,7 +3,7 @@
 
 import json
 
-from v2d_hoi_object_reconstruction.docker import _sam3d_srt
+from v2d_hoi_object_reconstruction.lib import sam3d_srt as _sam3d_srt
 
 
 def _write_mesh(job_dir, frame_id):
@@ -30,15 +30,27 @@ def test_osmo_fast_path_defaults():
     )
 
 
-def test_completed_result_requires_valid_result_and_scaled_mesh(tmp_path):
+def test_completed_result_requires_valid_result_and_nonempty_scaled_mesh(tmp_path):
     _write_completed(tmp_path, "000001", scale=[1.0, 2.0, 3.0])
-    assert _sam3d_srt._completed_result(tmp_path, "000001")["scale"] == [1.0, 2.0, 3.0]
+    result_path = tmp_path / "sam3d" / "000001" / "srt" / "srt_result.json"
+    mesh_path = tmp_path / "sam3d" / "000001" / "srt" / "output_scaled.glb"
+    assert _sam3d_srt._completed_result(tmp_path, "000001")["scale"] == [
+        1.0,
+        2.0,
+        3.0,
+    ]
 
-    (tmp_path / "sam3d" / "000001" / "srt" / "srt_result.json").write_text("not json")
+    result_path.write_text("not json")
+    assert _sam3d_srt._completed_result(tmp_path, "000001") is None
+
+    result_path.write_text(json.dumps({"scale": 1.0}))
+    mesh_path.write_bytes(b"")
     assert _sam3d_srt._completed_result(tmp_path, "000001") is None
 
 
-def test_scheduler_reuses_complete_candidates_and_restores_environment(tmp_path, monkeypatch):
+def test_scheduler_reuses_complete_candidates_and_restores_environment(
+    tmp_path, monkeypatch
+):
     _write_completed(tmp_path, "000001", scale=1.25)
     _write_mesh(tmp_path, "000002")
     config = _sam3d_srt.SRTConfig(parallel=8)

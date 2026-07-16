@@ -310,4 +310,19 @@ RUN pip install -e "/workspace/v2d_common[io]" \
 # Copy hoi_object_reconstruction library into the image
 COPY v2d_hoi_object_reconstruction/__init__.py /workspace/v2d_hoi_object_reconstruction/__init__.py
 COPY v2d_hoi_object_reconstruction/lib /workspace/v2d_hoi_object_reconstruction/lib
+RUN pip install -e /workspace/v2d_hoi_object_reconstruction/lib
+# Fail the image build if a container-only numerical dependency is missing.
+# cv2 and ffmpeg are supplied by the image's system/CUDA build rather than pip.
+RUN python -c "import importlib; [importlib.import_module(name) for name in (\
+'v2d_hoi_object_reconstruction.lib.check_sfm_scan_quality', \
+'v2d_hoi_object_reconstruction.lib.convert_poses_to_matrix', \
+'v2d_hoi_object_reconstruction.lib.detect_stage1_end', \
+'v2d_hoi_object_reconstruction.lib.postprocess_masks', \
+'v2d_hoi_object_reconstruction.lib.prepare_FP_folder', \
+'v2d_hoi_object_reconstruction.lib.sam3d_srt', \
+'v2d_hoi_object_reconstruction.lib.scale_mesh_srt', \
+'v2d_hoi_object_reconstruction.lib.select_sam3d_best', \
+'v2d_hoi_object_reconstruction.lib.select_sam3d_frames', \
+'v2d_hoi_object_reconstruction.lib.center_mesh', \
+'v2d_hoi_object_reconstruction.lib.stitch_mp4')]"
 ENV PYTHONPATH=/workspace:$PYTHONPATH

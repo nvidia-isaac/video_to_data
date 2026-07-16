@@ -45,13 +45,13 @@ Two frames_meta.json files are used:
   - job_dir/sfm/keyframes/frames_meta.json     : CuSFM output (camera-to-world poses)
 
 Usage:
-    python run_reconstruction.py \\
+    python modules/v2d_hoi_object_reconstruction/docker/run_reconstruction.py \\
         --mapping_data_dir /home/.../mapping_data/2026-02-18_..._bowl \\
         --job_dir          /data/hoi_obj_recon/2026-02-18_..._bowl \\
         --prompt           "bowl"
 
     # SAM3D mode:
-    python run_reconstruction.py \\
+    python modules/v2d_hoi_object_reconstruction/docker/run_reconstruction.py \\
         --mapping_data_dir ... --job_dir ... --prompt "bowl" \\
         --mode sam3d [--sam3d_use_depth] [--sam3d_bin_deg 60] [--sam3d_seed 42] \\
         [--sam3d_srt_max_views 25] [--sam3d_srt_maxiter 60] \\
@@ -82,9 +82,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-import numpy as np
-
-
 def file_sha256(path: str) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -95,16 +92,20 @@ def file_sha256(path: str) -> str:
 
 from v2d.docker.container import run_in_container
 from v2d.foundation_pose.docker.run_video_to_poses import run_video_to_poses as _run_fp_tracking
-from v2d.common.datatypes import Transform3d
-from v2d.sam3d.docker.run_image_to_mesh import run_image_to_mesh as _run_sam3d
-from v2d.sam3d.docker.run_render_debug_image import run_render_debug_image as _run_sam3d_render
-
-from v2d_hoi_object_reconstruction.lib.select_sam3d_frames import (
-    select_frames_by_angle_bins,
-    select_frames_fallback,
+from v2d_hoi_object_reconstruction.docker._container_steps import (
+    convert_poses_to_matrix,
+    postprocess_masks,
+    prepare_job,
+    run_grounding_dino,
+    run_sam3d_srt,
+    select_best_sam3d,
+    select_sam3d_frames,
+    stitch_mp4,
 )
-from v2d_hoi_object_reconstruction.lib.select_sam3d_best import select_best_sam3d_frame
-from v2d_hoi_object_reconstruction.docker._sam3d_srt import SRTConfig, run_srt_candidates
+from v2d_hoi_object_reconstruction.docker._trajectory_tools import (
+    run_sfm_quality_check,
+    run_stage1_detection,
+)
 
 
 # ── Image names ────────────────────────────────────────────────────────────────
@@ -112,7 +113,6 @@ from v2d_hoi_object_reconstruction.docker._sam3d_srt import SRTConfig, run_srt_c
 IMAGE_HOI                   = "v2d_hoi_object_reconstruction"
 IMAGE_CUSFM                 = "v2d_cusfm"
 IMAGE_BUNDLESDF             = "v2d_bundlesdf"
-IMAGE_GROUNDING_DINO        = "v2d_grounding_dino"
 IMAGE_FOUNDATION_STEREO     = "v2d_foundation_stereo"
 IMAGE_SAM2                  = "v2d_sam2"
 IMAGE_FOUNDATIONPOSE_RENDER = "v2d_foundation_pose"
@@ -131,7 +131,9 @@ _FP_WEIGHTS_DIR     = _WEIGHTS_DIR / "foundationpose"       # reconstruction/dat
 _SAM3D_WEIGHTS_DIR  = _WEIGHTS_DIR / "sam3d"               # reconstruction/data/weights/sam3d/
 
 # Config paths (host-side; mounted into containers at runtime)
-_DEFAULT_PIPELINE_CONFIG_HOST = str(Path(__file__).parent.parent / "lib" / "data" / "configs" / "hoi_pipeline.yaml")
+_DEFAULT_PIPELINE_CONFIG_HOST = str(
+    Path(__file__).parent / "data" / "configs" / "hoi_pipeline.yaml"
+)
 
 
 # ── Docker run helper ──────────────────────────────────────────────────────────
@@ -193,7 +195,7 @@ def run_depth_workers(job_dir: str, n_frames: int, gpu_ids: list,
         ]
         cmd += [
             IMAGE_FOUNDATION_STEREO,
-            "python", "/workspace/v2d_foundation_stereo/lib/image_list_to_depth.py",
+            "python", "-m", "v2d.foundation_stereo.lib.image_list_to_depth",
             "--left_dir",          "/data/job/left",
             "--right_dir",         "/data/job/right",
             "--depth_folder",      "/data/job/depth",
@@ -225,46 +227,6 @@ def run_depth_workers(job_dir: str, n_frames: int, gpu_ids: list,
             if p.poll() is None:
                 p.kill()
         raise
-
-
-# ── Pose format converter ───────────────────────────────────────────────────────
-
-def _convert_poses_to_matrix(poses_dir: str) -> None:
-    """Convert Transform3d quaternion pose JSONs (from v2d_foundation_pose) to
-    4×4 matrix format in-place, which is what render_overlay expects."""
-    converted = 0
-    for pose_file in sorted(Path(poses_dir).glob("*.json")):
-        d = json.loads(pose_file.read_text())
-        if isinstance(d, list):
-            continue  # already 4×4 matrix format
-        M = Transform3d.from_dict(d).to_matrix()
-        with open(pose_file, "w") as f:
-            json.dump(M.tolist(), f)
-        converted += 1
-    if converted:
-        print(f"[pipeline] converted {converted} poses to 4×4 matrix format")
-
-
-# ── MP4 stitcher ────────────────────────────────────────────────────────────────
-
-def stitch_mp4(frames_dir: str, output_mp4: str, fps: int = 30):
-    """Stitch %06d.jpg frames in frames_dir into output_mp4 using ffmpeg."""
-    for codec in ["libx264", "h264_nvenc", "mpeg4"]:
-        cmd = [
-            "ffmpeg", "-y",
-            "-framerate", str(fps),
-            "-i", str(Path(frames_dir) / "%06d.jpg"),
-            "-c:v", codec,
-            "-pix_fmt", "yuv420p",
-            output_mp4,
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode == 0:
-            print(f"[pipeline] wrote {output_mp4}")
-            return
-        reason = result.stderr.strip().splitlines()
-        print(f"  codec {codec} failed{': ' + reason[-1][:100] if reason else ''}, trying next...")
-    raise RuntimeError(f"ffmpeg failed to stitch {frames_dir}")
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -390,6 +352,14 @@ def main():
         if getattr(args, name) < 1:
             parser.error(f"--{name} must be at least 1")
 
+    if args.mode == "sam3d":
+        from v2d.sam3d.docker.run_image_to_mesh import (
+            run_image_to_mesh as _run_sam3d,
+        )
+        from v2d.sam3d.docker.run_render_debug_image import (
+            run_render_debug_image as _run_sam3d_render,
+        )
+
     # ── Load pipeline config ───────────────────────────────────────────────────
     import yaml as _yaml
     _pipeline_cfg_path = args.pipeline_config or _DEFAULT_PIPELINE_CONFIG_HOST
@@ -511,7 +481,6 @@ def main():
 
     # ── Container-side paths for _run_gpu calls (external images) ─────────────
     c_job         = "/data/job"
-    c_dino_bboxes = f"{c_job}/grounding_dino_bboxes.json"
     c_prompts_json = f"{c_job}/prompts.json"
     c_depth_dir   = f"{c_job}/depth"
     c_centered_mesh = f"{c_job}/mesh_input.glb"
@@ -520,7 +489,6 @@ def main():
     c_final_mesh_glb = f"{c_job}/merged_recon/output.glb"
     c_poses_final = f"{c_job}/poses_final"
     c_intrinsics  = f"{c_job}/intrinsics/{ref_frame:06d}.json"
-    c_ref_frame   = f"{c_job}/ref_frame.jpg"
 
     _timings = {}
     _t_total = time.time()
@@ -557,16 +525,11 @@ def main():
     # ── Step 1: Prepare FP folder ─────────────────────────────────────────────
     if not args.skip_prepare:
         print("[pipeline] preparing FP folder")
-        prepare_script = Path(__file__).parent.parent / "lib" / "prepare_FP_folder.py"
-        def _prepare():
-            result = subprocess.run([
-                sys.executable, str(prepare_script),
-                "--input_dir", str(mapping_data_dir),
-                "--job_dir",   job_dir,
-            ])
-            if result.returncode != 0:
-                raise RuntimeError("prepare_FP_folder.py failed")
-        _step("prepare", _prepare)
+        _step("prepare", lambda: prepare_job(
+            image=IMAGE_HOI,
+            input_dir=mapping_data_dir,
+            job_dir=job_dir,
+        ))
 
     # NeRF config: optional user override; if not given, bundlesdf uses its own default
     nerf_config_path = args.config
@@ -598,46 +561,24 @@ def main():
             raise FileNotFoundError(
                 f"CuSFM quality check requested, but poses were not found: {sfm_poses_meta}")
         print("[pipeline] checking CuSFM two-loop scan quality")
-        quality_script = Path(__file__).parent.parent / "lib" / "check_sfm_scan_quality.py"
         quality_out = Path(job_dir) / "sfm_scan_quality"
-        quality_out.mkdir(parents=True, exist_ok=True)
-
-        def _quality_arg(name, default):
-            return str(sfm_quality_cfg.get(name, default))
-
-        quality_cmd = [
-            sys.executable,
-            str(quality_script),
-            "--sfm_keyframes", sfm_poses_meta,
-            "--frames_meta", input_frames_meta,
-            "--output_dir", str(quality_out),
-            "--min_keyframes", _quality_arg("min_keyframes", 30),
-            "--min_angle_span_deg", _quality_arg("min_angle_span_deg", 600.0),
-            "--max_backtracking_fraction", _quality_arg("max_backtracking_fraction", 0.25),
-            "--max_translation_step_m", _quality_arg("max_translation_step_m", 2.0),
-            "--max_rotation_step_deg", _quality_arg("max_rotation_step_deg", 90.0),
-            "--robust_step_sigma", _quality_arg("robust_step_sigma", 6.0),
-            "--large_step_floor_m", _quality_arg("large_step_floor_m", 0.25),
-            "--max_large_step_fraction", _quality_arg("max_large_step_fraction", 0.25),
-        ]
-        if not sfm_quality_fail_on_error:
-            quality_cmd.append("--warn_only")
-
         t0 = time.time()
-        result = subprocess.run(quality_cmd, capture_output=True, text=True)
-        print(result.stdout)
-        if result.returncode != 0:
-            raise RuntimeError(
-                "CuSFM scan quality check failed. "
-                f"See {quality_out}/result.json and diagnostic plots.\n"
-                f"{result.stderr}")
+        run_sfm_quality_check(
+            image=IMAGE_HOI,
+            sfm_keyframes=sfm_poses_meta,
+            frames_meta=input_frames_meta,
+            output_dir=quality_out,
+            config=sfm_quality_cfg,
+            fail_on_error=sfm_quality_fail_on_error,
+        )
         _timings["sfm_scan_quality"] = time.time() - t0
         print(f"[pipeline] sfm_scan_quality done in {_timings['sfm_scan_quality']:.1f}s")
 
     # ── Step 2c: Auto-detect Stage-1 end (if not manually specified) ─────────
-    # Even when skipping detection, try to load an existing result.json so that
-    # downstream steps (SRT, render_video) have stage1_end_frame available.
-    if stage1_end_frame is None:
+    # When detection is explicitly skipped, reuse its prior result so downstream
+    # SRT/render steps still have the Stage-1 boundary. A normal rerun must
+    # recompute this value from the newly generated SfM trajectory.
+    if stage1_end_frame is None and args.skip_stage1_detect:
         _existing = Path(job_dir) / "stage1_detect_debug" / "result.json"
         if _existing.exists():
             with open(_existing) as _f:
@@ -646,29 +587,15 @@ def main():
 
     if stage1_end_frame is None and not args.skip_stage1_detect:
         print("[pipeline] auto-detecting Stage-1 end from CuSFM trajectory")
-        detect_script = Path(__file__).parent.parent / "lib" / "detect_stage1_end.py"
         detect_out = Path(job_dir) / "stage1_detect_debug"
-        detect_out.mkdir(parents=True, exist_ok=True)
-        detect_cmd = [
-            sys.executable,
-            str(detect_script),
-            "--sfm_keyframes",  sfm_poses_meta,
-            "--frames_meta",    input_frames_meta,
-            "--buffer_deg",     str(stage1_buffer_deg),
-            "--output_dir",     str(detect_out),
-        ]
         t0 = time.time()
-        result = subprocess.run(detect_cmd, capture_output=True, text=True)
-        print(result.stdout)
-        if result.returncode != 0:
-            raise RuntimeError(f"Stage-1 detection failed:\n{result.stderr}")
-        result_json = detect_out / "result.json"
-        if not result_json.exists():
-            raise RuntimeError(
-                "Stage-1 detection did not produce result.json "
-                "(plateau not found — check stage1_detect_debug/ plots)")
-        with open(result_json) as f:
-            stage1_end_frame = json.load(f)["stage1_end_frame"]
+        stage1_end_frame = run_stage1_detection(
+            image=IMAGE_HOI,
+            sfm_keyframes=sfm_poses_meta,
+            frames_meta=input_frames_meta,
+            output_dir=detect_out,
+            buffer_deg=stage1_buffer_deg,
+        )
         _timings["stage1_detect"] = time.time() - t0
         print(f"[pipeline] stage1_detect done in {_timings['stage1_detect']:.1f}s → seq_idx {stage1_end_frame}")
 
@@ -685,20 +612,12 @@ def main():
         print(f"[pipeline] running Grounding DINO (prompt: '{args.prompt}')")
         dino_model_dir = str(_WEIGHTS_DIR / "grounding_dino")
         def _dino():
-            _run_gpu(
-                IMAGE_GROUNDING_DINO,
-                [
-                    "python", "-m", "v2d.grounding_dino.lib.image_to_object_bboxes",
-                    "--image_path",    c_ref_frame,
-                    "--output_path",   c_dino_bboxes,
-                    "--prompt",        args.prompt,
-                    "--box_threshold", str(box_threshold),
-                    "--model_dir",     "/data/grounding_dino_models",
-                ],
-                mounts=[
-                    (job_dir, "/data/job"),
-                    (dino_model_dir, "/data/grounding_dino_models"),
-                ],
+            run_grounding_dino(
+                image_path=ref_frame_path,
+                output_path=dino_bboxes,
+                prompt=args.prompt,
+                model_dir=dino_model_dir,
+                box_threshold=box_threshold,
             )
             with open(dino_bboxes) as f:
                 detections = json.load(f)
@@ -776,7 +695,7 @@ def main():
                 _run_gpu(
                     IMAGE_SAM2,
                     [
-                        "python", "/workspace/v2d_sam2/lib/video_to_masks.py",
+                        "python", "-m", "v2d.sam2.lib.video_to_masks",
                         "--video_path",   f"{c_job}/video.mp4",
                         "--prompts_path", c_prompts_json,
                         "--masks_dir",    c_sam2_masks_dir,
@@ -804,13 +723,13 @@ def main():
                     return
 
                 print(f"[pipeline] post-processing masks: {mask_postprocess_effective_cfg}")
-                from v2d_hoi_object_reconstruction.lib.postprocess_masks import postprocess_masks
                 if os.path.exists(masks_dir):
                     shutil.rmtree(masks_dir)
                 summary = postprocess_masks(
-                    sam2_masks_dir,
-                    masks_dir,
-                    **mask_postprocess_effective_cfg,
+                    image=IMAGE_HOI,
+                    input_dir=sam2_masks_dir,
+                    output_dir=masks_dir,
+                    config=mask_postprocess_effective_cfg,
                 )
                 Path(mask_prompt_hash).write_text(prompts_hash + "\n")
                 Path(mask_post_hash).write_text(mask_postprocess_fingerprint + "\n")
@@ -926,12 +845,12 @@ def main():
 
     # ── Step 8b: FoundationPose render overlay ────────────────────────────────
     if args.mode == "bundlesdf" and not args.skip_fp_render:
-        _convert_poses_to_matrix(poses_dir)
+        convert_poses_to_matrix(image=IMAGE_HOI, poses_dir=poses_dir)
         print("[pipeline] rendering FoundationPose overlay video")
         _step("fp_render", lambda: _run_gpu(
             IMAGE_FOUNDATIONPOSE_RENDER,
             [
-                "python", "/workspace/v2d_foundation_pose/lib/render_overlay.py",
+                "python", "-m", "v2d.foundation_pose.lib.render_overlay",
                 "--video_path",             f"{c_job}/video.mp4",
                 "--poses_dir",              c_poses_dir,
                 "--mesh_path",              c_centered_mesh,
@@ -943,8 +862,9 @@ def main():
             user=f"{os.getuid()}:{os.getgid()}",
         ))
         _step("fp_render_stitch", lambda: stitch_mp4(
-            os.path.join(job_dir, "fp_render"),
-            os.path.join(job_dir, "fp_render", "render.mp4")))
+            image=IMAGE_HOI,
+            frames_dir=os.path.join(job_dir, "fp_render"),
+            output_mp4=os.path.join(job_dir, "fp_render", "render.mp4")))
 
     # ── Step 9: World poses + stage detection ─────────────────────────────────
     if args.mode == "bundlesdf" and not args.skip_world_poses:
@@ -1018,7 +938,7 @@ def main():
 
     # ── Step 13: FP render overlay with final textured mesh ───────────────────
     if args.mode == "bundlesdf" and not args.skip_final_fp_render:
-        _convert_poses_to_matrix(poses_final_dir)
+        convert_poses_to_matrix(image=IMAGE_HOI, poses_dir=poses_final_dir)
         print("[pipeline] rendering FoundationPose overlay video with final textured mesh")
 
         def _final_fp_render():
@@ -1026,7 +946,7 @@ def main():
             _run_gpu(
                 IMAGE_FOUNDATIONPOSE_RENDER,
                 [
-                    "python", "/workspace/v2d_foundation_pose/lib/render_overlay.py",
+                    "python", "-m", "v2d.foundation_pose.lib.render_overlay",
                     "--video_path",             f"{c_job}/video.mp4",
                     "--poses_dir",              c_poses_final,
                     "--mesh_path",              c_final_fp_mesh,
@@ -1040,8 +960,9 @@ def main():
 
         _step("final_fp_render", _final_fp_render)
         _step("final_fp_render_stitch", lambda: stitch_mp4(
-            os.path.join(job_dir, "fp_render_final"),
-            os.path.join(job_dir, "fp_render_final", "render.mp4")))
+            image=IMAGE_HOI,
+            frames_dir=os.path.join(job_dir, "fp_render_final"),
+            output_mp4=os.path.join(job_dir, "fp_render_final", "render.mp4")))
 
     # ══════════════════════════════════════════════════════════════════════════
     # SAM3D pipeline (steps S1–S4)
@@ -1055,19 +976,14 @@ def main():
         if not args.skip_select_frames:
             print(f"[pipeline] selecting SAM3D frames (bin_deg={args.sam3d_bin_deg}°)")
             t0 = time.time()
-            selected_frames = select_frames_by_angle_bins(
-                Path(job_dir), bin_deg=args.sam3d_bin_deg
+            selected_frames = select_sam3d_frames(
+                image=IMAGE_HOI,
+                job_dir=job_dir,
+                bin_deg=args.sam3d_bin_deg,
             )
-            if not selected_frames:
-                print("  [pipeline] SfM fallback: using top-N mask-area frames")
-                selected_frames = select_frames_fallback(Path(job_dir), n=6)
             _timings["select_frames"] = time.time() - t0
             print(f"[pipeline] select_frames done in {_timings['select_frames']:.1f}s "
                   f"→ {len(selected_frames)} frames: {selected_frames}")
-            # Persist selection so later steps can resume
-            (sam3d_dir / "selected_frames.json").write_text(
-                json.dumps(selected_frames, indent=2)
-            )
         else:
             sel_path = sam3d_dir / "selected_frames.json"
             if sel_path.exists():
@@ -1076,6 +992,7 @@ def main():
             else:
                 print("[warning] skip_select_frames but selected_frames.json not found; "
                       "SAM3D and SRT steps will have no frames to process", file=sys.stderr)
+                sel_path.write_text("[]\n")
 
         # ── Step S2: SAM3D mesh reconstruction per frame ──────────────────────
         if not args.skip_sam3d:
@@ -1101,22 +1018,20 @@ def main():
 
         # ── Step S3: SRT scale estimation ─────────────────────────────────────
         if not args.skip_srt_scale:
-            srt_config = SRTConfig(
+            force_srt = args.sam3d_force_srt or not args.skip_sam3d
+            srt_summary = run_sam3d_srt(
+                image=IMAGE_HOI,
+                job_dir=job_dir,
+                use_depth=args.sam3d_use_depth,
+                stage1_end_frame=stage1_end_frame,
                 max_views=args.sam3d_srt_max_views,
                 maxiter=args.sam3d_srt_maxiter,
                 top_k=args.sam3d_srt_top_k,
                 parallel=args.sam3d_srt_parallel,
+                force=force_srt,
             )
-            srt_outcomes = run_srt_candidates(
-                Path(job_dir),
-                selected_frames,
-                use_depth=args.sam3d_use_depth,
-                stage1_end_frame=stage1_end_frame,
-                config=srt_config,
-                force=args.sam3d_force_srt,
-            )
-            for outcome in srt_outcomes:
-                _timings[f"srt_{outcome.frame_id}"] = outcome.elapsed
+            for outcome in srt_summary["outcomes"]:
+                _timings[f"srt_{outcome['frame_id']}"] = float(outcome["elapsed"])
 
         # ── Step S4: Render debug images ──────────────────────────────────────
         # Uses the original SAM3D transform/intrinsics so the mesh renders back
@@ -1160,10 +1075,7 @@ def main():
                     c_glb     = f"{c_job}/sam3d/{frame_id}/srt/output_scaled.glb"
                     c_out     = f"{c_job}/sam3d/{frame_id}/render_video_frames"
                     print(f"[pipeline] render_video {frame_id} (stage1_end_frame={stage1_end_frame})")
-                    # Mount local modules/ as /workspace so new lib files are
-                    # picked up without rebuilding the container (editable install).
-                    _modules_dir = str(Path(__file__).parents[2])
-                    _step(f"render_video_{frame_id}", lambda _fid=frame_id, _cg=c_glb, _co=c_out, _md=_modules_dir: _run_gpu(
+                    _step(f"render_video_{frame_id}", lambda _fid=frame_id, _cg=c_glb, _co=c_out: _run_gpu(
                         IMAGE_SAM3D,
                         [
                             "python", "-m", "v2d.sam3d.lib.render_textured_video",
@@ -1172,18 +1084,27 @@ def main():
                             "--output_dir",       _co,
                             "--stage1_end_frame", str(stage1_end_frame),
                         ],
-                        mounts=[(job_dir, "/data/job"), (_md, "/workspace")],
+                        mounts=[(job_dir, "/data/job")],
                         user=f"{os.getuid()}:{os.getgid()}",
                     ))
-                    _step(f"render_video_stitch_{frame_id}", lambda _fd=frames_dir, _vp=video_path:
-                          stitch_mp4(str(_fd), str(_vp)))
+                    _step(
+                        f"render_video_stitch_{frame_id}",
+                        lambda _fd=frames_dir, _vp=video_path: stitch_mp4(
+                            image=IMAGE_HOI,
+                            frames_dir=_fd,
+                            output_mp4=_vp,
+                        ),
+                    )
 
         # ── Step S6: Suggested best mesh selection ───────────────────────────
         if not args.skip_select_best_mesh:
             print("[pipeline] selecting suggested best SAM3D mesh")
             t0 = time.time()
             try:
-                best_summary = select_best_sam3d_frame(Path(job_dir))
+                best_summary = select_best_sam3d(
+                    image=IMAGE_HOI,
+                    job_dir=job_dir,
+                )
             except ValueError as exc:
                 if args.skip_srt_scale:
                     print(f"[pipeline] select_best skipped: {exc}", file=sys.stderr)

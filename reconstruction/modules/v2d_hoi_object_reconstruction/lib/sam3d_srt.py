@@ -1,9 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Parallel, resumable SAM3D SRT execution for the host orchestrator."""
+"""Parallel, resumable SAM3D SRT execution inside the HOI container."""
 
 from __future__ import annotations
 
+import argparse
 import json
 import multiprocessing
 import os
@@ -46,7 +47,11 @@ def _completed_result(job_dir: Path, frame_id: str) -> dict[str, Any] | None:
     srt_dir = job_dir / "sam3d" / frame_id / "srt"
     result_path = srt_dir / "srt_result.json"
     scaled_mesh_path = srt_dir / "output_scaled.glb"
-    if not result_path.is_file() or not scaled_mesh_path.is_file():
+    if (
+        not result_path.is_file()
+        or not scaled_mesh_path.is_file()
+        or scaled_mesh_path.stat().st_size == 0
+    ):
         return None
     try:
         result = json.loads(result_path.read_text())
@@ -65,7 +70,6 @@ def _run_candidate(
     config: SRTConfig,
 ) -> SRTOutcome:
     """Run one candidate in an isolated process with bounded native threads."""
-    # Import after worker thread limits are present in the environment.
     from v2d_hoi_object_reconstruction.lib.scale_mesh_srt import estimate_srt_for_frame
 
     job_path = Path(job_dir)
@@ -119,14 +123,13 @@ def run_srt_candidates(
         workers = min(config.parallel, len(pending))
         print(
             f"[pipeline] SRT: {len(pending)} pending, {workers} parallel workers "
-            f"(max_views={config.max_views}, maxiter={config.maxiter}, top_k={config.top_k})"
+            f"(max_views={config.max_views}, maxiter={config.maxiter}, "
+            f"top_k={config.top_k})"
         )
 
         old_env = {key: os.environ.get(key) for key in _WORKER_ENV}
         os.environ.update(_WORKER_ENV)
         try:
-            # Spawn makes each worker import numerical libraries only after the
-            # per-process native thread limits above have been inherited.
             mp_context = multiprocessing.get_context("spawn")
             with ProcessPoolExecutor(max_workers=workers, mp_context=mp_context) as pool:
                 future_to_frame = {
@@ -145,7 +148,9 @@ def run_srt_candidates(
                     outcomes[outcome.frame_id] = outcome
                     scale = outcome.result.get("scale", float("nan"))
                     if isinstance(scale, list):
-                        scale_str = "[" + ", ".join(f"{float(v):.4f}" for v in scale) + "]"
+                        scale_str = "[" + ", ".join(
+                            f"{float(value):.4f}" for value in scale
+                        ) + "]"
                     else:
                         scale_str = f"{float(scale):.4f}"
                     print(
@@ -160,3 +165,67 @@ def run_srt_candidates(
                     os.environ[key] = old_value
 
     return [outcomes[frame_id] for frame_id in frame_ids if frame_id in outcomes]
+
+
+def _read_selected_frames(path: Path) -> list[str]:
+    try:
+        selected = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Unable to read selected SAM3D frames from {path}") from exc
+    if not isinstance(selected, list) or not all(
+        isinstance(frame_id, str) for frame_id in selected
+    ):
+        raise ValueError(f"Selected SAM3D frames must be a JSON string list: {path}")
+    return selected
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--job_dir", type=Path, required=True)
+    parser.add_argument("--selected_frames", type=Path, required=True)
+    parser.add_argument("--summary_path", type=Path, required=True)
+    parser.add_argument("--use_depth", action="store_true")
+    parser.add_argument("--stage1_end_frame", type=int, default=None)
+    parser.add_argument("--max_views", type=int, default=25)
+    parser.add_argument("--maxiter", type=int, default=60)
+    parser.add_argument("--top_k", type=int, default=1)
+    parser.add_argument("--parallel", type=int, default=8)
+    parser.add_argument("--force", action="store_true")
+    args = parser.parse_args()
+
+    for name in ("max_views", "maxiter", "top_k", "parallel"):
+        if getattr(args, name) < 1:
+            parser.error(f"--{name} must be at least 1")
+
+    selected_frames = _read_selected_frames(args.selected_frames)
+    outcomes = run_srt_candidates(
+        args.job_dir,
+        selected_frames,
+        use_depth=args.use_depth,
+        stage1_end_frame=args.stage1_end_frame,
+        config=SRTConfig(
+            max_views=args.max_views,
+            maxiter=args.maxiter,
+            top_k=args.top_k,
+            parallel=args.parallel,
+        ),
+        force=args.force,
+    )
+    summary = {
+        "requested_frames": selected_frames,
+        "outcomes": [
+            {
+                "frame_id": outcome.frame_id,
+                "elapsed": outcome.elapsed,
+                "resumed": outcome.resumed,
+            }
+            for outcome in outcomes
+        ],
+    }
+    args.summary_path.parent.mkdir(parents=True, exist_ok=True)
+    args.summary_path.write_text(json.dumps(summary, indent=2) + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

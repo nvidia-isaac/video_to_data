@@ -3,13 +3,22 @@
 # SPDX-License-Identifier: Apache-2.0
 # Install all lightweight packages: docker orchestration + v2d_pipelines.
 # Run from reconstruction/ or repo root.
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
-echo "Installing v2d docker packages and v2d_pipelines..."
-pip install -e modules/v2d_common \
+# Keep sourced ROS or other developer environments from leaking packages into
+# the active virtual environment during installation and validation.
+unset PYTHONPATH
+
+if ! python -c 'import sys; raise SystemExit(sys.version_info < (3, 10))'; then
+  echo "ERROR: Python 3.10 or newer is required." >&2
+  exit 1
+fi
+
+echo "Installing v2d docker packages and v2d_pipelines into $(python -c 'import sys; print(sys.prefix)')..."
+python -m pip install -e modules/v2d_common \
   -e modules/v2d_docker \
   -e modules/v2d_mv \
   -e modules/v2d_depth \
@@ -43,4 +52,8 @@ pip install -e modules/v2d_common \
   -e modules/v2d_wilor/docker \
   -e modules/v2d_pipelines
 
-echo "Done. Run 'python -m v2d.pipelines.run_example_pipeline' or build containers with ./build_containers.sh"
+echo "Validating installed host packages..."
+python -m pip check
+python -c 'from v2d_hoi_object_reconstruction.docker.run_reconstruction import main'
+
+echo "Done. Build containers with ./scripts/build_containers.sh"

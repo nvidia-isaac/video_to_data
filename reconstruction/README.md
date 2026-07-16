@@ -89,8 +89,13 @@ Each module exposes a **docker** package (lightweight Python wrappers that build
 
 ```bash
 cd reconstruction
-./scripts/install_pacakages.sh
+python3 -m venv .venv
+source .venv/bin/activate
+./scripts/install_packages.sh
 ```
+
+If you already use an isolated Python 3.10+ environment, activate it and run
+only `./scripts/install_packages.sh`.
 
 Install only the modules you need:
 
@@ -320,7 +325,10 @@ End-to-end textured 3D mesh reconstruction from hand-object interaction video us
 | `run_reconstruction` | Full pipeline: CuSFM → depth → mask → Stage-1 NeRF → FoundationPose → Stage-2 NeRF → textured mesh |
 | `run_fp_tracking` | FoundationPose tracking only: center mesh → depth → mask → FP tracking → render overlay |
 
-**Build (from `reconstruction/modules/`):** `python v2d_hoi_object_reconstruction/docker/build.py` (builds the HOI image); `python v2d_bundlesdf/docker/build.py` and `python v2d_cusfm/docker/build.py` build their respective images separately.
+**Setup and build (from `reconstruction/`):** Activate the source checkout's
+Python environment and run `./scripts/install_packages.sh`, then run
+`./scripts/build_containers.sh` to build the source release's images. Model
+weights are downloaded separately.
 
 **Example (from `reconstruction/`):**
 

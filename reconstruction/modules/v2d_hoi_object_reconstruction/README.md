@@ -250,9 +250,18 @@ architecture targets that support `sm_120`.
 
 ### 1. Install host packages (from `reconstruction/`)
 
+Activate the Python 3.10+ environment used for this source checkout, then run
+the repository-wide package installer:
+
 ```bash
-./scripts/install_pacakages.sh
+./scripts/install_packages.sh
 ```
+
+If you do not already have an isolated environment, create one first with
+`python3 -m venv .venv` and `source .venv/bin/activate`. Do not install
+Matplotlib or SciPy manually to make this workflow pass. BundleSDF and SAM3D
+numerical work—including scan checks, frame selection, SRT optimization, mask
+processing, and media encoding—runs in containers.
 
 ### 2. Build all required containers
 
@@ -264,6 +273,16 @@ The `v2d_sam3d` image built from this tree includes the EGL/GLVND loader and
 Pyrender required for headless overlay-video rendering. Rebuild that image
 after changing `v2d_sam3d` code or Docker dependencies; model weights remain a
 separate runtime download.
+
+The release-image prerequisite check is:
+
+```bash
+docker run --rm --gpus all v2d_sam3d:latest \
+  python -c 'import pyrender; r=pyrender.OffscreenRenderer(64,64); \
+print("egl_renderer=pass"); r.delete()'
+```
+
+It must print `egl_renderer=pass`.
 
 ### 3. Download model weights
 
@@ -277,10 +296,12 @@ python modules/v2d_foundation_stereo/docker/run_download_weights.py \
   --output_dir data/weights/foundationstereo
 python modules/v2d_foundation_pose/docker/run_download_weights.py \
   --output_dir data/weights/foundationpose
-python modules/v2d_bundlesdf/docker/run_download_weights.py --output_dir data/weights
+python modules/v2d_bundlesdf/docker/run_download_weights.py \
+  --output_dir data/weights
 
 # SAM3D mode
-python modules/v2d_sam3d/docker/run_download_weights.py --output_dir data/weights/sam3d
+python modules/v2d_sam3d/docker/run_download_weights.py \
+  --output_dir data/weights/sam3d
 # (optional: FoundationStereo for depth-assisted scale estimation)
 python modules/v2d_foundation_stereo/docker/run_download_weights.py \
   --output_dir data/weights/foundationstereo
@@ -348,7 +369,7 @@ mapping_data_dir  (images + frames_meta.json)
 | `--stage1_end_timestamp NS` | auto | Override Stage-1 end (nanosecond timestamp) |
 | `--stage1_buffer_deg DEG` | 10.0 | Angle buffer before detected transition |
 | `--config PATH` | bundlesdf default | NeRF/SDF config YAML |
-| `--pipeline_config PATH` | `lib/data/configs/hoi_pipeline.yaml` | Pipeline config YAML |
+| `--pipeline_config PATH` | `docker/data/configs/hoi_pipeline.yaml` | Pipeline config YAML |
 | `--reference_frame N` | 0 | SAM2/FP reference frame |
 | `--num_depth_workers N` | 2 | Parallel FoundationStereo workers |
 | `--fp_weights_dir PATH` | `data/weights/foundationpose` | FoundationPose weights |
@@ -366,7 +387,7 @@ Resume from any checkpoint by skipping completed steps:
 
 ### Configuration
 
-**Pipeline config** — `lib/data/configs/hoi_pipeline.yaml` (override with `--pipeline_config`):
+**Pipeline config** — `docker/data/configs/hoi_pipeline.yaml` (override with `--pipeline_config`):
 
 | Section | Parameter | Default | Description |
 |---------|-----------|---------|-------------|
@@ -415,7 +436,8 @@ python modules/v2d_hoi_object_reconstruction/docker/run_reconstruction.py \
 With depth-assisted scale estimation:
 
 ```bash
-python ... --mode sam3d --sam3d_use_depth
+python modules/v2d_hoi_object_reconstruction/docker/run_reconstruction.py ... \
+  --mode sam3d --sam3d_use_depth
 ```
 
 ### Pipeline Steps
@@ -488,6 +510,39 @@ accuracy reference.
 
 ## Quality Envelope and Limitations
 
+### Reconstruction Trade-offs
+
+#### Example Final Outputs
+
+These EVT-04 toy-airplane turntables were rendered from the final GLB produced
+by each workflow. They illustrate the expected method trade-offs; visual QA
+should use the acceptance criteria below rather than require an exact match to
+these examples.
+
+| BundleSDF | SAM3D |
+|:---------:|:-----:|
+| ![BundleSDF final toy-airplane mesh turntable](assets/expected_outputs/evt04_airplane/bundlesdf.gif) | ![SAM3D final toy-airplane mesh turntable](assets/expected_outputs/evt04_airplane/sam3d.gif) |
+| `merged_recon/output.glb` | `sam3d/best/output_scaled.glb` |
+
+BundleSDF and SAM3D optimize for different outcomes; their final meshes should
+not be reviewed against the same visual standard.
+
+| Mode | Final output | Strength | Expected limitations |
+|------|--------------|----------|----------------------|
+| BundleSDF | `merged_recon/output.glb` | Reconstructs observed geometry with metric scale | Thin or partially observed parts can be missing or thickened. Small holes or fragments and texture bleeding between nearby parts can occur. |
+| SAM3D | `sam3d/best/output_scaled.glb` | Usually produces a more visually complete shape and texture from a representative frame | Unseen geometry is generated rather than reconstructed, and shape dimensions and estimated metric scale can be less reliable. |
+
+For BundleSDF visual QA, accept the mesh when the object is recognizable, the
+main body is coherent, and no defect materially changes its main geometry,
+overall dimensions, or metric scale. Missing thin details, small reconstruction
+fragments, minor holes, and local texture bleeding are expected limitations.
+Use `fp_render_final/render.mp4` to confirm that the final mesh remains aligned
+with the object.
+
+For SAM3D visual QA, inspect `render_debug.jpg` and `render_video.mp4` for the
+selected candidate. A visually complete mesh is not by itself evidence that
+unseen geometry, proportions, or metric scale are accurate.
+
 The current generated-mesh inventory is a practical guide, not a formal
 benchmark. In general, the pipeline works best on rigid, opaque household
 objects with enough visible surface area and texture for segmentation, stereo
@@ -510,10 +565,8 @@ Use extra visual QA for these cases:
 - **Two-stage alignment failures** — BundleSDF final meshes depend on
   FoundationPose staying locked between the stationary and rotated stages. Drift
   usually shows up in `fp_render/render.mp4` or `poses_world_debug.png`.
-- **SAM3D scale and back-side geometry** — SAM3D is useful as a quick fallback
-  and for representative-frame meshes, but scale is estimated after inference
-  and unseen geometry can be less reliable. Check `render_debug.jpg` and
-  `render_video.mp4` before treating the mesh as final.
+- **SAM3D scale and back-side geometry** — scale is estimated after inference,
+  and unseen geometry can be less reliable even when the mesh looks complete.
 
 For production assets, prefer an available scanner mesh as the geometric
 reference. Treat HOI-generated meshes as requiring inspection with the overlay,
