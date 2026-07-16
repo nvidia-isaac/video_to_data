@@ -60,6 +60,7 @@ simulation_app = app_launcher.app
 # --- Isaac / torch imports after AppLauncher ---------------------------------
 import isaaclab.sim as sim_utils  # noqa: E402
 import torch  # noqa: E402
+from isaaclab.assets.articulation import ArticulationCfg  # noqa: E402
 from isaaclab.envs import ManagerBasedEnv  # noqa: E402
 from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg  # noqa: E402
 from isaaclab.markers.config import FRAME_MARKER_CFG  # noqa: E402
@@ -126,7 +127,16 @@ class ReplayEnvCfg(SceneViewerEnvCfg):
         ] = True
 
         # Replay object(s): collision OFF + kinematic + gravity OFF.
+        # Articulated objects are handled separately: PhysX does not support kinematic
+        # articulations (setting kinematic_enabled on an ArticulationCfg root causes
+        # "ArticulationRootAPI on a kinematic rigid body" and joint-creation failures).
+        # They are also excluded from the named collision groups because the URDF
+        # importer creates native USD instances for visual/collision mesh prims, which
+        # cannot be assigned to collision groups (PhysX "only one collision group" spam
+        # → articulation init failure). Collision isolation in replay is already
+        # achieved by driving both the robot and the articulation kinematically.
         object_names = self.events.setup_collision_groups.params.get("object_names", [])
+        articulated_names: list[str] = []
         for name in object_names:
             obj_cfg = getattr(self.scene, name, None)
             if obj_cfg is None:
@@ -135,6 +145,20 @@ class ReplayEnvCfg(SceneViewerEnvCfg):
             rigid_props = getattr(spawn, "rigid_props", None)
             collision_props = getattr(spawn, "collision_props", None)
             if spawn is None or rigid_props is None:
+                continue
+            if isinstance(obj_cfg, ArticulationCfg):
+                # Only disable gravity; keep as a proper dynamic articulation so
+                # PhysX can initialize it and we can drive joint positions each frame.
+                articulated_names.append(name)
+                setattr(
+                    self.scene,
+                    name,
+                    obj_cfg.replace(
+                        spawn=spawn.replace(
+                            rigid_props=rigid_props.replace(disable_gravity=True)
+                        )
+                    ),
+                )
                 continue
             new_rigid_props = rigid_props.replace(
                 disable_gravity=True,
@@ -148,6 +172,12 @@ class ReplayEnvCfg(SceneViewerEnvCfg):
             else:
                 spawn = spawn.replace(rigid_props=new_rigid_props)
             setattr(self.scene, name, obj_cfg.replace(spawn=spawn))
+        # Remove articulated objects from the collision group: their URDF-imported
+        # instanced prims can't be assigned to named groups without PhysX errors.
+        if articulated_names:
+            self.events.setup_collision_groups.params["object_names"] = [
+                n for n in object_names if n not in articulated_names
+            ]
 
         # Replay robot(s): disable gravity for static kinematic playback.
         if hasattr(self.scene, "robot"):
