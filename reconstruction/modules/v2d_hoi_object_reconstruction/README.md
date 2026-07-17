@@ -324,34 +324,18 @@ python modules/v2d_hoi_object_reconstruction/docker/run_reconstruction.py \
 
 ### Pipeline Steps
 
-```
-mapping_data_dir  (images + frames_meta.json)
-    ↓
-1.  prepare_FP_folder   → job_dir/left/, right/, calibration.json, video.mp4
-    ↓
-2.  CuSFM               → sfm/keyframes/frames_meta.json  (camera poses)
-    ↓
-2b. CuSFM scan quality  → sfm_scan_quality/result.json  (two-loop pose check)
-    ↓
-2c. Stage-1 auto-detect → stage1_detect_debug/result.json  (transition frame)
-    ↓
-3.  Grounding DINO      → grounding_dino_bboxes.json
-4a. FoundationStereo    → depth/  (all frames, parallel workers)
-4b. SAM2                → masks/  (all frames, from reference frame)
-    ↓
-5.  Stage-1 setup       → stage1_recon/  (SfM keyframes + depth symlinks)
-6.  BundleSDF NeRF      → stage1_recon/textured_mesh.obj + output.glb
-7.  Center mesh         → mesh_input.obj
-    ↓
-8.  FoundationPose      → poses/  (tracking with Stage-1 mesh)
-8b. FP render           → fp_render/render.mp4
-    ↓
-9.  World poses         → poses_world.json  (T_world_from_obj + stage detection)
-10. Merged setup        → merged_recon/  (both stages aligned)
-11. BundleSDF NeRF      → merged_recon/textured_mesh.obj + output.glb
-    ↓
-12. FoundationPose      → poses_final/  (tracking with final mesh)
-13. FP render           → fp_render_final/render.mp4
+```mermaid
+flowchart TD
+    A["Calibrated stereo input<br/>images + frames_meta.json"] --> B["Prepare job<br/>left/right frames, calibration, video"]
+    B --> C["CuSFM + scan QA<br/>camera poses and stage boundary"]
+    C --> D["Grounding DINO + SAM2<br/>object boxes and masks"]
+    C --> E["FoundationStereo<br/>stereo depth"]
+    D --> F["Stage-1 BundleSDF<br/>initial textured mesh"]
+    E --> F
+    F --> G["FoundationPose<br/>track the initial mesh"]
+    G --> H["World-pose alignment<br/>merge stationary and rotated stages"]
+    H --> I["Final BundleSDF<br/>merged_recon/output.glb"]
+    I --> J["Final overlay video<br/>fp_render_final/render.mp4"]
 ```
 
 ### Results
@@ -442,30 +426,19 @@ python modules/v2d_hoi_object_reconstruction/docker/run_reconstruction.py ... \
 
 ### Pipeline Steps
 
-```
-mapping_data_dir  (images + frames_meta.json)
-    ↓
-1.  prepare_FP_folder   → job_dir/left/, right/, calibration.json, video.mp4
-    ↓
-2.  CuSFM               → sfm/keyframes/frames_meta.json  (camera poses for frame selection)
-    ↓
-2b. CuSFM scan quality  → sfm_scan_quality/result.json  (two-loop pose check)
-    ↓
-2c. Stage-1 auto-detect → stage1_detect_debug/result.json  (exclude transition frames)
-    ↓
-3.  Grounding DINO      → grounding_dino_bboxes.json
-4b. SAM2                → masks/  (all frames — required for SRT scale)
-[4a. FoundationStereo]  → depth/  (optional, only with --sam3d_use_depth)
-    ↓
-S1. Select frames       → sam3d/selected_frames.json  (one per azimuthal bin)
-S2. SAM3D               → sam3d/<frame_id>/mesh.glb + transform.json + intrinsics.json
-S3. SRT scale           → sam3d/<frame_id>/srt/srt_result.json + output_scaled.glb
-                          (Stage-1 frames only — object stationary)
-S4. Render debug        → sam3d/<frame_id>/render_debug.jpg
-S5. Render video        → sam3d/<frame_id>/render_video.mp4
-                          (textured mesh overlaid on Stage-1 keyframes via open3d)
-S6. Select best         → sam3d/best/best_frame.json + output_scaled.glb
-                          (suggested candidate; still inspect per-frame videos)
+```mermaid
+flowchart TD
+    A["Calibrated stereo input<br/>images + frames_meta.json"] --> B["Prepare job<br/>left/right frames, calibration, video"]
+    B --> C["CuSFM + scan QA<br/>camera poses and stage boundary"]
+    C --> D["Grounding DINO + SAM2<br/>object boxes and masks"]
+    D --> E["Select representative views<br/>sam3d/selected_frames.json"]
+    E --> F["SAM3D per selected frame<br/>mesh.glb + camera transform"]
+    F --> G["SRT scale and pose<br/>output_scaled.glb"]
+    G --> H["Diagnostic overlays<br/>render_debug.jpg + render_video.mp4"]
+    H --> I["Rank candidates<br/>best/best_frame.json"]
+    I --> J["Suggested final mesh<br/>best/output_scaled.glb"]
+    C -.-> K["Optional FoundationStereo<br/>depth-assisted SRT"]
+    K -.-> G
 ```
 
 ### Results
@@ -512,12 +485,18 @@ accuracy reference.
 
 ### Reconstruction Trade-offs
 
-#### Example Final Outputs
+#### EVT-04 Reference Input and Final Outputs
 
-These EVT-04 toy-airplane turntables were rendered from the final GLB produced
-by each workflow. They illustrate the expected method trade-offs; visual QA
-should use the acceptance criteria below rather than require an exact match to
-these examples.
+The reference input shows representative left-camera views from the calibrated
+stereo scan used by EVT-04. The airplane is stationary during the first scan
+stage and is then rotated so the workflows can observe additional surfaces.
+
+![EVT-04 toy-airplane reference input views](assets/expected_outputs/evt04_airplane/input_reference.gif)
+
+The turntables below were rendered from the final GLB produced by each
+workflow. They illustrate the expected method trade-offs; visual QA should use
+the acceptance criteria below rather than require an exact match to these
+examples.
 
 | BundleSDF | SAM3D |
 |:---------:|:-----:|
@@ -531,6 +510,23 @@ not be reviewed against the same visual standard.
 |------|--------------|----------|----------------------|
 | BundleSDF | `merged_recon/output.glb` | Reconstructs observed geometry with metric scale | Thin or partially observed parts can be missing or thickened. Small holes or fragments and texture bleeding between nearby parts can occur. |
 | SAM3D | `sam3d/best/output_scaled.glb` | Usually produces a more visually complete shape and texture from a representative frame | Unseen geometry is generated rather than reconstructed, and shape dimensions and estimated metric scale can be less reliable. |
+
+#### Reference EVT-04 Performance
+
+These measurements are a reproducibility reference, not a performance SLA.
+They exclude container builds and model-weight downloads. Runtime varies with
+the GPU, driver, input size, selected views, and whether completed stages can be
+resumed.
+
+| Workflow | Input / configuration | End-to-end runtime | Result |
+|----------|-----------------------|--------------------|--------|
+| BundleSDF | 2,433 stereo pairs, default two-stage workflow | 5,986 s (~100 min) | `merged_recon/output.glb` and final overlay produced |
+| SAM3D | Same scan, 13 selected frames, default fast SRT settings | 4,130 s (~69 min) | 13 candidate meshes and `sam3d/best/output_scaled.glb` produced |
+
+Reference host: two NVIDIA RTX A6000 GPUs (48 GB each), driver 580.159.03,
+measured on 2026-07-15. Within the SAM3D total, the 13 sequential neural mesh
+inferences took 841 s (~14 min); parallel SRT scale/alignment was the largest
+stage at approximately 37 minutes.
 
 For BundleSDF visual QA, accept the mesh when the object is recognizable, the
 main body is coherent, and no defect materially changes its main geometry,
