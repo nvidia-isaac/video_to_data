@@ -114,7 +114,7 @@ if [ "${WITH_DUMMY}" = "1" ]; then
             # Detach from TTY (</dev/null) + render to /tmp, else Kit shutdown
             # hangs under `timeout`; move the finished MP4 onto the dataset.
             timeout --signal=KILL "${TIMEOUT}" python scripts/rsl_rl/dummy_agent.py \
-                --task Sharpa-V2P-v0-Play --motion_file "${seq_dir}" \
+                --task Sharpa-V2D-v0-Play --motion_file "${seq_dir}" \
                 --num_envs 1 --headless \
                 --record_video --output_dir "${tmp}" --video_length 300 \
                 --success_marker "${seq_dir}/.dummy_agent_ok" \

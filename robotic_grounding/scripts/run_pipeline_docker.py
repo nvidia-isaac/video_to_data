@@ -487,7 +487,7 @@ for seq_dir in "${{SEQ_DIRS[@]}}"; do
     [ -f "$seq_dir/.dummy_agent_ok" ] && exit 0
     tmp=/tmp/da_$sid; rm -rf "$tmp"
     timeout --signal=KILL {args.timeout} python scripts/rsl_rl/dummy_agent.py \
-      --task Sharpa-V2P-v0-Play --motion_file "$seq_dir" --num_envs 1 --headless \
+      --task Sharpa-V2D-v0-Play --motion_file "$seq_dir" --num_envs 1 --headless \
       --record_video --output_dir "$tmp" --video_length 300 \
       --success_marker "$seq_dir/.dummy_agent_ok" </dev/null >"$LOG_DIR/$sid.log" 2>&1 || true
     [ -f "$tmp/rl-video-step-0.mp4" ] && mv "$tmp/rl-video-step-0.mp4" "$VIDEO_DIR/$sid.mp4"

@@ -4,7 +4,9 @@
 
 from isaaclab_tasks.utils import import_packages
 
-# The blacklist is used to prevent importing configs from sub-packages
-_BLACKLIST_PKGS = ["utils"]
+# The blacklist prevents importing configs from sub-packages. v2d_whole_body imports
+# onnxruntime at module load, which requires a libcudart not present in this image and
+# would otherwise abort importing the unrelated tasks in this package.
+_BLACKLIST_PKGS = ["utils", "v2d_whole_body"]
 # Import all configs in this package
 import_packages(__name__, _BLACKLIST_PKGS)
