@@ -8,9 +8,13 @@ The first experiment varies only the hand-trajectory source: TACO motion-
 capture ground truth, Video2Data WiLoR, or Phantom Grounding DINO + HaMeR.
 Every condition consumes the same visually reviewed SAM2 two-arm mask, pinned
 E2FGVI-HQ implementation, 960-pixel processing cap, official TACO camera,
-Vega + Sharpa renderer, and TACO object-depth compositor. Ground truth is used
-only as an evaluation reference for learned tracking; it never enters either
-learned pipeline.
+Vega + Sharpa renderer, and TACO object-depth compositor. The learned hand
+predictions and Sharpa retargeting never consume GT hand tracks. The current
+experiment is nevertheless not pure-RGB end to end: every condition uses the
+official camera metadata, and both learned final composites deliberately reuse
+GT tool/target meshes and per-frame 6-DoF poses to render one shared occluder
+depth pass. This isolates hand-tracker differences, but makes object occlusion
+an oracle component of the controlled comparison.
 
 All per-condition stage videos retain the 1920x1080, 30 FPS source geometry
 and exact source frame count; labelled comparison grids deliberately tile
@@ -19,9 +23,11 @@ those streams at review resolution. The definitive common-clip comparison
 checkpoints, licensed MANO files, camera inputs, public weights, immutable
 container images, implementation sources, robot assets, and committed outputs.
 Inference containers run offline after explicit acquisition. The longer `105`
-result and incomplete `060` learned tracks are retained as supporting artifacts
-from the earlier sidecar generation rather than mislabeled as current v2
-provenance.
+result now provides a second five-way comparison using current robot-render,
+composite, and grid provenance. Its learned tracking and Sharpa inputs retain
+legacy sidecars, so it remains supporting evidence rather than being mislabeled
+as current v2 tracking provenance. The incomplete `060` learned tracks are
+retained for failure analysis.
 
 The definitive `253` E2FGVI output was rerun with immutable image
 `sha256:398b54800eebd0343ec27ba86c1a59829cb7439ce9418ec533744e837558ebbc`;
@@ -41,7 +47,7 @@ republished against the refreshed metadata.
 | Clip | Frames | Ground truth | Video2Data | Phantom |
 |---|---:|---|---|---|
 | `060` kettle/plate | 155 | Full result | Tracking `155/146`; render intentionally blocked by 9 right-hand gaps | Tracking `155/148`; render intentionally blocked by 7 right-hand gaps |
-| `105` knife/plate | 152 | Full result | Reviewed full result, `152/152` hands (legacy sidecars) | Tracking + Sharpa, `152/152` hands (legacy sidecars) |
+| `105` knife/plate | 152 | Full result | Full current render/composite, `152/152` hands (legacy tracking/Sharpa sidecars) | Full current render/composite, `152/152` hands (legacy tracking/Sharpa sidecars) |
 | `253` brush/cup | 74 | Full result | Definitive v2 full result, `74/74` hands | Definitive v2 full result, `74/74` hands |
 
 Counts are left/right source-valid frames. Learned gaps remain NaN and are not
@@ -69,6 +75,22 @@ noisier than motion capture, especially on the right hand. Their broadly
 similar 2D error but different 3D error also shows why image overlays alone are
 insufficient for choosing a robot trajectory.
 
+## Tracking accuracy on the 105 clip
+
+The same evaluator covers all 152 paired-valid frames per hand on `105`.
+
+| Tracker | Side | Wrist 3D | 21-joint MPJPE | Projected 2D MPJPE | Mean-joint temporal step | GT temporal step |
+|---|---|---:|---:|---:|---:|---:|
+| Video2Data | Left | 122.906 mm | 112.714 mm | 44.304 px | 8.535 mm | 3.410 mm |
+| Video2Data | Right | 90.738 mm | 78.192 mm | 35.540 px | 11.701 mm | 7.195 mm |
+| Phantom | Left | 130.456 mm | 117.787 mm | 43.337 px | 10.622 mm | 3.410 mm |
+| Phantom | Right | 104.195 mm | 91.000 mm | 33.673 px | 11.776 mm | 7.195 mm |
+
+Video2Data is better in calibrated metric 3D on both hands. Phantom is slightly
+better after projection into the image plane on both hands. The 2D metric is a
+projection of each method's 3D MANO joints through the common camera, not a
+score on an independently selected 2D detection.
+
 ## End-to-end robot result on 253
 
 | Tracker | Vega max residual | Vega p95 residual | Max arm step | Robot pixels hidden behind objects |
@@ -90,6 +112,18 @@ thousands of robot pixels lie behind the real tool or target in every 253
 condition. A hard overlay would put those pixels incorrectly in front; the
 final results use metric object depth with a 3 mm guard.
 
+## End-to-end robot result on 105
+
+| Tracker | Vega max residual | Vega p95 residual | Max arm step | Robot pixels hidden behind objects |
+|---|---:|---:|---:|---:|
+| Ground truth | 0.251 mm | 0.088 mm | 0.156 rad/frame | 147,752 |
+| Video2Data | 0.198 mm | 0.008 mm | 0.389 rad/frame | 1,628,800 |
+| Phantom | 0.043 mm | 0.006 mm | 0.276 rad/frame | 1,805,741 |
+
+Both learned conditions pass their declared gates for all 152 frames. Strict
+resume then validates all three render/composite/grid stages as
+`skipped_complete` for each condition.
+
 ## Visual findings
 
 - The calibrated learned skeletons follow both visible hands at the start,
@@ -99,9 +133,10 @@ final results use metric object depth with a 3 mm guard.
 - Both 253 learned robot renders place the Sharpa hands near the human contact
   regions throughout the clip. Video2Data is somewhat closer in metric wrist
   space; Phantom's worst downstream IK outlier is the clearest failure signal.
-- The 105 Video2Data result remains stable for all 152 frames and stays below
-  0.390 rad/frame, providing a second full learned demo rather than relying
-  only on the short 253 clip.
+- Both 105 learned results remain stable for all 152 frames. Video2Data stays
+  below 0.390 rad/frame and Phantom below 0.276 rad/frame, providing a second
+  full three-condition comparison rather than relying only on the short 253
+  clip.
 - E2FGVI removes both arms while retaining the kettle, plate, knife, brush, and
   cup. It leaves some original cast shadows and mild table/floor texture
   smearing; those are shared baseline limitations, not tracker differences.
@@ -115,6 +150,11 @@ final results use metric object depth with a 3 mm guard.
   `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/audit/taco_253_tracker_comparison.mp4`
 - Start/middle/end contact sheet for the five-way comparison:
   `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/audit/taco_253_tracker_comparison_contact.jpg`
+- Final five-way `105` comparison (source, shared E2FGVI, GT, Video2Data,
+  Phantom):
+  `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/audit/taco_105_tracker_comparison.mp4`
+- Start/middle/end contact sheet for the `105` comparison:
+  `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/audit/taco_105_tracker_comparison_contact.jpg`
 - GT synchronized result across all three clips:
   `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/audit/taco_gt_depth_overlay_all_sequences.mp4`
 - Video2Data 253 full comparison:
@@ -123,11 +163,16 @@ final results use metric object depth with a 3 mm guard.
   `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/runs/taco_hand_tracking_v1/taco_dust__brush__cup_20231005_253/phantom/final_comparison_grid.mp4`
 - Video2Data 105 full comparison:
   `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/runs/taco_hand_tracking_v1/taco_cut__knife__plate_20231013_105/v2d/final_comparison_grid.mp4`
+- Phantom 105 full comparison:
+  `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/runs/taco_hand_tracking_v1/taco_cut__knife__plate_20231013_105/phantom/final_comparison_grid.mp4`
 - Learned tracking overlays:
   `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/runs/taco_hand_tracking_v1/<sequence>/{v2d/audit/tracking_overlay.mp4,phantom/tracking/hand_overlay.mp4}`
-- Deterministic 253 evaluation reports:
-  `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/runs/taco_hand_tracking_v1/taco_dust__brush__cup_20231005_253/{v2d,phantom}/tracking/evaluation_vs_ground_truth.json`
+- Deterministic `105` and `253` evaluation reports:
+  `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/runs/taco_hand_tracking_v1/<sequence>/{v2d,phantom}/tracking/evaluation_vs_ground_truth.json`
 
-The next useful ablations are tracker-specific arm masks, no-inpainting versus
-E2FGVI under learned trajectories, and Cosmos3. They should be introduced as
-separate controlled changes rather than folded into this tracking comparison.
+The next useful ablations are RGB-estimated object depth, tracker-specific arm
+masks, no-inpainting versus E2FGVI under learned trajectories, and Cosmos3.
+For depth, the staged comparison should first use the GT object mask with
+estimated metric depth, then an RGB-derived object mask and depth, and finally
+an RGB-reconstructed mesh/pose depth pass. These should remain separate
+controlled changes rather than being folded into this tracking comparison.

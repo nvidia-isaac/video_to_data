@@ -217,6 +217,24 @@ stages should remain container-compatible for later OSMO execution.
   A pre-commit audit found no credentials, licensed/model data, media, or
   generated caches in the source set; the 26 GB runtime artifact tree remains
   ignored and the licensed MANO directory remains outside the Git worktree.
+- Audited the pure-RGB boundary after review. Learned hand prediction and
+  Sharpa retargeting do not consume GT hand tracks, but the shared occlusion
+  pass does consume TACO GT tool/target meshes and per-frame poses plus the
+  official camera. The experiment is therefore a controlled hand-tracker
+  comparison with oracle object occlusion, not a pure-RGB end-to-end result.
+- Used both free GPUs in parallel to republish the 152-frame `105` learned
+  conditions with the immutable current renderer. Video2Data completed on GPU
+  0 at 0.198 mm maximum attachment residual and 0.389 rad/frame maximum step;
+  Phantom completed on GPU 1 at 0.043 mm and 0.276 rad/frame. Their composites
+  hide 1,628,800 and 1,805,741 robot pixels behind the knife/plate,
+  respectively. Both strict plans subsequently report all three stages
+  `skipped_complete`.
+- Evaluated both `105` trackers over 152/152 paired-valid frames per hand.
+  Video2Data has lower calibrated 3D MPJPE on both hands (112.714/78.192 mm
+  left/right versus Phantom's 117.787/91.000 mm); Phantom is slightly better
+  in projected 2D (43.337/33.673 px versus 44.304/35.540 px). Built the final
+  five-way 1920x720 comparison and visually checked synchronized frames 0, 76,
+  and 151, including the knife interaction and depth-aware occlusion.
 
 ## Decisions
 
@@ -257,6 +275,13 @@ stages should remain container-compatible for later OSMO execution.
   match the recorded hashes and the learned renderer validates the actual
   trajectory content, but those recorded paths describe the generation
   workspace rather than live host locations.
+- Pure-RGB object compositing remains an unevaluated ablation. The recommended
+  sequence is GT object mask + estimated metric depth, RGB-estimated object
+  mask + metric depth, then RGB-reconstructed mesh/pose + rendered depth. Raw
+  dense source depth would incorrectly retain the original arm as an occluder,
+  and relative depth cannot be compared directly with metric robot depth.
+  Compatible MoGe/Depth Anything/UniDepth weights or built images are not
+  currently installed locally.
 
 ## Artifact Index
 
@@ -301,6 +326,10 @@ stages should remain container-compatible for later OSMO execution.
 - Phantom 253 full learned-condition comparison:
   `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/runs/taco_hand_tracking_v1/taco_dust__brush__cup_20231005_253/phantom/final_comparison_grid.mp4`
 - Final five-way 253 tracker comparison and start/middle/end contact sheet:
-  `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/audit/taco_253_tracker_comparison.{mp4,_contact.jpg}`
-- Deterministic learned-tracker evaluation reports:
-  `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/runs/taco_hand_tracking_v1/taco_dust__brush__cup_20231005_253/{v2d,phantom}/tracking/evaluation_vs_ground_truth.json`
+  `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/audit/taco_253_tracker_comparison{.mp4,_contact.jpg}`
+- Final five-way 105 tracker comparison and start/middle/end contact sheet:
+  `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/audit/taco_105_tracker_comparison{.mp4,_contact.jpg}`
+- Video2Data and Phantom 105 full learned-condition comparisons:
+  `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/runs/taco_hand_tracking_v1/taco_cut__knife__plate_20231013_105/{v2d,phantom}/final_comparison_grid.mp4`
+- Deterministic learned-tracker evaluation reports for 105 and 253:
+  `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/runs/taco_hand_tracking_v1/<sequence>/{v2d,phantom}/tracking/evaluation_vs_ground_truth.json`

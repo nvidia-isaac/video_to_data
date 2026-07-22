@@ -72,6 +72,12 @@ Phantom's unrelated fixed camera calibration.
 
 ## Object-aware robot compositing
 
+The current controlled comparison uses an oracle object-occlusion pass. Learned
+hand tracking does not consume GT hand tracks, but compositing reuses TACO GT
+tool/target meshes, per-frame object poses, and official camera metadata.
+Consequently, the tracker comparison is controlled but is not a pure-RGB
+end-to-end system.
+
 The processed TACO rows also contain frame-aligned world poses for the tool and
 target object. Their `_cm.obj` meshes are rendered at a fixed 0.01 scale into a
 metric depth pass using the same official camera. The container wrapper is
@@ -122,6 +128,15 @@ python3 -m inpainting.composite_robot \
 The production batch requires a valid object-depth bundle by default. Its
 `--allow-hard-composite` option is an explicitly degraded/debug fallback and
 labels the resulting plan accordingly.
+
+An RGB-only replacement can preserve the same z-test by supplying metric
+camera-z estimated from the source video and restricting it to RGB-derived
+tool/target masks. Raw dense source depth must not be used unchanged because
+the original human arm would then occlude the replacement robot. Relative
+monocular depth also needs metric scale alignment before comparison with robot
+depth. A stronger alternative reconstructs each object and estimates its pose,
+then renders estimated mesh depth so surfaces hidden by the original hand can
+still participate in occlusion.
 
 ## Reproduce or resume the GT batch
 
@@ -186,19 +201,21 @@ implicit hold or interpolation policy.
 
 E2FGVI-HQ, SAM2, WiLoR, Grounding DINO, HaMeR, and the licensed MANO v1.2 pair
 are local and fingerprinted. GT is complete on clips 060, 105, and 253;
-Video2Data is complete end to end on 105 and 253; Phantom is complete end to
-end on 253. Learned tracking and Sharpa retargeting are complete for all three
-clips. The learned 060 renders are intentionally blocked because their source
-trackers contain real right-hand gaps and no pose filling was authorized. The
-common `253` comparison is the definitive current generation: both learned
-conditions have tracking/Sharpa v2 provenance, and their strict
-render/composite/grid plans report `skipped_complete`. The earlier `060` and
-`105` learned sidecars are retained as legacy-generation supporting artifacts.
+Video2Data and Phantom are both complete end to end on 105 and 253. Learned
+tracking and Sharpa retargeting are complete for all three clips. The learned
+060 renders are intentionally blocked because their source trackers contain
+real right-hand gaps and no pose filling was authorized. The common `253`
+comparison is the definitive current generation: both learned conditions have
+tracking/Sharpa v2 provenance, and their strict render/composite/grid plans
+report `skipped_complete`. The `105` render/composite/grid outputs also pass
+strict current validation, but their learned tracking/Sharpa sidecars retain
+legacy-generation provenance.
 
 The final synchronized source/E2FGVI/GT/Video2Data/Phantom review video is:
 
 ```text
 /home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/audit/taco_253_tracker_comparison.mp4
+/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/audit/taco_105_tracker_comparison.mp4
 ```
 
 ## Tests
