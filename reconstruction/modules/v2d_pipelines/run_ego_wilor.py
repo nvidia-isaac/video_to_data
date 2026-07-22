@@ -159,14 +159,22 @@ from v2d.hamer.docker.run_render_hands_aligned_video import run_render_hands_ali
 from v2d.hamer.docker.run_render_hands_video import run_render_hands_video as run_hamer_render
 from v2d.moge.docker.run_video_to_depth import run_video_to_depth as run_moge_depth
 from v2d.pipelines.run_hand_masks import _plot_pose_grad_from_checkpoint
-from v2d.sam2.docker.run_video_to_masks import run_video_to_masks
+from v2d.sam2.docker.run_video_to_masks import (
+    OUTPUT_STATE_COMMITTED as SAM2_OUTPUT_STATE_COMMITTED,
+    classify_existing_output as classify_sam2_output,
+    run_video_to_masks,
+)
 from v2d.sam3d.docker.run_image_to_mesh import run_image_to_mesh
 from v2d.wilor.docker.run_masks_intersect_silhouette import run_masks_intersect_silhouette
 from v2d.wilor.docker.run_render_hands_video import run_render_hands_video as run_wilor_render
 from v2d.wilor.docker.run_render_wilor_prompt_masks import run_render_wilor_prompt_masks
 from v2d.wilor.docker.run_tracks_from_wilor_masks import run_tracks_from_wilor_masks
 from v2d.wilor.docker.run_tracks_interpolate import run_tracks_interpolate
-from v2d.wilor.docker.run_video_to_hands import run_video_to_hands as run_wilor_video
+from v2d.wilor.docker.run_video_to_hands import (
+    OUTPUT_STATE_COMMITTED,
+    classify_existing_output as classify_wilor_output,
+    run_video_to_hands as run_wilor_video,
+)
 from v2d.wilor.docker.run_wilor_tracks_interpolate import run_wilor_tracks_interpolate
 
 
@@ -771,15 +779,24 @@ def run_ego_wilor(
             )
 
     # 3. WiLoR over all frames -----------------------------------------------
-    if not _step("WiLoR per-frame detection + MANO",
-                 _has_files(wilor_raw_dir) and
-                 os.path.exists(os.path.join(wilor_raw_dir, f"{reference_frame:06d}.json"))):
-        run_wilor_video(
-            video_path  = video_path,
-            output_dir  = wilor_raw_dir,
-            weights_dir = wilor_weights,
-            dev         = dev,
-        )
+    # A manifest is only a hint that strict validation should run inside the
+    # pinned container; its presence is never sufficient for a host-side skip.
+    # Pre-manifest output cannot be distinguished from an interrupted legacy
+    # generation, so it is routed to the same fail-closed validator rather than
+    # skipped based on the presence of one reference-frame JSON.
+    wilor_output_state = classify_wilor_output(wilor_raw_dir, reference_frame)
+    label = (
+        "Validate WiLoR committed generation"
+        if wilor_output_state == OUTPUT_STATE_COMMITTED
+        else "WiLoR per-frame detection + MANO"
+    )
+    _step(label, False)
+    run_wilor_video(
+        video_path  = video_path,
+        output_dir  = wilor_raw_dir,
+        weights_dir = wilor_weights,
+        dev         = dev,
+    )
 
     # Slice out the ref-frame detections for SAM2 seeding + overlay legend.
     ref_wilor = os.path.join(wilor_raw_dir, f"{reference_frame:06d}.json")
@@ -839,7 +856,6 @@ def run_ego_wilor(
     # WiLoR bbox (legacy/default) or a rendered WiLoR MANO silhouette mask
     # on the reference frame. SAM2 consumes the mask as its conditioning
     # prompt and then propagates it through the video.
-    rebuilt_sam2_prompts = False
     hand_id_offset = 1 if object_track_id is None else 2
     if not _sam2_prompt_artifacts_match(
         sam2_prompts,
@@ -914,7 +930,6 @@ def run_ego_wilor(
                 "sam2_hand_prompt_source": sam2_hand_prompt_source,
                 "tracks":          hand_meta,
             }, f, indent=2)
-        rebuilt_sam2_prompts = True
         print(f"  Wrote {len(prompts)} prompt(s) → {sam2_prompts}")
         print(f"  Wrote hand track metadata → {hand_tracks}")
         if object_track_id is not None:
@@ -929,18 +944,23 @@ def run_ego_wilor(
             print(f"  Wrote object track metadata → {object_track}")
 
     # 6. SAM2 propagation ----------------------------------------------------
-    sam2_done = (not rebuilt_sam2_prompts) and any(
-        _has_files(os.path.join(masks_dir, d))
-        for d in (os.listdir(masks_dir) if os.path.isdir(masks_dir) else [])
+    # A manifest is only a routing hint. Always enter the SAM2 wrapper so a
+    # committed directory is revalidated read-only against current inputs and
+    # an uncommitted/partial directory is refused rather than false-skipped.
+    sam2_output_state = classify_sam2_output(masks_dir)
+    sam2_label = (
+        "Validate SAM2 committed generation"
+        if sam2_output_state == SAM2_OUTPUT_STATE_COMMITTED
+        else "SAM2 mask propagation"
     )
-    if not _step("SAM2 mask propagation", sam2_done):
-        run_video_to_masks(
-            video_path  = video_path,
-            prompts_path= sam2_prompts,
-            masks_dir   = masks_dir,
-            weights_dir = sam2_weights,
-            dev         = dev,
-        )
+    _step(sam2_label, False)
+    run_video_to_masks(
+        video_path=video_path,
+        prompts_path=sam2_prompts,
+        masks_dir=masks_dir,
+        weights_dir=sam2_weights,
+        dev=dev,
+    )
 
     # 7. Verification renders ------------------------------------------------
     with open(hand_tracks) as f:

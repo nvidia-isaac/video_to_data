@@ -1,0 +1,27 @@
+{
+  "schema_version": "v2d.inpainting.sam2-prompts/v1",
+  "description": "Normalized boxes around each complete arm on a clear reference frame. Shared across tracker conditions to hold human removal constant in the initial hand-trajectory comparison.",
+  "sequences": {
+    "taco_empty__kettle__plate_20231031_060": {
+      "frame_index": 0,
+      "boxes": {
+        "screen_left_arm": [0.11, 0.53, 0.49, 1.0],
+        "screen_right_arm": [0.50, 0.53, 0.78, 1.0]
+      }
+    },
+    "taco_cut__knife__plate_20231013_105": {
+      "frame_index": 0,
+      "boxes": {
+        "screen_left_arm": [0.06, 0.06, 0.48, 1.0],
+        "screen_right_arm": [0.69, 0.26, 0.88, 1.0]
+      }
+    },
+    "taco_dust__brush__cup_20231005_253": {
+      "frame_index": 0,
+      "boxes": {
+        "screen_left_arm": [0.0, 0.34, 0.38, 1.0],
+        "screen_right_arm": [0.60, 0.39, 0.76, 1.0]
+      }
+    }
+  }
+}

@@ -8,6 +8,9 @@ __pycache__/
 venv/
 ENV/
 env/
+build/
+dist/
+*.egg-info/
 
 # Large data directories
 /data/

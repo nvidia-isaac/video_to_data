@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "v2d-inpainting-e2fgvi-docker"
+version = "0.1.0"
+description = "Host orchestration for the containerized E2FGVI inpainting stage"
+requires-python = ">=3.10"
+dependencies = ["v2d-docker", "v2d-inpainting-e2fgvi-lib"]
+
+[project.scripts]
+v2d-run-e2fgvi = "v2d.inpainting.e2fgvi.docker.run_inpaint:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["v2d.inpainting.e2fgvi.docker*"]
+namespaces = true

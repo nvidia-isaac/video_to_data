@@ -4,7 +4,15 @@ import subprocess
 import os
 from v2d.sam2.docker._config import IMAGE_NAME, MODULES_DIR
 
-def run_annotate(video_path: str, prompts_path: str, port: int = 8080, dev: bool = False) -> None:
+def run_annotate(
+    video_path: str,
+    prompts_path: str,
+    port: int = 8080,
+    dev: bool = False,
+    gpu: int = 0,
+) -> None:
+    if isinstance(gpu, bool) or not isinstance(gpu, int) or gpu < 0:
+        raise ValueError("gpu must be a non-negative physical GPU index")
     video_path = os.path.abspath(video_path)
     prompts_path = os.path.abspath(prompts_path)
 
@@ -17,10 +25,11 @@ def run_annotate(video_path: str, prompts_path: str, port: int = 8080, dev: bool
 
     cmd = [
         "docker", "run", "--rm",
-        "--gpus", "all",
+        "--gpus", f"device={gpu}",
         "--user", f"{os.getuid()}:{os.getgid()}",
+        "-e", "CUDA_VISIBLE_DEVICES=0",
         "-p", f"{port}:{port}",
-        "-v", f"{video_dir}:/data/video",
+        "-v", f"{video_dir}:/data/video:ro",
         "-v", f"{prompts_dir}:/data/prompts",
     ]
     if dev:
@@ -43,5 +52,12 @@ if __name__ == "__main__":
     parser.add_argument("--prompts_path", type=str, required=True, help="Path to save prompts JSON")
     parser.add_argument("--port", type=int, default=8080, help="Port to run server on")
     parser.add_argument("--dev", action="store_true", help="Mount local modules for development")
+    parser.add_argument("--gpu", type=int, default=0, help="Physical host GPU index")
     args = parser.parse_args()
-    run_annotate(args.video_path, args.prompts_path, args.port, dev=args.dev)
+    run_annotate(
+        args.video_path,
+        args.prompts_path,
+        args.port,
+        dev=args.dev,
+        gpu=args.gpu,
+    )
