@@ -57,6 +57,35 @@ artifacts/runs/<experiment>/<sequence>/
 Generated artifacts are ignored by git. Source code, configs, tests, and the
 investigation tracker are versioned.
 
+## External Phantom repository boundary
+
+The sibling Phantom checkout is a read-only reference, not a Video2Data
+runtime dependency. This branch does not add Phantom as a git submodule,
+symlink to it, import Python from its host path, or copy its model weights into
+git. The versioned boundary is:
+
+- `inpainting/phantom_tracker/`: Video2Data-owned acquisition, identity,
+  geometry, provenance, and common-contract adapter code.
+- `inpainting/phantom_tracker/Dockerfile`: fetches the official
+  `MarionLepert/phantom-hamer` repository at the exact HaMeR submodule commit
+  recorded by the reviewed parent Phantom revision.
+- `inpainting/e2fgvi/docker/Dockerfile`: independently fetches
+  `MarionLepert/phantom-E2FGVI` at its pinned release commit.
+- `inpainting/artifacts/`: ignored checkpoints, model caches, tracking outputs,
+  and videos.
+- Licensed MANO files: supplied from a separate sibling directory and mounted
+  read-only; they are never copied under this repository.
+
+The parent Phantom commit is retained as provenance. Of the upstream Phantom
+repositories, only the executed HaMeR and E2FGVI revisions enter their
+respective images. Image builds and the explicit model-acquisition step may use
+the network; inference runs with `--network none`. Both stages emit Video2Data
+contracts and hashed sidecars, so every downstream retarget, render, and
+evaluation consumes local `tracking.npz` or E2FGVI video artifacts without
+knowing where Phantom was checked out on the host. See
+[`phantom_tracker/README.md`](phantom_tracker/README.md) for the exact commit
+mapping and reproduction commands.
+
 ## Camera calibration
 
 TACO motion capture and the retargeted Sharpa trajectories are expressed in the
@@ -129,14 +158,43 @@ The production batch requires a valid object-depth bundle by default. Its
 `--allow-hard-composite` option is an explicitly degraded/debug fallback and
 labels the resulting plan accordingly.
 
-An RGB-only replacement can preserve the same z-test by supplying metric
-camera-z estimated from the source video and restricting it to RGB-derived
-tool/target masks. Raw dense source depth must not be used unchanged because
-the original human arm would then occlude the replacement robot. Relative
-monocular depth also needs metric scale alignment before comparison with robot
-depth. A stronger alternative reconstructs each object and estimates its pose,
-then renders estimated mesh depth so surfaces hidden by the original hand can
-still participate in occlusion.
+The completed sequence-`105` ablation also exercises two RGB-only upstream
+replacements. One restricts MoGe metric camera-z to SAM2 tool/target masks. The
+other reconstructs SAM3D meshes, estimates their FoundationPose trajectories,
+and renders those meshes into metric camera-z depth so surfaces hidden by the
+original hand can still participate in occlusion. Raw dense source depth is
+not used unchanged because the original human arm would then occlude the
+replacement robot.
+
+### Sequence-105 object-compositing comparison
+
+The ablation fixes the same E2FGVI base, Video2Data robot render, 3 mm depth
+guard, and both the knife and cutting-board/plate objects across all three
+conditions. Conditions 2 and 3 use only RGB upstream: two human-provided boxes
+on frame 0 initialize the two SAM2 object tracks, MoGe estimates camera
+intrinsics/depth, and the SAM3D + FoundationPose condition uses the canonical
+smoothed poses. These boxes are prompts, not GT object masks. GT object
+meshes, poses, masks, depth, and camera calibration are absent from both
+estimated pipelines; GT is used only for condition 1 and post-hoc evaluation.
+
+| Occluder condition | Visible IoU | Decision errors | Mask IoU | Depth MAE | False visible | False occluded | Temporal disagreement |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| GT mesh + GT pose | 1.0 | 0 (0%) | 1.0 | 0 m | 0 | 0 | 0% |
+| RGB SAM2 + MoGe | 0.9759203532 | 1,325,469 (2.38893297%) | 0.6858006999 | 0.1762251283 m | 1,190,276 (73.0769% of GT-occluded pixels) | 135,193 | 0.998360% |
+| SAM3D + smoothed FoundationPose | 0.9798924473 | 1,100,569 (1.98358888%) | 0.7109262537 | 0.1752361543 m | 879,185 (53.9775% of GT-occluded pixels) | 221,384 | 1.089252% |
+
+The artifact root is:
+
+```text
+/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/runs/taco_hand_tracking_v1/taco_cut__knife__plate_20231013_105/object_compositing_v1
+```
+
+The synchronized review video is `object_compositing_3way_105.mp4`; its review
+sheets are `object_compositing_3way_105_contact.jpg` and
+`object_compositing_3way_105_error_frames.jpg`. The verified metric reports are
+`ground_truth/evaluation_vs_gt.json`,
+`rgb_estimated_depth_verified/evaluation_vs_gt.json`, and
+`v2d_estimated_object/evaluation_vs_gt.json` under that root.
 
 ## Reproduce or resume the GT batch
 
@@ -197,10 +255,97 @@ exact selected stage is deliberately replaced with `--overwrite`. A trajectory
 with a missing hand row is rejected at plan time because the renderer has no
 implicit hold or interpolation policy.
 
+## Reproduce or resume a parallel-jaw comparison
+
+The parallel-jaw extension converts each tracker's 21-joint hand tracks into
+one robot-neutral world-frame pose and aperture contract, then maps that
+contract into either the Galbot Golf or YAM bundle. Planning is read-only by
+default:
+
+```bash
+python3 -m inpainting.run_parallel_jaw_comparison \
+  --manifest inpainting/artifacts/runs/taco_hand_tracking_v1/manifest.resolved.json \
+  --sequence taco_dust__brush__cup_20231005_253 \
+  --bundle inpainting/artifacts/parallel_jaw_assets/galbot_one_golf/bundle_manifest.json \
+  --robot-asset-root /path/to/galbot_one_golf_description
+
+# After reviewing the seven-stage plan:
+python3 -m inpainting.run_parallel_jaw_comparison \
+  --manifest inpainting/artifacts/runs/taco_hand_tracking_v1/manifest.resolved.json \
+  --sequence taco_dust__brush__cup_20231005_253 \
+  --bundle inpainting/artifacts/parallel_jaw_assets/galbot_one_golf/bundle_manifest.json \
+  --robot-asset-root /path/to/galbot_one_golf_description \
+  --gpu 0 --execute
+```
+
+For YAM, use
+`inpainting/artifacts/parallel_jaw_assets/yam_bimanual/bundle_manifest.json`
+as the bundle and its parent directory as `--robot-asset-root`. The
+preview-reviewed Galbot `105` result also requires
+`--max-orientation-residual-deg 55 --max-joint-step-rad 0.55`; all other
+production comparisons retain the strict defaults of 20 degrees and
+0.4 rad/frame.
+
+Each run reuses one GT-derived hub transform across all three tracker
+conditions and writes:
+
+```text
+<sequence>/parallel_jaw/<robot_id>/<condition>/robot_render/*
+<sequence>/parallel_jaw/<robot_id>/<condition>/final_overlay.{mp4,json}
+<sequence>/parallel_jaw/<robot_id>/final_5panel_comparison.{mp4,json}
+```
+
+Resume validation binds the target, bundle, immutable render image, camera,
+shared mount, renderer policy, GT object-depth input, composites, and final
+grid lineage. Existing partial or stale artifacts block until their exact
+selected stage is deliberately replaced with `--overwrite`.
+
+The derived Galbot/YAM bundles are ignored outputs and therefore are not part
+of the pushed branch. Fresh-clone source pins, bundle-build commands, and the
+role of RoboLab MRs 62 and 68 are documented in
+[`PARALLEL_JAW_REPRODUCTION.md`](PARALLEL_JAW_REPRODUCTION.md).
+
+## Refine parallel-jaw contacts with GraspGenX
+
+The refinement is deliberately split into two auditable commands. First,
+`inpainting.graspgenx_candidates` runs the official sweep-volume-conditioned
+GraspGenX inference on one metric SAM3D mesh and writes a ranked candidate NPZ
+plus hashed JSON provenance. Then `inpainting.run_graspgenx_refinement` selects
+one grasp against V2D thumb/index contacts and writes the same 12-key
+robot-neutral target contract consumed by the parallel-jaw renderer.
+
+```bash
+python3 -m inpainting.graspgenx_candidates --help
+python3 -m inpainting.run_graspgenx_refinement --help
+```
+
+Run the second command once per interaction, feeding its output target into
+the next interaction so the other side is preserved. Production uses
+`--propagation-mode base_local_offset`,
+`--score-registration-weight 0`,
+`--score-pose-rotation-weight 0.04`, and
+`--score-approach-weight 0.015`. The reviewed start/anchor/end windows and
+their RGB/Phantom evidence live in
+`inpainting/configs/graspgenx_refinement_events.json`. Final combined targets
+are stored under:
+
+```text
+<sequence>/parallel_jaw/graspgenx_targets/<robot_id>/v2d_graspgenx_aligned/
+```
+
+Candidate generation and grasp selection use only V2D hand tracks and
+MoGe/SAM2/SAM3D/FoundationPose object reconstruction. The review overlays keep
+the existing GT object-depth occluder fixed to isolate the trajectory change,
+so the rendered ablation is not a pure-RGB end-to-end compositing result.
+The complete source setup, production sweep volumes, `600/150` candidate
+policy, chained interaction command, and refined render gates are in
+[`PARALLEL_JAW_REPRODUCTION.md`](PARALLEL_JAW_REPRODUCTION.md).
+
 ## Current model status
 
-E2FGVI-HQ, SAM2, WiLoR, Grounding DINO, HaMeR, and the licensed MANO v1.2 pair
-are local and fingerprinted. GT is complete on clips 060, 105, and 253;
+E2FGVI-HQ, SAM2, WiLoR, Grounding DINO, HaMeR, MoGe, SAM3D,
+FoundationPose, and the licensed MANO v1.2 pair are local and fingerprinted.
+GT is complete on clips 060, 105, and 253;
 Video2Data and Phantom are both complete end to end on 105 and 253. Learned
 tracking and Sharpa retargeting are complete for all three clips. The learned
 060 renders are intentionally blocked because their source trackers contain
@@ -209,7 +354,15 @@ comparison is the definitive current generation: both learned conditions have
 tracking/Sharpa v2 provenance, and their strict render/composite/grid plans
 report `skipped_complete`. The `105` render/composite/grid outputs also pass
 strict current validation, but their learned tracking/Sharpa sidecars retain
-legacy-generation provenance.
+legacy-generation provenance. The sequence-105 three-way object-compositing
+ablation is complete, including RGB-only SAM2 + MoGe and SAM3D +
+FoundationPose conditions. Galbot Golf and YAM parallel-jaw five-panel
+comparisons are also complete on clips `105` and `253`; all four full pipeline
+plans validate as seven `skipped_complete` stages. GraspGenX-refined V2D
+targets and synchronized four-panel baseline/refined comparisons are complete
+for both embodiments and both clips. Their local registered contact residuals
+are `2.4--20.7` mm, but the required `172.6--305.5` mm hand/object
+registration shifts remain an explicit metric-alignment limitation.
 
 The final synchronized source/E2FGVI/GT/Video2Data/Phantom review video is:
 
@@ -227,5 +380,12 @@ fixtures and monkeypatching:
 ```bash
 pytest -q inpainting/tests inpainting/e2fgvi/tests \
   inpainting/robot_renderer/tests inpainting/phantom_tracker/tests \
-  reconstruction/modules/v2d_docker/tests
+  inpainting/parallel_jaw_renderer/tests inpainting/robot_assets/tests \
+  reconstruction/modules/v2d_docker/tests \
+  reconstruction/modules/v2d_depth/tests \
+  reconstruction/modules/v2d_foundation_pose/docker/tests \
+  reconstruction/modules/v2d_foundation_pose/lib/tests \
+  reconstruction/modules/v2d_moge/docker/tests \
+  reconstruction/modules/v2d_pipelines/tests \
+  reconstruction/modules/v2d_sam3d/docker/tests
 ```

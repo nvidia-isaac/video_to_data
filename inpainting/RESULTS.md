@@ -1,6 +1,6 @@
 # Visual-inpainting investigation results
 
-Date: 2026-07-22
+Date: 2026-07-23
 
 ## Controlled comparison
 
@@ -124,6 +124,168 @@ Both learned conditions pass their declared gates for all 152 frames. Strict
 resume then validates all three render/composite/grid stages as
 `skipped_complete` for each condition.
 
+## Parallel-jaw embodiment extension
+
+The completed extension keeps the same source RGB, arm mask, E2FGVI output,
+official camera, GT object-depth occluder, and GT/Video2Data/Phantom hand
+tracks, but replaces Vega + Sharpa with two bimanual parallel-jaw robots:
+Galbot Golf and YAM. A shared robot-neutral target derives aperture from the
+thumb/index tip distance, translation from the thumb/middle midpoint, and
+orientation from the same thumb/index/palm geometry used by Phantom. Phantom's
+translation/aperture GP smoothing, Gaussian-SLERP orientation smoothing, and
+20% sequence-relative grasp-span cap are applied identically to all three
+trackers before embodiment-specific aperture mapping.
+
+The source assets are pinned to Galbot commit
+`b311f5ca1acf506e9b7026397e2c74fb2db11df6` and YAMLab commit
+`ec0455d2b4ce35f21fc126418ea5e74ac567133d`; the reviewed RoboLab examples are
+MR 62 commit `8224d5fb8a2a3d21ce445bb198476c1faa4d69e6` and MR 68 commit
+`543a08bf3b46aa8fb2abc79ffba09cf4d09e09ae`. Derived render/IK bundles preserve
+the physical Galbot `[0, 124.909]` mm and YAM `[2.004, 94.901]` mm aperture
+ranges. No commanded aperture clips in any of the 12 production renders.
+
+Every tracker reuses the same GT-derived Vega hub transform within a clip.
+This avoids improving a condition by moving the robot body, but exposes a real
+Galbot-105 limitation: no tested common mount satisfies the 20-degree
+orientation gate. Those three runs use a disclosed 55-degree / 0.55 rad policy
+after stress-frame review; Galbot-253 and all YAM runs retain the strict
+10 mm / 20-degree / 0.4 rad policy.
+
+| Robot | Clip | Tracker | Max position residual | Max orientation residual | Max arm step | Gate result |
+|---|---|---|---:|---:|---:|---|
+| Galbot Golf | `105` | Ground truth | 0.565 mm | 34.910 deg | 0.226 rad | Reviewed 55 deg / 0.55 rad pass |
+| Galbot Golf | `105` | Video2Data | 0.700 mm | 49.157 deg | 0.520 rad | Reviewed 55 deg / 0.55 rad pass |
+| Galbot Golf | `105` | Phantom | 0.645 mm | 37.143 deg | 0.391 rad | Reviewed 55 deg / 0.55 rad pass |
+| Galbot Golf | `253` | Ground truth | 0.229 mm | 14.368 deg | 0.368 rad | Strict pass |
+| Galbot Golf | `253` | Video2Data | 0.244 mm | 16.497 deg | 0.366 rad | Strict pass |
+| Galbot Golf | `253` | Phantom | 0.250 mm | 18.014 deg | 0.366 rad | Strict pass |
+| YAM | `105` | Ground truth | 0.232 mm | 7.883 deg | 0.138 rad | Strict pass |
+| YAM | `105` | Video2Data | 0.249 mm | 14.321 deg | 0.369 rad | Strict pass |
+| YAM | `105` | Phantom | 0.242 mm | 6.872 deg | 0.171 rad | Strict pass |
+| YAM | `253` | Ground truth | 0.179 mm | 6.164 deg | 0.227 rad | Strict pass |
+| YAM | `253` | Video2Data | 0.135 mm | 9.870 deg | 0.362 rad | Strict pass |
+| YAM | `253` | Phantom | 0.479 mm | 11.497 deg | 0.288 rad | Strict pass |
+
+YAM's strict result requires an embodiment-level calibration, not a relaxed
+solver: a contact-equivalent left-jaw `Rz(pi)` mapping, right-jaw identity, and
+a fixed `+0.15` m forward / `-10` degree roll base alignment. This removes the
+original left-wrist branch flips while remaining fixed across all trackers and
+both clips.
+
+All four five-panel grids contain exact source-length synchronized streams at
+30 FPS: source, E2FGVI arms-masked, GT-driven robot, Video2Data-driven robot,
+and Phantom-driven robot. Renders and composites are `1920x1080`; review grids
+are `1920x720`. The production planner validates all 28 render, composite, and
+grid stages as `skipped_complete`, including output hashes and lineage. Visual
+QA at start/middle/end and the Galbot-105 stress frames found no corrupt
+panels, detached meshes, joint branch flips, or obvious object-depth ordering
+errors. Galbot's forearms remain large near the image borders. YAM retains the
+predominantly black and gray materials authored in its USD.
+
+## GraspGenX contact refinement
+
+The parallel-jaw limitation was tested with the official GraspGenX v1.0.0
+implementation at commit `b9429097728cb1c430dd78b92edf17ba318aad03` and its
+release generator/discriminator checkpoints. For every reconstructed object
+and robot profile, GraspGenX sampled 600 sweep-volume-conditioned grasps from
+the metric SAM3D mesh; the 150 highest-confidence candidates were retained.
+Clip `253` required the same RGB-only MoGe, SAM2, SAM3D, and FoundationPose
+object-reconstruction stages already used for `105`.
+
+Phantom aperture closure supplies a temporal proposal, but RGB-visible contact
+is the final gate because Phantom closes before contact on `105`, spuriously
+starts the cup event at frame 0 on `253`, and the brush is already grasped when
+`253` begins. The final inclusive interaction windows are board
+`26/30/124`, knife `22/30/132`, cup `8/14/58`, and brush `0/0/63`, expressed
+as start/anchor/end frames.
+
+At each anchor, the V2D thumb/index contact pair is expressed in the
+FoundationPose object frame. A single midpoint-to-mesh translation preserves
+the observed pair's aperture and direction; projecting the two tips
+independently was rejected because it collapsed both contacts onto one nearby
+surface patch. Candidate ranking uses this registered contact-pair residual as
+the primary term, then weaker confidence, human-pose, and approach
+terms. Parallel-jaw `Rz(pi)` symmetry is resolved against the human pose.
+Finally, the anchor transform is propagated as one constant right-multiplied
+base-local offset through the approach, hold, and release intervals with
+C2/Slerp boundary blending. This avoids inheriting per-frame FoundationPose
+jitter.
+
+| Robot | Clip | Interaction | Selected aperture | Grasp confidence | Pair residual | Human-orientation delta |
+|---|---|---|---:|---:|---:|---:|
+| Galbot Golf | `105` | left / board | 4.1 mm | 0.957 | 13.5 mm | 17.9 deg |
+| Galbot Golf | `105` | right / knife | 19.2 mm | 0.987 | 10.7 mm | 18.3 deg |
+| YAM | `105` | left / board | 4.3 mm | 0.954 | 13.3 mm | 11.2 deg |
+| YAM | `105` | right / knife | 20.6 mm | 0.981 | 9.4 mm | 22.2 deg |
+| Galbot Golf | `253` | left / cup | 4.3 mm | 0.893 | 4.3 mm | 36.7 deg |
+| Galbot Golf | `253` | right / brush | 35.7 mm | 0.929 | 17.7 mm | 58.0 deg |
+| YAM | `253` | left / cup | 8.8 mm | 0.853 | 2.4 mm | 15.4 deg |
+| YAM | `253` | right / brush | 29.2 mm | 0.886 | 20.7 mm | 56.1 deg |
+
+The brush is the weakest interaction: both embodiments retain roughly
+`18--21` mm contact residual and `56--58` degree separation from the human
+orientation prior.
+
+All four refined trajectories render and composite at exact source length.
+The production IK residuals remain sub-millimeter, although transient
+trajectory frames require disclosed gates beyond the contact-frame previews:
+
+| Robot | Clip | Max position residual | Max orientation residual | Max arm step | Production gate |
+|---|---|---:|---:|---:|---|
+| Galbot Golf | `105` | 0.655 mm | 61.924 deg | 0.572 rad | 65 deg / 0.58 rad |
+| YAM | `105` | 0.247 mm | 23.135 deg | 0.395 rad | 25 deg / 0.45 rad |
+| Galbot Golf | `253` | 0.257 mm | 16.649 deg | 0.452 rad | 22 deg / 0.50 rad |
+| YAM | `253` | 0.140 mm | 24.603 deg | 0.432 rad | 26 deg / 0.45 rad |
+
+The result is promising locally but not yet a metric grasp-recovery result.
+The common translation needed to reconcile V2D hand contacts with the
+reconstructed object mesh is `172.6--305.5` mm across the eight interactions,
+far larger than the final `2.4--20.7` mm registered pair residuals. The
+four-panel videos therefore show whether GraspGenX improves jaw geometry and
+orientation after registration; they do not establish that independently
+reconstructed hand and object depth are globally aligned. Joint hand/object
+scale and depth calibration is the next prerequisite for a physical success
+metric. Grasp generation and selection are RGB/V2D-only, but the final
+comparison overlays intentionally retain the same TACO GT object-depth
+occluder as the baseline to isolate the trajectory change; the visualization
+is therefore not a pure-RGB end-to-end composite.
+
+## Object compositing on the 105 clip
+
+This three-way ablation changes only how the knife and cutting-board/plate
+occluder is constructed. All conditions use the same E2FGVI base video, the
+same Video2Data robot RGB/mask/depth render, and the same 3 mm depth guard:
+
+1. TACO GT meshes and per-frame object poses.
+2. RGB-only SAM2 object masks with per-frame MoGe metric depth.
+3. Video2Data object reconstruction: SAM3D meshes and FoundationPose poses,
+   rendered into metric camera-z depth.
+
+Conditions 2 and 3 have RGB-only upstream inputs. Two human-provided bounding
+boxes on RGB frame 0 initialize the knife and board SAM2 tracks; they are not
+GT object masks. MoGe estimates depth and camera intrinsics from RGB, and the
+third condition uses the pipeline's canonical smoothed FoundationPose tracks
+as its primary result. Neither estimated condition consumes TACO object
+meshes, object poses, masks, depth, or camera calibration. GT object data is
+used only by condition 1 and by the post-hoc evaluator.
+
+| Occluder condition | Robot-visible IoU | Wrong robot-depth decisions | Object-mask IoU | Overlap depth MAE | False visible | False occluded | Temporal disagreement |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| GT mesh + GT pose | 1.0 | 0 (0%) | 1.0 | 0 m | 0 | 0 | 0% |
+| RGB masks + MoGe depth | 0.9759203532 | 1,325,469 (2.38893297%) | 0.6858006999 | 0.1762251283 m | 1,190,276 (73.0769% of GT-occluded pixels) | 135,193 | 0.998360% |
+| SAM3D mesh + FoundationPose pose (smoothed) | 0.9798924473 | 1,100,569 (1.98358888%) | 0.7109262537 | 0.1752361543 m | 879,185 (53.9775% of GT-occluded pixels) | 221,384 | 1.089252% |
+
+The reconstructed-mesh condition improves the primary visibility metric and
+reduces total decision errors by 224,900 relative to dense RGB compositing. It
+also reduces false-visible errors by 311,091, although false-occluded errors
+and temporal disagreement increase. Both estimated methods still have about
+17.5 cm overlap depth error, so this comparison supports estimated-depth
+compositing while also exposing metric depth/pose as the remaining bottleneck.
+As a sensitivity check, rendering the unsmoothed FoundationPose tracks gives
+0.979766 visible IoU, 1,107,596 decision errors, and 1.165917% temporal
+disagreement. The canonical smoothed result is therefore retained as the
+primary condition despite localized knife-alignment regressions in its pose QA.
+
 ## Visual findings
 
 - The calibrated learned skeletons follow both visible hands at the start,
@@ -144,6 +306,9 @@ resume then validates all three render/composite/grid stages as
   over photorealistic lighting, material matching, or synthesized shadows.
 
 ## Review artifacts
+
+The paths in this section are local, git-ignored study outputs. They are not
+included in the pushed source branch.
 
 - Final five-way `253` comparison (source, shared E2FGVI, GT, Video2Data,
   Phantom):
@@ -169,10 +334,30 @@ resume then validates all three render/composite/grid stages as
   `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/runs/taco_hand_tracking_v1/<sequence>/{v2d/audit/tracking_overlay.mp4,phantom/tracking/hand_overlay.mp4}`
 - Deterministic `105` and `253` evaluation reports:
   `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/runs/taco_hand_tracking_v1/<sequence>/{v2d,phantom}/tracking/evaluation_vs_ground_truth.json`
+- Sequence-`105` three-way object-compositing comparison:
+  `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/runs/taco_hand_tracking_v1/taco_cut__knife__plate_20231013_105/object_compositing_v1/object_compositing_3way_105.mp4`
+- Start/middle/end and error-focused object-compositing review sheets:
+  `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/runs/taco_hand_tracking_v1/taco_cut__knife__plate_20231013_105/object_compositing_v1/object_compositing_3way_105_{contact,error_frames}.jpg`
+- Verified GT, RGB-only, and Video2Data object-compositing evaluations:
+  `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/runs/taco_hand_tracking_v1/taco_cut__knife__plate_20231013_105/object_compositing_v1/{ground_truth,rgb_estimated_depth_verified,v2d_estimated_object}/evaluation_vs_gt.json`
+- Galbot Golf five-panel `105` comparison:
+  `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/runs/taco_hand_tracking_v1/taco_cut__knife__plate_20231013_105/parallel_jaw/galbot_one_golf/final_5panel_comparison.mp4`
+- Galbot Golf five-panel `253` comparison:
+  `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/runs/taco_hand_tracking_v1/taco_dust__brush__cup_20231005_253/parallel_jaw/galbot_one_golf/final_5panel_comparison.mp4`
+- YAM five-panel `105` comparison:
+  `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/runs/taco_hand_tracking_v1/taco_cut__knife__plate_20231013_105/parallel_jaw/yam_bimanual/final_5panel_comparison.mp4`
+- YAM five-panel `253` comparison:
+  `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/runs/taco_hand_tracking_v1/taco_dust__brush__cup_20231005_253/parallel_jaw/yam_bimanual/final_5panel_comparison.mp4`
+- Parallel-jaw QA sheets:
+  `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/audit/parallel_jaw_qa/`
+- GraspGenX four-panel comparisons (source, E2FGVI, V2D baseline, refined V2D):
+  `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/runs/taco_hand_tracking_v1/<sequence>/parallel_jaw/<robot>/graspgenx_v2d_4panel_comparison_<clip>.mp4`
+- GraspGenX selected targets and per-interaction provenance:
+  `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/runs/taco_hand_tracking_v1/<sequence>/parallel_jaw/graspgenx_targets/<robot>/v2d_graspgenx_aligned/`
+- GraspGenX start/contact/end QA sheets:
+  `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/audit/graspgenx_parallel_jaw/`
 
-The next useful ablations are RGB-estimated object depth, tracker-specific arm
-masks, no-inpainting versus E2FGVI under learned trajectories, and Cosmos3.
-For depth, the staged comparison should first use the GT object mask with
-estimated metric depth, then an RGB-derived object mask and depth, and finally
-an RGB-reconstructed mesh/pose depth pass. These should remain separate
-controlled changes rather than being folded into this tracking comparison.
+The sequence-`105` RGB-only and reconstructed-mesh object-compositing ablation
+and the `105`/`253` GraspGenX parallel-jaw ablation are now complete. The next
+useful step is a joint hand/object metric-alignment stage before optimizing
+time-varying contact consistency or evaluating grasp stability.

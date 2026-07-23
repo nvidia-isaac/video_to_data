@@ -1,0 +1,57 @@
+{
+  "schema_version": "v2d.inpainting.graspgenx-events/v1",
+  "detection_policy": {
+    "anchor": "Use the Phantom thumb-index aperture closure minimum when it is observable and consistent with RGB contact.",
+    "association": "Associate each hand with the manipulated SAM3D object by RGB review.",
+    "boundary": "Use Phantom closure/hysteresis as a temporal proposal, then require RGB-visible hand-object contact. Correct boundaries where the clip starts in contact or Phantom disagrees with visible contact/release.",
+    "frame_semantics": "Inclusive start, anchor, and end frame indices."
+  },
+  "sequences": {
+    "taco_cut__knife__plate_20231013_105": {
+      "frame_count": 152,
+      "interactions": [
+        {
+          "side": "left",
+          "object_name": "board",
+          "start_frame": 26,
+          "anchor_frame": 30,
+          "end_frame": 124,
+          "starts_in_contact": false,
+          "evidence": "Phantom closes earlier while the hand is still off-object. RGB shows first board contact at frame 26 and a stable edge grasp by frame 30; frame 124 is the last visible contact."
+        },
+        {
+          "side": "right",
+          "object_name": "knife",
+          "start_frame": 22,
+          "anchor_frame": 30,
+          "end_frame": 132,
+          "starts_in_contact": false,
+          "evidence": "Phantom closes before object contact. RGB shows first handle contact at frame 22, a stable grasp by frame 30, and last visible contact at frame 132."
+        }
+      ]
+    },
+    "taco_dust__brush__cup_20231005_253": {
+      "frame_count": 74,
+      "interactions": [
+        {
+          "side": "left",
+          "object_name": "cup",
+          "start_frame": 8,
+          "anchor_frame": 14,
+          "end_frame": 58,
+          "starts_in_contact": false,
+          "evidence": "Phantom aperture closes from frames 8-14; RGB confirms handle contact. Phantom hysteresis begins at frame 0 spuriously."
+        },
+        {
+          "side": "right",
+          "object_name": "brush",
+          "start_frame": 0,
+          "anchor_frame": 0,
+          "end_frame": 63,
+          "starts_in_contact": true,
+          "evidence": "RGB begins with the brush already grasped, so no closure onset is observable. Frame 63 is the last visible contact; the Phantom minimum near frame 65 occurs after release."
+        }
+      ]
+    }
+  }
+}
