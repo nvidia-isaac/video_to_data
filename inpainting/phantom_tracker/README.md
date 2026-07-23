@@ -46,7 +46,8 @@ never read by the stage. An explicit 0.1%–12% full-frame area gate rejects a
 known DINO failure mode where the union of both arms is labeled as one hand;
 the exact bounds are recorded and configurable.
 
-Network access is allowed only for `acquire`. Inference uses exactly physical
+Network access is allowed during `build`, to fetch the pinned HaMeR source, and
+during `acquire`, to fetch the pinned weights. Inference uses exactly physical
 GPU 0, `--network none`, a read-only container root, read-only video/model/MANO
 mounts, and a single writable output mount.
 Every pinned Grounding DINO and HaMeR file is SHA-256 verified on the host
