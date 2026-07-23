@@ -13,6 +13,7 @@ TRACKING_SCHEMA = "v2d.inpainting.tracking/v1"
 ROBOT_TRAJECTORY_SCHEMA = "v2d.inpainting.robot-trajectory/v1"
 EXPERIMENT_SCHEMA = "v2d.inpainting.experiment/v1"
 RESOLVED_EXPERIMENT_SCHEMA = "v2d.inpainting.resolved-experiment/v1"
+TACO_OBJECT_RENDER_SCHEMA = "v2d.inpainting.taco-object-render/v1"
 TRACKERS = ("phantom", "v2d", "ground_truth")
 COORDINATE_FRAMES = ("camera", "world")
 

@@ -18,6 +18,7 @@ import pyarrow.parquet as pq
 
 from .contracts import (
     ContractError,
+    TACO_OBJECT_RENDER_SCHEMA,
     VideoGeometry,
     validate_depth_array,
     validate_mask_array,
@@ -28,7 +29,9 @@ from .taco_camera import load_taco_camera
 from .video_io import probe_video
 
 
-OBJECT_RENDER_SCHEMA = "v2d.inpainting.taco-object-render/v1"
+# Backwards-compatible public alias; the lightweight contract lives in
+# contracts.py so generic compositing does not import PyArrow.
+OBJECT_RENDER_SCHEMA = TACO_OBJECT_RENDER_SCHEMA
 OBJECT_RENDER_PROVENANCE_SCHEMA = "v2d.inpainting.taco-object-render-provenance/v1"
 SOURCE_INPUT_NAMES = (
     "source_parquet",

@@ -24,9 +24,27 @@ def run_estimate_mesh_scale(
     chamfer_weight: float = 0.0,
     registration_iterations: int = 5,
     dev: bool = False,
+    gpu_device: int | None = None,
 ) -> None:
+    if gpu_device is not None and (
+        isinstance(gpu_device, bool)
+        or not isinstance(gpu_device, int)
+        or gpu_device < 0
+    ):
+        raise ValueError("gpu_device must be a non-negative physical GPU index")
     weights_abs = os.path.abspath(weights_dir)
     weights_container = f"/data/weights_dir/{os.path.basename(weights_abs)}"
+    environment = {
+        "FOUNDATIONPOSE_WEIGHTS_DIR": weights_container,
+        # Containers run as the invoking (non-root) user whose home resolves to
+        # `/`.  Keep all lazily-created caches in writable, per-container tmp.
+        "MPLCONFIGDIR": "/tmp/v2d-matplotlib",
+        "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+        "WARP_CACHE_PATH": "/tmp/v2d-warp",
+        "XDG_CACHE_HOME": "/tmp/v2d-xdg-cache",
+    }
+    if gpu_device is not None:
+        environment["CUDA_VISIBLE_DEVICES"] = "0"
     inputs = {
         "mesh_path": mesh_path,
         "rgb_path": rgb_path,
@@ -58,17 +76,17 @@ def run_estimate_mesh_scale(
         dev=dev,
         modules_dir=MODULES_DIR,
         gpus=True,
-        env={
-            "FOUNDATIONPOSE_WEIGHTS_DIR": weights_container,
-            "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
-        },
+        gpu_device=gpu_device,
+        env=environment,
     )
 
 
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Estimate mesh scale via coarse-to-fine grid search in Docker")
+    parser = argparse.ArgumentParser(
+        description="Estimate mesh scale via coarse-to-fine grid search in Docker"
+    )
     parser.add_argument("--mesh_path", required=True)
     parser.add_argument("--rgb_path", required=True)
     parser.add_argument("--depth_path", required=True)
@@ -87,6 +105,12 @@ if __name__ == "__main__":
     parser.add_argument("--chamfer_weight", type=float, default=0.0)
     parser.add_argument("--registration_iterations", type=int, default=5)
     parser.add_argument("--dev", action="store_true")
+    parser.add_argument(
+        "--gpu",
+        type=int,
+        default=None,
+        help="Physical host GPU index; omitted preserves legacy all-GPU exposure",
+    )
     args = parser.parse_args()
     run_estimate_mesh_scale(
         args.mesh_path,
@@ -107,4 +131,5 @@ if __name__ == "__main__":
         chamfer_weight=args.chamfer_weight,
         registration_iterations=args.registration_iterations,
         dev=args.dev,
+        gpu_device=args.gpu,
     )

@@ -20,9 +20,24 @@ def run_ekf_smoothing(
     measurement_noise_r: float = 0.05,
     min_iou: float = 0.1,
     dev: bool = False,
+    gpu_device: int | None = None,
 ) -> None:
+    if gpu_device is not None and (
+        isinstance(gpu_device, bool)
+        or not isinstance(gpu_device, int)
+        or gpu_device < 0
+    ):
+        raise ValueError("gpu_device must be a non-negative physical GPU index")
     weights_abs = os.path.abspath(weights_dir)
     weights_container = f"/data/weights_dir/{os.path.basename(weights_abs)}"
+    environment = {
+        "FOUNDATIONPOSE_WEIGHTS_DIR": weights_container,
+        "MPLCONFIGDIR": "/tmp/v2d-matplotlib",
+        "WARP_CACHE_PATH": "/tmp/v2d-warp",
+        "XDG_CACHE_HOME": "/tmp/v2d-xdg-cache",
+    }
+    if gpu_device is not None:
+        environment["CUDA_VISIBLE_DEVICES"] = "0"
     inputs = {
         "poses_dir": poses_dir,
         "mesh_path": mesh_path,
@@ -37,18 +52,19 @@ def run_ekf_smoothing(
         inputs=inputs,
         outputs={"output_dir": output_dir},
         extra_args={
-            "process_noise_xy":     process_noise_xy,
-            "process_noise_z":      process_noise_z,
-            "process_noise_r":      process_noise_r,
+            "process_noise_xy": process_noise_xy,
+            "process_noise_z": process_noise_z,
+            "process_noise_r": process_noise_r,
             "measurement_noise_xy": measurement_noise_xy,
-            "measurement_noise_z":  measurement_noise_z,
-            "measurement_noise_r":  measurement_noise_r,
-            "min_iou":              min_iou,
+            "measurement_noise_z": measurement_noise_z,
+            "measurement_noise_r": measurement_noise_r,
+            "min_iou": min_iou,
         },
         dev=dev,
         modules_dir=MODULES_DIR,
         gpus=True,
-        env={"FOUNDATIONPOSE_WEIGHTS_DIR": weights_container},
+        gpu_device=gpu_device,
+        env=environment,
     )
 
 
@@ -56,20 +72,26 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="ESKF + RTS pose smoother in Docker")
-    parser.add_argument("--poses_dir",             required=True)
-    parser.add_argument("--mesh_path",             required=True)
-    parser.add_argument("--intrinsics_path",       required=True)
-    parser.add_argument("--weights_dir",           required=True)
-    parser.add_argument("--output_dir",            required=True)
-    parser.add_argument("--masks_folder",          default=None)
-    parser.add_argument("--process_noise_xy",      type=float, default=0.005)
-    parser.add_argument("--process_noise_z",       type=float, default=0.005)
-    parser.add_argument("--process_noise_r",       type=float, default=0.01)
-    parser.add_argument("--measurement_noise_xy",  type=float, default=0.02)
-    parser.add_argument("--measurement_noise_z",   type=float, default=0.1)
-    parser.add_argument("--measurement_noise_r",   type=float, default=0.05)
-    parser.add_argument("--min_iou",               type=float, default=0.1)
-    parser.add_argument("--dev",                   action="store_true")
+    parser.add_argument("--poses_dir", required=True)
+    parser.add_argument("--mesh_path", required=True)
+    parser.add_argument("--intrinsics_path", required=True)
+    parser.add_argument("--weights_dir", required=True)
+    parser.add_argument("--output_dir", required=True)
+    parser.add_argument("--masks_folder", default=None)
+    parser.add_argument("--process_noise_xy", type=float, default=0.005)
+    parser.add_argument("--process_noise_z", type=float, default=0.005)
+    parser.add_argument("--process_noise_r", type=float, default=0.01)
+    parser.add_argument("--measurement_noise_xy", type=float, default=0.02)
+    parser.add_argument("--measurement_noise_z", type=float, default=0.1)
+    parser.add_argument("--measurement_noise_r", type=float, default=0.05)
+    parser.add_argument("--min_iou", type=float, default=0.1)
+    parser.add_argument("--dev", action="store_true")
+    parser.add_argument(
+        "--gpu",
+        type=int,
+        default=None,
+        help="Physical host GPU index; omitted preserves legacy all-GPU exposure",
+    )
     args = parser.parse_args()
     run_ekf_smoothing(
         args.poses_dir,
@@ -86,4 +108,5 @@ if __name__ == "__main__":
         measurement_noise_r=args.measurement_noise_r,
         min_iou=args.min_iou,
         dev=args.dev,
+        gpu_device=args.gpu,
     )

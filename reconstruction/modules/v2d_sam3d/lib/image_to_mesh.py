@@ -9,8 +9,15 @@ torch.hub._validate_not_a_forked_repo = lambda *args, **kwargs: None
 
 from v2d.common.datatypes import Transform3d, CameraIntrinsics, DepthImage
 from v2d.sam3d.lib.inference_pipeline_modified import InferencePipelinePointMap, camera_to_pytorch3d_camera
+from v2d.sam3d.lib.download_weights import (
+    MOGE_MODEL_BYTES,
+    MOGE_MODEL_SHA256,
+    MOGE_REVISION,
+    _verify,
+)
 import os
 import argparse
+from pathlib import Path
 import numpy as np
 import torch
 from PIL import Image
@@ -76,28 +83,22 @@ def _get_pipeline(weights_dir: str):
         config._target_ = "v2d.sam3d.lib.inference_pipeline_modified.InferencePipelinePointMap"
 
         hf_home = os.environ.get("HF_HOME", os.path.join(weights_dir, "hf_home"))
-        moge_model_path = None
-
-        moge_cache_paths = [
-            os.path.join(hf_home, "hub", "models--Ruicheng--moge-vitl", "snapshots"),
-            os.path.join(weights_dir, "hf_home", "hub", "models--Ruicheng--moge-vitl", "snapshots"),
-        ]
-
-        for cache_path in moge_cache_paths:
-            if os.path.exists(cache_path):
-                snapshots = [d for d in os.listdir(cache_path) if os.path.isdir(os.path.join(cache_path, d))]
-                if snapshots:
-                    moge_model_path = os.path.join(cache_path, snapshots[0], "model.pt")
-                    if os.path.exists(moge_model_path):
-                        break
-
-        if moge_model_path and os.path.exists(moge_model_path):
-            if hasattr(config, 'depth_model') and hasattr(config.depth_model, 'model'):
-                config.depth_model.model.pretrained_model_name_or_path = moge_model_path
-                print(f"Using local MoGE model: {moge_model_path}")
-        else:
-            print(f"Warning: Local MoGE model not found, will try to download from HuggingFace")
-            print(f"Searched in: {moge_cache_paths}")
+        # Never pick an arbitrary cache entry: multiple Hugging Face snapshots
+        # can coexist and directory order is not a model-version contract.
+        # The downloader pins this exact revision, size, and digest, so select
+        # and revalidate that same immutable checkpoint at inference time.
+        moge_model_path = os.path.join(
+            hf_home,
+            "hub",
+            "models--Ruicheng--moge-vitl",
+            "snapshots",
+            MOGE_REVISION,
+            "model.pt",
+        )
+        _verify(Path(moge_model_path), MOGE_MODEL_BYTES, MOGE_MODEL_SHA256)
+        if hasattr(config, 'depth_model') and hasattr(config.depth_model, 'model'):
+            config.depth_model.model.pretrained_model_name_or_path = moge_model_path
+            print(f"Using pinned local MoGE model: {moge_model_path}")
 
         print(f"Initializing SAM3D pipeline with target: {config._target_}")
         try:

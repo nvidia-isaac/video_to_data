@@ -19,7 +19,7 @@ from inpainting.composite_robot import (
 )
 from inpainting.contracts import ContractError, VideoGeometry
 from inpainting.robot_renderer.backend import RENDER_METADATA_SCHEMA
-from inpainting.taco_object_depth import OBJECT_RENDER_SCHEMA
+from inpainting.contracts import TACO_OBJECT_RENDER_SCHEMA as OBJECT_RENDER_SCHEMA
 from inpainting.video_io import probe_video
 
 

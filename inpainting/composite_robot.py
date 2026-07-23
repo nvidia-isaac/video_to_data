@@ -15,16 +15,21 @@ import numpy as np
 
 from .contracts import (
     ContractError,
+    TACO_OBJECT_RENDER_SCHEMA,
     VideoGeometry,
     validate_depth_file,
     validate_mask_file,
 )
+from .occluder_depth import (
+    OCCLUDER_DEPTH_SCHEMA,
+    validate_occluder_depth_bundle,
+)
 from .robot_renderer.backend import RENDER_METADATA_SCHEMA
-from .taco_object_depth import OBJECT_RENDER_SCHEMA
 from .video_io import probe_video
 
 
 COMPOSITE_SCHEMA = "v2d.inpainting.composite/v1"
+OBJECT_RENDER_SCHEMA = TACO_OBJECT_RENDER_SCHEMA
 ROBOT_ARTIFACT_NAMES = {
     "rgb": "robot_rgb.mp4",
     "mask": "robot_mask.npy",
@@ -234,6 +239,29 @@ def validate_taco_object_render_bundle(
     )
 
 
+def validate_object_occluder_bundle(
+    metadata_path: str | Path, geometry: VideoGeometry
+) -> tuple[dict[str, Any], dict[str, Path]]:
+    """Dispatch a depth occluder without mislabelling estimates as TACO GT."""
+
+    path = Path(metadata_path).resolve()
+    try:
+        candidate = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ContractError(f"Could not read object occluder metadata: {path}") from exc
+    if not isinstance(candidate, dict):
+        raise ContractError("Object occluder metadata must be a JSON object")
+    schema = candidate.get("schema_version")
+    if schema == OBJECT_RENDER_SCHEMA:
+        return validate_taco_object_render_bundle(path, geometry)
+    if schema == OCCLUDER_DEPTH_SCHEMA:
+        return validate_occluder_depth_bundle(path, geometry)
+    raise ContractError(
+        "Object occluder schema must be one of "
+        f"{(OBJECT_RENDER_SCHEMA, OCCLUDER_DEPTH_SCHEMA)!r}, got {schema!r}"
+    )
+
+
 def _assert_distinct_paths(paths: dict[str, Path]) -> None:
     seen: dict[Path, str] = {}
     for label, path in paths.items():
@@ -261,18 +289,18 @@ def _assert_bundle_unchanged(
     initial_metadata: dict[str, Any],
     initial_artifacts: dict[str, Path],
     geometry: VideoGeometry,
-    object_bundle: bool,
+    bundle_type: str,
 ) -> None:
     """Rehash a consumed bundle and reject any generation change before commit."""
 
     if _fingerprint(metadata_path) != initial_metadata_fingerprint:
         raise ContractError(f"Input metadata changed while compositing: {metadata_path}")
-    if object_bundle:
-        metadata, artifacts = validate_taco_object_render_bundle(
-            metadata_path, geometry
-        )
-    else:
+    if bundle_type == "robot":
         metadata, artifacts = validate_robot_render_bundle(metadata_path, geometry)
+    elif bundle_type == "occluder":
+        metadata, artifacts = validate_object_occluder_bundle(metadata_path, geometry)
+    else:
+        raise ValueError(f"Unsupported bundle_type: {bundle_type!r}")
     if metadata != initial_metadata or artifacts != initial_artifacts:
         raise ContractError(f"Input bundle changed while compositing: {metadata_path}")
     # Bracket artifact verification so a sidecar replacement during hashing is
@@ -289,7 +317,7 @@ def depth_visible_robot_mask(
     *,
     depth_guard_m: float = 0.003,
 ) -> np.ndarray:
-    """Return robot pixels not hidden by a closer observed TACO object."""
+    """Return robot pixels not hidden by a closer metric-depth occluder."""
 
     if (
         isinstance(depth_guard_m, bool)
@@ -416,7 +444,7 @@ def composite_robot(
     robot_depth = None
     if object_paths is not None:
         object_mask_path, object_depth_path, object_metadata_path = object_paths
-        object_metadata, object_bundle = validate_taco_object_render_bundle(
+        object_metadata, object_bundle = validate_object_occluder_bundle(
             object_metadata_path, base_geometry
         )
         object_metadata_fingerprint = _fingerprint(object_metadata_path)
@@ -546,7 +574,7 @@ def composite_robot(
             initial_metadata=robot_metadata,
             initial_artifacts=robot_bundle,
             geometry=base_geometry,
-            object_bundle=False,
+            bundle_type="robot",
         )
         if object_paths is not None:
             assert object_metadata is not None
@@ -558,7 +586,7 @@ def composite_robot(
                 initial_metadata=object_metadata,
                 initial_artifacts=object_bundle,
                 geometry=base_geometry,
-                object_bundle=True,
+                bundle_type="occluder",
             )
         _assert_stat_signatures_unchanged(
             consumed_input_paths, initial_stat_signatures
@@ -611,7 +639,14 @@ def composite_robot(
             "output_video": str(output_video),
             "geometry": base_geometry.as_dict(),
             "frames_written": written,
-            "compositing": "taco_object_depth" if depth_aware else "hard_robot_mask",
+            "compositing": (
+                "taco_object_depth"
+                if object_metadata is not None
+                and object_metadata.get("schema_version") == OBJECT_RENDER_SCHEMA
+                else "estimated_occluder_depth"
+                if depth_aware
+                else "hard_robot_mask"
+            ),
             "robot_pixels_written": robot_pixels,
             "object_occluded_robot_pixels": object_occluded_pixels,
             "input_fingerprints": input_fingerprints,
@@ -625,6 +660,12 @@ def composite_robot(
                     "object_depth": str(object_paths[1]),
                     "object_metadata": str(object_paths[2]),
                     "object_render_run_id": object_metadata.get("run_id")
+                    if object_metadata is not None
+                    else None,
+                    "object_occluder_schema": object_metadata.get("schema_version")
+                    if object_metadata is not None
+                    else None,
+                    "object_occluder_producer": object_metadata.get("producer")
                     if object_metadata is not None
                     else None,
                     "depth_guard_m": float(depth_guard_m),

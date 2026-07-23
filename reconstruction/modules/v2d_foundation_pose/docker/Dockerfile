@@ -1,93 +1,121 @@
-FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-devel
-ENV DEBIAN_FRONTEND=noninteractive
+FROM pytorch/pytorch:2.7.1-cuda12.8-cudnn9-devel@sha256:3d614dfd422b7e43647491cbf07d6acc516c032fc49c594a94afdebd52552fb9
+
+ARG PYTORCH3D_REF=4daa00b41c52455440b938d1b676e00935b204d7
+ARG NVDIFFRAST_REF=253ac4fcea7de5f396371124af597e6cc957bfae
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    TZ=US/Pacific \
+    PIP_NO_CACHE_DIR=1 \
+    FORCE_CUDA=1 \
+    TORCH_CUDA_ARCH_LIST=12.0 \
+    CMAKE_CUDA_ARCHITECTURES=120 \
+    MAX_JOBS=4 \
+    OPENCV_IO_ENABLE_OPENEXR=1 \
+    TORCH_EXTENSIONS_DIR=/tmp/torch_extensions
+
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y \
-    python3-pip \
-    python3-dev \
-    git \
-    libgl1 \
-    libglib2.0-0 \
-    zip \
+# FoundationPose's native code needs only Eigen, two Boost components,
+# pybind/CMake, and the runtime GL libraries used by Open3D/pyrender.  Avoid the
+# original broad multimedia/development install: OpenCV and image I/O arrive as
+# Python wheels below.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        cmake \
+        git \
+        libboost-program-options-dev \
+        libboost-system-dev \
+        libegl1-mesa \
+        libeigen3-dev \
+        libgbm1 \
+        libgl1 \
+        libgles2-mesa \
+        libglib2.0-0 \
+        libgomp1 \
+        libsm6 \
+        libx11-6 \
+        libxext6 \
+        libxrender1 \
+        ninja-build \
     && rm -rf /var/lib/apt/lists/*
 
-ENV TZ=US/Pacific
-RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+RUN python -m pip install \
+        ninja \
+        pybind11==2.12.0 \
+        setuptools \
+        wheel
 
-RUN apt-get update --fix-missing && \
-    apt-get install -y libgtk2.0-dev wget bzip2 ca-certificates curl git vim tmux \
-    g++ gcc build-essential cmake checkinstall gfortran libjpeg8-dev libtiff5-dev \
-    pkg-config yasm libavcodec-dev libavformat-dev libswscale-dev libxine2-dev \
-    libv4l-dev libgtk2.0-dev libtbb-dev libatlas-base-dev libfaac-dev libmp3lame-dev \
-    libtheora-dev libvorbis-dev libxvidcore-dev libopencore-amrnb-dev \
-    libopencore-amrwb-dev x264 v4l-utils libprotobuf-dev protobuf-compiler \
-    libgoogle-glog-dev libgflags-dev libgphoto2-dev libhdf5-dev doxygen libflann-dev \
-    libboost-all-dev proj-data libproj-dev libyaml-cpp-dev cmake-curses-gui \
-    libzmq3-dev freeglut3-dev libxrender1 libxext6 libsm6 libx11-6 libegl1-mesa \
-    libgles2-mesa libgbm1
+# Runtime imports are unusually broad in the vendored FoundationPose Utils.py;
+# keep its established dependency set while avoiding duplicate OpenCV wheels.
+RUN python -m pip install \
+        einops \
+        fast_simplification \
+        gdown \
+        h5py \
+        imageio \
+        joblib \
+        kornia \
+        meshcat \
+        omegaconf \
+        open3d \
+        openpyxl \
+        opencv-contrib-python \
+        pypng \
+        pyrender \
+        pyyaml \
+        roma \
+        ruamel.yaml \
+        scikit-image \
+        scikit-learn \
+        scipy \
+        seaborn \
+        transformations \
+        trimesh \
+        wandb \
+        warp-lang \
+        webdataset
 
-RUN cd / && git clone https://github.com/pybind/pybind11 && \
-    cd pybind11 && git checkout v2.10.0 && \
-    mkdir build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DPYBIND11_INSTALL=ON -DPYBIND11_TEST=OFF && \
-    make -j6 && make install
+# NVIDIA publishes an exact cp311 wheel for this Torch/CUDA pair.  Its native
+# extensions include Blackwell when used with the cu128 index.
+RUN python -m pip install \
+        kaolin==0.18.0 \
+        --find-links https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.7.1_cu128.html
 
-RUN cd / && wget https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.gz && \
-    tar xvzf ./eigen-3.4.0.tar.gz && \
-    cd eigen-3.4.0 && \
-    mkdir build && cd build && cmake .. && make install
+# Both projects contain native CUDA code.  Immutable refs plus the global
+# sm_120/FORCE_CUDA settings make the resulting image reproducible and prevent
+# a CPU-only build on the GPU-less Docker builder.
+RUN python -m pip install --no-build-isolation \
+        "git+https://github.com/facebookresearch/pytorch3d.git@${PYTORCH3D_REF}"
 
-RUN pip install \
-    scipy \
-    joblib \
-    scikit-learn \
-    ruamel.yaml \
-    trimesh \
-    pyyaml \
-    opencv-python \
-    imageio \
-    open3d \
-    transformations \
-    warp-lang \
-    einops \
-    kornia \
-    pyrender
+RUN python -m pip install --no-build-isolation \
+        "git+https://github.com/NVlabs/nvdiffrast.git@${NVDIFFRAST_REF}"
 
-RUN pip install kaolin==0.18.0 -f https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.5.1_cu124.html
+# Copy only the four packages required by this service.  In particular, do not
+# duplicate the full reconstruction/modules build context into the image.
+COPY v2d_common /workspace/v2d_common
+COPY v2d_mv /workspace/v2d_mv
+COPY v2d_mesh /workspace/v2d_mesh
+COPY v2d_foundation_pose/lib /workspace/v2d_foundation_pose/lib
 
-RUN TORCH_CUDA_ARCH_LIST="8.0 8.6 8.9 9.0" pip3 install "git+https://github.com/facebookresearch/pytorch3d.git"
+RUN cmake \
+        -S /workspace/v2d_foundation_pose/lib/FoundationPose/mycpp \
+        -B /workspace/v2d_foundation_pose/lib/FoundationPose/mycpp/build \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DPYTHON_EXECUTABLE="$(command -v python)" \
+        -Dpybind11_DIR="$(python -m pybind11 --cmakedir)" \
+    && cmake --build \
+        /workspace/v2d_foundation_pose/lib/FoundationPose/mycpp/build \
+        --parallel "${MAX_JOBS}"
 
-RUN git clone https://github.com/NVlabs/nvdiffrast /workspace/third_party/nvdiffrast && \
-    cd /workspace/third_party/nvdiffrast && \
-    pip install setuptools wheel ninja && \
-    TORCH_CUDA_ARCH_LIST="8.0 8.6 8.9 9.0" pip install . --no-build-isolation
+RUN cd /workspace/v2d_foundation_pose/lib/FoundationPose/bundlesdf/mycuda \
+    && python -m pip install --no-build-isolation -e .
 
-ENV OPENCV_IO_ENABLE_OPENEXR=1
-
-RUN pip install \
-    scikit-image \
-    meshcat \
-    webdataset \
-    omegaconf \
-    pypng \
-    roma \
-    seaborn \
-    opencv-contrib-python \
-    openpyxl \
-    wandb
-
-RUN pip install h5py fast_simplification gdown
-
-COPY v2d_foundation_pose/lib/FoundationPose/mycpp /workspace/v2d_foundation_pose/lib/FoundationPose/mycpp
-COPY v2d_foundation_pose/lib/FoundationPose/bundlesdf/mycuda /workspace/v2d_foundation_pose/lib/FoundationPose/bundlesdf/mycuda
-
-RUN cd /workspace/v2d_foundation_pose/lib/FoundationPose/mycpp \
-    && mkdir -p build && cd build && cmake .. -DPYTHON_EXECUTABLE=$(which python) && make -j11
-
-RUN cd /workspace/v2d_foundation_pose/lib/FoundationPose/bundlesdf/mycuda && \
-    TORCH_CUDA_ARCH_LIST="8.0 8.6 8.9 9.0" pip install -e .
-
-COPY . /workspace
-
-RUN pip install -e "/workspace/v2d_common[io]" \
-    -e "/workspace/v2d_mv[math]" \
-    -e /workspace/v2d_mesh/lib -e /workspace/v2d_foundation_pose/lib
+RUN python -m pip install \
+        -e "/workspace/v2d_common[io]" \
+        -e "/workspace/v2d_mv[math]" \
+        -e /workspace/v2d_mesh/lib \
+        -e /workspace/v2d_foundation_pose/lib \
+    && mkdir -p "${TORCH_EXTENSIONS_DIR}" \
+    && chmod 1777 "${TORCH_EXTENSIONS_DIR}" \
+    && chmod -R a+rX /workspace

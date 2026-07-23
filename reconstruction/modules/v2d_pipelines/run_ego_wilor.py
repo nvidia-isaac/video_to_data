@@ -122,13 +122,17 @@ def _apply_sam3d_transform(mesh_path: str, transform_path: str, out_path: str) -
     RS = R @ np.diag([sx, sy, sz])
     scene = trimesh.load(mesh_path)
     if isinstance(scene, trimesh.Scene):
-        meshes = list(scene.geometry.values())
-        for m in meshes:
-            m.vertices = (RS @ m.vertices.T).T
-        result = trimesh.util.concatenate(meshes)
+        # Bake every scene-graph node transform before flattening.  Reading
+        # ``scene.geometry.values()`` directly silently drops non-identity GLB
+        # node transforms and can change the reconstructed object geometry.
+        result = (
+            scene.to_geometry()
+            if hasattr(scene, "to_geometry")
+            else scene.dump(concatenate=True)
+        )
     else:
-        scene.vertices = (RS @ scene.vertices.T).T
         result = scene
+    result.vertices = (RS @ result.vertices.T).T
     result.export(out_path)
 
 
