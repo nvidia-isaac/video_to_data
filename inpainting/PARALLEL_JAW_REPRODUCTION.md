@@ -164,10 +164,25 @@ cloud and candidate ordering.
 
 ## Select and propagate one interaction
 
-The following is the complete production policy for the `253` left-cup event.
-It leaves contact-registration magnitude unbounded and unpenalized; the
-resulting `172.6--305.5` mm registrations are a reported limitation, not a
-claim of globally metric alignment.
+The contact-wrench follow-up ports the static geometry used by Video2Data's
+CHORD reward into a deterministic NumPy scorer. For each mesh-valid
+parallel-jaw candidate, it constructs an eight-edge friction cone at each
+contact with coefficient `mu=0.1`, forms wrenches about the mesh center of mass
+from unit force rays and radius-normalized torque components, and evaluates
+their support on one shared set of 512 unit directions generated with PCG64
+seed 0. The ranking reward is the tenth percentile (`q10`) of that support
+envelope. This is an anchor-frame,
+quasi-static grasp-quality surrogate: it does not launch Isaac Lab or another
+simulator, integrate contact dynamics, or score the handful of frames after
+contact.
+
+The following is the complete wrench-reranking policy for the `253` left-cup
+event. It keeps contact agreement primary (`5.0`) and adds the `q10` wrench
+reward at weight `1.0`; confidence and human-pose/approach terms remain weaker
+priors. Exact CHORD reference matching is available as a separate mode but was
+not used in this study. Contact registration remains unbounded and unpenalized,
+so the large world-alignment corrections remain a reported limitation rather
+than a claim of globally metric hand/object alignment.
 
 ```bash
 PYTHONPATH="$PWD" "$external_root/GraspGenX/.venv/bin/python" \
@@ -190,12 +205,21 @@ PYTHONPATH="$PWD" "$external_root/GraspGenX/.venv/bin/python" \
   --approach-blend-frames 8 \
   --release-blend-frames 8 \
   --min-antipodal-score 0.65 \
-  --score-contact-weight 1.0 \
+  --score-contact-weight 5.0 \
   --score-confidence-weight 0.005 \
   --score-pose-translation-weight 0.1 \
   --score-pose-rotation-weight 0.04 \
   --score-approach-weight 0.015 \
-  --score-registration-weight 0
+  --score-registration-weight 0 \
+  --contact-wrench-mode low_tail \
+  --score-wrench-low-tail-weight 1.0 \
+  --score-wrench-reference-weight 0 \
+  --wrench-direction-count 512 \
+  --wrench-direction-seed 0 \
+  --wrench-friction-coefficient 0.1 \
+  --wrench-friction-cone-edges 8 \
+  --wrench-low-quantile 0.1 \
+  --post-selection-registration-mode object_pose_translation
 ```
 
 Run the second interaction with the first interaction's output as
@@ -204,6 +228,27 @@ Run the second interaction with the first interaction's output as
 `configs/graspgenx_refinement_events.json` contains the inclusive
 start/anchor/end windows, start-in-contact flags, and RGB/Phantom evidence for
 all four interactions.
+
+`object_pose_translation` interprets the midpoint registration as a correction
+to the estimated object pose in world coordinates. It leaves the selected
+`T_object_gripper` unchanged, re-derives the two mesh contacts after resolving
+parallel-jaw symmetry, and revalidates aperture, antipodal geometry, and wrench
+support. Mesh contact is therefore valid at the corrected anchor. The
+subsequent `base_local_offset` propagation applies the one anchor-derived
+right-multiplied offset across the approach, hold, and release intervals. That
+choice preserves the base pipeline's strict IK feasibility and temporal
+behavior, but it means the declared mesh-contact scope is
+`anchor_frame_only`, not the full hold interval.
+
+YAM `105` needs one additional embodiment-level hard-feasibility pass for the
+left-board event. The combined geometric/wrench objective ranked candidates
+`43`, `145`, `50`, and `126` first through fourth. Rendering the first three
+under the unchanged 25-degree orientation gate produced maxima of
+`34.842927`, `28.743892`, and `37.294588` degrees, respectively. Candidate
+`126` passes at `23.135286` degrees and is therefore the best ranked
+strict-IK-feasible choice; the final target was reproduced with
+`--candidate-index-allowlist 126`. No render gate was relaxed to accept a
+higher-scoring grasp.
 
 The final refined render gates were:
 
@@ -217,3 +262,16 @@ The final refined render gates were:
 All conditions retain the 10 mm position gate. Exact selected candidates,
 scores, symmetry choices, registrations, target hashes, and renderer policies
 are recorded in the ignored output sidecars.
+
+For the controlled visualization, all three methods were rerendered rather than
+mixing historical renderer versions: V2D baseline, contact-selected GraspGenX,
+and contact-wrench-reranked GraspGenX. All 12 renders use
+`robotic-grounding:photo-render-v8`, immutable image ID
+`sha256:09f0bb3becf4c6ee16b701b049254c384df35c97dd1d22e403da0f7d2f7c2f1b`,
+with the same per-robot/per-clip gates above and the same `0.01` orientation
+cost. The generated wrench targets and interaction sidecars live under:
+
+```text
+inpainting/artifacts/runs/taco_hand_tracking_v1/<sequence>/parallel_jaw/
+  graspgenx_targets/<robot>/v2d_graspgenx_wrench_v1/
+```

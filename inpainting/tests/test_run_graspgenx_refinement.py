@@ -129,6 +129,7 @@ def _execute(
     robot_profile: str = "galbot_one_golf",
     propagation_mode: str = "object_lock",
     overwrite: bool = False,
+    **execute_kwargs: object,
 ) -> dict:
     depth = float(fixture["depth"])
     return runner.execute(
@@ -154,6 +155,7 @@ def _execute(
         pad_z_bounds_m=(depth, depth + 0.001),
         sweep_samples_y=5,
         sweep_samples_z=3,
+        **execute_kwargs,
     )
 
 
@@ -199,6 +201,36 @@ def test_profile_transforms_and_candidate_matched_sweep_bounds() -> None:
         yam.T_gripper_base_tcp("right")[:3, :3],
         np.eye(3),
     )
+
+
+def test_candidate_index_allowlist_is_recorded_and_validated(
+    tmp_path: Path,
+) -> None:
+    fixture = _write_fixture(tmp_path / "fixture")
+    output = tmp_path / "selected.npz"
+
+    metadata = _execute(
+        fixture,
+        side="left",
+        output=output,
+        candidate_index_allowlist=[0],
+    )
+
+    assert metadata["selection"]["selected_candidate_index"] == 0
+    assert metadata["selection"]["hard_filters"][
+        "candidate_index_allowlist"
+    ] == [0]
+
+    with pytest.raises(
+        runner.RefinementRunError,
+        match=r"outside \[0, 1\)",
+    ):
+        _execute(
+            fixture,
+            side="left",
+            output=tmp_path / "invalid.npz",
+            candidate_index_allowlist=[1],
+        )
 
 
 def test_midpoint_surface_registration_preserves_pair_when_independent_collapses() -> None:
@@ -293,6 +325,182 @@ def test_execute_projects_contacts_selects_and_preserves_exact_schema(
         atol=2e-7,
     )
     np.testing.assert_allclose(refined["left_aperture_m"][2:5], 0.04, atol=1e-7)
+
+
+def test_contact_wrench_mode_preserves_mesh_contacts_via_object_pose_translation(
+    tmp_path: Path,
+) -> None:
+    fixture = _write_fixture(tmp_path / "inputs")
+    quarter_turn = float(np.sqrt(0.5))
+    for pose_path in Path(fixture["poses"]).glob("*.json"):
+        pose_payload = json.loads(pose_path.read_text())
+        pose_payload["rotation"] = [
+            quarter_turn,
+            0.0,
+            0.0,
+            quarter_turn,
+        ]
+        pose_path.write_text(json.dumps(pose_payload))
+    output = tmp_path / "wrench_refined.npz"
+
+    metadata = _execute(
+        fixture,
+        side="left",
+        output=output,
+        contact_wrench_mode="low_tail",
+        post_selection_registration_mode="object_pose_translation",
+        post_selection_registration_cap_m=0.002,
+        wrench_direction_count=64,
+        wrench_direction_seed=7,
+        wrench_friction_coefficient=0.2,
+        wrench_low_quantile=0.2,
+    )
+
+    wrench = metadata["contact_wrench_scoring"]
+    assert wrench["enabled"] is True
+    assert wrench["mode"] == "low_tail"
+    assert wrench["requires_simulator"] is False
+    assert wrench["basis"]["shape"] == [64, 6]
+    assert wrench["basis"]["seed"] == 7
+    assert wrench["configuration"]["friction_coefficient"] == pytest.approx(0.2)
+    assert wrench["selected_before_registration"][
+        "low_quantile_support"
+    ] == pytest.approx(
+        wrench["selected_after_mesh_revalidation"]["low_quantile_support"]
+    )
+
+    registration = metadata["contact_registration"]
+    assert registration["mode"] == "object_pose_translation"
+    assert registration["was_capped_or_disabled"] is True
+    assert registration["translation_magnitude_m"] == pytest.approx(0.002)
+    assert registration["mesh_consistency"][
+        "contacts_rederived_after_symmetry"
+    ] is True
+    np.testing.assert_allclose(
+        registration["T_object_gripper_base_registered"],
+        metadata["selection"]["T_object_gripper_base_symmetry_aligned"],
+        atol=1e-12,
+    )
+    anchor_before = np.asarray(
+        registration["mesh_consistency"]["T_world_object_anchor_before"]
+    )
+    anchor_corrected = np.asarray(
+        registration["mesh_consistency"][
+            "T_world_object_anchor_for_propagation"
+        ]
+    )
+    np.testing.assert_allclose(
+        registration["translation_world_m"],
+        anchor_before[:3, :3]
+        @ np.asarray(registration["translation_object_m"]),
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        anchor_corrected[:3, 3] - anchor_before[:3, 3],
+        registration["translation_world_m"],
+        atol=1e-12,
+    )
+
+
+def test_contact_wrench_mode_rejects_legacy_gripper_translation(
+    tmp_path: Path,
+) -> None:
+    fixture = _write_fixture(tmp_path / "inputs")
+    with pytest.raises(
+        runner.RefinementRunError,
+        match="mesh-consistent post-selection registration",
+    ):
+        _execute(
+            fixture,
+            side="left",
+            output=tmp_path / "invalid.npz",
+            contact_wrench_mode="low_tail",
+        )
+
+
+def test_wrench_reference_requires_matching_full_wrench_contract(
+    tmp_path: Path,
+) -> None:
+    basis = runner.contact_wrench_scoring.shared_wrench_basis(32, 11)
+    object_com = np.array([0.01, -0.02, 0.03], dtype=np.float64)
+    radius = 0.25
+    reference_path = tmp_path / "reference.npz"
+    payload = {
+        "schema_version": np.asarray(
+            runner.contact_wrench_scoring.REFERENCE_SCHEMA_VERSION
+        ),
+        "scorer_version": np.asarray(
+            runner.contact_wrench_scoring.SCORER_VERSION
+        ),
+        "supports": np.linspace(0.0, 1.0, 32, dtype=np.float64),
+        "basis_sha256": np.asarray(basis.sha256),
+        "object_com_object_m": object_com,
+        "object_radius_m": np.asarray(radius),
+        "friction_coefficient": np.asarray(0.1),
+        "friction_cone_edges": np.asarray(8),
+        "normal_conversion": np.asarray(
+            runner.contact_wrench_scoring.NORMAL_CONVERSION_CONVENTION
+        ),
+        "torque_normalization": np.asarray(
+            runner.contact_wrench_scoring.TORQUE_NORMALIZATION_CONVENTION
+        ),
+        "friction_cone_phase_convention": np.asarray(
+            runner.contact_wrench_scoring.FRICTION_CONE_PHASE_CONVENTION
+        ),
+    }
+    np.savez_compressed(reference_path, **payload)
+
+    supports = runner._load_wrench_reference_supports(
+        reference_path,
+        basis_sha256=basis.sha256,
+        direction_count=32,
+        object_com_object=object_com,
+        object_radius_m=radius,
+        friction_coefficient=0.1,
+        friction_cone_edges=8,
+    )
+    np.testing.assert_array_equal(supports, payload["supports"])
+
+    payload["object_radius_m"] = np.asarray(radius + 0.01)
+    np.savez_compressed(reference_path, **payload)
+    with pytest.raises(
+        runner.RefinementRunError,
+        match="object_radius_m does not match",
+    ):
+        runner._load_wrench_reference_supports(
+            reference_path,
+            basis_sha256=basis.sha256,
+            direction_count=32,
+            object_com_object=object_com,
+            object_radius_m=radius,
+            friction_coefficient=0.1,
+            friction_cone_edges=8,
+        )
+
+
+def test_object_pose_translation_supports_anchor_only_base_local_propagation(
+    tmp_path: Path,
+) -> None:
+    fixture = _write_fixture(tmp_path / "inputs")
+    metadata = _execute(
+        fixture,
+        side="left",
+        output=tmp_path / "base_local_wrench.npz",
+        propagation_mode="base_local_offset",
+        contact_wrench_mode="low_tail",
+        post_selection_registration_mode="object_pose_translation",
+        wrench_direction_count=64,
+    )
+
+    assert metadata["trajectory_correction"]["foundationpose_dependency"] == (
+        "anchor_frame_only"
+    )
+    assert metadata["trajectory_correction"]["mesh_contact_scope"] == (
+        "anchor_frame_only"
+    )
+    assert "guaranteed at the anchor" in (
+        metadata["contact_registration"]["mesh_consistency"]["policy"]
+    )
 
 
 def test_execute_scores_midpoint_registered_pair_not_independent_projection(

@@ -716,6 +716,8 @@ class GraspScoreWeights:
     pose_translation: float = 0.10
     pose_rotation: float = 0.005
     approach: float = 0.003
+    wrench_low_tail_support: float = 0.0
+    wrench_reference_match: float = 0.0
     registration_weight_fallback: float = 0.25
 
     def validate(self) -> None:
@@ -725,6 +727,8 @@ class GraspScoreWeights:
             self.pose_translation,
             self.pose_rotation,
             self.approach,
+            self.wrench_low_tail_support,
+            self.wrench_reference_match,
         )
         if not np.isfinite(values).all() or any(value < 0.0 for value in values):
             raise GraspRefinementError("score weights must be finite and nonnegative")
@@ -735,6 +739,50 @@ class GraspScoreWeights:
             raise GraspRefinementError(
                 "registration_weight_fallback must be in [0,1]"
             )
+
+
+@dataclass(frozen=True)
+class CandidateWrenchMetrics:
+    """Scalar contact-wrench rewards for one candidate on a shared basis.
+
+    The low-tail support and optional reference match are rewards: larger is
+    better.  ``score_grasp_candidates`` subtracts their weighted contribution
+    from its otherwise cost-valued objective.
+    """
+
+    candidate_index: int
+    low_quantile_support: float
+    mean_support: float
+    support_coverage: float
+    reference_match: float | None = None
+
+    def validate(self) -> None:
+        if isinstance(self.candidate_index, bool) or not isinstance(
+            self.candidate_index,
+            (int, np.integer),
+        ):
+            raise GraspRefinementError(
+                "wrench candidate_index must be an integer"
+            )
+        values = (
+            self.low_quantile_support,
+            self.mean_support,
+            self.support_coverage,
+        )
+        if not np.isfinite(values).all():
+            raise GraspRefinementError("wrench metrics must be finite")
+        if self.low_quantile_support < 0.0 or self.mean_support < 0.0:
+            raise GraspRefinementError(
+                "wrench support metrics must be nonnegative"
+            )
+        if not 0.0 <= self.support_coverage <= 1.0:
+            raise GraspRefinementError(
+                "wrench support_coverage must be in [0,1]"
+            )
+        if self.reference_match is not None and not np.isfinite(
+            self.reference_match
+        ):
+            raise GraspRefinementError("wrench reference_match must be finite")
 
 
 @dataclass(frozen=True)
@@ -751,6 +799,11 @@ class CandidateScore:
     pose_rotation_rad: float | None
     approach_angle_rad: float | None
     symmetry_flipped: bool
+    wrench_low_quantile_support: float | None = None
+    wrench_mean_support: float | None = None
+    wrench_support_coverage: float | None = None
+    wrench_reference_match: float | None = None
+    wrench_weighted_reward: float | None = None
     reason: str | None = None
 
 
@@ -792,6 +845,7 @@ def score_grasp_candidates(
     registration_weight: float | None = None,
     mesh_registration_residual_m: float | None = None,
     registration_residual_scale_m: float = 0.02,
+    wrench_metrics: Mapping[int, CandidateWrenchMetrics] | None = None,
     weights: GraspScoreWeights = GraspScoreWeights(),
 ) -> tuple[CandidateScore, ...]:
     """Score feasible grasps using contacts first and weak pose priors second.
@@ -869,6 +923,43 @@ def score_grasp_candidates(
         residual_scale_m=registration_residual_scale_m,
         fallback=weights.registration_weight_fallback,
     )
+    candidate_indices = {candidate.candidate_index for candidate in candidates}
+    if len(candidate_indices) != len(candidates):
+        raise GraspRefinementError("candidate_index values must be unique")
+    wrench_by_index: dict[int, CandidateWrenchMetrics] = {}
+    if wrench_metrics is not None:
+        for raw_index, metrics in wrench_metrics.items():
+            if isinstance(raw_index, bool) or not isinstance(
+                raw_index,
+                (int, np.integer),
+            ):
+                raise GraspRefinementError(
+                    "wrench metric mapping keys must be integer candidate indices"
+                )
+            index = int(raw_index)
+            if not isinstance(metrics, CandidateWrenchMetrics):
+                raise GraspRefinementError(
+                    "wrench metric values must be CandidateWrenchMetrics"
+                )
+            metrics.validate()
+            if metrics.candidate_index != index:
+                raise GraspRefinementError(
+                    "wrench metric key does not match candidate_index"
+                )
+            if index not in candidate_indices:
+                raise GraspRefinementError(
+                    f"wrench metrics contain unknown candidate_index {index}"
+                )
+            wrench_by_index[index] = metrics
+    wrench_objective_enabled = (
+        weights.wrench_low_tail_support > 0.0
+        or weights.wrench_reference_match > 0.0
+    )
+    if wrench_objective_enabled and not wrench_by_index:
+        raise GraspRefinementError(
+            "positive wrench score weights require candidate wrench metrics"
+        )
+
     scores: list[CandidateScore] = []
     for offset, candidate in enumerate(candidates):
         confidence = float(confidence_values[offset])
@@ -999,12 +1090,46 @@ def score_grasp_candidates(
                 )
             )
         confidence_cost = float(-np.log(max(confidence, 1e-8)))
+        wrench = wrench_by_index.get(candidate.candidate_index)
+        if wrench_objective_enabled and wrench is None:
+            raise GraspRefinementError(
+                "missing wrench metrics for feasible candidate "
+                f"{candidate.candidate_index}"
+            )
+        if (
+            wrench is not None
+            and weights.wrench_reference_match > 0.0
+            and wrench.reference_match is None
+        ):
+            raise GraspRefinementError(
+                "positive wrench_reference_match weight requires exact "
+                "reference metrics for every feasible candidate"
+            )
+        wrench_weighted_reward = (
+            None
+            if wrench is None
+            else (
+                weights.wrench_low_tail_support
+                * wrench.low_quantile_support
+                + weights.wrench_reference_match
+                * (
+                    0.0
+                    if wrench.reference_match is None
+                    else wrench.reference_match
+                )
+            )
+        )
         total = (
             weights.contact * contact_cost
             + weights.confidence * confidence_cost
             + weights.pose_translation * pose_translation
             + weights.pose_rotation * pose_rotation
             + weights.approach * approach_angle
+            - (
+                0.0
+                if wrench_weighted_reward is None
+                else wrench_weighted_reward
+            )
         )
         scores.append(
             CandidateScore(
@@ -1034,6 +1159,19 @@ def score_grasp_candidates(
                     approach_angle if human_approach is not None else None
                 ),
                 symmetry_flipped=symmetry_flipped,
+                wrench_low_quantile_support=(
+                    None if wrench is None else wrench.low_quantile_support
+                ),
+                wrench_mean_support=(
+                    None if wrench is None else wrench.mean_support
+                ),
+                wrench_support_coverage=(
+                    None if wrench is None else wrench.support_coverage
+                ),
+                wrench_reference_match=(
+                    None if wrench is None else wrench.reference_match
+                ),
+                wrench_weighted_reward=wrench_weighted_reward,
             )
         )
     return tuple(scores)

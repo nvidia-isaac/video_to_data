@@ -276,6 +276,71 @@ def test_parallel_jaw_pose_prior_treats_pi_roll_as_equivalent() -> None:
     assert scores[0].total_cost == pytest.approx(scores[1].total_cost, abs=1e-12)
 
 
+def test_wrench_low_tail_reward_is_primary_and_reference_is_optional() -> None:
+    contacts = np.array([[-0.02, 0.0, 0.0], [0.02, 0.0, 0.0]])
+    candidates = [_candidate(0, contacts), _candidate(1, contacts)]
+    metrics = {
+        0: refinement.CandidateWrenchMetrics(
+            candidate_index=0,
+            low_quantile_support=0.01,
+            mean_support=0.3,
+            support_coverage=0.9,
+        ),
+        1: refinement.CandidateWrenchMetrics(
+            candidate_index=1,
+            low_quantile_support=0.12,
+            mean_support=0.2,
+            support_coverage=0.8,
+        ),
+    }
+    scores = refinement.score_grasp_candidates(
+        candidates,
+        contacts,
+        confidences=[1.0, 1.0],
+        aperture_limits_m=(0.005, 0.08),
+        registration_weight=1.0,
+        wrench_metrics=metrics,
+        weights=refinement.GraspScoreWeights(
+            contact=0.0,
+            confidence=0.0,
+            pose_translation=0.0,
+            pose_rotation=0.0,
+            approach=0.0,
+            wrench_low_tail_support=1.0,
+        ),
+    )
+
+    assert refinement.select_best_candidate(scores).candidate_index == 1
+    assert scores[1].wrench_low_quantile_support == pytest.approx(0.12)
+    assert scores[1].wrench_reference_match is None
+    assert scores[1].wrench_weighted_reward == pytest.approx(0.12)
+    assert scores[1].total_cost == pytest.approx(-0.12)
+
+
+def test_wrench_reference_weight_requires_exact_reference_metrics() -> None:
+    contacts = np.array([[-0.02, 0.0, 0.0], [0.02, 0.0, 0.0]])
+    with pytest.raises(
+        refinement.GraspRefinementError,
+        match="exact reference metrics",
+    ):
+        refinement.score_grasp_candidates(
+            [_candidate(0, contacts)],
+            contacts,
+            aperture_limits_m=(0.005, 0.08),
+            wrench_metrics={
+                0: refinement.CandidateWrenchMetrics(
+                    candidate_index=0,
+                    low_quantile_support=0.1,
+                    mean_support=0.2,
+                    support_coverage=1.0,
+                )
+            },
+            weights=refinement.GraspScoreWeights(
+                wrench_reference_match=0.5,
+            ),
+        )
+
+
 def test_phase_correction_locks_hold_slerps_and_preserves_untouched_frames() -> None:
     target = _target(12)
     original = {key: value.copy() for key, value in target.items()}

@@ -19,6 +19,7 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
+from inpainting import contact_wrench_scoring
 from inpainting import grasp_refinement
 from inpainting.adapters import parallel_jaw_from_tracking
 from inpainting.contracts import ContractError, validate_tracking_arrays
@@ -26,10 +27,16 @@ from inpainting.graspgenx_candidates import validate_candidates
 
 
 RUN_SCHEMA = "v2d.inpainting.graspgenx-refinement-run/v1"
-RUNNER_VERSION = "1.1.0"
+RUNNER_VERSION = "1.2.0"
 THUMB_TIP = 4
 INDEX_TIP = 8
 DEFAULT_ANCHOR_WINDOW_RADIUS = 2
+CONTACT_WRENCH_MODES = ("disabled", "low_tail", "low_tail_reference")
+POST_SELECTION_REGISTRATION_MODES = (
+    "gripper_translation",
+    "object_pose_translation",
+    "none",
+)
 CONTACT_PAIR_REGISTRATION_STRATEGY = (
     "raw_pair_common_translation_via_nearest_surface_midpoint/v1"
 )
@@ -384,6 +391,306 @@ def _load_mesh(path: str | Path) -> Any:
     return mesh
 
 
+def _mesh_wrench_geometry(
+    mesh: Any,
+) -> tuple[np.ndarray, float, str]:
+    """Return the explicit COM and bounding radius used by CHORD geometry."""
+
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    try:
+        center_mass = np.asarray(mesh.center_mass, dtype=np.float64)
+    except Exception:
+        center_mass = np.full(3, np.nan, dtype=np.float64)
+    if center_mass.shape == (3,) and np.isfinite(center_mass).all():
+        center_policy = "trimesh.center_mass"
+    else:
+        center_mass = np.mean(vertices, axis=0)
+        center_policy = "vertex_mean_fallback_for_nonfinite_center_mass"
+    radius = float(np.max(np.linalg.norm(vertices - center_mass[None], axis=1)))
+    if not np.isfinite(radius) or radius <= 0.0:
+        raise RefinementRunError(
+            "metric mesh must have a positive finite COM-relative radius"
+        )
+    return center_mass, radius, center_policy
+
+
+def _load_wrench_reference_supports(
+    path: str | Path,
+    *,
+    basis_sha256: str,
+    direction_count: int,
+    object_com_object: np.ndarray,
+    object_radius_m: float,
+    friction_coefficient: float,
+    friction_cone_edges: int,
+) -> np.ndarray:
+    """Load a reference envelope with an exact wrench-space contract."""
+
+    source = Path(path).expanduser().resolve()
+    if not source.is_file():
+        raise FileNotFoundError(source)
+    try:
+        with np.load(source, allow_pickle=False) as archive:
+            required = {
+                "schema_version",
+                "scorer_version",
+                "supports",
+                "basis_sha256",
+                "object_com_object_m",
+                "object_radius_m",
+                "friction_coefficient",
+                "friction_cone_edges",
+                "normal_conversion",
+                "torque_normalization",
+                "friction_cone_phase_convention",
+            }
+            if not required.issubset(archive.files):
+                missing = sorted(required.difference(archive.files))
+                raise RefinementRunError(
+                    "contact-wrench reference NPZ is missing exact-contract "
+                    f"fields: {', '.join(missing)}"
+                )
+            schema_version = _scalar_text(
+                archive["schema_version"],
+                name="contact_wrench_reference.schema_version",
+            )
+            scorer_version = _scalar_text(
+                archive["scorer_version"],
+                name="contact_wrench_reference.scorer_version",
+            )
+            supports = np.asarray(archive["supports"], dtype=np.float64)
+            recorded_hash = _scalar_text(
+                archive["basis_sha256"],
+                name="contact_wrench_reference.basis_sha256",
+            )
+            recorded_com = np.asarray(
+                archive["object_com_object_m"],
+                dtype=np.float64,
+            )
+            recorded_radius = float(
+                np.asarray(archive["object_radius_m"]).item()
+            )
+            recorded_friction = float(
+                np.asarray(archive["friction_coefficient"]).item()
+            )
+            recorded_edges_array = np.asarray(archive["friction_cone_edges"])
+            recorded_edges_value = float(recorded_edges_array.item())
+            recorded_edges = int(recorded_edges_value)
+            normal_conversion = _scalar_text(
+                archive["normal_conversion"],
+                name="contact_wrench_reference.normal_conversion",
+            )
+            torque_normalization = _scalar_text(
+                archive["torque_normalization"],
+                name="contact_wrench_reference.torque_normalization",
+            )
+            phase_convention = _scalar_text(
+                archive["friction_cone_phase_convention"],
+                name=(
+                    "contact_wrench_reference."
+                    "friction_cone_phase_convention"
+                ),
+            )
+    except RefinementRunError:
+        raise
+    except (OSError, TypeError, ValueError) as exc:
+        raise RefinementRunError(
+            f"cannot load contact-wrench reference {source}: {exc}"
+        ) from exc
+    if (
+        schema_version
+        != contact_wrench_scoring.REFERENCE_SCHEMA_VERSION
+    ):
+        raise RefinementRunError(
+            "contact-wrench reference schema_version does not match "
+            f"{contact_wrench_scoring.REFERENCE_SCHEMA_VERSION}"
+        )
+    if scorer_version != contact_wrench_scoring.SCORER_VERSION:
+        raise RefinementRunError(
+            "contact-wrench reference scorer_version does not match "
+            f"{contact_wrench_scoring.SCORER_VERSION}"
+        )
+    if recorded_hash != basis_sha256:
+        raise RefinementRunError(
+            "contact-wrench reference basis_sha256 does not match the "
+            "configured shared basis"
+        )
+    if supports.shape != (direction_count,) or not np.isfinite(supports).all():
+        raise RefinementRunError(
+            "contact-wrench reference supports must be finite with shape "
+            f"({direction_count},)"
+        )
+    if np.any(supports < 0.0):
+        raise RefinementRunError(
+            "contact-wrench reference supports must be nonnegative"
+        )
+    expected_com = np.asarray(object_com_object, dtype=np.float64)
+    if (
+        recorded_com.shape != (3,)
+        or not np.isfinite(recorded_com).all()
+        or not np.allclose(
+            recorded_com,
+            expected_com,
+            rtol=0.0,
+            atol=1e-12,
+        )
+    ):
+        raise RefinementRunError(
+            "contact-wrench reference object_com_object_m does not match "
+            "the configured mesh"
+        )
+    if (
+        not np.isfinite(recorded_radius)
+        or not np.isclose(
+            recorded_radius,
+            object_radius_m,
+            rtol=0.0,
+            atol=1e-12,
+        )
+    ):
+        raise RefinementRunError(
+            "contact-wrench reference object_radius_m does not match the "
+            "configured mesh"
+        )
+    if (
+        not np.isfinite(recorded_friction)
+        or not np.isclose(
+            recorded_friction,
+            friction_coefficient,
+            rtol=0.0,
+            atol=1e-12,
+        )
+    ):
+        raise RefinementRunError(
+            "contact-wrench reference friction_coefficient does not match "
+            "the configured scorer"
+        )
+    if (
+        recorded_edges_array.shape != ()
+        or not np.isfinite(recorded_edges_value)
+        or recorded_edges_value != recorded_edges
+        or recorded_edges != friction_cone_edges
+    ):
+        raise RefinementRunError(
+            "contact-wrench reference friction_cone_edges does not match "
+            "the configured scorer"
+        )
+    expected_conventions = {
+        "normal_conversion": (
+            contact_wrench_scoring.NORMAL_CONVERSION_CONVENTION
+        ),
+        "torque_normalization": (
+            contact_wrench_scoring.TORQUE_NORMALIZATION_CONVENTION
+        ),
+        "friction_cone_phase_convention": (
+            contact_wrench_scoring.FRICTION_CONE_PHASE_CONVENTION
+        ),
+    }
+    recorded_conventions = {
+        "normal_conversion": normal_conversion,
+        "torque_normalization": torque_normalization,
+        "friction_cone_phase_convention": phase_convention,
+    }
+    for name, expected in expected_conventions.items():
+        if recorded_conventions[name] != expected:
+            raise RefinementRunError(
+                f"contact-wrench reference {name} does not match the "
+                "configured scorer"
+            )
+    return supports
+
+
+def _score_candidate_wrenches(
+    candidates: Sequence[grasp_refinement.CandidateContacts],
+    *,
+    object_com_object: np.ndarray,
+    object_radius_m: float,
+    basis: contact_wrench_scoring.WrenchBasis,
+    reference_supports: np.ndarray | None,
+    friction_coefficient: float,
+    friction_cone_edges: int,
+    low_quantile: float,
+    support_threshold: float,
+    chord_tolerance: float,
+    chord_variance: float,
+) -> tuple[
+    dict[int, grasp_refinement.CandidateWrenchMetrics],
+    contact_wrench_scoring.CandidateWrenchScores,
+]:
+    scorable = [
+        candidate
+        for candidate in candidates
+        if candidate.valid
+        and candidate.contact_points_object is not None
+        and candidate.contact_normals_object is not None
+    ]
+    if not scorable:
+        raise RefinementRunError(
+            "contact-wrench scoring found no candidates with derived contacts"
+        )
+    points = np.stack(
+        [candidate.contact_points_object for candidate in scorable],
+        axis=0,
+    )
+    outward_normals = np.stack(
+        [candidate.contact_normals_object for candidate in scorable],
+        axis=0,
+    )
+    try:
+        batch = contact_wrench_scoring.score_contact_wrench_candidates(
+            points,
+            outward_normals,
+            object_com_object=object_com_object,
+            object_radius_m=object_radius_m,
+            basis=basis,
+            reference_supports=reference_supports,
+            friction_coefficient=friction_coefficient,
+            num_friction_cone_edges=friction_cone_edges,
+            low_quantile=low_quantile,
+            support_threshold=support_threshold,
+            chord_tolerance=chord_tolerance,
+            chord_variance=chord_variance,
+        )
+    except contact_wrench_scoring.ContactWrenchScoringError as exc:
+        raise RefinementRunError(f"contact-wrench scoring failed: {exc}") from exc
+    low_supports = np.asarray(batch.low_quantile_support, dtype=np.float64)
+    mean_supports = np.asarray(batch.mean_support, dtype=np.float64)
+    coverages = np.asarray(batch.support_coverage, dtype=np.float64)
+    reference_matches = (
+        None
+        if batch.chord_reference_match is None
+        else np.asarray(batch.chord_reference_match, dtype=np.float64)
+    )
+    expected_shape = (len(scorable),)
+    if (
+        low_supports.shape != expected_shape
+        or mean_supports.shape != expected_shape
+        or coverages.shape != expected_shape
+        or (
+            reference_matches is not None
+            and reference_matches.shape != expected_shape
+        )
+    ):
+        raise RefinementRunError(
+            "contact-wrench scorer returned inconsistent batch metric shapes"
+        )
+    metrics = {
+        candidate.candidate_index: grasp_refinement.CandidateWrenchMetrics(
+            candidate_index=candidate.candidate_index,
+            low_quantile_support=float(low_supports[offset]),
+            mean_support=float(mean_supports[offset]),
+            support_coverage=float(coverages[offset]),
+            reference_match=(
+                None
+                if reference_matches is None
+                else float(reference_matches[offset])
+            ),
+        )
+        for offset, candidate in enumerate(scorable)
+    }
+    return metrics, batch
+
+
 def _project_to_mesh(
     mesh: Any,
     points_object: np.ndarray,
@@ -547,7 +854,26 @@ def _score_as_dict(score: grasp_refinement.CandidateScore) -> dict[str, Any]:
         "pose_rotation_rad": score.pose_rotation_rad,
         "approach_angle_rad": score.approach_angle_rad,
         "symmetry_flipped": score.symmetry_flipped,
+        "wrench_low_quantile_support": score.wrench_low_quantile_support,
+        "wrench_mean_support": score.wrench_mean_support,
+        "wrench_support_coverage": score.wrench_support_coverage,
+        "wrench_reference_match": score.wrench_reference_match,
+        "wrench_weighted_reward": score.wrench_weighted_reward,
         "reason": score.reason,
+    }
+
+
+def _wrench_metrics_as_dict(
+    metrics: grasp_refinement.CandidateWrenchMetrics | None,
+) -> dict[str, Any] | None:
+    if metrics is None:
+        return None
+    return {
+        "candidate_index": metrics.candidate_index,
+        "low_quantile_support": metrics.low_quantile_support,
+        "mean_support": metrics.mean_support,
+        "support_coverage": metrics.support_coverage,
+        "reference_match": metrics.reference_match,
     }
 
 
@@ -667,6 +993,21 @@ def execute(
     score_pose_translation_weight: float = 0.10,
     score_pose_rotation_weight: float = 0.005,
     score_approach_weight: float = 0.003,
+    contact_wrench_mode: str = "disabled",
+    score_wrench_low_tail_weight: float = 1.0,
+    score_wrench_reference_weight: float = 0.25,
+    contact_wrench_reference_supports: str | Path | None = None,
+    wrench_direction_count: int = 512,
+    wrench_direction_seed: int = 0,
+    wrench_friction_coefficient: float = 0.1,
+    wrench_friction_cone_edges: int = 8,
+    wrench_low_quantile: float = 0.1,
+    wrench_support_threshold: float = 1e-3,
+    wrench_chord_tolerance: float = 0.1,
+    wrench_chord_variance: float = 0.1,
+    post_selection_registration_mode: str = "gripper_translation",
+    post_selection_registration_cap_m: float | None = None,
+    candidate_index_allowlist: Sequence[int] | None = None,
     mesh_registration_residual_m: float | None = None,
     max_contact_registration_m: float | None = None,
     aperture_limits_m: Sequence[float] | None = None,
@@ -690,6 +1031,75 @@ def execute(
         raise RefinementRunError(
             f"propagation_mode must be one of {choices}"
         ) from exc
+    if contact_wrench_mode not in CONTACT_WRENCH_MODES:
+        raise RefinementRunError(
+            "contact_wrench_mode must be one of "
+            f"{', '.join(CONTACT_WRENCH_MODES)}"
+        )
+    if post_selection_registration_mode not in POST_SELECTION_REGISTRATION_MODES:
+        raise RefinementRunError(
+            "post_selection_registration_mode must be one of "
+            f"{', '.join(POST_SELECTION_REGISTRATION_MODES)}"
+        )
+    if (
+        contact_wrench_mode != "disabled"
+        and post_selection_registration_mode == "gripper_translation"
+    ):
+        raise RefinementRunError(
+            "contact-wrench scoring requires mesh-consistent post-selection "
+            "registration mode 'object_pose_translation' or 'none'"
+        )
+    if (
+        post_selection_registration_cap_m is not None
+        and (
+            not np.isfinite(post_selection_registration_cap_m)
+            or post_selection_registration_cap_m < 0.0
+        )
+    ):
+        raise RefinementRunError(
+            "post_selection_registration_cap_m must be finite and nonnegative"
+        )
+    if (
+        contact_wrench_mode == "low_tail_reference"
+        and contact_wrench_reference_supports is None
+    ):
+        raise RefinementRunError(
+            "low_tail_reference mode requires "
+            "contact_wrench_reference_supports"
+        )
+    if (
+        contact_wrench_mode == "disabled"
+        and contact_wrench_reference_supports is not None
+    ):
+        raise RefinementRunError(
+            "contact_wrench_reference_supports requires an enabled "
+            "contact_wrench_mode"
+        )
+    for value, name in (
+        (wrench_direction_count, "wrench_direction_count"),
+        (wrench_direction_seed, "wrench_direction_seed"),
+        (wrench_friction_cone_edges, "wrench_friction_cone_edges"),
+    ):
+        if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
+            raise RefinementRunError(f"{name} must be an integer")
+    if wrench_direction_count < 1:
+        raise RefinementRunError("wrench_direction_count must be positive")
+    if wrench_friction_cone_edges < 3:
+        raise RefinementRunError("wrench_friction_cone_edges must be at least 3")
+    for value, name in (
+        (score_wrench_low_tail_weight, "score_wrench_low_tail_weight"),
+        (score_wrench_reference_weight, "score_wrench_reference_weight"),
+        (wrench_friction_coefficient, "wrench_friction_coefficient"),
+        (wrench_support_threshold, "wrench_support_threshold"),
+        (wrench_chord_tolerance, "wrench_chord_tolerance"),
+        (wrench_chord_variance, "wrench_chord_variance"),
+    ):
+        if not np.isfinite(value) or value < 0.0:
+            raise RefinementRunError(f"{name} must be finite and nonnegative")
+    if not np.isfinite(wrench_low_quantile) or not (
+        0.0 <= wrench_low_quantile <= 1.0
+    ):
+        raise RefinementRunError("wrench_low_quantile must be in [0,1]")
     object_name = str(object_name).strip()
     if not object_name:
         raise RefinementRunError("object_name must not be empty")
@@ -739,6 +1149,10 @@ def execute(
     )
     if candidate_metadata_path.is_file():
         input_records["candidate_metadata"] = _file_record(candidate_metadata_path)
+    if contact_wrench_reference_supports is not None:
+        input_records["contact_wrench_reference_supports"] = _file_record(
+            contact_wrench_reference_supports
+        )
 
     base_arrays = grasp_refinement.load_parallel_jaw_target(base_target)
     frame_count = int(np.asarray(base_arrays["frame_indices"]).size)
@@ -783,6 +1197,30 @@ def execute(
         raw_object,
     )
     candidate_poses, confidence = _load_candidates(candidates)
+    allowed_candidate_indices: tuple[int, ...] | None = None
+    if candidate_index_allowlist is not None:
+        allowed: list[int] = []
+        for value in candidate_index_allowlist:
+            if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
+                raise RefinementRunError(
+                    "candidate_index_allowlist must contain only integers"
+                )
+            index = int(value)
+            if index < 0 or index >= len(candidate_poses):
+                raise RefinementRunError(
+                    "candidate_index_allowlist index "
+                    f"{index} is outside [0, {len(candidate_poses)})"
+                )
+            allowed.append(index)
+        if not allowed:
+            raise RefinementRunError(
+                "candidate_index_allowlist must contain at least one index"
+            )
+        if len(set(allowed)) != len(allowed):
+            raise RefinementRunError(
+                "candidate_index_allowlist indices must be unique"
+            )
+        allowed_candidate_indices = tuple(sorted(allowed))
 
     profile, profile_overrides = _with_profile_overrides(
         resolve_robot_profile(robot_profile),
@@ -799,6 +1237,46 @@ def execute(
         candidate_poses,
         sweep_volume=profile.sweep_volume,
     )
+    wrench_basis: contact_wrench_scoring.WrenchBasis | None = None
+    wrench_batch: contact_wrench_scoring.CandidateWrenchScores | None = None
+    wrench_metrics: (
+        dict[int, grasp_refinement.CandidateWrenchMetrics] | None
+    ) = None
+    wrench_reference: np.ndarray | None = None
+    object_com_object: np.ndarray | None = None
+    object_radius_m: float | None = None
+    object_com_policy: str | None = None
+    if contact_wrench_mode != "disabled":
+        wrench_basis = contact_wrench_scoring.shared_wrench_basis(
+            num_samples=int(wrench_direction_count),
+            seed=int(wrench_direction_seed),
+        )
+        object_com_object, object_radius_m, object_com_policy = (
+            _mesh_wrench_geometry(metric_mesh)
+        )
+        if contact_wrench_reference_supports is not None:
+            wrench_reference = _load_wrench_reference_supports(
+                contact_wrench_reference_supports,
+                basis_sha256=wrench_basis.sha256,
+                direction_count=int(wrench_direction_count),
+                object_com_object=object_com_object,
+                object_radius_m=object_radius_m,
+                friction_coefficient=wrench_friction_coefficient,
+                friction_cone_edges=wrench_friction_cone_edges,
+            )
+        wrench_metrics, wrench_batch = _score_candidate_wrenches(
+            derived_contacts,
+            object_com_object=object_com_object,
+            object_radius_m=object_radius_m,
+            basis=wrench_basis,
+            reference_supports=wrench_reference,
+            friction_coefficient=wrench_friction_coefficient,
+            friction_cone_edges=wrench_friction_cone_edges,
+            low_quantile=wrench_low_quantile,
+            support_threshold=wrench_support_threshold,
+            chord_tolerance=wrench_chord_tolerance,
+            chord_variance=wrench_chord_variance,
+        )
 
     base_semantic_world = grasp_refinement.pose_matrix(
         np.asarray(base_arrays[f"{side}_position"])[event_anchor],
@@ -822,15 +1300,32 @@ def execute(
         min_antipodal_score=min_antipodal_score,
         registration_weight=score_registration_weight,
         mesh_registration_residual_m=mesh_registration_residual_m,
+        wrench_metrics=wrench_metrics,
         weights=grasp_refinement.GraspScoreWeights(
             contact=score_contact_weight,
             confidence=score_confidence_weight,
             pose_translation=score_pose_translation_weight,
             pose_rotation=score_pose_rotation_weight,
             approach=score_approach_weight,
+            wrench_low_tail_support=(
+                0.0
+                if contact_wrench_mode == "disabled"
+                else score_wrench_low_tail_weight
+            ),
+            wrench_reference_match=(
+                score_wrench_reference_weight
+                if contact_wrench_mode == "low_tail_reference"
+                else 0.0
+            ),
         ),
     )
-    selected_score = grasp_refinement.select_best_candidate(scores)
+    eligible_scores = scores
+    if allowed_candidate_indices is not None:
+        allowed_set = set(allowed_candidate_indices)
+        eligible_scores = tuple(
+            score for score in scores if score.candidate_index in allowed_set
+        )
+    selected_score = grasp_refinement.select_best_candidate(eligible_scores)
     selected = next(
         contact
         for contact in derived_contacts
@@ -841,13 +1336,15 @@ def execute(
 
     (
         raw_registration_residual,
-        registration_translation,
+        requested_registration_translation,
         registration_swapped,
     ) = grasp_refinement.translation_registered_contact_residual(
         selected.contact_points_object,
         raw_object,
     )
-    registration_magnitude = float(np.linalg.norm(registration_translation))
+    requested_registration_magnitude = float(
+        np.linalg.norm(requested_registration_translation)
+    )
     if (
         max_contact_registration_m is not None
         and (
@@ -860,20 +1357,143 @@ def execute(
         )
     if (
         max_contact_registration_m is not None
-        and registration_magnitude > max_contact_registration_m
+        and requested_registration_magnitude > max_contact_registration_m
     ):
         raise RefinementRunError(
-            f"selected contact registration {registration_magnitude:.6g} m exceeds "
+            "selected contact registration "
+            f"{requested_registration_magnitude:.6g} m exceeds "
             f"limit {max_contact_registration_m:.6g} m"
         )
+    if post_selection_registration_mode == "none":
+        registration_translation = np.zeros(3, dtype=np.float64)
+    else:
+        registration_translation = requested_registration_translation.copy()
+        if (
+            post_selection_registration_cap_m is not None
+            and requested_registration_magnitude
+            > post_selection_registration_cap_m
+            and requested_registration_magnitude > 0.0
+        ):
+            registration_translation *= (
+                post_selection_registration_cap_m
+                / requested_registration_magnitude
+            )
+    registration_magnitude = float(np.linalg.norm(registration_translation))
+    registration_was_capped = bool(
+        registration_magnitude + 1e-12 < requested_registration_magnitude
+    )
+    ordered_selected_contacts = (
+        selected.contact_points_object[::-1]
+        if registration_swapped
+        else selected.contact_points_object
+    )
+    realized_registration_residual = float(
+        np.sqrt(
+            np.mean(
+                np.sum(
+                    (
+                        ordered_selected_contacts
+                        + registration_translation
+                        - raw_object
+                    )
+                    ** 2,
+                    axis=1,
+                )
+            )
+        )
+    )
     selected_gripper_base_aligned = selected.T_object_gripper.copy()
     if selected_score.symmetry_flipped:
         selected_gripper_base_aligned[:3, :3] = (
             selected_gripper_base_aligned[:3, :3]
             @ np.diag([-1.0, -1.0, 1.0])
-        )
+    )
     registered_gripper_base = selected_gripper_base_aligned.copy()
-    registered_gripper_base[:3, 3] += registration_translation
+    world_from_object_for_propagation = world_from_object
+    registration_translation_world = np.zeros(3, dtype=np.float64)
+    if post_selection_registration_mode == "gripper_translation":
+        registered_gripper_base[:3, 3] += registration_translation
+    elif post_selection_registration_mode == "object_pose_translation":
+        registration_translation_world = (
+            world_from_object[event_anchor, :3, :3]
+            @ registration_translation
+        )
+        world_from_object_for_propagation = world_from_object.copy()
+        world_from_object_for_propagation[:, :3, 3] += (
+            registration_translation_world[None]
+        )
+
+    final_contact = selected
+    final_contacts_rederived = False
+    final_wrench_metric: (
+        grasp_refinement.CandidateWrenchMetrics | None
+    ) = (
+        None
+        if wrench_metrics is None
+        else wrench_metrics.get(selected.candidate_index)
+    )
+    if post_selection_registration_mode != "gripper_translation":
+        final_contact = (
+            grasp_refinement.derive_parallel_jaw_candidate_contacts(
+                metric_mesh,
+                registered_gripper_base[None],
+                sweep_volume=profile.sweep_volume,
+            )[0]
+        )
+        final_contacts_rederived = True
+        if (
+            not final_contact.valid
+            or final_contact.contact_points_object is None
+            or final_contact.contact_normals_object is None
+            or final_contact.aperture_m is None
+            or final_contact.antipodal_score is None
+        ):
+            raise RefinementRunError(
+                "mesh-consistency revalidation failed after symmetry "
+                f"alignment: {final_contact.reason}"
+            )
+        if not (
+            profile.aperture_limits_m[0] - 1e-9
+            <= final_contact.aperture_m
+            <= profile.aperture_limits_m[1] + 1e-9
+        ):
+            raise RefinementRunError(
+                "mesh-consistency revalidation produced an aperture outside "
+                "the robot profile limits"
+            )
+        if final_contact.antipodal_score < min_antipodal_score:
+            raise RefinementRunError(
+                "mesh-consistency revalidation failed the antipodal filter"
+            )
+        if contact_wrench_mode != "disabled":
+            if (
+                wrench_basis is None
+                or object_com_object is None
+                or object_radius_m is None
+            ):
+                raise RefinementRunError(
+                    "contact-wrench configuration was not initialized"
+                )
+            final_wrench_metrics, _ = _score_candidate_wrenches(
+                [final_contact],
+                object_com_object=object_com_object,
+                object_radius_m=object_radius_m,
+                basis=wrench_basis,
+                reference_supports=wrench_reference,
+                friction_coefficient=wrench_friction_coefficient,
+                friction_cone_edges=wrench_friction_cone_edges,
+                low_quantile=wrench_low_quantile,
+                support_threshold=wrench_support_threshold,
+                chord_tolerance=wrench_chord_tolerance,
+                chord_variance=wrench_chord_variance,
+            )
+            final_wrench_metric = final_wrench_metrics[
+                final_contact.candidate_index
+            ]
+            final_wrench_metric = replace(
+                final_wrench_metric,
+                candidate_index=selected.candidate_index,
+            )
 
     # GraspGenX and the robot-neutral semantic target share +X closing/+Z
     # approach.  Move from its base to the contact origin; the existing bundle
@@ -896,12 +1516,12 @@ def execute(
     refined = grasp_refinement.apply_phase_aware_corrections(
         base_arrays,
         side=side,
-        T_world_object=world_from_object,
+        T_world_object=world_from_object_for_propagation,
         corrections=[
             grasp_refinement.GraspCorrection(
                 event=event,
                 T_object_gripper=object_from_semantic,
-                aperture_m=float(selected.aperture_m),
+                aperture_m=float(final_contact.aperture_m),
                 propagation_mode=propagation_mode,
             )
         ],
@@ -1041,6 +1661,11 @@ def execute(
                 "hard_filters": {
                     "aperture_limits_m": list(profile.aperture_limits_m),
                     "minimum_antipodal_score": min_antipodal_score,
+                    "candidate_index_allowlist": (
+                        list(allowed_candidate_indices)
+                        if allowed_candidate_indices is not None
+                        else None
+                    ),
                 },
                 "weights": {
                     "contact_primary": score_contact_weight,
@@ -1050,6 +1675,16 @@ def execute(
                     ),
                     "pose_rotation_secondary": score_pose_rotation_weight,
                     "approach_secondary": score_approach_weight,
+                    "wrench_low_tail_reward": (
+                        score_wrench_low_tail_weight
+                        if contact_wrench_mode != "disabled"
+                        else 0.0
+                    ),
+                    "wrench_exact_reference_reward": (
+                        score_wrench_reference_weight
+                        if contact_wrench_mode == "low_tail_reference"
+                        else 0.0
+                    ),
                     "score_registration_weight": score_registration_weight,
                     "mesh_registration_residual_m": mesh_registration_residual_m,
                 },
@@ -1071,13 +1706,138 @@ def execute(
                     selected_gripper_base_aligned
                 ),
             },
+            "contact_wrench_scoring": {
+                "enabled": contact_wrench_mode != "disabled",
+                "mode": contact_wrench_mode,
+                "requires_simulator": False,
+                "implementation": (
+                    None
+                    if contact_wrench_mode == "disabled"
+                    else _file_record(
+                        Path(contact_wrench_scoring.__file__).resolve()
+                    )
+                ),
+                "basis": (
+                    None
+                    if wrench_batch is None
+                    else dict(wrench_batch.basis_provenance)
+                ),
+                "configuration": {
+                    "direction_count": wrench_direction_count,
+                    "direction_seed": wrench_direction_seed,
+                    "friction_coefficient": wrench_friction_coefficient,
+                    "friction_cone_edges": wrench_friction_cone_edges,
+                    "low_quantile": wrench_low_quantile,
+                    "support_threshold": wrench_support_threshold,
+                    "chord_tolerance": wrench_chord_tolerance,
+                    "chord_variance": wrench_chord_variance,
+                    "normal_conversion": (
+                        contact_wrench_scoring.NORMAL_CONVERSION_CONVENTION
+                    ),
+                    "torque_normalization": (
+                        contact_wrench_scoring.TORQUE_NORMALIZATION_CONVENTION
+                    ),
+                    "friction_cone_phase_convention": (
+                        contact_wrench_scoring.FRICTION_CONE_PHASE_CONVENTION
+                    ),
+                },
+                "object_geometry": (
+                    None
+                    if object_com_object is None or object_radius_m is None
+                    else {
+                        "center_of_mass_object_m": object_com_object.tolist(),
+                        "center_policy": object_com_policy,
+                        "radius_m": object_radius_m,
+                        "radius_policy": (
+                            "maximum mesh-vertex distance from selected COM"
+                        ),
+                    }
+                ),
+                "exact_reference": {
+                    "provided": wrench_reference is not None,
+                    "direction_aligned_basis_hash_required": True,
+                    "contract_schema": (
+                        contact_wrench_scoring.REFERENCE_SCHEMA_VERSION
+                    ),
+                    "full_wrench_configuration_match_required": True,
+                    "used_in_objective": (
+                        contact_wrench_mode == "low_tail_reference"
+                    ),
+                },
+                "selected_before_registration": (
+                    None
+                    if wrench_metrics is None
+                    else _wrench_metrics_as_dict(
+                        wrench_metrics.get(selected.candidate_index)
+                    )
+                ),
+                "selected_after_mesh_revalidation": (
+                    _wrench_metrics_as_dict(final_wrench_metric)
+                ),
+            },
             "contact_registration": {
                 "target": "raw_unprojected_human_thumb_index_contacts_object",
+                "mode": post_selection_registration_mode,
+                "requested_translation_object_m": (
+                    requested_registration_translation.tolist()
+                ),
+                "requested_translation_magnitude_m": (
+                    requested_registration_magnitude
+                ),
                 "translation_object_m": registration_translation.tolist(),
+                "translation_world_m": registration_translation_world.tolist(),
                 "translation_magnitude_m": registration_magnitude,
-                "residual_m": raw_registration_residual,
+                "cap_m": post_selection_registration_cap_m,
+                "was_capped_or_disabled": registration_was_capped,
+                "optimal_residual_m": raw_registration_residual,
+                "residual_m": realized_registration_residual,
                 "jaw_assignment_swapped": registration_swapped,
                 "maximum_allowed_m": max_contact_registration_m,
+                "mesh_consistency": {
+                    "contacts_rederived_after_symmetry": (
+                        final_contacts_rederived
+                    ),
+                    "policy": (
+                        "legacy gripper-frame translation; selected mesh "
+                        "contacts are not guaranteed after registration"
+                        if post_selection_registration_mode
+                        == "gripper_translation"
+                        else (
+                            "constant world-frame object-pose translation; "
+                            "selected T_object_gripper remains unchanged; "
+                            + (
+                                "mesh contact is preserved throughout the "
+                                "object-relative hold"
+                                if propagation_mode
+                                is grasp_refinement.GraspPropagationMode.OBJECT_LOCK
+                                else (
+                                    "mesh contact is guaranteed at the anchor "
+                                    "and then propagated as a constant "
+                                    "base-local offset"
+                                )
+                            )
+                            if post_selection_registration_mode
+                            == "object_pose_translation"
+                            else (
+                                "no post-selection translation; selected "
+                                "T_object_gripper remains unchanged"
+                            )
+                        )
+                    ),
+                    "final_aperture_m": float(final_contact.aperture_m),
+                    "final_antipodal_score": float(
+                        final_contact.antipodal_score
+                    ),
+                    "final_contacts_object_m": (
+                        final_contact.contact_points_object.tolist()
+                    ),
+                    "T_world_object_anchor_before": _pose_as_lists(
+                        world_from_object[event_anchor]
+                    ),
+                    "T_world_object_anchor_for_propagation": _pose_as_lists(
+                        world_from_object_for_propagation[event_anchor]
+                    ),
+                },
                 "T_object_gripper_base_registered": _pose_as_lists(
                     registered_gripper_base
                 ),
@@ -1107,6 +1867,30 @@ def execute(
                 ),
                 "approach_blend_frames": approach_blend_frames,
                 "release_blend_frames": release_blend_frames,
+                "object_pose_translation_policy": (
+                    "constant_world_translation_from_anchor_object_frame_delta"
+                    if post_selection_registration_mode
+                    == "object_pose_translation"
+                    else "none"
+                ),
+                "object_pose_translation_world_m": (
+                    registration_translation_world.tolist()
+                ),
+                "mesh_contact_scope": (
+                    "full_object_relative_hold"
+                    if (
+                        post_selection_registration_mode
+                        == "object_pose_translation"
+                        and propagation_mode
+                        is grasp_refinement.GraspPropagationMode.OBJECT_LOCK
+                    )
+                    else (
+                        "anchor_frame_only"
+                        if post_selection_registration_mode
+                        == "object_pose_translation"
+                        else "not_applicable"
+                    )
+                ),
                 "other_side_preserved": True,
                 "input_can_be_prior_refinement_output": True,
             },
@@ -1196,6 +1980,49 @@ def _build_parser() -> argparse.ArgumentParser:
         default=0.005,
     )
     parser.add_argument("--score-approach-weight", type=float, default=0.003)
+    parser.add_argument(
+        "--contact-wrench-mode",
+        choices=CONTACT_WRENCH_MODES,
+        default="disabled",
+    )
+    parser.add_argument(
+        "--score-wrench-low-tail-weight",
+        type=float,
+        default=1.0,
+    )
+    parser.add_argument(
+        "--score-wrench-reference-weight",
+        type=float,
+        default=0.25,
+    )
+    parser.add_argument("--contact-wrench-reference-supports", type=Path)
+    parser.add_argument("--wrench-direction-count", type=int, default=512)
+    parser.add_argument("--wrench-direction-seed", type=int, default=0)
+    parser.add_argument(
+        "--wrench-friction-coefficient",
+        type=float,
+        default=0.1,
+    )
+    parser.add_argument("--wrench-friction-cone-edges", type=int, default=8)
+    parser.add_argument("--wrench-low-quantile", type=float, default=0.1)
+    parser.add_argument("--wrench-support-threshold", type=float, default=1e-3)
+    parser.add_argument("--wrench-chord-tolerance", type=float, default=0.1)
+    parser.add_argument("--wrench-chord-variance", type=float, default=0.1)
+    parser.add_argument(
+        "--post-selection-registration-mode",
+        choices=POST_SELECTION_REGISTRATION_MODES,
+        default="gripper_translation",
+    )
+    parser.add_argument("--post-selection-registration-cap-m", type=float)
+    parser.add_argument(
+        "--candidate-index-allowlist",
+        type=int,
+        nargs="+",
+        help=(
+            "Restrict selection to original candidate-bank indices; useful "
+            "for an external hard-feasibility pass such as embodiment IK"
+        ),
+    )
     parser.add_argument("--mesh-registration-residual-m", type=float)
     parser.add_argument("--max-contact-registration-m", type=float)
     parser.add_argument("--aperture-limits-m", type=float, nargs=2)
@@ -1238,6 +2065,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         score_pose_translation_weight=args.score_pose_translation_weight,
         score_pose_rotation_weight=args.score_pose_rotation_weight,
         score_approach_weight=args.score_approach_weight,
+        contact_wrench_mode=args.contact_wrench_mode,
+        score_wrench_low_tail_weight=args.score_wrench_low_tail_weight,
+        score_wrench_reference_weight=args.score_wrench_reference_weight,
+        contact_wrench_reference_supports=(
+            args.contact_wrench_reference_supports
+        ),
+        wrench_direction_count=args.wrench_direction_count,
+        wrench_direction_seed=args.wrench_direction_seed,
+        wrench_friction_coefficient=args.wrench_friction_coefficient,
+        wrench_friction_cone_edges=args.wrench_friction_cone_edges,
+        wrench_low_quantile=args.wrench_low_quantile,
+        wrench_support_threshold=args.wrench_support_threshold,
+        wrench_chord_tolerance=args.wrench_chord_tolerance,
+        wrench_chord_variance=args.wrench_chord_variance,
+        post_selection_registration_mode=(
+            args.post_selection_registration_mode
+        ),
+        post_selection_registration_cap_m=(
+            args.post_selection_registration_cap_m
+        ),
+        candidate_index_allowlist=args.candidate_index_allowlist,
         mesh_registration_residual_m=args.mesh_registration_residual_m,
         max_contact_registration_m=args.max_contact_registration_m,
         aperture_limits_m=args.aperture_limits_m,

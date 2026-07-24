@@ -250,6 +250,66 @@ comparison overlays intentionally retain the same TACO GT object-depth
 occluder as the baseline to isolate the trajectory change; the visualization
 is therefore not a pure-RGB end-to-end composite.
 
+### Contact-wrench reranking
+
+The follow-up adds a deterministic, simulator-free port of the contact-wrench
+geometry used by Video2Data's CHORD reward. Each candidate uses its two
+re-derived mesh contacts, outward mesh normals converted to inward contact
+forces, `mu=0.1`, eight friction-cone edges, and object-radius-normalized torque.
+A shared 512-direction 6D unit basis generated with PCG64 seed 0 makes scores
+comparable across candidates. The objective rewards the tenth percentile of
+the support envelope (`q10`) at weight `1.0`, while retaining registered
+contact residual at weight `5.0` and confidence, pose translation, pose
+rotation, and approach priors at `0.005`, `0.1`, `0.04`, and `0.015`.
+Registration magnitude remains unpenalized. No exact reference wrench envelope
+or simulator rollout was used.
+
+The table separates the unconstrained wrench ranking from the pose ultimately
+rendered under the unchanged embodiment IK gates. `q10` is dimensionless
+because torque is normalized by the reconstructed object's bounding radius.
+
+| Robot | Clip | Interaction | Contact-selected candidate (`q10`) | Wrench-ranked candidate (`q10`) | Rendered strict-feasible candidate / aperture (`q10`) | Rendered `q10` change |
+|---|---|---|---:|---:|---:|---:|
+| Galbot Golf | `105` | left / board | 130 (0.1548) | 130 (0.1548) | 130 / 4.15 mm (0.1548) | 0.0% |
+| Galbot Golf | `105` | right / knife | 101 (0.1088) | 101 (0.1088) | 101 / 19.20 mm (0.1088) | 0.0% |
+| YAM | `105` | left / board | 126 (0.1239) | 43 (0.1768) | 126 / 4.33 mm (0.1239) | 0.0% |
+| YAM | `105` | right / knife | 89 (0.1167) | 89 (0.1167) | 89 / 20.57 mm (0.1167) | 0.0% |
+| Galbot Golf | `253` | left / cup | 13 (0.1171) | 18 (0.1346) | 18 / 9.09 mm (0.1346) | +15.0% |
+| Galbot Golf | `253` | right / brush | 23 (0.1316) | 23 (0.1316) | 23 / 35.73 mm (0.1316) | 0.0% |
+| YAM | `253` | left / cup | 85 (0.1139) | 85 (0.1139) | 85 / 8.79 mm (0.1139) | 0.0% |
+| YAM | `253` | right / brush | 81 (0.1151) | 77 (0.1376) | 77 / 32.73 mm (0.1376) | +19.5% |
+
+The unconstrained YAM-105 board winner, candidate 43, would improve `q10` by
+42.7%, but reaches `34.842927` degrees against the unchanged 25-degree gate.
+The next two ranked candidates, 145 and 50, also fail at `28.743892` and
+`37.294588` degrees. Rank-four candidate 126 passes at `23.135286` degrees and
+is retained as the best strict-IK-feasible fallback. This external feasibility
+pass is material: the static contact-wrench score alone does not encode the
+embodiment's full-arm reachability.
+
+The midpoint registration is applied as a constant world correction to the
+estimated object pose, leaving the selected object-to-gripper transform
+mesh-valid at the anchor. Contacts are re-derived after symmetry selection and
+then revalidated. The trajectory uses the same anchor-derived
+`base_local_offset` across the interaction, so mesh contact is guaranteed only
+at the anchor, not throughout the hold. The required registration remains
+large (`175.8--305.5` mm), so wrench reranking does not resolve the upstream
+hand/object metric-alignment limitation.
+
+All three visual conditions were rerendered under the same immutable
+`robotic-grounding:photo-render-v8` image
+(`sha256:09f0bb3becf4c6ee16b701b049254c384df35c97dd1d22e403da0f7d2f7c2f1b`):
+V2D baseline, contact-selected GraspGenX, and wrench-reranked GraspGenX. The
+position, orientation, joint-step, and orientation-cost gates were unchanged
+between methods.
+
+| Robot | Clip | Wrench max position residual | Wrench max orientation residual | Wrench max arm step | Gate result |
+|---|---|---:|---:|---:|---|
+| Galbot Golf | `105` | 0.655 mm | 61.924 deg | 0.572 rad | 65 deg / 0.58 rad pass |
+| YAM | `105` | 0.247 mm | 23.135 deg | 0.395 rad | 25 deg / 0.45 rad pass |
+| Galbot Golf | `253` | 0.260 mm | 5.617 deg | 0.452 rad | 22 deg / 0.50 rad pass |
+| YAM | `253` | 0.191 mm | 16.489 deg | 0.405 rad | 26 deg / 0.45 rad pass |
+
 ## Object compositing on the 105 clip
 
 This three-way ablation changes only how the knife and cutting-board/plate
@@ -356,8 +416,14 @@ included in the pushed source branch.
   `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/runs/taco_hand_tracking_v1/<sequence>/parallel_jaw/graspgenx_targets/<robot>/v2d_graspgenx_aligned/`
 - GraspGenX start/contact/end QA sheets:
   `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/audit/graspgenx_parallel_jaw/`
+- V8 three-method grasp comparisons (V2D baseline, contact-selected GraspGenX,
+  contact-wrench-reranked GraspGenX):
+  `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/runs/taco_hand_tracking_v1/<sequence>/parallel_jaw/<robot>/v8_v2d_grasp_methods_3panel_<clip>.mp4`
+- Contact-wrench GraspGenX targets and per-interaction score provenance:
+  `/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/runs/taco_hand_tracking_v1/<sequence>/parallel_jaw/graspgenx_targets/<robot>/v2d_graspgenx_wrench_v1/`
 
 The sequence-`105` RGB-only and reconstructed-mesh object-compositing ablation
-and the `105`/`253` GraspGenX parallel-jaw ablation are now complete. The next
-useful step is a joint hand/object metric-alignment stage before optimizing
-time-varying contact consistency or evaluating grasp stability.
+and the `105`/`253` GraspGenX parallel-jaw and contact-wrench ablations are now
+complete. The next useful step is a joint hand/object metric-alignment stage
+before optimizing time-varying contact consistency or evaluating grasp
+stability.
