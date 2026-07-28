@@ -102,6 +102,7 @@ def _pipeline_args(output: Path) -> Namespace:
         max_frames=10,
         stage=None,
         ik="dls",
+        emit_depth=False,
         rig_config=output / "rig.json",
         panda_dir=DEFAULT_PANDA_DIR,
         orientation_weight=0.5,
@@ -175,6 +176,7 @@ def _write_pipeline_cache(output: Path, args: Namespace) -> None:
             {
                 "schema_version": ROBOT_RENDER_SCHEMA,
                 "state": "complete",
+                "depth_emitted": args.emit_depth,
                 "ik": {
                     "backend": args.ik,
                     "orientation_weight": args.orientation_weight,

@@ -178,6 +178,12 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         # The clip is cut by the tracking stage, so reviewing without it needs a
         # previous run to have left the extraction behind.
         blockers.append(f"missing extracted clip: {source.source_video}")
+    if (args.object_mask is None) != (args.object_depth is None):
+        blockers.append("--object-mask and --object-depth must be given together")
+    elif args.object_mask is not None and not args.emit_depth:
+        # Catch this here rather than after a multi-minute render that would
+        # then have no depth for compositing to consult.
+        blockers.append("depth-aware compositing needs --emit-depth")
     if any(stage in selected for stage in ("composite", "review")):
         if args.background is None:
             blockers.append("--background is required for composite/review")
@@ -228,6 +234,7 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         },
         "render": {
             "schema_version": panda_render.ROBOT_RENDER_SCHEMA,
+            "depth_emitted": args.emit_depth,
             "ik.backend": args.ik,
             "ik.orientation_weight": args.orientation_weight,
             "ik.max_joint_step_limit_rad": args.max_joint_step_rad,
@@ -448,6 +455,7 @@ def execute_plan(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, An
             fps=float(geometry["fps"]),
             panda_dir=args.panda_dir,
             ik_backend=args.ik,
+            emit_depth=args.emit_depth,
             orientation_weight=args.orientation_weight,
             max_joint_step_rad=args.max_joint_step_rad,
             overwrite=args.overwrite,
@@ -458,7 +466,11 @@ def execute_plan(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, An
             base_video=args.background,
             robot_video=paths["render"] / panda_render.RGB_FILENAME,
             robot_mask=paths["render"] / panda_render.MASK_FILENAME,
-            robot_depth=paths["render"] / panda_render.DEPTH_FILENAME,
+            robot_depth=(
+                paths["render"] / panda_render.DEPTH_FILENAME
+                if args.emit_depth
+                else None
+            ),
             robot_metadata=paths["render"] / panda_render.METADATA_FILENAME,
             output_dir=paths["composite"],
             base_start_frame=args.background_start_frame,
@@ -547,6 +559,12 @@ def _parser() -> argparse.ArgumentParser:
         default=mecka_parallel_jaw.MAX_ROTATION_STEP_DEG,
     )
     parser.add_argument("--depth-guard-m", type=float, default=0.003)
+    parser.add_argument(
+        "--emit-depth",
+        action="store_true",
+        help="Write robot_depth.npy (~8 MB per frame, 19 GB for a 2443-frame "
+        "episode); required only for depth-aware compositing",
+    )
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--execute", action="store_true")
     return parser

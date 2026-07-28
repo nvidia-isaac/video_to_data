@@ -43,14 +43,19 @@ def _validate_render_bundle(
     metadata_path: Path,
     rgb_path: Path,
     mask_path: Path,
-    depth_path: Path,
+    depth_path: Path | None,
 ) -> dict[str, Any]:
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     if metadata.get("schema_version") != ROBOT_RENDER_SCHEMA:
         raise ValueError("Unsupported robot render metadata schema")
     if metadata.get("state") != "complete":
         raise ValueError("Robot render bundle is not complete")
-    for key, path in (("rgb", rgb_path), ("mask", mask_path), ("depth", depth_path)):
+    checked = [("rgb", rgb_path), ("mask", mask_path)]
+    if depth_path is not None:
+        checked.append(("depth", depth_path))
+    for key, path in checked:
+        if key not in metadata["output"]:
+            raise ValueError(f"Robot render bundle does not contain {key}")
         expected = metadata["output"][key]
         if path.stat().st_size != expected["size_bytes"] or sha256(path) != expected["sha256"]:
             raise ValueError(f"Robot render {key} does not match its metadata")
@@ -62,8 +67,8 @@ def execute(
     base_video: str | Path,
     robot_video: str | Path,
     robot_mask: str | Path,
-    robot_depth: str | Path,
     robot_metadata: str | Path,
+    robot_depth: str | Path | None = None,
     output_dir: str | Path,
     base_start_frame: int = 0,
     object_mask: str | Path | None = None,
@@ -74,12 +79,19 @@ def execute(
     """Composite one bundle and atomically publish video then metadata."""
     if (object_mask is None) != (object_depth is None):
         raise ValueError("object_mask and object_depth must be supplied together")
+    if object_mask is not None and robot_depth is None:
+        raise ValueError(
+            "Depth-aware compositing needs robot_depth; "
+            "re-render the bundle with emit_depth=True"
+        )
     if depth_guard_m < 0:
         raise ValueError("depth_guard_m must be non-negative")
     base_path = Path(base_video).expanduser().resolve()
     rgb_path = Path(robot_video).expanduser().resolve()
     mask_path = Path(robot_mask).expanduser().resolve()
-    depth_path = Path(robot_depth).expanduser().resolve()
+    depth_path = (
+        None if robot_depth is None else Path(robot_depth).expanduser().resolve()
+    )
     render_metadata_path = Path(robot_metadata).expanduser().resolve()
     render_metadata = _validate_render_bundle(
         render_metadata_path, rgb_path, mask_path, depth_path
@@ -98,11 +110,17 @@ def execute(
         raise ValueError("Base and robot video FPS differ")
 
     mask = np.load(mask_path, mmap_mode="r", allow_pickle=False)
-    depth = np.load(depth_path, mmap_mode="r", allow_pickle=False)
+    depth = (
+        None
+        if depth_path is None
+        else np.load(depth_path, mmap_mode="r", allow_pickle=False)
+    )
     expected_shape = (frame_count, height, width)
     if mask.shape != expected_shape or mask.dtype != np.bool_:
         raise ValueError(f"robot_mask must be bool with shape {expected_shape}")
-    if depth.shape != expected_shape or depth.dtype != np.float32:
+    if depth is not None and (
+        depth.shape != expected_shape or depth.dtype != np.float32
+    ):
         raise ValueError(f"robot_depth must be float32 with shape {expected_shape}")
     object_mask_array = object_depth_array = None
     if object_mask is not None and object_depth is not None:
@@ -134,7 +152,11 @@ def execute(
             if not base_ok or not robot_ok:
                 raise RuntimeError(f"Video decode ended at frame {frame}")
             visible = np.asarray(mask[frame])
-            if object_mask_array is not None and object_depth_array is not None:
+            if (
+                depth is not None
+                and object_mask_array is not None
+                and object_depth_array is not None
+            ):
                 visible = depth_visible_robot_mask(
                     visible,
                     np.asarray(depth[frame]),
@@ -168,6 +190,7 @@ def execute(
         "source": {
             "base_video": artifact(base_path),
             "robot_metadata": artifact(render_metadata_path),
+            "robot_depth": artifact(depth_path) if depth_path is not None else None,
             "object_mask": artifact(object_mask) if object_mask is not None else None,
             "object_depth": artifact(object_depth) if object_depth is not None else None,
             "implementation": artifact(__file__),
@@ -183,7 +206,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--base-video", required=True, type=Path)
     parser.add_argument("--robot-video", required=True, type=Path)
     parser.add_argument("--robot-mask", required=True, type=Path)
-    parser.add_argument("--robot-depth", required=True, type=Path)
+    parser.add_argument(
+        "--robot-depth",
+        type=Path,
+        help="Only needed together with --object-mask/--object-depth",
+    )
     parser.add_argument("--robot-metadata", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--base-start-frame", type=int, default=0)

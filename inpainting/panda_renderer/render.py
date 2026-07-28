@@ -105,6 +105,7 @@ def execute(
     ik_backend: str = "dls",
     orientation_weight: float = 0.5,
     max_joint_step_rad: float = DEFAULT_MAX_JOINT_STEP_RAD,
+    emit_depth: bool = False,
     overwrite: bool = False,
 ) -> dict[str, Any]:
     """Solve, render, validate, and atomically publish one robot bundle."""
@@ -130,20 +131,26 @@ def execute(
     final_paths = {
         "rgb": output / RGB_FILENAME,
         "mask": output / MASK_FILENAME,
-        "depth": output / DEPTH_FILENAME,
         "metadata": output / METADATA_FILENAME,
     }
+    temporary = {
+        "rgb": output / ".robot_rgb.partial.mp4",
+        "mask": output / ".robot_mask.partial.npy",
+    }
+    if emit_depth:
+        # A full-resolution float32 depth sequence costs ~8 MB per frame, so it
+        # is only written when compositing will actually consult it.
+        final_paths["depth"] = output / DEPTH_FILENAME
+        temporary["depth"] = output / ".robot_depth.partial.npy"
     existing = [path for path in final_paths.values() if path.exists()]
     if existing and not overwrite:
         raise FileExistsError(f"Refusing to overwrite: {existing}")
     output.mkdir(parents=True, exist_ok=True)
-    temporary = {
-        "rgb": output / ".robot_rgb.partial.mp4",
-        "mask": output / ".robot_mask.partial.npy",
-        "depth": output / ".robot_depth.partial.npy",
-    }
     for path in temporary.values():
         path.unlink(missing_ok=True)
+    stale_depth = output / DEPTH_FILENAME
+    if not emit_depth and stale_depth.exists():
+        stale_depth.unlink()
 
     model = build_panda_model(panda_dir, fovy, width, height)
     solvers = {side: PandaIK(model) for side in ("left", "right")}
@@ -157,11 +164,15 @@ def execute(
         dtype=np.bool_,
         shape=(frame_count, height, width),
     )
-    depths = np.lib.format.open_memmap(
-        temporary["depth"],
-        mode="w+",
-        dtype=np.float32,
-        shape=(frame_count, height, width),
+    depths = (
+        np.lib.format.open_memmap(
+            temporary["depth"],
+            mode="w+",
+            dtype=np.float32,
+            shape=(frame_count, height, width),
+        )
+        if emit_depth
+        else None
     )
     writer = Mp4Writer(temporary["rgb"], fps, (width, height))
     previous_q: dict[str, np.ndarray | None] = {"left": None, "right": None}
@@ -240,22 +251,24 @@ def execute(
                 combined_mask |= take
             writer.write(composite)
             masks[frame] = combined_mask
-            depths[frame] = zbuffer
+            if depths is not None:
+                depths[frame] = zbuffer
     finally:
         writer.close()
         masks.flush()
-        depths.flush()
         del masks
-        del depths
+        if depths is not None:
+            depths.flush()
+            del depths
         renderers.clear()
 
-    os.replace(temporary["rgb"], final_paths["rgb"])
-    os.replace(temporary["mask"], final_paths["mask"])
-    os.replace(temporary["depth"], final_paths["depth"])
+    for key, path in temporary.items():
+        os.replace(path, final_paths[key])
     metadata = {
         "schema_version": ROBOT_RENDER_SCHEMA,
         "state": "complete",
         "completed_at": datetime.now(timezone.utc).isoformat(),
+        "depth_emitted": emit_depth,
         "geometry": {
             "frame_count": frame_count,
             "width": width,
@@ -321,6 +334,12 @@ def _parser() -> argparse.ArgumentParser:
         type=float,
         default=DEFAULT_MAX_JOINT_STEP_RAD,
     )
+    parser.add_argument(
+        "--emit-depth",
+        action="store_true",
+        help="Write robot_depth.npy (~8 MB per frame); only needed for "
+        "depth-aware compositing against an object depth map",
+    )
     parser.add_argument("--overwrite", action="store_true")
     return parser
 
@@ -340,6 +359,7 @@ def main() -> None:
         ik_backend=args.ik,
         orientation_weight=args.orientation_weight,
         max_joint_step_rad=args.max_joint_step_rad,
+        emit_depth=args.emit_depth,
         overwrite=args.overwrite,
     )
     print(json.dumps(metadata, indent=2))
