@@ -106,6 +106,26 @@ MUJOCO_GL=egl .venv/bin/python -m inpainting.run_mecka_panda_pipeline \
   --ik hybrid --execute
 ```
 
+`--dataset` takes either layout, so a remote shard needs no other change. The
+layout is detected by looking for `meta/info.json`, and `--credentials` applies
+to `s3://` datasets:
+
+```bash
+.venv/bin/python -m inpainting.run_mecka_panda_pipeline \
+  --dataset s3://nv-00-10206-robot/cosmos3_action_data/mecka/20260509_46000h_everyday_mono_no_wrist_lerobot/v0/shard_00 \
+  --episode 199 \
+  --output-dir /path/to/run \
+  --rig-config debug/mecka_bimanual_rig.json \
+  --stage tracking --stage retarget --execute
+```
+
+Planning a remote episode reads only metadata, so it stays fast and does not
+download the clip; geometry and frame count come from `info.json` and the
+episode `length` rather than from decoding. One consequence is that
+`--stage review` without `--stage tracking` is blocked in preflight unless an
+earlier run already extracted the clip, because for a remote shard the source
+video is a tracking output rather than an input.
+
 The Panda MJCF directory defaults to the existing local
 `debug/third_party/mujoco_menagerie/franka_emika_panda` checkout. A portable
 run should pass `--panda-dir` explicitly; the directory must contain
