@@ -59,13 +59,19 @@ The TACO adapter can copy the already-retargeted Sharpa fields for the GT
 condition. Phantom and Video2Data adapters must invoke the same Video2Data
 Sharpa retargeter rather than inventing tracker-specific robot semantics.
 
-## Human-removal mask (`arm_masks.npy`)
+## Human-removal masks
 
-`(N,H,W)` NumPy array with exact boolean dtype. `True` means remove this pixel.
-`N`, `H`, and `W` must match the decoded source video. Tracker-specific
-segmentation may vary, but E2FGVI dilation and inference parameters are shared
-by all conditions. Producers must normalize binary integer/image masks to
-boolean before writing this contract.
+Every formal human-removal mask is an `(N,H,W)` NumPy array with exact boolean
+dtype. `True` means remove this pixel, and `N`, `H`, and `W` must match the
+selected decoded source-video window. Producers must normalize binary
+integer/image masks to boolean before writing this contract.
+
+The condition-comparison pipeline publishes `arm_masks.npy` for E2FGVI. The
+MECKA-to-Panda automatic path publishes `arm_mask/arm_mask.npy` with schema
+`v2d.inpainting.mecka-arm-mask-run/v1`, then passes that array to its ProPainter
+adapter. The adapter may materialize temporary PNGs for the backend, but those
+PNGs are not a second contract. Dilation and inference configuration belong in
+the producer's versioned sidecar rather than being implied across backends.
 
 ## Robot render contract
 

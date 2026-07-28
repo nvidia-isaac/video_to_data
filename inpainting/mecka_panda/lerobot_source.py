@@ -16,6 +16,8 @@ import hmac
 import json
 import os
 import subprocess
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,6 +31,7 @@ DEFAULT_ENDPOINT = "https://storage.googleapis.com"
 DEFAULT_CREDENTIALS = "credentials/gcp_training.secret"
 VIDEO_KEY = "observation.images.main"
 SUPPORTED_CODEBASE_VERSIONS = ("v3.0",)
+SHARD_TEMPLATE = "shard_{index:02d}"
 
 
 class LeRobotSourceError(RuntimeError):
@@ -112,6 +115,20 @@ class Source:
         return self.bucket is not None
 
 
+@contextmanager
+def _isolated_aws_profile_files() -> Iterator[None]:
+    """Keep the AWS SDK from parsing unrelated profiles when HMAC is explicit."""
+    variables = ("AWS_SHARED_CREDENTIALS_FILE", "AWS_CONFIG_FILE")
+    temporary = [name for name in variables if name not in os.environ]
+    try:
+        for name in temporary:
+            os.environ[name] = os.devnull
+        yield
+    finally:
+        for name in temporary:
+            os.environ.pop(name, None)
+
+
 def open_source(
     uri: str | Path, *, credentials: str | Path | Credentials | None = None
 ) -> Source:
@@ -139,15 +156,65 @@ def open_source(
     os.environ.setdefault("AWS_RESPONSE_CHECKSUM_VALIDATION", "when_required")
     os.environ.setdefault("AWS_REQUEST_CHECKSUM_CALCULATION", "when_required")
 
-    filesystem = pafs.S3FileSystem(
-        access_key=resolved.access_key,
-        secret_key=resolved.secret_key,
-        endpoint_override=resolved.host,
-        region=resolved.region,
-        scheme="https",
-    )
+    with _isolated_aws_profile_files():
+        filesystem = pafs.S3FileSystem(
+            access_key=resolved.access_key,
+            secret_key=resolved.secret_key,
+            endpoint_override=resolved.host,
+            region=resolved.region,
+            scheme="https",
+        )
     root = f"{bucket}/{prefix}" if prefix else bucket
     return Source(filesystem, root, bucket, resolved)
+
+
+def _is_dataset_root(filesystem: pafs.FileSystem, root: str) -> bool:
+    info = filesystem.get_file_info(f"{root}/meta/info.json")
+    return info.type == pafs.FileType.File
+
+
+def _shard_name(shard: str | int) -> str:
+    text = str(shard).strip().strip("/")
+    if not text:
+        raise LeRobotSourceError("Shard selector is empty")
+    return SHARD_TEMPLATE.format(index=int(text)) if text.isdigit() else text
+
+
+def resolve_shard(
+    uri: str | Path,
+    *,
+    shard: str | int | None = None,
+    credentials: str | Path | Credentials | None = None,
+) -> str:
+    """Resolve a dataset URI to the root of exactly one LeRobot v3 shard.
+
+    A v3 dataset root is identified by `meta/info.json`. Cosmos3 publishes
+    hundreds of such datasets side by side under one prefix (`v0/shard_00`,
+    `v0/shard_01`, ...) with no manifest above them, so a container URI cannot
+    name an episode on its own: `episode_index` restarts at zero in every shard.
+    A container therefore needs a shard selector, which may be an index (`12`,
+    formatted through `SHARD_TEMPLATE`) or a directory name (`shard_12`).
+    """
+    text = str(uri).rstrip("/")
+    source = open_source(text, credentials=credentials)
+    already_a_shard = _is_dataset_root(source.filesystem, source.root)
+    if shard is None:
+        if already_a_shard:
+            return text
+        name = SHARD_TEMPLATE.format(index=0)
+    else:
+        if already_a_shard:
+            raise LeRobotSourceError(
+                f"{text} is a LeRobot shard root, so shard {shard!r} cannot select "
+                f"anything inside it"
+            )
+        name = _shard_name(shard)
+    if not _is_dataset_root(source.filesystem, source.path(name)):
+        raise LeRobotSourceError(
+            f"No LeRobot shard at {text}/{name}: it has no meta/info.json, and "
+            f"neither does {text} itself"
+        )
+    return f"{text}/{name}"
 
 
 def load_info(source: Source) -> dict[str, Any]:
@@ -224,6 +291,37 @@ def find_episode(
     raise LeRobotSourceError(f"Episode {episode!r} not present under {source.root}")
 
 
+def data_file_row_origin(
+    source: Source, info: dict[str, Any], record: EpisodeRecord
+) -> int:
+    """Return the shard-global row index at which this episode's data file starts.
+
+    `dataset_from_index` counts rows across the whole shard, while a parquet
+    reader counts them from the start of one file, so every data file after the
+    first needs its own origin subtracted. The origin is the lowest
+    `dataset_from_index` among the episodes that share the file.
+    """
+    columns = ["data/chunk_index", "data/file_index", "dataset_from_index"]
+    origin: int | None = None
+    for path in _episode_meta_paths(source, info):
+        with source.filesystem.open_input_file(path) as stream:
+            table = pq.read_table(stream, columns=columns)
+        for row in table.to_pylist():
+            if (
+                int(row["data/chunk_index"]) != record.data_chunk_index
+                or int(row["data/file_index"]) != record.data_file_index
+            ):
+                continue
+            start = int(row["dataset_from_index"])
+            origin = start if origin is None else min(origin, start)
+    if origin is None:
+        raise LeRobotSourceError(
+            f"No episode metadata references data chunk "
+            f"{record.data_chunk_index} file {record.data_file_index}"
+        )
+    return origin
+
+
 def read_episode_table(
     source: Source,
     info: dict[str, Any],
@@ -239,6 +337,9 @@ def read_episode_table(
             file_index=record.data_file_index,
         )
     )
+    origin = data_file_row_origin(source, info, record)
+    row_start = record.row_start - origin
+    row_stop = record.row_stop - origin
     with source.filesystem.open_input_file(path) as stream:
         parquet = pq.ParquetFile(stream)
         if columns is not None:
@@ -253,19 +354,20 @@ def read_episode_table(
         offset = 0
         for index in range(metadata.num_row_groups):
             rows = metadata.row_group(index).num_rows
-            if offset < record.row_stop and offset + rows > record.row_start:
+            if offset < row_stop and offset + rows > row_start:
                 wanted.append(index)
             offset += rows
         if not wanted:
             raise LeRobotSourceError(
-                f"Rows [{record.row_start}, {record.row_stop}) fall outside {path}"
+                f"Rows [{record.row_start}, {record.row_stop}) are outside "
+                f"{path}, which holds shard-global rows "
+                f"[{origin}, {origin + metadata.num_rows})"
             )
         table = parquet.read_row_groups(wanted, columns=columns)
         group_start = sum(
             metadata.row_group(index).num_rows for index in range(wanted[0])
         )
-    local_start = record.row_start - group_start
-    return table.slice(local_start, record.row_stop - record.row_start)
+    return table.slice(row_start - group_start, record.row_stop - record.row_start)
 
 
 def presign_url(
@@ -312,7 +414,10 @@ def presign_url(
 
     signing_key = sign(
         sign(
-            sign(sign(f"AWS4{credentials.secret_key}".encode(), date_stamp), credentials.region),
+            sign(
+                sign(f"AWS4{credentials.secret_key}".encode(), date_stamp),
+                credentials.region,
+            ),
             "s3",
         ),
         "aws4_request",
@@ -387,9 +492,7 @@ def extract_episode_video(
         str(partial),
     ]
     try:
-        completed = subprocess.run(
-            command, capture_output=True, text=True, check=False
-        )
+        completed = subprocess.run(command, capture_output=True, text=True, check=False)
         if completed.returncode != 0:
             raise LeRobotSourceError(
                 f"ffmpeg failed to cut episode {record.episode_index}: "

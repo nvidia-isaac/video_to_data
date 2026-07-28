@@ -26,6 +26,7 @@ from inpainting.adapters.mecka_parallel_jaw import (
     smooth_rotation,
     thumb_index_pose,
 )
+from inpainting.mecka_panda import arm_mask, propainter
 from inpainting.mecka_panda.composite import (
     COMPOSITE_SCHEMA,
     depth_visible_robot_mask,
@@ -44,6 +45,37 @@ from inpainting.panda_renderer.kinematics import (
     validate_arm_candidate,
 )
 from inpainting.panda_renderer.render import DEFAULT_PANDA_DIR
+
+_FAKE_CONTAINER_IMAGES = {
+    "grounding_dino": {
+        "image": "v2d_grounding_dino",
+        "image_id": "sha256:" + "a" * 64,
+    },
+    "sam2": {
+        "image": "v2d_sam2",
+        "image_id": "sha256:" + "b" * 64,
+    },
+}
+_FAKE_SOURCE_TREE_SHA256 = "c" * 64
+
+
+@pytest.fixture(autouse=True)
+def _model_runtime_identities(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        arm_mask,
+        "resolve_container_images",
+        lambda: {name: dict(value) for name, value in _FAKE_CONTAINER_IMAGES.items()},
+    )
+    monkeypatch.setattr(
+        propainter,
+        "source_tree_identity",
+        lambda root: {
+            "root": str(Path(root).expanduser().resolve()),
+            "tree_sha256": _FAKE_SOURCE_TREE_SHA256,
+            "file_count": 0,
+            "files": [],
+        },
+    )
 
 
 def _hand(offset: float = 0.0) -> np.ndarray:
@@ -85,18 +117,25 @@ def _table(frame_count: int = 7) -> pd.DataFrame:
 
 
 def _pipeline_args(output: Path) -> Namespace:
-    background = output / "background.mp4"
-    background.parent.mkdir(parents=True, exist_ok=True)
-    background.write_bytes(b"test")
     return Namespace(
         dataset="s3://dataset-a",
+        shard=None,
         episode=1,
         credentials=None,
         output_dir=output,
-        background=background,
+        background=None,
         background_start_frame=0,
         mask_preview=None,
         mask_start_frame=0,
+        reconstruction_dir=output / "reconstruction",
+        arm_mask_config=None,
+        propainter_dir=output / "ProPainter",
+        propainter_python=output / "python",
+        propainter_resize_ratio=0.5,
+        propainter_subvideo_length=40,
+        propainter_neighbor_length=6,
+        propainter_ref_stride=10,
+        propainter_fp16=True,
         object_mask=None,
         object_depth=None,
         start_frame=0,
@@ -122,7 +161,10 @@ def _pipeline_args(output: Path) -> Namespace:
     )
 
 
-def _source_info(output: Path) -> pipeline.SourceInfo:
+def _source_info(
+    output: Path,
+    dataset_uri: str = "s3://dataset-a",
+) -> pipeline.SourceInfo:
     return pipeline.SourceInfo(
         kind="lerobot",
         episode_index=1,
@@ -132,12 +174,44 @@ def _source_info(output: Path) -> pipeline.SourceInfo:
         height=48,
         fps=30.0,
         source_video=output / "tracking" / mecka_lerobot.VIDEO_FILENAME,
-        source_parquet="s3://dataset-a rows [10, 20)",
+        source_parquet=f"{dataset_uri} rows [10, 20)",
+        dataset_uri=dataset_uri,
     )
 
 
 def _write_pipeline_cache(output: Path, args: Namespace) -> None:
     paths = pipeline._layout(output)
+    source_video = paths["tracking"] / mecka_lerobot.VIDEO_FILENAME
+    background, background_start, external_background = pipeline._chosen_background(
+        args, paths
+    )
+    mask_preview, mask_start, external_mask_preview = pipeline._chosen_mask_preview(
+        args, paths
+    )
+    background_record = (
+        pipeline.artifact(background)
+        if external_background
+        else {"path": str(background)}
+    )
+    mask_preview_record = (
+        pipeline.artifact(mask_preview)
+        if external_mask_preview
+        else {"path": str(mask_preview)}
+    )
+    composite_source = {
+        "base_video": background_record,
+        "object_mask": (
+            pipeline.artifact(args.object_mask)
+            if args.object_mask is not None
+            else None
+        ),
+        "object_depth": (
+            pipeline.artifact(args.object_depth)
+            if args.object_depth is not None
+            else None
+        ),
+    }
+    mask_config = pipeline._jsonable_config(pipeline._arm_mask_config(args))
     metadata = {
         "tracking": (
             paths["tracking"] / mecka.METADATA_FILENAME,
@@ -148,6 +222,120 @@ def _write_pipeline_cache(output: Path, args: Namespace) -> None:
                 "task_id": "task_1",
                 "frame_window": {"start": 0, "count": 10},
                 "source": {"dataset_uri": "s3://dataset-a"},
+            },
+        ),
+        "mask": (
+            paths["mask"] / arm_mask.METADATA_FILENAME,
+            {
+                "schema_version": arm_mask.RUN_SCHEMA,
+                "state": "complete",
+                "sequence_id": "episode_000001",
+                "episode_index": 1,
+                "frame_window": {
+                    "source_start": 0,
+                    "count": 10,
+                    "mask_start": 0,
+                },
+                "geometry": {
+                    "source": {
+                        "frame_count": 10,
+                        "width": 64,
+                        "height": 48,
+                        "fps": 30.0,
+                    },
+                    "working": {
+                        "frame_count": 10,
+                        "width": mask_config["working_width"],
+                        "height": round(mask_config["working_width"] * 48 / 64),
+                        "fps": 30.0,
+                    },
+                },
+                "config": mask_config,
+                "source": {
+                    "tracking": {
+                        "path": str(paths["tracking"] / mecka.TRACKING_FILENAME)
+                    },
+                    "tracking_metadata": {
+                        "path": str(paths["tracking"] / mecka.METADATA_FILENAME)
+                    },
+                    "intrinsic": {
+                        "path": str(paths["tracking"] / mecka.INTRINSIC_FILENAME)
+                    },
+                    "video": {"path": str(source_video)},
+                    "reconstruction_dir": str(args.reconstruction_dir.resolve()),
+                    "container_images": arm_mask.resolve_container_images(),
+                    "runners": {
+                        "grounding_dino": {"path": str(arm_mask.GROUNDING_DINO_RUNNER)},
+                        "sam2": {"path": str(arm_mask.SAM2_RUNNER)},
+                        "container": {
+                            "path": str(
+                                args.reconstruction_dir
+                                / arm_mask.CONTAINER_HELPER_RELATIVE_PATH
+                            ),
+                        },
+                    },
+                    "model_weights": {
+                        "grounding_dino": {
+                            "path": str(
+                                args.reconstruction_dir
+                                / "data"
+                                / "weights"
+                                / "grounding_dino"
+                            )
+                        },
+                        "sam2": {
+                            "path": str(
+                                args.reconstruction_dir / "data" / "weights" / "sam2"
+                            )
+                        },
+                    },
+                },
+            },
+        ),
+        "inpaint": (
+            paths["inpaint"] / propainter.METADATA_FILENAME,
+            {
+                "schema_version": propainter.PROPAINTER_SCHEMA,
+                "state": "complete",
+                "geometry": {
+                    "frame_count": 10,
+                    "width": 64,
+                    "height": 48,
+                    "fps": 30.0,
+                },
+                "source_window": {
+                    "start_frame": 0,
+                    "stop_frame_exclusive": 10,
+                },
+                "configuration": {
+                    "backend": "propainter",
+                    "fp16": args.propainter_fp16,
+                    "neighbor_length": args.propainter_neighbor_length,
+                    "ref_stride": args.propainter_ref_stride,
+                    "resize_ratio": args.propainter_resize_ratio,
+                    "save_frames": True,
+                    "source_start_frame": 0,
+                    "subvideo_length": args.propainter_subvideo_length,
+                },
+                "source": {
+                    "mask": {"path": str(paths["mask"] / arm_mask.MASK_FILENAME)},
+                    "source_video": {"path": str(source_video)},
+                    "implementation": {
+                        "source_tree": propainter.source_tree_identity(
+                            args.propainter_dir
+                        ),
+                        "inference_script": {
+                            "path": str(args.propainter_dir / "inference_propainter.py")
+                        },
+                        "python": {"path": str(args.propainter_python)},
+                        "weights": {
+                            filename: {
+                                "path": str(args.propainter_dir / "weights" / filename)
+                            }
+                            for filename in (propainter.PROPAINTER_WEIGHT_FILENAMES)
+                        },
+                    },
+                },
             },
         ),
         "retarget": (
@@ -191,7 +379,8 @@ def _write_pipeline_cache(output: Path, args: Namespace) -> None:
                 "schema_version": COMPOSITE_SCHEMA,
                 "state": "complete",
                 "depth_guard_m": args.depth_guard_m,
-                "base_start_frame": args.background_start_frame,
+                "base_start_frame": background_start,
+                "source": composite_source,
             },
         ),
         "review": (
@@ -200,6 +389,18 @@ def _write_pipeline_cache(output: Path, args: Namespace) -> None:
                 "schema_version": pipeline.REVIEW_SCHEMA,
                 "state": "complete",
                 "geometry": {"frame_count": 10},
+                "source_offsets": {
+                    "source_start_frame": 0,
+                    "mask_start_frame": mask_start,
+                    "background_start_frame": background_start,
+                    "overlay_start_frame": 0,
+                },
+                "source": {
+                    "source_video": {"path": str(source_video)},
+                    "mask_preview": mask_preview_record,
+                    "background": background_record,
+                    "overlay": {"path": str(paths["composite"] / "final_overlay.mp4")},
+                },
             },
         ),
     }
@@ -214,8 +415,11 @@ def test_pipeline_cache_binds_source_and_invalidates_downstream(
 ) -> None:
     output = tmp_path / "run"
     args = _pipeline_args(output)
-    source = _source_info(output)
-    monkeypatch.setattr(pipeline, "_resolve_source", lambda *_: source)
+    monkeypatch.setattr(
+        pipeline,
+        "_resolve_source",
+        lambda actual, *_: _source_info(output, str(actual.dataset)),
+    )
     _write_pipeline_cache(output, args)
 
     plan = pipeline.build_plan(args)
@@ -226,16 +430,73 @@ def test_pipeline_cache_binds_source_and_invalidates_downstream(
     changed = pipeline.build_plan(args)
     states = {stage["name"]: stage["state"] for stage in changed["stages"]}
     assert states["tracking"] == "skipped_complete"
+    assert states["mask"] == "skipped_complete"
+    assert states["inpaint"] == "skipped_complete"
+    assert states["retarget"] == "pending"
     assert all(
-        states[stage] == "pending"
-        for stage in ("retarget", "render", "composite", "review")
+        states[stage] == "refresh_dependency"
+        for stage in ("render", "composite", "review")
     )
     assert any("--overwrite" in blocker for blocker in changed["blockers"])
 
     args.rotation_alpha = ROTATION_ALPHA
     args.dataset = "s3://dataset-b"
     changed_source = pipeline.build_plan(args)
-    assert all(stage["state"] == "pending" for stage in changed_source["stages"])
+    source_states = {
+        stage["name"]: stage["state"] for stage in changed_source["stages"]
+    }
+    assert source_states["tracking"] == "pending"
+    assert all(
+        source_states[stage] == "refresh_dependency"
+        for stage in pipeline.STAGES
+        if stage != "tracking"
+    )
+
+
+def test_model_runtime_identity_invalidates_only_its_owned_branch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = tmp_path / "run"
+    args = _pipeline_args(output)
+    monkeypatch.setattr(pipeline, "_resolve_source", lambda *_: _source_info(output))
+    _write_pipeline_cache(output, args)
+
+    changed_images = {
+        name: dict(value) for name, value in _FAKE_CONTAINER_IMAGES.items()
+    }
+    changed_images["grounding_dino"]["image_id"] = "sha256:" + "d" * 64
+    monkeypatch.setattr(
+        arm_mask,
+        "resolve_container_images",
+        lambda: changed_images,
+    )
+    image_plan = pipeline.build_plan(args)
+    image_states = {stage["name"]: stage["state"] for stage in image_plan["stages"]}
+    assert image_states["mask"] == "pending"
+    assert image_states["inpaint"] == "refresh_dependency"
+    assert image_states["retarget"] == "skipped_complete"
+
+    monkeypatch.setattr(
+        arm_mask,
+        "resolve_container_images",
+        lambda: {name: dict(value) for name, value in _FAKE_CONTAINER_IMAGES.items()},
+    )
+    monkeypatch.setattr(
+        propainter,
+        "source_tree_identity",
+        lambda root: {
+            "root": str(Path(root).expanduser().resolve()),
+            "tree_sha256": "e" * 64,
+            "file_count": 0,
+            "files": [],
+        },
+    )
+    source_plan = pipeline.build_plan(args)
+    source_states = {stage["name"]: stage["state"] for stage in source_plan["stages"]}
+    assert source_states["mask"] == "skipped_complete"
+    assert source_states["inpaint"] == "pending"
+    assert source_states["retarget"] == "skipped_complete"
 
 
 def test_pipeline_blocks_selected_stage_with_stale_dependency(
@@ -244,14 +505,277 @@ def test_pipeline_blocks_selected_stage_with_stale_dependency(
 ) -> None:
     output = tmp_path / "run"
     args = _pipeline_args(output)
-    source = _source_info(output)
-    monkeypatch.setattr(pipeline, "_resolve_source", lambda *_: source)
+    monkeypatch.setattr(
+        pipeline,
+        "_resolve_source",
+        lambda actual, *_: _source_info(output, str(actual.dataset)),
+    )
     _write_pipeline_cache(output, args)
     args.dataset = "s3://dataset-b"
     args.stage = ["render"]
     plan = pipeline.build_plan(args)
-    assert plan["stages"][0]["state"] == "pending"
+    assert plan["stages"][0]["state"] == "refresh_dependency"
     assert any("stale dependency 'tracking'" in value for value in plan["blockers"])
+
+
+def test_inpaint_change_does_not_invalidate_retarget_branch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = tmp_path / "run"
+    args = _pipeline_args(output)
+    monkeypatch.setattr(pipeline, "_resolve_source", lambda *_: _source_info(output))
+    _write_pipeline_cache(output, args)
+
+    args.propainter_neighbor_length = 8
+    plan = pipeline.build_plan(args)
+    states = {stage["name"]: stage["state"] for stage in plan["stages"]}
+    assert states == {
+        "tracking": "skipped_complete",
+        "mask": "skipped_complete",
+        "inpaint": "pending",
+        "retarget": "skipped_complete",
+        "render": "skipped_complete",
+        "composite": "refresh_dependency",
+        "review": "refresh_dependency",
+    }
+    assert any("stale 'inpaint' outputs" in blocker for blocker in plan["blockers"])
+
+
+def test_external_overrides_prune_mask_and_inpaint_dependencies(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = tmp_path / "run"
+    args = _pipeline_args(output)
+    args.background = output / "external_background.mp4"
+    args.mask_preview = output / "external_mask.mp4"
+    output.mkdir(parents=True)
+    args.background.write_bytes(b"background-a")
+    args.mask_preview.write_bytes(b"mask-a")
+    monkeypatch.setattr(pipeline, "_resolve_source", lambda *_: _source_info(output))
+    _write_pipeline_cache(output, args)
+
+    plan = pipeline.build_plan(args)
+    assert [stage["name"] for stage in plan["stages"]] == [
+        "tracking",
+        "retarget",
+        "render",
+        "composite",
+        "review",
+    ]
+    dependencies = {stage["name"]: stage["dependencies"] for stage in plan["stages"]}
+    assert dependencies["composite"] == ["render"]
+    assert dependencies["review"] == ["composite"]
+    assert {stage["state"] for stage in plan["stages"]} == {"skipped_complete"}
+
+    args.background.write_bytes(b"background-b")
+    changed = pipeline.build_plan(args)
+    states = {stage["name"]: stage["state"] for stage in changed["stages"]}
+    assert states["tracking"] == "skipped_complete"
+    assert states["retarget"] == "skipped_complete"
+    assert states["render"] == "skipped_complete"
+    assert states["composite"] == "pending"
+    assert states["review"] == "pending"
+    assert any("stale 'composite' outputs" in value for value in changed["blockers"])
+    assert any("stale 'review' outputs" in value for value in changed["blockers"])
+
+
+def test_external_object_identity_invalidates_only_composite_branch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = tmp_path / "run"
+    output.mkdir(parents=True)
+    args = _pipeline_args(output)
+    args.background = output / "external_background.mp4"
+    args.mask_preview = output / "external_mask.mp4"
+    args.object_mask = output / "object_mask.npy"
+    args.object_depth = output / "object_depth.npy"
+    args.emit_depth = True
+    args.background.write_bytes(b"background")
+    args.mask_preview.write_bytes(b"mask")
+    args.object_mask.write_bytes(b"object-mask-a")
+    args.object_depth.write_bytes(b"object-depth")
+    monkeypatch.setattr(pipeline, "_resolve_source", lambda *_: _source_info(output))
+    _write_pipeline_cache(output, args)
+
+    current = pipeline.build_plan(args)
+    assert {stage["state"] for stage in current["stages"]} == {"skipped_complete"}
+
+    args.object_mask.write_bytes(b"object-mask-b")
+    changed = pipeline.build_plan(args)
+    states = {stage["name"]: stage["state"] for stage in changed["stages"]}
+    assert states["tracking"] == "skipped_complete"
+    assert states["retarget"] == "skipped_complete"
+    assert states["render"] == "skipped_complete"
+    assert states["composite"] == "pending"
+    assert states["review"] == "refresh_dependency"
+
+
+def test_dependency_refresh_executes_with_overwrite(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = tmp_path / "run"
+    args = _pipeline_args(output)
+    args.stage = ["retarget", "render"]
+    monkeypatch.setattr(pipeline, "_resolve_source", lambda *_: _source_info(output))
+    _write_pipeline_cache(output, args)
+    (
+        pipeline._layout(output)["retarget"] / mecka_parallel_jaw.METADATA_FILENAME
+    ).unlink()
+    plan = pipeline.build_plan(args)
+    assert plan["blockers"] == []
+    assert [(stage["name"], stage["state"]) for stage in plan["stages"]] == [
+        ("retarget", "pending"),
+        ("render", "refresh_dependency"),
+    ]
+
+    calls: dict[str, bool] = {}
+
+    def fake_retarget(**kwargs: object) -> dict[str, object]:
+        calls["retarget"] = bool(kwargs["overwrite"])
+        return {}
+
+    def fake_render(**kwargs: object) -> dict[str, object]:
+        calls["render"] = bool(kwargs["overwrite"])
+        return {}
+
+    monkeypatch.setattr(mecka_parallel_jaw, "execute", fake_retarget)
+    monkeypatch.setattr(pipeline.panda_render, "execute", fake_render)
+    pipeline.execute_plan(args, plan)
+    assert calls == {"retarget": False, "render": True}
+
+
+def test_pending_stage_blocks_on_owned_artifact_without_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = tmp_path / "run"
+    args = _pipeline_args(output)
+    args.stage = ["retarget"]
+    monkeypatch.setattr(pipeline, "_resolve_source", lambda *_: _source_info(output))
+    _write_pipeline_cache(output, args)
+    paths = pipeline._layout(output)
+    (paths["retarget"] / mecka_parallel_jaw.METADATA_FILENAME).unlink()
+    (paths["retarget"] / mecka_parallel_jaw.TRAJECTORY_FILENAME).write_bytes(b"orphan")
+
+    plan = pipeline.build_plan(args)
+    assert plan["stages"][0]["state"] == "pending"
+    assert any("stale 'retarget' outputs" in blocker for blocker in plan["blockers"])
+
+
+def test_dependency_preflight_is_stage_aware(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = tmp_path / "run"
+    args = _pipeline_args(output)
+    monkeypatch.setattr(pipeline, "_resolve_source", lambda *_: _source_info(output))
+    _write_pipeline_cache(output, args)
+    calls: list[Path] = []
+    propainter_calls: list[tuple[Path, Path]] = []
+
+    def fake_arm_preflight(path: Path) -> Path:
+        calls.append(path)
+        return path
+
+    def fake_propainter_preflight(
+        directory: Path,
+        python: Path,
+    ) -> dict[str, object]:
+        propainter_calls.append((directory, python))
+        return {}
+
+    monkeypatch.setattr(arm_mask, "preflight", fake_arm_preflight)
+    monkeypatch.setattr(propainter, "preflight", fake_propainter_preflight)
+    current = pipeline.build_plan(args)
+    assert current["blockers"] == []
+    assert calls == []
+    assert propainter_calls == []
+
+    args.propainter_neighbor_length = 8
+
+    def missing_propainter(*_: object) -> dict[str, object]:
+        raise FileNotFoundError("missing ProPainter checkpoints")
+
+    monkeypatch.setattr(propainter, "preflight", missing_propainter)
+    inpaint_stale = pipeline.build_plan(args)
+    assert calls == []
+    assert any(
+        "ProPainter dependency preflight failed: "
+        "missing ProPainter checkpoints" in blocker
+        for blocker in inpaint_stale["blockers"]
+    )
+
+    args = _pipeline_args(output)
+    args.stage = ["tracking", "mask"]
+    (pipeline._layout(output)["mask"] / arm_mask.METADATA_FILENAME).unlink()
+
+    def missing_arm(_: Path) -> Path:
+        raise FileNotFoundError("missing checkpoints")
+
+    monkeypatch.setattr(arm_mask, "preflight", missing_arm)
+    mask_stale = pipeline.build_plan(args)
+    assert any(
+        "mask dependency preflight failed: missing checkpoints" in blocker
+        for blocker in mask_stale["blockers"]
+    )
+
+
+def test_internal_background_uses_exact_window_offsets(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = tmp_path / "run"
+    args = _pipeline_args(output)
+    args.start_frame = 7
+    paths = pipeline._layout(output)
+    source_video = paths["tracking"] / mecka_lerobot.VIDEO_FILENAME
+    plan = {
+        "blockers": [],
+        "source_kind": "lerobot",
+        "source_video": str(source_video),
+        "episode_index": 1,
+        "geometry": {"width": 64, "height": 48, "fps": 30.0},
+        "frame_window": {"start": 7, "count": 3},
+        "background": {
+            "path": str(paths["inpaint"] / propainter.OUTPUT_FILENAME),
+            "start_frame": 0,
+            "external": False,
+        },
+        "mask_preview": {
+            "path": str(paths["mask"] / arm_mask.PREVIEW_FILENAME),
+            "start_frame": 0,
+            "external": False,
+        },
+        "stages": [
+            {"name": "inpaint", "state": "pending"},
+            {"name": "composite", "state": "refresh_dependency"},
+        ],
+    }
+    calls: dict[str, object] = {}
+
+    def fake_inpaint(**kwargs: object) -> dict[str, object]:
+        calls["inpaint_source_start"] = kwargs["source_start_frame"]
+        return {}
+
+    def fake_composite(**kwargs: object) -> dict[str, object]:
+        calls["composite_base"] = kwargs["base_video"]
+        calls["composite_start"] = kwargs["base_start_frame"]
+        calls["composite_overwrite"] = kwargs["overwrite"]
+        return {}
+
+    monkeypatch.setattr(propainter, "execute", fake_inpaint)
+    monkeypatch.setattr(pipeline, "composite", fake_composite)
+    pipeline.execute_plan(args, plan)
+    assert calls == {
+        "inpaint_source_start": 7,
+        "composite_base": paths["inpaint"] / propainter.OUTPUT_FILENAME,
+        "composite_start": 0,
+        "composite_overwrite": True,
+    }
 
 
 def test_mecka_tracking_to_parallel_jaw_contract() -> None:

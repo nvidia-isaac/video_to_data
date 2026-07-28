@@ -61,6 +61,83 @@ def _probe(path: Path) -> tuple[int, int, int, float]:
     return frames, width, height, fps
 
 
+def expected_video_geometry(info: dict[str, Any]) -> tuple[int, int, float]:
+    """Return ``(width, height, fps)`` from LeRobot ``info.json`` metadata."""
+    try:
+        feature = info["features"][lerobot_source.VIDEO_KEY]
+        shape = feature["shape"]
+        fps = float(info["fps"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(
+            f"LeRobot info.json is missing valid metadata for "
+            f"{lerobot_source.VIDEO_KEY}"
+        ) from exc
+
+    if (
+        not isinstance(shape, (list, tuple))
+        or len(shape) != 3
+        or any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, np.integer))
+            or int(value) <= 0
+            for value in shape
+        )
+    ):
+        raise ValueError(
+            f"{lerobot_source.VIDEO_KEY} shape must contain three positive integers"
+        )
+    dimensions = tuple(int(value) for value in shape)
+
+    names = feature.get("names")
+    if names is not None:
+        if not isinstance(names, (list, tuple)) or len(names) != 3:
+            raise ValueError(
+                f"{lerobot_source.VIDEO_KEY} names must describe all three axes"
+            )
+        normalized_names = tuple(str(name).lower() for name in names)
+        required = {"height", "width", "channel"}
+        if set(normalized_names) != required:
+            raise ValueError(
+                f"{lerobot_source.VIDEO_KEY} names must contain "
+                "height, width, and channel"
+            )
+        height = dimensions[normalized_names.index("height")]
+        width = dimensions[normalized_names.index("width")]
+    else:
+        channel_axes = [
+            axis for axis, dimension in enumerate(dimensions) if dimension in (1, 3, 4)
+        ]
+        if channel_axes == [0]:
+            _, height, width = dimensions
+        elif channel_axes == [2]:
+            height, width, _ = dimensions
+        else:
+            raise ValueError(
+                f"Cannot infer channel axis from {lerobot_source.VIDEO_KEY} "
+                f"shape {list(dimensions)}"
+            )
+
+    if not np.isfinite(fps) or fps <= 0:
+        raise ValueError("LeRobot info.json fps must be finite and positive")
+    return width, height, fps
+
+
+def validate_video_geometry(
+    info: dict[str, Any], *, width: int, height: int, fps: float
+) -> None:
+    """Hard-fail when decoded video geometry disagrees with ``info.json``."""
+    expected_width, expected_height, expected_fps = expected_video_geometry(info)
+    fps_matches = np.isfinite(fps) and np.isclose(
+        fps, expected_fps, atol=1e-3, rtol=0.0
+    )
+    if width != expected_width or height != expected_height or not fps_matches:
+        raise ValueError(
+            f"Decoded video geometry {width}x{height} @ {fps:g} fps does not match "
+            f"LeRobot info.json {expected_width}x{expected_height} @ "
+            f"{expected_fps:g} fps"
+        )
+
+
 def intrinsic_matrix(
     intrinsics: tuple[float, ...] | np.ndarray, *, width: int, height: int
 ) -> np.ndarray:
@@ -79,9 +156,7 @@ def intrinsic_matrix(
     )
 
 
-def camera_rotations(
-    table: Any, *, start_frame: int, frame_count: int
-) -> np.ndarray:
+def camera_rotations(table: Any, *, start_frame: int, frame_count: int) -> np.ndarray:
     """Extract per-frame xyzw camera quaternions for the tracking window."""
     frame = table.to_pandas().sort_values("frame_index").reset_index(drop=True)
     rotations = np.stack(
@@ -145,6 +220,7 @@ def execute(
             f"{record.episode_index} declares {record.length}"
         )
 
+    validate_video_geometry(info, width=width, height=height, fps=fps)
     arrays = build_tracking_arrays(
         table.to_pandas(), start_frame=start_frame, max_frames=max_frames
     )
