@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -12,7 +13,8 @@ from typing import Any
 import cv2
 import numpy as np
 
-from inpainting.adapters import mecka, mecka_parallel_jaw
+from inpainting.adapters import mecka, mecka_lerobot, mecka_parallel_jaw
+from inpainting.mecka_panda import lerobot_source
 from inpainting.mecka_panda.composite import execute as composite
 from inpainting.mecka_panda.contracts import artifact, sha256, write_json_atomic
 from inpainting.mecka_panda.video_io import Mp4Writer, probe_video
@@ -84,26 +86,96 @@ def _layout(output: Path) -> dict[str, Path]:
     }
 
 
+@dataclass(frozen=True)
+class SourceInfo:
+    """Episode facts needed to plan, resolved without decoding any video."""
+
+    kind: str
+    episode_index: int
+    task_id: str
+    frame_count: int
+    width: int
+    height: int
+    fps: float
+    source_video: Path
+    source_parquet: str
+    blockers: list[str] = field(default_factory=list)
+
+
+def _is_lerobot(dataset: str) -> bool:
+    if dataset.startswith("s3://"):
+        return True
+    return (Path(dataset).expanduser() / "meta" / "info.json").is_file()
+
+
+def _resolve_source(args: argparse.Namespace, paths: dict[str, Path]) -> SourceInfo:
+    """Describe the selected episode for either supported dataset layout."""
+    dataset = str(args.dataset)
+    if _is_lerobot(dataset):
+        source = lerobot_source.open_source(dataset, credentials=args.credentials)
+        info = lerobot_source.load_info(source)
+        episode = None if args.episode is None else int(args.episode)
+        record = lerobot_source.find_episode(source, info, episode)
+        shape = info["features"][lerobot_source.VIDEO_KEY]["shape"]
+        return SourceInfo(
+            kind="lerobot",
+            episode_index=record.episode_index,
+            task_id=record.task_id,
+            frame_count=record.length,
+            width=int(shape[1]),
+            height=int(shape[0]),
+            fps=float(info["fps"]),
+            # Produced by the tracking stage; it does not exist while planning.
+            source_video=paths["tracking"] / mecka_lerobot.VIDEO_FILENAME,
+            source_parquet=(
+                f"{dataset} rows [{record.row_start}, {record.row_stop})"
+            ),
+        )
+
+    root = Path(dataset).expanduser().resolve()
+    record = mecka.resolve_episode(mecka.load_manifest(root), args.episode)
+    source_video = (root / record["clip"]).resolve()
+    source_parquet = (root / record["data"]).resolve()
+    geometry = probe_video(source_video)
+    return SourceInfo(
+        kind="mecka_manifest",
+        episode_index=int(record["episode_index"]),
+        task_id=str(record.get("task_id", "")),
+        frame_count=int(geometry["frame_count"]),
+        width=int(geometry["width"]),
+        height=int(geometry["height"]),
+        fps=float(geometry["fps"]),
+        source_video=source_video,
+        source_parquet=str(source_parquet),
+        blockers=(
+            [] if source_parquet.is_file() else [f"missing parquet: {source_parquet}"]
+        ),
+    )
+
+
 def build_plan(args: argparse.Namespace) -> dict[str, Any]:
     """Build a read-only execution plan."""
-    dataset = args.dataset.expanduser().resolve()
-    record = mecka.resolve_episode(mecka.load_manifest(dataset), args.episode)
-    source_video = (dataset / record["clip"]).resolve()
-    source_parquet = (dataset / record["data"]).resolve()
-    geometry = probe_video(source_video)
+    output = args.output_dir.expanduser().resolve()
+    paths = _layout(output)
+    source = _resolve_source(args, paths)
     count = (
-        int(geometry["frame_count"]) - args.start_frame
+        source.frame_count - args.start_frame
         if args.max_frames is None
-        else min(args.max_frames, int(geometry["frame_count"]) - args.start_frame)
+        else min(args.max_frames, source.frame_count - args.start_frame)
     )
     if count <= 0:
         raise ValueError("Selected frame window is empty")
-    output = args.output_dir.expanduser().resolve()
-    paths = _layout(output)
     selected = tuple(args.stage or STAGES)
-    blockers: list[str] = []
-    if not source_parquet.is_file():
-        blockers.append(f"missing parquet: {source_parquet}")
+    blockers: list[str] = list(source.blockers)
+    if (
+        source.kind == "lerobot"
+        and "review" in selected
+        and "tracking" not in selected
+        and not source.source_video.is_file()
+    ):
+        # The clip is cut by the tracking stage, so reviewing without it needs a
+        # previous run to have left the extraction behind.
+        blockers.append(f"missing extracted clip: {source.source_video}")
     if any(stage in selected for stage in ("composite", "review")):
         if args.background is None:
             blockers.append("--background is required for composite/review")
@@ -162,15 +234,16 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "schema_version": PIPELINE_SCHEMA,
         "mode": "execute" if args.execute else "plan",
-        "episode_index": int(record["episode_index"]),
-        "task_id": str(record.get("task_id", "")),
-        "source_video": str(source_video),
-        "source_parquet": str(source_parquet),
+        "source_kind": source.kind,
+        "episode_index": source.episode_index,
+        "task_id": source.task_id,
+        "source_video": str(source.source_video),
+        "source_parquet": source.source_parquet,
         "frame_window": {"start": args.start_frame, "count": count},
         "geometry": {
-            "width": int(geometry["width"]),
-            "height": int(geometry["height"]),
-            "fps": float(geometry["fps"]),
+            "width": source.width,
+            "height": source.height,
+            "fps": source.fps,
         },
         "ik_backend": args.ik,
         "stages": stages,
@@ -278,14 +351,25 @@ def execute_plan(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, An
     results: dict[str, Any] = {}
 
     if selected.get("tracking") not in {None, "skipped_complete"}:
-        results["tracking"] = mecka.execute(
-            dataset_dir=args.dataset,
-            episode=args.episode,
-            output_dir=paths["tracking"],
-            start_frame=args.start_frame,
-            max_frames=frame_count,
-            overwrite=args.overwrite,
-        )
+        if plan["source_kind"] == "lerobot":
+            results["tracking"] = mecka_lerobot.execute(
+                dataset_uri=str(args.dataset),
+                episode=None if args.episode is None else int(args.episode),
+                output_dir=paths["tracking"],
+                start_frame=args.start_frame,
+                max_frames=frame_count,
+                credentials=args.credentials,
+                overwrite=args.overwrite,
+            )
+        else:
+            results["tracking"] = mecka.execute(
+                dataset_dir=args.dataset,
+                episode=args.episode,
+                output_dir=paths["tracking"],
+                start_frame=args.start_frame,
+                max_frames=frame_count,
+                overwrite=args.overwrite,
+            )
     if selected.get("retarget") not in {None, "skipped_complete"}:
         results["retarget"] = mecka_parallel_jaw.execute(
             tracking=paths["tracking"] / mecka.TRACKING_FILENAME,
@@ -349,8 +433,17 @@ def execute_plan(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, An
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dataset", required=True, type=Path)
+    parser.add_argument(
+        "--dataset",
+        required=True,
+        help="Local MECKA export, or a LeRobot v3 shard as a path or s3:// URI",
+    )
     parser.add_argument("--episode")
+    parser.add_argument(
+        "--credentials",
+        help=f"JSON credentials for s3:// datasets "
+        f"(default {lerobot_source.DEFAULT_CREDENTIALS})",
+    )
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--background", type=Path)
     parser.add_argument("--background-start-frame", type=int, default=0)
