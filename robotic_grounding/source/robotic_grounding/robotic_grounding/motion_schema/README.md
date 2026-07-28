@@ -5,7 +5,7 @@ Single schema shared by:
 - **Producers**: `scripts/retarget/soma_to_g1.py`,
   `source/robotic_grounding/robotic_grounding/planner/g1_planner.py::save_planner_parquet`.
 - **Consumers**: training loader at
-  `source/robotic_grounding/robotic_grounding/tasks/v2p_whole_body/mdp/commands/tracking_utils.py`,
+  `source/robotic_grounding/robotic_grounding/tasks/v2d_whole_body/mdp/commands/tracking_utils.py`,
   `SceneConfig.from_motion_file()`, `scripts/rsl_rl/dummy_agent.py::_autoframe_viewer`,
   `scripts/reconstruct_support_surfaces.py`, `tasks/scene_utils/replay_data.py`.
 

@@ -267,7 +267,7 @@ def load_replay_trajectory(
         md = md.trim(start_frame, end_frame)
         return _motion_v1_to_replay(md)
 
-    # Legacy: ManoSharpaData (dual-hand V2P pipeline, not yet on motion_v1).
+    # Legacy: ManoSharpaData (dual-hand V2D pipeline, not yet on motion_v1).
     if {
         "robot_right_wrist_position",
         "robot_right_wrist_wxyz",

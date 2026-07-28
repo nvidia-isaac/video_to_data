@@ -65,6 +65,12 @@ parser.add_argument(
     help="Use primitive URDFs for the robot.",
 )
 parser.add_argument(
+    "--debug_vis",
+    action="store_true",
+    default=False,
+    help="Enable command debug-vis markers (target/current poses, contacts, fingertips).",
+)
+parser.add_argument(
     "--record_video",
     action="store_true",
     default=False,
@@ -106,11 +112,13 @@ if args_cli.record_video:
 ###################################
 # Debug — uncomment to override CLI args
 ###################################
-# args_cli.task = "Sharpa-V2P-v0-Play"
+# args_cli.task = "Sharpa-V2D-v0-Play"
 # args_cli.headless = True
 # args_cli.disable_robot_to_object_collisions = False
 # args_cli.disable_robot_to_fixed_object_collisions = True
-# args_cli.motion_file = "arctic/arctic_processed/arctic_s01_mixer_use_01/sharpa_wave"
+# args_cli.motion_file = "arctic/arctic_processed/dataset_s01_mixer_use_01/sharpa_wave"
+# args_cli.motion_file = "arctic/arctic_processed/dataset_s07_box_grab_01/sharpa_wave"
+# args_cli.motion_file = "hot3d/hot3d_processed/P0002_59a84a3a_seg025/sharpa_wave"
 ###################################
 
 # launch omniverse app
@@ -131,46 +139,7 @@ from isaaclab.envs import ManagerBasedRLEnvCfg
 from robotic_grounding.tasks import *
 from robotic_grounding.tasks.scene_utils import SceneConfig, apply_scene_config
 from isaaclab_tasks.utils import parse_env_cfg
-
-
-def _autoframe_viewer(env_cfg, motion_file: str) -> None:
-    """Re-point env_cfg.viewer at the centroid of object + wrist positions.
-
-    Read from the parquet's object_body_position + robot_{side}_wrist_position
-    fields; pick an eye offset along (-y, +x, +z) so the camera is ~1.2× the
-    scene extent away, elevated ~30°.
-    """
-    import numpy as np
-    import pyarrow.parquet as pq
-
-    if not (isinstance(env_cfg, ManagerBasedRLEnvCfg) and hasattr(env_cfg, "viewer")):
-        return
-    try:
-        data = pq.read_table(motion_file).to_pydict()
-        pts = []
-        obj = data.get("object_body_position", [None])[0]
-        if obj:
-            pts.append(np.asarray(obj).reshape(-1, 3))
-        for side in ("right", "left"):
-            wrist = data.get(f"robot_{side}_wrist_position", [None])[0]
-            if wrist:
-                pts.append(np.asarray(wrist).reshape(-1, 3))
-        if not pts:
-            return
-        all_pts = np.concatenate(pts, axis=0)
-        lo, hi = all_pts.min(axis=0), all_pts.max(axis=0)
-        center = 0.5 * (lo + hi)
-        extent = max(float(np.linalg.norm(hi - lo)), 0.3)
-        dist = 1.2 * extent
-        # Azimuth 135° (x<0, y>0), elevation 30°.
-        eye = center + dist * np.array([-0.61, 0.61, 0.5])
-        env_cfg.viewer.lookat = tuple(float(c) for c in center)
-        env_cfg.viewer.eye = tuple(float(c) for c in eye)
-        print(
-            f"[INFO] viewer autoframe: lookat={env_cfg.viewer.lookat}, eye={env_cfg.viewer.eye}"
-        )
-    except Exception as e:  # noqa: BLE001
-        print(f"[WARNING] viewer autoframe failed: {e}")
+from viewer_utils import autoframe_viewer
 
 
 def main():
@@ -192,10 +161,10 @@ def main():
             env_cfg, scene_config, use_primitive_urdfs=args_cli.use_primitive_urdfs
         )
         # Auto-frame the viewer on the actual motion bounding box.  The default
-        # eye/lookat in v2p_hand_env_cfg targets standing-human scenes (lookat
+        # eye/lookat in v2d_hand_env_cfg targets standing-human scenes (lookat
         # z=1.2); tabletop datasets like h2o / dexycb are at z<0.3 and end up
         # off-screen otherwise.
-        _autoframe_viewer(env_cfg, scene_config.motion_file)
+        autoframe_viewer(env_cfg, scene_config.motion_file)
 
     # clamp viewer env_index to valid range (env_cfg may default to a higher index)
     if isinstance(env_cfg, ManagerBasedRLEnvCfg) and hasattr(env_cfg, "viewer"):
@@ -203,7 +172,7 @@ def main():
             env_cfg.viewer.env_index, env_cfg.scene.num_envs - 1
         )
 
-    # V2P dual-hands specific config (skip for whole-body envs)
+    # V2D dual-hands specific config (skip for whole-body envs)
     if hasattr(env_cfg, "commands") and hasattr(
         env_cfg.commands, "dual_hands_object_tracking_command"
     ):
@@ -217,6 +186,13 @@ def main():
         env_cfg.events.setup_collision_groups.params[
             "disable_robot_to_fixed_object_collisions"
         ] = args_cli.disable_robot_to_fixed_object_collisions
+
+    # Enable debug-vis markers on any command term that supports it
+    if args_cli.debug_vis and hasattr(env_cfg, "commands"):
+        for term_name in vars(env_cfg.commands):
+            term = getattr(env_cfg.commands, term_name)
+            if hasattr(term, "debug_vis"):
+                term.debug_vis = True
 
     # create environment (with RecordVideo wrapper if requested)
     if args_cli.record_video:
@@ -255,16 +231,6 @@ def main():
 
     env.close()
 
-    # Sentinel goes here — AFTER env.close() has returned AND the MP4 is on
-    # disk. gymnasium.wrappers.RecordVideo's step-loop uses a strict
-    # `len(recorded_frames) > video_length` check, so running exactly
-    # `video_length` steps never trips stop_recording() inside the loop;
-    # the moviepy flush runs inside close() instead. Writing the sentinel
-    # earlier lets it survive an Omniverse-shutdown deadlock, a silent
-    # moviepy/ffmpeg failure (disable_logger=True), or an outer
-    # `timeout --signal=KILL` that lands between touch and flush — all
-    # observed at least once (sequence_id=dataset_s01_box_use_02 in
-    # isaac/retargeted_arctic_exp_50).
     if args_cli.record_video and args_cli.success_marker:
         from pathlib import Path as _Path
 

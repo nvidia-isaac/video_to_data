@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 import pandas as pd
 
-from inpainting.contracts import (
+from inpainting.mecka_panda.contracts import (
     TRACKING_SCHEMA,
     artifact,
     load_npz,

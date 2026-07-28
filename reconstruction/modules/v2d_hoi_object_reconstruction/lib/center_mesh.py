@@ -10,13 +10,16 @@ causing the tracked pose to jump by the mesh's center offset on the first frame.
 Output format:
   - .obj  — for OBJ input: edits vertex positions in the text file directly and
              copies MTL + texture files unchanged. No re-encoding, pixel-perfect texture.
-  - .glb  — converts UV texture to vertex colors (lower resolution but self-contained).
+  - .glb  — embeds UV texture/material data in a self-contained GLB.
 
 Usage:
     python center_mesh.py --input /data/job/textured_mesh.obj \
                           --output /data/job/mesh_input.obj
 
-    python center_mesh.py --input /data/job/mesh_simplified.glb \
+    python center_mesh.py --input /data/job/textured_mesh.obj \
+                          --output /data/job/mesh_input.glb
+
+    python center_mesh.py --input /data/job/input.glb \
                           --output /data/job/mesh_input.glb
 """
 
@@ -86,6 +89,42 @@ def center_mesh_obj(input_path: Path, output_path: Path):
     print(f"Saved to {output_path}")
 
 
+def center_mesh_scene(input_path: Path, output_path: Path):
+    """Center any trimesh-supported mesh/scene and preserve embedded visuals."""
+    scene = trimesh.load(str(input_path), force='scene', process=False)
+    meshes = [
+        mesh for mesh in scene.dump(concatenate=False)
+        if isinstance(mesh, trimesh.Trimesh) and len(mesh.vertices) > 0
+    ]
+    if not meshes:
+        raise ValueError(f"No mesh geometry found in {input_path}")
+
+    vertices = np.concatenate([mesh.vertices for mesh in meshes], axis=0)
+    center = (vertices.min(axis=0) + vertices.max(axis=0)) / 2
+    extents = vertices.max(axis=0) - vertices.min(axis=0)
+    print(f"Center before: {center}")
+    print(f"Extents (m):   {extents}")
+    print(f"Geometries: {len(meshes)}")
+    print(f"Vertices: {len(vertices)}")
+
+    centered_scene = trimesh.Scene()
+    centered_vertices = []
+    for i, mesh in enumerate(meshes):
+        mesh = mesh.copy()
+        mesh.vertices = mesh.vertices - center
+        centered_vertices.append(mesh.vertices)
+        name = mesh.metadata.get("name") or f"mesh_{i}"
+        centered_scene.add_geometry(mesh, geom_name=name, node_name=f"{name}_node")
+
+    centered_vertices = np.concatenate(centered_vertices, axis=0)
+    center_after = (centered_vertices.min(axis=0) + centered_vertices.max(axis=0)) / 2
+    print(f"Center after:  {center_after}")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    centered_scene.export(str(output_path))
+    print(f"Saved to {output_path}")
+
+
 def center_mesh(input_path: str, output_path: str):
     input_path = Path(input_path)
     output_path = Path(output_path)
@@ -96,38 +135,7 @@ def center_mesh(input_path: str, output_path: str):
         center_mesh_obj(input_path, output_path)
         return
 
-    # Trimesh path for GLB and other formats
-    scene = trimesh.load(str(input_path), force='scene')
-
-    if len(scene.geometry) > 1:
-        print(f"Found {len(scene.geometry)} geometries, merging...")
-        mesh = trimesh.util.concatenate(list(scene.geometry.values()))
-    else:
-        mesh = list(scene.geometry.values())[0]
-
-    center = (mesh.vertices.min(axis=0) + mesh.vertices.max(axis=0)) / 2
-    print(f"Center before: {center}")
-
-    mesh.vertices -= center
-
-    center_after = (mesh.vertices.min(axis=0) + mesh.vertices.max(axis=0)) / 2
-    extents = mesh.vertices.max(axis=0) - mesh.vertices.min(axis=0)
-    print(f"Center after:  {center_after}")
-    print(f"Extents (m):   {extents}")
-    print(f"Faces: {len(mesh.faces)}, Vertices: {len(mesh.vertices)}")
-
-    if output_ext != '.obj':
-        # GLB uses PBRMaterial which lacks .image; convert to vertex colors
-        if not isinstance(mesh.visual, trimesh.visual.color.ColorVisuals):
-            print("Converting UV/material texture to vertex colors for GLB export...")
-            try:
-                mesh.visual = mesh.visual.to_color()
-                print(f"Vertex colors shape: {mesh.visual.vertex_colors.shape}")
-            except Exception as e:
-                print(f"Warning: could not convert texture to vertex colors: {e}")
-
-    trimesh.Scene({'mesh': mesh}).export(str(output_path))
-    print(f"Saved to {output_path}")
+    center_mesh_scene(input_path, output_path)
 
 
 if __name__ == '__main__':

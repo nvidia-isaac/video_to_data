@@ -128,6 +128,25 @@ DATASET_CONFIGS: dict[str, DatasetConfig] = {
             "dex3": "scripts/retarget/arctic_to_dex3.py",
         },
     ),
+    "synthbox": DatasetConfig(
+        # Fully synthetic, license-free dataset used only by the E2E tests. One
+        # made-up sequence of two hands opening an articulated box (two box
+        # primitives joined by a revolute hinge). Its objects are articulated, so
+        # the URDF is hand-authored and shipped under
+        # human_motion_data/synthbox/object_assets/ (no rigid-URDF generation),
+        # mirroring the arctic convention.
+        name="synthbox",
+        fps=30.0,
+        mano_kwargs={"flat_hand_mean": False, "center_idx": None},
+        mesh_vertex_scale=1.0,
+        mesh_format="obj",
+        has_articulated_objects=True,
+        has_contact_data=True,
+        link_to_site_quat_wxyz=(0.5, -0.5, 0.5, 0.5),
+        retarget_scripts={
+            "sharpa_wave": "scripts/retarget/synthbox_to_sharpa.py",
+        },
+    ),
     "oakink2": DatasetConfig(
         name="oakink2",
         fps=120.0,

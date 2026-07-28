@@ -8,8 +8,8 @@ import pytest
 
 from inpainting.adapters.mecka import build_tracking_arrays
 from inpainting.adapters.mecka_parallel_jaw import retarget_tracking_arrays
-from inpainting.composite_robot import depth_visible_robot_mask
-from inpainting.contracts import (
+from inpainting.mecka_panda.composite import depth_visible_robot_mask
+from inpainting.mecka_panda.contracts import (
     ContractError,
     validate_parallel_jaw_arrays,
     validate_tracking_arrays,

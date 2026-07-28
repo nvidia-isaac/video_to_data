@@ -349,14 +349,14 @@ def _expand_pca_to_aa(
 def _extract_archives_if_needed(dexycb_dir: Path) -> Path:
     """Extract ``{name}.tar.gz`` bundles in ``dexycb_dir`` if not yet expanded.
 
-    The CSS upload ships per-subject tarballs (plus ``calibration.tar.gz``
-    and ``models.tar.gz``) instead of the 600k+ raw label/mesh files, to
-    keep S3 round-trips down.  Each tarball was created with entries rooted
+    DexYCB ships per-subject tarballs (plus ``calibration.tar.gz``
+    and ``models.tar.gz``) instead of the 600k+ raw label/mesh files.
+    Each tarball was created with entries rooted
     at its namesake directory (e.g. ``20200709-subject-01/...``) so
     extracting with ``-C dexycb_dir`` restores the canonical layout.
 
     Idempotent: skips any tarball whose extraction target directory already
-    exists.  If the input dir is read-only (e.g. the CSS bind mount), the
+    exists.  If the input dir is read-only (e.g. a read-only bind mount), the
     extraction is redirected to a ``/tmp`` cache.
     """
     archives = sorted(dexycb_dir.glob("*.tar.gz"))
@@ -458,8 +458,8 @@ class DexYCBDatasetLoader(DatasetLoaderBase):
         if not dexycb_dir.exists():
             raise FileNotFoundError(f"DexYCB dataset not found at {dexycb_dir}")
 
-        # If the dataset ships as per-subject tarballs (e.g. on CSS), expand
-        # them once before walking the tree.
+        # If the dataset ships as per-subject tarballs, expand them once
+        # before walking the tree.
         dexycb_dir = _extract_archives_if_needed(dexycb_dir)
 
         sequences: list[SequenceInfo] = []

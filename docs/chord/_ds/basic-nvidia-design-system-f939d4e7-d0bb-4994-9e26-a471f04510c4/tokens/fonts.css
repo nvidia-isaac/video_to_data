@@ -1,0 +1,23 @@
+/* ===========================================================================
+   NVIDIA Design System — Fonts
+   ---------------------------------------------------------------------------
+   BRAND FONT: "NVIDIA Sans" (proprietary, licensed to NVIDIA employees only).
+   It is NOT redistributable, so this system ships a close free substitute for
+   prototyping: HANKEN GROTESK — a clean, even-stroke humanist grotesk with a
+   matching weight range (Light / Regular / Medium / Bold).
+
+   CODE FONT: "Roboto Mono" — this is the ACTUAL brand spec (the NVIDIA template
+   specifies RobotoMono for all code/monospace), loaded here from Google Fonts.
+
+   → Replace the substitute with real NVIDIA Sans .woff2 files when available:
+     swap the @import below for local @font-face rules named "NVIDIA Sans".
+   =========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,500&family=Roboto+Mono:wght@400;500;700&display=swap');
+
+/* ---------------------------------------------------------------------------
+   KAIZEN PRODUCT-UI MODE fonts (loaded for [data-mode="kaizen"]).
+   Open Sans (body/UI), Roboto (headings), JetBrains Mono (code) — the real
+   Kaizen Design System web type stack.
+   --------------------------------------------------------------------------- */
+@import url('https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,400;0,600;0,700;1,400&family=Roboto:wght@400;500;700&family=JetBrains+Mono:wght@400;700&display=swap');

@@ -86,10 +86,10 @@ GRAB_MESH_DIR = MESHES_DIR / "grab"
 LOADED_SAVE_DIR = HUMAN_MOTION_DATA_DIR / "grab" / "grab_loaded"
 GRAB_FPS = 120.0
 
-# GRAB's SMPL-X world frame is Y-up.  Rotate to Z-up (same target as our other
-# loaders) via a 90-degree rotation around X: (x, y, z) -> (x, z, -y).
-# This is also the convention Arctic's loader standardises on.
-Y_UP_TO_Z_UP = np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]], dtype=np.float32)
+# GRAB's stored world frame is already Z-up (verified empirically: SMPL-X root/pelvis
+# height ~0.95 m and object lift are along +Z; X/Y are the horizontal extents), so we
+# apply NO axis remap.
+Y_UP_TO_Z_UP = np.eye(3, dtype=np.float32)
 
 
 # ---------------------------------------------------------------------------

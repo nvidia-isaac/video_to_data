@@ -131,6 +131,14 @@ def main() -> None:
     schema = _detect_parquet_schema(input_dir)
     print(f"Detected schema: {schema}")
 
+    # H2O takes are single continuous interactions where the object is often
+    # held steady mid-manipulation; pure stillness then mistakes a held pause
+    # for a resting surface. Gate H2O on hand-release so only frames where the
+    # hand has let go of the object can form a support disk.
+    require_hand_release = args.dataset == "h2o" or "/h2o/" in str(input_dir).lower()
+    if require_hand_release:
+        print("H2O detected: enabling hand-release gate for support surfaces")
+
     for sequence_id in ids_to_process:
         reconstruct_support_for_sequence(
             input_dir,
@@ -138,6 +146,7 @@ def main() -> None:
             args.output,
             schema=schema,
             ground_z_threshold=args.ground_threshold,
+            require_hand_release=require_hand_release,
         )
 
 

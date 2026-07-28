@@ -1,0 +1,82 @@
+# Copybara config: mirror this internal repo -> public github.com/nvidia-isaac/video_to_data
+#
+# Strips CSS/PDX data-transfer scripts and internal-only docs, and removes any
+# inline INTERNAL-ONLY blocks from files that otherwise stay public.
+#
+# Usage (the deploy jar requires the explicit `migrate` subcommand). Every run
+# requires an explicit commit message via --force-message (no default squash
+# message is used):
+#   java -jar copybara_deploy.jar migrate copy.bara.sky default --init-history --force-message "<message>"  # first run
+#   java -jar copybara_deploy.jar migrate copy.bara.sky default --force-message "<message>"                 # subsequent runs
+# Dry run to a scratch branch is recommended first (see workflow/data_storage.md).
+
+# Files that must never reach the public mirror.
+INTERNAL_FILES = glob(
+    ["**"],
+    exclude = [
+        # This config itself (references the internal repo + exclusion logic).
+        "copy.bara.sky",
+        # CSS / PDX data-transfer + credential scripts.
+        "robotic_grounding/scripts/list_css_sequences.py",
+        "robotic_grounding/scripts/sync_css_data.py",
+        "robotic_grounding/scripts/setup_css_env.sh",
+        "robotic_grounding/scripts/upload_object_assets.py",
+        "robotic_grounding/scripts/fetch_object_assets.py",
+        "robotic_grounding/scripts/pull_arctic_subset.py",
+        # direnv CSS credential loader (sources the excluded setup_css_env.sh).
+        "robotic_grounding/.envrc",
+        # Dataset download scripts that upload to CSS.
+        "robotic_grounding/scripts/download_sources/grab.sh",
+        "robotic_grounding/scripts/download_sources/dexycb.sh",
+        # Internal-only doc (PDX/swift layout + CSS how-to).
+        "robotic_grounding/workflow/data_storage.md",
+    ],
+)
+
+# Strip inline INTERNAL-ONLY blocks (e.g. data_pipeline.md) from files that stay
+# public. Marker convention: a START comment ... an END comment.
+TRANSFORMATIONS = [
+    core.replace(
+        before = "${block}",
+        after = "",
+        multiline = True,
+        regex_groups = {
+            "block": "(?s)<!-- INTERNAL-ONLY:START.*?INTERNAL-ONLY:END -->\\n?",
+        },
+    ),
+]
+
+core.workflow(
+    name = "default",
+    origin = git.origin(
+        url = "git@github.com:nvidia-isaac/video_to_data_internal.git",
+        ref = "main",
+    ),
+    destination = git.destination(
+        url = "git@github.com:nvidia-isaac/video_to_data.git",
+        push = "main",
+    ),
+    origin_files = INTERNAL_FILES,
+    authoring = authoring.overwrite("NVIDIA V2D Team <michalin@nvidia.com>"),
+    mode = "SQUASH",
+    transformations = TRANSFORMATIONS,
+)
+
+# Smoke-test workflow: identical filtering/transform, but pushes to a private
+# scratch repo instead of the public mirror. Trigger with `-f workflow=smoke`
+# (see .github/workflows/copybara.yml). Not for production use.
+core.workflow(
+    name = "smoke",
+    origin = git.origin(
+        url = "git@github.com:nvidia-isaac/video_to_data_internal.git",
+        ref = "main",
+    ),
+    destination = git.destination(
+        url = "git@github.com:michaellin6/video_to_data_ci_smoke.git",
+        push = "main",
+    ),
+    origin_files = INTERNAL_FILES,
+    authoring = authoring.overwrite("NVIDIA V2D Team <michalin@nvidia.com>"),
+    mode = "SQUASH",
+    transformations = TRANSFORMATIONS,
+)

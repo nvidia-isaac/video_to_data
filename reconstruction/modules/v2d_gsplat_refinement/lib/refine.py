@@ -575,6 +575,11 @@ def refine(
     # face_normal_thin_factor * tangent sigma. Smaller → flatter disks.
     face_normal_thin_factor_obj:  float = 0.25,
     face_normal_thin_factor_hand: float = 0.25,
+    init_opacity_obj:   float = 0.9,
+    init_opacity_hand:  float = 0.9,
+    init_opacity_bg:    float = 0.9,
+    init_opacity_wrist: float = 0.5,
+    init_gaussian_scale_factor: float = 1.0,
     # Hand Gaussian color init: when True (default), overwrite each hand
     # Gaussian's color with the mean RGB inside its SAM2 mask at the
     # reference frame (bg_ref_frame → debug_frame_idx → 0). Falls back to
@@ -797,6 +802,8 @@ def refine(
         obj_gaussians = init_object_face_gaussians_from_mesh(
             obj_verts, _obj_faces, obj_colors,
             normal_thin_factor = face_normal_thin_factor_obj,
+            init_opacity       = init_opacity_obj,
+            init_scale_factor  = init_gaussian_scale_factor,
         ).to(device)
     elif object_anchor_mode == "vertex":
         if n_obj_gaussians is not None and n_obj_gaussians != obj_verts.shape[0]:
@@ -805,7 +812,11 @@ def refine(
             obj_verts, obj_colors = resample_mesh_surface(
                 obj_verts, obj_colors, _obj_faces, n_obj_gaussians,
             )
-        obj_gaussians = init_object_gaussians_from_mesh(obj_verts, obj_colors).to(device)
+        obj_gaussians = init_object_gaussians_from_mesh(
+            obj_verts, obj_colors,
+            scale_factor=init_gaussian_scale_factor,
+            init_opacity=init_opacity_obj,
+        ).to(device)
     else:
         raise ValueError(
             f"object_anchor_mode must be 'vertex' or 'face' (got {object_anchor_mode!r})"
@@ -862,6 +873,8 @@ def refine(
                 is_right      = ht.is_right,
                 normal_thin_factor = face_normal_thin_factor_hand,
                 hand_scale_init = hand_scale_init,
+                init_opacity    = init_opacity_hand,
+                init_scale_factor = init_gaussian_scale_factor,
                 device          = device,
                 subsample_face_indices = None,
             )
@@ -883,6 +896,8 @@ def refine(
                 n_verts           = pf.num_verts(),
                 is_right          = ht.is_right,
                 init_scale        = 0.005 * hand_scale_init,
+                init_opacity      = init_opacity_hand,
+                init_scale_factor = init_gaussian_scale_factor,
                 device            = device,
                 subsample_indices = sub_idx,
             )
@@ -899,6 +914,8 @@ def refine(
                 n            = int(n_wrist_gaussians),
                 init_scale   = float(wrist_init_scale) * hand_scale_init,
                 init_radius  = float(wrist_init_radius),
+                init_opacity = init_opacity_wrist,
+                init_scale_factor = init_gaussian_scale_factor,
                 device       = device,
                 seed         = seed + (1 if ht.is_right else 2),
             )
@@ -1083,7 +1100,11 @@ def refine(
             )
         print(f"Background: {anchors.shape[0]} Gaussians initialized.")
 
-        bg_gaussians  = BackgroundGaussians(anchors, colors, init_scales).to(device)
+        bg_gaussians  = BackgroundGaussians(
+            anchors, colors, init_scales,
+            init_opacity=init_opacity_bg,
+            init_scale_factor=init_gaussian_scale_factor,
+        ).to(device)
         bg_pose_field = BackgroundPoseField(
             n_frames=len(frame_indices), device=device, ref_frame_t=ref_t
         ).to(device)
@@ -3173,6 +3194,16 @@ def main() -> None:
     p.add_argument("--random_init_obj_pose_trans_std", type=float, default=0.1,
                    help="Stddev (m) of the per-frame translation noise "
                         "added when --random_init_obj_pose is set.")
+    p.add_argument("--init_opacity_obj", type=float, default=0.9,
+                   help="Initial opacity for object Gaussians before sigmoid-logit optimization.")
+    p.add_argument("--init_opacity_hand", type=float, default=0.9,
+                   help="Initial opacity for hand Gaussians before sigmoid-logit optimization.")
+    p.add_argument("--init_opacity_bg", type=float, default=0.9,
+                   help="Initial opacity for background Gaussians before sigmoid-logit optimization.")
+    p.add_argument("--init_opacity_wrist", type=float, default=0.5,
+                   help="Initial opacity for optional wrist-attached Gaussians.")
+    p.add_argument("--init_gaussian_scale_factor", type=float, default=1.0,
+                   help="Multiplier on initial Gaussian scales/radii for object, hand, background, and wrist Gaussians.")
     p.add_argument("--no_init_hand_color_from_mask",
                    dest="init_hand_color_from_mask",
                    action="store_false",
@@ -3337,6 +3368,11 @@ def main() -> None:
         hand_anchor_mode            = args.hand_anchor_mode,
         face_normal_thin_factor_obj  = args.face_normal_thin_factor_obj,
         face_normal_thin_factor_hand = args.face_normal_thin_factor_hand,
+        init_opacity_obj             = args.init_opacity_obj,
+        init_opacity_hand            = args.init_opacity_hand,
+        init_opacity_bg              = args.init_opacity_bg,
+        init_opacity_wrist           = args.init_opacity_wrist,
+        init_gaussian_scale_factor   = args.init_gaussian_scale_factor,
         init_hand_color_from_mask    = args.init_hand_color_from_mask,
         smooth_obj_in_world          = args.smooth_obj_in_world,
         smooth_hand_in_world         = args.smooth_hand_in_world,

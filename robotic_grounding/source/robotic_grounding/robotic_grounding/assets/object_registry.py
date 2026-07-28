@@ -1,80 +1,29 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+"""Curated per-object facts the motion parquet cannot express.
+
+Arctic objects are articulated (a revolute lid/joint). The parquet's
+``object_articulation`` trajectory is zero when the joint does not move in a clip,
+so it cannot be used to tell an articulable object apart from a rigid one — hence
+this small curated set. Object URDFs and meshes are resolved from the motion
+file's own dataset assets (``object_assets/``), not from here.
+"""
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-from robotic_grounding.assets import ASSET_DIR
-
-
-@dataclass
-class ObjectSpec:
-    """Specification for a loadable object."""
-
-    usd_path: str | None = None
-    urdf_path: str | None = None
-    rigid_urdf_path: str | None = None
-    scale: tuple[float, float, float] = (1.0, 1.0, 1.0)
-    articulated: bool = False
-
-
-_ARCTIC_URDF_DIR = f"{ASSET_DIR}/urdfs/arctic"
-
-OBJECT_REGISTRY: dict[str, ObjectSpec] = {
-    # Arctic objects (articulated URDFs, base joints removed)
-    "box": ObjectSpec(
-        urdf_path=f"{_ARCTIC_URDF_DIR}/box_art.urdf",
-        rigid_urdf_path=f"{_ARCTIC_URDF_DIR}/box_rigid.urdf",
-        articulated=True,
-    ),
-    "capsulemachine": ObjectSpec(
-        urdf_path=f"{_ARCTIC_URDF_DIR}/capsulemachine_art.urdf",
-        rigid_urdf_path=f"{_ARCTIC_URDF_DIR}/capsulemachine_rigid.urdf",
-        articulated=True,
-    ),
-    "espressomachine": ObjectSpec(
-        urdf_path=f"{_ARCTIC_URDF_DIR}/espressomachine_art.urdf",
-        rigid_urdf_path=f"{_ARCTIC_URDF_DIR}/espressomachine_rigid.urdf",
-        articulated=True,
-    ),
-    "ketchup": ObjectSpec(
-        urdf_path=f"{_ARCTIC_URDF_DIR}/ketchup_art.urdf",
-        rigid_urdf_path=f"{_ARCTIC_URDF_DIR}/ketchup_rigid.urdf",
-        articulated=True,
-    ),
-    "laptop": ObjectSpec(
-        urdf_path=f"{_ARCTIC_URDF_DIR}/laptop_art.urdf",
-        rigid_urdf_path=f"{_ARCTIC_URDF_DIR}/laptop_rigid.urdf",
-        articulated=True,
-    ),
-    "microwave": ObjectSpec(
-        urdf_path=f"{_ARCTIC_URDF_DIR}/microwave_art.urdf",
-        rigid_urdf_path=f"{_ARCTIC_URDF_DIR}/microwave_rigid.urdf",
-        articulated=True,
-    ),
-    "mixer": ObjectSpec(
-        urdf_path=f"{_ARCTIC_URDF_DIR}/mixer_art.urdf",
-        rigid_urdf_path=f"{_ARCTIC_URDF_DIR}/mixer_rigid.urdf",
-        articulated=True,
-    ),
-    "notebook": ObjectSpec(
-        urdf_path=f"{_ARCTIC_URDF_DIR}/notebook_art.urdf",
-        rigid_urdf_path=f"{_ARCTIC_URDF_DIR}/notebook_rigid.urdf",
-        articulated=True,
-    ),
-    "phone": ObjectSpec(
-        urdf_path=f"{_ARCTIC_URDF_DIR}/phone_art.urdf",
-        rigid_urdf_path=f"{_ARCTIC_URDF_DIR}/phone_rigid.urdf",
-        articulated=True,
-    ),
-    "waffleiron": ObjectSpec(
-        urdf_path=f"{_ARCTIC_URDF_DIR}/waffleiron_art.urdf",
-        rigid_urdf_path=f"{_ARCTIC_URDF_DIR}/waffleiron_rigid.urdf",
-        articulated=True,
-    ),
+ARTICULATED_OBJECTS: set[str] = {
+    "box",
+    "capsulemachine",
+    "espressomachine",
+    "ketchup",
+    "laptop",
+    "microwave",
+    "mixer",
+    "notebook",
+    "phone",
+    "waffleiron",
 }
 
 
-def get_object_spec(name: str) -> ObjectSpec | None:
-    """Return the object spec for the given name, or None if not found."""
-    return OBJECT_REGISTRY.get(name)
+def is_articulated(object_name: str | None) -> bool:
+    """Whether the named object is articulated (Arctic objects)."""
+    return bool(object_name) and object_name in ARTICULATED_OBJECTS

@@ -26,39 +26,64 @@ def run_video_to_poses(
     particle_mask_iou_weight: float = 1.0,
     mask_depth: bool = False,
     dev: bool = False,
+    gpu_device: int | None = None,
 ) -> None:
+    if gpu_device is not None and (
+        isinstance(gpu_device, bool)
+        or not isinstance(gpu_device, int)
+        or gpu_device < 0
+    ):
+        raise ValueError("gpu_device must be a non-negative physical GPU index")
     weights_abs = os.path.abspath(weights_dir)
     weights_container = f"/data/weights_dir/{os.path.basename(weights_abs)}"
+    environment = {
+        "FOUNDATIONPOSE_WEIGHTS_DIR": weights_container,
+        "MPLCONFIGDIR": "/tmp/v2d-matplotlib",
+        "WARP_CACHE_PATH": "/tmp/v2d-warp",
+        "XDG_CACHE_HOME": "/tmp/v2d-xdg-cache",
+    }
+    if gpu_device is not None:
+        environment["CUDA_VISIBLE_DEVICES"] = "0"
     run_in_container(
         image=IMAGE_NAME,
         module="v2d.foundation_pose.lib.run_video_to_poses",
-        inputs={"video_path": video_path, "depth_folder": depth_folder, "masks_folder": masks_folder, "camera_intrinsics_path": camera_intrinsics_path, "mesh_path": mesh_path, "weights_dir": weights_dir},
+        inputs={
+            "video_path": video_path,
+            "depth_folder": depth_folder,
+            "masks_folder": masks_folder,
+            "camera_intrinsics_path": camera_intrinsics_path,
+            "mesh_path": mesh_path,
+            "weights_dir": weights_dir,
+        },
         outputs={"poses_dir": poses_dir},
         extra_args={
-            "reference_frame":          reference_frame,
-            "target_width":             target_width,
-            "target_height":            target_height,
-            "reregister_iou_thresh":    reregister_iou_thresh,
-            "register_iteration":       register_iteration,
-            "track_iteration":          track_iteration,
-            "n_particles":               n_particles,
-            "particle_process_noise_t":  particle_process_noise_t,
-            "particle_process_noise_r":  particle_process_noise_r,
-            "particle_iteration":        particle_iteration,
-            "particle_mask_iou_weight":  particle_mask_iou_weight,
-            "mask_depth":                mask_depth,
+            "reference_frame": reference_frame,
+            "target_width": target_width,
+            "target_height": target_height,
+            "reregister_iou_thresh": reregister_iou_thresh,
+            "register_iteration": register_iteration,
+            "track_iteration": track_iteration,
+            "n_particles": n_particles,
+            "particle_process_noise_t": particle_process_noise_t,
+            "particle_process_noise_r": particle_process_noise_r,
+            "particle_iteration": particle_iteration,
+            "particle_mask_iou_weight": particle_mask_iou_weight,
+            "mask_depth": mask_depth,
         },
         dev=dev,
         modules_dir=MODULES_DIR,
         gpus=True,
-        env={"FOUNDATIONPOSE_WEIGHTS_DIR": weights_container},
+        gpu_device=gpu_device,
+        env=environment,
     )
 
 
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Run FoundationPose video to poses in Docker")
+    parser = argparse.ArgumentParser(
+        description="Run FoundationPose video to poses in Docker"
+    )
     parser.add_argument("--video_path", required=True)
     parser.add_argument("--depth_folder", required=True)
     parser.add_argument("--masks_folder", required=True)
@@ -79,12 +104,24 @@ if __name__ == "__main__":
     parser.add_argument("--particle_mask_iou_weight", type=float, default=1.0)
     parser.add_argument("--mask_depth", action="store_true")
     parser.add_argument("--dev", action="store_true")
+    parser.add_argument(
+        "--gpu",
+        type=int,
+        default=None,
+        help="Physical host GPU index; omitted preserves legacy all-GPU exposure",
+    )
     args = parser.parse_args()
     run_video_to_poses(
-        args.video_path, args.depth_folder, args.masks_folder,
-        args.camera_intrinsics_path, args.mesh_path, args.poses_dir,
-        args.weights_dir, reference_frame=args.reference_frame,
-        target_width=args.target_width, target_height=args.target_height,
+        args.video_path,
+        args.depth_folder,
+        args.masks_folder,
+        args.camera_intrinsics_path,
+        args.mesh_path,
+        args.poses_dir,
+        args.weights_dir,
+        reference_frame=args.reference_frame,
+        target_width=args.target_width,
+        target_height=args.target_height,
         reregister_iou_thresh=args.reregister_iou_thresh,
         register_iteration=args.register_iteration,
         track_iteration=args.track_iteration,
@@ -95,4 +132,5 @@ if __name__ == "__main__":
         particle_mask_iou_weight=args.particle_mask_iou_weight,
         mask_depth=args.mask_depth,
         dev=args.dev,
+        gpu_device=args.gpu,
     )

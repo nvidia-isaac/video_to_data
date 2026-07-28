@@ -10,7 +10,7 @@
 # Base Stage
 ##############################################################
 
-FROM nvcr.io/nvidia/isaac-lab:2.3.1 AS base
+FROM nvcr.io/nvidia/isaac-lab:2.3.2 AS base
 
 # Set working directory
 WORKDIR /workspace/video_to_data/robotic_grounding
@@ -37,7 +37,8 @@ RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
     viser==1.0.15 \
     dearpygui \
     scipy \
-    scikit-learn
+    scikit-learn \
+    tzdata
 
 # GPL hand-model deps (chumpy + MANO layers) removed — the Stage-1 dataset load
 # (raw -> loaded Parquet via hand FK) moved to reconstruction's
@@ -85,14 +86,9 @@ RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir --upgrade \
     osqp \
     qpsolvers[clarabel,daqp,proxqp,scs,osqp]==4.9.0
 
-# FIXME: pytorch3d is not installed with cuda, making the retarget distance_utils module not importable
-# # Install pytorch3d (required for retarget distance_utils; --no-build-isolation so build sees Isaac Lab's torch)
-# RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir --no-build-isolation \
-#     "git+https://github.com/facebookresearch/pytorch3d.git"
-
 # Install Robotic Grounding dependencies
 RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
-    onnxruntime-gpu \
+    onnxruntime-gpu==1.24.4 \
     imageio \
     imageio-ffmpeg \
     pyrender \
@@ -114,20 +110,14 @@ COPY README.md ./
 COPY source/ ./source/
 COPY scripts/ ./scripts/
 
-# Embed the third-party TACO object meshes the E2E tests need at the canonical
-# asset path the pipeline reads from. The fixtures and their CC BY 4.0 LICENSE +
-# NOTICE live under ci/assets/taco/meshes/ (© Yun Liu et al.); copy the whole dir
-# so the license/attribution travels with the meshes in the image.
-COPY ci/assets/taco/meshes/ ./source/robotic_grounding/robotic_grounding/assets/meshes/taco/
+# The E2E tests run on the fully synthetic, license-free ``synthbox`` fixture,
+# whose assets (articulated box URDF + meshes + loaded/processed parquets) are
+# committed under source/ and thus already present from ``COPY source/``. Its
+# object is articulated, so there is no rigid-URDF generation step to run.
 
 # Install the project in editable mode
 RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
     -e ./source/robotic_grounding
-
-# Pre-generate the rigid URDFs for the embedded TACO meshes so the E2E tests that
-# load processed sequences (test_train_e2e.py) find them without first running the
-# URDF-generation stage. Mesh-only discovery (globs meshes/taco/*_cm.obj); no GPU.
-RUN ${ISAACLAB_PATH}/isaaclab.sh -p scripts/generate_rigid_urdfs.py --dataset taco
 
 # Create wrapper script for python (for convenience in container shell)
 RUN echo '#!/bin/bash' > /usr/local/bin/python && \
@@ -135,9 +125,6 @@ RUN echo '#!/bin/bash' > /usr/local/bin/python && \
     chmod +x /usr/local/bin/python && \
     echo "alias python='${ISAACLAB_PATH}/isaaclab.sh -p'" >> /etc/skel/.bashrc && \
     echo "alias python='${ISAACLAB_PATH}/isaaclab.sh -p'" >> /root/.bashrc
-
-# # Verify pytorch3d is installed (build fails if not importable)
-# RUN ${ISAACLAB_PATH}/isaaclab.sh -p -c "import pytorch3d; print('pytorch3d', pytorch3d.__version__)"
 
 # Set the default command
 CMD ["/bin/bash"]

@@ -13,10 +13,10 @@ import cv2
 import numpy as np
 
 from inpainting.adapters import mecka, mecka_parallel_jaw
-from inpainting.composite_robot import execute as composite
-from inpainting.contracts import artifact, sha256, write_json_atomic
+from inpainting.mecka_panda.composite import execute as composite
+from inpainting.mecka_panda.contracts import artifact, sha256, write_json_atomic
+from inpainting.mecka_panda.video_io import Mp4Writer, probe_video
 from inpainting.panda_renderer import render as panda_render
-from inpainting.video_io import Mp4Writer, probe_video
 
 STAGES = ("tracking", "retarget", "render", "composite", "review")
 PIPELINE_SCHEMA = "v2d.inpainting.mecka-panda-pipeline/v1"

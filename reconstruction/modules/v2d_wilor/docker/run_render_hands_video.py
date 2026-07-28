@@ -12,7 +12,10 @@ def run_render_hands_video(
     fps: float = 30.0,
     alpha: float = 0.55,
     dev: bool = False,
+    gpu: int = 0,
 ) -> None:
+    if isinstance(gpu, bool) or not isinstance(gpu, int) or gpu < 0:
+        raise ValueError("gpu must be a non-negative physical GPU index")
     run_in_container(
         image=IMAGE_NAME,
         module="v2d.wilor.lib.render_hands_video",
@@ -25,7 +28,9 @@ def run_render_hands_video(
         extra_args={"fps": fps, "alpha": alpha},
         dev=dev,
         modules_dir=MODULES_DIR,
-        gpus=True,
+        gpu_device=gpu,
+        env={"CUDA_VISIBLE_DEVICES": "0"},
+        network_disabled=True,
     )
 
 
@@ -40,6 +45,7 @@ if __name__ == "__main__":
     parser.add_argument("--fps",   type=float, default=30.0)
     parser.add_argument("--alpha", type=float, default=0.55)
     parser.add_argument("--dev", action="store_true")
+    parser.add_argument("--gpu", type=int, default=0, help="Physical host GPU index")
     args = parser.parse_args()
     run_render_hands_video(
         frames_dir       = args.frames_dir,
@@ -49,4 +55,5 @@ if __name__ == "__main__":
         fps              = args.fps,
         alpha            = args.alpha,
         dev              = args.dev,
+        gpu              = args.gpu,
     )

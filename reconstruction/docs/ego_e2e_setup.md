@@ -1,71 +1,56 @@
-# Ego E2E Pipeline — Setup Guide
+# Ego Reconstruction Setup Guide
 
-Setup for `modules/v2d_pipelines/run_v2d_ego_e2e.py`.
-All commands run from `reconstruction/`.
+Setup for the consolidated entrypoint:
 
-## Prerequisites
+```bash
+python modules/v2d_pipelines/run_ego_reconstruction.py
+```
+
+The older scripts remain available, but new runs should use
+`run_ego_reconstruction.py`.
+
+All commands below run from `reconstruction/`.
+
+## 1. Prerequisites
 
 - Docker with NVIDIA Container Toolkit (`nvidia-smi` accessible inside containers)
 - Python 3.10+
 - `ffmpeg` on `PATH`
+- A Hugging Face token for SAM3D gated model access when using prompt-based mesh reconstruction
 
-## 1. Install host packages
-
-Install just the packages this pipeline needs:
-
-```bash
-./scripts/install_ego_e2e_packages.sh
-```
-
-Or install every host package in the repo:
+## 2. Install Host Packages
 
 ```bash
-./scripts/install_packages.sh
+./scripts/install_ego_reconstruction_packages.sh
 ```
 
-## 2. Build Docker images
-
-Build just the containers this pipeline needs:
+## 3. Build Docker Images
 
 ```bash
-./scripts/build_ego_e2e_containers.sh
+./scripts/build_ego_reconstruction_packages.sh
 ```
 
-Or build every container in the repo:
+## 4. Download Model Weights
 
 ```bash
-./scripts/build_containers.sh
+./scripts/download_ego_reconstruction_weights.sh
 ```
 
-## 3. Download model weights
+The downloader supports narrower modes if you do not want every optional model:
 
 ```bash
-python -m v2d.moge.docker.run_download_weights           --output_dir data/weights/moge
-python -m v2d.grounding_dino.docker.run_download_weights --output_dir data/weights/grounding_dino
-python -m v2d.sam2.docker.run_download_weights           --output_dir data/weights/sam2
-python -m v2d.sam3d.docker.run_download_weights          --output_dir data/weights/sam3d
-python -m v2d.foundation_pose.docker.run_download_weights --output_dir data/weights/foundation_pose
+./scripts/download_ego_reconstruction_weights.sh --mode dynhamr_prompt
+./scripts/download_ego_reconstruction_weights.sh --mode hamer_prompt
+./scripts/download_ego_reconstruction_weights.sh --mode hamer_mesh
 ```
 
-**SAM3D requires a Hugging Face token** for gated model access. Either set `HF_TOKEN` in your
-environment or log in with `huggingface-cli login` beforehand.
+SAM3D requires a Hugging Face token for gated model access. Either set `HF_TOKEN`
+in your environment or log in with `huggingface-cli login` before downloading or
+running SAM3D.
 
-**AnyCalib (optional)** — only needed if you run with `--undistort` (Step 0) to calibrate and
-undistort fisheye / wide-angle footage. Skip this download otherwise:
+DynHaMR/MANO assets are still manual. Place them here:
 
-```bash
-python -m v2d.anycalib.docker.run_download_weights --output_dir data/weights/anycalib
-```
-
-## 4. Prepare MANO weights (for DynHaMR + hand alignment)
-
-Download `MANO_RIGHT.pkl` from https://mano.is.tue.mpg.de/ and generate BMC data
-following https://github.com/MengHao666/Hand-BMC-pytorch (run up to `python calculate_bmc.py`).
-
-Place both in the weights directory. The layout follows the manotorch
-convention so the same directory works for both DynHaMR and v2d_hamer:
-
-```
+```text
 data/weights/hand/
 ├── models/
 │   └── MANO_RIGHT.pkl
@@ -73,51 +58,118 @@ data/weights/hand/
     └── *.npy
 ```
 
-## 5. Get the sample video
+The same MANO layout is used by DynHaMR hand reconstruction and hand alignment.
 
-A ready-to-run sample, `assets/airplane.mp4` (~25 MB), ships with the repo via
-[Git LFS](https://git-lfs.com/). If you cloned with Git LFS installed it is already
-present. Otherwise install LFS and pull it:
+## 5. Get The Sample Video
+
+A ready-to-run sample, `assets/airplane.mp4`, ships with the repo via Git LFS.
+If it is still a small pointer file, install LFS and pull it:
 
 ```bash
-git lfs install                                              # one-time, enables LFS filters
-git lfs pull --include reconstruction/assets/airplane.mp4    # paths are repo-root relative
+git lfs install
+git lfs pull --include reconstruction/assets/airplane.mp4
 ```
 
-Confirm it materialized — it should be ~25 MB, not a ~130-byte pointer file:
+Confirm it materialized as a real video file before running the examples:
 
 ```bash
 ls -lh assets/airplane.mp4
 ```
 
-## 6. Run the pipeline
+## 6. Run The Pipeline
+
+DynHaMR hand tracking with prompt-based SAM3D object reconstruction, DROID-SLAM,
+gravity alignment, and Three.js export:
+
+```bash
+python modules/v2d_pipelines/run_ego_reconstruction.py \
+    --video assets/airplane.mp4 \
+    --object_prompt "A toy airplane" \
+    --output_dir data/outputs/airplane_dynhamr \
+    --reference_frame 0 \
+    --undistort \
+    --hand_tracking dynhamr \
+    --run_droid_slam \
+    --run_gravity_alignment \
+    --export_threejs_result \
+    --dev
+```
+
+New full pipeline with HaMeR hand tracking, prompt-based SAM3D object
+reconstruction, DROID-SLAM, gravity alignment, and gsplat refinement:
+
+```bash
+python modules/v2d_pipelines/run_ego_reconstruction.py \
+    --video assets/airplane.mp4 \
+    --object_prompt "A toy airplane" \
+    --output_dir data/outputs/airplane_hamer \
+    --reference_frame 0 \
+    --undistort \
+    --hand_tracking hamer \
+    --run_droid_slam \
+    --run_gravity_alignment \
+    --run_gsplat_refinement \
+    --export_threejs_result \
+    --dev
+```
+
+New full pipeline with a provided object mesh override. The prompt is still used
+for object detection, masks, and FoundationPose tracking initialization; the mesh
+only replaces SAM3D geometry and scale estimation:
+
+```bash
+python modules/v2d_pipelines/run_ego_reconstruction.py \
+    --video assets/airplane.mp4 \
+    --object_prompt "A toy airplane" \
+    --object_mesh assets/textured_mesh.obj \
+    --skip_object_scale_estimation \
+    --output_dir data/outputs/airplane_hamer_mesh \
+    --reference_frame 0 \
+    --undistort \
+    --hand_tracking hamer \
+    --run_droid_slam \
+    --run_gravity_alignment \
+    --run_gsplat_refinement \
+    --export_threejs_result \
+    --dev
+```
+
+## Legacy Command
+
+The old e2e script is intentionally left untouched. Existing commands like this
+still run through the legacy path:
 
 ```bash
 python modules/v2d_pipelines/run_v2d_ego_e2e.py \
-    --video_path  assets/airplane.mp4 \
-    --prompt      "airplane" \
-    --output_dir  data/outputs/airplane \
+    --video_path assets/airplane.mp4 \
+    --prompt "airplane" \
+    --output_dir data/outputs/airplane_legacy \
     --depth_source moge
 ```
 
-Substitute your own `--video_path` / `--prompt` to run on a different clip.
+## Outputs
 
-All weight paths default to `data/weights/<model>` relative to cwd so no extra flags are needed
-if you followed the layout above.
+The base portable result bundle is written to:
 
-### Key options
+```text
+<output_dir>/result/
+```
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--undistort` | off | Run AnyCalib first (Step 0) to estimate intrinsics + distortion and undistort the video before all other steps. Recommended for fisheye / wide-angle footage. Requires the AnyCalib weights from Step 3. |
-| `--anycalib_weights` | `data/weights/anycalib` | AnyCalib weights directory (used only with `--undistort`) |
-| `--depth_source` | `moge` | Depth for FP tracking: `moge` or `vipe` (DynHaMR) |
-| `--reference_frame` | `0` | Frame used for DINO, SAM3D, and FP registration |
-| `--reregister_iou_thresh` | `0.3` | IoU threshold for FP re-registration; `0` to disable |
-| `--smooth_sigma` | `5.0` | Gaussian sigma (frames) for hand translation smoothing |
-| `--dev` | off | Mount local module source into containers (live-edit) |
+Optional post-processing writes suffixed bundles so stages can be cached and
+compared:
 
-### Resuming a partial run
+```text
+<output_dir>/result_slam/
+<output_dir>/result_gravity_aligned/
+<output_dir>/result_slam_gravity_aligned/
+```
 
-Every step checks whether its output already exists and skips if so. Simply re-run the same
-command to resume from where it stopped.
+When `--export_threejs_result` is enabled, the viewer is written under the final
+selected bundle:
+
+```text
+<final_result_dir>/threejs_scene/index.html
+```
+
+The pipeline is cache-aware. Re-run the same command to resume from completed
+stage outputs.

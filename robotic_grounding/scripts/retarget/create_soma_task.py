@@ -130,8 +130,6 @@ def render_config_yaml(
         "\n"
         "osmo:\n"
         "  build_image: false\n"
-        "  # Reuse the current whole-body training image so submits don't fall back to :latest.\n"
-        "  image: nvcr.io/nvstaging/isaac-amr/robotic-grounding:recon_body_apple\n"
     )
 
 

@@ -519,8 +519,16 @@ class ViserPlayback:
         # Drop the first 2 entries in pin_joint_names (universe + free-flyer)
         # so names align with the movable-joint portion of q.
         movable_pin_joint_names = self._pin_joint_names[2:]
+        movable_pin_set = set(movable_pin_joint_names)
+        self._parquet_movable_cols = np.array(
+            [i for i, n in enumerate(parquet_joint_names) if n in movable_pin_set],
+            dtype=np.int64,
+        )
+        kept_parquet_names = [
+            parquet_joint_names[i] for i in self._parquet_movable_cols
+        ]
         self._reorder = _reorder_to_pinocchio(
-            parquet_joint_names, movable_pin_joint_names
+            kept_parquet_names, movable_pin_joint_names
         )
 
     def _build_dual_hand_wrist_frames(self) -> None:
@@ -619,6 +627,10 @@ class ViserPlayback:
         root_pos = np.asarray(arr.robot_root_position[t], dtype=np.float64)
         root_wxyz = np.asarray(arr.robot_root_wxyz[t], dtype=np.float64)
         joints_parquet = np.asarray(arr.robot_joint_positions[t], dtype=np.float64)
+        # Keep only the movable-joint columns (drops floating_base_joint etc.).
+        cols = getattr(self, "_parquet_movable_cols", None)
+        if cols is not None:
+            joints_parquet = joints_parquet[cols]
         if self._reorder is not None:
             movable_count = len(self._pin_joint_names) - 2
             joints_pin = np.zeros(movable_count, dtype=np.float64)

@@ -15,7 +15,10 @@ def run_mv_videos_to_masks(
     weights_dir: str,
     config_path: str = str(_LIB_CONFIG),
     dev: bool = False,
+    gpu: int = 0,
 ) -> None:
+    if isinstance(gpu, bool) or not isinstance(gpu, int) or gpu < 0:
+        raise ValueError("gpu must be a non-negative physical GPU index")
     inputs = {
         "bbox_dir": bbox_dir,
         "rgb_dir": rgb_dir,
@@ -32,8 +35,12 @@ def run_mv_videos_to_masks(
         outputs=outputs,
         dev=dev,
         modules_dir=MODULES_DIR,
-        gpus=True,
-        env={"PYTHONUNBUFFERED": "1"},
+        gpu_device=gpu,
+        env={"PYTHONUNBUFFERED": "1", "CUDA_VISIBLE_DEVICES": "0"},
+        network_disabled=True,
+        strict_io_isolation=True,
+        input_directories={"bbox_dir", "rgb_dir", "weights_dir"},
+        output_directories={"output_dir"},
     )
 
 
@@ -54,6 +61,7 @@ if __name__ == "__main__":
     parser.add_argument("--config_path", type=str, default=str(_LIB_CONFIG),
                         help="Path to config YAML")
     parser.add_argument("--dev", action="store_true")
+    parser.add_argument("--gpu", type=int, default=0, help="Physical host GPU index")
     args = parser.parse_args()
 
     run_mv_videos_to_masks(
@@ -63,4 +71,5 @@ if __name__ == "__main__":
         weights_dir=args.weights_dir,
         config_path=args.config_path,
         dev=args.dev,
+        gpu=args.gpu,
     )

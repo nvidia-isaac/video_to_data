@@ -11,7 +11,6 @@ def run_download(output_dir: str, dev: bool = False) -> None:
 
     cmd = [
         "docker", "run", "--rm",
-        "--gpus", "all",
         "--user", f"{os.getuid()}:{os.getgid()}",
         "-e", "HF_HOME=/tmp/hf_cache",
         "-v", f"{output_dir}:/data/weights",

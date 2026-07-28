@@ -1,0 +1,81 @@
+/* ===========================================================================
+   NVIDIA Design System — Color Tokens
+   Source of truth: NVIDIA PPT Template 2025 "Color Palette" + brand theme.
+   NVIDIA Green (#76B900) is the single signature color. The system is
+   overwhelmingly monochrome (white surface, near-black ink, gray scale) with
+   green used sparingly as the accent of record. Secondary hues appear ONLY in
+   data viz / categorical contexts, never as UI chrome.
+   =========================================================================== */
+
+:root {
+  /* ---- Brand / Primary ---------------------------------------------------- */
+  --nv-green:            #76B900;  /* THE NVIDIA green. RGB 118 / 185 / 0       */
+  --nv-green-700:        #5C9000;  /* pressed / darker green                    */
+  --nv-green-300:        #A4D44E;  /* hover tint / light green                  */
+  --nv-green-100:        #ECF6D9;  /* faint green wash (selected rows, fills)   */
+  --nv-black:            #000000;  /* RGB 0 / 0 / 0                             */
+  --nv-white:            #FFFFFF;  /* RGB 255 / 255 / 255                       */
+
+  /* ---- Neutral gray scale ------------------------------------------------- */
+  --nv-gray-900:         #1A1A1A;  /* near-black ink, panels on dark           */
+  --nv-gray-800:         #2E2E2E;
+  --nv-gray-700:         #444444;
+  --nv-gray-600:         #5E5E5E;  /* "Dark Gray" — brand neutral 94/94/94     */
+  --nv-gray-500:         #767676;
+  --nv-gray-400:         #8C8C8C;  /* "Medium Gray" — 140/140/140              */
+  --nv-gray-300:         #B0B0B0;
+  --nv-gray-200:         #CDCDCD;  /* "Light Gray" — 205/205/205               */
+  --nv-gray-100:         #E6E6E6;  /* hairlines / dividers                     */
+  --nv-gray-50:          #F4F4F4;  /* app background wash                      */
+
+  /* ---- Secondary (data-viz / categorical only) ---------------------------- */
+  --nv-emerald:          #008564;  /* 0 / 133 / 100   */
+  --nv-cpu-blue:         #0071C5;  /* 0 / 113 / 197   */
+  --nv-amethyst:         #5D1682;  /* 93 / 22 / 130   */
+  --nv-garnet:           #890C58;  /* 137 / 12 / 88   */
+  --nv-fluorite:         #FAC200;  /* 250 / 194 / 0   */
+
+  /* ---- Semantic status (derived, not from palette card) ------------------- */
+  --nv-success:          var(--nv-emerald);
+  --nv-info:             var(--nv-cpu-blue);
+  --nv-warning:          var(--nv-fluorite);
+  --nv-danger:           var(--nv-garnet);
+
+  /* =========================================================================
+     SEMANTIC ALIASES — reference these in product UI, not the raw values.
+     ========================================================================= */
+
+  /* Surfaces (light theme — the default for the 2025 template) */
+  --surface-page:        var(--nv-white);
+  --surface-subtle:      var(--nv-gray-50);
+  --surface-card:        var(--nv-white);
+  --surface-raised:      var(--nv-white);
+  --surface-inverse:     var(--nv-black);   /* dark sections, hero bands       */
+  --surface-selected:    var(--nv-green-100);
+
+  /* Text / ink */
+  --text-primary:        var(--nv-black);
+  --text-secondary:      var(--nv-gray-600);
+  --text-tertiary:       var(--nv-gray-400);
+  --text-disabled:       var(--nv-gray-300);
+  --text-inverse:        var(--nv-white);
+  --text-on-green:       var(--nv-black);   /* green is bright → black sits on it */
+  --text-link:           var(--nv-green-700);
+  --text-accent:         var(--nv-green);
+
+  /* Borders */
+  --border-subtle:       var(--nv-gray-100);
+  --border-default:      var(--nv-gray-200);
+  --border-strong:       var(--nv-gray-400);
+  --border-focus:        var(--nv-green);
+  --border-inverse:      var(--nv-gray-800);
+
+  /* Interactive accent */
+  --accent:              var(--nv-green);
+  --accent-hover:        var(--nv-green-300);
+  --accent-press:        var(--nv-green-700);
+  --accent-wash:         var(--nv-green-100);
+
+  /* Focus ring */
+  --focus-ring:          0 0 0 3px rgba(118, 185, 0, 0.40);
+}

@@ -41,9 +41,11 @@ workflow:
       contents: |-
         set -ex
 
-        python scripts/rsl_rl/train.py --task Sharpa-V2P-v0 --headless \
-          --motion_file arctic_processed/arctic_s01_rigid_capsulemachine_grab_01/sharpa_wave \
-          --run_name v2d_arctic_s01_rigid_capsulemachine_grab_01
+        python scripts/rsl_rl/train.py --task Sharpa-V2D-v0 --headless \
+          --use_primitive_urdfs --zero-actor \
+          --motion_file arctic/arctic_processed/dataset_s01_mixer_use_01/sharpa_wave \
+          --run_name mixer_sanity_check \
+          agent.wandb_project=v2d_0620
 
 default-values:
   workflow_name: robotic_grounding_train

@@ -1,0 +1,9 @@
+"""Pinned, containerized Phantom/HaMeR hand-tracking condition."""
+
+PHANTOM_COMMIT = "a8bb81c1bbe6ade129a1f6f0906482f510354a5e"
+PHANTOM_HAMER_COMMIT = "7f4a703e49278f2002f831d93aed867ad6977281"
+VITPOSE_COMMIT = "b65caea48277175584e6fd0f3253ed2e34b82e3e"
+MANOTORCH_COMMIT = "a2a70c591f91551078b7bb2af9b5d9f275b626e0"
+GROUNDING_DINO_MODEL = "IDEA-Research/grounding-dino-base"
+GROUNDING_DINO_REVISION = "12bdfa3120f3e7ec7b434d90674b3396eccf88eb"
+IMAGE_NAME = "v2d_phantom_tracker:7f4a703"

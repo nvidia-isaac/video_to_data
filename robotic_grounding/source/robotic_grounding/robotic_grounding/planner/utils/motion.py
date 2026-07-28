@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""V2P retargeted-motion manipulation: input resampling + output assembly.
+"""V2D retargeted-motion manipulation: input resampling + output assembly.
 
 `interpolate_robot_motion_data` is the input side: takes a
 `ManoDex3Data` / `ManoSharpaData` dataclass and resamples every
@@ -12,7 +12,7 @@ masked interp for contact fields).
 output side: read the same motion dataclass plus the planner-frame
 object body arrays, and build the per-field dicts that
 `save_planner_parquet` assembles into a `MotionData` row. They apply
-the per-frame V2P→planner rigid transform to hand keypoints and
+the per-frame V2D→planner rigid transform to hand keypoints and
 contacts so every field of the output parquet lives in one coherent
 frame.
 """
@@ -37,7 +37,7 @@ from robotic_grounding.planner.utils.transforms import (
 
 
 def interpolate_robot_motion_data(motion_data: Any, target_fps: float) -> Any:
-    """Resample a V2P retargeted motion's time-series fields to ``target_fps``.
+    """Resample a V2D retargeted motion's time-series fields to ``target_fps``.
 
     Linear interpolation for positions / joint angles / object articulation,
     SLERP for wrist + per-body object quaternions, and contact-aware linear
@@ -111,6 +111,7 @@ def interpolate_robot_motion_data(motion_data: Any, target_fps: float) -> Any:
         part_ids = getattr(motion_data, f"mano_{side}_object_contact_part_ids", [])
         for field in (
             "link_contact_positions",
+            "link_contact_normals",
             "object_contact_positions",
             "object_contact_normals",
         ):
@@ -214,7 +215,7 @@ def assemble_hand_contact_fields(
 ) -> dict[str, Any]:
     """Build per-side hand-frame + contact fields in the planner frame.
 
-    Builds the per-frame V2P→planner rigid transform anchored on the
+    Builds the per-frame V2D→planner rigid transform anchored on the
     primary object body using ``motion.object_body_*`` as the raw source
     and the supplied planner-frame arrays as the destination, then
     applies it to ``robot_*_frames`` (primary-body transform) and to the
@@ -285,7 +286,7 @@ def assemble_hand_contact_fields(
         # Lift hand_frames_w into the planner frame. The consumer in
         # tracking_command._precompute_hand_keypoints_in_object_frame
         # combines these keypoint poses with object_body_position to build
-        # the wrist/fingertip targets; passing through V2P-frame keypoints
+        # the wrist/fingertip targets; passing through V2D-frame keypoints
         # against a planner-frame object pose silently produces targets up
         # to a metre off.
         if frames:

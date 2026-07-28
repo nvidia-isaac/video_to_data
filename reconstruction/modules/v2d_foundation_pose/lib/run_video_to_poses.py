@@ -7,6 +7,7 @@ Can be called directly from command line or imported as a function.
 import os
 import argparse
 import logging
+from pathlib import Path
 
 import numpy as np
 import cv2
@@ -55,7 +56,7 @@ def run_video_to_poses(
     creation so this is not standard; it may help when background depth bleeds into
     the object region. Default False.
     """
-    mesh = Mesh.load(mesh_path)
+    mesh = Mesh.load(mesh_path, force_mesh=Path(mesh_path).suffix.lower() == ".glb")
     tracker = FoundationPoseTracker(mesh, weights_dir)
 
     camera_intrinsics = CameraIntrinsics.load(camera_intrinsics_path)

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nvidia:v2d:hoi:frame-metadata-record",
+  "title": "V2D HOI frame_metadata.jsonl record",
+  "description": "Schema for one line of the optional frame_metadata.jsonl compatibility file, which is not consumed by the current reconstruction pipeline.",
+  "type": "object",
+  "required": ["frame_id", "cams"],
+  "properties": {
+    "frame_id": {"type": "integer", "minimum": 0},
+    "cams": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["id", "filename", "timestamp"],
+        "properties": {
+          "id": {"type": "integer", "minimum": 0},
+          "filename": {"type": "string", "minLength": 1},
+          "timestamp": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Image timestamp in nanoseconds."
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

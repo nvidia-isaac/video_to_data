@@ -5,7 +5,7 @@
 Two layers coexist here:
 
 - High-level pipeline (`transform_reference` and the `apply_*` helpers) maps a
-  V2P retargeted reference into the planner workspace frame: local frame fix,
+  V2D retargeted reference into the planner workspace frame: local frame fix,
   heading-toward-object yaw, position alignment with the nominal EE midpoint,
   and an optional workspace offset.
 - Low-level rigid-transform primitives (`quat_*`, `transform_primary_*`,
@@ -353,7 +353,7 @@ def transform_reference(
     """Full transform pipeline: local frame fix → yaw → position align → offset.
 
     Args:
-        ref_raw: Raw reference data from load_v2p_reference().
+        ref_raw: Raw reference data from load_v2d_reference().
         nominal_ee: Nominal EE dict from get_nominal_ee().
         workspace_offset: Additional (x, y, z) offset.
         robot_type: "sharpa" or "dex3".

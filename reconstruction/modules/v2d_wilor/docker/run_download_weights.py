@@ -12,7 +12,6 @@ def run_download_weights(weights_dir: str, dev: bool = False) -> None:
         outputs={"weights_dir": weights_dir},
         dev=dev,
         modules_dir=MODULES_DIR,
-        gpus=True,
     )
 
 

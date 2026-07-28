@@ -8,6 +8,9 @@ __pycache__/
 venv/
 ENV/
 env/
+build/
+dist/
+*.egg-info/
 
 # Large data directories
 /data/
@@ -33,7 +36,6 @@ modules/*/data/
 # Large 3D model files
 *.glb
 *.gltf
-*.obj
 *.ply
 *.stl
 
@@ -63,3 +65,4 @@ Thumbs.db
 
 # SOMA training data (large)
 /soma_data/
+./data

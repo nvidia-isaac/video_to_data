@@ -1,5 +1,7 @@
 # Robotic Grounding
 
+> 📐 **New here?** See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the architecture, contents map, and where-to-find-what guide.
+
 ## Prerequisites
 
 - Install [Docker](https://docs.docker.com/engine/install/ubuntu/) and [post-installation](https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user) steps.
@@ -18,49 +20,22 @@
 
 ## Environment & Credentials
 
-Retrieve your CSS/PDX keys from `~/.config/osmo/config.yaml` under `swift://pdx.s8k.io/AUTH_team-isaac`.
+`<HMD>` (human-motion-data root) used below is a directory you choose — e.g.
+`~/datasets/human_motion_data` — that holds `mano/` and one subdirectory per dataset
+(`taco/`, `hot3d/`, …); see [docs/SETUP.md §4](docs/SETUP.md) for the full layout.
 
-**Option A — Edit the credentials file directly (simple)**
+You download every dataset yourself from its **original public source**. You should provide the
+license-gated assets you register for yourself:
 
-Fill in your keys in `scripts/setup_css_env.sh`:
+- **MANO hand models** (required by the `load` stage). Register and accept the license at
+  [mano.is.tue.mpg.de](https://mano.is.tue.mpg.de/), download `mano_v1_2.zip`, and place the two
+  `.pkl` files at `<HMD>/mano/models/MANO_LEFT.pkl` and `<HMD>/mano/models/MANO_RIGHT.pkl`
+  (see [docs/SETUP.md §5](docs/SETUP.md)). MANO is never committed and is read only at load time.
+- **Datasets** — each has its own registration/download portal. Follow the per-dataset guide in
+  [docs/SETUP.md §6](docs/SETUP.md) (taco, hot3d, arctic, grab, h2o, dexycb) to download and lay
+  the data out under `<HMD>/<dataset>/`.
 
-```bash
-export CSS_ACCESS_KEY="<your-access-key-id>"
-export CSS_SECRET_KEY="<your-secret-key>"
-```
-
-Then source it manually when needed:
-```bash
-source scripts/setup_css_env.sh
-```
-
-**Option B — direnv (automatic, recommended)**
-
-[direnv](https://direnv.net/) auto-loads credentials whenever you `cd` into
-`robotic_grounding/`.
-
-Install:
-```bash
-sudo apt-get install direnv        # Ubuntu/Debian
-# then add to ~/.bashrc:
-eval "$(direnv hook bash)"
-```
-
-Create a **gitignored** `.envrc.local` inside this package
-(`robotic_grounding/.envrc.local`):
-```bash
-# robotic_grounding/.envrc.local
-export CSS_ACCESS_KEY="<your-access-key-id>"
-export CSS_SECRET_KEY="<your-secret-key>"
-```
-
-Allow direnv to load it (one-time, per clone):
-```bash
-cd robotic_grounding && direnv allow
-```
-
-Credentials are then injected automatically on every `cd` into
-`robotic_grounding/`.
+Pass the MANO directory at runtime with `--mano-dir <HMD>/mano`.
 
 ## Docker Usage
 
@@ -68,8 +43,6 @@ Development should be **inside** the Container, and Git operations should be don
 
 ```bash
 ./workflow/run.sh build [version] # Build Docker image and tag it with [version]
-./workflow/run.sh push [version] # Push Docker image to NVIDIA registry
-./workflow/run.sh pull [version] # Pull Docker image from NVIDIA registry
 ./workflow/run.sh start [version] [gpu] # Run and enter the Container with specific version and GPU
 ./workflow/run.sh shell [version] [gpu] # Enter Container from new shell with specific version and GPU
 ./workflow/run.sh stop [version] [gpu] # Stop the Container with specific version and GPU
@@ -89,41 +62,41 @@ For agent-oriented checks, use this quick path before opening a merge request. C
 
 ### Assets and dummy agent
 
-Motion data resolves under `source/robotic_grounding/robotic_grounding/assets/human_motion_data/`. The safest local shorthand is `<dataset>/<dataset>_processed/<sequence_id>/sharpa_wave`, for example `arctic/arctic_processed/arctic_s01_box_grab_01/sharpa_wave`.
+| Floating hands — Sharpa | Whole body — ReconHand | Whole body — ReconBody |
+| :---: | :---: | :---: |
+| ![Sharpa box-grab dummy-agent replay](../docs/chord/assets/videos/dummy_agent_sharpa_box_grab.webp) | ![ReconHand espresso-use dummy-agent replay](../docs/chord/assets/videos/dummy_agent_espresso_use.webp) | ![ReconBody apple-pick dummy-agent replay](../docs/chord/assets/videos/dummy_agent_apple.webp) |
+| *Box grab, zero-action dummy agent* | *Espresso use, zero-action dummy agent* | *Apple pick, zero-action dummy agent* |
 
-Pull retargeted outputs when they are missing:
+Motion data resolves under `source/robotic_grounding/robotic_grounding/assets/human_motion_data/`. The safest local shorthand is `<dataset>/<dataset>_processed/<sequence_id>/sharpa_wave`, for example `arctic/arctic_processed/dataset_s07_box_grab_01/sharpa_wave`.
+
+Generate the retargeted motion + object assets by running the pipeline on a dataset you
+downloaded per [docs/SETUP.md](docs/SETUP.md):
 
 ```bash
-osmo dataset info v2d_arctic_retarget_exp_200 --order desc
-osmo dataset download v2d_arctic_retarget_exp_200:<version> \
-  source/robotic_grounding/robotic_grounding/assets/human_motion_data/arctic/ \
-  --regex '(arctic_processed|arctic_urdfs|reconstructed_stage)/.*'
+# From the host — builds the right image per stage (load → urdf → processed → support):
+python scripts/run_pipeline_docker.py arctic \
+  --hmd <HMD> --mano-dir <HMD>/mano --max-sequences 2
 ```
 
-If OSMO is not configured, do not attempt the dataset download. Use any already
-present local motion partition, or ask for the dataset version/path needed for
-the task. OSMO setup lives in [workflow/README.md](workflow/README.md).
+This writes RL-ready parquets to `<HMD>/arctic/arctic_processed/...` and the object
+URDFs/meshes to `<HMD>/arctic/object_assets/`. Make a partition visible to the agent by
+placing it under `assets/human_motion_data/<dataset>/` (copy or symlink), or pass its path
+directly via `--motion_file`.
 
 Stages that load real object geometry — retargeting, kinematic replay, support-surface
-reconstruction, scene view, and training — need them under
-`assets/{meshes,urdfs}/<dataset>/` first: download the dataset's object models
-from its original distribution, copy the meshes into `assets/meshes/<dataset>/`,
-and run `python scripts/generate_rigid_urdfs.py --dataset <dataset>`. See
+reconstruction, scene view, and training — need the object assets present. The pipeline's
+`urdf` stage generates them; to (re)generate them standalone from already-downloaded
+meshes, run `python scripts/generate_rigid_urdfs.py --dataset <dataset>`. See
 [workflow/data_pipeline.md](workflow/data_pipeline.md#object-assets-urdfs--meshes).
 
-<!-- INTERNAL-ONLY:START — remove before public release (TODO(public-release)) -->
-NVIDIA-internal: pull the prebuilt assets from CSS instead —
-`python scripts/fetch_object_assets.py --dataset arctic` (or `--dataset all`).
-<!-- INTERNAL-ONLY:END -->
-
-(The `--use_primitive_urdfs` dummy-agent smoke test above does not need them.)
+(The `--use_primitive_urdfs` dummy-agent smoke test below does not need them.)
 
 Run a GUI dummy-agent smoke test inside the container:
 
 ```bash
 python scripts/rsl_rl/dummy_agent.py \
-  --task Sharpa-V2P-v0-Play \
-  --motion_file arctic/arctic_processed/arctic_s01_box_grab_01/sharpa_wave \
+  --task Sharpa-V2D-v0-Play \
+  --motion_file arctic/arctic_processed/dataset_s07_box_grab_01/sharpa_wave \
   --num_envs 1 \
   --use_primitive_urdfs
 ```
@@ -133,8 +106,8 @@ Run the same check headless with a short MP4:
 ```bash
 python scripts/rsl_rl/dummy_agent.py \
   --headless \
-  --task Sharpa-V2P-v0-Play \
-  --motion_file arctic/arctic_processed/arctic_s01_box_grab_01/sharpa_wave \
+  --task Sharpa-V2D-v0-Play \
+  --motion_file arctic/arctic_processed/dataset_s07_box_grab_01/sharpa_wave \
   --num_envs 1 \
   --use_primitive_urdfs \
   --record_video \
@@ -144,39 +117,76 @@ python scripts/rsl_rl/dummy_agent.py \
 
 Success means Isaac starts, the task registers, `SceneConfig.from_motion_file` loads the parquet partition, no missing-asset exception is raised, and the simulation advances.
 
-### Training and OSMO
+For the whole-body **ReconHand** env, point the same script at a planned `g1_dex3`
+partition (produced by [Retargeting](#retargeting) → [Whole-body planning](#whole-body-planning)).
+Zero actions feed the SONIC decoder, so this is an open-loop replay of the planned motion —
+a quick check that the Dex3 robot, articulated object, and support surface spawn:
 
-Use the `RL training` section below for a local `train.py` one-iteration smoke test. If W&B is not configured, keep local smoke tests on TensorBoard by passing `--logger tensorboard`. Use [workflow/README.md](workflow/README.md) for OSMO image setup and cloud submission prerequisites.
-
-### Running Debugging Env
-
-The debug environment (`Sharpa-V2P-Debug-v0`) provides interactive GUI controls for testing contact sensors and MDP components:
-
-- **Joint GUI Control**: Adjust all robot joints (wrist 6DoF + fingers) with P/D gain sliders
-- **Object Pose GUI**: Move and rotate the object in 6DoF via floating base controls
-- **Reward Visualizer**: Monitor reward terms in real-time with history plots
-
-To run the debug environment:
 ```bash
-python scripts/rsl_rl/dummy_agent.py --task Sharpa-V2P-Debug-v0
+python scripts/rsl_rl/dummy_agent.py \
+  --task SonicG1-ReconHand-v0 \
+  --motion_file arctic/planner_processed/dataset_s09_espressomachine_use_02/g1_dex3 \
+  --num_envs 1
 ```
 
-**Note**: Do not use `--headless` flag since the GUI controls require a display. The environment is configured with extended episode length (1 hour) and disabled randomization events for uninterrupted manual testing.
+### Training
 
-To create a debug environment for other tasks, use `sharpa_debug_env_cfg.py` as a template—inherit from your base environment config and override the actions with GUI-controlled versions (`JointGUIActionCfg`, `ObjectPoseGUIActionCfg`, `RewardVisualizerCfg`). Remember to disable action related MDP terms since the debug env does not have the original actions.
+Use the [RL training](#rl-training) section below for a local `train.py` one-iteration smoke test. If W&B is not configured, keep local smoke tests on TensorBoard by passing `--logger tensorboard`.
 
 ## Retargeting
 
-### Hand-only (Sharpa / Arctic)
+| Floating hands — Sharpa | Floating hands — Dex3 | Whole body — G1 |
+| :---: | :---: | :---: |
+| ![Sharpa box-grab retargeting in Viser](../docs/chord/assets/videos/retarget_sharpa.webp) | ![Dex3 espresso-use retargeting in Viser](../docs/chord/assets/videos/retarget_dex3.webp) | ![G1 apple-pick retargeting in Viser](../docs/chord/assets/videos/retarget_g1.webp) |
+| *Box-grab retargeting in Viser* | *Espresso-use retargeting in Viser* | *Apple-pick retargeting in Viser* |
+
+The full hand→robot retargeting pipeline is driven from the **host** by
+`scripts/run_pipeline_docker.py`, which runs each stage in the right Docker image
+(`load → urdf → processed → support → vis`). First download a dataset from its original
+public source — see **[docs/SETUP.md](docs/SETUP.md)** — and lay it out under `<HMD>/<dataset>/`.
+
+### Hand-only (Sharpa)
 ```bash
-# Stage 1 (Load) lives in the reconstruction repo (GPL MANO FK); it produces the
-# {dataset}_loaded Parquet that the retarget step below consumes:
-#   python -m v2d.task_library_loader.lib.run_loader --dataset arctic --dataset_root <raw> --mano_model_dir <dir with models/MANO_*.pkl> --output_dir <out> --save
-python scripts/retarget/arctic_to_sharpa.py --save # Check the file for arguments
-python scripts/retarget/vis_retargeted.py # Need to run retargeting and save results first
+# Build the two images once (loader + robotic-grounding):
+python scripts/run_pipeline_docker.py --build-only
+
+# Run the pipeline on a downloaded dataset (e.g. arctic). Retargeted parquets land in
+# <HMD>/arctic/arctic_processed/sequence_id=.../robot_name=sharpa_wave/.
+python scripts/run_pipeline_docker.py arctic \
+    --hmd <HMD> --mano-dir <HMD>/mano --max-sequences 2
+
+# Visualize a retargeted result (viser HTML / MP4):
+python scripts/run_pipeline_docker.py arctic --hmd <HMD> --mano-dir <HMD>/mano --stages vis
 ```
 
-For Arctic motion files, download them from [here](https://drive.google.com/file/d/1rL4T9N4AwQoWRqS5pOuB6a0D0B9Y8dsP/view?usp=sharing) and extract to `source/robotic_grounding/robotic_grounding/assets/human_motion_data/arctic`. (TODO: We need to figure out an appropriate way for data storage)
+The `load` stage (MANO forward-kinematics) runs in the separate `v2d_task_library_loader`
+image and produces the `{dataset}_loaded` Parquet that the retarget step consumes; the
+orchestrator handles both images for you. To run the stages manually inside the container
+instead (Pattern B: `run_load_local.sh` + `run_retarget_local.sh`), or to retarget a single
+dataset script (`scripts/retarget/<dataset>_to_sharpa.py`, `scripts/retarget/vis_retargeted.py`),
+see [docs/SETUP.md §4](docs/SETUP.md).
+
+### Hand-to-Dex3 (ReconHand)
+
+Retarget a hand-object clip to the Dex3 hands for the whole-body planner. Consumes the
+`{dataset}_loaded` MANO parquet from the `load` stage above and writes
+`<output_dir>/sequence_id=<seq>/robot_name=dex3/`. Scale defaults to 1.0 (arctic) / 1.2 (taco).
+
+```bash
+DATA=source/robotic_grounding/robotic_grounding/assets/human_motion_data
+
+# arctic (e.g. espresso)
+python scripts/retarget/arctic_to_dex3.py \
+  --input_dir $DATA/arctic/arctic_loaded --output_dir $DATA/arctic/arctic_dex3 \
+  --sequence_id dataset_s09_espressomachine_use_02 --device cuda:0 --save
+
+# taco
+python scripts/retarget/taco_to_dex3.py \
+  --input_dir $DATA/taco/taco_loaded --output_dir $DATA/taco/taco_dex3 \
+  --sequence_id taco_skim_off__spoon__pan_20230926_011 --device cuda:0 --save
+```
+
+Next: [Whole-body planning](#whole-body-planning) turns this into a G1 trajectory.
 
 ### Whole-body (SOMA → G1)
 ```bash
@@ -225,18 +235,53 @@ Objects resting on the ground are automatically filtered out (threshold configur
 python scripts/view_scene.py --motion_file <parquet_partition_path>
 ```
 
+## Whole-body planning
+
+The planner turns a Dex3 EE trajectory (from [Hand-to-Dex3](#hand-to-dex3-reconhand)
+retargeting) into a whole-body G1 reference for the `SonicG1-ReconHand-*` envs. Run it
+inside the container from `robotic_grounding/`. `--output $DATA/<dataset>` writes the plan
+under the dataset dir (beside `object_assets/` and `reconstructed_stage/`) so it trains in
+place — no copy step.
+
+```bash
+DATA=source/robotic_grounding/robotic_grounding/assets/human_motion_data
+
+python -m robotic_grounding.planner.g1_planner --robot dex3 \
+  --v2d_parquet $DATA/arctic/arctic_dex3 --v2d_robot_name dex3 \
+  --v2d_sequence dataset_s09_espressomachine_use_02 \
+  --v2d_start_at_first_contact --v2d_pre_contact_frames 23 \
+  --v2d_end_after_last_contact_frames 7 --target_fps 100 \
+  --workspace_offset -0.10 0.0 -0.05 --heading_align_frame first_contact \
+  --output $DATA/arctic --no_viewer
+```
+
+Writes `arctic/planner_processed/sequence_id=<seq>/robot_name=g1_dex3/` and
+`arctic/reconstructed_stage/<seq>_support.usda`. Planner flags are tuned per sequence; see
+[`v2d_whole_body/EXAMPLE_SEQUENCES.md`](source/robotic_grounding/robotic_grounding/tasks/v2d_whole_body/EXAMPLE_SEQUENCES.md)
+for all three example sequences and the two-stage training recipe.
+
 ## RL training
 
+| Floating hands — Sharpa | Whole body — ReconHand | Whole body — ReconBody |
+| :---: | :---: | :---: |
+| ![Sharpa box-grab trained-policy rollout](../docs/chord/assets/videos/train_sharpa_box_grab.webp) | ![ReconHand espresso-use trained-policy rollout](../docs/chord/assets/videos/train_espresso_use.webp) | ![ReconBody apple-pick trained-policy rollout](../docs/chord/assets/videos/train_apple.webp) |
+| *Box-grab trained-policy rollout* | *Espresso-use trained-policy rollout* | *Apple-pick trained-policy rollout* |
+
 Commands in this section assume you are inside the container from the
-`robotic_grounding/` package root. These commands do not require W&B or OSMO
-when the motion data is already present locally.
+`robotic_grounding/` package root.
+
+### Smoke tests
+
+Short runs that verify the env builds, assets load, and training steps — no W&B
+or OSMO needed when the motion data is present locally. Keep them on
+`--logger tensorboard`.
 
 ```bash
 # Run a real one-iteration train smoke test.
 python scripts/rsl_rl/train.py \
   --headless \
-  --task Sharpa-V2P-v0 \
-  --motion_file arctic/arctic_processed/arctic_s01_box_grab_01/sharpa_wave \
+  --task Sharpa-V2D-v0 \
+  --motion_file arctic/arctic_processed/dataset_s07_box_grab_01/sharpa_wave \
   --num_envs 1 \
   --max_iterations 1 \
   --logger tensorboard \
@@ -249,24 +294,79 @@ python scripts/rsl_rl/train.py \
 CHECKPOINT=$(find logs/rsl_rl -path '*smoke_train*/model_*.pt' | sort -V | tail -1)
 python scripts/rsl_rl/eval.py \
   --headless \
-  --task Sharpa-V2P-v0 \
-  --motion_file arctic/arctic_processed/arctic_s01_box_grab_01/sharpa_wave \
+  --task Sharpa-V2D-v0 \
+  --motion_file arctic/arctic_processed/dataset_s07_box_grab_01/sharpa_wave \
   --num_envs 1 \
   --checkpoint "$CHECKPOINT" \
-  --eval_episodes 1 \
   --use_primitive_urdfs
+
+# Whole-body (ReconHand) eight-iteration train smoke, stage-1 recipe
+# (see Retargeting -> Whole-body planning)
+python scripts/rsl_rl/train.py \
+  --headless \
+  --task SonicG1-ReconHand-Stage1-v0 \
+  --motion_file arctic/planner_processed/dataset_s09_espressomachine_use_02/g1_dex3 \
+  --num_envs 256 \
+  --max_iterations 8 \
+  --zero-actor \
+  --logger tensorboard \
+  --run_name recon_espresso_smoke
+
+# Whole-body (ReconBody / TPV) eight-iteration train smoke
+python scripts/rsl_rl/train.py \
+  --headless \
+  --task SonicG1-ReconBody-v0 \
+  --motion_file whole_body/soma/apple_pick_optimized/g1 \
+  --num_envs 256 \
+  --max_iterations 8 \
+  --zero-actor \
+  --logger tensorboard \
+  --run_name recon_body_apple_smoke
 
 # Other entry points.
 python scripts/rsl_rl/dummy_agent.py  # Run an environment with zero actions.
 python scripts/rsl_rl/eval.py         # Evaluate a trained checkpoint and export policy.
-python scripts/rsl_rl/play.py         # Play without a checkpoint.
 ```
 
-See the `Agent Smoke Tests` section above for the required asset layout, dummy-agent commands, and OSMO setup guidance.
+See the `Agent Smoke Tests` section above for the required asset layout and dummy-agent commands.
+
+### Full training
+
+Full training uses the real object assets (the pipeline's `urdf` stage). Drop
+the smoke overrides (`--num_envs 1`,
+`--max_iterations 1`, `--use_primitive_urdfs`, `agent.num_steps_per_env`,
+`agent.save_interval`) and let each task's PPO cfg drive iterations and batching.
+
+Floating-hand (Sharpa):
+```bash
+python scripts/rsl_rl/train.py \
+  --headless --task Sharpa-V2D-v0 \
+  --motion_file arctic/arctic_processed/dataset_s07_box_grab_01/sharpa_wave \
+  --num_envs 4096 --logger tensorboard --video --run_name box_grab
+```
+
+Whole-body ReconBody / TPV (retarget SOMA first via [Retargeting](#retargeting);
+more in the [whole-body task README](source/robotic_grounding/robotic_grounding/tasks/v2d_whole_body/README.md#running)):
+```bash
+python scripts/rsl_rl/train.py \
+  --headless --task SonicG1-ReconBody-v0 \
+  --motion_file whole_body/soma/apple_pick_optimized/g1 \
+  --num_envs 4096 --logger tensorboard --video --run_name recon_body_apple
+```
+
+Whole-body ReconHand — the three-stage retarget → plan → train recipe
+(warm-up → contact grounding → finetune), documented per sequence in
+[`v2d_whole_body/EXAMPLE_SEQUENCES.md`](source/robotic_grounding/robotic_grounding/tasks/v2d_whole_body/EXAMPLE_SEQUENCES.md).
 
 ## RL Tasks
-- `Sharpa-V2P-v0-Play`
-- `Sharpa-V2P-v0`
+- `Sharpa-V2D-v0-Play`
+- `Sharpa-V2D-v0`
+- `SonicG1-ReconBody-v0`
+- `SonicG1-ReconHand-v0`
+- `SonicG1-ReconHand-EpisodeTimeout-v0`
+- `SonicG1-ReconHand-Stage1-v0` — no-collision warm-up
+- `SonicG1-ReconHand-Stage2-v0` — contact grounding
+- `SonicG1-ReconHand-Stage3-v0` — full-sequence finetune
 
 ## Visualizer
 

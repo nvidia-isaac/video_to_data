@@ -17,6 +17,10 @@ Both return a list of dicts in our unified per-detection schema (see
 
 from __future__ import annotations
 
+import builtins
+from contextlib import nullcontext
+import hashlib
+from pathlib import Path
 from typing import List, Optional, Sequence
 
 import numpy as np
@@ -25,6 +29,92 @@ import torch
 from v2d.common.datatypes import BoundingBox
 
 _PIPE = None
+
+_PUBLIC_ARTIFACT_SHA256 = {
+    "mano_mean_params.npz": "efc0ec58e4a5cef78f3abfb4e8f91623b8950be9eff8b8e0dbb0d036ebc63988",
+    "wilor_final.ckpt": "3e97aafc7dd08d883a4cc5a027df61fdb6fda6136dbd1319405413862ada6bb2",
+    "detector.pt": "5ef3df44e42d2db52d4ffe91f83a22ce9925e2acc9abebf453f2c5d22e380033",
+}
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _validate_weights(weights_dir: str) -> None:
+    root = Path(weights_dir).resolve() / "pretrained_models"
+    mano = root / "MANO_RIGHT.pkl"
+    if not mano.is_file() or mano.stat().st_size == 0:
+        raise FileNotFoundError(f"licensed MANO model is missing or empty: {mano}")
+    for name, expected in _PUBLIC_ARTIFACT_SHA256.items():
+        path = root / name
+        if not path.is_file():
+            raise FileNotFoundError(f"WiLoR weight is missing: {path}")
+        actual = _sha256(path)
+        if actual != expected:
+            raise RuntimeError(
+                f"WiLoR weight SHA-256 mismatch for {path}: {actual} != {expected}"
+            )
+
+
+def _legacy_yolo_safe_globals() -> list[object]:
+    """Allow only the classes named by the pinned detector checkpoint.
+
+    Ultralytics 8.1 stores a complete model object.  PyTorch 2.6+ correctly
+    refuses that pickle by default.  The pinned checkpoint's SHA-256 is
+    checked first, then its finite class list is admitted to the restricted
+    weights-only unpickler for the duration of pipeline construction.
+    """
+
+    import dill
+    from torch.nn import (
+        BatchNorm2d,
+        BCEWithLogitsLoss,
+        Conv2d,
+        MaxPool2d,
+        ModuleList,
+        Sequential,
+        SiLU,
+        Upsample,
+    )
+    from ultralytics.nn.modules.block import Bottleneck, C2f, DFL, SPPF
+    from ultralytics.nn.modules.conv import Concat, Conv
+    from ultralytics.nn.modules.head import Detect, Pose
+    from ultralytics.nn.tasks import PoseModel
+    from ultralytics.utils import IterableSimpleNamespace
+    from ultralytics.utils.loss import BboxLoss, KeypointLoss, v8PoseLoss
+    from ultralytics.utils.tal import TaskAlignedAssigner
+
+    return [
+        BatchNorm2d,
+        BCEWithLogitsLoss,
+        Bottleneck,
+        BboxLoss,
+        C2f,
+        Concat,
+        Conv,
+        Conv2d,
+        Detect,
+        DFL,
+        IterableSimpleNamespace,
+        KeypointLoss,
+        MaxPool2d,
+        ModuleList,
+        Pose,
+        PoseModel,
+        Sequential,
+        SiLU,
+        SPPF,
+        TaskAlignedAssigner,
+        Upsample,
+        builtins.getattr,
+        dill._dill._load_type,
+        v8PoseLoss,
+    ]
 
 
 def get_pipeline(weights_dir: str, dtype: torch.dtype = torch.float16):
@@ -38,14 +128,22 @@ def get_pipeline(weights_dir: str, dtype: torch.dtype = torch.float16):
     """
     global _PIPE
     if _PIPE is None:
+        _validate_weights(weights_dir)
         from wilor_mini.pipelines.wilor_hand_pose3d_estimation_pipeline import (
             WiLorHandPose3dEstimationPipeline,
         )
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        _PIPE = WiLorHandPose3dEstimationPipeline(
-            device=device, dtype=dtype, wilor_pretrained_dir=weights_dir,
+        safe_globals = getattr(torch.serialization, "safe_globals", None)
+        context = (
+            safe_globals(_legacy_yolo_safe_globals())
+            if safe_globals is not None
+            else nullcontext()
         )
+        with context:
+            _PIPE = WiLorHandPose3dEstimationPipeline(
+                device=device, dtype=dtype, wilor_pretrained_dir=weights_dir,
+            )
     return _PIPE
 
 

@@ -9,7 +9,7 @@ whole-body retargeting scripts, the planner, and the training loader.
 - `build_schema()` returns the flat pyarrow schema used by writer/reader.
 - `MotionData` is the in-memory dataclass carried across the pipeline; its
   attribute names are a stable contract with consumers (notably
-  `tasks/v2p_whole_body/mdp/commands/tracking_command.py`).
+  `tasks/v2d_whole_body/mdp/commands/tracking_command.py`).
 
 Design notes:
 
@@ -262,7 +262,7 @@ class MotionData:
     """In-memory container for motion data.
 
     Field naming preserves the contract consumed by
-    `tasks/v2p_whole_body/mdp/commands/tracking_command.py`: `left_*` /
+    `tasks/v2d_whole_body/mdp/commands/tracking_command.py`: `left_*` /
     `right_*` attributes for hand and contact data, even though on disk these
     live under `hand_sides`-indexed columns. The reader is responsible for
     populating both the on-disk view (useful for debugging / re-serialization)

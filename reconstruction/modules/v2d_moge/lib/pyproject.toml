@@ -13,7 +13,7 @@ dependencies = [
     "numpy",
     "Pillow",
     "opencv-python",
-    "moge @ git+https://github.com/microsoft/MoGE.git",
+    "moge @ git+https://github.com/microsoft/MoGE.git@925b8ed835a7a9cdb7578ba15c658a0afc969030",
     "v2d-common",
 ]
 

@@ -24,6 +24,7 @@ def run_image_to_mesh(
     pointmap_path: str = None,
     pointmap_intrinsics_path: str = None,
     dev: bool = False,
+    gpu_device: int | None = None,
 ) -> None:
     weights_abs = os.path.abspath(weights_dir)
     weights_container = f"/data/weights_dir/{os.path.basename(weights_abs)}"
@@ -55,7 +56,18 @@ def run_image_to_mesh(
         dev=dev,
         modules_dir=MODULES_DIR,
         gpus=True,
-        env={"TORCH_HOME": f"{weights_container}/torch_home", "HF_HOME": f"{weights_container}/hf_home"},
+        gpu_device=gpu_device,
+        env={
+            "TORCH_HOME": f"{weights_container}/torch_home",
+            "HF_HOME": f"{weights_container}/hf_home",
+            # The container runs as the caller's numeric UID, which is not in
+            # /etc/passwd.  Libraries that derive a cache from that missing
+            # home otherwise fall back to the unwritable filesystem root.
+            "MPLCONFIGDIR": "/tmp/v2d-matplotlib",
+            "WARP_CACHE_PATH": "/tmp/v2d-warp",
+            "XDG_CACHE_HOME": "/tmp/v2d-xdg-cache",
+            "TRITON_CACHE_DIR": "/tmp/v2d-triton-cache",
+        },
     )
 
 
@@ -82,6 +94,7 @@ if __name__ == "__main__":
     parser.add_argument("--pointmap_path", type=str, default=None, help="MoGe points .npy (H,W,3) in OpenCV space")
     parser.add_argument("--pointmap_intrinsics_path", type=str, default=None, help="Camera intrinsics JSON matching the MoGe pointmap")
     parser.add_argument("--dev", action="store_true", help="Mount local modules for development")
+    parser.add_argument("--gpu", type=int, default=None, help="Optional physical host GPU index; default exposes all GPUs")
     args = parser.parse_args()
     run_image_to_mesh(
         args.image_path, args.mask_path, args.mesh_path,
@@ -98,4 +111,5 @@ if __name__ == "__main__":
         pointmap_path=args.pointmap_path,
         pointmap_intrinsics_path=args.pointmap_intrinsics_path,
         dev=args.dev,
+        gpu_device=args.gpu,
     )

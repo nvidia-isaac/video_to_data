@@ -22,8 +22,17 @@ def run_download(output_dir: str, dev: bool = False) -> None:
         if os.path.isfile(token_path):
             with open(token_path) as f:
                 hf_token = f.read().strip()
+    run_env = os.environ.copy()
+    # hf-xet can fail on this gated snapshot with
+    # "Unable to parse string as hex hash value". Use Hugging Face's
+    # supported HTTP fallback for a reliable, resumable download.
+    run_env["HF_HUB_DISABLE_XET"] = "1"
+    cmd += ["-e", "HF_HUB_DISABLE_XET"]
     if hf_token:
-        cmd += ["-e", f"HF_TOKEN={hf_token}"]
+        # Pass the variable through Docker without embedding the secret in the
+        # command line, where errors and process listings could expose it.
+        run_env["HF_TOKEN"] = hf_token
+        cmd += ["-e", "HF_TOKEN"]
     if dev:
         cmd += ["-v", f"{MODULES_DIR}:/workspace"]
     cmd += [
@@ -31,7 +40,7 @@ def run_download(output_dir: str, dev: bool = False) -> None:
         "python", "-m", "v2d.sam3d.lib.download_weights",
         "--output_dir", "/data/weights",
     ]
-    subprocess.run(cmd, check=True)
+    subprocess.run(cmd, check=True, env=run_env)
 
 
 if __name__ == "__main__":

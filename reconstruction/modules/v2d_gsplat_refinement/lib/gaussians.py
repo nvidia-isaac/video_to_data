@@ -369,6 +369,8 @@ def init_object_gaussians_from_mesh(
                                       # 1.0 fills the mesh surface; smaller
                                       # values leave gaps that no single
                                       # Gaussian "owns".
+    init_opacity: float = 0.9,
+    init_scale_factor: float = 1.0,
 ) -> ObjectGaussians:
     """Initialize Gaussians at mesh vertices with scale set from inter-vertex spacing."""
     if vertices.shape[0] < 2:
@@ -385,7 +387,8 @@ def init_object_gaussians_from_mesh(
     return ObjectGaussians(
         anchor_positions = vertices,
         init_color       = vertex_colors,
-        init_scale       = init_scale,
+        init_scale       = init_scale * float(init_scale_factor),
+        init_opacity     = init_opacity,
     )
 
 
@@ -398,6 +401,8 @@ def init_hand_gaussians(
                                           # Gaussians that no single splat
                                           # "owns", which weakens the per-vert
                                           # gradient and slows hand convergence.
+    init_opacity: float = 0.9,
+    init_scale_factor: float = 1.0,
     skin_tone: tuple[float, float, float] = (0.72, 0.55, 0.45),
     device: str | torch.device = "cuda",
     subsample_indices: torch.Tensor | None = None,
@@ -406,7 +411,8 @@ def init_hand_gaussians(
     return HandGaussians(
         n_verts           = n_verts,
         is_right          = is_right,
-        init_scale        = init_scale,
+        init_scale        = init_scale * float(init_scale_factor),
+        init_opacity      = init_opacity,
         init_color        = init_color,
         device            = device,
         subsample_indices = subsample_indices,
@@ -494,6 +500,8 @@ def init_wrist_attached_gaussians(
     n: int,
     init_scale: float = 0.03,                                       # ~3 cm
     init_radius: float = 0.0,                                        # 0 → all at origin
+    init_opacity: float = 0.5,
+    init_scale_factor: float = 1.0,
     skin_tone: tuple[float, float, float] = (0.72, 0.55, 0.45),
     device: str | torch.device = "cuda",
     seed: int = 0,
@@ -518,7 +526,8 @@ def init_wrist_attached_gaussians(
     return WristAttachedGaussians(
         anchor_positions = anchors,
         init_color       = init_color.to(device),
-        init_scale       = init_scale,
+        init_scale       = init_scale * float(init_scale_factor),
+        init_opacity     = init_opacity,
     )
 
 
@@ -611,6 +620,7 @@ class FaceGaussians(nn.Module):
         face_colors: torch.Tensor,      # (F, 3) in [0, 1]
         normal_thin_factor: float = 0.25,  # init normal-axis sigma = factor*tangent
         init_opacity: float = 0.9,
+        init_scale_factor: float = 1.0,
     ) -> None:
         super().__init__()
         device = vertices.device
@@ -627,6 +637,7 @@ class FaceGaussians(nn.Module):
         s_in_plane = (edge_len * 0.5).clamp_min(1e-4)               # (F,)
         s_normal   = (s_in_plane * float(normal_thin_factor)).clamp_min(1e-4)
         init_scale = torch.stack([s_in_plane, s_in_plane, s_normal], dim=-1)
+        init_scale = (init_scale * float(init_scale_factor)).clamp_min(1e-6)
         self._log_scale     = nn.Parameter(init_scale.log())
         self._opacity_logit = nn.Parameter(
             torch.full((Fn,), float(_logit(init_opacity)), device=device)
@@ -687,6 +698,7 @@ class HandFaceGaussians(nn.Module):
         init_color:    torch.Tensor,    # (3,) skin tone
         normal_thin_factor: float = 0.25,
         init_opacity:  float = 0.9,
+        init_scale_factor: float = 1.0,
         device: str | torch.device = "cuda",
         subsample_face_indices: torch.Tensor | None = None,
     ) -> None:
@@ -712,6 +724,7 @@ class HandFaceGaussians(nn.Module):
         s_in_plane = (edge_len * 0.5).clamp_min(1e-4)
         s_normal   = (s_in_plane * float(normal_thin_factor)).clamp_min(1e-4)
         init_scale = torch.stack([s_in_plane, s_in_plane, s_normal], dim=-1)
+        init_scale = (init_scale * float(init_scale_factor)).clamp_min(1e-6)
         self._log_scale     = nn.Parameter(init_scale.log())
         self._opacity_logit = nn.Parameter(
             torch.full((Fn,), float(_logit(init_opacity)), device=device)
@@ -758,6 +771,8 @@ def init_object_face_gaussians_from_mesh(
     faces:    "np.ndarray | torch.Tensor",   # (F, 3)
     vertex_colors: torch.Tensor,   # (V, 3) in [0, 1]
     normal_thin_factor: float = 0.25,
+    init_opacity: float = 0.9,
+    init_scale_factor: float = 1.0,
 ) -> FaceGaussians:
     """One Gaussian per object face. ``faces`` may be numpy or torch."""
     import numpy as np
@@ -772,6 +787,8 @@ def init_object_face_gaussians_from_mesh(
         faces       = faces_t,
         face_colors = face_colors,
         normal_thin_factor = normal_thin_factor,
+        init_opacity = init_opacity,
+        init_scale_factor = init_scale_factor,
     )
 
 
@@ -782,6 +799,8 @@ def init_hand_face_gaussians(
     skin_tone: tuple[float, float, float] = (0.72, 0.55, 0.45),
     normal_thin_factor: float = 0.25,
     hand_scale_init: float = 1.0,
+    init_opacity: float = 0.9,
+    init_scale_factor: float = 1.0,
     device: str | torch.device = "cuda",
     subsample_face_indices: torch.Tensor | None = None,
 ) -> HandFaceGaussians:
@@ -800,6 +819,8 @@ def init_hand_face_gaussians(
         is_right      = is_right,
         init_color    = init_color,
         normal_thin_factor = normal_thin_factor,
+        init_opacity = init_opacity,
+        init_scale_factor = init_scale_factor,
         device        = device,
         subsample_face_indices = subsample_face_indices,
     )

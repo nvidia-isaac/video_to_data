@@ -127,7 +127,9 @@ def _seg_var(prefix_sum, prefix_sum_sq, lo, hi):
 
 
 def filter_tracking_failures(frame_ids, obj_translations,
-                              spike_factor=10.0, density_thresh=0.3, density_window=30):
+                              spike_factor=10.0, min_spike_thresh=0.015,
+                              hard_jump_thresh=0.25, density_thresh=0.3,
+                              density_window=30, min_onset_frame=None):
     """
     Detect FP tracker failure using per-frame translation velocity.
 
@@ -146,13 +148,26 @@ def filter_tracking_failures(frame_ids, obj_translations,
     delta_t = np.concatenate([[0.0], np.linalg.norm(np.diff(trans_arr, axis=0), axis=1)])
 
     v_median = float(np.median(delta_t[1:]))
-    v_thresh = spike_factor * max(v_median, 1e-4)
+    # When the track is very stable, spike_factor * median can be around 1cm.
+    # That is too close to normal FP/SfM composition jitter and can create a
+    # false sustained-failure onset before the object is rotated.
+    v_thresh = max(spike_factor * max(v_median, 1e-4), min_spike_thresh)
     spike = delta_t >= v_thresh
     spike[0] = False
 
     density = uniform_filter1d(spike.astype(float), size=density_window, mode='nearest')
 
-    onset_idx = next((i for i in range(n) if density[i] > density_thresh), None)
+    min_onset_idx = 0
+    if min_onset_frame is not None:
+        min_onset_idx = int(np.searchsorted(np.asarray(frame_ids), min_onset_frame))
+        min_onset_idx = max(0, min(min_onset_idx, n))
+
+    density_onset = next((i for i in range(min_onset_idx, n)
+                          if density[i] > density_thresh), None)
+    hard_jump_onset = next((i for i in range(max(1, min_onset_idx), n)
+                            if delta_t[i] >= hard_jump_thresh), None)
+    onset_candidates = [i for i in (density_onset, hard_jump_onset) if i is not None]
+    onset_idx = min(onset_candidates) if onset_candidates else None
 
     inlier_mask = ~spike
     if onset_idx is not None:
@@ -163,12 +178,92 @@ def filter_tracking_failures(frame_ids, obj_translations,
         onset_fid = frame_ids[onset_idx] if onset_idx is not None else None
         print(f"  Velocity filter: median={v_median*100:.2f}cm/frame  "
               f"threshold={v_thresh*100:.2f}cm/frame  "
+              f"floor={min_spike_thresh*100:.2f}cm/frame  "
+              f"hard_jump={hard_jump_thresh*100:.1f}cm/frame  "
+              f"min_onset=frame {min_onset_frame}  "
               f"onset=frame {onset_fid}  removed {n_removed}/{n} frames")
 
     return inlier_mask, onset_idx
 
 
-def detect_three_stages(frame_ids, obj_translations, obj_rotations, smooth_kernel=15):
+def dynamic_translation_threshold(delta_t, base_thresh=0.05, sigma_factor=6.0):
+    """
+    Estimate a translation-motion threshold from the object-world pose signal.
+
+    The previous fixed 5cm/30-frame threshold is too sensitive for large objects:
+    small SfM/FP composition drift during a wide camera loop can exceed 5cm even
+    while the object is stationary.  Use the robust spread of sliding-window
+    translation deltas as a noise floor, while keeping 5cm as the minimum.
+    """
+    vals = np.asarray(delta_t, dtype=float)
+    vals = vals[np.isfinite(vals) & (vals > 0)]
+    if len(vals) == 0:
+        return base_thresh, {
+            "median": 0.0,
+            "mad_sigma": 0.0,
+            "p99": 0.0,
+            "robust": base_thresh,
+        }
+
+    median = float(np.median(vals))
+    mad = float(np.median(np.abs(vals - median)))
+    mad_sigma = 1.4826 * mad
+    robust = median + sigma_factor * mad_sigma
+    p99 = float(np.percentile(vals, 99.0))
+
+    # Cap the robust estimate at p99 so a very broad transition cannot inflate the
+    # threshold past nearly all observed motion.
+    thresh = max(base_thresh, min(robust, p99))
+    return float(thresh), {
+        "median": median,
+        "mad_sigma": mad_sigma,
+        "p99": p99,
+        "robust": robust,
+    }
+
+
+def _robust_sigma(values):
+    vals = np.asarray(values, dtype=float)
+    if len(vals) == 0:
+        return 0.0
+    med = float(np.median(vals))
+    return float(1.4826 * np.median(np.abs(vals - med)))
+
+
+def _true_runs(mask):
+    runs = []
+    i = 0
+    n = len(mask)
+    while i < n:
+        if not mask[i]:
+            i += 1
+            continue
+        j = i + 1
+        while j < n and mask[j]:
+            j += 1
+        runs.append((i, j - 1))
+        i = j
+    return runs
+
+
+def load_stage1_prior(stage1_detect_result):
+    if stage1_detect_result is None:
+        return None
+    path = Path(stage1_detect_result)
+    if not path.exists():
+        return None
+    try:
+        with open(path) as f:
+            value = json.load(f).get('stage1_end_frame')
+    except (OSError, json.JSONDecodeError):
+        return None
+    if value is None:
+        return None
+    return int(value)
+
+
+def detect_three_stages(frame_ids, obj_translations, obj_rotations,
+                        smooth_kernel=15, stage1_prior_frame=None):
     """
     Find two split indices that separate:
       [stage1 stationary] [transition: object being rotated] [stage2 stationary]
@@ -179,6 +274,7 @@ def detect_three_stages(frame_ids, obj_translations, obj_rotations, smooth_kerne
     Returns:
         split1_idx, split2_idx : indices into frame_ids where transition starts/ends
         angular_jumps          : per-frame geodesic angle change (deg), for plotting
+        diagnostics            : detection metadata for JSON/debugging
     """
     n = len(frame_ids)
 
@@ -202,35 +298,129 @@ def detect_three_stages(frame_ids, obj_translations, obj_rotations, smooth_kerne
     trans_s = np.stack([median_filter(np.array(obj_translations)[:, k], size=smooth_kernel)
                         for k in range(3)], axis=1)
 
-    rot_thresh   = 5.0    # degrees over 2W frames
-    trans_thresh = 0.05   # metres over 2W frames
-
     slope_rot_fwd   = np.zeros(n)
     slope_trans_fwd = np.zeros(n)
     slope_rot_fwd[:-2*W]   = angles_s[2*W:] - angles_s[:-2*W]
     slope_trans_fwd[:-2*W] = np.linalg.norm(trans_s[2*W:] - trans_s[:-2*W], axis=1)
-    score_fwd = slope_rot_fwd / rot_thresh + slope_trans_fwd / trans_thresh
 
     slope_rot_bwd   = np.zeros(n)
     slope_trans_bwd = np.zeros(n)
     slope_rot_bwd[2*W:]   = angles_s[2*W:] - angles_s[:-2*W]
     slope_trans_bwd[2*W:] = np.linalg.norm(trans_s[2*W:] - trans_s[:-2*W], axis=1)
-    score_bwd = slope_rot_bwd / rot_thresh + slope_trans_bwd / trans_thresh
 
-    split1 = next((i for i in range(n) if score_fwd[i] > 1.0), n // 3)
-    split2 = n - 1 - next((i for i in range(n) if score_bwd[n - 1 - i] > 1.0), n // 3)
+    rot_thresh = 5.0  # degrees over 2W frames
+    trans_thresh, trans_stats = dynamic_translation_threshold(
+        slope_trans_fwd[:-2*W], base_thresh=0.05)
+
+    score_fwd = slope_rot_fwd / rot_thresh
+    score_bwd = slope_rot_bwd / rot_thresh
+
+    plateau_window = max(60, 4 * W)
+    min_plateau = max(30, 2 * W)
+    min_stage_delta = 15.0
+    prior_margin = max(90, 6 * W)
+    min_start_frame = None
+    if stage1_prior_frame is not None:
+        min_start_frame = stage1_prior_frame - prior_margin
+
+    candidates = []
+    for run_start, run_end in _true_runs(slope_rot_fwd > rot_thresh):
+        split1_cand = run_start
+        split2_cand = min(n - 1, run_end + 2 * W)
+
+        if min_start_frame is not None and frame_ids[split2_cand] < min_start_frame:
+            continue
+
+        pre = angles_s[max(0, split1_cand - plateau_window):split1_cand]
+        post = angles_s[split2_cand:min(n, split2_cand + plateau_window)]
+        if len(pre) < min_plateau or len(post) < min_plateau:
+            continue
+
+        pre_med = float(np.median(pre))
+        post_med = float(np.median(post))
+        stage_delta = abs(post_med - pre_med)
+        pre_sigma = _robust_sigma(pre)
+        post_sigma = _robust_sigma(post)
+        peak_rot = float(np.max(slope_rot_fwd[run_start:run_end + 1]))
+        peak_trans = float(np.max(slope_trans_fwd[run_start:run_end + 1]))
+        active_len = run_end - run_start + 1
+
+        if stage_delta < min_stage_delta:
+            continue
+
+        # Prefer durable changes between stable plateaus.  The active length
+        # term breaks ties without letting long noisy drifts dominate.
+        score = stage_delta + 0.02 * min(active_len, 150) - 2.0 * (pre_sigma + post_sigma)
+        if stage1_prior_frame is not None and frame_ids[split1_cand] < stage1_prior_frame:
+            score -= 5.0
+
+        candidates.append({
+            'score': score,
+            'split1_idx': split1_cand,
+            'split2_idx': split2_cand,
+            'transition_start_frame': int(frame_ids[split1_cand]),
+            'transition_end_frame': int(frame_ids[split2_cand - 1]),
+            'stage2_start_frame': int(frame_ids[split2_cand]),
+            'active_start_frame': int(frame_ids[run_start]),
+            'active_end_frame': int(frame_ids[run_end]),
+            'active_len': int(active_len),
+            'stage_delta_deg': stage_delta,
+            'pre_sigma_deg': pre_sigma,
+            'post_sigma_deg': post_sigma,
+            'peak_rot_deg': peak_rot,
+            'peak_trans_m': peak_trans,
+        })
+
+    if candidates:
+        best = max(candidates, key=lambda c: c['score'])
+        split1 = best['split1_idx']
+        split2 = best['split2_idx']
+        method = 'stable_rotation_plateau'
+    else:
+        search_start = 0
+        if min_start_frame is not None:
+            search_start = int(np.searchsorted(np.asarray(frame_ids), min_start_frame))
+        split1 = next((i for i in range(search_start, n) if score_fwd[i] > 1.0), n // 3)
+        split2 = n - 1 - next((i for i in range(n) if score_bwd[n - 1 - i] > 1.0), n // 3)
+        best = None
+        method = 'rotation_threshold_fallback'
 
     split1 = max(1, min(split1, n - 2))
     split2 = max(split1 + 1, min(split2, n - 1))
 
     print(f"  Asymmetric sliding-window slope W={W}  "
-          f"rot_thresh={rot_thresh}°  trans_thresh={trans_thresh}m")
+          f"rot_thresh={rot_thresh}°  diagnostic_trans_thresh={trans_thresh:.3f}m")
+    print(f"  Translation drift diagnostic: median={trans_stats['median']*100:.2f}cm  "
+          f"MADσ={trans_stats['mad_sigma']*100:.2f}cm  "
+          f"robust={trans_stats['robust']*100:.2f}cm  "
+          f"p99={trans_stats['p99']*100:.2f}cm")
+    if stage1_prior_frame is not None:
+        print(f"  Stage-1 prior: frame {stage1_prior_frame} "
+              f"(search keeps candidates ending after {min_start_frame})")
+    print(f"  Stable-plateau split: method={method}, translation is diagnostic only")
+    if best is not None:
+        print(f"  Selected rotation cluster: frames {best['active_start_frame']}–{best['active_end_frame']}  "
+              f"stage_delta={best['stage_delta_deg']:.1f}°  "
+              f"pre/post σ={best['pre_sigma_deg']:.2f}°/{best['post_sigma_deg']:.2f}°  "
+              f"score={best['score']:.2f}")
     print(f"  Peak fwd: rot={slope_rot_fwd.max():.1f}°  trans={slope_trans_fwd.max()*100:.1f}cm  "
-          f"score={score_fwd.max():.2f}")
+          f"rot_score={score_fwd.max():.2f}")
     print(f"  Peak bwd: rot={slope_rot_bwd.max():.1f}°  trans={slope_trans_bwd.max()*100:.1f}cm  "
-          f"score={score_bwd.max():.2f}  span={span:.1f}°")
+          f"rot_score={score_bwd.max():.2f}  span={span:.1f}°")
 
-    return split1, split2, angular_jumps
+    diagnostics = {
+        'method': method,
+        'stage1_prior_frame': stage1_prior_frame,
+        'rot_thresh_deg': rot_thresh,
+        'diagnostic_trans_thresh_m': trans_thresh,
+        'translation_stats': trans_stats,
+        'plateau_window': plateau_window,
+        'min_stage_delta_deg': min_stage_delta,
+        'num_rotation_clusters': len(_true_runs(slope_rot_fwd > rot_thresh)),
+        'num_valid_candidates': len(candidates),
+        'selected_candidate': best,
+    }
+    return split1, split2, angular_jumps, diagnostics
 
 
 def representative_pose(T_list, mad_threshold=3.0):
@@ -250,6 +440,47 @@ def representative_pose(T_list, mad_threshold=3.0):
     T_rep[:3, :3] = R_mean
     T_rep[:3,  3] = trans
     return T_rep
+
+
+def stage_pose_quality(frame_ids, T_list, T_rep, sfm_keyframe_ids,
+                       rot_inlier_thresh_deg=12.0, trans_inlier_thresh_cm=5.0):
+    """Measure stationary-stage FP consistency and select merge-safe frames."""
+    trans = np.stack([T[:3, 3] for T in T_list])
+    t_rep = T_rep[:3, 3]
+    trans_residual_cm = np.linalg.norm(trans - t_rep, axis=1) * 100.0
+    rot_residual_deg = np.array([
+        np.rad2deg(rotation_angle_between(T_rep[:3, :3], T[:3, :3]))
+        for T in T_list
+    ])
+
+    inlier_mask = (
+        (rot_residual_deg <= rot_inlier_thresh_deg)
+        & (trans_residual_cm <= trans_inlier_thresh_cm)
+    )
+    inlier_frame_ids = [int(fid) for fid, keep in zip(frame_ids, inlier_mask) if keep]
+    sfm_keyframe_ids = set(sfm_keyframe_ids)
+    inlier_sfm_keyframe_ids = [fid for fid in inlier_frame_ids if fid in sfm_keyframe_ids]
+
+    return {
+        'thresholds': {
+            'rot_inlier_deg': float(rot_inlier_thresh_deg),
+            'trans_inlier_cm': float(trans_inlier_thresh_cm),
+        },
+        'num_frames': int(len(frame_ids)),
+        'num_inlier_frames': int(len(inlier_frame_ids)),
+        'inlier_fraction': float(len(inlier_frame_ids) / max(len(frame_ids), 1)),
+        'num_sfm_keyframes': int(sum(1 for fid in frame_ids if fid in sfm_keyframe_ids)),
+        'num_inlier_sfm_keyframes': int(len(inlier_sfm_keyframe_ids)),
+        'trans_std_cm': (np.std(trans, axis=0) * 100.0).tolist(),
+        'trans_std_max_cm': float(np.max(np.std(trans, axis=0)) * 100.0),
+        'trans_residual_median_cm': float(np.median(trans_residual_cm)),
+        'trans_residual_p95_cm': float(np.percentile(trans_residual_cm, 95)),
+        'rot_residual_std_deg': float(np.std(rot_residual_deg)),
+        'rot_residual_median_deg': float(np.median(rot_residual_deg)),
+        'rot_residual_p95_deg': float(np.percentile(rot_residual_deg, 95)),
+        'candidate_inlier_frame_ids': inlier_frame_ids,
+        'candidate_inlier_sfm_keyframe_ids': inlier_sfm_keyframe_ids,
+    }
 
 
 # ── Plotting ──────────────────────────────────────────────────────────────────
@@ -375,7 +606,33 @@ def main():
                         help='Save T_pose2_from_pose1 as a space-separated 4×4 txt file')
     parser.add_argument('--smooth', type=int, default=15,
                         help='Median filter half-width for stage detection (frames)')
+    parser.add_argument('--stage1_prior_frame', type=int, default=None,
+                        help='Optional Stage-1 end frame used as a soft transition prior')
+    parser.add_argument('--stage1_detect_result', default=None,
+                        help='Optional stage1_detect_debug/result.json used as a soft prior')
+    parser.add_argument('--merge_pose_rot_inlier_deg', type=float, default=12.0,
+                        help='Max object-world rotation residual for merge-safe stage frames')
+    parser.add_argument('--merge_pose_trans_inlier_cm', type=float, default=5.0,
+                        help='Max object-world translation residual for merge-safe stage frames')
+    parser.add_argument('--min_stage2_merge_frames', type=int, default=60,
+                        help='Minimum FP inlier frames required to use stage 2 in merged recon')
+    parser.add_argument('--min_stage2_merge_keyframes', type=int, default=20,
+                        help='Minimum SfM keyframes required to use stage 2 in merged recon')
     args = parser.parse_args()
+
+    output_path = Path(args.output)
+    stage1_prior_frame = args.stage1_prior_frame
+    stage1_detect_result = None
+    if stage1_prior_frame is None:
+        stage1_detect_result = args.stage1_detect_result
+        if stage1_detect_result is None:
+            auto_prior = output_path.parent / 'stage1_detect_debug' / 'result.json'
+            if auto_prior.exists():
+                stage1_detect_result = str(auto_prior)
+        stage1_prior_frame = load_stage1_prior(stage1_detect_result)
+    if stage1_prior_frame is not None:
+        prior_source = stage1_detect_result or '--stage1_prior_frame'
+        print(f"Using Stage-1 prior frame {stage1_prior_frame} from {prior_source}")
 
     # ── Build timestamp → seq_idx index ──────────────────────────────────────
     print("Building timestamp → seq_idx index from frames_meta.json...")
@@ -436,13 +693,18 @@ def main():
 
     # Filter tracker failures first; stage detection runs on clean frames only.
     # onset_idx caps stage2 so outlier frames never reach downstream steps.
-    inlier_mask, onset_idx = filter_tracking_failures(valid_fids, obj_trans)
+    failure_min_onset_frame = None
+    if stage1_prior_frame is not None:
+        failure_min_onset_frame = stage1_prior_frame - max(90, 6 * args.smooth)
+    inlier_mask, onset_idx = filter_tracking_failures(
+        valid_fids, obj_trans, min_onset_frame=failure_min_onset_frame)
     fids_clean  = [f for f, ok in zip(valid_fids,       inlier_mask) if ok]
     trans_clean = [t for t, ok in zip(obj_trans,        inlier_mask) if ok]
     rots_clean  = [r for r, ok in zip(obj_rots,         inlier_mask) if ok]
 
-    split1_idx, split2_idx, angular_jumps_clean = detect_three_stages(
-        fids_clean, trans_clean, rots_clean, smooth_kernel=args.smooth)
+    split1_idx, split2_idx, angular_jumps_clean, detection_debug = detect_three_stages(
+        fids_clean, trans_clean, rots_clean, smooth_kernel=args.smooth,
+        stage1_prior_frame=stage1_prior_frame)
 
     # Map split frame IDs back to indices in the full valid_fids list
     fids_arr = np.array(valid_fids)
@@ -468,13 +730,63 @@ def main():
     print(f"  Stage 2 (stationary):  frames {stage2_fids[0]} – {stage2_fids[-1]}"
           f"  ({len(stage2_fids)} frames)")
 
-    # Representative object pose per stationary stage
-    T_obj_stage1 = representative_pose(valid_obj_world[:split1_full])
-    T_obj_stage2 = representative_pose(valid_obj_world[split2_full:stage2_end])
+    stage1_indices = list(range(0, split1_full))
+    stage2_indices = list(range(split2_full, stage2_end))
+    sfm_keyframe_ids = set(kf_map.keys())
+
+    # Representative object pose per stationary stage, before quality gating.
+    T_obj_stage1 = representative_pose([valid_obj_world[i] for i in stage1_indices])
+    T_obj_stage2_all = representative_pose([valid_obj_world[i] for i in stage2_indices])
+
+    q_stage1 = stage_pose_quality(
+        stage1_fids, [valid_obj_world[i] for i in stage1_indices], T_obj_stage1,
+        sfm_keyframe_ids, args.merge_pose_rot_inlier_deg, args.merge_pose_trans_inlier_cm)
+    q_stage2 = stage_pose_quality(
+        stage2_fids, [valid_obj_world[i] for i in stage2_indices], T_obj_stage2_all,
+        sfm_keyframe_ids, args.merge_pose_rot_inlier_deg, args.merge_pose_trans_inlier_cm)
+
+    stage1_merge_fids = [int(fid) for fid in stage1_fids]
+    stage2_merge_fids = q_stage2['candidate_inlier_frame_ids']
+    stage2_usable = (
+        q_stage2['num_inlier_frames'] >= args.min_stage2_merge_frames
+        and q_stage2['num_inlier_sfm_keyframes'] >= args.min_stage2_merge_keyframes
+    )
+    stage2_drop_reason = None
+    if not stage2_usable:
+        stage2_drop_reason = (
+            f"stage2 has {q_stage2['num_inlier_frames']} FP inlier frames and "
+            f"{q_stage2['num_inlier_sfm_keyframes']} SfM inlier keyframes; "
+            f"requires >= {args.min_stage2_merge_frames} frames and "
+            f">= {args.min_stage2_merge_keyframes} SfM keyframes"
+        )
+        stage2_merge_fids = []
+
+    print("\n  Merge pose quality:")
+    print(f"    Stage 1: FP inliers {q_stage1['num_inlier_frames']}/{q_stage1['num_frames']}  "
+          f"SfM inliers {q_stage1['num_inlier_sfm_keyframes']}/{q_stage1['num_sfm_keyframes']}  "
+          f"rot_p95={q_stage1['rot_residual_p95_deg']:.2f}°  "
+          f"trans_p95={q_stage1['trans_residual_p95_cm']:.2f}cm")
+    print(f"    Stage 2: FP inliers {q_stage2['num_inlier_frames']}/{q_stage2['num_frames']}  "
+          f"SfM inliers {q_stage2['num_inlier_sfm_keyframes']}/{q_stage2['num_sfm_keyframes']}  "
+          f"rot_p95={q_stage2['rot_residual_p95_deg']:.2f}°  "
+          f"trans_p95={q_stage2['trans_residual_p95_cm']:.2f}cm  "
+          f"usable={stage2_usable}")
+    if stage2_drop_reason:
+        print(f"    Stage 2 dropped from merged recon: {stage2_drop_reason}")
+
+    fid_to_idx = {fid: i for i, fid in enumerate(valid_fids)}
+    stage2_merge_indices = [fid_to_idx[fid] for fid in stage2_merge_fids]
+    T_obj_stage2 = (
+        representative_pose([valid_obj_world[i] for i in stage2_merge_indices])
+        if stage2_merge_indices else T_obj_stage2_all
+    )
 
     # Representative camera-to-world pose per stationary stage
-    T_cam_stage1 = representative_pose(valid_c2w[:split1_full])
-    T_cam_stage2 = representative_pose(valid_c2w[split2_full:stage2_end])
+    T_cam_stage1 = representative_pose([valid_c2w[i] for i in stage1_indices])
+    T_cam_stage2 = (
+        representative_pose([valid_c2w[i] for i in stage2_merge_indices])
+        if stage2_merge_indices else representative_pose([valid_c2w[i] for i in stage2_indices])
+    )
 
     # Transform from stage-1 camera frame to stage-2 camera frame
     # (used by downstream merge pipeline to align cam_in_ob poses)
@@ -510,7 +822,6 @@ def main():
     print(f"    Stage 2: translation X={t_std2[0]:.3f} Y={t_std2[1]:.3f} Z={t_std2[2]:.3f} cm,  rotation {r_std2:.4f}°")
 
     # ── Write JSON output ─────────────────────────────────────────────────────
-    output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     out = {
@@ -520,6 +831,10 @@ def main():
                 'start_frame':      stage1_fids[0],
                 'end_frame':        stage1_fids[-1],
                 'num_frames':       len(stage1_fids),
+                'merge_frame_ids':  stage1_merge_fids,
+                'num_merge_frames': len(stage1_merge_fids),
+                'usable_for_merge': True,
+                'pose_quality':     q_stage1,
                 'T_world_from_obj': T_obj_stage1.tolist(),
                 'T_world_from_cam': T_cam_stage1.tolist(),
             },
@@ -532,12 +847,18 @@ def main():
                 'start_frame':      stage2_fids[0],
                 'end_frame':        stage2_fids[-1],
                 'num_frames':       len(stage2_fids),
+                'merge_frame_ids':  stage2_merge_fids,
+                'num_merge_frames': len(stage2_merge_fids),
+                'usable_for_merge': bool(stage2_usable),
+                'drop_reason':      stage2_drop_reason,
+                'pose_quality':     q_stage2,
                 'T_world_from_obj': T_obj_stage2.tolist(),
                 'T_world_from_cam': T_cam_stage2.tolist(),
             },
             'T_pose2_from_pose1':     T_pose2_from_pose1.tolist(),
             'rotation_angle_degrees': float(angle_deg),
             'translation_m':          t_delta.tolist(),
+            'detection':              detection_debug,
         },
     }
     with open(output_path, 'w') as f:

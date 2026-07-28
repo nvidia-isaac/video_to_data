@@ -47,6 +47,7 @@ run_video_to_depth(
 |---------|-------|-------------|-------|---------|
 | **v2d_unidepth** | `run_image_to_depth`, `run_video_to_depth`, `run_download_weights`, `run_shell` | Monocular depth estimation | `python -m v2d.unidepth.docker.build` | `python -m v2d.unidepth.docker.run_<tool> --args` |
 | **v2d_moge** | `run_image_to_depth`, `run_video_to_depth`, `run_download_weights`, `run_shell` | Video-to-depth (Midas + MoG) | `python -m v2d.moge.docker.build` | `python -m v2d.moge.docker.run_<tool> --args` |
+| **v2d_geocalib** | `run_video_to_calibration`, `run_download_weights` | GeoCalib camera intrinsics + gravity estimation | `python -m v2d.geocalib.docker.build` | `python -m v2d.geocalib.docker.run_<tool> --args` |
 | **v2d_sam2** | `run_video_to_masks`, `run_mv_videos_to_masks`, `run_annotate`, `run_download_weights`, `run_shell` | SAM2 video segmentation (single + multi-view) | `python -m v2d.sam2.docker.build` | `python -m v2d.sam2.docker.run_<tool> --args` |
 | **v2d_sam3d** | `run_image_to_mesh`, `run_render_debug_image`, `run_download_weights`, `run_shell` | 3D mesh from image+mask | `python -m v2d.sam3d.docker.build` | `python -m v2d.sam3d.docker.run_<tool> --args` |
 | **v2d_grounding_dino** | `run_image_to_object_bboxes`, `run_image_list_to_object_bboxes`, `run_video_to_object_bboxes`, `run_mv_image_list_to_object_bboxes`, `run_download_weights`, `run_shell` | Text-guided object detection (single + multi-view) | `python -m v2d.grounding_dino.docker.build` | `python -m v2d.grounding_dino.docker.run_<tool> --args` |
@@ -88,8 +89,13 @@ Each module exposes a **docker** package (lightweight Python wrappers that build
 
 ```bash
 cd reconstruction
-./scripts/install_pacakages.sh
+python3 -m venv .venv
+source .venv/bin/activate
+./scripts/install_packages.sh
 ```
+
+If you already use an isolated Python 3.10+ environment, activate it and run
+only `./scripts/install_packages.sh`.
 
 Install only the modules you need:
 
@@ -148,6 +154,12 @@ python -m v2d.moge.docker.build
 ### 3. Download weights
 
 Run `run_download_weights` for each module that requires model weights (e.g. via `python -m v2d.sam3d.docker.run_download_weights --output_dir data/weights/sam3d`).
+
+For GeoCalib, pre-warm the torch hub cache before using `--run_geocalib` or `--gravity_align`:
+
+```bash
+python -m v2d.geocalib.docker.run_download_weights --output_dir data/weights/geocalib
+```
 
 ### Design pattern: host orchestration, containerized inference
 
@@ -239,7 +251,7 @@ Segment Anything Model 2 for video segmentation.
 | `run_download_weights` | `run_download(output_dir, dev=False)` | Download SAM3D model weights |
 | `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
 
-**Build:** `python -m v2d.sam3d.docker.build`  
+**Build:** `python -m v2d.sam3d.docker.build` (includes EGL/Pyrender for headless overlay videos)
 **Execute:** `python -m v2d.sam3d.docker.run_image_to_mesh --image_path ... --mask_path ... --mesh_path ... --transform_path ... --intrinsics_path ... --weights_dir ...`
 
 ---
@@ -313,7 +325,10 @@ End-to-end textured 3D mesh reconstruction from hand-object interaction video us
 | `run_reconstruction` | Full pipeline: CuSFM → depth → mask → Stage-1 NeRF → FoundationPose → Stage-2 NeRF → textured mesh |
 | `run_fp_tracking` | FoundationPose tracking only: center mesh → depth → mask → FP tracking → render overlay |
 
-**Build (from `reconstruction/modules/`):** `python v2d_hoi_object_reconstruction/docker/build.py` (builds the HOI image); `python v2d_bundlesdf/docker/build.py` and `python v2d_cusfm/docker/build.py` build their respective images separately.
+**Setup and build (from `reconstruction/`):** Activate the source checkout's
+Python environment and run `./scripts/install_packages.sh`, then run
+`./scripts/build_containers.sh` to build the source release's images. Model
+weights are downloaded separately.
 
 **Example (from `reconstruction/`):**
 
@@ -327,7 +342,7 @@ python modules/v2d_hoi_object_reconstruction/docker/run_reconstruction.py \
 ```
 
 **Inputs:** `mapping_data_dir/` — stereo images (`front_stereo_camera_left/`, `front_stereo_camera_right/`), `frames_meta.json`, `frame_metadata.jsonl`
-**Outputs:** `job_dir/merged_recon/textured_mesh.obj` — final textured mesh; `job_dir/stage1_recon/textured_mesh.obj` — Stage-1 mesh
+**Outputs:** `job_dir/merged_recon/textured_mesh.obj` and `job_dir/merged_recon/output.glb` — final textured mesh; `job_dir/stage1_recon/textured_mesh.obj` and `job_dir/stage1_recon/output.glb` — Stage-1 mesh
 
 See [`modules/v2d_hoi_object_reconstruction/README.md`](modules/v2d_hoi_object_reconstruction/README.md) for full pipeline details and troubleshooting.
 
@@ -419,6 +434,7 @@ SDF learning and texture baking from pre-computed camera poses. Takes keyframes 
 
 **Outputs:**
 - `recon_dir/textured_mesh.obj` — final textured mesh (+ `.mtl`, `_0.png` texture atlas)
+- `recon_dir/output.glb` — self-contained GLB exported from the textured mesh
 - `recon_dir/mesh_cleaned.obj` — untextured SDF mesh
 
 **Build:** `python modules/v2d_bundlesdf/docker/build.py`

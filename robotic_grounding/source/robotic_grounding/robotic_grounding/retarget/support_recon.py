@@ -37,24 +37,46 @@ DISK_RADIUS_SCALE = (
 )
 GROUND_Z_THRESHOLD = 0.05  # disks below this Z are on the ground plane
 
+# Hand-release gate (opt-in; used for h2o). A still object run only counts as a
+# support surface if the hand has RELEASED the object during it — otherwise an
+# object held steady mid-interaction is mistaken for one resting on a surface.
+HAND_RELEASE_CONTACT_THRESHOLD_M = (
+    0.02  # fingertip<this = "touching" (tips_distance fallback)
+)
+MIN_RELEASED_STILL_FRAMES = 5  # drop released-still runs shorter than this (noise)
+
 
 # ---------------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------------
 
 
-def _resolve_local_mesh_path(path: str) -> str | None:
-    """Resolve a possibly-stale absolute path to a local file under ``ASSET_DIR``.
+def _resolve_local_mesh_path(
+    path: str, object_assets_root: Path | None = None
+) -> str | None:
+    """Resolve a possibly-stale mesh path against the workspace.
 
-    Parquets emitted from container builds carry absolute Docker mesh paths
-    (``/workspace/.../assets/meshes/...``) that don't exist locally. We
-    take the suffix after ``assets/meshes/`` and re-root it under the
-    repo's local ``ASSET_DIR/meshes/``.
+    Parquets carry the mesh path the loader baked (e.g. an absolute
+    ``/data/object_assets/...``). Two recovery routes, tried in order:
+
+    1. If ``object_assets_root`` is given, re-root any path carrying an
+       ``object_assets`` segment under it. Matching on the path *component*
+       (not a substring) keeps this correct whether the stored path is
+       absolute or later becomes relative.
+    2. Otherwise re-root the ``assets/meshes/`` suffix under the repo's
+       ``ASSET_DIR/meshes/`` (for meshes bundled in the checkout).
     """
     if not path:
         return None
     if Path(path).exists():
         return path
+    if object_assets_root is not None:
+        parts = Path(path).parts
+        if "object_assets" in parts:
+            idx = parts.index("object_assets")
+            candidate = Path(object_assets_root).joinpath(*parts[idx:])
+            if candidate.exists():
+                return str(candidate)
     if "assets/meshes/" not in path:
         return None
     suffix = path.rsplit("assets/meshes/", maxsplit=1)[-1]
@@ -70,15 +92,17 @@ def _resolve_local_mesh_path(path: str) -> str | None:
 def _load_object_meshes_from_paths(
     object_mesh_paths: list[str],
     object_body_names: list[str],
+    object_assets_root: Path | None = None,
 ) -> dict[str, trimesh.Trimesh]:
     """Load object meshes from schema paths (one per body).
 
     Paths ending with ``_cm.obj`` are scaled by 0.01 (cm -> m). Stale
-    container paths are remapped to the local ``ASSET_DIR``.
+    baked paths are re-rooted against ``object_assets_root`` (or the repo
+    ``ASSET_DIR``) — see ``_resolve_local_mesh_path``.
     """
     meshes: dict[str, trimesh.Trimesh] = {}
     for part, path in zip(object_body_names, object_mesh_paths, strict=True):
-        resolved = _resolve_local_mesh_path(path)
+        resolved = _resolve_local_mesh_path(path, object_assets_root)
         if resolved is None:
             continue
         mesh = trimesh.load(resolved)
@@ -117,8 +141,12 @@ def load_object_mesh_and_poses(
     input_dir: Path,
     sequence_id: str,
     schema: str | None = None,
+    object_assets_root: Path | None = None,
 ) -> tuple[Any, dict[str, trimesh.Trimesh]]:
     """Load one sequence and its object meshes.
+
+    ``object_assets_root``, when given, re-roots baked mesh paths (e.g. the
+    loader's ``/data/object_assets/...``) against the workspace dataset.
 
     Returns:
         ``(data, object_meshes)`` where ``data`` exposes ``object_body_position``,
@@ -134,6 +162,7 @@ def load_object_mesh_and_poses(
         object_meshes = _load_object_meshes_from_paths(
             object_mesh_paths,
             object_body_names,
+            object_assets_root=object_assets_root,
         )
     else:
         object_meshes = {}
@@ -231,6 +260,45 @@ def still_frames_from_object_data(
 still_frames_from_mano_sharpa_data = still_frames_from_object_data
 
 
+def _hand_holding_mask(
+    data: Any,
+    body_idx: int,
+    n_frames: int,
+    contact_threshold_m: float = HAND_RELEASE_CONTACT_THRESHOLD_M,
+) -> np.ndarray | None:
+    """Return bool[T] — True on frames where either hand is holding this body.
+
+    Prefers ``mano_{side}_object_contact_part_ids`` (1-indexed body IDs; 0 = no
+    contact), which is body-specific. Falls back to ``mano_{side}_tips_distance``
+    (contact with *any* object) when contact-part IDs are unavailable. Returns
+    ``None`` when the sequence carries no hand-contact information at all (e.g.
+    the whole-body ``motion_v1`` schema), so callers can skip the gate.
+    """
+    held = np.zeros(n_frames, dtype=bool)
+    have_part_ids = False
+    for side in ("right", "left"):
+        cpid = getattr(data, f"mano_{side}_object_contact_part_ids", None)
+        if cpid is None:
+            continue
+        cpid = np.asarray(cpid)
+        if cpid.size and cpid.shape[0] == n_frames:
+            held |= np.any(cpid == (body_idx + 1), axis=1)
+            have_part_ids = True
+    if have_part_ids:
+        return held
+
+    have_tips = False
+    for side in ("right", "left"):
+        tips = getattr(data, f"mano_{side}_tips_distance", None)
+        if tips is None:
+            continue
+        tips = np.asarray(tips, dtype=np.float64)
+        if tips.size and tips.shape[0] == n_frames:
+            held |= tips.min(axis=1) < contact_threshold_m
+            have_tips = True
+    return held if have_tips else None
+
+
 def extract_continuous_segments(still_frames: np.ndarray) -> list[np.ndarray]:
     """Split sorted still-frame indices into contiguous runs."""
     if len(still_frames) == 0:
@@ -298,11 +366,16 @@ def _enclosing_circle_of_two(
 
 def merge_overlapping_disks(
     disks: list[tuple[float, float, float, float]],
+    z_tol: float | None = None,
 ) -> list[tuple[float, float, float, float]]:
     """Iteratively merge disks that overlap in the X-Y plane.
 
     Each disk is ``(cx, cy, z, radius)``. The merged disk takes the minimum
-    Z of the pair.
+    Z of the pair. When ``z_tol`` is given, two disks merge only if they also
+    lie within ``z_tol`` in Z — i.e. they actually collide in 3D rather than
+    merely overlapping in the X-Y projection. This is used to consolidate
+    colliding surfaces across object bodies without fusing stacked surfaces at
+    different heights (a shelf above a table).
     """
     merged = list(disks)
     changed = True
@@ -315,7 +388,7 @@ def merge_overlapping_disks(
                 cx1, cy1, z1, r1 = merged[i]
                 cx2, cy2, z2, r2 = merged[j]
                 dist = np.hypot(cx2 - cx1, cy2 - cy1)
-                if dist < r1 + r2:
+                if dist < r1 + r2 and (z_tol is None or abs(z1 - z2) <= z_tol):
                     cx_n, cy_n, r_n = _enclosing_circle_of_two(
                         cx1,
                         cy1,
@@ -419,6 +492,12 @@ def _compute_height_offset(data: Any, schema: str) -> float:
 PHANTOM_TARGET_IN_DISK_FRAC = 0.90
 PHANTOM_Z_OVERLAP_M = 0.10
 
+# Two support surfaces from different object bodies that overlap in X-Y AND lie
+# within this Z distance are treated as the same physical surface and merged
+# into one disk (e.g. two objects resting on the same table at overlapping
+# footprints). Larger than typical disk-Z noise, smaller than a shelf gap.
+SURFACE_CONSOLIDATE_Z_TOL_M = 0.05
+
 
 def _filter_phantom_supports(
     all_disks: dict[str, list[tuple[float, float, float, float]]],
@@ -478,6 +557,9 @@ def reconstruct_support_for_sequence(
     output_override: str | None = None,
     schema: str | None = None,
     ground_z_threshold: float = GROUND_Z_THRESHOLD,
+    require_hand_release: bool = False,
+    hand_release_contact_threshold_m: float = HAND_RELEASE_CONTACT_THRESHOLD_M,
+    object_assets_root: Path | None = None,
 ) -> None:
     """Detect still frames, compute support disks, and write a USD file.
 
@@ -491,11 +573,21 @@ def reconstruct_support_for_sequence(
             from parquet columns when ``None``.
         ground_z_threshold: Disks with z <= this are skipped (the sim ground
             plane already covers them).
+        require_hand_release: When True, a still run only yields a support disk
+            if the hand has RELEASED the object during it — frames where a hand
+            is holding the body are dropped before forming segments. Removes
+            phantom surfaces from objects held steady mid-interaction. No-ops
+            when the sequence carries no hand-contact info (e.g. ``motion_v1``).
+        hand_release_contact_threshold_m: Fingertip-to-surface distance below
+            which a hand counts as touching (tips_distance fallback only).
+        object_assets_root: When given, re-roots baked object mesh paths (e.g.
+            the loader's ``/data/object_assets/...``) against the workspace
+            dataset; otherwise the baked paths are used as-is.
     """
     if schema is None:
         schema = _detect_parquet_schema(input_dir)
     data, object_meshes = load_object_mesh_and_poses(
-        input_dir, sequence_id, schema=schema
+        input_dir, sequence_id, schema=schema, object_assets_root=object_assets_root
     )
 
     height_offset = _compute_height_offset(data, schema)
@@ -534,11 +626,44 @@ def reconstruct_support_for_sequence(
             continue
 
         still_frames = still_frames_from_object_data(data, body_index=body_idx)
-        segments = extract_continuous_segments(still_frames)
-        print(
-            f"  {body_name}: {len(still_frames)} still frames, "
-            f"{len(segments)} segment(s)"
+
+        # Hand-release gate: a held-still object is not resting on a surface.
+        # Drop frames where a hand is holding this body, then require the
+        # remaining released-still runs to be long enough to be a real rest.
+        held = (
+            _hand_holding_mask(
+                data,
+                body_idx,
+                num_frames,
+                contact_threshold_m=hand_release_contact_threshold_m,
+            )
+            if require_hand_release
+            else None
         )
+        if held is not None:
+            n_before = len(still_frames)
+            still_frames = still_frames[~held[still_frames]]
+            segments = [
+                s
+                for s in extract_continuous_segments(still_frames)
+                if len(s) >= MIN_RELEASED_STILL_FRAMES
+            ]
+            print(
+                f"  {body_name}: hand-release gate kept {len(still_frames)}"
+                f"/{n_before} still frames (dropped held-still), "
+                f"{len(segments)} released-still segment(s)"
+            )
+        else:
+            if require_hand_release:
+                print(
+                    f"  {body_name}: hand-release gate requested but no "
+                    "contact data — using stillness only"
+                )
+            segments = extract_continuous_segments(still_frames)
+            print(
+                f"  {body_name}: {len(still_frames)} still frames, "
+                f"{len(segments)} segment(s)"
+            )
 
         body_disks: list[tuple[float, float, float, float]] = []
         for seg in segments:
@@ -583,8 +708,27 @@ def reconstruct_support_for_sequence(
             all_disks, list(object_body_names), body_pos
         )
 
+    # Consolidate colliding support surfaces across bodies into one. A disk is
+    # emitted per object body; when two of them actually overlap in 3D (the same
+    # table region at the same height) we want a single support object, not two.
+    if all_disks and sum(len(v) for v in all_disks.values()) > 1:
+        flat = [d for disks in all_disks.values() for d in disks]
+        consolidated = merge_overlapping_disks(flat, z_tol=SURFACE_CONSOLIDATE_Z_TOL_M)
+        if len(consolidated) < len(flat):
+            print(
+                f"  consolidated {len(flat)} colliding support surface(s) "
+                f"-> {len(consolidated)}"
+            )
+            all_disks = {"support": consolidated}
+
     if not all_disks:
-        print("No support disks needed (object on ground or always held).")
+        if not object_meshes:
+            print(
+                "No support surface written: object meshes did not load "
+                "(object_mesh_paths did not resolve against the workspace)."
+            )
+        else:
+            print("No support disks needed (object on ground or always held).")
         return
 
     total = sum(len(v) for v in all_disks.values())

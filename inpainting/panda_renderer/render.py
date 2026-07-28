@@ -13,19 +13,19 @@ import mujoco
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from inpainting.contracts import (
+from inpainting.mecka_panda.contracts import (
     ROBOT_RENDER_SCHEMA,
     artifact,
     load_npz,
     validate_parallel_jaw_arrays,
     write_json_atomic,
 )
+from inpainting.mecka_panda.video_io import Mp4Writer
 from inpainting.panda_renderer.kinematics import (
     PandaIK,
     build_panda_model,
     gravity_axes,
 )
-from inpainting.video_io import Mp4Writer
 
 RGB_FILENAME = "robot_rgb.mp4"
 MASK_FILENAME = "robot_mask.npy"

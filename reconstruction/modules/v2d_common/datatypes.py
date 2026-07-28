@@ -323,6 +323,7 @@ class Sam2Prompt:
     points: list[Point] = None
     point_labels: list[int] = None
     box: BoundingBox | None = None
+    mask_path: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -330,7 +331,8 @@ class Sam2Prompt:
             "object_id": self.object_id,
             "points": [p.to_dict() for p in self.points] if self.points else None,
             "point_labels": self.point_labels if self.point_labels else None,
-            "box": self.box.to_dict() if self.box else None
+            "box": self.box.to_dict() if self.box else None,
+            "mask_path": self.mask_path,
         }
 
     @staticmethod
@@ -340,7 +342,8 @@ class Sam2Prompt:
             object_id=d["object_id"],
             points=[Point.from_dict(p) for p in d["points"]] if d.get("points") else None,
             point_labels=d.get("point_labels") if d.get("point_labels") else None,
-            box=BoundingBox.from_dict(d["box"]) if d.get("box") else None
+            box=BoundingBox.from_dict(d["box"]) if d.get("box") else None,
+            mask_path=d.get("mask_path"),
         )
 
 

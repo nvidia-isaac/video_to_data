@@ -1,23 +1,41 @@
-# Video to Data
+# Video to Data (V2D)
 
-Monorepo for **Video to Data (V2D)** — an end-to-end pipeline that converts human demonstration videos into simulation-ready assets and physics-grounded robot training data.
+> An end-to-end pipeline that converts human demonstration videos into simulation-ready assets and physics-grounded robot training data.
 
-## End-to-End Workflow
+**[Documentation](https://nvidia-isaac.github.io/video_to_data/)** · **[Robotic Grounding Project Page](https://nvidia-isaac.github.io/video_to_data/chord/)** · **[Robotic Grounding Tech Report](https://nvidia-isaac.github.io/video_to_data/chord/chord.pdf)**
 
-```
- ┌───────────────┐   ┌──────────────────────┐   ┌──────────────────────┐   ┌────────────────────────────┐
- │ Human demo    │ → │ 1. Video Ingestion   │ → │ 2. Reconstruction    │ → │ 3. Robotic Grounding       │
- │ video / rosbag│   │    Agent             │   │ depth · masks ·      │   │ retargeting → Isaac Lab    │
- │               │   │ action segments ·    │   │ meshes · 6D pose ·   │   │ RL training (RSL-RL PPO)   │
- │               │   │ entity graph ·       │   │ SMPL body            │   │                            │
- │               │   │ visual embeddings    │   │                      │   │                            │
- └───────────────┘   └──────────────────────┘   └──────────────────────┘   └────────────────────────────┘
-                       video_ingestion_agent/      reconstruction/             robotic_grounding/
-```
+![Video to Data pipeline — from human demonstration video through ingestion, reconstruction, and robotic grounding in Isaac Lab to a physics-grounded policy, dataset, and real-robot deployment](docs/figures/v2d_overview.png)
+
+---
+
+## Contents
+
+- [Overview](#overview)
+- [Demos](#demos)
+- [Packages](#packages)
+- [Prerequisites](#prerequisites)
+- [Quickstart](#quickstart)
+  - [Video Ingestion Agent](#video-ingestion-agent-video--queryable-action-database)
+  - [Reconstruction](#reconstruction-video--3d-data)
+  - [Robotic Grounding](#robotic-grounding-data--rl-policy)
+- [Design philosophy](#design-philosophy)
+- [Contributing](#contributing)
+
+---
+
+## Overview
+
+Video to Data (V2D) turns raw human demonstrations into robot-ready training data through three composable stages. Each stage runs independently and writes its artifacts to disk, so you can stop, inspect, cache, and recompose the pipeline at any boundary.
 
 1. **Video Ingestion Agent** — a LangGraph-driven agentic workflow that segments demonstration videos into temporally-bounded action clips, extracts an entity-relation scene graph, and stores per-frame SigLIP-2 embeddings. The result is a queryable action database (`graph.db` + `vector.db`) that lets downstream stages select which clips to process via natural-language retrieval, instead of brute-forcing the full video.
 2. **Reconstruction** — containerized vision modules turn the selected RGB (or stereo) clips into per-frame depth, object masks, textured meshes, 6-DoF object poses, and SMPL human body parameters. Multi-view pipelines (`run_mv_hoi_reconstruction`, `run_mv_calibration`) orchestrate the full reconstruction from a rosbag.
 3. **Robotic Grounding** — human motion (e.g. Arctic) is retargeted onto the target robot embodiment (Sharpa), then the reconstructed scene and retargeted motion drive Isaac Lab environments trained with RSL-RL PPO to produce deployable policies.
+
+## Demos
+
+The pipeline in action — from a raw human demonstration, to grounded policies trained in Isaac Lab, to deployment on a physical robot.
+
+<img src="docs/figures/human.gif" width="270" alt="Raw human demonstration"> <img src="docs/figures/sim.gif" width="270" alt="Grounded robot policies in Isaac Lab"> <img src="docs/figures/real.gif" width="270" alt="Deploy to real robot">
 
 ## Packages
 
@@ -95,29 +113,56 @@ See [reconstruction/README.md](reconstruction/README.md) for the complete module
 
 ### Robotic Grounding (data → RL policy)
 
+**Quick start:** the from-scratch setup & run guide is
+[robotic_grounding/docs/SETUP.md](robotic_grounding/docs/SETUP.md) — it covers the two
+Docker images, downloading each dataset from its original public source, the directory
+layout, and how to run the full hand→robot retargeting pipeline.
+
+Throughout, `<HMD>` (human-motion-data root) is a directory you choose — e.g.
+`~/datasets/human_motion_data` — that holds `mano/` and one subdirectory per dataset
+(`taco/`, `hot3d/`, …); see [docs/SETUP.md §4](robotic_grounding/docs/SETUP.md).
+
 ```bash
 cd robotic_grounding
 
-# One-time host setup (git-lfs, pre-commit)
+# One-time host setup (git-lfs, pre-commit) + robot assets (LFS)
 bash workflow/setup_deps.sh
+git lfs pull
 
-# Build + enter the Isaac Lab container
-./workflow/run.sh build  [version]
-./workflow/run.sh start  [version] [gpu_id]
+# Build both pipeline images (loader + robotic-grounding) in one shot
+python scripts/run_pipeline_docker.py --build-only
 
-# Inside the container — train a policy
-python scripts/rsl_rl/train.py --task Sharpa-V2P-v0
+# Run the full pipeline on a dataset (download it first per docs/SETUP.md §6).
+# <HMD> is the data root holding mano/ and each <dataset>/.
+python scripts/run_pipeline_docker.py taco \
+    --hmd <HMD> --mano-dir <HMD>/mano --max-sequences 2     # small smoke test
+```
+
+Reproduce the sequences end-to-end (arctic / hot3d / taco) in a self-contained
+workspace — see [robotic_grounding/docs/EXAMPLE_SEQUENCES.md](robotic_grounding/docs/EXAMPLE_SEQUENCES.md)
+for the sequence list and prerequisites:
+
+```bash
+HMD=<HMD> ./run_example_sequences.sh        # → RL-ready parquets under <HMD>/example_sequences/<ds>/<ds>_processed/
+```
+
+Then enter the Isaac Lab container and train a policy on the retargeted motion:
+
+```bash
+./workflow/run.sh build
+./workflow/run.sh start [version] [gpu_id]              # build + enter the container
+python scripts/rsl_rl/train.py --task Sharpa-V2D-v0    # inside the container
 ```
 
 See [robotic_grounding/README.md](robotic_grounding/README.md) for retargeting, debug environments, and task definitions.
 
 ### Visualizer (retargeting gallery)
 
-Browse retargeted sequences as 3D animations at **http://10.111.83.14:8080/**
+Browse retargeted sequences as interactive 3D animations in your browser.
 
 See [robotic_grounding/README.md#visualizer](robotic_grounding/README.md#visualizer) for setup instructions.
 
-## Design Philosophy
+## Design philosophy
 
 - **Host orchestration, containerized inference.** The host runs thin Python wrappers that `docker run` each module; all ML dependencies live inside their respective images. No CUDA or PyTorch is ever installed on the host.
 - **Typed contracts between packages.** Modules communicate through strongly-typed dataclasses in [`v2d_common`](reconstruction/modules/v2d_common/) (`DepthImage`, `CameraIntrinsics`, `Transform3d`, `BoundingBox`, `Mask`) — never raw arrays across package boundaries.

@@ -12,7 +12,7 @@ import numpy as np
 from scipy.signal import savgol_filter
 from scipy.spatial.transform import Rotation
 
-from inpainting.contracts import (
+from inpainting.mecka_panda.contracts import (
     PARALLEL_JAW_SCHEMA,
     artifact,
     load_npz,

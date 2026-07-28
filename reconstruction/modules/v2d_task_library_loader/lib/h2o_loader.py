@@ -81,18 +81,43 @@ LOADED_SAVE_DIR = HUMAN_MOTION_DATA_DIR / "h2o" / "h2o_loaded"
 H2O_FPS = 30.0
 
 # H2O's world frame is the initial head-mounted camera pose in OpenCV
-# convention: +X right, +Y **down** (gravity), +Z forward.  Isaac Sim
-# (and the rest of the pipeline) expects +Z up.  Rotate −90° around X so
-# H2O +Y (gravity) → Isaac Sim −Z (gravity) without flipping handedness:
+# convention: +X right, +Y down, +Z forward.  Isaac Sim (and the rest of
+# the pipeline) expects +Z up, so the base rotation maps
+#   (x, y, z)_H2O  →  (x, z, −y)_ZUP    (−90° about X; same as DexYCB's rig).
 #
-#   (x, y, z)_H2O  →  (x, z, −y)_ZUP
+# BUT the cam4-only *pose* release is EGO-NORMALIZED: every sequence's
+# cam_pose starts at identity (verified across 47 takes: cam_pose[0] ≈ I,
+# ≤15° / ~cm), so the "world" frame is just the subject's initial head pose
+# — which in egocentric tabletop capture is pitched DOWN toward the table.
+# There is no static-rig / gravity reference in this release, so the base
+# OpenCV rotation alone leaves the whole scene tilted by that head pitch.
+# We undo it with a fixed pitch about the camera X axis applied *before* the
+# Z-up map.  Because all sequences are normalized to an identity start, this
+# single constant levels the entire dataset (per-take roll averages to ~0
+# and is not consistently correctable).  Tune in the visualizer; flip the
+# sign if the table tilts the wrong way.
 #
-# Same shape as DexYCB's ``_MASTER_TO_ZUP`` — the rigs are both OpenCV.
-# Without this rotation, hands end up ~60 cm *above* the head in the
-# output parquet, with palms pointing along +Y (a horizontal direction)
-# instead of down — which is what the Isaac Sim renders look like when
-# compared against the paper's reference figures on the H2O project page.
-H2O_WORLD_TO_ZUP = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]], dtype=np.float32)
+# Empirically (head looks ~45° down at the table): the base −90° Z-up map left
+# a 45° tilt, so the total needed is R_x(−135°) = R_x(−90°) · R_x(−45°), i.e.
+# a −45° pitch here.
+#
+# This −45° was found by visually inspecting H2O sequences in the viewer and leveling
+# them; it is one dataset-wide constant (H2O ships no gravity/IMU ground truth), not a
+# true per-sequence gravity vector.
+# TODO: improve in a later iteration — estimate gravity per take (e.g. from the
+# table-contact plane or the head-cam trajectory) instead of this fixed constant.
+H2O_HEAD_PITCH_DEG = -45.0
+
+
+def _rot_x(deg: float) -> np.ndarray:
+    """Right-handed rotation about the X axis, in degrees."""
+    r = np.radians(deg)
+    c, s = np.cos(r), np.sin(r)
+    return np.array([[1, 0, 0], [0, c, -s], [0, s, c]], dtype=np.float32)
+
+
+_ZUP_OPENCV = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]], dtype=np.float32)
+H2O_WORLD_TO_ZUP = (_ZUP_OPENCV @ _rot_x(H2O_HEAD_PITCH_DEG)).astype(np.float32)
 _H2O_WORLD_TO_ZUP_T4 = np.eye(4, dtype=np.float32)
 _H2O_WORLD_TO_ZUP_T4[:3, :3] = H2O_WORLD_TO_ZUP
 
@@ -238,8 +263,8 @@ def _extract_archives_if_needed(h2o_dir: Path) -> Path:
 
     Extraction is idempotent: if the target subject*/ directories already
     exist, we skip. Returns the directory containing the extracted data
-    (same as input if already extracted, or a local cache if input is
-    read-only CSS mount).
+    (same as input if already extracted, or a local cache if the input
+    dir is a read-only mount).
     """
     archives = sorted(h2o_dir.glob("*.tar.gz")) + sorted(h2o_dir.glob("*.zip"))
     if not archives:

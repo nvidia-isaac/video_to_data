@@ -15,8 +15,12 @@ Stages exercised (in ``workflow/retarget.yaml`` order):
   4   visualize  -> ``scripts/retarget/vis_retargeted.py``
   5   video      -> ``scripts/rsl_rl/dummy_agent.py``
 
-Coverage today: **taco only**. An ``arctic`` case will be added when an
-``arctic_loaded/`` fixture lands in the repo.
+Coverage today: **synthbox only** — a fully synthetic, license-free dataset
+(``scripts/make_synthbox_fixtures.py``) whose object is an articulated box
+(two box primitives + a revolute hinge). Because its object is articulated,
+stage 1.5 ships a hand-authored URDF instead of generating a rigid one (same
+convention as arctic), and the object assets live under
+``synthbox/object_assets/`` rather than the rigid ``meshes/`` + ``urdfs/`` tree.
 
 Requires Isaac Lab (``ISAACLAB_PATH``), GPU, and ``pxr``.
 """
@@ -231,7 +235,14 @@ class TestRetargetPipelineE2E(unittest.TestCase):
     # Per-stage helpers
     # ------------------------------------------------------------------
     def _stage_urdfs(self, dataset: str) -> None:
-        """Stage 1.5: regenerate rigid URDFs for the dataset's objects."""
+        """Stage 1.5: object URDFs.
+
+        For rigid datasets this regenerates ``*_rigid.urdf`` from meshes. For
+        articulated datasets (synthbox, arctic) ``generate_rigid_urdfs.py`` is a
+        deliberate no-op — their URDFs are hand-authored and shipped under
+        ``<dataset>/object_assets/urdfs/`` — so we run the script to confirm it
+        exits cleanly, then assert the committed articulated URDF is present.
+        """
         self._run(
             [
                 str(self.scripts_dir / "generate_rigid_urdfs.py"),
@@ -241,15 +252,31 @@ class TestRetargetPipelineE2E(unittest.TestCase):
             stage="1.5 URDFs",
             timeout=120,
         )
-        urdf_dir = (
-            self.project_root
-            / "source/robotic_grounding/robotic_grounding/assets/urdfs"
-            / dataset
+        if self._is_articulated(dataset):
+            urdf_dir = self.assets_dir / dataset / "object_assets" / "urdfs" / dataset
+            self.assertTrue(
+                urdf_dir.is_dir() and any(urdf_dir.glob("*.urdf")),
+                f"No committed articulated URDF under {urdf_dir} for {dataset}",
+            )
+        else:
+            urdf_dir = (
+                self.project_root
+                / "source/robotic_grounding/robotic_grounding/assets/urdfs"
+                / dataset
+            )
+            self.assertTrue(
+                urdf_dir.is_dir() and any(urdf_dir.glob("*.urdf")),
+                f"No URDFs under {urdf_dir} after generate_rigid_urdfs.py --dataset {dataset}",
+            )
+
+    @staticmethod
+    def _is_articulated(dataset: str) -> bool:
+        """Whether the dataset's objects are articulated (per the registry)."""
+        from robotic_grounding.retarget.dataset_registry import (  # noqa: PLC0415
+            get_dataset_config,
         )
-        self.assertTrue(
-            urdf_dir.is_dir() and any(urdf_dir.glob("*.urdf")),
-            f"No URDFs under {urdf_dir} after generate_rigid_urdfs.py --dataset {dataset}",
-        )
+
+        return get_dataset_config(dataset).has_articulated_objects
 
     def _stage_process(
         self,
@@ -398,7 +425,7 @@ class TestRetargetPipelineE2E(unittest.TestCase):
             [
                 str(self.scripts_dir / "rsl_rl/dummy_agent.py"),
                 "--task",
-                "Sharpa-V2P-v0-Play",
+                "Sharpa-V2D-v0-Play",
                 "--motion_file",
                 str(seq_dirs[0]),
                 "--num_envs",
@@ -448,6 +475,14 @@ class TestRetargetPipelineE2E(unittest.TestCase):
             loaded_dir = workdir / f"{dataset}_loaded"
             shutil.copytree(committed_loaded, loaded_dir)
 
+            # Articulated datasets resolve their object URDF/meshes from
+            # ``<dataset_root>/object_assets/`` (see SceneConfig). Copy the
+            # committed assets into the scratch dataset root so stage 5's
+            # playback can re-root and load them from the tmpdir.
+            committed_object_assets = self.assets_dir / dataset / "object_assets"
+            if committed_object_assets.is_dir():
+                shutil.copytree(committed_object_assets, workdir / "object_assets")
+
             processed_dir = workdir / f"{dataset}_processed"
             html_dir = workdir / f"{dataset}_html"
             video_dir = workdir / f"{dataset}_video"
@@ -458,9 +493,9 @@ class TestRetargetPipelineE2E(unittest.TestCase):
             self._stage_visualize(sequence_id, processed_dir, html_dir)
             self._stage_video(sequence_id, processed_dir, video_dir)
 
-    def test_taco_pipeline(self) -> None:
-        """All retarget.yaml stages pass for the committed taco sequence."""
-        self._run_pipeline("taco", "taco_empty__kettle__plate_20231031_060")
+    def test_synthbox_pipeline(self) -> None:
+        """All retarget.yaml stages pass for the synthetic synthbox sequence."""
+        self._run_pipeline("synthbox", "synthbox_box_open_000")
 
 
 if __name__ == "__main__":

@@ -69,6 +69,40 @@ def _resolve_path(path: str | None) -> Path | None:
     return p if p.exists() else None
 
 
+def find_object_assets_root(start: str | Path | None) -> Path | None:
+    """Nearest ancestor of ``start`` that contains an ``object_assets/`` dir.
+
+    Used to re-root asset paths recorded in a parquet against the workspace the
+    planner is actually running in.
+    """
+    if not start:
+        return None
+    start = Path(start)
+    for candidate in (start, *start.parents):
+        if (candidate / "object_assets").is_dir():
+            return candidate
+    return None
+
+
+def reroot_object_asset(path: str | None, root: Path | None) -> Path | None:
+    """Re-root a path that contains an ``object_assets`` segment under ``root``.
+
+    Matches ``object_assets`` as a path *component*, not a substring, so it
+    treats absolute (``/data/object_assets/...``), dataset-relative
+    (``arctic/object_assets/...``) and bare-relative (``object_assets/...``)
+    forms identically — and stays correct if the stored paths later go
+    relative. Returns the re-rooted path only if it exists.
+    """
+    if not path or root is None:
+        return None
+    parts = Path(path).parts
+    if "object_assets" not in parts:
+        return None
+    idx = parts.index("object_assets")
+    candidate = Path(root).joinpath(*parts[idx:])
+    return candidate if candidate.exists() else None
+
+
 def walk_urdf_mesh_deps(urdf_path: Path) -> list[Path]:
     """Return absolute paths of every ``<mesh filename=...>`` referenced by URDF."""
     try:
@@ -106,7 +140,12 @@ def warn_missing_urdf_mesh_deps(urdf_paths: list[str]) -> None:
                 )
 
 
-def warn_reference_issues(motion: Any, ref_data: dict, robot_type: str) -> list[str]:
+def warn_reference_issues(
+    motion: Any,
+    ref_data: dict,
+    robot_type: str,
+    object_assets_root: Path | None = None,
+) -> list[str]:
     """Print warnings for reference-owned problems before planning.
 
     Returns the list of warning lines emitted, for downstream logging / tests.
@@ -141,19 +180,24 @@ def warn_reference_issues(motion: Any, ref_data: dict, robot_type: str) -> list[
             f"{EXPECTED_SOURCE_FPS}; verify the contact upsample assumes the right rate."
         )
 
-    # 3. Asset paths resolve
+    # 3. Asset paths resolve — directly, or by re-rooting under the dataset's
+    #    object_assets/ the same way the planner output and env loader do.
     for attr in ("object_urdf_paths", "object_mesh_paths"):
         paths = getattr(motion, attr, None) or []
         for p in paths:
-            if _resolve_path(p) is None:
+            if (
+                _resolve_path(p) is None
+                and reroot_object_asset(p, object_assets_root) is None
+            ):
                 _warn(
-                    f"{attr} entry {p!r} does not resolve to an existing file; "
-                    "scene spawn will fail unless the planner's path remapper recovers it."
+                    f"{attr} entry {p!r} does not resolve to an existing file "
+                    "directly or via object_assets re-rooting; the asset is "
+                    "missing from the workspace."
                 )
 
     # 4. URDF mesh dependencies
     for urdf in getattr(motion, "object_urdf_paths", None) or []:
-        urdf_p = _resolve_path(urdf)
+        urdf_p = _resolve_path(urdf) or reroot_object_asset(urdf, object_assets_root)
         if urdf_p is None:
             continue
         for dep in walk_urdf_mesh_deps(urdf_p):
@@ -213,7 +257,7 @@ EXPECTED_FINGER_JOINT_PATTERNS: dict[str, tuple[re.Pattern[str], ...]] = {
     "sharpa": (),
 }
 
-# Palm-vs-ee distance after the planner's V2P→planner transform. For dex3 the
+# Palm-vs-ee distance after the planner's V2D→planner transform. For dex3 the
 # palm IS the EE (free-flyer URDF root), so they should coincide to numerical
 # precision. For sharpa the EE (wrist_yaw_link) and palm (hand_C_MC) differ by
 # the URDF fixed-joint offset (~4 cm); we don't check this side strictly.
@@ -390,19 +434,38 @@ def _check_contact_field_shapes(md: dict) -> list[str]:
     return errs
 
 
-def _check_asset_paths(md: dict) -> list[str]:
+def _check_asset_paths(md: dict, object_assets_root: Path | None = None) -> list[str]:
+    """Flag assets that are genuinely absent.
+
+    A stored path counts as present if it exists as-is *or* re-roots (via
+    ``reroot_object_asset``) to an existing file under ``object_assets_root`` —
+    the same re-rooting the env applies at load. Only paths that resolve by
+    neither route are reported, so this stays a real "asset is missing" signal
+    without false-flagging the loader's baked ``/data/object_assets/...`` paths
+    (or their future relative equivalents).
+    """
     errs: list[str] = []
     for field in ("object_urdf_paths", "object_mesh_paths"):
         for p in md.get(field) or []:
-            if not p or not Path(p).exists():
-                errs.append(
-                    f"{field} entry {p!r} does not exist on disk; "
-                    "the parquet must be self-contained against the current workspace."
-                )
+            if not p:
+                errs.append(f"{field} contains an empty entry.")
+                continue
+            if Path(p).exists() or reroot_object_asset(p, object_assets_root):
+                continue
+            errs.append(
+                f"{field} entry {p!r} does not exist and could not be re-rooted "
+                f"under {object_assets_root}; the asset is missing from the workspace."
+            )
     # Walk URDF deps; missing visuals/collisions block scene spawn.
     for urdf in md.get("object_urdf_paths") or []:
-        urdf_p = Path(urdf)
-        if not urdf_p.exists():
+        if not urdf:
+            continue
+        urdf_p = (
+            Path(urdf)
+            if Path(urdf).exists()
+            else reroot_object_asset(urdf, object_assets_root)
+        )
+        if not urdf_p or not urdf_p.exists():
             continue
         for dep in walk_urdf_mesh_deps(urdf_p):
             if not dep.exists():
@@ -416,6 +479,7 @@ def _check_asset_paths(md: dict) -> list[str]:
 def assert_motion_parquet_invariants(
     parquet_path: str | Path,
     robot_type: str,
+    object_assets_root: str | Path | None = None,
 ) -> None:
     """Hard-fail if the planner output violates any required invariant.
 
@@ -443,7 +507,9 @@ def assert_motion_parquet_invariants(
     errors.extend(_check_hand_frames_transform(md, robot_type))
     errors.extend(_check_fingers_in_joint_names(md, robot_type))
     errors.extend(_check_contact_field_shapes(md))
-    errors.extend(_check_asset_paths(md))
+    errors.extend(
+        _check_asset_paths(md, Path(object_assets_root) if object_assets_root else None)
+    )
 
     if errors:
         header = f"Planner output {parquet_file} failed {len(errors)} invariant(s):"

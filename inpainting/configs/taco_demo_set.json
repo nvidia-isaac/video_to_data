@@ -1,0 +1,32 @@
+{
+  "schema_version": "v2d.inpainting.experiment/v1",
+  "experiment_id": "taco_hand_tracking_v1",
+  "description": "Initial E2FGVI comparison of Phantom, Video2Data, and TACO ground-truth tracking.",
+  "rgb_root": "/home/mverghese/video_to_data_internal/robotic_grounding/datasets/Egocentric_RGB_Videos",
+  "rgb_mapping": "/home/mverghese/video_to_data_internal/robotic_grounding/datasets/Egocentric_RGB_Videos/seq_to_ego_video.json",
+  "motion_root": "/home/mverghese/video_to_data_internal/robotic_grounding/source/robotic_grounding/robotic_grounding/assets/human_motion_data/taco/taco_processed",
+  "camera_root": "/home/mverghese/visual_inpainting/video_to_data_internal/inpainting/artifacts/source_data/Egocentric_Camera_Parameters",
+  "robot_asset_root": "/home/mverghese/video_to_data_internal/robotic_grounding/source/robotic_grounding/robotic_grounding/assets",
+  "robot": "dexmate_vega",
+  "gripper": "sharpa_wave",
+  "inpainting": "e2fgvi_hq",
+  "trackers": [
+    "phantom",
+    "v2d",
+    "ground_truth"
+  ],
+  "sequences": [
+    {
+      "sequence_id": "taco_empty__kettle__plate_20231031_060",
+      "reason": "Bimanual 155-frame clip; the only locally available raw TACO MANO/object GT sequence."
+    },
+    {
+      "sequence_id": "taco_cut__knife__plate_20231013_105",
+      "reason": "152-frame manipulation with complete v2.0 motion, support, a high-performing policy checkpoint, and an existing robot-render reference."
+    },
+    {
+      "sequence_id": "taco_dust__brush__cup_20231005_253",
+      "reason": "Shortest candidate at 74 frames; useful for fast iteration and light sleeves."
+    }
+  ]
+}
