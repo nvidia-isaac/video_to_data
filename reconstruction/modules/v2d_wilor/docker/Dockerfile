@@ -16,7 +16,8 @@ RUN pip install --no-cache-dir \
     smplx \
     yacs hydra-core omegaconf einops timm \
     huggingface_hub transformers safetensors \
-    ultralytics dill
+    ultralytics dill \
+    scikit-image roma
 
 # manotorch + chumpy (same as hamer; needed by the MANO layer used in render).
 RUN pip install --no-cache-dir \
@@ -24,7 +25,8 @@ RUN pip install --no-cache-dir \
     git+https://github.com/mattloper/chumpy.git
 
 # WiLoR mini pipeline — provides WiLorHandPose3dEstimationPipeline (detector + reconstructor).
-RUN pip install --no-cache-dir git+https://github.com/warmshao/WiLoR-mini.git
+# Dependencies are installed above; avoid downgrading/re-downloading torch from the CUDA base image.
+RUN pip install --no-cache-dir --no-deps git+https://github.com/warmshao/WiLoR-mini.git
 
 COPY . /workspace
 RUN pip install -e /workspace/v2d_common \

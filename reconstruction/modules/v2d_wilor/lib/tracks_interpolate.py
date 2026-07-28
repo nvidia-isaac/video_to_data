@@ -333,7 +333,7 @@ def tracks_interpolate(
         canonical_is_right = bool(handedness[tid]["is_right"])
         if not real:
             print(f"  track {tid}: no real aligned records — nothing to do")
-            summary.append((tid, 0, 0, 0))
+            summary.append((tid, 0, 0, 0, 0))
             continue
         sorted_real_idx = sorted(real.keys())
         first_real, last_real = sorted_real_idx[0], sorted_real_idx[-1]
