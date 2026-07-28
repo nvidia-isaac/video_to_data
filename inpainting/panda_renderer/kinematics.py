@@ -23,6 +23,10 @@ class IKCandidateError(RuntimeError):
         self.reason = reason
 
 
+class SSIKUnavailable(RuntimeError):
+    """The optional SSIK backend cannot be used in this environment."""
+
+
 @dataclass(frozen=True)
 class IKSolveResult:
     """Accepted IK result and the route used to obtain it."""
@@ -266,7 +270,7 @@ class PandaIK:
         try:
             from ssik.prebuilt import franka_panda_ik
         except ImportError as exc:
-            raise RuntimeError("SSIK is not installed") from exc
+            raise SSIKUnavailable("SSIK is not installed") from exc
         mujoco.mj_forward(self.model, self.data)
         base = self.data.body("link0")
         hand = self.data.body(self.hand_id)
@@ -353,18 +357,22 @@ class PandaIK:
         accepted_arm = self.data.qpos[self.arm_qadr].copy()
         accepted_fingers = self.data.qpos[self.finger_qadr].copy()
         accepted_seed = self._ssik_seed.copy()
-        reference = accepted_arm if previous_q is None else np.asarray(previous_q)
+        # The seed falls back to the current pose, but the continuity gate must
+        # still see previous_q unchanged: measuring the first frame against the
+        # home pose would reject every reachable target, since reaching any of
+        # them from home exceeds one step.
+        seed = accepted_arm if previous_q is None else np.asarray(previous_q)
         candidate = self._ssik_candidate(
             position,
             semantic_rotation,
-            q_seed=reference,
+            q_seed=seed,
         )
         if candidate is None:
             return None
         try:
             validate_arm_candidate(
                 candidate,
-                previous_q=reference,
+                previous_q=previous_q,
                 joint_ranges=self.ranges,
                 max_joint_step_rad=max_joint_step_rad,
             )
@@ -421,11 +429,15 @@ class PandaIK:
                     semantic_rotation,
                     q_seed=seed,
                 )
-            except RuntimeError as exc:
+            except SSIKUnavailable:
                 candidate = None
-                ssik_status = (
-                    "unavailable" if str(exc) == "SSIK is not installed" else "error"
-                )
+                ssik_status = "unavailable"
+            except Exception:  # noqa: BLE001
+                # SSIK is an optional accelerator: any failure inside it must
+                # degrade to DLS rather than fail the frame. The status reaches
+                # render metadata, so a silent degradation stays observable.
+                candidate = None
+                ssik_status = "error"
             if candidate is None and ssik_status == "not_attempted":
                 ssik_status = "no_solution"
             if candidate is not None:

@@ -39,6 +39,7 @@ from inpainting.mecka_panda.contracts import (
 from inpainting.panda_renderer.kinematics import (
     IKCandidateError,
     PandaIK,
+    SSIKUnavailable,
     build_panda_model,
     validate_arm_candidate,
 )
@@ -537,6 +538,95 @@ def test_panda_hybrid_accepts_bounded_ssik(
     assert result.joint_step_rad == pytest.approx(0.01)
     assert np.allclose(solver.data.qpos[solver.arm_qadr], candidate)
     assert np.allclose(solver._ssik_seed, candidate)
+
+
+def test_panda_hybrid_reports_ssik_unavailable_and_uses_dls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    solver, target, semantic_rotation = _panda_case()
+    previous = solver.data.qpos[solver.arm_qadr].copy()
+
+    def unavailable(*args: object, **kwargs: object) -> np.ndarray:
+        del args, kwargs
+        raise SSIKUnavailable("SSIK is not installed")
+
+    monkeypatch.setattr(solver, "_ssik_candidate", unavailable)
+    result = solver.solve_target(
+        target,
+        semantic_rotation,
+        0.05,
+        previous_q=previous,
+        elbow_outward=np.array([1.0, 0.0, 0.0]),
+        backend="hybrid",
+        max_joint_step_rad=0.05,
+        iterations=4,
+    )
+    assert result.backend == "dls"
+    assert result.ssik_status == "unavailable"
+
+
+def test_panda_hybrid_degrades_to_dls_on_any_ssik_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    solver, target, semantic_rotation = _panda_case()
+    previous = solver.data.qpos[solver.arm_qadr].copy()
+
+    def broken(*args: object, **kwargs: object) -> np.ndarray:
+        del args, kwargs
+        # Not a RuntimeError: an optional backend must not be able to fail the
+        # frame no matter which exception type it raises.
+        raise AssertionError("ssik internals blew up")
+
+    monkeypatch.setattr(solver, "_ssik_candidate", broken)
+    result = solver.solve_target(
+        target,
+        semantic_rotation,
+        0.05,
+        previous_q=previous,
+        elbow_outward=np.array([1.0, 0.0, 0.0]),
+        backend="hybrid",
+        max_joint_step_rad=0.05,
+        iterations=4,
+    )
+    assert result.backend == "dls"
+    assert result.ssik_status == "error"
+
+
+def test_compatibility_ssik_accepts_first_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without previous_q there is no transition, so nothing may be rejected."""
+    solver, target, semantic_rotation = _panda_case()
+    # Far enough from the current pose that gating it against the home pose
+    # would reject it, which is what the first frame of a real episode does.
+    candidate = solver.data.qpos[solver.arm_qadr].copy() + 0.5
+    monkeypatch.setattr(
+        solver,
+        "_ssik_candidate",
+        lambda *args, **kwargs: candidate.copy(),
+    )
+    residual = solver.solve_ssik(
+        target,
+        semantic_rotation,
+        0.05,
+        previous_q=None,
+        max_joint_step_rad=0.05,
+    )
+    assert residual is not None
+    assert np.allclose(solver.data.qpos[solver.arm_qadr], candidate)
+
+    # A real transition of the same size must still be rejected.
+    previous = solver.data.qpos[solver.arm_qadr].copy()
+    assert (
+        solver.solve_ssik(
+            target,
+            semantic_rotation,
+            0.05,
+            previous_q=previous - 0.5,
+            max_joint_step_rad=0.05,
+        )
+        is None
+    )
 
 
 def test_panda_solver_rolls_back_dls_exception(
