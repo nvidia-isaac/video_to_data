@@ -7,3 +7,6 @@
 
 # Local direnv overrides (only meaningful at repo root)
 .envrc.local
+
+# Cloud credentials. Never commit these; they are provisioned per machine.
+/credentials/
