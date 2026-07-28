@@ -543,6 +543,8 @@ def _box_assignment_cost(
     points: np.ndarray,
     width: int,
     height: int,
+    *,
+    other_points: np.ndarray | None = None,
 ) -> float:
     x0, y0, x1, y1 = _box_array(detection["box"])
     inside = (
@@ -551,6 +553,22 @@ def _box_assignment_cost(
         & (points[:, 1] >= y0)
         & (points[:, 1] <= y1)
     )
+    other_coverage = 0.0
+    if other_points is not None:
+        valid_other = other_points[np.isfinite(other_points).all(axis=1)]
+        if len(valid_other):
+            other_inside = (
+                (valid_other[:, 0] >= x0)
+                & (valid_other[:, 0] <= x1)
+                & (valid_other[:, 1] >= y0)
+                & (valid_other[:, 1] <= y1)
+            )
+            other_coverage = float(other_inside.mean())
+            # A detector box that contains most of both hands cannot seed two
+            # independently tracked SAM2 objects. Prefer a side-specific box;
+            # if none exists, the caller will use the geometric arm fallback.
+            if other_coverage >= 0.5:
+                return math.inf
     hand_center = points.mean(axis=0)
     box_center = np.asarray([(x0 + x1) * 0.5, (y0 + y1) * 0.5])
     distance = np.linalg.norm(hand_center - box_center) / math.hypot(width, height)
@@ -573,6 +591,7 @@ def _box_assignment_cost(
         + 1.8 * (1.0 - float(inside.mean()))
         + float(distance)
         + 0.25 * area
+        + 2.0 * other_coverage
         + hand_only_penalty
         + (0.0 if reaches_boundary else 1.6)
         - arm_bonus
@@ -586,44 +605,104 @@ def assign_boxes_to_hands(
     frame_index: int,
     width: int,
     height: int,
+    present_by_hand: dict[str, np.ndarray] | None = None,
 ) -> dict[str, dict[str, float]]:
-    """Jointly assign distinct detector boxes to the tracked hand identities."""
+    """Jointly assign distinct, hand-specific detector boxes."""
     if not detections:
         return {}
+
+    def is_present(hand: str) -> bool:
+        if present_by_hand is not None:
+            return bool(present_by_hand[hand][frame_index])
+        return bool(np.isfinite(uv_by_hand[hand][frame_index]).all())
+
+    active_hands = tuple(hand for hand in HANDS if is_present(hand))
+    if not active_hands:
+        return {}
+
+    def assignment_cost(hand: str, detection_index: int) -> float:
+        other_hand = "right" if hand == "left" else "left"
+        other_points = (
+            uv_by_hand[other_hand][frame_index] if is_present(other_hand) else None
+        )
+        return _box_assignment_cost(
+            detections[detection_index],
+            uv_by_hand[hand][frame_index],
+            width,
+            height,
+            other_points=other_points,
+        )
+
+    if len(active_hands) == 1:
+        hand = active_hands[0]
+        detection_index = min(
+            range(len(detections)),
+            key=lambda index: assignment_cost(hand, index),
+        )
+        return (
+            {hand: detections[detection_index]["box"]}
+            if assignment_cost(hand, detection_index) < 2.8
+            else {}
+        )
     if len(detections) == 1:
-        costs = {
-            hand: _box_assignment_cost(
-                detections[0], uv_by_hand[hand][frame_index], width, height
-            )
-            for hand in HANDS
-        }
+        costs = {hand: assignment_cost(hand, 0) for hand in active_hands}
         hand = min(costs, key=costs.get)
         return {hand: detections[0]["box"]} if costs[hand] < 2.8 else {}
+
     best: tuple[float, tuple[int, ...]] | None = None
-    for indices in permutations(range(len(detections)), len(HANDS)):
+    for indices in permutations(range(len(detections)), len(active_hands)):
         cost = sum(
-            _box_assignment_cost(
-                detections[detection_index],
-                uv_by_hand[hand][frame_index],
-                width,
-                height,
-            )
-            for hand, detection_index in zip(HANDS, indices, strict=True)
+            assignment_cost(hand, detection_index)
+            for hand, detection_index in zip(active_hands, indices, strict=True)
         )
         if best is None or cost < best[0]:
             best = (cost, indices)
     assert best is not None
     assigned: dict[str, dict[str, float]] = {}
-    for hand, detection_index in zip(HANDS, best[1], strict=True):
-        detection = detections[detection_index]
-        if (
-            _box_assignment_cost(
-                detection, uv_by_hand[hand][frame_index], width, height
-            )
-            < 2.8
-        ):
-            assigned[hand] = detection["box"]
+    for hand, detection_index in zip(active_hands, best[1], strict=True):
+        if assignment_cost(hand, detection_index) < 2.8:
+            assigned[hand] = detections[detection_index]["box"]
     return assigned
+
+
+def _estimated_arm_root(
+    points: np.ndarray, hand: str, width: int, height: int
+) -> np.ndarray:
+    """Estimate where the forearm enters the image for SAM2 positive seeds."""
+    wrist = points[WRIST]
+    palm_center = points[list(PALM[1:])].mean(axis=0)
+    direction = wrist - palm_center
+    norm = float(np.linalg.norm(direction))
+    if np.isfinite(norm) and norm > 1e-6:
+        direction /= norm
+        dimensions = (width, height)
+        distances: list[float] = []
+        for axis, delta in enumerate(direction):
+            limit = dimensions[axis] - 1.0 if delta > 0 else 0.0
+            distance = (limit - wrist[axis]) / delta if abs(delta) > 1e-6 else 0.0
+            if distance > 0:
+                distances.append(float(distance))
+        if distances:
+            root = wrist + min(distances) * direction
+            return np.clip(root, [0.0, 0.0], [width - 1.0, height - 1.0])
+
+    side_sign = -1.0 if wrist[0] < width * 0.5 else 1.0
+    if abs(wrist[0] - width * 0.5) < width * 0.08:
+        side_sign = -1.0 if hand == "left" else 1.0
+    return np.asarray(
+        [np.clip(wrist[0] + side_sign * width * 0.18, 0, width - 1), height - 1.0]
+    )
+
+
+def _arm_seed_points(
+    points: np.ndarray, hand: str, width: int, height: int
+) -> np.ndarray:
+    """Add positive seeds down the forearm instead of prompting only fingers."""
+    wrist = points[WRIST]
+    root = _estimated_arm_root(points, hand, width, height)
+    return np.stack(
+        [wrist + fraction * (root - wrist) for fraction in (0.55, 0.82, 0.96)]
+    )
 
 
 def _fallback_arm_box(
@@ -633,12 +712,7 @@ def _fallback_arm_box(
     hand_min = points.min(axis=0)
     hand_max = points.max(axis=0)
     palm_span = max(float(np.ptp(points[:, 0])), float(np.ptp(points[:, 1])), 35.0)
-    side_sign = -1.0 if wrist[0] < width * 0.5 else 1.0
-    if abs(wrist[0] - width * 0.5) < width * 0.08:
-        side_sign = -1.0 if hand == "left" else 1.0
-    root = np.asarray(
-        [np.clip(wrist[0] + side_sign * width * 0.18, 0, width - 1), height - 1.0]
-    )
+    root = _estimated_arm_root(points, hand, width, height)
     lower = np.minimum(np.minimum(hand_min, wrist), root) - 1.4 * palm_span
     upper = np.maximum(np.maximum(hand_max, wrist), root) + 1.4 * palm_span
     lower = np.maximum(lower, [0.0, 0.0])
@@ -677,7 +751,12 @@ def _build_prompts(
             grounding_dino_image_id,
         )
         assigned = assign_boxes_to_hands(
-            detections, episode.uv, frame_index, episode.width, episode.height
+            detections,
+            episode.uv,
+            frame_index,
+            episode.width,
+            episode.height,
+            episode.present,
         )
         frame_diagnostics = {
             "detection_count": len(detections),
@@ -695,14 +774,17 @@ def _build_prompts(
                 box = _fallback_arm_box(points, hand, episode.width, episode.height)
                 frame_diagnostics["fallback"].append(hand)
             box = _expand_box_for_hand(box, points, episode.width, episode.height)
-            sparse = points[list(HAND_POINTS)]
+            sparse = np.concatenate(
+                [
+                    points[list(HAND_POINTS)],
+                    _arm_seed_points(points, hand, episode.width, episode.height),
+                ]
+            )
             prompts.append(
                 {
                     "frame_index": frame_index,
                     "object_id": OBJECT_IDS[hand],
-                    "points": [
-                        {"x": float(point[0]), "y": float(point[1])} for point in sparse
-                    ],
+                    "points": [{"x": float(p[0]), "y": float(p[1])} for p in sparse],
                     "point_labels": [1] * len(sparse),
                     "box": box,
                     "mask_path": None,

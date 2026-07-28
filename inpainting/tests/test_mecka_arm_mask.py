@@ -63,6 +63,112 @@ def _write_video(path: Path, values: list[int], *, size: tuple[int, int]) -> Non
     writer.release()
 
 
+def _box_assignment_tracks() -> dict[str, np.ndarray]:
+    offsets = np.linspace(-5.0, 5.0, 21)
+    left = np.stack([25.0 + offsets, 50.0 + offsets * 0.2], axis=1)
+    right = np.stack([75.0 + offsets, 50.0 + offsets * 0.2], axis=1)
+    return {"left": left[None, ...], "right": right[None, ...]}
+
+
+def _arm_detection(
+    x0: float, y0: float, x1: float, y1: float, confidence: float = 0.8
+) -> dict[str, object]:
+    return {
+        "label": "human arm",
+        "confidence": confidence,
+        "box": {"x0": x0, "y0": y0, "x1": x1, "y1": y1},
+    }
+
+
+def test_box_assignment_rejects_detection_covering_both_hands() -> None:
+    tracks = _box_assignment_tracks()
+    broad = _arm_detection(0.0, 0.0, 100.0, 100.0, confidence=0.99)
+    left = _arm_detection(0.0, 20.0, 48.0, 100.0)
+    right = _arm_detection(52.0, 20.0, 100.0, 100.0)
+    present = {
+        "left": np.ones(1, dtype=np.bool_),
+        "right": np.ones(1, dtype=np.bool_),
+    }
+
+    assigned = arm_mask.assign_boxes_to_hands(
+        [broad, left, right],
+        tracks,
+        0,
+        100,
+        100,
+        present,
+    )
+
+    assert assigned == {"left": left["box"], "right": right["box"]}
+    assert (
+        arm_mask.assign_boxes_to_hands(
+            [broad],
+            tracks,
+            0,
+            100,
+            100,
+            present,
+        )
+        == {}
+    )
+
+
+def test_box_assignment_ignores_other_hand_when_it_is_absent() -> None:
+    tracks = _box_assignment_tracks()
+    broad = _arm_detection(0.0, 0.0, 100.0, 100.0, confidence=0.99)
+    present = {
+        "left": np.ones(1, dtype=np.bool_),
+        "right": np.zeros(1, dtype=np.bool_),
+    }
+
+    assigned = arm_mask.assign_boxes_to_hands(
+        [broad],
+        tracks,
+        0,
+        100,
+        100,
+        present,
+    )
+
+    assert assigned == {"left": broad["box"]}
+
+
+@pytest.mark.parametrize(
+    ("hand", "wrist_x", "expected_direction"),
+    [("left", 40.0, -1.0), ("right", 60.0, 1.0)],
+)
+def test_arm_seed_points_extend_from_wrist_toward_image_entry(
+    hand: str, wrist_x: float, expected_direction: float
+) -> None:
+    points = np.full((21, 2), [wrist_x, 30.0], dtype=np.float64)
+
+    seeds = arm_mask._arm_seed_points(points, hand, width=100, height=80)
+
+    assert seeds.shape == (3, 2)
+    assert np.all(seeds[:, 1] > points[arm_mask.WRIST, 1])
+    assert np.all(
+        expected_direction
+        * (seeds[:, 0] - points[arm_mask.WRIST, 0])
+        > 0
+    )
+    assert np.all((seeds[:, 0] >= 0) & (seeds[:, 0] < 100))
+    assert np.all((seeds[:, 1] >= 0) & (seeds[:, 1] < 80))
+
+
+def test_estimated_arm_root_follows_wrist_to_palm_axis() -> None:
+    points = np.full((21, 2), [60.0, 30.0], dtype=np.float64)
+    points[list(arm_mask.PALM[1:])] = [55.0, 20.0]
+
+    root = arm_mask._estimated_arm_root(points, "right", width=100, height=80)
+    seeds = arm_mask._arm_seed_points(points, "right", width=100, height=80)
+
+    np.testing.assert_allclose(root, [84.5, 79.0])
+    np.testing.assert_allclose(
+        seeds[-1],
+        points[arm_mask.WRIST] + 0.96 * (root - points[arm_mask.WRIST]),
+    )
+
+
 def test_projection_uses_distortion_and_rejects_world() -> None:
     arrays = _tracking_arrays()
     intrinsic = np.asarray([[100.0, 0.0, 50.0], [0.0, 110.0, 40.0], [0.0, 0.0, 1.0]])
