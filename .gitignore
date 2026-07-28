@@ -8,5 +8,8 @@
 # Local direnv overrides (only meaningful at repo root)
 .envrc.local
 
-# Cloud credentials. Never commit these; they are provisioned per machine.
-/credentials/
+# Cloud credentials are provisioned per machine and must never be committed.
+# The directory itself is tracked (via its README) so the expected location and
+# file format are discoverable without a working copy of the secrets.
+/credentials/*
+!/credentials/README.md
