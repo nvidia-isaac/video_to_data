@@ -15,13 +15,19 @@ import numpy as np
 
 from inpainting.adapters import mecka, mecka_lerobot, mecka_parallel_jaw
 from inpainting.mecka_panda import lerobot_source
-from inpainting.mecka_panda.composite import execute as composite
+from inpainting.mecka_panda.composite import (
+    COMPOSITE_SCHEMA,
+)
+from inpainting.mecka_panda.composite import (
+    execute as composite,
+)
 from inpainting.mecka_panda.contracts import artifact, sha256, write_json_atomic
 from inpainting.mecka_panda.video_io import Mp4Writer, probe_video
 from inpainting.panda_renderer import render as panda_render
 
 STAGES = ("tracking", "retarget", "render", "composite", "review")
 PIPELINE_SCHEMA = "v2d.inpainting.mecka-panda-pipeline/v1"
+REVIEW_SCHEMA = "v2d.inpainting.four-stage-review/v1"
 
 
 def _nested_value(metadata: dict[str, Any], dotted_key: str) -> Any:
@@ -49,9 +55,7 @@ def _artifact_records(value: Any) -> list[dict[str, Any]]:
     return []
 
 
-def _metadata_complete(
-    path: Path, expected: dict[str, Any] | None = None
-) -> bool:
+def _metadata_complete(path: Path, expected: dict[str, Any] | None = None) -> bool:
     if not path.is_file():
         return False
     try:
@@ -127,9 +131,7 @@ def _resolve_source(args: argparse.Namespace, paths: dict[str, Path]) -> SourceI
             fps=float(info["fps"]),
             # Produced by the tracking stage; it does not exist while planning.
             source_video=paths["tracking"] / mecka_lerobot.VIDEO_FILENAME,
-            source_parquet=(
-                f"{dataset} rows [{record.row_start}, {record.row_stop})"
-            ),
+            source_parquet=(f"{dataset} rows [{record.row_start}, {record.row_stop})"),
         )
 
     root = Path(dataset).expanduser().resolve()
@@ -194,39 +196,86 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         "composite": paths["composite"] / "final_overlay.json",
         "review": paths["review_metadata"],
     }
+    tracking_expected: dict[str, Any] = {
+        "schema_version": (
+            mecka_lerobot.RUN_SCHEMA if source.kind == "lerobot" else mecka.RUN_SCHEMA
+        ),
+        "episode_index": source.episode_index,
+        "task_id": source.task_id,
+        "frame_window.start": args.start_frame,
+        "frame_window.count": count,
+    }
+    if source.kind == "lerobot":
+        tracking_expected["source.dataset_uri"] = str(args.dataset)
+    else:
+        tracking_expected["source.parquet.path"] = source.source_parquet
+        tracking_expected["source.video.path"] = str(source.source_video)
     expected = {
-        "tracking": {
-            "frame_window.start": args.start_frame,
-            "frame_window.count": count,
-        },
+        "tracking": tracking_expected,
         "retarget": {
+            "schema_version": mecka_parallel_jaw.RUN_SCHEMA,
+            "algorithm.version": "thumb-index-palm-default/v1",
             "algorithm.conditioning.jump_k": args.jump_k,
             "algorithm.conditioning.max_gap": args.max_gap,
             "algorithm.conditioning.smooth_window": args.smooth_window,
             "algorithm.conditioning.smooth_poly": args.smooth_poly,
+            "algorithm.orientation_stability.palm_ratio_max": (args.palm_ratio_max),
+            "algorithm.orientation_stability.tip_ratio_min": args.tip_ratio_min,
+            "algorithm.orientation_stability.rotation_alpha": (args.rotation_alpha),
+            "algorithm.orientation_stability.max_rotation_step_deg": (
+                args.max_rotation_step_deg
+            ),
         },
         "render": {
+            "schema_version": panda_render.ROBOT_RENDER_SCHEMA,
             "ik.backend": args.ik,
             "ik.orientation_weight": args.orientation_weight,
+            "ik.max_joint_step_limit_rad": args.max_joint_step_rad,
         },
         "composite": {
+            "schema_version": COMPOSITE_SCHEMA,
             "depth_guard_m": args.depth_guard_m,
             "base_start_frame": args.background_start_frame,
         },
         "review": {
+            "schema_version": REVIEW_SCHEMA,
             "geometry.frame_count": count,
         },
     }
-    stages = [
-        {
-            "name": stage,
-            "state": (
+    selected_set = set(selected)
+    stage_states: dict[str, str] = {}
+    upstream_dirty = False
+    for index, stage in enumerate(STAGES):
+        cache_current = not upstream_dirty and _metadata_complete(
+            stage_metadata[stage], expected[stage]
+        )
+        if stage in selected_set:
+            state = (
                 "replace"
                 if args.overwrite
                 else "skipped_complete"
-                if _metadata_complete(stage_metadata[stage], expected[stage])
+                if cache_current
                 else "pending"
-            ),
+            )
+            stage_states[stage] = state
+            if state != "skipped_complete":
+                upstream_dirty = True
+                if (
+                    state == "pending"
+                    and stage_metadata[stage].exists()
+                    and not args.overwrite
+                ):
+                    blockers.append(
+                        f"stale {stage!r} outputs exist; rerun with --overwrite"
+                    )
+        elif not cache_current:
+            upstream_dirty = True
+            if any(later in selected_set for later in STAGES[index + 1 :]):
+                blockers.append(f"stale dependency {stage!r}; include --stage {stage}")
+    stages = [
+        {
+            "name": stage,
+            "state": stage_states[stage],
             "metadata": str(stage_metadata[stage]),
         }
         for stage in selected
@@ -283,7 +332,10 @@ def _review_video(
     temporary.unlink(missing_ok=True)
     sources = [
         _open_at(source_video, source_start_frame),
-        _open_at(mask_preview or source_video, mask_start_frame if mask_preview else source_start_frame),
+        _open_at(
+            mask_preview or source_video,
+            mask_start_frame if mask_preview else source_start_frame,
+        ),
         _open_at(background, background_start_frame),
         _open_at(overlay, 0),
     ]
@@ -316,7 +368,7 @@ def _review_video(
             capture.release()
     os.replace(temporary, output_video)
     metadata = {
-        "schema_version": "v2d.inpainting.four-stage-review/v1",
+        "schema_version": REVIEW_SCHEMA,
         "state": "complete",
         "completed_at": datetime.now(timezone.utc).isoformat(),
         "mask_panel_fallback": mask_preview is None,
@@ -379,6 +431,10 @@ def execute_plan(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, An
             max_gap=args.max_gap,
             smooth_window=args.smooth_window,
             smooth_poly=args.smooth_poly,
+            palm_ratio_max=args.palm_ratio_max,
+            tip_ratio_min=args.tip_ratio_min,
+            rotation_alpha=args.rotation_alpha,
+            max_rotation_step_deg=args.max_rotation_step_deg,
         )
     if selected.get("render") not in {None, "skipped_complete"}:
         results["render"] = panda_render.execute(
@@ -393,6 +449,7 @@ def execute_plan(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, An
             panda_dir=args.panda_dir,
             ik_backend=args.ik,
             orientation_weight=args.orientation_weight,
+            max_joint_step_rad=args.max_joint_step_rad,
             overwrite=args.overwrite,
         )
     if selected.get("composite") not in {None, "skipped_complete"}:
@@ -456,12 +513,39 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--stage", action="append", choices=STAGES)
     parser.add_argument("--ik", choices=("dls", "hybrid"), default="dls")
     parser.add_argument("--rig-config", required=True, type=Path)
-    parser.add_argument("--panda-dir", type=Path, default=panda_render.DEFAULT_PANDA_DIR)
+    parser.add_argument(
+        "--panda-dir", type=Path, default=panda_render.DEFAULT_PANDA_DIR
+    )
     parser.add_argument("--orientation-weight", type=float, default=0.5)
+    parser.add_argument(
+        "--max-joint-step-rad",
+        type=float,
+        default=panda_render.DEFAULT_MAX_JOINT_STEP_RAD,
+    )
     parser.add_argument("--jump-k", type=float, default=6.0)
     parser.add_argument("--max-gap", type=int, default=15)
     parser.add_argument("--smooth-window", type=int, default=11)
     parser.add_argument("--smooth-poly", type=int, default=2)
+    parser.add_argument(
+        "--palm-ratio-max",
+        type=float,
+        default=mecka_parallel_jaw.PALM_RATIO_MAX,
+    )
+    parser.add_argument(
+        "--tip-ratio-min",
+        type=float,
+        default=mecka_parallel_jaw.TIP_RATIO_MIN,
+    )
+    parser.add_argument(
+        "--rotation-alpha",
+        type=float,
+        default=mecka_parallel_jaw.ROTATION_ALPHA,
+    )
+    parser.add_argument(
+        "--max-rotation-step-deg",
+        type=float,
+        default=mecka_parallel_jaw.MAX_ROTATION_STEP_DEG,
+    )
     parser.add_argument("--depth-guard-m", type=float, default=0.003)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--execute", action="store_true")
@@ -480,4 +564,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

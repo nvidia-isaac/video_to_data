@@ -70,14 +70,35 @@ artifacts, so downstream stages are unaffected by which one produced them.
 
 ## Retarget methods
 
-- `--ik dls`: 6-DoF damped least-squares Panda IK with temporal posture and
-  outward-elbow null-space terms.
-- `--ik hybrid`: SSIK analytic Panda IK with per-target DLS fallback.
+- `--ik dls` (default): standalone 6-DoF damped least-squares Panda IK with
+  temporal posture and outward-elbow null-space terms. SSIK is not required.
+- `--ik hybrid`: optionally proposes an SSIK analytic solution first. The
+  proposal is accepted only if it passes the same joint-limit and
+  `--max-joint-step-rad` gate as DLS; unavailable, unsolved, or discontinuous
+  SSIK proposals fall back to bounded DLS.
 
 Both methods consume the same robot-neutral
-`v2d.inpainting.parallel-jaw-target/v1` archive. That archive uses the current
-MECKA contact policy: thumb tip against the mean of the four non-thumb
-fingertips, with the hand-web-to-contact direction as approach.
+`v2d.inpainting.parallel-jaw-target/v1` archive. The MECKA target policy is:
+
+1. Position is the midpoint of thumb tip p4 and index tip p8.
+2. Aperture is `distance(p4, p8)`.
+3. Orientation defaults to a handedness-normalized palm frame when the
+   p4/p8 distance is small relative to palm width. This keeps a closed pinch
+   from deriving direction from an almost-zero, noisy fingertip vector.
+4. Between `--palm-ratio-max` and `--tip-ratio-min`, the palm and fingertip
+   frames are blended on SO(3); above it, the fingertip frame dominates.
+5. The nearest of the two equivalent parallel-jaw frames
+   `R`/`R @ diag(1,-1,-1)` is selected before temporal filtering.
+6. Accepted target rotations are low-pass filtered and hard-limited by
+   `--max-rotation-step-deg` (6 degrees by default).
+
+Quaternion signs are also made continuous, but that is only serialization:
+the SO(3) and parallel-jaw gates above are what prevent actual frame jumps.
+Missing tracking frames remain invalid/NaN and do not clear the last accepted
+target or robot joint state, so reappearance cannot bypass either continuity
+limit. The output NPZ keeps the existing exact-key v1 contract; phase, ratio,
+fallback, symmetry, and maximum-step diagnostics live in the
+`v2d.inpainting.mecka-parallel-jaw-run/v2` JSON metadata.
 
 Sharpa, Dex3, and G1 retargeting remain in `robotic_grounding`; they are not
 silently dispatched through this Panda-specific pipeline.
@@ -96,14 +117,18 @@ Planning is read-only and is the default:
 ```
 
 After reviewing the JSON plan, add `--execute`. Existing complete generations
-are validated by configuration plus source/output hashes and reported as
-`skipped_complete`. Use `--overwrite` only to deliberately replace selected
-stages. Repeat `--stage` to run a subset:
+are validated by schema, dataset URI/local source, episode, configuration, and
+source/output hashes before being reported as `skipped_complete`. A dirty stage
+invalidates every selected downstream stage; a downstream stage cannot run
+through a stale unselected dependency. If stale outputs already exist, the
+plan asks for `--overwrite` instead of failing halfway through execution. Use
+`--overwrite` only to deliberately replace selected stages. Repeat `--stage`
+to run a subset:
 
 ```bash
 MUJOCO_GL=egl .venv/bin/python -m inpainting.run_mecka_panda_pipeline \
   ... --stage tracking --stage retarget --stage render \
-  --ik hybrid --execute
+  --ik dls --max-joint-step-rad 0.3 --execute
 ```
 
 `--dataset` takes either layout, so a remote shard needs no other change. The
@@ -135,7 +160,9 @@ run should pass `--panda-dir` explicitly; the directory must contain
 
 ```bash
 .venv/bin/ruff check inpainting/mecka_panda inpainting/panda_renderer \
-  inpainting/adapters/mecka.py inpainting/adapters/mecka_lerobot.py
+  inpainting/adapters/mecka.py inpainting/adapters/mecka_lerobot.py \
+  inpainting/adapters/mecka_parallel_jaw.py \
+  inpainting/run_mecka_panda_pipeline.py
 .venv/bin/python -m pytest -q \
   inpainting/tests/test_mecka_pipeline.py \
   inpainting/tests/test_mecka_lerobot.py

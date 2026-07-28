@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 import mujoco
@@ -10,6 +11,63 @@ from scipy.spatial.transform import Rotation
 
 ARM_JOINTS = [f"joint{index}" for index in range(1, 8)]
 HOME_QPOS = np.array([0.0, 0.0, 0.0, -1.57079, 0.0, 1.57079, -0.7853])
+DEFAULT_MAX_JOINT_STEP_RAD = 0.3
+_JOINT_LIMIT_TOLERANCE = 1e-8
+
+
+class IKCandidateError(RuntimeError):
+    """An IK candidate failed a hard acceptance gate."""
+
+    def __init__(self, reason: str, message: str) -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
+@dataclass(frozen=True)
+class IKSolveResult:
+    """Accepted IK result and the route used to obtain it."""
+
+    residual_m: float
+    backend: str
+    joint_step_rad: float
+    ssik_status: str
+
+
+def validate_arm_candidate(
+    candidate: np.ndarray,
+    *,
+    previous_q: np.ndarray | None,
+    joint_ranges: np.ndarray,
+    max_joint_step_rad: float = DEFAULT_MAX_JOINT_STEP_RAD,
+) -> float:
+    """Validate one candidate before it may become solver state."""
+    q = np.asarray(candidate, dtype=np.float64)
+    ranges = np.asarray(joint_ranges, dtype=np.float64)
+    if q.shape != (7,) or not np.isfinite(q).all():
+        raise IKCandidateError("invalid", "IK candidate must be finite with shape (7,)")
+    if ranges.shape != (7, 2) or not np.isfinite(ranges).all():
+        raise ValueError("joint_ranges must be finite with shape (7,2)")
+    if not np.isfinite(max_joint_step_rad) or max_joint_step_rad <= 0.0:
+        raise ValueError("max_joint_step_rad must be positive and finite")
+    if np.any(q < ranges[:, 0] - _JOINT_LIMIT_TOLERANCE) or np.any(
+        q > ranges[:, 1] + _JOINT_LIMIT_TOLERANCE
+    ):
+        raise IKCandidateError("joint_limits", "IK candidate exceeds joint limits")
+    if previous_q is None:
+        return 0.0
+    previous = np.asarray(previous_q, dtype=np.float64)
+    if previous.shape != (7,) or not np.isfinite(previous).all():
+        raise ValueError("previous_q must be finite with shape (7,)")
+    joint_step = float(np.max(np.abs(q - previous)))
+    if joint_step > max_joint_step_rad + _JOINT_LIMIT_TOLERANCE:
+        raise IKCandidateError(
+            "continuity",
+            (
+                f"IK candidate joint step {joint_step:.6f} rad exceeds "
+                f"{max_joint_step_rad:.6f} rad"
+            ),
+        )
+    return joint_step
 
 
 def build_panda_model(
@@ -108,9 +166,7 @@ class PandaIK:
         self.arm_qadr = np.asarray(
             [model.joint(name).qposadr[0] for name in ARM_JOINTS]
         )
-        self.arm_dof = np.asarray(
-            [model.joint(name).dofadr[0] for name in ARM_JOINTS]
-        )
+        self.arm_dof = np.asarray([model.joint(name).dofadr[0] for name in ARM_JOINTS])
         self.finger_qadr = [
             model.joint("finger_joint1").qposadr[0],
             model.joint("finger_joint2").qposadr[0],
@@ -132,9 +188,9 @@ class PandaIK:
         self.up_local = np.array([0.0, 0.0, 1.0])
         left = self.data.body(self.left_finger_id)
         right = self.data.body(self.right_finger_id)
-        opening_world = left.xmat.reshape(3, 3) @ model.jnt_axis[
-            model.joint("finger_joint1").id
-        ]
+        opening_world = (
+            left.xmat.reshape(3, 3) @ model.jnt_axis[model.joint("finger_joint1").id]
+        )
         self.semantic_to_hand = _frame_from(
             np.array([0.0, 0.0, 1.0]),
             hand.xmat.reshape(3, 3).T @ opening_world,
@@ -162,6 +218,7 @@ class PandaIK:
 
     def reset_arm(self) -> None:
         self.data.qpos[self.arm_qadr] = HOME_QPOS
+        self._ssik_seed = HOME_QPOS.copy()
         mujoco.mj_forward(self.model, self.data)
 
     def set_base(
@@ -220,23 +277,14 @@ class PandaIK:
         self._ssik_link8_to_hand = np.linalg.inv(base_link8) @ base_hand
         self._ssik = franka_panda_ik
 
-    def solve_ssik(
+    def _ssik_candidate(
         self,
         position: np.ndarray,
-        semantic_rotation_or_approach: np.ndarray,
-        aperture_or_opening: float | np.ndarray,
-        aperture: float | None = None,
-    ) -> float | None:
-        """Solve analytically, returning None for an unreachable target."""
-        if aperture is None:
-            semantic_rotation = np.asarray(semantic_rotation_or_approach)
-            width = float(aperture_or_opening)
-        else:
-            semantic_rotation = _frame_from(
-                np.asarray(semantic_rotation_or_approach),
-                np.asarray(aperture_or_opening),
-            )
-            width = aperture
+        semantic_rotation: np.ndarray,
+        *,
+        q_seed: np.ndarray,
+    ) -> np.ndarray | None:
+        """Generate an SSIK candidate without mutating accepted arm state."""
         self._init_ssik()
         assert self._ssik_link8_to_hand is not None
         base = self.data.body("link0")
@@ -250,16 +298,201 @@ class PandaIK:
             @ np.linalg.inv(self._ssik_link8_to_hand)
         )
         solutions = self._ssik.solve(
-            base_link8, q_seed=self._ssik_seed, max_solutions=1
+            base_link8,
+            q_seed=np.asarray(q_seed, dtype=np.float64).copy(),
+            max_solutions=1,
         )
         if not solutions:
             return None
-        self._ssik_seed = solutions[0].q.copy()
-        self.data.qpos[self.arm_qadr] = self._ssik_seed
-        opening = float(np.clip(width / 2.0, 0.0, 0.04))
-        self.data.qpos[self.finger_qadr] = opening
+        return np.asarray(solutions[0].q, dtype=np.float64).copy()
+
+    def _commit_candidate(
+        self,
+        candidate: np.ndarray,
+        *,
+        position: np.ndarray,
+        aperture: float,
+    ) -> float:
+        self.data.qpos[self.arm_qadr] = candidate
+        self.data.qpos[self.finger_qadr] = float(np.clip(aperture / 2.0, 0.0, 0.04))
         mujoco.mj_forward(self.model, self.data)
         return float(np.linalg.norm(position - self.fingertip_center()))
+
+    def _restore_state(
+        self,
+        arm_q: np.ndarray,
+        finger_q: np.ndarray,
+        ssik_seed: np.ndarray,
+    ) -> None:
+        """Restore the last accepted solver state after a rejected attempt."""
+        self.data.qpos[self.arm_qadr] = arm_q
+        self.data.qpos[self.finger_qadr] = finger_q
+        self._ssik_seed = ssik_seed.copy()
+        mujoco.mj_forward(self.model, self.data)
+
+    def solve_ssik(
+        self,
+        position: np.ndarray,
+        semantic_rotation_or_approach: np.ndarray,
+        aperture_or_opening: float | np.ndarray,
+        aperture: float | None = None,
+        *,
+        previous_q: np.ndarray | None = None,
+        max_joint_step_rad: float = DEFAULT_MAX_JOINT_STEP_RAD,
+    ) -> float | None:
+        """Compatibility SSIK solve with the same hard gate as production."""
+        if aperture is None:
+            semantic_rotation = np.asarray(semantic_rotation_or_approach)
+            width = float(aperture_or_opening)
+        else:
+            semantic_rotation = _frame_from(
+                np.asarray(semantic_rotation_or_approach),
+                np.asarray(aperture_or_opening),
+            )
+            width = aperture
+        accepted_arm = self.data.qpos[self.arm_qadr].copy()
+        accepted_fingers = self.data.qpos[self.finger_qadr].copy()
+        accepted_seed = self._ssik_seed.copy()
+        reference = accepted_arm if previous_q is None else np.asarray(previous_q)
+        candidate = self._ssik_candidate(
+            position,
+            semantic_rotation,
+            q_seed=reference,
+        )
+        if candidate is None:
+            return None
+        try:
+            validate_arm_candidate(
+                candidate,
+                previous_q=reference,
+                joint_ranges=self.ranges,
+                max_joint_step_rad=max_joint_step_rad,
+            )
+        except IKCandidateError:
+            self._restore_state(accepted_arm, accepted_fingers, accepted_seed)
+            return None
+        try:
+            residual = self._commit_candidate(
+                candidate,
+                position=position,
+                aperture=width,
+            )
+        except Exception:
+            self._restore_state(accepted_arm, accepted_fingers, accepted_seed)
+            raise
+        self._ssik_seed = candidate.copy()
+        return residual
+
+    def solve_target(
+        self,
+        position: np.ndarray,
+        semantic_rotation: np.ndarray,
+        aperture: float,
+        *,
+        previous_q: np.ndarray | None,
+        elbow_outward: np.ndarray,
+        backend: str = "dls",
+        orientation_weight: float = 0.5,
+        max_joint_step_rad: float = DEFAULT_MAX_JOINT_STEP_RAD,
+        iterations: int = 160,
+        damping: float = 0.2,
+    ) -> IKSolveResult:
+        """Solve one target through an acceptance gate shared by all backends."""
+        if backend not in {"dls", "hybrid"}:
+            raise ValueError("backend must be 'dls' or 'hybrid'")
+        # Validate the configured limit even on the first frame, where there is
+        # no previous_q against which to measure a transition.
+        validate_arm_candidate(
+            self.data.qpos[self.arm_qadr],
+            previous_q=None,
+            joint_ranges=self.ranges,
+            max_joint_step_rad=max_joint_step_rad,
+        )
+        accepted_arm = self.data.qpos[self.arm_qadr].copy()
+        accepted_fingers = self.data.qpos[self.finger_qadr].copy()
+        accepted_seed = self._ssik_seed.copy()
+        ssik_status = "not_attempted"
+
+        if backend == "hybrid":
+            try:
+                seed = accepted_arm if previous_q is None else previous_q
+                candidate = self._ssik_candidate(
+                    position,
+                    semantic_rotation,
+                    q_seed=seed,
+                )
+            except RuntimeError as exc:
+                candidate = None
+                ssik_status = (
+                    "unavailable" if str(exc) == "SSIK is not installed" else "error"
+                )
+            if candidate is None and ssik_status == "not_attempted":
+                ssik_status = "no_solution"
+            if candidate is not None:
+                try:
+                    joint_step = validate_arm_candidate(
+                        candidate,
+                        previous_q=previous_q,
+                        joint_ranges=self.ranges,
+                        max_joint_step_rad=max_joint_step_rad,
+                    )
+                except IKCandidateError as exc:
+                    ssik_status = f"rejected_{exc.reason}"
+                else:
+                    try:
+                        residual = self._commit_candidate(
+                            candidate,
+                            position=position,
+                            aperture=aperture,
+                        )
+                    except Exception:
+                        self._restore_state(
+                            accepted_arm,
+                            accepted_fingers,
+                            accepted_seed,
+                        )
+                        raise
+                    self._ssik_seed = candidate.copy()
+                    return IKSolveResult(
+                        residual_m=residual,
+                        backend="ssik",
+                        joint_step_rad=joint_step,
+                        ssik_status="accepted",
+                    )
+
+            # Candidate generation and validation are side-effect free, but
+            # restore both states explicitly so future refactors cannot leak a
+            # rejected SSIK proposal into the DLS fallback.
+            self._restore_state(accepted_arm, accepted_fingers, accepted_seed)
+
+        try:
+            residual = self.solve_dls(
+                position,
+                semantic_rotation,
+                aperture,
+                previous_q=previous_q,
+                elbow_outward=elbow_outward,
+                orientation_weight=orientation_weight,
+                iterations=iterations,
+                damping=damping,
+                max_joint_step_rad=max_joint_step_rad,
+            )
+            candidate = self.data.qpos[self.arm_qadr].copy()
+            joint_step = validate_arm_candidate(
+                candidate,
+                previous_q=previous_q,
+                joint_ranges=self.ranges,
+                max_joint_step_rad=max_joint_step_rad,
+            )
+        except Exception:
+            self._restore_state(accepted_arm, accepted_fingers, accepted_seed)
+            raise
+        return IKSolveResult(
+            residual_m=residual,
+            backend="dls",
+            joint_step_rad=joint_step,
+            ssik_status=ssik_status,
+        )
 
     def solve(
         self,
@@ -281,6 +514,9 @@ class PandaIK:
             orientation_weight=float(kwargs.pop("w_ori", 0.5)),
             iterations=int(kwargs.pop("iters", 160)),
             damping=float(kwargs.pop("lam", 0.2)),
+            max_joint_step_rad=float(
+                kwargs.pop("max_joint_step_rad", DEFAULT_MAX_JOINT_STEP_RAD)
+            ),
         )
 
     def solve_from_home(
@@ -306,20 +542,22 @@ class PandaIK:
         orientation_weight: float = 0.5,
         iterations: int = 160,
         damping: float = 0.2,
+        max_joint_step_rad: float = DEFAULT_MAX_JOINT_STEP_RAD,
     ) -> float:
         """Solve the 6-DoF target with damped least squares."""
+        if not np.isfinite(max_joint_step_rad) or max_joint_step_rad <= 0.0:
+            raise ValueError("max_joint_step_rad must be positive and finite")
         target_rotation = self.target_rotation(semantic_rotation)
-        self.data.qpos[self.finger_qadr] = float(
-            np.clip(aperture / 2.0, 0.0, 0.04)
-        )
+        self.data.qpos[self.finger_qadr] = float(np.clip(aperture / 2.0, 0.0, 0.04))
         for _ in range(iterations):
             mujoco.mj_forward(self.model, self.data)
             center = self.fingertip_center()
             current_rotation = self.data.body(self.hand_id).xmat.reshape(3, 3)
             position_error = position - center
-            orientation_error = orientation_weight * Rotation.from_matrix(
-                target_rotation @ current_rotation.T
-            ).as_rotvec()
+            orientation_error = (
+                orientation_weight
+                * Rotation.from_matrix(target_rotation @ current_rotation.T).as_rotvec()
+            )
             if (
                 np.linalg.norm(position_error) < 1.5e-3
                 and np.linalg.norm(orientation_error) < 0.02
@@ -345,9 +583,7 @@ class PandaIK:
             delta = inverse @ np.concatenate([position_error, orientation_error])
             secondary = np.zeros(7)
             if previous_q is not None:
-                secondary += 0.5 * (
-                    previous_q - self.data.qpos[self.arm_qadr]
-                )
+                secondary += 0.5 * (previous_q - self.data.qpos[self.arm_qadr])
             mujoco.mj_jacBody(
                 self.model,
                 self.data,
@@ -355,17 +591,20 @@ class PandaIK:
                 None,
                 self.elbow_id,
             )
-            secondary += (
-                self.elbow_jacobian[:, self.arm_dof].T @ elbow_outward
-            )
+            secondary += self.elbow_jacobian[:, self.arm_dof].T @ elbow_outward
             delta += 0.08 * ((np.eye(7) - inverse @ jacobian) @ secondary)
             lower, upper = self.ranges[:, 0], self.ranges[:, 1]
             if previous_q is not None:
-                lower = np.maximum(lower, previous_q - 0.3)
-                upper = np.minimum(upper, previous_q + 0.3)
+                lower = np.maximum(lower, previous_q - max_joint_step_rad)
+                upper = np.minimum(upper, previous_q + max_joint_step_rad)
             self.data.qpos[self.arm_qadr] = np.clip(
                 self.data.qpos[self.arm_qadr] + delta, lower, upper
             )
         mujoco.mj_forward(self.model, self.data)
+        validate_arm_candidate(
+            self.data.qpos[self.arm_qadr],
+            previous_q=previous_q,
+            joint_ranges=self.ranges,
+            max_joint_step_rad=max_joint_step_rad,
+        )
         return float(np.linalg.norm(position - self.fingertip_center()))
-

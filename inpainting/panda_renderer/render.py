@@ -22,9 +22,11 @@ from inpainting.mecka_panda.contracts import (
 )
 from inpainting.mecka_panda.video_io import Mp4Writer
 from inpainting.panda_renderer.kinematics import (
+    DEFAULT_MAX_JOINT_STEP_RAD,
     PandaIK,
     build_panda_model,
     gravity_axes,
+    validate_arm_candidate,
 )
 
 RGB_FILENAME = "robot_rgb.mp4"
@@ -102,11 +104,14 @@ def execute(
     panda_dir: str | Path = DEFAULT_PANDA_DIR,
     ik_backend: str = "dls",
     orientation_weight: float = 0.5,
+    max_joint_step_rad: float = DEFAULT_MAX_JOINT_STEP_RAD,
     overwrite: bool = False,
 ) -> dict[str, Any]:
     """Solve, render, validate, and atomically publish one robot bundle."""
     if ik_backend not in {"dls", "hybrid"}:
         raise ValueError("ik_backend must be 'dls' or 'hybrid'")
+    if not np.isfinite(max_joint_step_rad) or max_joint_step_rad <= 0.0:
+        raise ValueError("max_joint_step_rad must be positive and finite")
     targets_path = Path(trajectory).expanduser().resolve()
     targets = load_npz(targets_path)
     frame_count = validate_parallel_jaw_arrays(targets)
@@ -115,7 +120,9 @@ def execute(
     rig = _load_rig(rig_config)
     if width <= 0 or height <= 0 or fps <= 0:
         raise ValueError("width, height and fps must be positive")
-    if not (0 <= intrinsic_matrix[0, 2] < width and 0 <= intrinsic_matrix[1, 2] < height):
+    if not (
+        0 <= intrinsic_matrix[0, 2] < width and 0 <= intrinsic_matrix[1, 2] < height
+    ):
         raise ValueError("intrinsic principal point is outside the render geometry")
     fovy = 2.0 * np.degrees(np.arctan((height / 2.0) / intrinsic_matrix[1, 1]))
 
@@ -160,8 +167,10 @@ def execute(
     previous_q: dict[str, np.ndarray | None] = {"left": None, "right": None}
     residuals: dict[str, list[float]] = {"left": [], "right": []}
     joint_steps: list[float] = []
-    ssik_hits = 0
-    ssik_fallbacks = 0
+    checked_transitions = 0
+    backend_counts = {"dls": 0, "ssik": 0}
+    ssik_status_counts: dict[str, int] = {}
+    aperture_saturated_frames = 0
     try:
         for frame in range(frame_count):
             composite = np.zeros((height, width, 3), dtype=np.uint8)
@@ -170,7 +179,8 @@ def execute(
             down, back, right = gravity_axes(camera_rotations[frame])
             for side in ("left", "right"):
                 if not targets[f"{side}_valid"][frame]:
-                    previous_q[side] = None
+                    # Keep the accepted state across a tracking gap. Clearing it
+                    # here would make reappearance an unrestricted first frame.
                     continue
                 position = targets[f"{side}_position"][frame]
                 semantic_rotation = Rotation.from_quat(
@@ -184,9 +194,9 @@ def execute(
                     + rig["z"] * down
                     + sign * 0.5 * rig["distance"] * right
                 )
-                base_up = Rotation.from_rotvec(
-                    np.deg2rad(rig["pitch"]) * right
-                ).apply(-down)
+                base_up = Rotation.from_rotvec(np.deg2rad(rig["pitch"]) * right).apply(
+                    -down
+                )
                 solver = solvers[side]
                 solver.set_base(
                     base,
@@ -194,36 +204,35 @@ def execute(
                     up_camera=base_up,
                     reset_arm=previous_q[side] is None,
                 )
-                residual: float | None = None
-                if ik_backend == "hybrid":
-                    try:
-                        residual = solver.solve_ssik(
-                            position, semantic_rotation, aperture
-                        )
-                    except RuntimeError:
-                        residual = None
-                    if residual is None:
-                        ssik_fallbacks += 1
-                        if solver._ssik is not None:
-                            solver.data.qpos[solver.arm_qadr] = solver._ssik_seed
-                    else:
-                        ssik_hits += 1
-                if residual is None:
-                    residual = solver.solve_dls(
-                        position,
-                        semantic_rotation,
-                        aperture,
-                        previous_q=previous_q[side],
-                        elbow_outward=sign * right,
-                        orientation_weight=orientation_weight,
-                    )
+                result = solver.solve_target(
+                    position,
+                    semantic_rotation,
+                    aperture,
+                    previous_q=previous_q[side],
+                    elbow_outward=sign * right,
+                    backend=ik_backend,
+                    orientation_weight=orientation_weight,
+                    max_joint_step_rad=max_joint_step_rad,
+                )
                 current_q = solver.data.qpos[solver.arm_qadr].copy()
+                # This renderer-level gate is deliberately redundant with the
+                # solver gate: no future backend may render an unchecked pose.
+                joint_step = validate_arm_candidate(
+                    current_q,
+                    previous_q=previous_q[side],
+                    joint_ranges=solver.ranges,
+                    max_joint_step_rad=max_joint_step_rad,
+                )
                 if previous_q[side] is not None:
-                    joint_steps.append(
-                        float(np.max(np.abs(current_q - previous_q[side])))
-                    )
+                    checked_transitions += 1
+                    joint_steps.append(joint_step)
                 previous_q[side] = current_q
-                residuals[side].append(residual)
+                residuals[side].append(result.residual_m)
+                backend_counts[result.backend] += 1
+                ssik_status_counts[result.ssik_status] = (
+                    ssik_status_counts.get(result.ssik_status, 0) + 1
+                )
+                aperture_saturated_frames += int(aperture < 0.0 or aperture > 0.08)
                 rgb, mask, depth = _render_layer(renderers[side], solver.data)
                 take = mask & (depth < zbuffer)
                 composite[take] = rgb[take]
@@ -256,9 +265,14 @@ def execute(
         "ik": {
             "backend": ik_backend,
             "orientation_weight": orientation_weight,
-            "ssik_hits": ssik_hits,
-            "ssik_fallbacks": ssik_fallbacks,
+            "max_joint_step_limit_rad": max_joint_step_rad,
             "max_joint_step_rad": max(joint_steps, default=0.0),
+            "checked_transition_count": checked_transitions,
+            "backend_counts": backend_counts,
+            "ssik_status_counts": ssik_status_counts,
+            "ssik_hits": ssik_status_counts.get("accepted", 0),
+            "ssik_fallbacks": (backend_counts["dls"] if ik_backend == "hybrid" else 0),
+            "aperture_saturated_target_count": aperture_saturated_frames,
             "residual_m": {
                 side: {
                     "median": float(np.median(values)) if values else None,
@@ -302,6 +316,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--panda-dir", type=Path, default=DEFAULT_PANDA_DIR)
     parser.add_argument("--ik", choices=("dls", "hybrid"), default="dls")
     parser.add_argument("--orientation-weight", type=float, default=0.5)
+    parser.add_argument(
+        "--max-joint-step-rad",
+        type=float,
+        default=DEFAULT_MAX_JOINT_STEP_RAD,
+    )
     parser.add_argument("--overwrite", action="store_true")
     return parser
 
@@ -320,6 +339,7 @@ def main() -> None:
         panda_dir=args.panda_dir,
         ik_backend=args.ik,
         orientation_weight=args.orientation_weight,
+        max_joint_step_rad=args.max_joint_step_rad,
         overwrite=args.overwrite,
     )
     print(json.dumps(metadata, indent=2))
@@ -327,4 +347,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
