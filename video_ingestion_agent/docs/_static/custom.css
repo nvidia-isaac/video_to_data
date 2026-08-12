@@ -1,0 +1,49 @@
+/* Hide the dummy image directive used to trigger Sphinx SVG copy */
+.zoomable-svg-hidden,
+img.zoomable-svg-hidden {
+    display: none !important;
+}
+
+/* Zoomable SVG container */
+.svg-zoom-container {
+    overflow: auto;
+    border: 1px solid var(--color-foreground-border, #ddd);
+    border-radius: 8px;
+    max-height: 600px;
+    text-align: center;
+    margin-bottom: 1rem;
+}
+
+.svg-zoom-controls button {
+    cursor: pointer;
+    padding: 2px 10px;
+    font-size: 15px;
+    border: 1px solid var(--color-foreground-border, #ccc);
+    border-radius: 4px;
+    background: var(--color-background-secondary, #f5f5f5);
+    color: var(--color-foreground-primary, #333);
+    margin: 0 2px;
+}
+
+.svg-zoom-controls button:hover {
+    background: var(--color-background-hover, #e8e8e8);
+}
+
+/* Force clean background for gallery table cells */
+table.gallery td {
+    background-color: inherit !important;
+    border: none !important;
+}
+
+table.gallery img {
+    background-color: inherit !important;
+    padding: 4px;
+    border-radius: 4px;
+}
+
+table.gallery,
+table.gallery td,
+table.gallery th {
+    border: none !important;
+    box-shadow: none !important;
+}

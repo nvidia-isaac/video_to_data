@@ -1,0 +1,4 @@
+vendor/
+__pycache__/
+*.egg-info/
+

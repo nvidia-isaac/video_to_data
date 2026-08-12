@@ -1,0 +1,104 @@
+# PNP, BUNDLE_ADJUSTMENT, PNP_AND_BA_REFINE, MULTI_STEREO_VOTE
+localizer_method: MULTI_STEREO_VOTE
+
+image_scale_factor: 0
+max_num_keypoints: 0
+use_keypoints_filter: true
+
+points_distribution_grid_num_row: 2
+points_distribution_grid_num_col: 2
+min_num_occupied_grid: 0
+min_num_correspondences: 40
+
+use_internal_pnp_ransac: true
+internal_pnp_ransac_config {
+  ransac_config {
+    max_iterations: 10000
+    max_hypothesis_generation_attempts: 15
+    max_inlier_threshold: 3.0
+    desired_success_probability: 0.99
+  }
+  pnp_optimizer_config {
+    loss_parameter: 0
+    max_iterations: 10
+    num_threads: 1
+  }
+}
+pnp_max_num_iterations: 10000
+pnp_reprojection_inlier_distance_threshold_pixels: 8.0f
+pnp_min_inlier_percentage: 0.4
+pnp_weight_by_depth: true
+bundle_adjustment_config {
+  # TRIVIAL
+  # SOFT_L1
+  # CAUCHY
+  loss_type: CAUCHY
+  loss_function_scale: 1.0
+  minimizer_progress_to_stdout: true
+  max_num_iterations: 200
+  max_invalid_steps: 10
+  max_linear_solver_iterations: 100
+  num_threads: 1
+  reprojection_error_standard_deviation: 8.0
+  verbose: false
+  extrinsic_error_meters: 0.05
+  extrinsic_error_degrees: 2
+  use_cudss_solver: true
+}
+max_delta_height_to_initial_guess_meters: 0.3
+max_delta_horizontals_to_initial_guess_meters: 0.5
+max_synchronous_timestamps_microseconds_range: 3000
+
+check_correction_to_initial_guess: true
+save_debug_images: true
+num_threads: 1
+
+stereo_pose_estimator_config {
+  ransac_max_pixel_error: 1
+  # https://github.com/opencv/opencv/blob/4.x/modules/calib3d/include/opencv2/calib3d.hpp#L2773
+  ransac_confidence: 0.999
+  # https://github.com/opencv/opencv/blob/4.x/modules/calib3d/src/five-point.cpp#L744
+  distance_3d_threshold: 1e9
+  ## in zanker there is one correct case with scale 3.6
+  scale_upper_limit: 4
+  min_inlier_number: 25
+
+  # if the matched points only concentrate in a small area, meaning only match
+  # to one object instead of the whole scene, normally set as 0.25,
+  # use negative value to disable the check
+  min_occupied_area_ratio: 0.20
+
+  # max mean error in the pose refine problem
+  max_mean_point_to_epipolarline_error: 10e-6
+  enable_homography_check: false
+  use_estimated_baseline_direction: false
+  best_candidate_use_max_inliers: false
+  keep_duplicate_sift_match: false
+  online_calibrate_left2right_rot: false
+  early_return_invalid_scale: false
+
+  # parameter for voting four stereo localizer
+  vote_translation_error_meter_tolerance: 0.5
+  vote_rotation_error_degree_tolerance: 5
+
+  ## initial scale using linear search
+  init_scale_use_linear_search: false
+  init_scale_linear_search_step: 0.05
+
+  # if there is only one result, commend the module to output or not
+  # false, reject all one result cases, success rate (re-call rate) will be low, but max translation error ~ 0.23 m
+  # true, success rate will be high, but max translation error can be 1 meter
+  allow_best_single_inlier: false
+
+  # In multi camera context, if there are multiple cameras, but only one camera
+  # has valid results, it will output the result from that camera
+  # this is less agreesive compare to allow_best_single_inlier
+  # as in this case if there are multiple camera results, and they all don't agree with each other
+  # it will not output anything, VS when allow_best_single_inlier is true, it will still output the best result
+  allow_single_camera_result: false
+
+  # this is consistent with association_config.pb.txt pose_translation_threshold_meters
+  # this is for loop closure edge check, not for localization
+  relative_pose_translation_threshold_meters: 4
+  relative_pose_rotation_threshold_degrees: 90
+}

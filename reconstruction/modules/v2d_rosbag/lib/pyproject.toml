@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "v2d-rosbag-lib"
+version = "0.1.0"
+description = "Rosbag to EDEX extraction: images, camera intrinsics, TF extrinsics, IMU"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "pandas",
+    "av",
+    "rosbags>=0.11,<0.12",
+    "pytransform3d",
+    "pyyaml",
+    "pydantic",
+    "v2d-mv",
+]
+
+[tool.setuptools]
+packages = ["v2d.rosbag.lib"]
+
+[tool.setuptools.package-dir]
+"v2d.rosbag.lib" = "."

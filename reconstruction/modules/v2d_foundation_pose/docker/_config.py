@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+import os
+
+IMAGE_NAME = "v2d_foundation_pose"
+MODULES_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+
+DEV_PRESERVE_VOLUMES = [
+    "/workspace/v2d_foundation_pose/lib/FoundationPose/mycpp/build",
+    "/workspace/v2d_foundation_pose/lib/FoundationPose/bundlesdf/mycuda",
+]

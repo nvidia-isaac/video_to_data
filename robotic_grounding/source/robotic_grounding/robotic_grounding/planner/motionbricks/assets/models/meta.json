@@ -1,0 +1,134 @@
+{
+  "decoder": "g1_kin",
+  "derive_pose_ee_from_pred_root": true,
+  "ee_dim": 18,
+  "fixed_shapes": {
+    "decoder": {
+      "ee_frames": [
+        1,
+        1,
+        64,
+        18
+      ],
+      "pred_joints": [
+        1,
+        64,
+        270
+      ],
+      "token_indices": [
+        1,
+        16,
+        16
+      ]
+    },
+    "pose": {
+      "actual_num_tokens": [
+        1
+      ],
+      "ee_mask": [
+        1,
+        16
+      ],
+      "ee_values": [
+        1,
+        16,
+        72
+      ],
+      "has_pose_cond": [
+        1,
+        64
+      ],
+      "input_tokens": [
+        1,
+        16,
+        16
+      ],
+      "pose_cond": [
+        1,
+        64,
+        270
+      ],
+      "pose_logits": [
+        1,
+        16,
+        16,
+        256
+      ],
+      "root_per_token": [
+        1,
+        16,
+        8
+      ]
+    },
+    "root": {
+      "ee_mask": [
+        1,
+        64
+      ],
+      "ee_values": [
+        1,
+        64,
+        18
+      ],
+      "has_pose_values": [
+        1,
+        8
+      ],
+      "has_root_values": [
+        1,
+        8
+      ],
+      "num_tokens_input": [
+        1
+      ],
+      "pose_values": [
+        1,
+        8,
+        270
+      ],
+      "pred_root_transforms": [
+        1,
+        64,
+        2
+      ],
+      "root_values": [
+        1,
+        8,
+        2
+      ]
+    }
+  },
+  "fsq_levels": [
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256,
+    256
+  ],
+  "joint_key": "command_multi_future_firstframe_heading_canonicalized_global_joint_transforms_nonflat",
+  "masked_num_tokens": 17,
+  "max_frames": 64,
+  "max_tokens": 16,
+  "min_tokens": 6,
+  "nfpt": 4,
+  "note": "Fixed shapes use the model's max_tokens=16 / max_frames=64. Inference always pads the dense EE conditioning to max_frames and runs pose with num_tokens=max_tokens, so these graphs are valid at any chunk size.",
+  "num_codes_per_head": 256,
+  "num_fsq_heads": 16,
+  "opset": 17,
+  "pose_dim": 270,
+  "pose_ee_key": "command_multi_future_firstframe_heading_canonicalized_global_hand_ee_transforms_nonflat",
+  "pose_mask_id": 256,
+  "root_dim": 2,
+  "root_ee_key": "command_multi_future_firstframe_heading_canonicalized_global_hand_ee_target_transforms_nonflat"
+}

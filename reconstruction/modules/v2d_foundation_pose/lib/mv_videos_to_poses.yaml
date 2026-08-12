@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+rig_config: stereo-4
+cameras: [0, 2, 4, 6]
+mask_obj_id: 0
+
+camera_params_path: ???
+rgb_dir: ???
+depth_dir: ???
+mask_dir: ???
+mesh_path: ???
+symmetry_path: null  # optional; defaults to <mesh_dir>/output_symmetry.json if present
+weights_dir: ???
+output_dir: ???
+
+rgb_path_template: "${rgb_dir}/{cam_name}"
+depth_path_template: "${depth_dir}/{cam_name}/depth"
+mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}"
+pose_path: "${output_dir}/poses.npy"
+
+scale: 0.5
+depth_direction_trust: 0.5
+visible_ratio_cutoff_high: 0.3
+visible_ratio_cutoff_low: 0.3
+precision_high: 1.0
+precision_low: 1.0
+est_refine_iter: 5
+track_refine_iter: 2
+
+debug: 2

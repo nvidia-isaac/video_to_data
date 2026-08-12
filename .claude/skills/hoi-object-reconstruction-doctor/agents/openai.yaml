@@ -1,0 +1,4 @@
+interface:
+  display_name: "HOI Reconstruction Doctor"
+  short_description: "Diagnose BundleSDF and SAM3D reconstruction failures"
+  default_prompt: "Use $hoi-object-reconstruction-doctor to inspect the failed HOI reconstruction and identify the first bad stage."

@@ -1,0 +1,41 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "v2d-mv"
+version = "0.1.0"
+description = "Shared multi-view utilities: rig config, video I/O, and math"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "pydantic",
+    "omegaconf",
+]
+
+[project.optional-dependencies]
+math = [
+    "torch",
+    "scipy",
+    "pytransform3d",
+]
+vis = [
+    "pyrender",
+    "pyglet",
+    "trimesh",
+    "wis3d",
+]
+[tool.setuptools]
+packages = ["v2d.mv", "v2d.mv.cli", "v2d.mv.math", "v2d.mv.rig", "v2d.mv.vis"]
+
+[tool.setuptools.package-dir]
+"v2d.mv" = "."
+"v2d.mv.math" = "math"
+"v2d.mv.cli" = "cli"
+"v2d.mv.rig" = "rig"
+"v2d.mv.vis" = "vis"
+
+[tool.setuptools.package-data]
+"v2d.mv.rig" = ["rigs/*.yaml"]

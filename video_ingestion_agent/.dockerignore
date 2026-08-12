@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Data and outputs (mount these as volumes instead)
+runs/
+data/benchmark/
+
+# Large media files
+*.mp4
+*.MP4
+
+# Misc
+.DS_Store
+*.log

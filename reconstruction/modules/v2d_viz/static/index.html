@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>3D Depth Viewer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #1a1a1a; color: #ddd; font-family: monospace; overflow: hidden; }
+
+  #app { display: flex; height: 100vh; }
+
+  #sidebar {
+    width: 260px; flex-shrink: 0;
+    background: #222; border-right: 1px solid #444;
+    display: flex; flex-direction: column; gap: 0;
+    overflow-y: auto;
+  }
+
+  .panel { padding: 12px; border-bottom: 1px solid #333; }
+  .panel h3 { font-size: 11px; text-transform: uppercase; color: #888; margin-bottom: 8px; letter-spacing: 1px; }
+
+  label { font-size: 12px; color: #aaa; display: block; margin-bottom: 4px; }
+  input[type=range] { width: 100%; cursor: pointer; }
+  input[type=number] { width: 70px; background: #333; border: 1px solid #555; color: #eee; padding: 3px 5px; font-family: monospace; font-size: 12px; }
+  .row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+
+  .toggle-btn {
+    width: 100%; padding: 6px; background: #333; border: 1px solid #555;
+    color: #ddd; cursor: pointer; font-family: monospace; font-size: 12px;
+    text-align: left; border-radius: 3px; margin-bottom: 4px;
+  }
+  .toggle-btn.on  { border-color: #5af; color: #5af; background: #1a2a3a; }
+  .toggle-btn.off { border-color: #555; color: #666; }
+
+  #status { font-size: 11px; color: #888; padding: 10px 12px; }
+  #pose-info { font-size: 11px; color: #aaa; line-height: 1.5; }
+
+  #canvas-wrap { flex: 1; position: relative; }
+  canvas { display: block; }
+
+  #overlay-panel {
+    width: 300px; flex-shrink: 0;
+    background: #1a1a1a; border-left: 1px solid #444;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  #overlay-panel .panel { flex-shrink: 0; }
+  #overlay-img { width: 100%; display: block; flex: 1; object-fit: contain; background: #111; }
+
+  #loading {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    background: rgba(0,0,0,0.7); padding: 12px 20px; border-radius: 6px;
+    font-size: 13px; display: none;
+  }
+
+  .info-row { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 2px; }
+  .info-label { color: #888; }
+  .info-val   { color: #ddd; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+
+    <div class="panel">
+      <h3>Frame</h3>
+      <div class="row">
+        <input type="range" id="frame-slider" min="0" max="0" value="0" style="flex:1">
+        <input type="number" id="frame-num" min="0" max="0" value="0">
+      </div>
+      <div style="margin-top:6px; font-size:11px; color:#666;" id="frame-label">Frame 0</div>
+    </div>
+
+    <div class="panel">
+      <h3>Visibility</h3>
+      <button class="toggle-btn on" id="btn-cloud">⬤ Point Cloud</button>
+      <button class="toggle-btn on" id="btn-mesh">⬤ Mesh</button>
+      <button class="toggle-btn on" id="btn-hands">⬤ Hands</button>
+      <button class="toggle-btn off" id="btn-mask">⬤ Mask (object only)</button>
+    </div>
+
+    <div class="panel">
+      <h3>Point Cloud</h3>
+      <label>Point size</label>
+      <input type="range" id="pt-size" min="1" max="8" step="0.5" value="2">
+      <label style="margin-top:8px">Max points</label>
+      <div class="row">
+        <input type="range" id="max-pts" min="10000" max="200000" step="10000" value="80000" style="flex:1">
+        <span id="max-pts-val" style="font-size:11px;color:#aaa;width:50px">80k</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Mesh</h3>
+      <label>Opacity</label>
+      <input type="range" id="mesh-opacity" min="0" max="1" step="0.05" value="0.7">
+      <button class="toggle-btn" id="btn-wireframe" style="margin-top:6px">Wireframe</button>
+    </div>
+
+    <div class="panel">
+      <h3>Hands</h3>
+      <label>Opacity</label>
+      <input type="range" id="hand-opacity" min="0" max="1" step="0.05" value="0.7">
+    </div>
+
+    <div class="panel">
+      <h3>Info</h3>
+      <div id="pose-info">—</div>
+    </div>
+
+    <div id="status">Loading…</div>
+  </div>
+
+  <div id="canvas-wrap">
+    <div id="loading">Loading frame…</div>
+  </div>
+
+  <div id="overlay-panel">
+    <div class="panel" style="flex-shrink:0">
+      <h3>RGB + Mesh Overlay</h3>
+    </div>
+    <img id="overlay-img" alt="overlay">
+  </div>
+</div>
+
+<!-- Three.js r158 via CDN -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { OBJLoader }     from 'three/addons/loaders/OBJLoader.js';
+import { MTLLoader }     from 'three/addons/loaders/MTLLoader.js';
+
+// ---------------------------------------------------------------------------
+// Scene setup
+// ---------------------------------------------------------------------------
+const wrap    = document.getElementById('canvas-wrap');
+const loading = document.getElementById('loading');
+const status  = document.getElementById('status');
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setClearColor(0x111111);
+wrap.appendChild(renderer.domElement);
+
+const scene  = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, 1, 0.001, 100);
+// After CV→Three.js flip (Y and Z negated), depth points land at negative Z.
+// Camera sits at positive Z looking toward negative Z (the scene).
+camera.position.set(0, 0, 0.3);
+camera.lookAt(0, 0, -0.7);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.target.set(0, 0, -0.7);
+controls.update();
+
+// Lighting for mesh
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+const dlight = new THREE.DirectionalLight(0xffffff, 0.8);
+dlight.position.set(1, 2, -2);
+scene.add(dlight);
+
+// Axes helper (small, at origin)
+scene.add(new THREE.AxesHelper(0.05));
+
+function resize() {
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+resize();
+window.addEventListener('resize', resize);
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+let frames     = [];
+let cloudObj   = null;
+let meshObj    = null;
+let handObjs   = [];   // array of THREE.Mesh, one per visible hand per frame
+let cloudVis   = true;
+let meshVis    = true;
+let handVis    = true;
+let wireframe  = false;
+let useMask    = false;
+let currentFrame = 0;
+let loadingCloud = false;
+
+const meshMaterials = [];
+const handMaterials = [];  // tracked for opacity control
+
+// Left hand = blue, right hand = orange
+const HAND_COLORS = [0x4488ff, 0xff6633];
+
+
+// ---------------------------------------------------------------------------
+// Load mesh (once)
+// ---------------------------------------------------------------------------
+async function loadMesh() {
+  status.textContent = 'Loading mesh…';
+  try {
+    const mtlLoader = new MTLLoader();
+    mtlLoader.setPath('/api/mesh/');
+
+    // Fetch mesh info to get obj filename
+    const meshUrl = '/api/mesh';
+    const mtlRes  = await fetch('/api/info');
+    const info    = await mtlRes.json();
+
+    // Derive MTL filename by swapping extension
+    const objName  = info.mesh_path.split('/').pop();
+    const mtlName  = objName.replace(/\.obj$/i, '.mtl');
+
+    let materials = null;
+    try {
+      materials = await new Promise((res, rej) => {
+        mtlLoader.load(mtlName, res, undefined, rej);
+      });
+      materials.preload();
+    } catch(e) {
+      console.warn('No MTL found, loading OBJ without materials');
+    }
+
+    const objLoader = new OBJLoader();
+    if (materials) objLoader.setMaterials(materials);
+
+    meshObj = await new Promise((res, rej) =>
+      objLoader.load(meshUrl, res, undefined, rej)
+    );
+
+    // Collect materials for opacity / wireframe control
+    meshObj.traverse(child => {
+      if (child.isMesh) {
+        if (!Array.isArray(child.material)) {
+          child.material = child.material.clone();
+          child.material.transparent = true;
+          child.material.opacity = parseFloat(document.getElementById('mesh-opacity').value);
+          meshMaterials.push(child.material);
+        }
+      }
+    });
+
+    // Matrix will be set when a frame loads; hide until then
+    meshObj.visible = false;
+    scene.add(meshObj);
+    status.textContent = 'Mesh loaded. Select a frame.';
+  } catch(e) {
+    status.textContent = `Mesh error: ${e.message}`;
+    console.error(e);
+  }
+}
+
+
+// ---------------------------------------------------------------------------
+// Hand mesh helpers
+// ---------------------------------------------------------------------------
+function disposeHands() {
+  handObjs.forEach(o => {
+    scene.remove(o);
+    o.geometry.dispose();
+    o.material.dispose();
+  });
+  handObjs = [];
+  handMaterials.length = 0;
+}
+
+function buildHandMesh(handData) {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position',
+    new THREE.BufferAttribute(new Float32Array(handData.vertices.flat()), 3));
+  geo.setIndex(handData.faces.flat());
+  geo.computeVertexNormals();
+
+  const color = handData.is_right ? HAND_COLORS[1] : HAND_COLORS[0];
+  const mat = new THREE.MeshPhongMaterial({
+    color,
+    transparent: true,
+    opacity: parseFloat(document.getElementById('hand-opacity').value),
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  handMaterials.push(mat);
+
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.visible = handVis;
+  return mesh;
+}
+
+
+// ---------------------------------------------------------------------------
+// Load point cloud for a frame
+// ---------------------------------------------------------------------------
+async function loadFrame(frameId) {
+  if (loadingCloud) return;
+  loadingCloud = true;
+  loading.style.display = 'block';
+
+  const maxPts = document.getElementById('max-pts').value;
+
+  try {
+    // Fetch cloud, pose, and hand mesh in parallel; kick off overlay separately (non-blocking)
+    const [cloudRes, poseRes, handRes] = await Promise.all([
+      fetch(`/api/pointcloud/${frameId}?max_points=${maxPts}&use_mask=${useMask}`),
+      fetch(`/api/pose/${frameId}`),
+      fetch(`/api/hand/${frameId}`),
+    ]);
+
+    // Overlay image: set src directly — browser loads asynchronously
+    document.getElementById('overlay-img').src = `/api/overlay/${frameId}?t=${frameId}`;
+
+    const cloudData = await cloudRes.json();
+    const poseData  = await poseRes.json();
+    const handData  = await handRes.json();
+
+    // ----- Point cloud -----
+    if (cloudObj) {
+      scene.remove(cloudObj);
+      cloudObj.geometry.dispose();
+      cloudObj = null;
+    }
+
+    const positions = new Float32Array(cloudData.positions.flat());
+    const colors    = new Float32Array(cloudData.colors.flat().map(v => v / 255));
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('color',    new THREE.BufferAttribute(colors, 3));
+
+    const mat = new THREE.PointsMaterial({
+      size: parseFloat(document.getElementById('pt-size').value) * 0.001,
+      vertexColors: true,
+      sizeAttenuation: true,
+    });
+
+    cloudObj = new THREE.Points(geo, mat);
+    cloudObj.visible = cloudVis;
+    scene.add(cloudObj);
+
+    // ----- Hand meshes -----
+    disposeHands();
+    if (handData && handData.hands) {
+      handData.hands.forEach(h => {
+        const handMesh = buildHandMesh(h);
+        scene.add(handMesh);
+        handObjs.push(handMesh);
+      });
+    }
+
+    // ----- Pose / mesh -----
+    if (meshObj) {
+      if (poseData && poseData.matrix) {
+        const m = new THREE.Matrix4();
+        m.fromArray(poseData.matrix);   // column-major
+        meshObj.matrix.copy(m);
+        meshObj.matrixAutoUpdate = false;
+        meshObj.visible = meshVis;
+
+        // Update info panel
+        const t = [poseData.matrix[12], poseData.matrix[13], poseData.matrix[14]];
+        document.getElementById('pose-info').innerHTML =
+          `<div class="info-row"><span class="info-label">Frame</span><span class="info-val">${frameId}</span></div>` +
+          `<div class="info-row"><span class="info-label">pts</span><span class="info-val">${cloudData.positions.length}</span></div>` +
+          `<div class="info-row"><span class="info-label">t.x</span><span class="info-val">${t[0].toFixed(4)}</span></div>` +
+          `<div class="info-row"><span class="info-label">t.y</span><span class="info-val">${t[1].toFixed(4)}</span></div>` +
+          `<div class="info-row"><span class="info-label">t.z</span><span class="info-val">${t[2].toFixed(4)}</span></div>`;
+      } else {
+        meshObj.visible = false;
+        document.getElementById('pose-info').innerHTML =
+          `<div class="info-row"><span class="info-label">Frame</span><span class="info-val">${frameId}</span></div>` +
+          `<div class="info-row"><span class="info-label">pts</span><span class="info-val">${cloudData.positions.length}</span></div>` +
+          `<div class="info-row"><span class="info-label">pose</span><span class="info-val" style="color:#f88">none</span></div>`;
+      }
+    }
+
+    document.getElementById('frame-label').textContent =
+      `Frame ${frameId} of ${frames[frames.length - 1]}`;
+    status.textContent = `Frame ${frameId} — ${cloudData.positions.length} points`;
+
+  } catch(e) {
+    status.textContent = `Error: ${e.message}`;
+    console.error(e);
+  } finally {
+    loading.style.display = 'none';
+    loadingCloud = false;
+  }
+}
+
+
+// ---------------------------------------------------------------------------
+// Controls
+// ---------------------------------------------------------------------------
+const slider   = document.getElementById('frame-slider');
+const frameNum = document.getElementById('frame-num');
+
+function goToFrame(f) {
+  currentFrame = f;
+  slider.value   = f;
+  frameNum.value = f;
+  loadFrame(f);
+}
+
+slider.addEventListener('input', () => goToFrame(parseInt(slider.value)));
+frameNum.addEventListener('change', () => {
+  const v = Math.max(frames[0], Math.min(frames[frames.length-1], parseInt(frameNum.value) || 0));
+  goToFrame(v);
+});
+
+// Point size
+document.getElementById('pt-size').addEventListener('input', e => {
+  if (cloudObj) cloudObj.material.size = parseFloat(e.target.value) * 0.001;
+});
+
+// Max points — reload frame when changed
+document.getElementById('max-pts').addEventListener('change', e => {
+  document.getElementById('max-pts-val').textContent = Math.round(e.target.value/1000) + 'k';
+  goToFrame(currentFrame);
+});
+document.getElementById('max-pts').addEventListener('input', e => {
+  document.getElementById('max-pts-val').textContent = Math.round(e.target.value/1000) + 'k';
+});
+
+// Mesh opacity
+document.getElementById('mesh-opacity').addEventListener('input', e => {
+  meshMaterials.forEach(m => m.opacity = parseFloat(e.target.value));
+});
+
+// Visibility toggles
+function setBtn(btn, on) {
+  btn.classList.toggle('on',  on);
+  btn.classList.toggle('off', !on);
+}
+
+document.getElementById('btn-cloud').addEventListener('click', () => {
+  cloudVis = !cloudVis;
+  if (cloudObj) cloudObj.visible = cloudVis;
+  setBtn(document.getElementById('btn-cloud'), cloudVis);
+});
+
+document.getElementById('btn-mesh').addEventListener('click', () => {
+  meshVis = !meshVis;
+  if (meshObj) meshObj.visible = meshVis && !!meshObj.matrix;
+  setBtn(document.getElementById('btn-mesh'), meshVis);
+});
+
+document.getElementById('btn-hands').addEventListener('click', () => {
+  handVis = !handVis;
+  handObjs.forEach(o => o.visible = handVis);
+  setBtn(document.getElementById('btn-hands'), handVis);
+});
+
+document.getElementById('hand-opacity').addEventListener('input', e => {
+  handMaterials.forEach(m => m.opacity = parseFloat(e.target.value));
+});
+
+document.getElementById('btn-wireframe').addEventListener('click', () => {
+  wireframe = !wireframe;
+  meshMaterials.forEach(m => m.wireframe = wireframe);
+  setBtn(document.getElementById('btn-wireframe'), wireframe);
+});
+
+document.getElementById('btn-mask').addEventListener('click', () => {
+  useMask = !useMask;
+  setBtn(document.getElementById('btn-mask'), useMask);
+  goToFrame(currentFrame);   // reload with new mask setting
+});
+
+// Keyboard: left/right arrow to step frames
+window.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+    const idx = frames.indexOf(currentFrame);
+    if (idx < frames.length - 1) goToFrame(frames[idx + 1]);
+  } else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+    const idx = frames.indexOf(currentFrame);
+    if (idx > 0) goToFrame(frames[idx - 1]);
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------------------
+async function init() {
+  const res = await fetch('/api/frames');
+  frames = await res.json();
+
+  if (!frames.length) { status.textContent = 'No depth frames found.'; return; }
+
+  const first = frames[0], last = frames[frames.length - 1];
+  slider.min   = first;  slider.max   = last;  slider.value = first;
+  frameNum.min = first;  frameNum.max = last;  frameNum.value = first;
+
+  await loadMesh();
+  goToFrame(first);
+}
+
+init();
+</script>
+</body>
+</html>

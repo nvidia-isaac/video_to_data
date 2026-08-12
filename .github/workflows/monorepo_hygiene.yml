@@ -1,0 +1,74 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+#
+# NVIDIA CORPORATION and its licensors retain all intellectual property
+# and proprietary rights in and to this software, related documentation
+# and any modifications thereto. Any use, reproduction, disclosure or
+# distribution of this software and related documentation without an express
+# license agreement from NVIDIA CORPORATION is strictly prohibited.
+#
+# Gates that root-level shared files (.gitignore, .gitattributes, ...) don't
+# accumulate package-specific rules. Package-specific rules belong in each
+# subproject's own copy of the file. See .github/scripts/check_root_files.py
+# for the enforced rules and how to fix violations.
+
+name: Monorepo Hygiene
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.gitignore'
+      - '.gitattributes'
+      - '.pre-commit-config.yaml'
+      - '.envrc'
+      - '.github/scripts/check_root_files.py'
+      - '.github/scripts/agent_context_check.py'
+      - '.github/workflows/monorepo_hygiene.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.gitignore'
+      - '.gitattributes'
+      - '.pre-commit-config.yaml'
+      - '.envrc'
+      - '.github/scripts/check_root_files.py'
+      - '.github/scripts/agent_context_check.py'
+      - '.github/workflows/monorepo_hygiene.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check_root_files:
+    name: check_root_files
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run check_root_files
+        run: python .github/scripts/check_root_files.py
+
+  agent_context_check:
+    name: agent_context_check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run agent_context_check
+        run: python .github/scripts/agent_context_check.py

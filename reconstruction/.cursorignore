@@ -1,0 +1,58 @@
+# Exclude large data files from context
+
+# Data directories
+data/
+**/data/
+**/jobs/
+**/results/
+**/sessions/
+
+# Model checkpoints and weights
+checkpoints/
+**/checkpoints/
+**/weights/
+*.pt
+*.pth
+*.safetensors
+*.bin
+*.ckpt
+*.h5
+*.hdf5
+
+# Large media files
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.zip
+*.tar
+*.tar.gz
+*.gz
+
+# Large 3D model files
+*.glb
+*.gltf
+*.obj
+*.ply
+*.stl
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+

@@ -1,0 +1,72 @@
+<?xml version="1.0" ?>
+<!--
+  SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+  SPDX-License-Identifier: Apache-2.0
+
+  Fully synthetic articulated object for the robotic_grounding E2E tests: a box
+  with a hinged lid, built from two box primitives joined by a revolute joint.
+  No third-party data or meshes — geometry is inline <box> primitives.
+
+  Link/joint contract expected by the pipeline:
+    * root link is named "bottom" and the moving link "top"
+      (scene_config._detect_object_type + apply_scene_config contact sensors
+      reference {object}/bottom and {object}/top; the virtual articulated
+      controller tracks body 0 = "bottom").
+    * exactly one revolute joint (the hinge) so object_articulation is a single
+      scalar DOF, matching the arctic articulated convention.
+-->
+<robot name="box">
+  <!-- Base of the box: a 0.20 x 0.15 x 0.10 m open container, frame at its center. -->
+  <link name="bottom">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.5"/>
+      <inertia ixx="0.0015" ixy="0" ixz="0" iyy="0.0025" iyz="0" izz="0.0025"/>
+    </inertial>
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry>
+        <box size="0.20 0.15 0.10"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry>
+        <box size="0.20 0.15 0.10"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Lid: a thin 0.20 x 0.15 x 0.02 m panel. Its link frame sits on the hinge
+       (back-top edge of the base); the geometry is offset forward (+y) and up
+       (+z) so that at joint angle 0 the lid lies flat on top of the base. -->
+  <link name="top">
+    <inertial>
+      <origin xyz="0 0.075 0.01" rpy="0 0 0"/>
+      <mass value="0.1"/>
+      <inertia ixx="0.0002" ixy="0" ixz="0" iyy="0.0004" iyz="0" izz="0.0004"/>
+    </inertial>
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0.075 0.01"/>
+      <geometry>
+        <box size="0.20 0.15 0.02"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0.075 0.01"/>
+      <geometry>
+        <box size="0.20 0.15 0.02"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- The hinge: revolute joint about the +x axis at the back-top edge of the
+       base. Lifts the front of the lid as the angle increases (box opens). -->
+  <joint name="rotation" type="revolute">
+    <parent link="bottom"/>
+    <child link="top"/>
+    <origin xyz="0 -0.075 0.05" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="0.0" upper="2.2" effort="75.0" velocity="15.0"/>
+  </joint>
+</robot>

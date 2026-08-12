@@ -1,0 +1,3038 @@
+{
+  "initial_pose_type": "EGO_MOTION",
+  "keyframes_metadata": [
+    {
+      "id": "0",
+      "camera_params_id": "0",
+      "synced_sample_id": "5",
+      "image_name": "front_stereo_camera_left/1771445398921412053.jpeg",
+      "timestamp_microseconds": "1771445398921412"
+    },
+    {
+      "id": "11",
+      "camera_params_id": "1",
+      "synced_sample_id": "5",
+      "image_name": "front_stereo_camera_right/1771445398921412053.jpeg",
+      "timestamp_microseconds": "1771445398921412"
+    },
+    {
+      "id": "17",
+      "camera_params_id": "0",
+      "synced_sample_id": "15",
+      "image_name": "front_stereo_camera_left/1771445399254733053.jpeg",
+      "timestamp_microseconds": "1771445399254733"
+    },
+    {
+      "id": "32",
+      "camera_params_id": "1",
+      "synced_sample_id": "15",
+      "image_name": "front_stereo_camera_right/1771445399254733053.jpeg",
+      "timestamp_microseconds": "1771445399254733"
+    },
+    {
+      "id": "37",
+      "camera_params_id": "0",
+      "synced_sample_id": "25",
+      "image_name": "front_stereo_camera_left/1771445399588055053.jpeg",
+      "timestamp_microseconds": "1771445399588055"
+    },
+    {
+      "id": "52",
+      "camera_params_id": "1",
+      "synced_sample_id": "25",
+      "image_name": "front_stereo_camera_right/1771445399588055053.jpeg",
+      "timestamp_microseconds": "1771445399588055"
+    },
+    {
+      "id": "56",
+      "camera_params_id": "0",
+      "synced_sample_id": "35",
+      "image_name": "front_stereo_camera_left/1771445399921377045.jpeg",
+      "timestamp_microseconds": "1771445399921377"
+    },
+    {
+      "id": "74",
+      "camera_params_id": "1",
+      "synced_sample_id": "35",
+      "image_name": "front_stereo_camera_right/1771445399921377045.jpeg",
+      "timestamp_microseconds": "1771445399921377"
+    },
+    {
+      "id": "75",
+      "camera_params_id": "0",
+      "synced_sample_id": "45",
+      "image_name": "front_stereo_camera_left/1771445400254693045.jpeg",
+      "timestamp_microseconds": "1771445400254693"
+    },
+    {
+      "id": "94",
+      "camera_params_id": "1",
+      "synced_sample_id": "45",
+      "image_name": "front_stereo_camera_right/1771445400254693045.jpeg",
+      "timestamp_microseconds": "1771445400254693"
+    },
+    {
+      "id": "95",
+      "camera_params_id": "0",
+      "synced_sample_id": "55",
+      "image_name": "front_stereo_camera_left/1771445400588032045.jpeg",
+      "timestamp_microseconds": "1771445400588032"
+    },
+    {
+      "id": "112",
+      "camera_params_id": "0",
+      "synced_sample_id": "65",
+      "image_name": "front_stereo_camera_left/1771445400921353081.jpeg",
+      "timestamp_microseconds": "1771445400921353"
+    },
+    {
+      "id": "118",
+      "camera_params_id": "1",
+      "synced_sample_id": "55",
+      "image_name": "front_stereo_camera_right/1771445400588032045.jpeg",
+      "timestamp_microseconds": "1771445400588032"
+    },
+    {
+      "id": "131",
+      "camera_params_id": "0",
+      "synced_sample_id": "75",
+      "image_name": "front_stereo_camera_left/1771445401254674081.jpeg",
+      "timestamp_microseconds": "1771445401254674"
+    },
+    {
+      "id": "137",
+      "camera_params_id": "1",
+      "synced_sample_id": "65",
+      "image_name": "front_stereo_camera_right/1771445400921353081.jpeg",
+      "timestamp_microseconds": "1771445400921353"
+    },
+    {
+      "id": "153",
+      "camera_params_id": "0",
+      "synced_sample_id": "85",
+      "image_name": "front_stereo_camera_left/1771445401587995081.jpeg",
+      "timestamp_microseconds": "1771445401587995"
+    },
+    {
+      "id": "156",
+      "camera_params_id": "1",
+      "synced_sample_id": "75",
+      "image_name": "front_stereo_camera_right/1771445401254674081.jpeg",
+      "timestamp_microseconds": "1771445401254674"
+    },
+    {
+      "id": "173",
+      "camera_params_id": "0",
+      "synced_sample_id": "95",
+      "image_name": "front_stereo_camera_left/1771445401921334060.jpeg",
+      "timestamp_microseconds": "1771445401921334"
+    },
+    {
+      "id": "176",
+      "camera_params_id": "1",
+      "synced_sample_id": "85",
+      "image_name": "front_stereo_camera_right/1771445401587995081.jpeg",
+      "timestamp_microseconds": "1771445401587995"
+    },
+    {
+      "id": "192",
+      "camera_params_id": "0",
+      "synced_sample_id": "105",
+      "image_name": "front_stereo_camera_left/1771445402254654060.jpeg",
+      "timestamp_microseconds": "1771445402254654"
+    },
+    {
+      "id": "197",
+      "camera_params_id": "1",
+      "synced_sample_id": "95",
+      "image_name": "front_stereo_camera_right/1771445401921334060.jpeg",
+      "timestamp_microseconds": "1771445401921334"
+    },
+    {
+      "id": "211",
+      "camera_params_id": "0",
+      "synced_sample_id": "115",
+      "image_name": "front_stereo_camera_left/1771445402587975060.jpeg",
+      "timestamp_microseconds": "1771445402587975"
+    },
+    {
+      "id": "217",
+      "camera_params_id": "1",
+      "synced_sample_id": "105",
+      "image_name": "front_stereo_camera_right/1771445402254654060.jpeg",
+      "timestamp_microseconds": "1771445402254654"
+    },
+    {
+      "id": "232",
+      "camera_params_id": "0",
+      "synced_sample_id": "125",
+      "image_name": "front_stereo_camera_left/1771445402921296020.jpeg",
+      "timestamp_microseconds": "1771445402921296"
+    },
+    {
+      "id": "237",
+      "camera_params_id": "1",
+      "synced_sample_id": "115",
+      "image_name": "front_stereo_camera_right/1771445402587975060.jpeg",
+      "timestamp_microseconds": "1771445402587975"
+    },
+    {
+      "id": "254",
+      "camera_params_id": "0",
+      "synced_sample_id": "135",
+      "image_name": "front_stereo_camera_left/1771445403254617020.jpeg",
+      "timestamp_microseconds": "1771445403254617"
+    },
+    {
+      "id": "255",
+      "camera_params_id": "1",
+      "synced_sample_id": "125",
+      "image_name": "front_stereo_camera_right/1771445402921296020.jpeg",
+      "timestamp_microseconds": "1771445402921296"
+    },
+    {
+      "id": "274",
+      "camera_params_id": "0",
+      "synced_sample_id": "145",
+      "image_name": "front_stereo_camera_left/1771445403587955020.jpeg",
+      "timestamp_microseconds": "1771445403587955"
+    },
+    {
+      "id": "275",
+      "camera_params_id": "1",
+      "synced_sample_id": "135",
+      "image_name": "front_stereo_camera_right/1771445403254617020.jpeg",
+      "timestamp_microseconds": "1771445403254617"
+    },
+    {
+      "id": "294",
+      "camera_params_id": "0",
+      "synced_sample_id": "155",
+      "image_name": "front_stereo_camera_left/1771445403921276017.jpeg",
+      "timestamp_microseconds": "1771445403921276"
+    },
+    {
+      "id": "295",
+      "camera_params_id": "1",
+      "synced_sample_id": "145",
+      "image_name": "front_stereo_camera_right/1771445403587955020.jpeg",
+      "timestamp_microseconds": "1771445403587955"
+    },
+    {
+      "id": "314",
+      "camera_params_id": "0",
+      "synced_sample_id": "165",
+      "image_name": "front_stereo_camera_left/1771445404254597017.jpeg",
+      "timestamp_microseconds": "1771445404254597"
+    },
+    {
+      "id": "315",
+      "camera_params_id": "1",
+      "synced_sample_id": "155",
+      "image_name": "front_stereo_camera_right/1771445403921276017.jpeg",
+      "timestamp_microseconds": "1771445403921276"
+    },
+    {
+      "id": "334",
+      "camera_params_id": "0",
+      "synced_sample_id": "175",
+      "image_name": "front_stereo_camera_left/1771445404587918017.jpeg",
+      "timestamp_microseconds": "1771445404587918"
+    },
+    {
+      "id": "335",
+      "camera_params_id": "1",
+      "synced_sample_id": "165",
+      "image_name": "front_stereo_camera_right/1771445404254597017.jpeg",
+      "timestamp_microseconds": "1771445404254597"
+    },
+    {
+      "id": "354",
+      "camera_params_id": "0",
+      "synced_sample_id": "185",
+      "image_name": "front_stereo_camera_left/1771445404921238120.jpeg",
+      "timestamp_microseconds": "1771445404921238"
+    },
+    {
+      "id": "355",
+      "camera_params_id": "1",
+      "synced_sample_id": "175",
+      "image_name": "front_stereo_camera_right/1771445404587918017.jpeg",
+      "timestamp_microseconds": "1771445404587918"
+    },
+    {
+      "id": "374",
+      "camera_params_id": "0",
+      "synced_sample_id": "195",
+      "image_name": "front_stereo_camera_left/1771445405254580120.jpeg",
+      "timestamp_microseconds": "1771445405254580"
+    },
+    {
+      "id": "375",
+      "camera_params_id": "1",
+      "synced_sample_id": "185",
+      "image_name": "front_stereo_camera_right/1771445404921238120.jpeg",
+      "timestamp_microseconds": "1771445404921238"
+    },
+    {
+      "id": "394",
+      "camera_params_id": "0",
+      "synced_sample_id": "205",
+      "image_name": "front_stereo_camera_left/1771445405587902120.jpeg",
+      "timestamp_microseconds": "1771445405587902"
+    },
+    {
+      "id": "395",
+      "camera_params_id": "1",
+      "synced_sample_id": "195",
+      "image_name": "front_stereo_camera_right/1771445405254580120.jpeg",
+      "timestamp_microseconds": "1771445405254580"
+    },
+    {
+      "id": "414",
+      "camera_params_id": "0",
+      "synced_sample_id": "215",
+      "image_name": "front_stereo_camera_left/1771445405921219052.jpeg",
+      "timestamp_microseconds": "1771445405921219"
+    },
+    {
+      "id": "415",
+      "camera_params_id": "1",
+      "synced_sample_id": "205",
+      "image_name": "front_stereo_camera_right/1771445405587902120.jpeg",
+      "timestamp_microseconds": "1771445405587902"
+    },
+    {
+      "id": "434",
+      "camera_params_id": "0",
+      "synced_sample_id": "225",
+      "image_name": "front_stereo_camera_left/1771445406254540052.jpeg",
+      "timestamp_microseconds": "1771445406254540"
+    },
+    {
+      "id": "435",
+      "camera_params_id": "1",
+      "synced_sample_id": "215",
+      "image_name": "front_stereo_camera_right/1771445405921219052.jpeg",
+      "timestamp_microseconds": "1771445405921219"
+    },
+    {
+      "id": "454",
+      "camera_params_id": "0",
+      "synced_sample_id": "235",
+      "image_name": "front_stereo_camera_left/1771445406587879052.jpeg",
+      "timestamp_microseconds": "1771445406587879"
+    },
+    {
+      "id": "455",
+      "camera_params_id": "1",
+      "synced_sample_id": "225",
+      "image_name": "front_stereo_camera_right/1771445406254540052.jpeg",
+      "timestamp_microseconds": "1771445406254540"
+    },
+    {
+      "id": "474",
+      "camera_params_id": "0",
+      "synced_sample_id": "245",
+      "image_name": "front_stereo_camera_left/1771445406921199016.jpeg",
+      "timestamp_microseconds": "1771445406921199"
+    },
+    {
+      "id": "475",
+      "camera_params_id": "1",
+      "synced_sample_id": "235",
+      "image_name": "front_stereo_camera_right/1771445406587879052.jpeg",
+      "timestamp_microseconds": "1771445406587879"
+    },
+    {
+      "id": "494",
+      "camera_params_id": "0",
+      "synced_sample_id": "255",
+      "image_name": "front_stereo_camera_left/1771445407254520016.jpeg",
+      "timestamp_microseconds": "1771445407254520"
+    },
+    {
+      "id": "495",
+      "camera_params_id": "1",
+      "synced_sample_id": "245",
+      "image_name": "front_stereo_camera_right/1771445406921199016.jpeg",
+      "timestamp_microseconds": "1771445406921199"
+    },
+    {
+      "id": "514",
+      "camera_params_id": "1",
+      "synced_sample_id": "255",
+      "image_name": "front_stereo_camera_right/1771445407254520016.jpeg",
+      "timestamp_microseconds": "1771445407254520"
+    },
+    {
+      "id": "515",
+      "camera_params_id": "0",
+      "synced_sample_id": "265",
+      "image_name": "front_stereo_camera_left/1771445407587841016.jpeg",
+      "timestamp_microseconds": "1771445407587841"
+    },
+    {
+      "id": "534",
+      "camera_params_id": "1",
+      "synced_sample_id": "265",
+      "image_name": "front_stereo_camera_right/1771445407587841016.jpeg",
+      "timestamp_microseconds": "1771445407587841"
+    },
+    {
+      "id": "535",
+      "camera_params_id": "0",
+      "synced_sample_id": "275",
+      "image_name": "front_stereo_camera_left/1771445407921162033.jpeg",
+      "timestamp_microseconds": "1771445407921162"
+    },
+    {
+      "id": "554",
+      "camera_params_id": "1",
+      "synced_sample_id": "275",
+      "image_name": "front_stereo_camera_right/1771445407921162033.jpeg",
+      "timestamp_microseconds": "1771445407921162"
+    },
+    {
+      "id": "555",
+      "camera_params_id": "0",
+      "synced_sample_id": "285",
+      "image_name": "front_stereo_camera_left/1771445408254500033.jpeg",
+      "timestamp_microseconds": "1771445408254500"
+    },
+    {
+      "id": "574",
+      "camera_params_id": "1",
+      "synced_sample_id": "285",
+      "image_name": "front_stereo_camera_right/1771445408254500033.jpeg",
+      "timestamp_microseconds": "1771445408254500"
+    },
+    {
+      "id": "575",
+      "camera_params_id": "0",
+      "synced_sample_id": "295",
+      "image_name": "front_stereo_camera_left/1771445408587821033.jpeg",
+      "timestamp_microseconds": "1771445408587821"
+    },
+    {
+      "id": "594",
+      "camera_params_id": "1",
+      "synced_sample_id": "295",
+      "image_name": "front_stereo_camera_right/1771445408587821033.jpeg",
+      "timestamp_microseconds": "1771445408587821"
+    },
+    {
+      "id": "595",
+      "camera_params_id": "0",
+      "synced_sample_id": "305",
+      "image_name": "front_stereo_camera_left/1771445408921142024.jpeg",
+      "timestamp_microseconds": "1771445408921142"
+    },
+    {
+      "id": "614",
+      "camera_params_id": "1",
+      "synced_sample_id": "305",
+      "image_name": "front_stereo_camera_right/1771445408921142024.jpeg",
+      "timestamp_microseconds": "1771445408921142"
+    },
+    {
+      "id": "615",
+      "camera_params_id": "0",
+      "synced_sample_id": "315",
+      "image_name": "front_stereo_camera_left/1771445409254463024.jpeg",
+      "timestamp_microseconds": "1771445409254463"
+    },
+    {
+      "id": "634",
+      "camera_params_id": "1",
+      "synced_sample_id": "315",
+      "image_name": "front_stereo_camera_right/1771445409254463024.jpeg",
+      "timestamp_microseconds": "1771445409254463"
+    },
+    {
+      "id": "635",
+      "camera_params_id": "0",
+      "synced_sample_id": "325",
+      "image_name": "front_stereo_camera_left/1771445409587802024.jpeg",
+      "timestamp_microseconds": "1771445409587802"
+    },
+    {
+      "id": "654",
+      "camera_params_id": "1",
+      "synced_sample_id": "325",
+      "image_name": "front_stereo_camera_right/1771445409587802024.jpeg",
+      "timestamp_microseconds": "1771445409587802"
+    },
+    {
+      "id": "655",
+      "camera_params_id": "0",
+      "synced_sample_id": "335",
+      "image_name": "front_stereo_camera_left/1771445409921122020.jpeg",
+      "timestamp_microseconds": "1771445409921122"
+    },
+    {
+      "id": "674",
+      "camera_params_id": "1",
+      "synced_sample_id": "335",
+      "image_name": "front_stereo_camera_right/1771445409921122020.jpeg",
+      "timestamp_microseconds": "1771445409921122"
+    },
+    {
+      "id": "675",
+      "camera_params_id": "0",
+      "synced_sample_id": "345",
+      "image_name": "front_stereo_camera_left/1771445410254443020.jpeg",
+      "timestamp_microseconds": "1771445410254443"
+    },
+    {
+      "id": "694",
+      "camera_params_id": "1",
+      "synced_sample_id": "345",
+      "image_name": "front_stereo_camera_right/1771445410254443020.jpeg",
+      "timestamp_microseconds": "1771445410254443"
+    },
+    {
+      "id": "695",
+      "camera_params_id": "0",
+      "synced_sample_id": "355",
+      "image_name": "front_stereo_camera_left/1771445410587765020.jpeg",
+      "timestamp_microseconds": "1771445410587765"
+    },
+    {
+      "id": "714",
+      "camera_params_id": "1",
+      "synced_sample_id": "355",
+      "image_name": "front_stereo_camera_right/1771445410587765020.jpeg",
+      "timestamp_microseconds": "1771445410587765"
+    },
+    {
+      "id": "715",
+      "camera_params_id": "0",
+      "synced_sample_id": "365",
+      "image_name": "front_stereo_camera_left/1771445410921087145.jpeg",
+      "timestamp_microseconds": "1771445410921087"
+    },
+    {
+      "id": "734",
+      "camera_params_id": "1",
+      "synced_sample_id": "365",
+      "image_name": "front_stereo_camera_right/1771445410921087145.jpeg",
+      "timestamp_microseconds": "1771445410921087"
+    },
+    {
+      "id": "735",
+      "camera_params_id": "0",
+      "synced_sample_id": "375",
+      "image_name": "front_stereo_camera_left/1771445411254427145.jpeg",
+      "timestamp_microseconds": "1771445411254427"
+    },
+    {
+      "id": "754",
+      "camera_params_id": "1",
+      "synced_sample_id": "375",
+      "image_name": "front_stereo_camera_right/1771445411254427145.jpeg",
+      "timestamp_microseconds": "1771445411254427"
+    },
+    {
+      "id": "755",
+      "camera_params_id": "0",
+      "synced_sample_id": "385",
+      "image_name": "front_stereo_camera_left/1771445411587744145.jpeg",
+      "timestamp_microseconds": "1771445411587744"
+    },
+    {
+      "id": "774",
+      "camera_params_id": "1",
+      "synced_sample_id": "385",
+      "image_name": "front_stereo_camera_right/1771445411587744145.jpeg",
+      "timestamp_microseconds": "1771445411587744"
+    },
+    {
+      "id": "775",
+      "camera_params_id": "0",
+      "synced_sample_id": "395",
+      "image_name": "front_stereo_camera_left/1771445411921065005.jpeg",
+      "timestamp_microseconds": "1771445411921065"
+    },
+    {
+      "id": "794",
+      "camera_params_id": "1",
+      "synced_sample_id": "395",
+      "image_name": "front_stereo_camera_right/1771445411921065005.jpeg",
+      "timestamp_microseconds": "1771445411921065"
+    },
+    {
+      "id": "795",
+      "camera_params_id": "0",
+      "synced_sample_id": "405",
+      "image_name": "front_stereo_camera_left/1771445412254386005.jpeg",
+      "timestamp_microseconds": "1771445412254386"
+    },
+    {
+      "id": "814",
+      "camera_params_id": "1",
+      "synced_sample_id": "405",
+      "image_name": "front_stereo_camera_right/1771445412254386005.jpeg",
+      "timestamp_microseconds": "1771445412254386"
+    },
+    {
+      "id": "815",
+      "camera_params_id": "0",
+      "synced_sample_id": "415",
+      "image_name": "front_stereo_camera_left/1771445412587707005.jpeg",
+      "timestamp_microseconds": "1771445412587707"
+    },
+    {
+      "id": "834",
+      "camera_params_id": "1",
+      "synced_sample_id": "415",
+      "image_name": "front_stereo_camera_right/1771445412587707005.jpeg",
+      "timestamp_microseconds": "1771445412587707"
+    },
+    {
+      "id": "835",
+      "camera_params_id": "0",
+      "synced_sample_id": "425",
+      "image_name": "front_stereo_camera_left/1771445412921046057.jpeg",
+      "timestamp_microseconds": "1771445412921046"
+    },
+    {
+      "id": "854",
+      "camera_params_id": "1",
+      "synced_sample_id": "425",
+      "image_name": "front_stereo_camera_right/1771445412921046057.jpeg",
+      "timestamp_microseconds": "1771445412921046"
+    },
+    {
+      "id": "855",
+      "camera_params_id": "0",
+      "synced_sample_id": "435",
+      "image_name": "front_stereo_camera_left/1771445413254366057.jpeg",
+      "timestamp_microseconds": "1771445413254366"
+    },
+    {
+      "id": "874",
+      "camera_params_id": "1",
+      "synced_sample_id": "435",
+      "image_name": "front_stereo_camera_right/1771445413254366057.jpeg",
+      "timestamp_microseconds": "1771445413254366"
+    },
+    {
+      "id": "875",
+      "camera_params_id": "0",
+      "synced_sample_id": "445",
+      "image_name": "front_stereo_camera_left/1771445413587687057.jpeg",
+      "timestamp_microseconds": "1771445413587687"
+    },
+    {
+      "id": "894",
+      "camera_params_id": "1",
+      "synced_sample_id": "445",
+      "image_name": "front_stereo_camera_right/1771445413587687057.jpeg",
+      "timestamp_microseconds": "1771445413587687"
+    },
+    {
+      "id": "895",
+      "camera_params_id": "0",
+      "synced_sample_id": "455",
+      "image_name": "front_stereo_camera_left/1771445413921008097.jpeg",
+      "timestamp_microseconds": "1771445413921008"
+    },
+    {
+      "id": "914",
+      "camera_params_id": "1",
+      "synced_sample_id": "455",
+      "image_name": "front_stereo_camera_right/1771445413921008097.jpeg",
+      "timestamp_microseconds": "1771445413921008"
+    },
+    {
+      "id": "915",
+      "camera_params_id": "0",
+      "synced_sample_id": "465",
+      "image_name": "front_stereo_camera_left/1771445414254347097.jpeg",
+      "timestamp_microseconds": "1771445414254347"
+    },
+    {
+      "id": "934",
+      "camera_params_id": "1",
+      "synced_sample_id": "465",
+      "image_name": "front_stereo_camera_right/1771445414254347097.jpeg",
+      "timestamp_microseconds": "1771445414254347"
+    },
+    {
+      "id": "935",
+      "camera_params_id": "0",
+      "synced_sample_id": "475",
+      "image_name": "front_stereo_camera_left/1771445414587667097.jpeg",
+      "timestamp_microseconds": "1771445414587667"
+    },
+    {
+      "id": "954",
+      "camera_params_id": "1",
+      "synced_sample_id": "475",
+      "image_name": "front_stereo_camera_right/1771445414587667097.jpeg",
+      "timestamp_microseconds": "1771445414587667"
+    },
+    {
+      "id": "955",
+      "camera_params_id": "0",
+      "synced_sample_id": "485",
+      "image_name": "front_stereo_camera_left/1771445414920988148.jpeg",
+      "timestamp_microseconds": "1771445414920988"
+    },
+    {
+      "id": "974",
+      "camera_params_id": "1",
+      "synced_sample_id": "485",
+      "image_name": "front_stereo_camera_right/1771445414920988148.jpeg",
+      "timestamp_microseconds": "1771445414920988"
+    },
+    {
+      "id": "975",
+      "camera_params_id": "0",
+      "synced_sample_id": "495",
+      "image_name": "front_stereo_camera_left/1771445415254309148.jpeg",
+      "timestamp_microseconds": "1771445415254309"
+    },
+    {
+      "id": "994",
+      "camera_params_id": "1",
+      "synced_sample_id": "495",
+      "image_name": "front_stereo_camera_right/1771445415254309148.jpeg",
+      "timestamp_microseconds": "1771445415254309"
+    },
+    {
+      "id": "995",
+      "camera_params_id": "0",
+      "synced_sample_id": "505",
+      "image_name": "front_stereo_camera_left/1771445415587630148.jpeg",
+      "timestamp_microseconds": "1771445415587630"
+    },
+    {
+      "id": "1014",
+      "camera_params_id": "1",
+      "synced_sample_id": "505",
+      "image_name": "front_stereo_camera_right/1771445415587630148.jpeg",
+      "timestamp_microseconds": "1771445415587630"
+    },
+    {
+      "id": "1015",
+      "camera_params_id": "0",
+      "synced_sample_id": "515",
+      "image_name": "front_stereo_camera_left/1771445415920969076.jpeg",
+      "timestamp_microseconds": "1771445415920969"
+    },
+    {
+      "id": "1034",
+      "camera_params_id": "1",
+      "synced_sample_id": "515",
+      "image_name": "front_stereo_camera_right/1771445415920969076.jpeg",
+      "timestamp_microseconds": "1771445415920969"
+    },
+    {
+      "id": "1035",
+      "camera_params_id": "0",
+      "synced_sample_id": "525",
+      "image_name": "front_stereo_camera_left/1771445416254290076.jpeg",
+      "timestamp_microseconds": "1771445416254290"
+    },
+    {
+      "id": "1054",
+      "camera_params_id": "1",
+      "synced_sample_id": "525",
+      "image_name": "front_stereo_camera_right/1771445416254290076.jpeg",
+      "timestamp_microseconds": "1771445416254290"
+    },
+    {
+      "id": "1055",
+      "camera_params_id": "0",
+      "synced_sample_id": "535",
+      "image_name": "front_stereo_camera_left/1771445416587612076.jpeg",
+      "timestamp_microseconds": "1771445416587612"
+    },
+    {
+      "id": "1074",
+      "camera_params_id": "1",
+      "synced_sample_id": "535",
+      "image_name": "front_stereo_camera_right/1771445416587612076.jpeg",
+      "timestamp_microseconds": "1771445416587612"
+    },
+    {
+      "id": "1075",
+      "camera_params_id": "0",
+      "synced_sample_id": "545",
+      "image_name": "front_stereo_camera_left/1771445416920934060.jpeg",
+      "timestamp_microseconds": "1771445416920934"
+    },
+    {
+      "id": "1094",
+      "camera_params_id": "1",
+      "synced_sample_id": "545",
+      "image_name": "front_stereo_camera_right/1771445416920934060.jpeg",
+      "timestamp_microseconds": "1771445416920934"
+    },
+    {
+      "id": "1095",
+      "camera_params_id": "0",
+      "synced_sample_id": "555",
+      "image_name": "front_stereo_camera_left/1771445417254255060.jpeg",
+      "timestamp_microseconds": "1771445417254255"
+    },
+    {
+      "id": "1114",
+      "camera_params_id": "1",
+      "synced_sample_id": "555",
+      "image_name": "front_stereo_camera_right/1771445417254255060.jpeg",
+      "timestamp_microseconds": "1771445417254255"
+    },
+    {
+      "id": "1115",
+      "camera_params_id": "0",
+      "synced_sample_id": "565",
+      "image_name": "front_stereo_camera_left/1771445417587591060.jpeg",
+      "timestamp_microseconds": "1771445417587591"
+    },
+    {
+      "id": "1134",
+      "camera_params_id": "1",
+      "synced_sample_id": "565",
+      "image_name": "front_stereo_camera_right/1771445417587591060.jpeg",
+      "timestamp_microseconds": "1771445417587591"
+    },
+    {
+      "id": "1135",
+      "camera_params_id": "0",
+      "synced_sample_id": "575",
+      "image_name": "front_stereo_camera_left/1771445417920911064.jpeg",
+      "timestamp_microseconds": "1771445417920911"
+    },
+    {
+      "id": "1154",
+      "camera_params_id": "1",
+      "synced_sample_id": "575",
+      "image_name": "front_stereo_camera_right/1771445417920911064.jpeg",
+      "timestamp_microseconds": "1771445417920911"
+    },
+    {
+      "id": "1155",
+      "camera_params_id": "0",
+      "synced_sample_id": "585",
+      "image_name": "front_stereo_camera_left/1771445418254232064.jpeg",
+      "timestamp_microseconds": "1771445418254232"
+    },
+    {
+      "id": "1174",
+      "camera_params_id": "1",
+      "synced_sample_id": "585",
+      "image_name": "front_stereo_camera_right/1771445418254232064.jpeg",
+      "timestamp_microseconds": "1771445418254232"
+    },
+    {
+      "id": "1175",
+      "camera_params_id": "0",
+      "synced_sample_id": "595",
+      "image_name": "front_stereo_camera_left/1771445418587553064.jpeg",
+      "timestamp_microseconds": "1771445418587553"
+    },
+    {
+      "id": "1194",
+      "camera_params_id": "1",
+      "synced_sample_id": "595",
+      "image_name": "front_stereo_camera_right/1771445418587553064.jpeg",
+      "timestamp_microseconds": "1771445418587553"
+    },
+    {
+      "id": "1195",
+      "camera_params_id": "0",
+      "synced_sample_id": "605",
+      "image_name": "front_stereo_camera_left/1771445418920892064.jpeg",
+      "timestamp_microseconds": "1771445418920892"
+    },
+    {
+      "id": "1214",
+      "camera_params_id": "0",
+      "synced_sample_id": "615",
+      "image_name": "front_stereo_camera_left/1771445419254212064.jpeg",
+      "timestamp_microseconds": "1771445419254212"
+    },
+    {
+      "id": "1215",
+      "camera_params_id": "1",
+      "synced_sample_id": "605",
+      "image_name": "front_stereo_camera_right/1771445418920892064.jpeg",
+      "timestamp_microseconds": "1771445418920892"
+    },
+    {
+      "id": "1234",
+      "camera_params_id": "0",
+      "synced_sample_id": "625",
+      "image_name": "front_stereo_camera_left/1771445419587533064.jpeg",
+      "timestamp_microseconds": "1771445419587533"
+    },
+    {
+      "id": "1235",
+      "camera_params_id": "1",
+      "synced_sample_id": "615",
+      "image_name": "front_stereo_camera_right/1771445419254212064.jpeg",
+      "timestamp_microseconds": "1771445419254212"
+    },
+    {
+      "id": "1254",
+      "camera_params_id": "0",
+      "synced_sample_id": "635",
+      "image_name": "front_stereo_camera_left/1771445419920854112.jpeg",
+      "timestamp_microseconds": "1771445419920854"
+    },
+    {
+      "id": "1255",
+      "camera_params_id": "1",
+      "synced_sample_id": "625",
+      "image_name": "front_stereo_camera_right/1771445419587533064.jpeg",
+      "timestamp_microseconds": "1771445419587533"
+    },
+    {
+      "id": "1274",
+      "camera_params_id": "0",
+      "synced_sample_id": "645",
+      "image_name": "front_stereo_camera_left/1771445420254175112.jpeg",
+      "timestamp_microseconds": "1771445420254175"
+    },
+    {
+      "id": "1275",
+      "camera_params_id": "1",
+      "synced_sample_id": "635",
+      "image_name": "front_stereo_camera_right/1771445419920854112.jpeg",
+      "timestamp_microseconds": "1771445419920854"
+    },
+    {
+      "id": "1294",
+      "camera_params_id": "0",
+      "synced_sample_id": "655",
+      "image_name": "front_stereo_camera_left/1771445420587514112.jpeg",
+      "timestamp_microseconds": "1771445420587514"
+    },
+    {
+      "id": "1295",
+      "camera_params_id": "1",
+      "synced_sample_id": "645",
+      "image_name": "front_stereo_camera_right/1771445420254175112.jpeg",
+      "timestamp_microseconds": "1771445420254175"
+    },
+    {
+      "id": "1314",
+      "camera_params_id": "0",
+      "synced_sample_id": "665",
+      "image_name": "front_stereo_camera_left/1771445420920834172.jpeg",
+      "timestamp_microseconds": "1771445420920834"
+    },
+    {
+      "id": "1315",
+      "camera_params_id": "1",
+      "synced_sample_id": "655",
+      "image_name": "front_stereo_camera_right/1771445420587514112.jpeg",
+      "timestamp_microseconds": "1771445420587514"
+    },
+    {
+      "id": "1334",
+      "camera_params_id": "0",
+      "synced_sample_id": "675",
+      "image_name": "front_stereo_camera_left/1771445421254155172.jpeg",
+      "timestamp_microseconds": "1771445421254155"
+    },
+    {
+      "id": "1335",
+      "camera_params_id": "1",
+      "synced_sample_id": "665",
+      "image_name": "front_stereo_camera_right/1771445420920834172.jpeg",
+      "timestamp_microseconds": "1771445420920834"
+    },
+    {
+      "id": "1354",
+      "camera_params_id": "0",
+      "synced_sample_id": "685",
+      "image_name": "front_stereo_camera_left/1771445421587476172.jpeg",
+      "timestamp_microseconds": "1771445421587476"
+    },
+    {
+      "id": "1355",
+      "camera_params_id": "1",
+      "synced_sample_id": "675",
+      "image_name": "front_stereo_camera_right/1771445421254155172.jpeg",
+      "timestamp_microseconds": "1771445421254155"
+    },
+    {
+      "id": "1374",
+      "camera_params_id": "0",
+      "synced_sample_id": "695",
+      "image_name": "front_stereo_camera_left/1771445421920797045.jpeg",
+      "timestamp_microseconds": "1771445421920797"
+    },
+    {
+      "id": "1375",
+      "camera_params_id": "1",
+      "synced_sample_id": "685",
+      "image_name": "front_stereo_camera_right/1771445421587476172.jpeg",
+      "timestamp_microseconds": "1771445421587476"
+    },
+    {
+      "id": "1394",
+      "camera_params_id": "0",
+      "synced_sample_id": "705",
+      "image_name": "front_stereo_camera_left/1771445422254137045.jpeg",
+      "timestamp_microseconds": "1771445422254137"
+    },
+    {
+      "id": "1395",
+      "camera_params_id": "1",
+      "synced_sample_id": "695",
+      "image_name": "front_stereo_camera_right/1771445421920797045.jpeg",
+      "timestamp_microseconds": "1771445421920797"
+    },
+    {
+      "id": "1414",
+      "camera_params_id": "0",
+      "synced_sample_id": "715",
+      "image_name": "front_stereo_camera_left/1771445422587458045.jpeg",
+      "timestamp_microseconds": "1771445422587458"
+    },
+    {
+      "id": "1415",
+      "camera_params_id": "1",
+      "synced_sample_id": "705",
+      "image_name": "front_stereo_camera_right/1771445422254137045.jpeg",
+      "timestamp_microseconds": "1771445422254137"
+    },
+    {
+      "id": "1434",
+      "camera_params_id": "0",
+      "synced_sample_id": "725",
+      "image_name": "front_stereo_camera_left/1771445422920780053.jpeg",
+      "timestamp_microseconds": "1771445422920780"
+    },
+    {
+      "id": "1435",
+      "camera_params_id": "1",
+      "synced_sample_id": "715",
+      "image_name": "front_stereo_camera_right/1771445422587458045.jpeg",
+      "timestamp_microseconds": "1771445422587458"
+    },
+    {
+      "id": "1454",
+      "camera_params_id": "0",
+      "synced_sample_id": "735",
+      "image_name": "front_stereo_camera_left/1771445423254102053.jpeg",
+      "timestamp_microseconds": "1771445423254102"
+    },
+    {
+      "id": "1455",
+      "camera_params_id": "1",
+      "synced_sample_id": "725",
+      "image_name": "front_stereo_camera_right/1771445422920780053.jpeg",
+      "timestamp_microseconds": "1771445422920780"
+    },
+    {
+      "id": "1474",
+      "camera_params_id": "0",
+      "synced_sample_id": "745",
+      "image_name": "front_stereo_camera_left/1771445423587437053.jpeg",
+      "timestamp_microseconds": "1771445423587437"
+    },
+    {
+      "id": "1475",
+      "camera_params_id": "1",
+      "synced_sample_id": "735",
+      "image_name": "front_stereo_camera_right/1771445423254102053.jpeg",
+      "timestamp_microseconds": "1771445423254102"
+    },
+    {
+      "id": "1494",
+      "camera_params_id": "0",
+      "synced_sample_id": "755",
+      "image_name": "front_stereo_camera_left/1771445423920757037.jpeg",
+      "timestamp_microseconds": "1771445423920757"
+    },
+    {
+      "id": "1495",
+      "camera_params_id": "1",
+      "synced_sample_id": "745",
+      "image_name": "front_stereo_camera_right/1771445423587437053.jpeg",
+      "timestamp_microseconds": "1771445423587437"
+    },
+    {
+      "id": "1514",
+      "camera_params_id": "0",
+      "synced_sample_id": "765",
+      "image_name": "front_stereo_camera_left/1771445424254078037.jpeg",
+      "timestamp_microseconds": "1771445424254078"
+    },
+    {
+      "id": "1515",
+      "camera_params_id": "1",
+      "synced_sample_id": "755",
+      "image_name": "front_stereo_camera_right/1771445423920757037.jpeg",
+      "timestamp_microseconds": "1771445423920757"
+    },
+    {
+      "id": "1534",
+      "camera_params_id": "0",
+      "synced_sample_id": "775",
+      "image_name": "front_stereo_camera_left/1771445424587399037.jpeg",
+      "timestamp_microseconds": "1771445424587399"
+    },
+    {
+      "id": "1535",
+      "camera_params_id": "1",
+      "synced_sample_id": "765",
+      "image_name": "front_stereo_camera_right/1771445424254078037.jpeg",
+      "timestamp_microseconds": "1771445424254078"
+    },
+    {
+      "id": "1554",
+      "camera_params_id": "0",
+      "synced_sample_id": "785",
+      "image_name": "front_stereo_camera_left/1771445424920720053.jpeg",
+      "timestamp_microseconds": "1771445424920720"
+    },
+    {
+      "id": "1555",
+      "camera_params_id": "1",
+      "synced_sample_id": "775",
+      "image_name": "front_stereo_camera_right/1771445424587399037.jpeg",
+      "timestamp_microseconds": "1771445424587399"
+    },
+    {
+      "id": "1574",
+      "camera_params_id": "0",
+      "synced_sample_id": "795",
+      "image_name": "front_stereo_camera_left/1771445425254058053.jpeg",
+      "timestamp_microseconds": "1771445425254058"
+    },
+    {
+      "id": "1575",
+      "camera_params_id": "1",
+      "synced_sample_id": "785",
+      "image_name": "front_stereo_camera_right/1771445424920720053.jpeg",
+      "timestamp_microseconds": "1771445424920720"
+    },
+    {
+      "id": "1594",
+      "camera_params_id": "0",
+      "synced_sample_id": "805",
+      "image_name": "front_stereo_camera_left/1771445425587379053.jpeg",
+      "timestamp_microseconds": "1771445425587379"
+    },
+    {
+      "id": "1595",
+      "camera_params_id": "1",
+      "synced_sample_id": "795",
+      "image_name": "front_stereo_camera_right/1771445425254058053.jpeg",
+      "timestamp_microseconds": "1771445425254058"
+    },
+    {
+      "id": "1614",
+      "camera_params_id": "0",
+      "synced_sample_id": "815",
+      "image_name": "front_stereo_camera_left/1771445425920700017.jpeg",
+      "timestamp_microseconds": "1771445425920700"
+    },
+    {
+      "id": "1615",
+      "camera_params_id": "1",
+      "synced_sample_id": "805",
+      "image_name": "front_stereo_camera_right/1771445425587379053.jpeg",
+      "timestamp_microseconds": "1771445425587379"
+    },
+    {
+      "id": "1634",
+      "camera_params_id": "0",
+      "synced_sample_id": "825",
+      "image_name": "front_stereo_camera_left/1771445426254021017.jpeg",
+      "timestamp_microseconds": "1771445426254021"
+    },
+    {
+      "id": "1635",
+      "camera_params_id": "1",
+      "synced_sample_id": "815",
+      "image_name": "front_stereo_camera_right/1771445425920700017.jpeg",
+      "timestamp_microseconds": "1771445425920700"
+    },
+    {
+      "id": "1654",
+      "camera_params_id": "0",
+      "synced_sample_id": "835",
+      "image_name": "front_stereo_camera_left/1771445426587341017.jpeg",
+      "timestamp_microseconds": "1771445426587341"
+    },
+    {
+      "id": "1655",
+      "camera_params_id": "1",
+      "synced_sample_id": "825",
+      "image_name": "front_stereo_camera_right/1771445426254021017.jpeg",
+      "timestamp_microseconds": "1771445426254021"
+    },
+    {
+      "id": "1674",
+      "camera_params_id": "0",
+      "synced_sample_id": "845",
+      "image_name": "front_stereo_camera_left/1771445426920680020.jpeg",
+      "timestamp_microseconds": "1771445426920680"
+    },
+    {
+      "id": "1675",
+      "camera_params_id": "1",
+      "synced_sample_id": "835",
+      "image_name": "front_stereo_camera_right/1771445426587341017.jpeg",
+      "timestamp_microseconds": "1771445426587341"
+    },
+    {
+      "id": "1694",
+      "camera_params_id": "0",
+      "synced_sample_id": "855",
+      "image_name": "front_stereo_camera_left/1771445427254001020.jpeg",
+      "timestamp_microseconds": "1771445427254001"
+    },
+    {
+      "id": "1695",
+      "camera_params_id": "1",
+      "synced_sample_id": "845",
+      "image_name": "front_stereo_camera_right/1771445426920680020.jpeg",
+      "timestamp_microseconds": "1771445426920680"
+    },
+    {
+      "id": "1714",
+      "camera_params_id": "0",
+      "synced_sample_id": "865",
+      "image_name": "front_stereo_camera_left/1771445427587322020.jpeg",
+      "timestamp_microseconds": "1771445427587322"
+    },
+    {
+      "id": "1715",
+      "camera_params_id": "1",
+      "synced_sample_id": "855",
+      "image_name": "front_stereo_camera_right/1771445427254001020.jpeg",
+      "timestamp_microseconds": "1771445427254001"
+    },
+    {
+      "id": "1733",
+      "camera_params_id": "0",
+      "synced_sample_id": "875",
+      "image_name": "front_stereo_camera_left/1771445427920643017.jpeg",
+      "timestamp_microseconds": "1771445427920643"
+    },
+    {
+      "id": "1735",
+      "camera_params_id": "1",
+      "synced_sample_id": "865",
+      "image_name": "front_stereo_camera_right/1771445427587322020.jpeg",
+      "timestamp_microseconds": "1771445427587322"
+    },
+    {
+      "id": "1754",
+      "camera_params_id": "0",
+      "synced_sample_id": "885",
+      "image_name": "front_stereo_camera_left/1771445428253983017.jpeg",
+      "timestamp_microseconds": "1771445428253983"
+    },
+    {
+      "id": "1755",
+      "camera_params_id": "1",
+      "synced_sample_id": "875",
+      "image_name": "front_stereo_camera_right/1771445427920643017.jpeg",
+      "timestamp_microseconds": "1771445427920643"
+    },
+    {
+      "id": "1774",
+      "camera_params_id": "0",
+      "synced_sample_id": "895",
+      "image_name": "front_stereo_camera_left/1771445428587305017.jpeg",
+      "timestamp_microseconds": "1771445428587305"
+    },
+    {
+      "id": "1775",
+      "camera_params_id": "1",
+      "synced_sample_id": "885",
+      "image_name": "front_stereo_camera_right/1771445428253983017.jpeg",
+      "timestamp_microseconds": "1771445428253983"
+    },
+    {
+      "id": "1794",
+      "camera_params_id": "0",
+      "synced_sample_id": "905",
+      "image_name": "front_stereo_camera_left/1771445428920627008.jpeg",
+      "timestamp_microseconds": "1771445428920627"
+    },
+    {
+      "id": "1795",
+      "camera_params_id": "1",
+      "synced_sample_id": "895",
+      "image_name": "front_stereo_camera_right/1771445428587305017.jpeg",
+      "timestamp_microseconds": "1771445428587305"
+    },
+    {
+      "id": "1814",
+      "camera_params_id": "0",
+      "synced_sample_id": "915",
+      "image_name": "front_stereo_camera_left/1771445429253944008.jpeg",
+      "timestamp_microseconds": "1771445429253944"
+    },
+    {
+      "id": "1815",
+      "camera_params_id": "1",
+      "synced_sample_id": "905",
+      "image_name": "front_stereo_camera_right/1771445428920627008.jpeg",
+      "timestamp_microseconds": "1771445428920627"
+    },
+    {
+      "id": "1834",
+      "camera_params_id": "0",
+      "synced_sample_id": "925",
+      "image_name": "front_stereo_camera_left/1771445429587264008.jpeg",
+      "timestamp_microseconds": "1771445429587264"
+    },
+    {
+      "id": "1835",
+      "camera_params_id": "1",
+      "synced_sample_id": "915",
+      "image_name": "front_stereo_camera_right/1771445429253944008.jpeg",
+      "timestamp_microseconds": "1771445429253944"
+    },
+    {
+      "id": "1854",
+      "camera_params_id": "0",
+      "synced_sample_id": "935",
+      "image_name": "front_stereo_camera_left/1771445429920603020.jpeg",
+      "timestamp_microseconds": "1771445429920603"
+    },
+    {
+      "id": "1855",
+      "camera_params_id": "1",
+      "synced_sample_id": "925",
+      "image_name": "front_stereo_camera_right/1771445429587264008.jpeg",
+      "timestamp_microseconds": "1771445429587264"
+    },
+    {
+      "id": "1874",
+      "camera_params_id": "0",
+      "synced_sample_id": "945",
+      "image_name": "front_stereo_camera_left/1771445430253924020.jpeg",
+      "timestamp_microseconds": "1771445430253924"
+    },
+    {
+      "id": "1875",
+      "camera_params_id": "1",
+      "synced_sample_id": "935",
+      "image_name": "front_stereo_camera_right/1771445429920603020.jpeg",
+      "timestamp_microseconds": "1771445429920603"
+    },
+    {
+      "id": "1894",
+      "camera_params_id": "0",
+      "synced_sample_id": "955",
+      "image_name": "front_stereo_camera_left/1771445430587245020.jpeg",
+      "timestamp_microseconds": "1771445430587245"
+    },
+    {
+      "id": "1895",
+      "camera_params_id": "1",
+      "synced_sample_id": "945",
+      "image_name": "front_stereo_camera_right/1771445430253924020.jpeg",
+      "timestamp_microseconds": "1771445430253924"
+    },
+    {
+      "id": "1914",
+      "camera_params_id": "0",
+      "synced_sample_id": "965",
+      "image_name": "front_stereo_camera_left/1771445430920566129.jpeg",
+      "timestamp_microseconds": "1771445430920566"
+    },
+    {
+      "id": "1915",
+      "camera_params_id": "1",
+      "synced_sample_id": "955",
+      "image_name": "front_stereo_camera_right/1771445430587245020.jpeg",
+      "timestamp_microseconds": "1771445430587245"
+    },
+    {
+      "id": "1934",
+      "camera_params_id": "0",
+      "synced_sample_id": "975",
+      "image_name": "front_stereo_camera_left/1771445431253886129.jpeg",
+      "timestamp_microseconds": "1771445431253886"
+    },
+    {
+      "id": "1935",
+      "camera_params_id": "1",
+      "synced_sample_id": "965",
+      "image_name": "front_stereo_camera_right/1771445430920566129.jpeg",
+      "timestamp_microseconds": "1771445430920566"
+    },
+    {
+      "id": "1954",
+      "camera_params_id": "0",
+      "synced_sample_id": "985",
+      "image_name": "front_stereo_camera_left/1771445431587225129.jpeg",
+      "timestamp_microseconds": "1771445431587225"
+    },
+    {
+      "id": "1955",
+      "camera_params_id": "1",
+      "synced_sample_id": "975",
+      "image_name": "front_stereo_camera_right/1771445431253886129.jpeg",
+      "timestamp_microseconds": "1771445431253886"
+    },
+    {
+      "id": "1974",
+      "camera_params_id": "0",
+      "synced_sample_id": "995",
+      "image_name": "front_stereo_camera_left/1771445431920546008.jpeg",
+      "timestamp_microseconds": "1771445431920546"
+    },
+    {
+      "id": "1975",
+      "camera_params_id": "1",
+      "synced_sample_id": "985",
+      "image_name": "front_stereo_camera_right/1771445431587225129.jpeg",
+      "timestamp_microseconds": "1771445431587225"
+    },
+    {
+      "id": "1994",
+      "camera_params_id": "0",
+      "synced_sample_id": "1005",
+      "image_name": "front_stereo_camera_left/1771445432253867008.jpeg",
+      "timestamp_microseconds": "1771445432253867"
+    },
+    {
+      "id": "1995",
+      "camera_params_id": "1",
+      "synced_sample_id": "995",
+      "image_name": "front_stereo_camera_right/1771445431920546008.jpeg",
+      "timestamp_microseconds": "1771445431920546"
+    },
+    {
+      "id": "2014",
+      "camera_params_id": "0",
+      "synced_sample_id": "1015",
+      "image_name": "front_stereo_camera_left/1771445432587187008.jpeg",
+      "timestamp_microseconds": "1771445432587187"
+    },
+    {
+      "id": "2015",
+      "camera_params_id": "1",
+      "synced_sample_id": "1005",
+      "image_name": "front_stereo_camera_right/1771445432253867008.jpeg",
+      "timestamp_microseconds": "1771445432253867"
+    },
+    {
+      "id": "2034",
+      "camera_params_id": "0",
+      "synced_sample_id": "1025",
+      "image_name": "front_stereo_camera_left/1771445432920526012.jpeg",
+      "timestamp_microseconds": "1771445432920526"
+    },
+    {
+      "id": "2035",
+      "camera_params_id": "1",
+      "synced_sample_id": "1015",
+      "image_name": "front_stereo_camera_right/1771445432587187008.jpeg",
+      "timestamp_microseconds": "1771445432587187"
+    },
+    {
+      "id": "2054",
+      "camera_params_id": "0",
+      "synced_sample_id": "1035",
+      "image_name": "front_stereo_camera_left/1771445433253847012.jpeg",
+      "timestamp_microseconds": "1771445433253847"
+    },
+    {
+      "id": "2055",
+      "camera_params_id": "1",
+      "synced_sample_id": "1025",
+      "image_name": "front_stereo_camera_right/1771445432920526012.jpeg",
+      "timestamp_microseconds": "1771445432920526"
+    },
+    {
+      "id": "2074",
+      "camera_params_id": "0",
+      "synced_sample_id": "1045",
+      "image_name": "front_stereo_camera_left/1771445433587168012.jpeg",
+      "timestamp_microseconds": "1771445433587168"
+    },
+    {
+      "id": "2075",
+      "camera_params_id": "1",
+      "synced_sample_id": "1035",
+      "image_name": "front_stereo_camera_right/1771445433253847012.jpeg",
+      "timestamp_microseconds": "1771445433253847"
+    },
+    {
+      "id": "2094",
+      "camera_params_id": "0",
+      "synced_sample_id": "1055",
+      "image_name": "front_stereo_camera_left/1771445433920489104.jpeg",
+      "timestamp_microseconds": "1771445433920489"
+    },
+    {
+      "id": "2095",
+      "camera_params_id": "1",
+      "synced_sample_id": "1045",
+      "image_name": "front_stereo_camera_right/1771445433587168012.jpeg",
+      "timestamp_microseconds": "1771445433587168"
+    },
+    {
+      "id": "2114",
+      "camera_params_id": "0",
+      "synced_sample_id": "1065",
+      "image_name": "front_stereo_camera_left/1771445434253809104.jpeg",
+      "timestamp_microseconds": "1771445434253809"
+    },
+    {
+      "id": "2115",
+      "camera_params_id": "1",
+      "synced_sample_id": "1055",
+      "image_name": "front_stereo_camera_right/1771445433920489104.jpeg",
+      "timestamp_microseconds": "1771445433920489"
+    },
+    {
+      "id": "2134",
+      "camera_params_id": "0",
+      "synced_sample_id": "1075",
+      "image_name": "front_stereo_camera_left/1771445434587151104.jpeg",
+      "timestamp_microseconds": "1771445434587151"
+    },
+    {
+      "id": "2135",
+      "camera_params_id": "1",
+      "synced_sample_id": "1065",
+      "image_name": "front_stereo_camera_right/1771445434253809104.jpeg",
+      "timestamp_microseconds": "1771445434253809"
+    },
+    {
+      "id": "2154",
+      "camera_params_id": "0",
+      "synced_sample_id": "1085",
+      "image_name": "front_stereo_camera_left/1771445434920473056.jpeg",
+      "timestamp_microseconds": "1771445434920473"
+    },
+    {
+      "id": "2155",
+      "camera_params_id": "1",
+      "synced_sample_id": "1075",
+      "image_name": "front_stereo_camera_right/1771445434587151104.jpeg",
+      "timestamp_microseconds": "1771445434587151"
+    },
+    {
+      "id": "2174",
+      "camera_params_id": "0",
+      "synced_sample_id": "1095",
+      "image_name": "front_stereo_camera_left/1771445435253790056.jpeg",
+      "timestamp_microseconds": "1771445435253790"
+    },
+    {
+      "id": "2175",
+      "camera_params_id": "1",
+      "synced_sample_id": "1085",
+      "image_name": "front_stereo_camera_right/1771445434920473056.jpeg",
+      "timestamp_microseconds": "1771445434920473"
+    },
+    {
+      "id": "2194",
+      "camera_params_id": "0",
+      "synced_sample_id": "1105",
+      "image_name": "front_stereo_camera_left/1771445435587110056.jpeg",
+      "timestamp_microseconds": "1771445435587110"
+    },
+    {
+      "id": "2195",
+      "camera_params_id": "1",
+      "synced_sample_id": "1095",
+      "image_name": "front_stereo_camera_right/1771445435253790056.jpeg",
+      "timestamp_microseconds": "1771445435253790"
+    },
+    {
+      "id": "2214",
+      "camera_params_id": "0",
+      "synced_sample_id": "1115",
+      "image_name": "front_stereo_camera_left/1771445435920431020.jpeg",
+      "timestamp_microseconds": "1771445435920431"
+    },
+    {
+      "id": "2215",
+      "camera_params_id": "1",
+      "synced_sample_id": "1105",
+      "image_name": "front_stereo_camera_right/1771445435587110056.jpeg",
+      "timestamp_microseconds": "1771445435587110"
+    },
+    {
+      "id": "2234",
+      "camera_params_id": "0",
+      "synced_sample_id": "1125",
+      "image_name": "front_stereo_camera_left/1771445436253770020.jpeg",
+      "timestamp_microseconds": "1771445436253770"
+    },
+    {
+      "id": "2235",
+      "camera_params_id": "1",
+      "synced_sample_id": "1115",
+      "image_name": "front_stereo_camera_right/1771445435920431020.jpeg",
+      "timestamp_microseconds": "1771445435920431"
+    },
+    {
+      "id": "2254",
+      "camera_params_id": "1",
+      "synced_sample_id": "1125",
+      "image_name": "front_stereo_camera_right/1771445436253770020.jpeg",
+      "timestamp_microseconds": "1771445436253770"
+    },
+    {
+      "id": "2255",
+      "camera_params_id": "0",
+      "synced_sample_id": "1135",
+      "image_name": "front_stereo_camera_left/1771445436587091020.jpeg",
+      "timestamp_microseconds": "1771445436587091"
+    },
+    {
+      "id": "2274",
+      "camera_params_id": "1",
+      "synced_sample_id": "1135",
+      "image_name": "front_stereo_camera_right/1771445436587091020.jpeg",
+      "timestamp_microseconds": "1771445436587091"
+    },
+    {
+      "id": "2275",
+      "camera_params_id": "0",
+      "synced_sample_id": "1145",
+      "image_name": "front_stereo_camera_left/1771445436920411032.jpeg",
+      "timestamp_microseconds": "1771445436920411"
+    },
+    {
+      "id": "2294",
+      "camera_params_id": "1",
+      "synced_sample_id": "1145",
+      "image_name": "front_stereo_camera_right/1771445436920411032.jpeg",
+      "timestamp_microseconds": "1771445436920411"
+    },
+    {
+      "id": "2295",
+      "camera_params_id": "0",
+      "synced_sample_id": "1155",
+      "image_name": "front_stereo_camera_left/1771445437253732032.jpeg",
+      "timestamp_microseconds": "1771445437253732"
+    },
+    {
+      "id": "2314",
+      "camera_params_id": "1",
+      "synced_sample_id": "1155",
+      "image_name": "front_stereo_camera_right/1771445437253732032.jpeg",
+      "timestamp_microseconds": "1771445437253732"
+    },
+    {
+      "id": "2315",
+      "camera_params_id": "0",
+      "synced_sample_id": "1165",
+      "image_name": "front_stereo_camera_left/1771445437587071032.jpeg",
+      "timestamp_microseconds": "1771445437587071"
+    },
+    {
+      "id": "2334",
+      "camera_params_id": "1",
+      "synced_sample_id": "1165",
+      "image_name": "front_stereo_camera_right/1771445437587071032.jpeg",
+      "timestamp_microseconds": "1771445437587071"
+    },
+    {
+      "id": "2335",
+      "camera_params_id": "0",
+      "synced_sample_id": "1175",
+      "image_name": "front_stereo_camera_left/1771445437920392040.jpeg",
+      "timestamp_microseconds": "1771445437920392"
+    },
+    {
+      "id": "2354",
+      "camera_params_id": "1",
+      "synced_sample_id": "1175",
+      "image_name": "front_stereo_camera_right/1771445437920392040.jpeg",
+      "timestamp_microseconds": "1771445437920392"
+    },
+    {
+      "id": "2355",
+      "camera_params_id": "0",
+      "synced_sample_id": "1185",
+      "image_name": "front_stereo_camera_left/1771445438253712040.jpeg",
+      "timestamp_microseconds": "1771445438253712"
+    },
+    {
+      "id": "2374",
+      "camera_params_id": "1",
+      "synced_sample_id": "1185",
+      "image_name": "front_stereo_camera_right/1771445438253712040.jpeg",
+      "timestamp_microseconds": "1771445438253712"
+    },
+    {
+      "id": "2375",
+      "camera_params_id": "0",
+      "synced_sample_id": "1195",
+      "image_name": "front_stereo_camera_left/1771445438587033040.jpeg",
+      "timestamp_microseconds": "1771445438587033"
+    },
+    {
+      "id": "2394",
+      "camera_params_id": "1",
+      "synced_sample_id": "1195",
+      "image_name": "front_stereo_camera_right/1771445438587033040.jpeg",
+      "timestamp_microseconds": "1771445438587033"
+    },
+    {
+      "id": "2395",
+      "camera_params_id": "0",
+      "synced_sample_id": "1205",
+      "image_name": "front_stereo_camera_left/1771445438920354028.jpeg",
+      "timestamp_microseconds": "1771445438920354"
+    },
+    {
+      "id": "2414",
+      "camera_params_id": "1",
+      "synced_sample_id": "1205",
+      "image_name": "front_stereo_camera_right/1771445438920354028.jpeg",
+      "timestamp_microseconds": "1771445438920354"
+    },
+    {
+      "id": "2415",
+      "camera_params_id": "0",
+      "synced_sample_id": "1215",
+      "image_name": "front_stereo_camera_left/1771445439253693028.jpeg",
+      "timestamp_microseconds": "1771445439253693"
+    },
+    {
+      "id": "2434",
+      "camera_params_id": "1",
+      "synced_sample_id": "1215",
+      "image_name": "front_stereo_camera_right/1771445439253693028.jpeg",
+      "timestamp_microseconds": "1771445439253693"
+    },
+    {
+      "id": "2435",
+      "camera_params_id": "0",
+      "synced_sample_id": "1225",
+      "image_name": "front_stereo_camera_left/1771445439587014028.jpeg",
+      "timestamp_microseconds": "1771445439587014"
+    },
+    {
+      "id": "2454",
+      "camera_params_id": "1",
+      "synced_sample_id": "1225",
+      "image_name": "front_stereo_camera_right/1771445439587014028.jpeg",
+      "timestamp_microseconds": "1771445439587014"
+    },
+    {
+      "id": "2455",
+      "camera_params_id": "0",
+      "synced_sample_id": "1235",
+      "image_name": "front_stereo_camera_left/1771445439920336052.jpeg",
+      "timestamp_microseconds": "1771445439920336"
+    },
+    {
+      "id": "2474",
+      "camera_params_id": "1",
+      "synced_sample_id": "1235",
+      "image_name": "front_stereo_camera_right/1771445439920336052.jpeg",
+      "timestamp_microseconds": "1771445439920336"
+    },
+    {
+      "id": "2475",
+      "camera_params_id": "0",
+      "synced_sample_id": "1245",
+      "image_name": "front_stereo_camera_left/1771445440253658052.jpeg",
+      "timestamp_microseconds": "1771445440253658"
+    },
+    {
+      "id": "2494",
+      "camera_params_id": "1",
+      "synced_sample_id": "1245",
+      "image_name": "front_stereo_camera_right/1771445440253658052.jpeg",
+      "timestamp_microseconds": "1771445440253658"
+    },
+    {
+      "id": "2495",
+      "camera_params_id": "0",
+      "synced_sample_id": "1255",
+      "image_name": "front_stereo_camera_left/1771445440586997052.jpeg",
+      "timestamp_microseconds": "1771445440586997"
+    },
+    {
+      "id": "2514",
+      "camera_params_id": "1",
+      "synced_sample_id": "1255",
+      "image_name": "front_stereo_camera_right/1771445440586997052.jpeg",
+      "timestamp_microseconds": "1771445440586997"
+    },
+    {
+      "id": "2515",
+      "camera_params_id": "0",
+      "synced_sample_id": "1265",
+      "image_name": "front_stereo_camera_left/1771445440920315080.jpeg",
+      "timestamp_microseconds": "1771445440920315"
+    },
+    {
+      "id": "2534",
+      "camera_params_id": "1",
+      "synced_sample_id": "1265",
+      "image_name": "front_stereo_camera_right/1771445440920315080.jpeg",
+      "timestamp_microseconds": "1771445440920315"
+    },
+    {
+      "id": "2535",
+      "camera_params_id": "0",
+      "synced_sample_id": "1275",
+      "image_name": "front_stereo_camera_left/1771445441253635080.jpeg",
+      "timestamp_microseconds": "1771445441253635"
+    },
+    {
+      "id": "2554",
+      "camera_params_id": "1",
+      "synced_sample_id": "1275",
+      "image_name": "front_stereo_camera_right/1771445441253635080.jpeg",
+      "timestamp_microseconds": "1771445441253635"
+    },
+    {
+      "id": "2555",
+      "camera_params_id": "0",
+      "synced_sample_id": "1285",
+      "image_name": "front_stereo_camera_left/1771445441586956080.jpeg",
+      "timestamp_microseconds": "1771445441586956"
+    },
+    {
+      "id": "2574",
+      "camera_params_id": "1",
+      "synced_sample_id": "1285",
+      "image_name": "front_stereo_camera_right/1771445441586956080.jpeg",
+      "timestamp_microseconds": "1771445441586956"
+    },
+    {
+      "id": "2575",
+      "camera_params_id": "0",
+      "synced_sample_id": "1295",
+      "image_name": "front_stereo_camera_left/1771445441920277064.jpeg",
+      "timestamp_microseconds": "1771445441920277"
+    },
+    {
+      "id": "2594",
+      "camera_params_id": "1",
+      "synced_sample_id": "1295",
+      "image_name": "front_stereo_camera_right/1771445441920277064.jpeg",
+      "timestamp_microseconds": "1771445441920277"
+    },
+    {
+      "id": "2595",
+      "camera_params_id": "0",
+      "synced_sample_id": "1305",
+      "image_name": "front_stereo_camera_left/1771445442253616064.jpeg",
+      "timestamp_microseconds": "1771445442253616"
+    },
+    {
+      "id": "2614",
+      "camera_params_id": "1",
+      "synced_sample_id": "1305",
+      "image_name": "front_stereo_camera_right/1771445442253616064.jpeg",
+      "timestamp_microseconds": "1771445442253616"
+    },
+    {
+      "id": "2615",
+      "camera_params_id": "0",
+      "synced_sample_id": "1315",
+      "image_name": "front_stereo_camera_left/1771445442586936064.jpeg",
+      "timestamp_microseconds": "1771445442586936"
+    },
+    {
+      "id": "2634",
+      "camera_params_id": "1",
+      "synced_sample_id": "1315",
+      "image_name": "front_stereo_camera_right/1771445442586936064.jpeg",
+      "timestamp_microseconds": "1771445442586936"
+    },
+    {
+      "id": "2635",
+      "camera_params_id": "0",
+      "synced_sample_id": "1325",
+      "image_name": "front_stereo_camera_left/1771445442920257064.jpeg",
+      "timestamp_microseconds": "1771445442920257"
+    },
+    {
+      "id": "2654",
+      "camera_params_id": "1",
+      "synced_sample_id": "1325",
+      "image_name": "front_stereo_camera_right/1771445442920257064.jpeg",
+      "timestamp_microseconds": "1771445442920257"
+    },
+    {
+      "id": "2655",
+      "camera_params_id": "0",
+      "synced_sample_id": "1335",
+      "image_name": "front_stereo_camera_left/1771445443253578064.jpeg",
+      "timestamp_microseconds": "1771445443253578"
+    },
+    {
+      "id": "2674",
+      "camera_params_id": "1",
+      "synced_sample_id": "1335",
+      "image_name": "front_stereo_camera_right/1771445443253578064.jpeg",
+      "timestamp_microseconds": "1771445443253578"
+    },
+    {
+      "id": "2675",
+      "camera_params_id": "0",
+      "synced_sample_id": "1345",
+      "image_name": "front_stereo_camera_left/1771445443586899064.jpeg",
+      "timestamp_microseconds": "1771445443586899"
+    },
+    {
+      "id": "2694",
+      "camera_params_id": "1",
+      "synced_sample_id": "1345",
+      "image_name": "front_stereo_camera_right/1771445443586899064.jpeg",
+      "timestamp_microseconds": "1771445443586899"
+    },
+    {
+      "id": "2695",
+      "camera_params_id": "0",
+      "synced_sample_id": "1355",
+      "image_name": "front_stereo_camera_left/1771445443920237176.jpeg",
+      "timestamp_microseconds": "1771445443920237"
+    },
+    {
+      "id": "2714",
+      "camera_params_id": "1",
+      "synced_sample_id": "1355",
+      "image_name": "front_stereo_camera_right/1771445443920237176.jpeg",
+      "timestamp_microseconds": "1771445443920237"
+    },
+    {
+      "id": "2715",
+      "camera_params_id": "0",
+      "synced_sample_id": "1365",
+      "image_name": "front_stereo_camera_left/1771445444253558176.jpeg",
+      "timestamp_microseconds": "1771445444253558"
+    },
+    {
+      "id": "2734",
+      "camera_params_id": "1",
+      "synced_sample_id": "1365",
+      "image_name": "front_stereo_camera_right/1771445444253558176.jpeg",
+      "timestamp_microseconds": "1771445444253558"
+    },
+    {
+      "id": "2735",
+      "camera_params_id": "0",
+      "synced_sample_id": "1375",
+      "image_name": "front_stereo_camera_left/1771445444586879176.jpeg",
+      "timestamp_microseconds": "1771445444586879"
+    },
+    {
+      "id": "2754",
+      "camera_params_id": "1",
+      "synced_sample_id": "1375",
+      "image_name": "front_stereo_camera_right/1771445444586879176.jpeg",
+      "timestamp_microseconds": "1771445444586879"
+    },
+    {
+      "id": "2755",
+      "camera_params_id": "0",
+      "synced_sample_id": "1385",
+      "image_name": "front_stereo_camera_left/1771445444920200068.jpeg",
+      "timestamp_microseconds": "1771445444920200"
+    },
+    {
+      "id": "2774",
+      "camera_params_id": "1",
+      "synced_sample_id": "1385",
+      "image_name": "front_stereo_camera_right/1771445444920200068.jpeg",
+      "timestamp_microseconds": "1771445444920200"
+    },
+    {
+      "id": "2775",
+      "camera_params_id": "0",
+      "synced_sample_id": "1395",
+      "image_name": "front_stereo_camera_left/1771445445253539068.jpeg",
+      "timestamp_microseconds": "1771445445253539"
+    },
+    {
+      "id": "2794",
+      "camera_params_id": "1",
+      "synced_sample_id": "1395",
+      "image_name": "front_stereo_camera_right/1771445445253539068.jpeg",
+      "timestamp_microseconds": "1771445445253539"
+    },
+    {
+      "id": "2795",
+      "camera_params_id": "0",
+      "synced_sample_id": "1405",
+      "image_name": "front_stereo_camera_left/1771445445586860068.jpeg",
+      "timestamp_microseconds": "1771445445586860"
+    },
+    {
+      "id": "2814",
+      "camera_params_id": "1",
+      "synced_sample_id": "1405",
+      "image_name": "front_stereo_camera_right/1771445445586860068.jpeg",
+      "timestamp_microseconds": "1771445445586860"
+    },
+    {
+      "id": "2815",
+      "camera_params_id": "0",
+      "synced_sample_id": "1415",
+      "image_name": "front_stereo_camera_left/1771445445920182052.jpeg",
+      "timestamp_microseconds": "1771445445920182"
+    },
+    {
+      "id": "2834",
+      "camera_params_id": "1",
+      "synced_sample_id": "1415",
+      "image_name": "front_stereo_camera_right/1771445445920182052.jpeg",
+      "timestamp_microseconds": "1771445445920182"
+    },
+    {
+      "id": "2835",
+      "camera_params_id": "0",
+      "synced_sample_id": "1425",
+      "image_name": "front_stereo_camera_left/1771445446253504052.jpeg",
+      "timestamp_microseconds": "1771445446253504"
+    },
+    {
+      "id": "2854",
+      "camera_params_id": "1",
+      "synced_sample_id": "1425",
+      "image_name": "front_stereo_camera_right/1771445446253504052.jpeg",
+      "timestamp_microseconds": "1771445446253504"
+    },
+    {
+      "id": "2855",
+      "camera_params_id": "0",
+      "synced_sample_id": "1435",
+      "image_name": "front_stereo_camera_left/1771445446586825052.jpeg",
+      "timestamp_microseconds": "1771445446586825"
+    },
+    {
+      "id": "2874",
+      "camera_params_id": "1",
+      "synced_sample_id": "1435",
+      "image_name": "front_stereo_camera_right/1771445446586825052.jpeg",
+      "timestamp_microseconds": "1771445446586825"
+    },
+    {
+      "id": "2875",
+      "camera_params_id": "0",
+      "synced_sample_id": "1445",
+      "image_name": "front_stereo_camera_left/1771445446920160088.jpeg",
+      "timestamp_microseconds": "1771445446920160"
+    },
+    {
+      "id": "2894",
+      "camera_params_id": "1",
+      "synced_sample_id": "1445",
+      "image_name": "front_stereo_camera_right/1771445446920160088.jpeg",
+      "timestamp_microseconds": "1771445446920160"
+    },
+    {
+      "id": "2895",
+      "camera_params_id": "0",
+      "synced_sample_id": "1455",
+      "image_name": "front_stereo_camera_left/1771445447253481088.jpeg",
+      "timestamp_microseconds": "1771445447253481"
+    },
+    {
+      "id": "2914",
+      "camera_params_id": "1",
+      "synced_sample_id": "1455",
+      "image_name": "front_stereo_camera_right/1771445447253481088.jpeg",
+      "timestamp_microseconds": "1771445447253481"
+    },
+    {
+      "id": "2915",
+      "camera_params_id": "0",
+      "synced_sample_id": "1465",
+      "image_name": "front_stereo_camera_left/1771445447586802088.jpeg",
+      "timestamp_microseconds": "1771445447586802"
+    },
+    {
+      "id": "2934",
+      "camera_params_id": "1",
+      "synced_sample_id": "1465",
+      "image_name": "front_stereo_camera_right/1771445447586802088.jpeg",
+      "timestamp_microseconds": "1771445447586802"
+    },
+    {
+      "id": "2935",
+      "camera_params_id": "0",
+      "synced_sample_id": "1475",
+      "image_name": "front_stereo_camera_left/1771445447920123052.jpeg",
+      "timestamp_microseconds": "1771445447920123"
+    },
+    {
+      "id": "2954",
+      "camera_params_id": "1",
+      "synced_sample_id": "1475",
+      "image_name": "front_stereo_camera_right/1771445447920123052.jpeg",
+      "timestamp_microseconds": "1771445447920123"
+    },
+    {
+      "id": "2955",
+      "camera_params_id": "0",
+      "synced_sample_id": "1485",
+      "image_name": "front_stereo_camera_left/1771445448253443052.jpeg",
+      "timestamp_microseconds": "1771445448253443"
+    },
+    {
+      "id": "2974",
+      "camera_params_id": "1",
+      "synced_sample_id": "1485",
+      "image_name": "front_stereo_camera_right/1771445448253443052.jpeg",
+      "timestamp_microseconds": "1771445448253443"
+    },
+    {
+      "id": "2975",
+      "camera_params_id": "0",
+      "synced_sample_id": "1495",
+      "image_name": "front_stereo_camera_left/1771445448586782052.jpeg",
+      "timestamp_microseconds": "1771445448586782"
+    },
+    {
+      "id": "2994",
+      "camera_params_id": "1",
+      "synced_sample_id": "1495",
+      "image_name": "front_stereo_camera_right/1771445448586782052.jpeg",
+      "timestamp_microseconds": "1771445448586782"
+    },
+    {
+      "id": "2995",
+      "camera_params_id": "0",
+      "synced_sample_id": "1505",
+      "image_name": "front_stereo_camera_left/1771445448920103048.jpeg",
+      "timestamp_microseconds": "1771445448920103"
+    },
+    {
+      "id": "3014",
+      "camera_params_id": "1",
+      "synced_sample_id": "1505",
+      "image_name": "front_stereo_camera_right/1771445448920103048.jpeg",
+      "timestamp_microseconds": "1771445448920103"
+    },
+    {
+      "id": "3015",
+      "camera_params_id": "0",
+      "synced_sample_id": "1515",
+      "image_name": "front_stereo_camera_left/1771445449253424048.jpeg",
+      "timestamp_microseconds": "1771445449253424"
+    },
+    {
+      "id": "3034",
+      "camera_params_id": "1",
+      "synced_sample_id": "1515",
+      "image_name": "front_stereo_camera_right/1771445449253424048.jpeg",
+      "timestamp_microseconds": "1771445449253424"
+    },
+    {
+      "id": "3035",
+      "camera_params_id": "0",
+      "synced_sample_id": "1525",
+      "image_name": "front_stereo_camera_left/1771445449586744048.jpeg",
+      "timestamp_microseconds": "1771445449586744"
+    },
+    {
+      "id": "3054",
+      "camera_params_id": "1",
+      "synced_sample_id": "1525",
+      "image_name": "front_stereo_camera_right/1771445449586744048.jpeg",
+      "timestamp_microseconds": "1771445449586744"
+    },
+    {
+      "id": "3055",
+      "camera_params_id": "0",
+      "synced_sample_id": "1535",
+      "image_name": "front_stereo_camera_left/1771445449920083036.jpeg",
+      "timestamp_microseconds": "1771445449920083"
+    },
+    {
+      "id": "3074",
+      "camera_params_id": "1",
+      "synced_sample_id": "1535",
+      "image_name": "front_stereo_camera_right/1771445449920083036.jpeg",
+      "timestamp_microseconds": "1771445449920083"
+    },
+    {
+      "id": "3075",
+      "camera_params_id": "0",
+      "synced_sample_id": "1545",
+      "image_name": "front_stereo_camera_left/1771445450253404036.jpeg",
+      "timestamp_microseconds": "1771445450253404"
+    },
+    {
+      "id": "3094",
+      "camera_params_id": "1",
+      "synced_sample_id": "1545",
+      "image_name": "front_stereo_camera_right/1771445450253404036.jpeg",
+      "timestamp_microseconds": "1771445450253404"
+    },
+    {
+      "id": "3095",
+      "camera_params_id": "0",
+      "synced_sample_id": "1555",
+      "image_name": "front_stereo_camera_left/1771445450586725036.jpeg",
+      "timestamp_microseconds": "1771445450586725"
+    },
+    {
+      "id": "3114",
+      "camera_params_id": "1",
+      "synced_sample_id": "1555",
+      "image_name": "front_stereo_camera_right/1771445450586725036.jpeg",
+      "timestamp_microseconds": "1771445450586725"
+    },
+    {
+      "id": "3115",
+      "camera_params_id": "0",
+      "synced_sample_id": "1565",
+      "image_name": "front_stereo_camera_left/1771445450920045044.jpeg",
+      "timestamp_microseconds": "1771445450920045"
+    },
+    {
+      "id": "3134",
+      "camera_params_id": "1",
+      "synced_sample_id": "1565",
+      "image_name": "front_stereo_camera_right/1771445450920045044.jpeg",
+      "timestamp_microseconds": "1771445450920045"
+    },
+    {
+      "id": "3135",
+      "camera_params_id": "0",
+      "synced_sample_id": "1575",
+      "image_name": "front_stereo_camera_left/1771445451253366044.jpeg",
+      "timestamp_microseconds": "1771445451253366"
+    },
+    {
+      "id": "3154",
+      "camera_params_id": "1",
+      "synced_sample_id": "1575",
+      "image_name": "front_stereo_camera_right/1771445451253366044.jpeg",
+      "timestamp_microseconds": "1771445451253366"
+    },
+    {
+      "id": "3155",
+      "camera_params_id": "0",
+      "synced_sample_id": "1585",
+      "image_name": "front_stereo_camera_left/1771445451586706044.jpeg",
+      "timestamp_microseconds": "1771445451586706"
+    },
+    {
+      "id": "3174",
+      "camera_params_id": "1",
+      "synced_sample_id": "1585",
+      "image_name": "front_stereo_camera_right/1771445451586706044.jpeg",
+      "timestamp_microseconds": "1771445451586706"
+    },
+    {
+      "id": "3175",
+      "camera_params_id": "0",
+      "synced_sample_id": "1595",
+      "image_name": "front_stereo_camera_left/1771445451920028056.jpeg",
+      "timestamp_microseconds": "1771445451920028"
+    },
+    {
+      "id": "3194",
+      "camera_params_id": "1",
+      "synced_sample_id": "1595",
+      "image_name": "front_stereo_camera_right/1771445451920028056.jpeg",
+      "timestamp_microseconds": "1771445451920028"
+    },
+    {
+      "id": "3195",
+      "camera_params_id": "0",
+      "synced_sample_id": "1605",
+      "image_name": "front_stereo_camera_left/1771445452253350056.jpeg",
+      "timestamp_microseconds": "1771445452253350"
+    },
+    {
+      "id": "3214",
+      "camera_params_id": "1",
+      "synced_sample_id": "1605",
+      "image_name": "front_stereo_camera_right/1771445452253350056.jpeg",
+      "timestamp_microseconds": "1771445452253350"
+    },
+    {
+      "id": "3215",
+      "camera_params_id": "0",
+      "synced_sample_id": "1615",
+      "image_name": "front_stereo_camera_left/1771445452586671056.jpeg",
+      "timestamp_microseconds": "1771445452586671"
+    },
+    {
+      "id": "3234",
+      "camera_params_id": "1",
+      "synced_sample_id": "1615",
+      "image_name": "front_stereo_camera_right/1771445452586671056.jpeg",
+      "timestamp_microseconds": "1771445452586671"
+    },
+    {
+      "id": "3235",
+      "camera_params_id": "0",
+      "synced_sample_id": "1625",
+      "image_name": "front_stereo_camera_left/1771445452919988036.jpeg",
+      "timestamp_microseconds": "1771445452919988"
+    },
+    {
+      "id": "3254",
+      "camera_params_id": "1",
+      "synced_sample_id": "1625",
+      "image_name": "front_stereo_camera_right/1771445452919988036.jpeg",
+      "timestamp_microseconds": "1771445452919988"
+    },
+    {
+      "id": "3255",
+      "camera_params_id": "0",
+      "synced_sample_id": "1635",
+      "image_name": "front_stereo_camera_left/1771445453253327036.jpeg",
+      "timestamp_microseconds": "1771445453253327"
+    },
+    {
+      "id": "3274",
+      "camera_params_id": "1",
+      "synced_sample_id": "1635",
+      "image_name": "front_stereo_camera_right/1771445453253327036.jpeg",
+      "timestamp_microseconds": "1771445453253327"
+    },
+    {
+      "id": "3275",
+      "camera_params_id": "0",
+      "synced_sample_id": "1645",
+      "image_name": "front_stereo_camera_left/1771445453586647036.jpeg",
+      "timestamp_microseconds": "1771445453586647"
+    },
+    {
+      "id": "3294",
+      "camera_params_id": "1",
+      "synced_sample_id": "1645",
+      "image_name": "front_stereo_camera_right/1771445453586647036.jpeg",
+      "timestamp_microseconds": "1771445453586647"
+    },
+    {
+      "id": "3295",
+      "camera_params_id": "0",
+      "synced_sample_id": "1655",
+      "image_name": "front_stereo_camera_left/1771445453919968052.jpeg",
+      "timestamp_microseconds": "1771445453919968"
+    },
+    {
+      "id": "3314",
+      "camera_params_id": "1",
+      "synced_sample_id": "1655",
+      "image_name": "front_stereo_camera_right/1771445453919968052.jpeg",
+      "timestamp_microseconds": "1771445453919968"
+    },
+    {
+      "id": "3315",
+      "camera_params_id": "0",
+      "synced_sample_id": "1665",
+      "image_name": "front_stereo_camera_left/1771445454253289052.jpeg",
+      "timestamp_microseconds": "1771445454253289"
+    },
+    {
+      "id": "3334",
+      "camera_params_id": "1",
+      "synced_sample_id": "1665",
+      "image_name": "front_stereo_camera_right/1771445454253289052.jpeg",
+      "timestamp_microseconds": "1771445454253289"
+    },
+    {
+      "id": "3335",
+      "camera_params_id": "0",
+      "synced_sample_id": "1675",
+      "image_name": "front_stereo_camera_left/1771445454586628052.jpeg",
+      "timestamp_microseconds": "1771445454586628"
+    },
+    {
+      "id": "3354",
+      "camera_params_id": "1",
+      "synced_sample_id": "1675",
+      "image_name": "front_stereo_camera_right/1771445454586628052.jpeg",
+      "timestamp_microseconds": "1771445454586628"
+    },
+    {
+      "id": "3355",
+      "camera_params_id": "0",
+      "synced_sample_id": "1685",
+      "image_name": "front_stereo_camera_left/1771445454919948036.jpeg",
+      "timestamp_microseconds": "1771445454919948"
+    },
+    {
+      "id": "3374",
+      "camera_params_id": "1",
+      "synced_sample_id": "1685",
+      "image_name": "front_stereo_camera_right/1771445454919948036.jpeg",
+      "timestamp_microseconds": "1771445454919948"
+    },
+    {
+      "id": "3375",
+      "camera_params_id": "0",
+      "synced_sample_id": "1695",
+      "image_name": "front_stereo_camera_left/1771445455253269036.jpeg",
+      "timestamp_microseconds": "1771445455253269"
+    },
+    {
+      "id": "3394",
+      "camera_params_id": "1",
+      "synced_sample_id": "1695",
+      "image_name": "front_stereo_camera_right/1771445455253269036.jpeg",
+      "timestamp_microseconds": "1771445455253269"
+    },
+    {
+      "id": "3395",
+      "camera_params_id": "0",
+      "synced_sample_id": "1705",
+      "image_name": "front_stereo_camera_left/1771445455586590036.jpeg",
+      "timestamp_microseconds": "1771445455586590"
+    },
+    {
+      "id": "3414",
+      "camera_params_id": "1",
+      "synced_sample_id": "1705",
+      "image_name": "front_stereo_camera_right/1771445455586590036.jpeg",
+      "timestamp_microseconds": "1771445455586590"
+    },
+    {
+      "id": "3415",
+      "camera_params_id": "0",
+      "synced_sample_id": "1715",
+      "image_name": "front_stereo_camera_left/1771445455919911028.jpeg",
+      "timestamp_microseconds": "1771445455919911"
+    },
+    {
+      "id": "3434",
+      "camera_params_id": "1",
+      "synced_sample_id": "1715",
+      "image_name": "front_stereo_camera_right/1771445455919911028.jpeg",
+      "timestamp_microseconds": "1771445455919911"
+    },
+    {
+      "id": "3435",
+      "camera_params_id": "0",
+      "synced_sample_id": "1725",
+      "image_name": "front_stereo_camera_left/1771445456253250028.jpeg",
+      "timestamp_microseconds": "1771445456253250"
+    },
+    {
+      "id": "3454",
+      "camera_params_id": "1",
+      "synced_sample_id": "1725",
+      "image_name": "front_stereo_camera_right/1771445456253250028.jpeg",
+      "timestamp_microseconds": "1771445456253250"
+    },
+    {
+      "id": "3455",
+      "camera_params_id": "0",
+      "synced_sample_id": "1735",
+      "image_name": "front_stereo_camera_left/1771445456586570028.jpeg",
+      "timestamp_microseconds": "1771445456586570"
+    },
+    {
+      "id": "3474",
+      "camera_params_id": "1",
+      "synced_sample_id": "1735",
+      "image_name": "front_stereo_camera_right/1771445456586570028.jpeg",
+      "timestamp_microseconds": "1771445456586570"
+    },
+    {
+      "id": "3475",
+      "camera_params_id": "0",
+      "synced_sample_id": "1745",
+      "image_name": "front_stereo_camera_left/1771445456919891032.jpeg",
+      "timestamp_microseconds": "1771445456919891"
+    },
+    {
+      "id": "3494",
+      "camera_params_id": "1",
+      "synced_sample_id": "1745",
+      "image_name": "front_stereo_camera_right/1771445456919891032.jpeg",
+      "timestamp_microseconds": "1771445456919891"
+    },
+    {
+      "id": "3495",
+      "camera_params_id": "0",
+      "synced_sample_id": "1755",
+      "image_name": "front_stereo_camera_left/1771445457253212032.jpeg",
+      "timestamp_microseconds": "1771445457253212"
+    },
+    {
+      "id": "3514",
+      "camera_params_id": "1",
+      "synced_sample_id": "1755",
+      "image_name": "front_stereo_camera_right/1771445457253212032.jpeg",
+      "timestamp_microseconds": "1771445457253212"
+    },
+    {
+      "id": "3515",
+      "camera_params_id": "0",
+      "synced_sample_id": "1765",
+      "image_name": "front_stereo_camera_left/1771445457586533032.jpeg",
+      "timestamp_microseconds": "1771445457586533"
+    },
+    {
+      "id": "3534",
+      "camera_params_id": "1",
+      "synced_sample_id": "1765",
+      "image_name": "front_stereo_camera_right/1771445457586533032.jpeg",
+      "timestamp_microseconds": "1771445457586533"
+    },
+    {
+      "id": "3535",
+      "camera_params_id": "0",
+      "synced_sample_id": "1775",
+      "image_name": "front_stereo_camera_left/1771445457919874072.jpeg",
+      "timestamp_microseconds": "1771445457919874"
+    },
+    {
+      "id": "3554",
+      "camera_params_id": "1",
+      "synced_sample_id": "1775",
+      "image_name": "front_stereo_camera_right/1771445457919874072.jpeg",
+      "timestamp_microseconds": "1771445457919874"
+    },
+    {
+      "id": "3555",
+      "camera_params_id": "0",
+      "synced_sample_id": "1785",
+      "image_name": "front_stereo_camera_left/1771445458253196072.jpeg",
+      "timestamp_microseconds": "1771445458253196"
+    },
+    {
+      "id": "3574",
+      "camera_params_id": "1",
+      "synced_sample_id": "1785",
+      "image_name": "front_stereo_camera_right/1771445458253196072.jpeg",
+      "timestamp_microseconds": "1771445458253196"
+    },
+    {
+      "id": "3575",
+      "camera_params_id": "0",
+      "synced_sample_id": "1795",
+      "image_name": "front_stereo_camera_left/1771445458586513072.jpeg",
+      "timestamp_microseconds": "1771445458586513"
+    },
+    {
+      "id": "3594",
+      "camera_params_id": "1",
+      "synced_sample_id": "1795",
+      "image_name": "front_stereo_camera_right/1771445458586513072.jpeg",
+      "timestamp_microseconds": "1771445458586513"
+    },
+    {
+      "id": "3595",
+      "camera_params_id": "0",
+      "synced_sample_id": "1805",
+      "image_name": "front_stereo_camera_left/1771445458919833160.jpeg",
+      "timestamp_microseconds": "1771445458919833"
+    },
+    {
+      "id": "3614",
+      "camera_params_id": "1",
+      "synced_sample_id": "1805",
+      "image_name": "front_stereo_camera_right/1771445458919833160.jpeg",
+      "timestamp_microseconds": "1771445458919833"
+    },
+    {
+      "id": "3615",
+      "camera_params_id": "0",
+      "synced_sample_id": "1815",
+      "image_name": "front_stereo_camera_left/1771445459253172160.jpeg",
+      "timestamp_microseconds": "1771445459253172"
+    },
+    {
+      "id": "3634",
+      "camera_params_id": "1",
+      "synced_sample_id": "1815",
+      "image_name": "front_stereo_camera_right/1771445459253172160.jpeg",
+      "timestamp_microseconds": "1771445459253172"
+    },
+    {
+      "id": "3635",
+      "camera_params_id": "0",
+      "synced_sample_id": "1825",
+      "image_name": "front_stereo_camera_left/1771445459586493160.jpeg",
+      "timestamp_microseconds": "1771445459586493"
+    },
+    {
+      "id": "3654",
+      "camera_params_id": "1",
+      "synced_sample_id": "1825",
+      "image_name": "front_stereo_camera_right/1771445459586493160.jpeg",
+      "timestamp_microseconds": "1771445459586493"
+    },
+    {
+      "id": "3655",
+      "camera_params_id": "0",
+      "synced_sample_id": "1835",
+      "image_name": "front_stereo_camera_left/1771445459919814032.jpeg",
+      "timestamp_microseconds": "1771445459919814"
+    },
+    {
+      "id": "3674",
+      "camera_params_id": "1",
+      "synced_sample_id": "1835",
+      "image_name": "front_stereo_camera_right/1771445459919814032.jpeg",
+      "timestamp_microseconds": "1771445459919814"
+    },
+    {
+      "id": "3675",
+      "camera_params_id": "0",
+      "synced_sample_id": "1845",
+      "image_name": "front_stereo_camera_left/1771445460253134032.jpeg",
+      "timestamp_microseconds": "1771445460253134"
+    },
+    {
+      "id": "3694",
+      "camera_params_id": "1",
+      "synced_sample_id": "1845",
+      "image_name": "front_stereo_camera_right/1771445460253134032.jpeg",
+      "timestamp_microseconds": "1771445460253134"
+    },
+    {
+      "id": "3695",
+      "camera_params_id": "0",
+      "synced_sample_id": "1855",
+      "image_name": "front_stereo_camera_left/1771445460586455032.jpeg",
+      "timestamp_microseconds": "1771445460586455"
+    },
+    {
+      "id": "3714",
+      "camera_params_id": "1",
+      "synced_sample_id": "1855",
+      "image_name": "front_stereo_camera_right/1771445460586455032.jpeg",
+      "timestamp_microseconds": "1771445460586455"
+    },
+    {
+      "id": "3715",
+      "camera_params_id": "0",
+      "synced_sample_id": "1865",
+      "image_name": "front_stereo_camera_left/1771445460919794128.jpeg",
+      "timestamp_microseconds": "1771445460919794"
+    },
+    {
+      "id": "3734",
+      "camera_params_id": "1",
+      "synced_sample_id": "1865",
+      "image_name": "front_stereo_camera_right/1771445460919794128.jpeg",
+      "timestamp_microseconds": "1771445460919794"
+    },
+    {
+      "id": "3735",
+      "camera_params_id": "0",
+      "synced_sample_id": "1875",
+      "image_name": "front_stereo_camera_left/1771445461253115128.jpeg",
+      "timestamp_microseconds": "1771445461253115"
+    },
+    {
+      "id": "3754",
+      "camera_params_id": "1",
+      "synced_sample_id": "1875",
+      "image_name": "front_stereo_camera_right/1771445461253115128.jpeg",
+      "timestamp_microseconds": "1771445461253115"
+    },
+    {
+      "id": "3755",
+      "camera_params_id": "0",
+      "synced_sample_id": "1885",
+      "image_name": "front_stereo_camera_left/1771445461586435128.jpeg",
+      "timestamp_microseconds": "1771445461586435"
+    },
+    {
+      "id": "3774",
+      "camera_params_id": "1",
+      "synced_sample_id": "1885",
+      "image_name": "front_stereo_camera_right/1771445461586435128.jpeg",
+      "timestamp_microseconds": "1771445461586435"
+    },
+    {
+      "id": "3775",
+      "camera_params_id": "0",
+      "synced_sample_id": "1895",
+      "image_name": "front_stereo_camera_left/1771445461919756112.jpeg",
+      "timestamp_microseconds": "1771445461919756"
+    },
+    {
+      "id": "3794",
+      "camera_params_id": "1",
+      "synced_sample_id": "1895",
+      "image_name": "front_stereo_camera_right/1771445461919756112.jpeg",
+      "timestamp_microseconds": "1771445461919756"
+    },
+    {
+      "id": "3795",
+      "camera_params_id": "0",
+      "synced_sample_id": "1905",
+      "image_name": "front_stereo_camera_left/1771445462253077112.jpeg",
+      "timestamp_microseconds": "1771445462253077"
+    },
+    {
+      "id": "3814",
+      "camera_params_id": "1",
+      "synced_sample_id": "1905",
+      "image_name": "front_stereo_camera_right/1771445462253077112.jpeg",
+      "timestamp_microseconds": "1771445462253077"
+    },
+    {
+      "id": "3815",
+      "camera_params_id": "0",
+      "synced_sample_id": "1915",
+      "image_name": "front_stereo_camera_left/1771445462586416112.jpeg",
+      "timestamp_microseconds": "1771445462586416"
+    },
+    {
+      "id": "3834",
+      "camera_params_id": "1",
+      "synced_sample_id": "1915",
+      "image_name": "front_stereo_camera_right/1771445462586416112.jpeg",
+      "timestamp_microseconds": "1771445462586416"
+    },
+    {
+      "id": "3835",
+      "camera_params_id": "0",
+      "synced_sample_id": "1925",
+      "image_name": "front_stereo_camera_left/1771445462919736064.jpeg",
+      "timestamp_microseconds": "1771445462919736"
+    },
+    {
+      "id": "3854",
+      "camera_params_id": "1",
+      "synced_sample_id": "1925",
+      "image_name": "front_stereo_camera_right/1771445462919736064.jpeg",
+      "timestamp_microseconds": "1771445462919736"
+    },
+    {
+      "id": "3855",
+      "camera_params_id": "0",
+      "synced_sample_id": "1935",
+      "image_name": "front_stereo_camera_left/1771445463253058064.jpeg",
+      "timestamp_microseconds": "1771445463253058"
+    },
+    {
+      "id": "3874",
+      "camera_params_id": "1",
+      "synced_sample_id": "1935",
+      "image_name": "front_stereo_camera_right/1771445463253058064.jpeg",
+      "timestamp_microseconds": "1771445463253058"
+    },
+    {
+      "id": "3875",
+      "camera_params_id": "0",
+      "synced_sample_id": "1945",
+      "image_name": "front_stereo_camera_left/1771445463586380064.jpeg",
+      "timestamp_microseconds": "1771445463586380"
+    },
+    {
+      "id": "3894",
+      "camera_params_id": "1",
+      "synced_sample_id": "1945",
+      "image_name": "front_stereo_camera_right/1771445463586380064.jpeg",
+      "timestamp_microseconds": "1771445463586380"
+    },
+    {
+      "id": "3895",
+      "camera_params_id": "0",
+      "synced_sample_id": "1955",
+      "image_name": "front_stereo_camera_left/1771445463919699072.jpeg",
+      "timestamp_microseconds": "1771445463919699"
+    },
+    {
+      "id": "3914",
+      "camera_params_id": "1",
+      "synced_sample_id": "1955",
+      "image_name": "front_stereo_camera_right/1771445463919699072.jpeg",
+      "timestamp_microseconds": "1771445463919699"
+    },
+    {
+      "id": "3915",
+      "camera_params_id": "0",
+      "synced_sample_id": "1965",
+      "image_name": "front_stereo_camera_left/1771445464253041072.jpeg",
+      "timestamp_microseconds": "1771445464253041"
+    },
+    {
+      "id": "3934",
+      "camera_params_id": "1",
+      "synced_sample_id": "1965",
+      "image_name": "front_stereo_camera_right/1771445464253041072.jpeg",
+      "timestamp_microseconds": "1771445464253041"
+    },
+    {
+      "id": "3935",
+      "camera_params_id": "0",
+      "synced_sample_id": "1975",
+      "image_name": "front_stereo_camera_left/1771445464586358072.jpeg",
+      "timestamp_microseconds": "1771445464586358"
+    },
+    {
+      "id": "3954",
+      "camera_params_id": "1",
+      "synced_sample_id": "1975",
+      "image_name": "front_stereo_camera_right/1771445464586358072.jpeg",
+      "timestamp_microseconds": "1771445464586358"
+    },
+    {
+      "id": "3955",
+      "camera_params_id": "0",
+      "synced_sample_id": "1985",
+      "image_name": "front_stereo_camera_left/1771445464919679060.jpeg",
+      "timestamp_microseconds": "1771445464919679"
+    },
+    {
+      "id": "3974",
+      "camera_params_id": "1",
+      "synced_sample_id": "1985",
+      "image_name": "front_stereo_camera_right/1771445464919679060.jpeg",
+      "timestamp_microseconds": "1771445464919679"
+    },
+    {
+      "id": "3975",
+      "camera_params_id": "0",
+      "synced_sample_id": "1995",
+      "image_name": "front_stereo_camera_left/1771445465253000060.jpeg",
+      "timestamp_microseconds": "1771445465253000"
+    },
+    {
+      "id": "3994",
+      "camera_params_id": "1",
+      "synced_sample_id": "1995",
+      "image_name": "front_stereo_camera_right/1771445465253000060.jpeg",
+      "timestamp_microseconds": "1771445465253000"
+    },
+    {
+      "id": "3995",
+      "camera_params_id": "0",
+      "synced_sample_id": "2005",
+      "image_name": "front_stereo_camera_left/1771445465586339060.jpeg",
+      "timestamp_microseconds": "1771445465586339"
+    },
+    {
+      "id": "4014",
+      "camera_params_id": "1",
+      "synced_sample_id": "2005",
+      "image_name": "front_stereo_camera_right/1771445465586339060.jpeg",
+      "timestamp_microseconds": "1771445465586339"
+    },
+    {
+      "id": "4015",
+      "camera_params_id": "0",
+      "synced_sample_id": "2015",
+      "image_name": "front_stereo_camera_left/1771445465919659184.jpeg",
+      "timestamp_microseconds": "1771445465919659"
+    },
+    {
+      "id": "4034",
+      "camera_params_id": "1",
+      "synced_sample_id": "2015",
+      "image_name": "front_stereo_camera_right/1771445465919659184.jpeg",
+      "timestamp_microseconds": "1771445465919659"
+    },
+    {
+      "id": "4035",
+      "camera_params_id": "0",
+      "synced_sample_id": "2025",
+      "image_name": "front_stereo_camera_left/1771445466252980184.jpeg",
+      "timestamp_microseconds": "1771445466252980"
+    },
+    {
+      "id": "4048",
+      "camera_params_id": "1",
+      "synced_sample_id": "2025",
+      "image_name": "front_stereo_camera_right/1771445466252980184.jpeg",
+      "timestamp_microseconds": "1771445466252980"
+    }
+  ],
+  "camera_params_id_to_camera_params": {
+    "0": {
+      "sensor_meta_data": {
+        "sensor_type": "CAMERA",
+        "sensor_id": 0,
+        "sensor_name": "front_stereo_camera_left",
+        "frequency": 30,
+        "sensor_to_vehicle_transform": {
+          "translation": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "axis_angle": {
+            "x": -0.5775958428296969,
+            "y": 0.5771702412237825,
+            "z": -0.5772846394903755,
+            "angle_degrees": 120.06961847953714
+          }
+        }
+      },
+      "chroma": "COLOR",
+      "calibration_parameters": {
+        "image_width": 960,
+        "image_height": 600,
+        "camera_matrix": {
+          "row_count": 3,
+          "column_count": 3,
+          "data": [
+            481.9788818359375,
+            0.0,
+            479.2020263671875,
+            0.0,
+            481.17022705078125,
+            292.2539978027344,
+            0.0,
+            0.0,
+            1.0
+          ]
+        },
+        "rectification_matrix": {
+          "row_count": 3,
+          "column_count": 3,
+          "data": [
+            0.999999463558197,
+            -0.0010134882759302855,
+            -0.0002755408931989223,
+            0.0010132633615285158,
+            0.9999991655349731,
+            -0.000815302599221468,
+            0.0002763669763226062,
+            0.0008150229696184397,
+            0.9999996423721313
+          ]
+        },
+        "projection_matrix": {
+          "row_count": 3,
+          "column_count": 4,
+          "data": [
+            426.205322265625,
+            0.0,
+            473.22314453125,
+            0.0,
+            0.0,
+            426.205322265625,
+            278.40216064453125,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0
+          ]
+        },
+        "distortion_coefficients": {
+          "row_count": 1,
+          "column_count": 8,
+          "data": [
+            19.803178787231445,
+            12.599993705749512,
+            2.5517636458971538e-05,
+            1.8582593838800676e-05,
+            0.6390519142150879,
+            20.165348052978516,
+            19.945968627929688,
+            3.352372646331787
+          ]
+        }
+      },
+      "camera_projection_model_type": 0
+    },
+    "1": {
+      "sensor_meta_data": {
+        "sensor_type": "CAMERA",
+        "sensor_id": 1,
+        "sensor_name": "front_stereo_camera_right",
+        "frequency": 30,
+        "sensor_to_vehicle_transform": {
+          "translation": {
+            "x": -4.121037043321269e-05,
+            "y": -0.14956167798888134,
+            "z": 0.000151579093224206
+          },
+          "axis_angle": {
+            "x": -0.5775958428288566,
+            "y": 0.5771702412089346,
+            "z": -0.5772846395060611,
+            "angle_degrees": 120.06961847884203
+          }
+        }
+      },
+      "chroma": "COLOR",
+      "calibration_parameters": {
+        "image_width": 960,
+        "image_height": 600,
+        "camera_matrix": {
+          "row_count": 3,
+          "column_count": 3,
+          "data": [
+            482.6893615722656,
+            0.0,
+            473.9661560058594,
+            0.0,
+            481.9247741699219,
+            294.19342041015625,
+            0.0,
+            0.0,
+            1.0
+          ]
+        },
+        "rectification_matrix": {
+          "row_count": 3,
+          "column_count": 3,
+          "data": [
+            0.9999814033508301,
+            -0.00018898359849117696,
+            -0.006098800804466009,
+            0.00019395507115405053,
+            0.9999996423721313,
+            0.0008145752362906933,
+            0.006098644807934761,
+            -0.0008157429401762784,
+            0.9999810457229614
+          ]
+        },
+        "projection_matrix": {
+          "row_count": 3,
+          "column_count": 4,
+          "data": [
+            426.205322265625,
+            0.0,
+            473.22314453125,
+            0.0,
+            0.0,
+            426.205322265625,
+            278.40216064453125,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0
+          ]
+        },
+        "distortion_coefficients": {
+          "row_count": 1,
+          "column_count": 8,
+          "data": [
+            0.868979275226593,
+            0.1305328607559204,
+            2.7841537303174846e-05,
+            5.961514398222789e-05,
+            0.002356345998123288,
+            1.2451058626174927,
+            0.3521876633167267,
+            0.018716152757406235
+          ]
+        }
+      },
+      "camera_projection_model_type": 0
+    }
+  },
+  "camera_params_id_to_session_name": {
+    "0": "data",
+    "1": "data"
+  },
+  "stereo_pair": [
+    {
+      "left_camera_param_id": "0",
+      "right_camera_param_id": "1",
+      "baseline_meters": 0.1495617627365213
+    }
+  ]
+}

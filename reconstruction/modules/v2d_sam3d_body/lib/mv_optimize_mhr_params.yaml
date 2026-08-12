@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+camera_params_path: ???
+weights_dir: ???
+rgb_dir: ???
+bbox_dir: null
+mask_dir: null
+
+output_dir: ???
+
+rig_config: stereo-4
+cameras: [0, 2, 4, 6]
+mask_obj_id: 0
+
+rgb_path_template: "${rgb_dir}/{cam_name}"
+bbox_path_template: "${bbox_dir}/{cam_name}_bbox_track.pt"
+mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}"
+
+mhr_params_path_template: "${output_dir}/{cam_name}/mhr_params.pt"
+mhr_mesh_path_template: "${output_dir}/{cam_name}/mhr_mesh.pt"
+mhr_params_mv_path: "${output_dir}/mhr_params_mv.pt"
+mhr_mesh_mv_path: "${output_dir}/mhr_mesh_mv.pt"
+
+keypoint_invisible_weight: 0.3
+keypoint_occluded_weight: 0.3
+
+sam3d_body_batch_size: 4
+
+debug: 1

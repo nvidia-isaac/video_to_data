@@ -1,0 +1,4 @@
+interface:
+  display_name: "Run Ego Reconstruction"
+  short_description: "Run egocentric reconstruction on a video"
+  default_prompt: "Use $run-ego-reconstruction-video to run the egocentric reconstruction pipeline on my video."

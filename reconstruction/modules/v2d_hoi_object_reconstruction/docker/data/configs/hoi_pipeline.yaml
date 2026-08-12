@@ -1,0 +1,47 @@
+# HOI Object Reconstruction — Pipeline Configuration
+#
+# Controls the orchestration-level behaviour of each pipeline step.
+# For NeRF/SDF/texture neural rendering settings, see theseus_optimizer_hawk.yaml.
+
+stage1_detect:
+  buffer_deg: 10.0          # angle buffer (°) before the detected Stage-1 transition
+
+sfm:
+  config_set: backpack       # CuSFM config preset (backpack | av | isaac | rgbd)
+  num_threads: 1             # CPU threads for CuSFM feature matching
+
+sfm_scan_quality:
+  enabled: true              # validate CuSFM trajectory before auto stage split
+  fail_on_error: true        # stop pipeline when the two-loop scan pattern is unreliable
+  min_keyframes: 30
+  min_angle_span_deg: 600.0  # expected two-loop projected orbit coverage, with margin below 720 deg
+  max_backtracking_fraction: 0.25
+  max_translation_step_m: 2.0
+  max_rotation_step_deg: 90.0
+  robust_step_sigma: 6.0
+  large_step_floor_m: 0.25
+  max_large_step_fraction: 0.25
+
+grounding_dino:
+  box_threshold: 0.3         # confidence threshold for object bbox detection
+
+depth:
+  num_workers: 1             # safe default; opt in to parallel workers explicitly
+
+mask_postprocess:
+  enabled: true              # write raw SAM2 masks to masks_raw_sam2/, cleaned masks to masks/
+  modes: [bundlesdf]         # apply to BundleSDF by default; SAM3D can opt in if needed
+  keep_largest_component: false
+  min_component_area_px: 2000
+  min_component_area_frac: 0.01
+  open_px: 0
+  erode_px: 3
+
+foundationpose:
+  reference_frame: 0         # frame index used as FoundationPose registration reference
+  weights_dir: null          # path to FP weights; null = data/weights/foundationpose
+
+texture_bake:
+  min_keyframe_translation: 0.0   # min camera translation (m) between selected keyframes; 0 = keep all
+  min_keyframe_rotation_deg: 5.0  # min camera rotation (°) between selected keyframes; 0 = keep all
+  min_keyframes: 30               # minimum keyframes after subsampling (uniform padding if needed)

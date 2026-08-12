@@ -1,0 +1,185 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+#
+# NVIDIA CORPORATION and its licensors retain all intellectual property
+# and proprietary rights in and to this software, related documentation
+# and any modifications thereto. Any use, reproduction, disclosure or
+# distribution of this software and related documentation without an express
+# license agreement from NVIDIA CORPORATION is strictly prohibited.
+name: Video Ingestion Agent CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'video_ingestion_agent/**'
+      - '.github/workflows/video_ingestion_agent_ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'video_ingestion_agent/**'
+      - '.github/workflows/video_ingestion_agent_ci.yml'
+  workflow_dispatch:
+
+# Cancel in-progress runs for the same PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: video_ingestion_agent
+
+jobs:
+  ## ------------------------------------------
+  ## Linting and formatting (pre-commit)
+  ## ------------------------------------------
+  lint:
+    name: pre-commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pre-commit
+        run: |
+          python -m pip install --upgrade pip
+          pip install pre-commit
+
+      - name: Cache pre-commit environments
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('video_ingestion_agent/.pre-commit-config.yaml') }}
+          restore-keys: |
+            pre-commit-
+
+      - name: Run pre-commit (scoped to video_ingestion_agent files)
+        # Scoping via `--files` avoids walking sibling subprojects in the
+        # monorepo. pre-commit auto-discovers the local
+        # `video_ingestion_agent/.pre-commit-config.yaml` because of the
+        # `working-directory` default at the top of this workflow.
+        run: pre-commit run --show-diff-on-failure --files $(git ls-files .)
+
+  ## ------------------------------------------
+  ## Unit tests (CPU only — GPU-bound tests
+  ## require self-hosted runners; the existing
+  ## suite is CPU-runnable end-to-end).
+  ## ------------------------------------------
+  unit_tests:
+    name: Unit tests (CPU)
+    needs: [lint]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install ffmpeg
+        # ffmpeg is a runtime dependency of the package (see README) and a
+        # handful of tests under `tests/test_common_utils.py` create synthetic
+        # videos via `ffmpeg -f lavfi`. Without it those tests raise
+        # `FileNotFoundError: [Errno 2] No such file or directory: 'ffmpeg'`.
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq --no-install-recommends ffmpeg
+          ffmpeg -version | head -n1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        run: |
+          python -m pip install --upgrade pip
+          pip install uv
+
+      - name: Cache uv + venv
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/uv
+            video_ingestion_agent/.venv
+          key: vi-agent-venv-${{ runner.os }}-py311-${{ hashFiles('video_ingestion_agent/pyproject.toml') }}
+          restore-keys: |
+            vi-agent-venv-${{ runner.os }}-py311-
+
+      - name: Install package + extras
+        run: |
+          # Reuse a cache-restored venv when present; `uv venv` errors out on
+          # an existing directory and `--clear` would defeat the cache.
+          [ -f .venv/bin/activate ] || uv venv .venv
+          source .venv/bin/activate
+          # [local] for torch/transformers/timm needed by visual-extractor tests;
+          # [dev] for pytest + ruff; [benchmark] for sentence-transformers/wandb
+          # needed by benchmark-adjacent tests; [webapp] for gradio, which is
+          # transitively imported by tests/test_reconstruction_service.py via
+          # webapp/__init__.py. [server] (vLLM) is intentionally omitted —
+          # vLLM is GPU-only and not exercised by unit tests.
+          uv pip install -e ".[local,dev,benchmark,webapp]"
+
+      - name: Show installed package versions
+        run: |
+          source .venv/bin/activate
+          python -c "import video_ingestion_agent; print('package:', video_ingestion_agent.__version__)"
+          pip list | grep -iE 'torch|transformers|langgraph|pydantic|gradio' || true
+
+      - name: Run unit tests
+        run: |
+          source .venv/bin/activate
+          # `-o addopts=""` overrides pyproject.toml's default --cov flags;
+          # coverage is computed locally, not enforced in CI today.
+          pytest tests/ -o addopts="" -v
+
+      - name: Upload pytest log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-log-${{ github.run_id }}
+          path: video_ingestion_agent/.pytest_cache/
+          retention-days: 7
+
+  ## ------------------------------------------
+  ## Sphinx docs build (lint-quality check —
+  ## ensures the rst pages still compile).
+  ## ------------------------------------------
+  docs_build:
+    name: Sphinx docs
+    needs: [lint]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install docs dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r docs/requirements.txt
+
+      - name: Build HTML docs
+        run: |
+          cd docs
+          # `--keep-going` reports all warnings rather than stopping at the
+          # first one; we don't promote warnings to errors yet (would need
+          # an audit of existing rst pages first).
+          make html SPHINXOPTS="--keep-going"
+
+      - name: Upload built docs
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-ingestion-agent-docs-${{ github.run_id }}
+          path: video_ingestion_agent/docs/_build/current/html/
+          retention-days: 14

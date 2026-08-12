@@ -1,0 +1,8 @@
+data/
+*.pt
+*.pth
+*.mp4
+*.zip
+*.glb
+*.obj
+__pycache__/

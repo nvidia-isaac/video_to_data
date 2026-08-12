@@ -1,0 +1,124 @@
+cv_cuda_params {
+  max_matches_per_point: 2
+  norm_type: SUM_OF_ABSOLUTE_DIFFERENCES
+  enable_cross_check: false
+  match_ratio_threshold: 0.75
+}
+
+general_matching_params {
+  match_radius_pixels: 3000
+  max_abs_level_delta: 4
+  viewing_direction_delta_angle_degrees: 0
+  max_match_threshold: 0.4
+  max_first_second_match_ratio: 0.98
+  epipolar_threshold_pixels: 0
+  is_stereo_rectified: false
+  matching_norm_type: AUTO_MATCHING_NORM
+  turn_off_cross_check: false
+}
+
+use_bf_matcher: false
+
+lightglue_params {
+  match_threshold: 0.1
+  match_top_k: -1
+  global_non_max_method: NONE
+  num_points_tolerance_fraction: 0.3
+
+  aliked_tensorrt_config{
+    model_id: 0
+    use_fp16: true
+    input_dimension {
+      min: 1
+      min: 1
+      min: 2
+      opt: 1
+      opt: 3200
+      opt: 2
+      max: 1
+      max: 5500
+      max: 2
+    }
+    input_dimension {
+      min: 1
+      min: 1
+      min: 2
+      opt: 1
+      opt: 3200
+      opt: 2
+      max: 1
+      max: 5500
+      max: 2
+    }
+    input_dimension {
+      min: 1
+      min: 1
+      min: 128
+      opt: 1
+      opt: 3200
+      opt: 128
+      max: 1
+      max: 5500
+      max: 128
+    }
+    input_dimension {
+      min: 1
+      min: 1
+      min: 128
+      opt: 1
+      opt: 3200
+      opt: 128
+      max: 1
+      max: 5500
+      max: 128
+    }
+  }
+
+  superpoint_tensorrt_config{
+    model_id: 0
+    input_dimension {
+      min: 1
+      min: 1
+      min: 2
+      opt: 1
+      opt: 3200
+      opt: 2
+      max: 1
+      max: 5500
+      max: 2
+    }
+    input_dimension {
+      min: 1
+      min: 1
+      min: 2
+      opt: 1
+      opt: 3200
+      opt: 2
+      max: 1
+      max: 5500
+      max: 2
+    }
+    input_dimension {
+      min: 1
+      min: 1
+      min: 256
+      opt: 1
+      opt: 3200
+      opt: 256
+      max: 1
+      max: 5500
+      max: 256
+    }
+    input_dimension {
+      min: 1
+      min: 1
+      min: 256
+      opt: 1
+      opt: 3200
+      opt: 256
+      max: 1
+      max: 5500
+      max: 256
+    }
+  }
+}

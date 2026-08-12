@@ -1,0 +1,4 @@
+interface:
+  display_name: "Run HOI Reconstruction"
+  short_description: "Launch and verify BundleSDF or SAM3D reconstruction"
+  default_prompt: "Use $hoi-object-reconstruction-run to launch an HOI object reconstruction with sensible defaults and verify the output."

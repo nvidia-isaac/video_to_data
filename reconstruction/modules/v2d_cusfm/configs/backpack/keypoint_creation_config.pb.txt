@@ -1,0 +1,90 @@
+sift_cv_cuda_detector {
+  # in order to increase success rate, increase layers, suggest formulat is log(min(image_width,image_height))/log(2)-2
+  max_layers_per_octave: 6
+  # match with SIFT GPU peak_threshold, SIFT GPU use 0.02/layers, layer number use 3
+  contrast_threshold: 0.02
+  edge_threshold: 10.0
+  initial_sigma: 1.6
+  expand_input_image: false
+
+  max_num_keypoints: 4096
+  num_points_tolerance_fraction: 0.5
+  global_non_max_method: NONE
+}
+
+aliked_detector {
+  max_key_points_for_tensorrt: 4000
+  detector_threshold: 0.005
+
+  num_points_tolerance_fraction: 0.3
+  global_non_max_method: SUPPRESSION_VIA_SQUARE_COVERING
+
+  tensorrt_config {
+    model_id: 0
+    model_name: "aliked"
+    use_fp16: true
+    input_dimension {
+      min: 1
+      min: 3
+      min: 100
+      min: 100
+      opt: 1
+      opt: 3
+      opt: 1200
+      opt: 1920
+      max: 1
+      max: 3
+      max: 2400
+      max: 4000
+    }
+  }
+}
+
+super_point_detector {
+  max_key_points_for_tensorrt: 4000
+  detector_threshold: 0.005
+
+  tensorrt_config {
+    model_id: 0
+    input_dimension {
+      min: 1
+      min: 1
+      min: 100
+      min: 100
+      opt: 1
+      opt: 1
+      opt: 1200
+      opt: 1920
+      max: 1
+      max: 1
+      max: 2400
+      max: 4000
+    }
+  }
+
+  tensorrt_config{
+    model_id: 1
+    input_dimension {
+      min: 1
+      min: 2
+      opt: 3200
+      opt: 2
+      max: 5500
+      max: 2
+    }
+    input_dimension {
+      min: 1
+      min: 256
+      min: 1
+      min: 1
+      opt: 1
+      opt: 256
+      opt: 150
+      opt: 240
+      max: 1
+      max: 256
+      max: 300
+      max: 500
+    }
+  }
+}

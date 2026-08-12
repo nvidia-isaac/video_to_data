@@ -1,0 +1,11 @@
+data/
+checkpoints/
+*.pt
+*.pth
+*.safetensors
+*.ckpt
+*.glb
+*.gltf
+*.zip
+__pycache__/
+tests/test_data/output/

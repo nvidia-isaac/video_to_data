@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAM2 Annotation Tool</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            background: #1a1a1a;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        .header {
+            background: #2a2a2a;
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #444;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        button {
+            padding: 8px 16px;
+            background: #4a9eff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        button:hover {
+            background: #3a8eef;
+        }
+        
+        button:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+        
+        button.danger {
+            background: #e74c3c;
+        }
+        
+        button.danger:hover {
+            background: #c0392b;
+        }
+        
+        .main-content {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+        
+        .canvas-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+            position: relative;
+            overflow: auto;
+        }
+        
+        #annotationCanvas {
+            max-width: 100%;
+            max-height: 100%;
+            cursor: crosshair;
+        }
+        
+        .sidebar {
+            width: 300px;
+            background: #2a2a2a;
+            border-left: 1px solid #444;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        
+        .sidebar h3 {
+            margin-bottom: 15px;
+            color: #4a9eff;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 14px;
+            color: #ccc;
+        }
+        
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 8px;
+            background: #1a1a1a;
+            border: 1px solid #444;
+            border-radius: 4px;
+            color: #fff;
+            font-size: 14px;
+        }
+        
+        .mode-selector {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .mode-selector button {
+            flex: 1;
+        }
+        
+        .mode-selector button.active {
+            background: #2ecc71;
+        }
+        
+        .prompts-list {
+            margin-top: 20px;
+        }
+        
+        .prompt-item {
+            background: #1a1a1a;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            border: 1px solid #444;
+        }
+        
+        .prompt-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+        
+        .prompt-item-info {
+            font-size: 12px;
+            color: #999;
+        }
+        
+        .point-label {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 11px;
+            margin-right: 5px;
+        }
+        
+        .point-label.foreground {
+            background: #2ecc71;
+        }
+        
+        .point-label.background {
+            background: #e74c3c;
+        }
+        
+        .frame-info {
+            margin: 10px 0;
+            font-size: 14px;
+            color: #ccc;
+        }
+        
+        .slider-container {
+            margin: 10px 0;
+        }
+        
+        .slider-container input[type="range"] {
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h2>SAM2 Annotation Tool</h2>
+        <div class="controls">
+            <button id="clearBtn" class="danger">Clear All</button>
+            <button id="saveBtn">Save Prompts</button>
+        </div>
+    </div>
+    
+    <div class="main-content">
+        <div class="canvas-container">
+            <canvas id="annotationCanvas"></canvas>
+        </div>
+        
+        <div class="sidebar">
+            <h3>Frame Navigation</h3>
+            <div class="frame-info">
+                Frame: <span id="currentFrame">0</span> / <span id="totalFrames">0</span>
+            </div>
+            <div class="slider-container">
+                <input type="range" id="frameSlider" min="0" value="0" step="1">
+            </div>
+            <div class="controls">
+                <button id="prevFrameBtn">◀ Prev</button>
+                <button id="nextFrameBtn">Next ▶</button>
+            </div>
+            
+            <h3>Annotation Mode</h3>
+            <div class="mode-selector">
+                <button id="pointModeBtn" class="active">Point</button>
+                <button id="boxModeBtn">Box</button>
+            </div>
+            
+            <div class="form-group">
+                <label>Object ID</label>
+                <input type="number" id="objectId" value="0" min="0">
+            </div>
+            
+            <div class="form-group" id="pointLabelGroup">
+                <label>Point Label</label>
+                <select id="pointLabel">
+                    <option value="1">Foreground (1)</option>
+                    <option value="0">Background (0)</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <button id="deleteLastBtn">Delete Last Prompt</button>
+            </div>
+            
+            <h3>Prompts for Frame</h3>
+            <div id="promptsList" class="prompts-list"></div>
+        </div>
+    </div>
+    
+    <script>
+        let currentFrame = 0;
+        let totalFrames = 0;
+        let videoInfo = null;
+        let canvas = null;
+        let ctx = null;
+        let currentImage = null;
+        let mode = 'point'; // 'point' or 'box'
+        let isDrawing = false;
+        let boxStart = null;
+        let prompts = [];
+        let currentObjectId = 0;
+        
+        // Initialize
+        async function init() {
+            canvas = document.getElementById('annotationCanvas');
+            ctx = canvas.getContext('2d');
+            
+            // Load video info
+            try {
+                const response = await fetch('/api/video/info');
+                videoInfo = await response.json();
+                totalFrames = videoInfo.frame_count;
+                document.getElementById('totalFrames').textContent = totalFrames - 1;
+                document.getElementById('frameSlider').max = totalFrames - 1;
+                
+                // Load prompts
+                await loadPrompts();
+                
+                // Load first frame
+                await loadFrame(0);
+            } catch (error) {
+                console.error('Error initializing:', error);
+                alert('Error loading video: ' + error.message);
+            }
+            
+            // Setup event listeners
+            setupEventListeners();
+        }
+        
+        function setupEventListeners() {
+            // Frame navigation
+            document.getElementById('frameSlider').addEventListener('input', (e) => {
+                loadFrame(parseInt(e.target.value));
+            });
+            
+            document.getElementById('prevFrameBtn').addEventListener('click', () => {
+                if (currentFrame > 0) {
+                    loadFrame(currentFrame - 1);
+                }
+            });
+            
+            document.getElementById('nextFrameBtn').addEventListener('click', () => {
+                if (currentFrame < totalFrames - 1) {
+                    loadFrame(currentFrame + 1);
+                }
+            });
+            
+            // Mode selection
+            document.getElementById('pointModeBtn').addEventListener('click', () => {
+                mode = 'point';
+                document.getElementById('pointModeBtn').classList.add('active');
+                document.getElementById('boxModeBtn').classList.remove('active');
+                document.getElementById('pointLabelGroup').style.display = 'block';
+            });
+            
+            document.getElementById('boxModeBtn').addEventListener('click', () => {
+                mode = 'box';
+                document.getElementById('boxModeBtn').classList.add('active');
+                document.getElementById('pointModeBtn').classList.remove('active');
+                document.getElementById('pointLabelGroup').style.display = 'none';
+            });
+            
+            // Canvas events
+            canvas.addEventListener('mousedown', handleMouseDown);
+            canvas.addEventListener('mousemove', handleMouseMove);
+            canvas.addEventListener('mouseup', handleMouseUp);
+            canvas.addEventListener('click', handleClick);
+            
+            // Buttons
+            document.getElementById('saveBtn').addEventListener('click', savePrompts);
+            document.getElementById('clearBtn').addEventListener('click', clearAllPrompts);
+            document.getElementById('deleteLastBtn').addEventListener('click', deleteLastPrompt);
+            
+            // Object ID
+            document.getElementById('objectId').addEventListener('change', (e) => {
+                currentObjectId = parseInt(e.target.value);
+            });
+        }
+        
+        async function loadFrame(frameIdx) {
+            currentFrame = frameIdx;
+            document.getElementById('currentFrame').textContent = frameIdx;
+            document.getElementById('frameSlider').value = frameIdx;
+            
+            try {
+                const img = new Image();
+                img.onload = () => {
+                    // Resize canvas to fit image while maintaining aspect ratio
+                    const maxWidth = window.innerWidth - 300;
+                    const maxHeight = window.innerHeight - 100;
+                    const scale = Math.min(maxWidth / img.width, maxHeight / img.height, 1.0);
+                    
+                    canvas.width = img.width * scale;
+                    canvas.height = img.height * scale;
+                    
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    
+                    currentImage = img;
+                    drawPrompts();
+                };
+                img.src = `/api/frame/${frameIdx}?t=${Date.now()}`;
+            } catch (error) {
+                console.error('Error loading frame:', error);
+            }
+            
+            // Load prompts for this frame
+            await loadPromptsForFrame(frameIdx);
+        }
+        
+        async function loadPrompts() {
+            try {
+                const response = await fetch('/api/prompts');
+                const data = await response.json();
+                prompts = data.prompts || [];
+            } catch (error) {
+                console.error('Error loading prompts:', error);
+            }
+        }
+        
+        async function loadPromptsForFrame(frameIdx) {
+            try {
+                const response = await fetch(`/api/prompts/frame/${frameIdx}`);
+                const data = await response.json();
+                drawPrompts();
+                updatePromptsList(data.prompts || []);
+            } catch (error) {
+                console.error('Error loading prompts for frame:', error);
+            }
+        }
+        
+        function handleClick(e) {
+            if (mode === 'point') {
+                const rect = canvas.getBoundingClientRect();
+                const x = (e.clientX - rect.left) * (currentImage.width / canvas.width);
+                const y = (e.clientY - rect.top) * (currentImage.height / canvas.height);
+                
+                const pointLabel = parseInt(document.getElementById('pointLabel').value);
+                addPoint(x, y, pointLabel);
+            }
+        }
+        
+        function handleMouseDown(e) {
+            if (mode === 'box') {
+                isDrawing = true;
+                const rect = canvas.getBoundingClientRect();
+                boxStart = {
+                    x: (e.clientX - rect.left) * (currentImage.width / canvas.width),
+                    y: (e.clientY - rect.top) * (currentImage.height / canvas.height)
+                };
+            }
+        }
+        
+        function handleMouseMove(e) {
+            if (mode === 'box' && isDrawing && boxStart) {
+                const rect = canvas.getBoundingClientRect();
+                const x = (e.clientX - rect.left) * (currentImage.width / canvas.width);
+                const y = (e.clientY - rect.top) * (currentImage.height / canvas.height);
+                
+                drawPrompts();
+                drawBox(boxStart.x, boxStart.y, x, y);
+            }
+        }
+        
+        function handleMouseUp(e) {
+            if (mode === 'box' && isDrawing && boxStart) {
+                const rect = canvas.getBoundingClientRect();
+                const x = (e.clientX - rect.left) * (currentImage.width / canvas.width);
+                const y = (e.clientY - rect.top) * (currentImage.height / canvas.height);
+                
+                const x0 = Math.min(boxStart.x, x);
+                const y0 = Math.min(boxStart.y, y);
+                const x1 = Math.max(boxStart.x, x);
+                const y1 = Math.max(boxStart.y, y);
+                
+                if (Math.abs(x1 - x0) > 5 && Math.abs(y1 - y0) > 5) {
+                    addBox(x0, y0, x1, y1);
+                }
+                
+                isDrawing = false;
+                boxStart = null;
+                drawPrompts();
+            }
+        }
+        
+        function drawBox(x0, y0, x1, y1) {
+            const scale = canvas.width / currentImage.width;
+            ctx.strokeStyle = '#4a9eff';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([]);
+            ctx.strokeRect(x0 * scale, y0 * scale, (x1 - x0) * scale, (y1 - y0) * scale);
+        }
+        
+        function drawPrompts() {
+            if (!currentImage) return;
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(currentImage, 0, 0, canvas.width, canvas.height);
+            
+            const scale = canvas.width / currentImage.width;
+            const framePrompts = prompts.filter(p => p.frame_index === currentFrame);
+            
+            framePrompts.forEach(prompt => {
+                // Draw points
+                if (prompt.points) {
+                    prompt.points.forEach((point, idx) => {
+                        const x = point.x * scale;
+                        const y = point.y * scale;
+                        const label = prompt.point_labels ? prompt.point_labels[idx] : 1;
+                        
+                        ctx.fillStyle = label === 1 ? '#2ecc71' : '#e74c3c';
+                        ctx.beginPath();
+                        ctx.arc(x, y, 5, 0, 2 * Math.PI);
+                        ctx.fill();
+                        ctx.strokeStyle = '#fff';
+                        ctx.lineWidth = 2;
+                        ctx.stroke();
+                    });
+                }
+                
+                // Draw box
+                if (prompt.box) {
+                    const x0 = prompt.box.x0 * scale;
+                    const y0 = prompt.box.y0 * scale;
+                    const x1 = prompt.box.x1 * scale;
+                    const y1 = prompt.box.y1 * scale;
+                    
+                    ctx.strokeStyle = '#4a9eff';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([]);
+                    ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+                }
+            });
+        }
+        
+        async function addPoint(x, y, label) {
+            try {
+                const response = await fetch('/api/prompts', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        frame_index: currentFrame,
+                        object_id: currentObjectId,
+                        points: [{x, y}],
+                        point_labels: [label]
+                    })
+                });
+                
+                if (response.ok) {
+                    await loadPrompts();
+                    await loadPromptsForFrame(currentFrame);
+                }
+            } catch (error) {
+                console.error('Error adding point:', error);
+            }
+        }
+        
+        async function addBox(x0, y0, x1, y1) {
+            try {
+                const response = await fetch('/api/prompts', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        frame_index: currentFrame,
+                        object_id: currentObjectId,
+                        box: {x0, y0, x1, y1}
+                    })
+                });
+                
+                if (response.ok) {
+                    await loadPrompts();
+                    await loadPromptsForFrame(currentFrame);
+                }
+            } catch (error) {
+                console.error('Error adding box:', error);
+            }
+        }
+        
+        async function deleteLastPrompt() {
+            if (prompts.length === 0) return;
+            
+            const lastIdx = prompts.length - 1;
+            try {
+                const response = await fetch(`/api/prompts/${lastIdx}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    await loadPrompts();
+                    await loadPromptsForFrame(currentFrame);
+                }
+            } catch (error) {
+                console.error('Error deleting prompt:', error);
+            }
+        }
+        
+        async function clearAllPrompts() {
+            if (!confirm('Are you sure you want to clear all prompts?')) return;
+            
+            try {
+                const response = await fetch('/api/prompts/clear', {
+                    method: 'POST'
+                });
+                
+                if (response.ok) {
+                    await loadPrompts();
+                    await loadPromptsForFrame(currentFrame);
+                }
+            } catch (error) {
+                console.error('Error clearing prompts:', error);
+            }
+        }
+        
+        async function savePrompts() {
+            try {
+                const response = await fetch('/api/prompts');
+                if (response.ok) {
+                    alert('Prompts saved successfully!');
+                }
+            } catch (error) {
+                console.error('Error saving prompts:', error);
+                alert('Error saving prompts: ' + error.message);
+            }
+        }
+        
+        function updatePromptsList(framePrompts) {
+            const list = document.getElementById('promptsList');
+            list.innerHTML = '';
+            
+            if (framePrompts.length === 0) {
+                list.innerHTML = '<div style="color: #999; font-size: 12px;">No prompts for this frame</div>';
+                return;
+            }
+            
+            framePrompts.forEach((prompt, idx) => {
+                const item = document.createElement('div');
+                item.className = 'prompt-item';
+                
+                // Find the index in the global prompts array
+                const promptIdx = prompts.findIndex((p, i) => {
+                    return p.frame_index === prompt.frame_index && 
+                           p.object_id === prompt.object_id &&
+                           JSON.stringify(p.points || []) === JSON.stringify(prompt.points || []) &&
+                           JSON.stringify(p.box || {}) === JSON.stringify(prompt.box || {});
+                });
+                
+                let content = `<div class="prompt-item-header">
+                    <strong>Object ${prompt.object_id}</strong>
+                </div>`;
+                
+                if (prompt.points) {
+                    content += '<div class="prompt-item-info">Points: ';
+                    prompt.points.forEach((p, i) => {
+                        const label = prompt.point_labels ? prompt.point_labels[i] : 1;
+                        content += `<span class="point-label ${label === 1 ? 'foreground' : 'background'}">(${Math.round(p.x)}, ${Math.round(p.y)})</span>`;
+                    });
+                    content += '</div>';
+                }
+                
+                if (prompt.box) {
+                    content += `<div class="prompt-item-info">Box: (${Math.round(prompt.box.x0)}, ${Math.round(prompt.box.y0)}) - (${Math.round(prompt.box.x1)}, ${Math.round(prompt.box.y1)})</div>`;
+                }
+                
+                item.innerHTML = content;
+                
+                // Add delete button
+                const header = item.querySelector('.prompt-item-header');
+                const deleteBtn = document.createElement('button');
+                deleteBtn.textContent = 'Delete';
+                deleteBtn.style.cssText = 'padding: 2px 8px; font-size: 11px;';
+                deleteBtn.onclick = () => deletePromptByIndex(promptIdx);
+                header.appendChild(deleteBtn);
+                
+                list.appendChild(item);
+            });
+        }
+        
+        async function deletePromptByIndex(promptIdx) {
+            if (promptIdx < 0 || promptIdx >= prompts.length) return;
+            
+            try {
+                const response = await fetch(`/api/prompts/${promptIdx}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    await loadPrompts();
+                    await loadPromptsForFrame(currentFrame);
+                }
+            } catch (error) {
+                console.error('Error deleting prompt:', error);
+            }
+        }
+        
+        // Initialize on load
+        init();
+    </script>
+</body>
+</html>
+

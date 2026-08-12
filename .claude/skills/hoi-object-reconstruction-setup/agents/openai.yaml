@@ -1,0 +1,4 @@
+interface:
+  display_name: "HOI Reconstruction Setup"
+  short_description: "Prepare BundleSDF or SAM3D reconstruction dependencies"
+  default_prompt: "Use $hoi-object-reconstruction-setup to prepare this checkout for an HOI object reconstruction run."

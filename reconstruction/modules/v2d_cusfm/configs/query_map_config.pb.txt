@@ -1,0 +1,24 @@
+max_num_query_keyframes: 300
+max_num_neighbor_keyframes: 20
+keyframes_max_distance_meters: 3.0f
+keyframes_max_orientation_delta_degrees: 50.0f
+points_min_distance_meters: 0.2f
+points_max_distance_meters: 50.0f
+image_margin_width_pixels: 20
+num_threads: 1
+
+max_pixel_error: 4.0
+min_ransac_confidence: 0.95
+
+image_retrieval_config {
+  node_branch_number: 9
+  tree_depth_levels: 7
+  incremental_build_radius_threshold: 0.3
+  shared_node_levelsup: 2
+  min_shared_word_number: 0
+  query_result_number: 10
+  min_inlier_number: 30
+  max_reprojection_error: 10
+  remove_duplicate_feature: false
+  select_clustering_map_frames: false
+}
