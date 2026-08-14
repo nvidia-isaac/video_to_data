@@ -1,6 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """
 Base classes and strategies for clip refinement.
 
@@ -19,7 +18,7 @@ from video_ingestion_agent.ingestion.segmentation.prompts import (
 )
 from video_ingestion_agent.ingestion.state import ClipContext, VerificationResult
 from video_ingestion_agent.models.model_manager import BaseModel as ModelBase
-from video_ingestion_agent.models.model_manager import get_model_manager
+from video_ingestion_agent.models.model_manager import get_model_manager, resolve_api_url
 from video_ingestion_agent.utils.parsing import parse_llm_json
 
 logger = logging.getLogger(__name__)
@@ -84,16 +83,17 @@ class ReannotateStrategy(RefinementStrategy):
         """Get VLM model from ModelManager."""
         if self._model is None:
             manager = get_model_manager()
-            api_url = (
-                self.config.models.vllm_url if self.config.models.vlm_backend == "vllm" else None
-            )
             self._model = manager.get_model(
                 model_name=self.config.models.vlm_model,
                 backend=self.config.models.vlm_backend,
                 device=self.config.models.device,
                 fps=self.config.models.vlm_fps,
                 api_key=self.config.models.api_key,
-                api_url=api_url,
+                api_url=resolve_api_url(
+                    self.config.models.vlm_backend,
+                    vllm_url=self.config.models.vllm_url,
+                    api_url=self.config.models.api_url,
+                ),
                 use_local_media=self.config.models.vllm_local_media,
             )
         return self._model

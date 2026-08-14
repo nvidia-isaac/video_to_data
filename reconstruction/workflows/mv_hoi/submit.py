@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Submit OSMO workflows for MV calibration and HOI reconstruction.
 
-Auto mode — scan Swift for new sequences and submit up to max_concurrent:
+Auto mode — scan object storage for new sequences and submit up to max_concurrent:
     python submit.py --dataset sc_office_4exo_1 --pipeline mv_hoi_reconstruction
 
 Manual mode — submit a single named sequence:
@@ -50,32 +50,42 @@ def load_config() -> dict:
         return yaml.safe_load(f)
 
 
-# Swift / S3 helpers
+# Object-storage helpers
 
-def _parse_swift_url(url: str) -> tuple[str, str, str]:
-    """Return (endpoint, bucket, prefix) from a swift:// URL.
+def _parse_storage_url(url: str) -> tuple[str | None, str, str]:
+    """Return (endpoint, bucket, prefix) from a swift:// or s3:// URL.
 
     Swift URLs: swift://host/account/container/prefix...
     The account (AUTH_*) is handled by credentials. The S3 bucket is the
     Swift container, and everything after it is the key prefix.
     """
+    if url.startswith("s3://"):
+        stripped = url.removeprefix("s3://").rstrip("/")
+        parts = stripped.split("/", 1)
+        bucket = parts[0]
+        prefix = parts[1] if len(parts) > 1 else ""
+        if not bucket:
+            raise ValueError("s3:// URL must include a bucket")
+        return os.environ.get("S3_ENDPOINT_URL") or None, bucket, prefix
+    if not url.startswith("swift://"):
+        raise ValueError("storage URL must start with swift:// or s3://")
     stripped = url.rstrip("/").replace("swift://", "")
     parts = stripped.split("/", 3)
     endpoint = f"https://{parts[0]}"
-    # parts[1] is the account (e.g. AUTH_team-isaac) — skip it
+    # parts[1] is the Swift account — skip it
     bucket = parts[2] if len(parts) > 2 else ""
     prefix = parts[3] if len(parts) > 3 else ""
     return endpoint, bucket, prefix
 
 
-def get_s3_client(swift_url: str):
-    endpoint, bucket, prefix = _parse_swift_url(swift_url)
-    access_key = os.environ.get("CSS_ACCESS_KEY", "")
-    secret_key = os.environ.get("CSS_SECRET_KEY", "")
+def get_s3_client(storage_url: str):
+    endpoint, bucket, prefix = _parse_storage_url(storage_url)
+    access_key = os.environ.get("S3_ACCESS_KEY", "")
+    secret_key = os.environ.get("S3_SECRET_KEY", "")
     if not access_key or not secret_key:
         print(
-            "Error: Set CSS_ACCESS_KEY and CSS_SECRET_KEY environment variables.\n"
-            "  source reconstruction/scripts/setup_css_env.sh",
+            "Error: Set S3_ACCESS_KEY and S3_SECRET_KEY environment variables.\n"
+            "  Optionally set S3_ENDPOINT_URL for an S3-compatible endpoint.",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -84,6 +94,7 @@ def get_s3_client(swift_url: str):
         endpoint_url=endpoint,
         aws_access_key_id=access_key,
         aws_secret_access_key=secret_key,
+        region_name=os.environ.get("S3_REGION", "us-east-1"),
     )
     return client, bucket, prefix
 
@@ -226,6 +237,11 @@ def submit_sequence(
     set_vars: dict[str, str] = {
         "workflow_name": workflow_name,
     }
+    image_registry = os.environ.get(
+        "V2D_IMAGE_REGISTRY",
+        "image-registry-not-configured-see-readme.invalid",
+    ).rstrip("/")
+    set_vars["image_registry"] = image_registry
 
     if pipeline_type == "mv_hoi_reconstruction":
         set_vars["rosbag_url"] = (
@@ -266,7 +282,7 @@ def submit_sequence(
             print(f"  {sequence_name}: no object_id in hoi_metadata, skipping")
             return None
 
-        _, mesh_bucket, mesh_pfx = _parse_swift_url(
+        _, mesh_bucket, mesh_pfx = _parse_storage_url(
             dataset_cfg["mesh_base"]
         )
         mesh_url = resolve_mesh_url(

@@ -203,6 +203,56 @@ Required for the ``api`` backend:
    export NIM_API_KEY="nvapi-..."
 
 
+``Authentication failed (401)`` from the api backend
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Your key does not match the endpoint. The ``api`` backend defaults to
+NVIDIA's internal Inference API gateway; a key issued for a different
+OpenAI-compatible gateway is rejected there with ``401 Unauthorized``
+(and vice versa). Point the pipeline at the gateway your key belongs to:
+
+.. code-block:: yaml
+
+   models:
+     api_url: "https://your-gateway.example.com/v1/chat/completions"
+
+Model identifiers also differ between gateways — use the naming your
+gateway expects. The pipeline aborts immediately on 401/403 rather than
+retrying, so a misconfigured key surfaces on the first VLM call.
+
+
+Orphaned rows after re-ingesting a video (databases created before the fix)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Older versions orphaned the previous run's data when a video was re-ingested
+into an existing ``graph.db``: the video row was replaced under a fresh id
+while its old ``action_segments``/``entities``/``relationships`` survived,
+still searchable but unable to resolve a ``video_path`` (retrieval could then
+recommend a clip that extracts nothing). Re-ingest now replaces the previous
+run's rows in place, foreign key enforcement is on for every connection, and
+the child tables use ``ON DELETE CASCADE`` — orphaning is structurally
+impossible going forward.
+
+Legacy databases are migrated automatically the first time an ingest opens
+them (orphans removed, tables rebuilt with enforced FKs; logged as
+"FK cascade migration complete"). To check or clean a database manually
+without running an ingest:
+
+.. code-block:: sql
+
+   -- count orphans (run against outputs/graph.db)
+   SELECT COUNT(*) FROM action_segments
+   WHERE video_id NOT IN (SELECT id FROM video_metadata);
+
+   -- remove them
+   DELETE FROM action_segments WHERE video_id NOT IN (SELECT id FROM video_metadata);
+   DELETE FROM entities        WHERE video_id NOT IN (SELECT id FROM video_metadata);
+   DELETE FROM relationships   WHERE video_id NOT IN (SELECT id FROM video_metadata);
+
+Or simply delete ``graph.db`` / ``vector.db`` and re-ingest if the database
+is easy to rebuild.
+
+
 How do I use a different VLM?
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -231,22 +281,28 @@ Symptom (in ``~/.video_ingestion_agent/vllm.log``)::
    ValueError: Requested more deepstack tokens than available in buffer:
    num_tokens=336 > self.deepstack_input_embeds_num_tokens=329
 
-This is a regression in vLLM 0.20+ specific to Qwen3-VL. The pinned
-range in ``pyproject.toml`` (``vllm>=0.15.1,<0.20``) avoids it, so a
-fresh ``uv pip install -e ".[all]"`` resolves cleanly. If you've
-manually installed a newer vllm and hit this, downgrade:
+This regression was reported against vLLM 0.20.x for Qwen3-VL and
+motivated the project's former ``vllm<0.13`` pin. It has not reproduced
+on the current locked stack (vllm 0.21.x): neither in single-GPU video
+smoke tests nor across the HoT3D S1 benchmark used to validate the
+0.21 migration. Downgrading is no longer a supported remedy — the
+``vllm-cosmos3`` plugin in the ``server`` extra requires ``vllm>=0.19``.
 
-.. code-block:: bash
+If you do hit it on the current stack, capture the failing video +
+``vllm.log`` and file an issue (it would be new evidence the upstream
+bug persists in 0.21); reducing the per-item token count via
+``python scripts/serve.py --max-pixels <smaller>`` is the interim
+workaround.
 
-   uv pip install 'vllm==0.15.1'
-
-If the downgrade also surfaces a flashinfer cubin/library version
-mismatch (``flashinfer-cubin version (X) does not match flashinfer
-version (Y)``), the documented bypass is::
+If you see a flashinfer cubin/library version mismatch
+(``flashinfer-cubin version (X) does not match flashinfer version
+(Y)``) after manually changing vllm versions, the documented bypass
+is::
 
    FLASHINFER_DISABLE_VERSION_CHECK=1 python scripts/serve.py -c configs/ingestion.yaml
 
-Long-term, align flashinfer/cubin via ``uv pip install --reinstall``.
+Long-term, align flashinfer/cubin via ``uv sync --frozen`` (the
+lockfile keeps them consistent).
 
 Retrieval reports "Video not found" with a leading slash
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

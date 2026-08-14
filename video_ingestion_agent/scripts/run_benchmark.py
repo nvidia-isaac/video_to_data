@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """
 Run the video_ingestion_agent segmentation pipeline on EPIC-KITCHENS-100 videos.
 
@@ -504,6 +503,7 @@ def main():
                 config=config,
                 per_video_subdir="",
                 worker_id=args.worker_id,
+                resume=args.resume,
             )
 
             # Save results summary

@@ -1,6 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 # Webapp configuration with the optional Reconstruct integration tab enabled.
 #
 # The `reconstruction:` block wires the Reconstruct tab at the sibling
@@ -24,6 +23,7 @@
 # Drops the GPU footprint to ~0 from the webapp's side, leaving the full
 # 47 GB free for the reconstruction containers.
 llm_backend: api
+# api_url: https://your-gateway.example.com/v1/chat/completions  # "api" backend endpoint override (null/omitted = built-in NVIDIA Inference API URL)
 llm_model: openai/openai/gpt-5.2  # Adjust to any NIM-served model id
 
 

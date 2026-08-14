@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nvidia:v2d:hoi:frames-meta",
+  "title": "CuSFM-compatible V2D HOI synchronized stereo input profile",
+  "description": "Strict single-stereo-pair profile of the PyCuSFM KeyframesMetadataCollection format consumed by v2d_hoi_object_reconstruction. Cross-field references and stereo pairing require separate semantic validation.",
+  "type": "object",
+  "required": [
+    "initial_pose_type",
+    "keyframes_metadata",
+    "camera_params_id_to_camera_params",
+    "stereo_pair"
+  ],
+  "properties": {
+    "initial_pose_type": {"type": "string"},
+    "keyframes_metadata": {
+      "type": "array",
+      "minItems": 2,
+      "items": {"$ref": "#/$defs/frameMetadata"}
+    },
+    "camera_params_id_to_camera_params": {
+      "type": "object",
+      "minProperties": 2,
+      "maxProperties": 2,
+      "patternProperties": {
+        "^[0-9]+$": {"$ref": "#/$defs/cameraParams"}
+      },
+      "additionalProperties": false
+    },
+    "camera_params_id_to_session_name": {
+      "type": "object",
+      "patternProperties": {
+        "^[0-9]+$": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "stereo_pair": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {"$ref": "#/$defs/stereoPair"}
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "decimalId": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
+    "number3": {
+      "type": "object",
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": {"type": "number"},
+        "y": {"type": "number"},
+        "z": {"type": "number"}
+      },
+      "additionalProperties": true
+    },
+    "axisAngle": {
+      "type": "object",
+      "required": ["x", "y", "z", "angle_degrees"],
+      "properties": {
+        "x": {"type": "number"},
+        "y": {"type": "number"},
+        "z": {"type": "number"},
+        "angle_degrees": {"type": "number"}
+      },
+      "additionalProperties": true
+    },
+    "rigidTransform": {
+      "type": "object",
+      "required": ["translation", "axis_angle"],
+      "properties": {
+        "translation": {"$ref": "#/$defs/number3"},
+        "axis_angle": {"$ref": "#/$defs/axisAngle"}
+      },
+      "additionalProperties": true
+    },
+    "matrix": {
+      "type": "object",
+      "required": ["row_count", "column_count", "data"],
+      "properties": {
+        "row_count": {"type": "integer", "minimum": 1},
+        "column_count": {"type": "integer", "minimum": 1},
+        "data": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "number"}
+        }
+      },
+      "additionalProperties": true
+    },
+    "projectionMatrix": {
+      "type": "object",
+      "required": ["row_count", "column_count", "data"],
+      "properties": {
+        "row_count": {"const": 3},
+        "column_count": {"const": 4},
+        "data": {
+          "type": "array",
+          "minItems": 12,
+          "maxItems": 12,
+          "items": {"type": "number"}
+        }
+      },
+      "additionalProperties": true
+    },
+    "frameMetadata": {
+      "type": "object",
+      "required": [
+        "id",
+        "camera_params_id",
+        "synced_sample_id",
+        "image_name",
+        "timestamp_microseconds"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/decimalId"},
+        "camera_params_id": {"$ref": "#/$defs/decimalId"},
+        "synced_sample_id": {"$ref": "#/$defs/decimalId"},
+        "image_name": {"type": "string", "minLength": 1},
+        "timestamp_microseconds": {"$ref": "#/$defs/decimalId"},
+        "camera_to_world": {"$ref": "#/$defs/rigidTransform"}
+      },
+      "additionalProperties": true
+    },
+    "cameraParams": {
+      "type": "object",
+      "required": ["sensor_meta_data", "calibration_parameters"],
+      "properties": {
+        "sensor_meta_data": {
+          "type": "object",
+          "required": ["sensor_name"],
+          "properties": {
+            "sensor_type": {"type": "string"},
+            "sensor_id": {"type": "integer"},
+            "sensor_name": {
+              "type": "string",
+              "pattern": "^front_stereo_camera_(left|right)$"
+            },
+            "frequency": {"type": "number", "exclusiveMinimum": 0},
+            "sensor_to_vehicle_transform": {"$ref": "#/$defs/rigidTransform"}
+          },
+          "additionalProperties": true
+        },
+        "chroma": {"type": "string"},
+        "calibration_parameters": {
+          "type": "object",
+          "required": ["image_width", "image_height", "projection_matrix"],
+          "properties": {
+            "image_width": {"type": "integer", "minimum": 1},
+            "image_height": {"type": "integer", "minimum": 1},
+            "camera_matrix": {"$ref": "#/$defs/matrix"},
+            "rectification_matrix": {"$ref": "#/$defs/matrix"},
+            "projection_matrix": {"$ref": "#/$defs/projectionMatrix"},
+            "distortion_coefficients": {"$ref": "#/$defs/matrix"}
+          },
+          "additionalProperties": true
+        },
+        "camera_projection_model_type": {
+          "type": ["integer", "string"]
+        }
+      },
+      "additionalProperties": true
+    },
+    "stereoPair": {
+      "type": "object",
+      "required": [
+        "left_camera_param_id",
+        "right_camera_param_id",
+        "baseline_meters"
+      ],
+      "properties": {
+        "left_camera_param_id": {"$ref": "#/$defs/decimalId"},
+        "right_camera_param_id": {"$ref": "#/$defs/decimalId"},
+        "baseline_meters": {"type": "number", "exclusiveMinimum": 0}
+      },
+      "additionalProperties": true
+    }
+  }
+}

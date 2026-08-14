@@ -8,7 +8,7 @@ OSMO workflows for the MV HOI reconstruction and calibration pipelines.
 | File                        | Purpose                                                            |
 |-----------------------------|--------------------------------------------------------------------|
 | `build_images.sh`           | Build all `v2d_*` Docker images locally                            |
-| `push_images.sh`            | Tag + push images to `nvcr.io/nvstaging/isaac-amr` and record version |
+| `push_images.sh`            | Tag + push images to the configured registry and record version      |
 | `submit.py`                 | Submit workflows (single sequence or auto-scan)                    |
 | `query.py`                  | Show workflow status / summaries; owns OSMO read helpers + refresh |
 | `blacklist.py`              | Add/list/remove dataset-scoped sequence blacklist entries          |
@@ -17,6 +17,19 @@ OSMO workflows for the MV HOI reconstruction and calibration pipelines.
 | `osmo/*.yaml`               | OSMO workflow definitions (`mv_calibration`, `mv_hoi_reconstruction`) |
 | `processing.db`             | SQLite DB for normal runs (git-ignored)                            |
 | `processing_test.db`        | SQLite DB for `--test` runs (git-ignored)                          |
+
+Before pushing images or submitting workflows, configure a container registry
+namespace that OSMO can pull from:
+
+```bash
+export V2D_IMAGE_REGISTRY=<registry>/<namespace>
+```
+
+The workflow defaults use an intentionally invalid registry placeholder until
+this value is supplied with `--set image_registry="$V2D_IMAGE_REGISTRY"`.
+Also replace the empty object-storage values in `config.yaml` with your own
+`swift://` or `s3://` locations and export `S3_ACCESS_KEY` and `S3_SECRET_KEY`.
+For an S3-compatible service, set `S3_ENDPOINT_URL` and `S3_REGION` as well.
 
 ## Database
 

@@ -1,6 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Visual feature extractor using VLM and SigLIP-2."""
 
 import logging
@@ -60,6 +59,7 @@ class VisualExtractor:
         chunk_overlap: float = 5.0,
         vlm_backend: str = "local",
         api_key: str | None = None,
+        api_url: str | None = None,
         vlm_prompt: str | None = None,
     ):
         """
@@ -73,6 +73,8 @@ class VisualExtractor:
             chunk_overlap: Overlap between chunks (seconds)
             vlm_backend: "local" or "api" for VLM
             api_key: API key if using API backend
+            api_url: Endpoint matching the backend (resolve via
+                ``models.model_manager.resolve_api_url``); None = backend default
             vlm_prompt: Custom prompt for VLM captioning (uses default if None)
         """
         self.device = device
@@ -81,6 +83,7 @@ class VisualExtractor:
         self.vlm_model_name = vlm_model
         self.vlm_backend = vlm_backend
         self.api_key = api_key
+        self.api_url = api_url
         self.vlm_prompt = vlm_prompt.strip() if vlm_prompt else self.DEFAULT_VLM_PROMPT
 
         # SigLIP for embeddings (always local)
@@ -127,6 +130,7 @@ class VisualExtractor:
                 device=self.device,
                 fps=1,  # 1 FPS for frame-based captioning
                 api_key=self.api_key,
+                api_url=self.api_url,
             )
         return self._vlm_model
 
@@ -210,7 +214,8 @@ class VisualExtractor:
                 caption = vlm_model._model.generate_from_frames(
                     frames=images,
                     prompt=self.vlm_prompt,
-                    max_new_tokens=512,
+                    # Headroom for a <think> trace before the caption (reasoning models).
+                    max_new_tokens=2048,
                     temperature=0.0,
                 )
             else:
@@ -226,7 +231,8 @@ class VisualExtractor:
                 ]
                 caption = vlm_model.generate_text(
                     conversation=conversation,
-                    max_new_tokens=512,
+                    # Headroom for a <think> trace before the caption (reasoning models).
+                    max_new_tokens=2048,
                     temperature=0.0,
                 )
 
@@ -288,6 +294,9 @@ class VisualExtractor:
                 # Extract embeddings
                 with torch.no_grad():
                     outputs = self.embedding_model.get_image_features(**inputs)
+                    # transformers >=5 returns a ModelOutput, not a tensor
+                    if hasattr(outputs, "pooler_output"):
+                        outputs = outputs.pooler_output
                     # Normalize embeddings
                     batch_embeddings = outputs / outputs.norm(dim=-1, keepdim=True)
                     batch_embeddings = batch_embeddings.cpu().numpy()
@@ -326,6 +335,9 @@ class VisualExtractor:
 
         with torch.no_grad():
             outputs = self.embedding_model.get_image_features(**inputs)
+            # transformers >=5 returns a ModelOutput, not a tensor
+            if hasattr(outputs, "pooler_output"):
+                outputs = outputs.pooler_output
             embedding = outputs / outputs.norm(dim=-1, keepdim=True)
             embedding = embedding.cpu().numpy()[0]
 

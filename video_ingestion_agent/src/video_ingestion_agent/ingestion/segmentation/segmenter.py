@@ -1,6 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """
 Hybrid video segmenter.
 
@@ -25,7 +24,7 @@ from video_ingestion_agent.ingestion.segmentation.prompts import (
 from video_ingestion_agent.ingestion.segmentation.video_utils import extract_video_chunk
 from video_ingestion_agent.ingestion.state import ClipContext
 from video_ingestion_agent.models.model_manager import BaseModel as ModelBase
-from video_ingestion_agent.models.model_manager import get_model_manager
+from video_ingestion_agent.models.model_manager import get_model_manager, resolve_api_url
 from video_ingestion_agent.utils.parsing import parse_llm_json as _parse_llm_json
 from video_ingestion_agent.utils.parsing import parse_timestamp as _parse_timestamp
 from video_ingestion_agent.utils.video_utils import get_video_info as _get_video_info
@@ -112,18 +111,17 @@ class HybridSegmenter:
         """Get VLM model from ModelManager (lazy loaded, cached)."""
         if self._model is None:
             manager = get_model_manager()
-            # Only pass vllm_url when using the vLLM backend; for "api" backend
-            # pass None so APIModel uses its own default endpoint.
-            api_url = (
-                self.model_config.vllm_url if self.model_config.vlm_backend == "vllm" else None
-            )
             self._model = manager.get_model(
                 model_name=self.model_config.vlm_model,
                 backend=self.model_config.vlm_backend,
                 device=self.model_config.device,
                 fps=self.model_config.vlm_fps,
                 api_key=self.model_config.api_key,
-                api_url=api_url,
+                api_url=resolve_api_url(
+                    self.model_config.vlm_backend,
+                    vllm_url=self.model_config.vllm_url,
+                    api_url=self.model_config.api_url,
+                ),
                 use_local_media=self.model_config.vllm_local_media,
             )
         return self._model
@@ -314,20 +312,19 @@ class HybridSegmenter:
 
             logger.error(traceback.format_exc())
 
-            # Fallback: return entire chunk as single segment
-            clip_id = f"{Path(video_path).stem}_clip_{global_clip_idx + 1:04d}"
-            return [
-                ClipContext(
-                    clip_id=clip_id,
-                    video_path=video_path,
-                    start_t=chunk_start,
-                    end_t=chunk_end,
-                    object="unknown",
-                    action="manipulation",
-                    description="Video segment (segmentation failed)",
-                    metadata={"fps": fps, "confidence": 0.3},
-                )
-            ]
+            # Drop this chunk's contribution instead of fabricating a segment.
+            # Previously this returned a synthetic "manipulation" clip spanning
+            # the whole chunk, which injected fake action_segments + frame
+            # embeddings into the (shared) databases that downstream retrieval
+            # then treated as real. A failed chunk must yield no segments, never
+            # a placeholder. The API backend already retries with backoff before
+            # an exception reaches here, so this path means the chunk is
+            # genuinely unrecoverable, not a transient blip.
+            logger.warning(
+                f"  Dropping chunk [{chunk_start:.1f}s-{chunk_end:.1f}s]: "
+                f"no segments produced due to error"
+            )
+            return []
 
         finally:
             # Clean up temp chunk

@@ -3,7 +3,8 @@
 """Export a reconstructed sequence into a flat training-ready layout.
 
 Supports two modes:
-  - Remote: download from CSS via boto3 (swift:// URL or bare S3 path).
+  - Remote: download from S3-compatible object storage via boto3 (swift://,
+    s3://, or bare bucket path).
   - Local: copy from a local directory (e.g. OSMO-mounted task outputs).
 
 The mode is auto-detected: if the source path is an existing local directory,
@@ -11,7 +12,7 @@ local copy is used; otherwise it's treated as a remote S3 path.
 
 Usage (remote):
     python -m v2d.mv.postprocess.lib.export_sequence \
-        --swift_output_base swift://pdx.s8k.io/AUTH_.../data_output/<seq> \
+        --swift_output_base s3://<bucket>/data_output/<sequence> \
         --output_dir /local/path/to/sequence
 
 Usage (local):
@@ -37,10 +38,10 @@ from tqdm import tqdm
 
 DEFAULT_DOWNLOAD_WORKERS = os.cpu_count() or 8
 
-ENDPOINT_URL = os.environ.get("CSS_ENDPOINT_URL", "https://pdx.s8k.io")
-ACCESS_KEY = os.environ.get("CSS_ACCESS_KEY", "")
-SECRET_KEY = os.environ.get("CSS_SECRET_KEY", "")
-REGION = os.environ.get("CSS_REGION", "us-east-1")
+ENDPOINT_URL = os.environ.get("S3_ENDPOINT_URL") or None
+ACCESS_KEY = os.environ.get("S3_ACCESS_KEY", "")
+SECRET_KEY = os.environ.get("S3_SECRET_KEY", "")
+REGION = os.environ.get("S3_REGION", "us-east-1")
 
 LEFT_CAMERAS = [
     "front_stereo_camera_left",
@@ -53,8 +54,8 @@ LEFT_CAMERAS = [
 def _get_s3_client():
     if not ACCESS_KEY or not SECRET_KEY:
         print(
-            "Error: Set CSS_ACCESS_KEY and CSS_SECRET_KEY environment variables.\n"
-            "  source reconstruction/scripts/setup_css_env.sh",
+            "Error: Set S3_ACCESS_KEY and S3_SECRET_KEY environment variables.\n"
+            "  Optionally set S3_ENDPOINT_URL for an S3-compatible endpoint.",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -68,8 +69,8 @@ def _get_s3_client():
     )
 
 
-def _parse_swift_url(url: str) -> tuple[str, str]:
-    """Return (bucket, prefix) from a swift:// URL or a bare bucket/path."""
+def _parse_storage_url(url: str) -> tuple[str, str]:
+    """Return (bucket, prefix) from a swift://, s3://, or bare bucket/path."""
     if url.startswith("swift://"):
         stripped = url.replace("swift://", "").rstrip("/")
         parts = stripped.split("/", 3)
@@ -77,6 +78,16 @@ def _parse_swift_url(url: str) -> tuple[str, str]:
         prefix = parts[3] if len(parts) > 3 else ""
         if not bucket:
             print("Error: swift:// URL must include a container/bucket.", file=sys.stderr)
+            sys.exit(1)
+        return bucket, prefix
+
+    if url.startswith("s3://"):
+        stripped = url.removeprefix("s3://").rstrip("/")
+        parts = stripped.split("/", 1)
+        bucket = parts[0]
+        prefix = parts[1] if len(parts) > 1 else ""
+        if not bucket:
+            print("Error: s3:// URL must include a bucket.", file=sys.stderr)
             sys.exit(1)
         return bucket, prefix
 
@@ -520,7 +531,7 @@ def _export_remote(
 ) -> None:
     """Download from CSS via boto3."""
     client = _get_s3_client()
-    bucket, base_prefix = _parse_swift_url(swift_output_base)
+    bucket, base_prefix = _parse_storage_url(swift_output_base)
 
     for css_sub, out_sub, entry_type, filter_fn, remap_fn, h5_layout in data_map:
         if entry_type == "file":
@@ -569,8 +580,8 @@ if __name__ == "__main__":
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument(
         "--swift_output_base", type=str,
-        help="Swift URL for remote download "
-             "(e.g. swift://pdx.s8k.io/AUTH_.../data_output/<seq>)",
+        help="Object-storage URL for remote download "
+             "(e.g. s3://<bucket>/data_output/<sequence>)",
     )
     source.add_argument(
         "--source_dir", type=str,

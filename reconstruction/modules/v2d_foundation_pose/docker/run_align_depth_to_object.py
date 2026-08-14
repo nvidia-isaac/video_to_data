@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import os
 from v2d.docker.container import run_in_container
-from v2d.foundation_pose.docker._config import IMAGE_NAME, MODULES_DIR
+from v2d.foundation_pose.docker._config import DEV_PRESERVE_VOLUMES, IMAGE_NAME, MODULES_DIR
 
 
 def run_align_depth_to_object(
@@ -55,6 +55,7 @@ def run_align_depth_to_object(
         modules_dir=MODULES_DIR,
         gpus=True,
         env={"FOUNDATIONPOSE_WEIGHTS_DIR": weights_container},
+        extra_volumes=DEV_PRESERVE_VOLUMES if dev else None,
     )
 
 

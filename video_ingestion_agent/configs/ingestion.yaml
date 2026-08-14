@@ -1,6 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 # Unified Pipeline Configuration
 # Ingestion (segmentation + verification + refinement) + Entity Graph
 
@@ -8,8 +7,7 @@
 # Model Configuration
 # ============================================================
 models:
-  # Visual language model for segmentation and verification
-  vlm_model: "Qwen/Qwen3-VL-8B-Instruct"
+  vlm_model: "Qwen/Qwen3-VL-8B-Instruct"  # or "nvidia/Cosmos3-Nano"
   vlm_backend: "vllm"  # "local", "api", or "vllm"
   vlm_fps: 4             # Frame sampling rate for VLM
 
@@ -25,6 +23,7 @@ models:
   # Device and authentication
   device: "cuda"
   api_key: null  # Or set NIM_API_KEY env var
+  api_url: null  # "api" backend endpoint override; null = built-in NVIDIA Inference API URL
 
   # vLLM backend settings (only used when vlm_backend: "vllm")
   # Start server with: python scripts/serve.py -c configs/ingestion.yaml

@@ -1,6 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """
 COSMOS Reason Critic for segmentation verification.
 
@@ -21,7 +20,7 @@ from video_ingestion_agent.ingestion.segmentation.prompts import (
 )
 from video_ingestion_agent.ingestion.state import ClipContext, VerificationResult
 from video_ingestion_agent.models.model_manager import BaseModel as ModelBase
-from video_ingestion_agent.models.model_manager import get_model_manager
+from video_ingestion_agent.models.model_manager import get_model_manager, resolve_api_url
 from video_ingestion_agent.utils.parsing import parse_llm_json
 
 logger = logging.getLogger(__name__)
@@ -67,16 +66,17 @@ class Critic:
         """Get VLM model from ModelManager (lazy loaded, cached)."""
         if self._model is None:
             manager = get_model_manager()
-            api_url = (
-                self.model_config.vllm_url if self.model_config.vlm_backend == "vllm" else None
-            )
             self._model = manager.get_model(
                 model_name=self.model_config.vlm_model,
                 backend=self.model_config.vlm_backend,
                 device=self.model_config.device,
                 fps=self.model_config.vlm_fps,
                 api_key=self.model_config.api_key,
-                api_url=api_url,
+                api_url=resolve_api_url(
+                    self.model_config.vlm_backend,
+                    vllm_url=self.model_config.vllm_url,
+                    api_url=self.model_config.api_url,
+                ),
                 use_local_media=self.model_config.vllm_local_media,
             )
         return self._model

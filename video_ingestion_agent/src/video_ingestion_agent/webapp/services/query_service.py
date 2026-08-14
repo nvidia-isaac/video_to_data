@@ -1,6 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Query service wrapping RetrievalAgent."""
 
 import json
@@ -425,11 +424,21 @@ class HistoryService:
         self.db_path = db_path
         self._ensure_db()
 
+    def _connect(self) -> sqlite3.Connection:
+        """Open the history DB with FK enforcement on.
+
+        SQLite defaults ``foreign_keys`` OFF per connection, which left the
+        declared ON DELETE CASCADE on query_results unenforced.
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("PRAGMA foreign_keys=ON")
+        return conn
+
     def _ensure_db(self):
         """Create database and tables if they don't exist."""
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS query_history (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -478,7 +487,7 @@ class HistoryService:
         Returns:
             ID of saved record.
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             cursor = conn.execute(
                 """
                 INSERT INTO query_history
@@ -535,7 +544,7 @@ class HistoryService:
         where_clause = "WHERE project_id = ?" if project_id else ""
         values = [project_id] if project_id else []
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             rows = conn.execute(
                 f"""
                 SELECT * FROM query_history
@@ -577,7 +586,7 @@ class HistoryService:
 
     def delete_query(self, query_id: int) -> bool:
         """Delete query from history."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             conn.execute("DELETE FROM query_results WHERE query_id = ?", (query_id,))
             conn.execute("DELETE FROM query_history WHERE id = ?", (query_id,))
             conn.commit()

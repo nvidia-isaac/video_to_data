@@ -25,7 +25,7 @@ Usage (inside container):
         --overlay_dir /data/render_hoi_overlay \
         --hoi_metadata_path /data/mv_preprocess/hoi_metadata.yaml \
         --output_dir  /data/upload_hitl \
-        --hitl_s3_base s3://hitl-intake-testing/production-folder/... \
+        --hitl_s3_base s3://your-bucket/path/to/intake \
         --hitl_batch_name sc_office_4exo_1_v3 \
         --video_name v2d_mv_hoi_reconstruction_0-1-0_20260416_120000 \
         --s3_region us-west-2

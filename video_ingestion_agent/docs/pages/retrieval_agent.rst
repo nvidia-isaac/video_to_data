@@ -221,6 +221,7 @@ YAML file falls back to its Pydantic default.
      llm_backend: "vllm"                       # "local", "vllm", or "api"
      embedding_model: "google/siglip2-base-patch16-256"
      api_key: null                              # Or set NIM_API_KEY env var
+     api_url: null                              # 'api' endpoint override; null = NVIDIA Inference API
      device: "cuda"
 
    agent:

@@ -1,6 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """
 LangGraph nodes for entity graph building and reporting.
 
@@ -28,6 +27,7 @@ from video_ingestion_agent.ingestion.state import (
     PipelineState,
     clips_to_action_segments,
 )
+from video_ingestion_agent.models.model_manager import resolve_api_url
 from video_ingestion_agent.utils.vector_database import VectorDatabase
 from video_ingestion_agent.utils.video_processor import VideoProcessor
 
@@ -81,7 +81,11 @@ def entity_extraction_node(state: PipelineState) -> dict[str, Any]:
         device=config.models.device,
         backend=llm_backend,
         api_key=config.models.api_key,
-        api_url=config.models.vllm_url,
+        api_url=resolve_api_url(
+            llm_backend,
+            vllm_url=config.models.vllm_url,
+            api_url=config.models.api_url,
+        ),
         save_responses=config.logging.save_responses,
         response_dir=config.logging.response_dir,
     )
@@ -142,6 +146,11 @@ def frame_embedding_node(state: PipelineState) -> dict[str, Any]:
         chunk_overlap=config.segmentation.chunk_overlap,
         vlm_backend=config.models.vlm_backend,
         api_key=config.models.api_key,
+        api_url=resolve_api_url(
+            config.models.vlm_backend,
+            vllm_url=config.models.vllm_url,
+            api_url=config.models.api_url,
+        ),
     )
 
     fps = config.processing.fps
@@ -227,6 +236,17 @@ def database_write_node(state: PipelineState) -> dict[str, Any]:
     frames = state["frames"]
     embeddings = state["embeddings"]
     config = state["config"]
+
+    # A run that produced no valid clips must not touch the databases:
+    # writing video_metadata would mark the video as processed, making
+    # --resume skip it forever even though the run yielded nothing.
+    if not clips:
+        logger.warning(
+            f"No valid clips for {video_path} -- skipping all database writes "
+            "so the video is not marked as processed (re-run, or run without "
+            "--resume, to retry it)"
+        )
+        return {"db_paths": {}, "status": "db_write_skipped"}
 
     db = config.database
     output_dir = Path(db.directory)

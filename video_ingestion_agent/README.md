@@ -54,7 +54,9 @@ typed state, easy to extend or swap.
 - **Sharded batch ingestion** — duration-aware LPT scheduling across
   multiple GPUs into a shared `graph.db` / `vector.db` using SQLite WAL.
 - **Pluggable model backends** — vLLM (production), local HuggingFace
-  (development), or remote API (NVIDIA NIM / OpenAI-compatible).
+  (development), or remote API (NVIDIA NIM / OpenAI-compatible; set
+  `NIM_API_KEY` and, for non-default gateways, `models.api_url` — see
+  `docs/pages/model_backends.rst`).
 
 ## Requirements
 
@@ -128,7 +130,7 @@ For batch ingestion across many videos and GPUs:
 
 ```bash
 python scripts/run_batch_ingestion.py --input-dir <videos> \
-    -c configs/ingestion.yaml --output-dir runs/batch --num-shards 8 --resume
+    -c configs/batch_ingestion.yaml --output-dir runs/batch --num-shards 8 --resume
 ```
 
 ## Documentation
@@ -147,7 +149,18 @@ Full documentation builds from `docs/` with Sphinx — install
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE).
+Dual-licensed under [CC-BY-4.0 AND Apache-2.0](LICENSE): source code
+under Apache-2.0, documentation and mixed-content files under
+CC-BY-4.0. Third-party dependency notices are in [NOTICE](NOTICE).
+
+## Contributing
+
+We welcome contributions. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
+PR workflow and style guide. **Every commit must be signed off via
+`git commit -s`** under the
+[Developer Certificate of Origin](https://developercertificate.org/) —
+see the [Signing Your Work section](CONTRIBUTING.md#signing-your-work)
+for details.
 
 ## Citation
 

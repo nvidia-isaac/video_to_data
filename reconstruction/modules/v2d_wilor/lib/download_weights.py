@@ -12,6 +12,8 @@ runs are offline.
 import argparse
 import os
 
+from v2d.wilor.lib.mano_assets import prepare_manotorch_mano
+
 
 def run_download(weights_dir: str) -> None:
     os.makedirs(weights_dir, exist_ok=True)
@@ -25,6 +27,7 @@ def run_download(weights_dir: str) -> None:
     _ = WiLorHandPose3dEstimationPipeline(
         device=device, dtype=torch.float16, wilor_pretrained_dir=weights_dir,
     )
+    print(f"  Staging manotorch MANO asset → {prepare_manotorch_mano(weights_dir)}")
     print(f"  Done.")
 
 

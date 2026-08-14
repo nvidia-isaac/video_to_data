@@ -1,6 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Entity extractor using LLM."""
 
 import json
@@ -37,7 +36,7 @@ class EntityExtractor:
         device: str = "cuda",
         backend: str = "local",
         api_key: str | None = None,
-        api_url: str = "http://localhost:8000/v1",
+        api_url: str | None = None,
         save_responses: bool = True,
         response_dir: str = "outputs/debug/entity_extraction",
         allowed_entity_types: list[str] | None = None,
@@ -52,7 +51,10 @@ class EntityExtractor:
             device: Device to run model on
             backend: "local", "api", or "vllm" for LLM inference
             api_key: API key if using API backend
-            api_url: vLLM server URL (only used when backend="vllm")
+            api_url: Endpoint matching the backend — the vLLM server URL
+                for backend="vllm", or an 'api'-backend endpoint override
+                (None = built-in default). Callers should resolve it via
+                ``models.model_manager.resolve_api_url``.
             save_responses: Whether to save LLM responses for debugging
             response_dir: Directory to save responses
             allowed_entity_types: List of allowed entity types (default: person, object, location)
@@ -127,7 +129,8 @@ class EntityExtractor:
             model = self._get_model()
             response = model.generate_text(
                 conversation=conversation,
-                max_new_tokens=2048,
+                # Headroom for a <think> trace before the JSON (reasoning models).
+                max_new_tokens=4096,
                 temperature=0.0,
             )
 

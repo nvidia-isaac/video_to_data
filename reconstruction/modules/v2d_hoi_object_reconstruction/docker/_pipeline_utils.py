@@ -15,8 +15,18 @@ _GPU_BUSY_BUFFER_MIB    = 35 * 1024
 _GPU_IDLE_BUFFER_MIB    =  2 * 1024
 
 
+def _interleave_gpu_slots(slot_counts: list[tuple[int, int]]) -> list[int]:
+    """Order capacity slots so every physical GPU is used before reuse."""
+    return [
+        gpu_id
+        for slot_idx in range(max((count for _, count in slot_counts), default=0))
+        for gpu_id, count in slot_counts
+        if slot_idx < count
+    ]
+
+
 def detect_gpu_ids(mem_required_mib: int = _DEPTH_GPU_MEM_MIB) -> list:
-    """Return list of GPU IDs sized by available memory capacity."""
+    """Return capacity-sized GPU IDs, interleaved across physical GPUs."""
     try:
         out = subprocess.check_output(
             ["nvidia-smi", "--query-gpu=index,memory.free,memory.used",
@@ -25,7 +35,7 @@ def detect_gpu_ids(mem_required_mib: int = _DEPTH_GPU_MEM_MIB) -> list:
         )
     except (FileNotFoundError, subprocess.CalledProcessError):
         return [0]
-    gpu_ids = []
+    slot_counts = []
     for line in out.strip().splitlines():
         parts = line.split(",")
         if len(parts) == 3:
@@ -35,7 +45,9 @@ def detect_gpu_ids(mem_required_mib: int = _DEPTH_GPU_MEM_MIB) -> list:
             buf    = _GPU_BUSY_BUFFER_MIB if used > _GPU_BUSY_THRESHOLD_MIB else _GPU_IDLE_BUFFER_MIB
             usable = max(0, free - buf)
             slots  = usable // mem_required_mib
-            gpu_ids.extend([idx] * slots)
+            if slots:
+                slot_counts.append((idx, slots))
+    gpu_ids = _interleave_gpu_slots(slot_counts)
     return gpu_ids if gpu_ids else [0]
 
 

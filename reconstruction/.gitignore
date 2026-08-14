@@ -33,7 +33,6 @@ modules/*/data/
 # Large 3D model files
 *.glb
 *.gltf
-*.obj
 *.ply
 *.stl
 
@@ -63,3 +62,4 @@ Thumbs.db
 
 # SOMA training data (large)
 /soma_data/
+./data

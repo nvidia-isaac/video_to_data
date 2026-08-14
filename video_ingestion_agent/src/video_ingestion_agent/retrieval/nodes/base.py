@@ -1,6 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Base class for agent nodes.
 
 Provides common functionality for LLM calls, JSON parsing, and tool access.
@@ -13,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from video_ingestion_agent.models.model_manager import BaseModel, get_model_manager
+from video_ingestion_agent.models.model_manager import BaseModel, get_model_manager, resolve_api_url
 from video_ingestion_agent.retrieval.config import RetrievalConfig
 from video_ingestion_agent.retrieval.state import AgentState
 from video_ingestion_agent.retrieval.tools.base import BaseTool
@@ -53,6 +52,11 @@ class BaseNode(ABC):
         self.device = config.models.device
         self.backend = config.models.llm_backend
         self.api_key = config.models.api_key
+        self.api_url = resolve_api_url(
+            self.backend,
+            vllm_url=config.models.vllm_url,
+            api_url=config.models.api_url,
+        )
         self._model: BaseModel | None = None
         self.debug = debug or os.environ.get("VIDEO_INGESTION_AGENT_DEBUG", "").lower() in (
             "1",
@@ -72,6 +76,7 @@ class BaseNode(ABC):
                 backend=self.backend,
                 device=self.device,
                 api_key=self.api_key,
+                api_url=self.api_url,
             )
             logger.info(f"Loaded LLM: {self.llm_model_name}")
         return self._model

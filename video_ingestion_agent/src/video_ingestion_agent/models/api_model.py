@@ -1,6 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """API-based model wrapper.
 
 This module provides the API model wrapper for external LLM services
@@ -134,6 +133,20 @@ class APIModel:
                 return result["choices"][0]["message"]["content"]
 
             except requests.exceptions.RequestException as e:
+                # Auth failures are never transient -- retrying just burns
+                # 15 s of backoff per call and buries the real problem.
+                status = getattr(getattr(e, "response", None), "status_code", None)
+                if status in (401, 403):
+                    msg = (
+                        f"Authentication failed ({status}) against {self.api_url}. "
+                        "Check that NIM_API_KEY (or models.api_key) is valid for "
+                        "this endpoint; if your key belongs to a different "
+                        "OpenAI-compatible gateway, set models.api_url in the "
+                        "config to that gateway's chat/completions URL."
+                    )
+                    logger.error(f"[APIModel] {msg}")
+                    raise RuntimeError(msg) from e
+
                 if attempt == max_retries:
                     logger.error(f"[APIModel] API request failed after {max_retries} attempts: {e}")
                     raise RuntimeError(

@@ -1,6 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 # Benchmark Configuration for EPIC-KITCHENS-100
 # Based on ingestion.yaml, tuned for benchmarking segmentation accuracy.
 #
@@ -26,6 +25,7 @@ models:
 
   device: "cuda"
   api_key: null
+  api_url: null  # "api" backend endpoint override; null = built-in NVIDIA Inference API URL
 
   # vLLM server settings
   # Start server with: python scripts/serve.py -c configs/benchmark_epic_kitchens.yaml

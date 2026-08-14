@@ -1,10 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-# Hello world OSMO workflow: download a file from Swift and print it.
+# Hello world OSMO workflow: download a file from object storage and print it.
 #
 # Usage:
 #   osmo workflow submit reconstruction/workflows/hello_world.yaml \
-#     --set input_url=swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/.../hoi_metadata.yaml \
+#     --set input_url=<object-storage-url>/hoi_metadata.yaml \
 #     --pool <pool>
 
 workflow:

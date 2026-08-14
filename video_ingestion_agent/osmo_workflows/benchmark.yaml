@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -121,10 +123,10 @@ workflow:
 
 default-values:
   workflow_name: benchmark_epic_kitchens
-  image: nvcr.io/nvidian/v2p_video_agent:latest
+  image: image-registry-not-configured-see-readme.invalid/v2p_video_agent:latest
   hf_token: ""
   nim_api_key: ""
   wandb_api_key: ""
   wandb_project: "v2p-benchmark"
   wandb_run_name: ""
-  nfs_videos_path: /mnt/amlfs-02/shared/liuw/v2p/epic_kitchen_p1_p9/EPIC-KITCHENS/
+  nfs_videos_path: ""

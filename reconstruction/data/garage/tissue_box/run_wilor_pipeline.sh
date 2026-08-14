@@ -1,0 +1,12 @@
+python modules/v2d_pipelines/run_ego_reconstruction.py \
+    --dev \
+    --video data/garage/tissue_box/IMG_5969.mp4 \
+    --output_dir data/garage/tissue_box/outputs \
+    --object_prompt "a tissue box" \
+    --reference_frame 0 \
+    --undistort \
+    --hand_tracking hamer \
+    --run_droid_slam \
+    --run_gravity_alignment \
+    --run_gsplat_refinement \
+    --export_threejs_result

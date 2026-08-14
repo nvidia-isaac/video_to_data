@@ -1,6 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 # Benchmark Configuration for HOT3D (Aria) ground truth from per-object contact
 # segmentation.
 #
@@ -26,6 +25,7 @@ models:
 
   device: "cuda"
   api_key: null
+  api_url: null  # "api" backend endpoint override; null = built-in NVIDIA Inference API URL
 
   vllm_url: "http://localhost:8000/v1"
   vllm_tp_size: 8

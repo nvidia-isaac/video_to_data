@@ -10,6 +10,7 @@ Falls back to top-N by mask area if SfM data is unavailable.
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 from typing import Optional
@@ -202,3 +203,44 @@ def select_frames_fallback(job_dir: Path, n: int = 6) -> list[str]:
         scored.append((_mask_area(p), p.stem))
     scored.sort(reverse=True)
     return [stem for _, stem in scored[:n]]
+
+
+def select_frames(
+    job_dir: Path,
+    *,
+    bin_deg: float = 60.0,
+    fallback_count: int = 6,
+) -> list[str]:
+    """Select frames with the trajectory method and mask-area fallback."""
+    selected = select_frames_by_angle_bins(job_dir, bin_deg=bin_deg)
+    if not selected:
+        print("[select_frames] SfM selection empty; using mask-area fallback")
+        selected = select_frames_fallback(job_dir, n=fallback_count)
+    return selected
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--job_dir", type=Path, required=True)
+    parser.add_argument("--output_path", type=Path, required=True)
+    parser.add_argument("--bin_deg", type=float, default=60.0)
+    parser.add_argument("--fallback_count", type=int, default=6)
+    args = parser.parse_args()
+    if args.bin_deg <= 0:
+        parser.error("--bin_deg must be greater than 0")
+    if args.fallback_count < 1:
+        parser.error("--fallback_count must be at least 1")
+
+    selected = select_frames(
+        args.job_dir,
+        bin_deg=args.bin_deg,
+        fallback_count=args.fallback_count,
+    )
+    args.output_path.parent.mkdir(parents=True, exist_ok=True)
+    args.output_path.write_text(json.dumps(selected, indent=2) + "\n")
+    print(f"[select_frames] selected {len(selected)} frames: {selected}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

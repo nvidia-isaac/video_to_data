@@ -1,6 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Vector database for storing and retrieving frame embeddings."""
 
 import json
@@ -125,6 +124,19 @@ class VectorDatabase:
 
         if migrate:
             self._migrate_if_needed()
+            # Enforcement below cannot be enabled over dangling rows left
+            # by pre-cleanup versions; drop them once.
+            purged = self.conn.execute(
+                "DELETE FROM frame_embeddings WHERE video_id NOT IN (SELECT id FROM videos)"
+            ).rowcount
+            if purged:
+                logger.info(f"Removed {purged} orphaned frame embeddings")
+
+        # SQLite defaults foreign key enforcement OFF per connection.
+        # With it on, a frame embedding can never reference a missing
+        # video row (add_video purges a video's frames before its
+        # INSERT OR REPLACE, so the internal delete never trips this).
+        self.conn.execute("PRAGMA foreign_keys=ON")
 
         # Create indexes for efficient querying
         self.conn.execute("""
@@ -177,6 +189,19 @@ class VectorDatabase:
             height: Video height
         """
         try:
+            # Re-adding a video means it is being re-ingested: purge its
+            # previous frame embeddings so a run that produces fewer frames
+            # (or different clip boundaries) cannot leave stale rows tagged
+            # with segment ids from the earlier run.
+            cursor = self.conn.execute("SELECT 1 FROM videos WHERE id = ?", (video_id,))
+            if cursor.fetchone() is not None:
+                purged = self.conn.execute(
+                    "DELETE FROM frame_embeddings WHERE video_id = ?", (video_id,)
+                ).rowcount
+                if purged:
+                    logger.info(
+                        f"Re-ingest of video {video_id}: purged {purged} stale frame embeddings"
+                    )
             self.conn.execute(
                 """
                 INSERT OR REPLACE INTO videos (id, path, duration, fps, width, height)

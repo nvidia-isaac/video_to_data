@@ -63,6 +63,23 @@ to those locations so BundleSDF can find them without copying data.
 | `--gpu_id` | GPU index to use |
 | `--dev` | Mount local modules for development |
 
+## Config Resolution
+
+`v2d_bundlesdf.lib.reconstruct` reads the YAML config, resolves v2d policy
+fields into concrete BundleSDF values, and writes the effective config to
+`resolved_config.yaml`.
+
+Important depth-range fields:
+
+| Field | Purpose |
+|-------|---------|
+| `nerf.far` | SDF training depth range in meters. The default `auto` value is resolved from masked object depth so far objects are still supervised. |
+| `texture_bake.zfar` | Texture-renderer clipping range. This is only used after a mesh exists. |
+
+The default config also contains optional `auto_tune.trunc` and
+`auto_tune.mesh_resolution` policies. They are disabled by default; enable them
+only when intentionally tuning surface thickness or mesh extraction resolution.
+
 ## Outputs
 
 Results are written to `output_path/`:
@@ -70,8 +87,10 @@ Results are written to `output_path/`:
 | File | Description |
 |------|-------------|
 | `textured_mesh.obj` | Final textured mesh (+ `.mtl`, `_0.png` atlas) |
+| `output.glb` | Self-contained GLB exported from `textured_mesh.obj` |
 | `mesh_cleaned.obj` | Untextured SDF mesh |
 | `model_latest.pth` | Saved SDF model (reusable with `--skip-sdf`) |
+| `resolved_config.yaml` | Effective config after auto policy resolution |
 | `run_time.yaml` | Timing breakdown |
 
 ## Tools

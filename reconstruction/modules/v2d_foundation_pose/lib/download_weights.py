@@ -12,6 +12,7 @@ in subdirectories named by their run_name timestamps.
 import argparse
 import os
 import subprocess
+import time
 
 
 SCORER_FOLDER_ID = "12Te_3TELLes5cim1d7F7EBTwUSe7iRBj"
@@ -19,6 +20,32 @@ SCORER_RUN_NAME = "2024-01-11-20-02-45"
 
 REFINER_FOLDER_ID = "1BEQLZH69UO5EOfah-K9bfI3JyP9Hf7wC"
 REFINER_RUN_NAME = "2023-10-28-18-33-37"
+
+GDOWN_MAX_ATTEMPTS = 3
+GDOWN_RETRY_DELAY_SECONDS = 10
+
+
+def _gdown_folder(folder_id: str, output_dir: str) -> None:
+    command = [
+        "gdown", "--folder",
+        f"https://drive.google.com/drive/folders/{folder_id}",
+        "-O", output_dir,
+    ]
+
+    for attempt in range(1, GDOWN_MAX_ATTEMPTS + 1):
+        try:
+            subprocess.run(command, check=True)
+            return
+        except subprocess.CalledProcessError as exc:
+            if attempt == GDOWN_MAX_ATTEMPTS:
+                raise
+
+            print(
+                f"gdown failed with exit code {exc.returncode} "
+                f"(attempt {attempt}/{GDOWN_MAX_ATTEMPTS}); retrying in "
+                f"{GDOWN_RETRY_DELAY_SECONDS} seconds..."
+            )
+            time.sleep(GDOWN_RETRY_DELAY_SECONDS)
 
 
 def download_weights(output_dir: str) -> None:
@@ -32,28 +59,14 @@ def download_weights(output_dir: str) -> None:
         print(f"Scorer weights already exist at {scorer_dir}, skipping.")
     else:
         print(f"Downloading scorer weights to {scorer_dir} ...")
-        subprocess.run(
-            [
-                "gdown", "--folder",
-                f"https://drive.google.com/drive/folders/{SCORER_FOLDER_ID}",
-                "-O", scorer_dir,
-            ],
-            check=True,
-        )
+        _gdown_folder(SCORER_FOLDER_ID, scorer_dir)
 
     refiner_ckpt = os.path.join(refiner_dir, "model_best.pth")
     if os.path.isfile(refiner_ckpt):
         print(f"Refiner weights already exist at {refiner_dir}, skipping.")
     else:
         print(f"Downloading refiner weights to {refiner_dir} ...")
-        subprocess.run(
-            [
-                "gdown", "--folder",
-                f"https://drive.google.com/drive/folders/{REFINER_FOLDER_ID}",
-                "-O", refiner_dir,
-            ],
-            check=True,
-        )
+        _gdown_folder(REFINER_FOLDER_ID, refiner_dir)
 
     print("All FoundationPose weights downloaded successfully.")
     print(f"  Scorer:  {scorer_dir}")

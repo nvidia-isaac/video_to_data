@@ -1,6 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """
 Clip deduplication for overlapping segments.
 
@@ -160,7 +159,8 @@ class ClipDeduplicator:
         fallback = self._merge_heuristic(prev, clip)
 
         try:
-            raw = self.model.generate_text(conversation, max_new_tokens=512, temperature=0.0)
+            # Headroom for a <think> trace before the merge JSON (reasoning models).
+            raw = self.model.generate_text(conversation, max_new_tokens=4096, temperature=0.0)
             data = _parse_llm_json(raw)
         except Exception:
             logger.warning(

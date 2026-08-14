@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Full ego hand + object reconstruction pipeline, fed by ingestion segments.
 
 For each segment in `runs/<run>/clips_final.jsonl` (or `outputs/graph.db`):

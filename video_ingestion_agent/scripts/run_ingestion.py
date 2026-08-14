@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """
 Run the unified ingestion + entity graph pipeline.
 
@@ -185,6 +184,19 @@ Examples:
                 logger.info(f"  Report: file://{report_path.absolute()}")
 
         logger.info("=" * 60)
+
+        # Zero clips means every chunk was dropped (the segmenter swallows
+        # per-chunk errors and returns [] for unrecoverable chunks), so the
+        # run produced nothing ingestible. Exit non-zero instead of
+        # masquerading as success -- a broken backend (e.g. a missing video
+        # decoder) would otherwise fail silently with exit code 0.
+        if not final_state["clips"]:
+            logger.error(
+                "Pipeline produced 0 clips: all chunks failed or yielded no "
+                f"segments. Check {log_file} for per-chunk errors."
+            )
+            sys.exit(1)
+
         logger.info("Pipeline completed successfully!")
 
     except Exception as e:

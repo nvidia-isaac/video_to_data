@@ -4,8 +4,9 @@
 #
 # Usage:
 #   osmo workflow submit reconstruction/workflows/mv_hoi/mv_calibration.yaml \
-#     --set rosbag_url=swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/... \
-#     --set swift_output_base=swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/.../calibration_output/<seq> \
+#     --set image_registry=<registry>/<namespace> \
+#     --set rosbag_url=<object-storage-url> \
+#     --set swift_output_base=<object-storage-url>/calibration_output/<seq> \
 #     --pool <pool>
 
 workflow:
@@ -19,7 +20,7 @@ workflow:
 
   tasks:
   - name: rosbag_to_edex
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_rosbag:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_rosbag:{{image_tag}}"
     command:
     - /bin/bash
     args:
@@ -65,7 +66,7 @@ workflow:
         remove_pngs_after_pack: true
 
   - name: calibrate_extrinsics
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_calibration:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_mv_calibration:{{image_tag}}"
     command:
     - /bin/bash
     args:
@@ -89,6 +90,7 @@ workflow:
 
 default-values:
   workflow_name: v2d_mv_calibration
+  image_registry: image-registry-not-configured-see-readme.invalid
   image_tag: latest
   rosbag_url: ???
   swift_output_base: ???

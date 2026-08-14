@@ -119,7 +119,8 @@ concurrent shard writes:
 - `vllm` — production. Requires `scripts/serve.py` running; supports `vllm_tp_size` for
   tensor parallelism and `vllm_local_media: true` to pass `file://` URLs.
 - `local` — in-process HuggingFace (needs `[local]` extra and a GPU).
-- `api` — NVIDIA NIM / OpenAI-compatible (uses `NIM_API_KEY` or `models.api_key`).
+- `api` — NVIDIA NIM / OpenAI-compatible (uses `NIM_API_KEY` or `models.api_key`;
+  endpoint defaults to the NVIDIA Inference API, override via `models.api_url`).
 
 The frame embedding model (SigLIP-2) is always loaded locally regardless of VLM backend.
 

@@ -3,14 +3,9 @@
 from pathlib import Path
 
 from v2d.docker.container import run_in_container
-from v2d.foundation_pose.docker._config import IMAGE_NAME, MODULES_DIR
+from v2d.foundation_pose.docker._config import DEV_PRESERVE_VOLUMES, IMAGE_NAME, MODULES_DIR
 
 _LIB_CONFIG = Path(__file__).parent.parent / "lib" / "mv_videos_to_poses.yaml"
-
-_DEV_PRESERVE_VOLUMES = [
-    "/workspace/v2d_foundation_pose/lib/FoundationPose/mycpp/build",
-    "/workspace/v2d_foundation_pose/lib/FoundationPose/bundlesdf/mycuda",
-]
 
 
 def run_mv_videos_to_poses(
@@ -54,7 +49,7 @@ def run_mv_videos_to_poses(
             "PYTHONUNBUFFERED": "1",
             "FOUNDATIONPOSE_WEIGHTS_DIR": weights_container,
         },
-        extra_volumes=_DEV_PRESERVE_VOLUMES if dev else None,
+        extra_volumes=DEV_PRESERVE_VOLUMES if dev else None,
     )
 
 

@@ -29,6 +29,8 @@ RUN pip install --no-cache-dir \
 # Dockerfile reproducibility independent of upstream HEAD.
 RUN pip install --no-cache-dir --no-binary gsplat gsplat==1.4.0
 
+RUN pip install rtree
+
 COPY . /workspace
 RUN pip install -e /workspace/v2d_common \
     -e /workspace/v2d_gsplat_refinement/lib

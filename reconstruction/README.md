@@ -47,6 +47,7 @@ run_video_to_depth(
 |---------|-------|-------------|-------|---------|
 | **v2d_unidepth** | `run_image_to_depth`, `run_video_to_depth`, `run_download_weights`, `run_shell` | Monocular depth estimation | `python -m v2d.unidepth.docker.build` | `python -m v2d.unidepth.docker.run_<tool> --args` |
 | **v2d_moge** | `run_image_to_depth`, `run_video_to_depth`, `run_download_weights`, `run_shell` | Video-to-depth (Midas + MoG) | `python -m v2d.moge.docker.build` | `python -m v2d.moge.docker.run_<tool> --args` |
+| **v2d_geocalib** | `run_video_to_calibration`, `run_download_weights` | GeoCalib camera intrinsics + gravity estimation | `python -m v2d.geocalib.docker.build` | `python -m v2d.geocalib.docker.run_<tool> --args` |
 | **v2d_sam2** | `run_video_to_masks`, `run_mv_videos_to_masks`, `run_annotate`, `run_download_weights`, `run_shell` | SAM2 video segmentation (single + multi-view) | `python -m v2d.sam2.docker.build` | `python -m v2d.sam2.docker.run_<tool> --args` |
 | **v2d_sam3d** | `run_image_to_mesh`, `run_render_debug_image`, `run_download_weights`, `run_shell` | 3D mesh from image+mask | `python -m v2d.sam3d.docker.build` | `python -m v2d.sam3d.docker.run_<tool> --args` |
 | **v2d_grounding_dino** | `run_image_to_object_bboxes`, `run_image_list_to_object_bboxes`, `run_video_to_object_bboxes`, `run_mv_image_list_to_object_bboxes`, `run_download_weights`, `run_shell` | Text-guided object detection (single + multi-view) | `python -m v2d.grounding_dino.docker.build` | `python -m v2d.grounding_dino.docker.run_<tool> --args` |
@@ -80,6 +81,13 @@ run_video_to_depth(
 - [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
 - Python 3.10+
 
+For the v0.2 HOI object-reconstruction pipeline, RTX A6000 (SM 86) and L40S
+(SM 89) are validated. Blackwell compute capability 12.0 (`sm_120`), including
+RTX PRO 6000 Blackwell, is not supported by the TensorRT and cuVSLAM versions in
+`v2d_cusfm`. `scripts/build_containers.sh` and the HOI pipeline launcher fail
+before doing expensive work when this architecture is detected. See the
+[module compatibility notes](modules/v2d_hoi_object_reconstruction/README.md#gpu-compatibility).
+
 ### 1. Install the Docker orchestration packages
 
 Each module exposes a **docker** package (lightweight Python wrappers that build and run containers).
@@ -88,8 +96,13 @@ Each module exposes a **docker** package (lightweight Python wrappers that build
 
 ```bash
 cd reconstruction
-./scripts/install_pacakages.sh
+python3 -m venv .venv
+source .venv/bin/activate
+./scripts/install_packages.sh
 ```
+
+If you already use an isolated Python 3.10+ environment, activate it and run
+only `./scripts/install_packages.sh`.
 
 Install only the modules you need:
 
@@ -134,7 +147,8 @@ Each module has its own image.
 
 ```bash
 cd reconstruction
-./build_containers.sh
+source .venv/bin/activate  # or activate your own Python 3.10+ environment
+./scripts/build_containers.sh
 ```
 
 Or build individually (run from any directory after install):
@@ -148,6 +162,12 @@ python -m v2d.moge.docker.build
 ### 3. Download weights
 
 Run `run_download_weights` for each module that requires model weights (e.g. via `python -m v2d.sam3d.docker.run_download_weights --output_dir data/weights/sam3d`).
+
+For GeoCalib, pre-warm the torch hub cache before using `--run_geocalib` or `--gravity_align`:
+
+```bash
+python -m v2d.geocalib.docker.run_download_weights --output_dir data/weights/geocalib
+```
 
 ### Design pattern: host orchestration, containerized inference
 
@@ -189,7 +209,7 @@ Monocular depth estimation using UniDepth.
 | `run_download_weights` | `run_download(output_dir, dev=False)` | Download UniDepth model weights |
 | `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
 
-**Build:** `python -m v2d.unidepth.docker.build`  
+**Build:** `python -m v2d.unidepth.docker.build`
 **Execute:** `python -m v2d.unidepth.docker.run_image_to_depth --image_path ... --depth_path ... --intrinsics_path ... --weights_path ...`
 
 ---
@@ -205,7 +225,7 @@ Video-to-depth using Midas with Grounded MoG prior.
 | `run_download_weights` | `run_download(output_dir, dev=False)` | Download MoGE model weights |
 | `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
 
-**Build:** `python -m v2d.moge.docker.build`  
+**Build:** `python -m v2d.moge.docker.build`
 **Execute:** `python -m v2d.moge.docker.run_video_to_depth --video_path ... --depth_folder ... --intrinsics_folder ... --weights_path ...`
 
 ---
@@ -222,8 +242,8 @@ Segment Anything Model 2 for video segmentation.
 | `run_download_weights` | `run_download(output_dir, dev=False)` | Download SAM2 model weights |
 | `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
 
-**Build:** `python -m v2d.sam2.docker.build`  
-**Execute (single):** `python -m v2d.sam2.docker.run_video_to_masks --video_path ... --prompts_path ... --masks_dir ... --weights_dir ...`  
+**Build:** `python -m v2d.sam2.docker.build`
+**Execute (single):** `python -m v2d.sam2.docker.run_video_to_masks --video_path ... --prompts_path ... --masks_dir ... --weights_dir ...`
 **Execute (multi-view):** `python -m v2d.sam2.docker.run_mv_videos_to_masks --bbox_dir ... --image_dir ... --output_dir ... --weights_dir ...`
 
 ---
@@ -239,7 +259,7 @@ Segment Anything Model 2 for video segmentation.
 | `run_download_weights` | `run_download(output_dir, dev=False)` | Download SAM3D model weights |
 | `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
 
-**Build:** `python -m v2d.sam3d.docker.build`  
+**Build:** `python -m v2d.sam3d.docker.build` (includes EGL/Pyrender for headless overlay videos)
 **Execute:** `python -m v2d.sam3d.docker.run_image_to_mesh --image_path ... --mask_path ... --mesh_path ... --transform_path ... --intrinsics_path ... --weights_dir ...`
 
 ---
@@ -257,8 +277,8 @@ Text-guided object detection using Grounding DINO.
 | `run_download_weights` | `run_download(output_dir, dev=False)` | Download Grounding DINO model weights |
 | `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
 
-**Build:** `python -m v2d.grounding_dino.docker.build`  
-**Execute (single):** `python -m v2d.grounding_dino.docker.run_image_to_object_bboxes --image_path ... --output_path ... --prompt "person" --model_dir ...`  
+**Build:** `python -m v2d.grounding_dino.docker.build`
+**Execute (single):** `python -m v2d.grounding_dino.docker.run_image_to_object_bboxes --image_path ... --output_path ... --prompt "person" --model_dir ...`
 **Execute (multi-view):** `python -m v2d.grounding_dino.docker.run_mv_image_list_to_object_bboxes --image_dir ... --prompt_path ... --output_dir ... --model_dir ...`
 
 ---
@@ -276,8 +296,8 @@ Stereo depth estimation from left/right image pairs.
 | `run_download_weights` | `run_download(output_dir, dev=False)` | Download Foundation Stereo model weights |
 | `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
 
-**Build:** `python -m v2d.foundation_stereo.docker.build`  
-**Execute (single):** `python -m v2d.foundation_stereo.docker.run_image_to_depth --left_image_path ... --right_image_path ... --depth_path ... --intrinsics_path ... --model_dir ... --calibration_file ...`  
+**Build:** `python -m v2d.foundation_stereo.docker.build`
+**Execute (single):** `python -m v2d.foundation_stereo.docker.run_image_to_depth --left_image_path ... --right_image_path ... --depth_path ... --intrinsics_path ... --model_dir ... --calibration_file ...`
 **Execute (multi-view):** `python -m v2d.foundation_stereo.docker.run_mv_image_list_to_depth --camera_params_path ... --image_dir ... --output_dir ... --model_dir ...`
 
 ---
@@ -298,8 +318,8 @@ Stereo depth estimation from left/right image pairs.
 | `run_download_weights` | `run_download(output_dir, dev=False)` | Download FoundationPose model weights |
 | `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
 
-**Build:** `python -m v2d.foundation_pose.docker.build`  
-**Execute (single):** `python -m v2d.foundation_pose.docker.run_video_to_poses --video_path ... --depth_folder ... --masks_folder ... --camera_intrinsics_path ... --mesh_path ... --poses_dir ... --weights_dir ...`  
+**Build:** `python -m v2d.foundation_pose.docker.build`
+**Execute (single):** `python -m v2d.foundation_pose.docker.run_video_to_poses --video_path ... --depth_folder ... --masks_folder ... --camera_intrinsics_path ... --mesh_path ... --poses_dir ... --weights_dir ...`
 **Execute (multi-view):** `python -m v2d.foundation_pose.docker.run_mv_videos_to_poses --camera_params_path ... --image_dir ... --depth_dir ... --mask_dir ... --mesh_path ... --weights_dir ... --output_dir ...`
 
 ---
@@ -313,7 +333,10 @@ End-to-end textured 3D mesh reconstruction from hand-object interaction video us
 | `run_reconstruction` | Full pipeline: CuSFM → depth → mask → Stage-1 NeRF → FoundationPose → Stage-2 NeRF → textured mesh |
 | `run_fp_tracking` | FoundationPose tracking only: center mesh → depth → mask → FP tracking → render overlay |
 
-**Build (from `reconstruction/modules/`):** `python v2d_hoi_object_reconstruction/docker/build.py` (builds the HOI image); `python v2d_bundlesdf/docker/build.py` and `python v2d_cusfm/docker/build.py` build their respective images separately.
+**Setup and build (from `reconstruction/`):** Activate the source checkout's
+Python environment and run `./scripts/install_packages.sh`, then run
+`./scripts/build_containers.sh` to build the source release's images. Model
+weights are downloaded separately.
 
 **Example (from `reconstruction/`):**
 
@@ -327,9 +350,18 @@ python modules/v2d_hoi_object_reconstruction/docker/run_reconstruction.py \
 ```
 
 **Inputs:** `mapping_data_dir/` — stereo images (`front_stereo_camera_left/`, `front_stereo_camera_right/`), `frames_meta.json`, `frame_metadata.jsonl`
-**Outputs:** `job_dir/merged_recon/textured_mesh.obj` — final textured mesh; `job_dir/stage1_recon/textured_mesh.obj` — Stage-1 mesh
+**Outputs:** `job_dir/merged_recon/textured_mesh.obj` and `job_dir/merged_recon/output.glb` — final textured mesh; `job_dir/stage1_recon/textured_mesh.obj` and `job_dir/stage1_recon/output.glb` — Stage-1 mesh
 
-See [`modules/v2d_hoi_object_reconstruction/README.md`](modules/v2d_hoi_object_reconstruction/README.md) for full pipeline details and troubleshooting.
+See
+[`modules/v2d_hoi_object_reconstruction/README.md`](modules/v2d_hoi_object_reconstruction/README.md)
+for full pipeline details and troubleshooting. For agent-assisted setup,
+execution, monitoring, and verification, use the repository's focused
+[`setup`](../.claude/skills/hoi-object-reconstruction-setup/SKILL.md),
+[`run`](../.claude/skills/hoi-object-reconstruction-run/SKILL.md), and
+[`doctor`](../.claude/skills/hoi-object-reconstruction-doctor/SKILL.md) skills
+and follow the module README's [Agentic
+Workflow](modules/v2d_hoi_object_reconstruction/README.md#agentic-workflow)
+section.
 
 ---
 
@@ -345,7 +377,7 @@ See [`modules/v2d_hoi_object_reconstruction/README.md`](modules/v2d_hoi_object_r
 
 Follow the steps in [`modules/v2d_ego_hand_reconstruction/README.md`](modules/v2d_ego_hand_reconstruction/README.md).
 
-**Build:** 
+**Build:**
 
 `python v2d_ego_hand_reconstruction/docker/build.py` (builds both ViPE and Dyn-HaMR images).
 
@@ -372,7 +404,7 @@ run_reconstruction(
 
 Egocentric video (local path or `s3://` URL).
 
-**Outputs:** 
+**Outputs:**
 
 `<output_dir>/logs/` — hand reconstruction results and visualization grids.
 
@@ -419,6 +451,7 @@ SDF learning and texture baking from pre-computed camera poses. Takes keyframes 
 
 **Outputs:**
 - `recon_dir/textured_mesh.obj` — final textured mesh (+ `.mtl`, `_0.png` texture atlas)
+- `recon_dir/output.glb` — self-contained GLB exported from the textured mesh
 - `recon_dir/mesh_cleaned.obj` — untextured SDF mesh
 
 **Build:** `python modules/v2d_bundlesdf/docker/build.py`

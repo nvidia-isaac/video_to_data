@@ -2,12 +2,29 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## HOI object reconstruction skills
+
+Use the focused companion skills under the monorepo's `.claude/skills/` for
+`v2d_hoi_object_reconstruction`:
+
+- **`hoi-object-reconstruction-setup`** prepares host packages, Docker/GPU,
+  images, weights, and calibrated stereo input.
+- **`hoi-object-reconstruction-run`** launches, monitors, resumes, and verifies
+  BundleSDF or SAM3D. It uses the included basketball capture and sensible
+  defaults when run details are omitted instead of starting a questionnaire.
+- **`hoi-object-reconstruction-doctor`** diagnoses the first failing setup,
+  input, pipeline, or output stage and applies the narrowest repair.
+
+For the exact input contract, commands, outputs, and quality checks, treat
+[`modules/v2d_hoi_object_reconstruction/README.md`](modules/v2d_hoi_object_reconstruction/README.md)
+and `run_reconstruction.py --help` as authoritative.
+
 ## Common Commands
 
 **Install host-side packages (lightweight orchestration wrappers):**
 ```bash
 # From reconstruction/
-./scripts/install_pacakages.sh
+./scripts/install_packages.sh
 # Or selectively:
 pip install -e modules/v2d_moge/docker
 ```

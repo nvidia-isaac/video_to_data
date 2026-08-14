@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import os
 from v2d.docker.container import run_in_container
-from v2d.foundation_pose.docker._config import IMAGE_NAME, MODULES_DIR
+from v2d.foundation_pose.docker._config import DEV_PRESERVE_VOLUMES, IMAGE_NAME, MODULES_DIR
 
 
 def run_estimate_mesh_scale(
@@ -62,6 +62,7 @@ def run_estimate_mesh_scale(
             "FOUNDATIONPOSE_WEIGHTS_DIR": weights_container,
             "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
         },
+        extra_volumes=DEV_PRESERVE_VOLUMES if dev else None,
     )
 
 

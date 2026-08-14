@@ -1,6 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Database writer for entity graph with multi-video support."""
 
 import json
@@ -18,7 +17,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# SQL schema for entity graph (v2 with multi-video support)
+# SQL schema for entity graph (v3: enforced FKs with ON DELETE CASCADE).
+#
+# Child tables reference video_metadata(id) with CASCADE so deleting a
+# video can never orphan its rows (enforced via PRAGMA foreign_keys=ON
+# on every connection). The former FOREIGN KEY(...) REFERENCES
+# entities(entity_id) declarations on relationships/action_segments were
+# dropped: entity_id is not unique (it repeats across videos, and
+# *_object_id columns hold free-text object names), so under enforcement
+# SQLite rejects every insert against such a parent with "foreign key
+# mismatch" -- the declarations were never enforceable.
 SCHEMA_SQL = """
 -- Core Entities Table
 CREATE TABLE IF NOT EXISTS entities (
@@ -28,7 +36,7 @@ CREATE TABLE IF NOT EXISTS entities (
     first_seen REAL NOT NULL,
     last_seen REAL NOT NULL,
     properties TEXT,
-    video_id INTEGER REFERENCES video_metadata(id),
+    video_id INTEGER REFERENCES video_metadata(id) ON DELETE CASCADE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
     CHECK (entity_type IN ('person', 'object', 'location')),
@@ -47,11 +55,8 @@ CREATE TABLE IF NOT EXISTS relationships (
     confidence REAL DEFAULT 1.0,
     supporting_evidence TEXT,
     spatial_info TEXT,
-    video_id INTEGER REFERENCES video_metadata(id),
+    video_id INTEGER REFERENCES video_metadata(id) ON DELETE CASCADE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-    FOREIGN KEY(source_id) REFERENCES entities(entity_id),
-    FOREIGN KEY(target_id) REFERENCES entities(entity_id),
 
     CHECK (start_t >= 0),
     CHECK (end_t >= start_t),
@@ -70,11 +75,8 @@ CREATE TABLE IF NOT EXISTS action_segments (
     success BOOLEAN DEFAULT TRUE,
     quality_score REAL,
     visual_evidence TEXT,
-    video_id INTEGER REFERENCES video_metadata(id),
+    video_id INTEGER REFERENCES video_metadata(id) ON DELETE CASCADE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-    FOREIGN KEY(primary_object_id) REFERENCES entities(entity_id),
-    FOREIGN KEY(secondary_object_id) REFERENCES entities(entity_id),
 
     CHECK (start_t >= 0),
     CHECK (end_t >= start_t),
@@ -140,6 +142,13 @@ class DatabaseWriter:
         # Migrate existing databases if needed
         if db_exists:
             self._migrate_if_needed()
+            self._migrate_fk_cascade_if_needed()
+
+        # SQLite leaves foreign key enforcement OFF per connection; enable it
+        # so a dangling video_id can never be written and deletes cascade.
+        # Must come after migration (legacy tables may hold orphans and
+        # unenforceable FK declarations until rebuilt).
+        self.conn.execute("PRAGMA foreign_keys=ON")
 
         logger.info(f"Database initialized: {self.db_path}")
 
@@ -190,9 +199,100 @@ class DatabaseWriter:
             self.conn.commit()
             logger.info("Migration complete")
 
+    # Tables whose video_id FK must be enforced with ON DELETE CASCADE.
+    _CHILD_TABLES = ("entities", "relationships", "action_segments")
+
+    def _fk_layout_is_current(self, table: str) -> bool:
+        """True if *table* has exactly one FK: video_metadata CASCADE."""
+        fks = self.conn.execute(f"PRAGMA foreign_key_list({table})").fetchall()
+        return (
+            len(fks) == 1
+            and fks[0]["table"] == "video_metadata"
+            and fks[0]["on_delete"] == "CASCADE"
+        )
+
+    def _migrate_fk_cascade_if_needed(self):
+        """Rebuild legacy child tables to the enforced-FK schema.
+
+        Legacy databases either declare the video_metadata FK with NO
+        ACTION (schema v2), have no FK at all on video_id (v1 databases
+        that gained the column via ALTER TABLE), or carry unenforceable
+        FKs against the non-unique entities.entity_id column. SQLite
+        cannot alter FKs in place, so each stale table is rebuilt:
+        orphans are removed first (enforcement cannot be enabled over
+        dangling rows), then rows are copied into a fresh table created
+        from the current schema.
+        """
+        stale = [t for t in self._CHILD_TABLES if not self._fk_layout_is_current(t)]
+        if not stale:
+            return
+
+        logger.info(f"Migrating {stale} to enforced ON DELETE CASCADE schema...")
+        # Individual statements from the canonical schema (executescript
+        # would implicitly COMMIT the migration transaction, breaking
+        # atomicity, so each statement is executed on its own).
+        statements = [s.strip() for s in SCHEMA_SQL.split(";") if s.strip()]
+
+        def create_table_stmt(table: str) -> str:
+            for stmt in statements:
+                if f"CREATE TABLE IF NOT EXISTS {table} (" in stmt:
+                    return stmt
+            raise RuntimeError(f"No schema statement found for table {table}")
+
+        try:
+            for table in stale:
+                # 1. Enforcement cannot be enabled over dangling rows.
+                purged = self.conn.execute(
+                    f"DELETE FROM {table} "
+                    "WHERE video_id IS NOT NULL "
+                    "AND video_id NOT IN (SELECT id FROM video_metadata)"
+                ).rowcount
+                if purged:
+                    logger.info(f"  {table}: removed {purged} orphaned rows")
+
+                # 2. Rebuild: move the old table aside, recreate from the
+                #    canonical schema, copy the shared columns across.
+                self.conn.execute(f"ALTER TABLE {table} RENAME TO {table}_legacy")
+                self.conn.execute(create_table_stmt(table))
+
+                old_cols = {
+                    row[1]
+                    for row in self.conn.execute(f"PRAGMA table_info({table}_legacy)").fetchall()
+                }
+                new_cols = [
+                    row[1]
+                    for row in self.conn.execute(f"PRAGMA table_info({table})").fetchall()
+                    if row[1] in old_cols
+                ]
+                cols = ", ".join(new_cols)
+                self.conn.execute(f"INSERT INTO {table} ({cols}) SELECT {cols} FROM {table}_legacy")
+                self.conn.execute(f"DROP TABLE {table}_legacy")
+
+            # Indexes on the rebuilt tables were dropped with the legacy
+            # tables; recreate them (IF NOT EXISTS makes this idempotent).
+            for stmt in statements:
+                if "CREATE INDEX" in stmt:
+                    self.conn.execute(stmt)
+
+            self.conn.commit()
+            logger.info("FK cascade migration complete")
+        except Exception:
+            self.conn.rollback()
+            raise
+
     def write_video_metadata(self, metadata: VideoMetadata) -> int:
         """
         Write video metadata and return video_id.
+
+        Re-ingesting a video that is already in the database replaces its
+        previous run: the video keeps its stable id (updated in place) and
+        all of its existing action_segments, entities, and relationships
+        are deleted in the same transaction. The old implementation used
+        ``INSERT OR REPLACE``, whose delete-then-insert gave the video a
+        fresh AUTOINCREMENT id while (with SQLite FK enforcement off) the
+        previous run's child rows survived pointing at the dead id --
+        orphans that stayed searchable but could never resolve a
+        video_path again.
 
         Args:
             metadata: Video metadata object
@@ -200,21 +300,42 @@ class DatabaseWriter:
         Returns:
             video_id: The database ID for this video
         """
-        self.conn.execute(
-            """
-            INSERT OR REPLACE INTO video_metadata
-            (video_path, duration, fps, width, height)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (metadata.path, metadata.duration, metadata.fps, metadata.width, metadata.height),
-        )
-        self.conn.commit()
-
-        # Get the video_id
         cursor = self.conn.execute(
             "SELECT id FROM video_metadata WHERE video_path = ?", (metadata.path,)
         )
-        video_id = cursor.fetchone()[0]
+        row = cursor.fetchone()
+
+        if row is not None:
+            video_id = row[0]
+            purged = {}
+            for table in ("action_segments", "entities", "relationships"):
+                cur = self.conn.execute(f"DELETE FROM {table} WHERE video_id = ?", (video_id,))
+                purged[table] = cur.rowcount
+            self.conn.execute(
+                """
+                UPDATE video_metadata
+                SET duration = ?, fps = ?, width = ?, height = ?
+                WHERE id = ?
+                """,
+                (metadata.duration, metadata.fps, metadata.width, metadata.height, video_id),
+            )
+            logger.info(
+                f"Re-ingest of {metadata.path} (video_id={video_id}): purged previous run "
+                f"({purged['action_segments']} segments, {purged['entities']} entities, "
+                f"{purged['relationships']} relationships)"
+            )
+        else:
+            cursor = self.conn.execute(
+                """
+                INSERT INTO video_metadata
+                (video_path, duration, fps, width, height)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (metadata.path, metadata.duration, metadata.fps, metadata.width, metadata.height),
+            )
+            video_id = cursor.lastrowid
+
+        self.conn.commit()
 
         logger.info(f"Wrote video metadata: {metadata.path} (video_id={video_id})")
         return video_id

@@ -14,6 +14,7 @@ Expects the output directory to already contain (or have custom paths supplied):
 Outputs written to output_path:
   - mesh_cleaned.obj    untextured SDF mesh
   - textured_mesh.obj   textured mesh (+ .mtl, _0.png atlas)
+  - output.glb          self-contained GLB exported from textured_mesh.obj
   - model_latest.pth    saved SDF model
 
 Usage:
@@ -47,6 +48,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from nvidia.objectreconstruction.networks import NVBundleSDF
 from nvidia.objectreconstruction.dataloader import ReconstructionDataLoader
+
+from v2d_bundlesdf.lib.config_resolver import dump_resolved_config, resolve_bundlesdf_config
+from v2d_bundlesdf.lib.export_glb import export_textured_obj_to_glb
 
 # NVBundleSDF import resets float32_matmul_precision to 'high'; restore to 'highest' for RoMa
 torch.set_float32_matmul_precision('highest')
@@ -221,8 +225,15 @@ def main():
                         help="Root weights directory (roma/ subdirs). Overrides config weight paths.")
     parser.add_argument("--bbox_str", default=None,
                         help="Bounding box 'x1,y1,x2,y2' passed to SAM2 config (informational only)")
+    parser.add_argument("--trunc", type=float, default=None,
+                        help="Override nerf.trunc and nerf.trunc_start in meters; disables auto_tune.trunc")
+    parser.add_argument("--mesh_resolution", "--mesh-resolution", dest="mesh_resolution",
+                        type=float, default=None,
+                        help="Override nerf.mesh_resolution in meters; disables auto_tune.mesh_resolution")
     parser.add_argument("--skip-texture", action="store_true",
                         help="Skip texture baking (faster; produces untextured mesh only)")
+    parser.add_argument("--skip-glb-export", action="store_true",
+                        help="Skip exporting textured_mesh.obj to output.glb")
     parser.add_argument("--skip-sdf", action="store_true",
                         help="Skip SDF training; reuse existing model_latest.pth and run texture baking only")
     parser.add_argument("--images_dir", default=None,
@@ -243,6 +254,10 @@ def main():
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     )
     logger = logging.getLogger(__name__)
+    # Upstream 3DObjectReconstruction uses a non-standard ``progress`` logging
+    # method. Map it to INFO when integrating with Python's standard logger.
+    if not hasattr(logger, "progress"):
+        logger.progress = logger.info
 
     try:
         output_path = Path(args.output_path)
@@ -268,6 +283,22 @@ def main():
             config['roma']['weights']       = f"{w}/roma/roma_outdoor.pth"
             config['roma']['dinov2_weights'] = f"{w}/roma/dinov2_vitl14_pretrain.pth"
 
+        nerf_cfg = config.setdefault('nerf', {})
+        auto_tune_cfg = config.setdefault('auto_tune', {})
+        if args.trunc is not None:
+            if args.trunc <= 0:
+                raise ValueError("--trunc must be > 0")
+            nerf_cfg['trunc'] = float(args.trunc)
+            nerf_cfg['trunc_start'] = float(args.trunc)
+            auto_tune_cfg.setdefault('trunc', {})['enabled'] = False
+            logger.info("Manual override: nerf.trunc=nerf.trunc_start=%.4fm", args.trunc)
+        if args.mesh_resolution is not None:
+            if args.mesh_resolution <= 0:
+                raise ValueError("--mesh_resolution must be > 0")
+            nerf_cfg['mesh_resolution'] = float(args.mesh_resolution)
+            auto_tune_cfg.setdefault('mesh_resolution', {})['enabled'] = False
+            logger.info("Manual override: nerf.mesh_resolution=%.4fm", args.mesh_resolution)
+
         calibration_path = output_path / "calibration.json"
         if not calibration_path.exists():
             calibration_path = output_path.parent / "calibration.json"
@@ -283,6 +314,8 @@ def main():
         config['workdir'] = output_path
         config['bundletrack']['debug_dir'] = output_path / "bundletrack"
         config['nerf']['save_dir'] = output_path
+        config = resolve_bundlesdf_config(config, output_path, logger)
+        dump_resolved_config(config, output_path / "resolved_config.yaml")
 
         bundletrack_config  = config['bundletrack']
         nerf_config         = config['nerf']
@@ -343,19 +376,42 @@ def main():
         else:
             logger.info("Skipping texture baking")
 
+        time_glb_export = 0.0
+        if args.skip_glb_export:
+            logger.info("Skipping GLB export (--skip-glb-export)")
+        else:
+            textured_mesh_path = output_path / "textured_mesh.obj"
+            output_glb_path = output_path / "output.glb"
+            if textured_mesh_path.exists():
+                logger.info("Exporting GLB: %s", output_glb_path)
+                start_glb_export = time.time()
+                export_textured_obj_to_glb(textured_mesh_path, output_glb_path)
+                time_glb_export = time.time() - start_glb_export
+                logger.info("GLB export done in %.1fs", time_glb_export)
+            else:
+                logger.warning("Skipping GLB export; textured mesh not found: %s", textured_mesh_path)
+
         total = time.time() - start_total
         times = {
             "total": total,
             "init": time_init,
             "sdf": time_sdf,
             "texture": time_texture,
+            "glb_export": time_glb_export,
             "gpu_name": torch.cuda.get_device_name(0),
         }
         with open(output_path / "run_time.yaml", "w") as f:
             yaml.dump(times, f)
 
         logger.info("=" * 60)
-        logger.info(f"Done in {total:.1f}s  (init={time_init:.1f}s  sdf={time_sdf:.1f}s  texture={time_texture:.1f}s)")
+        logger.info(
+            "Done in %.1fs  (init=%.1fs  sdf=%.1fs  texture=%.1fs  glb_export=%.1fs)",
+            total,
+            time_init,
+            time_sdf,
+            time_texture,
+            time_glb_export,
+        )
         logger.info("=" * 60)
         return 0
 
@@ -363,6 +419,9 @@ def main():
         logging.error(str(e))
         return 2
     except yaml.YAMLError as e:
+        logging.error(f"Config error: {e}")
+        return 3
+    except ValueError as e:
         logging.error(f"Config error: {e}")
         return 3
     except RuntimeError as e:

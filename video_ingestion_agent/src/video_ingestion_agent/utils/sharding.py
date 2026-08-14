@@ -1,6 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Shared video discovery, sharding, and parallel worker utilities.
 
 Used by both the benchmark runner and the batch ingestion script to
@@ -222,6 +221,7 @@ def process_videos(
     vector_db_path: Path | None = None,
     worker_id: int = 0,
     per_video_subdir: str = "per_video",
+    resume: bool = False,
 ) -> list[dict[str, Any]]:
     """Process a list of videos sequentially through the ingestion pipeline.
 
@@ -238,6 +238,12 @@ def process_videos(
         per_video_subdir: Subdirectory under *output_dir* for per-video
             run dirs.  Use ``""`` to place run dirs directly under
             *output_dir* (as the benchmark does).
+        resume: If False (default), truncate the per-worker progress
+            JSONL at run start. Without this, re-running into a non-empty
+            output_dir leaves stale entries that downstream readers (the
+            webapp Ingest tab) sum into the current run's totals. If
+            True, the file is preserved and new entries append, matching
+            ``summary_worker_*.json``'s per-session contract.
 
     Returns:
         List of per-video result dicts with keys ``video``, ``status``,
@@ -245,6 +251,13 @@ def process_videos(
     """
     # Lazy import to keep this module light at import time
     from video_ingestion_agent.ingestion import run_pipeline
+
+    # Truncate progress file at start of a non-resume run so that re-running
+    # into a populated output_dir doesn't cause readers to sum stale entries
+    # from the prior run into the current run's totals.
+    progress_path = output_dir / f"progress_worker_{worker_id}.jsonl"
+    if not resume:
+        progress_path.unlink(missing_ok=True)
 
     results: list[dict[str, Any]] = []
     total = len(videos)
@@ -297,8 +310,7 @@ def process_videos(
         }
         results.append(result)
 
-        # Append progress incrementally
-        progress_path = output_dir / f"progress_worker_{worker_id}.jsonl"
+        # Append progress incrementally (file already prepared at run start).
         with open(progress_path, "a") as f:
             f.write(json.dumps(result) + "\n")
 
@@ -312,6 +324,52 @@ def process_videos(
             pass
 
     return results
+
+
+def aggregate_worker_progress(output_dir: Path) -> dict[str, dict[str, Any]]:
+    """Aggregate per-worker progress JSONL into one record per video.
+
+    Reads every ``progress_worker_*.jsonl`` under *output_dir* and returns a
+    mapping ``video_id -> latest record`` (the last line written for a given
+    video wins). The ``worker_id`` parsed from each filename is added to the
+    record.
+
+    Deduping by ``video_id`` makes the result robust to three things a naive
+    line-summing reader gets wrong:
+
+    * stale records left in the file by a prior run into the same dir,
+    * the file being truncated and recreated mid-run on a non-resume launch
+      (a concurrent poller, e.g. the webapp Ingest tab, otherwise double-counts
+      records across the rewrite and reports more videos than were processed),
+    * orphan ``progress_worker_N.jsonl`` files from a prior run that used more
+      shards than the current one.
+
+    Callers should count distinct videos from this mapping rather than summing
+    raw JSONL lines.
+    """
+    counted: dict[str, dict[str, Any]] = {}
+    for pf in sorted(output_dir.glob("progress_worker_*.jsonl")):
+        try:
+            wid = int(pf.stem.split("_")[-1])
+        except ValueError:
+            continue
+        try:
+            lines = pf.read_text().splitlines()
+        except OSError:
+            continue
+        for jline in lines:
+            jline = jline.strip()
+            if not jline:
+                continue
+            try:
+                rec = json.loads(jline)
+            except json.JSONDecodeError:
+                continue
+            vid = rec.get("video_id") or Path(rec.get("video", "")).stem
+            if not vid:
+                continue
+            counted[vid] = {**rec, "worker_id": wid}
+    return counted
 
 
 # ---------------------------------------------------------------------------

@@ -15,7 +15,11 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REGISTRY="nvcr.io/nvstaging/isaac-amr"
+REGISTRY="${V2D_IMAGE_REGISTRY:-}"
+if [ -z "${REGISTRY}" ]; then
+    echo "ERROR: Set V2D_IMAGE_REGISTRY to your container registry namespace." >&2
+    exit 1
+fi
 
 IMAGES=(
     v2d_rosbag

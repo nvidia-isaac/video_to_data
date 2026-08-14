@@ -1,6 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Application configuration for the Gradio webapp."""
 
 import logging
@@ -34,7 +33,7 @@ class AppConfig:
     # Paths
     data_dir: str = "outputs/webapp"
     default_output_dir: str = "outputs/"
-    default_db_dir: str = "/mnt/amlfs-02/shared/liuw/v2p/database"
+    default_db_dir: str = "outputs/database"
     default_videos_dir: str = ""
     default_clips_dir: str = "outputs/clips"
     config_dir: str = "configs"
@@ -63,6 +62,9 @@ class AppConfig:
     llm_backend: str = "api"
     embedding_model: str = "google/siglip2-base-patch16-256"
     api_key: str | None = None
+    # Endpoint override for the 'api' backend; None -> APIModel's built-in
+    # NVIDIA Inference API endpoint.
+    api_url: str | None = None
 
     # vLLM backend settings (only used when llm_backend == "vllm")
     vllm_url: str = "http://localhost:8000/v1"
@@ -425,6 +427,8 @@ class AppConfig:
                     config.embedding_model = models_cfg["embedding_model"]
                 if "api_key" in models_cfg and models_cfg["api_key"]:
                     config.api_key = models_cfg["api_key"]
+                if "api_url" in models_cfg and models_cfg["api_url"]:
+                    config.api_url = models_cfg["api_url"]
 
                 # vLLM-specific settings
                 if "vllm_url" in models_cfg:
@@ -456,7 +460,7 @@ class AppConfig:
         return config
 
     # Directories to scan for databases (relative or absolute)
-    db_scan_dirs: tuple = ("/mnt/amlfs-02/shared/liuw/v2p/database",)
+    db_scan_dirs: tuple = ("outputs/database",)
 
     def ensure_dirs(self):
         """Create necessary directories."""

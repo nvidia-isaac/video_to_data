@@ -106,9 +106,13 @@ workloads.
 
 **Requirements:**
 
-- ``pip install video_ingestion_agent[local]`` (installs ``torch``, ``transformers``, ``accelerate``)
+- ``pip install video_ingestion_agent[local]`` (installs ``torch``, ``transformers``,
+  ``accelerate``, ``torchcodec``)
 - Sufficient GPU VRAM — the 8B model requires ~16 GB in ``bfloat16``
 - ``HF_TOKEN`` environment variable for gated models
+- FFmpeg shared libraries on the host — ``torchcodec`` (the video decoder
+  ``transformers`` uses to load clips) links against them at runtime; installing the
+  ``ffmpeg`` package listed under system requirements covers this
 
 **When to use:**
 
@@ -238,6 +242,62 @@ reachable, it raises a ``ConnectionError`` with instructions for starting the se
      - File path mode needs shared filesystem
 
 
+Cosmos3-Nano (Reasoner)
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``nvidia/Cosmos3-Nano`` is an Omni (Mixture-of-Transformers) model. For this
+pipeline we serve **only its Reasoner (VLM) tower** — the diffusion *generator*
+tower is never loaded, so the footprint is ~8B-tier. It runs through the
+``vllm`` backend; switching to it is a one-line config change:
+
+.. code-block:: yaml
+
+   models:
+     vlm_model: "nvidia/Cosmos3-Nano"
+     vlm_backend: "vllm"
+
+``scripts/serve.py`` detects the ``cosmos3`` model name and automatically starts
+the server with ``--hf-overrides '{"architectures":
+["Cosmos3ReasonerForConditionalGeneration"]}'`` (plus ``--mm-encoder-tp-mode
+data --async-scheduling``), so only the Reasoner tower is loaded.
+
+.. note::
+
+   Cosmos3 support is part of the standard environment — the ``server`` extra
+   ships the ``vllm-cosmos3`` plugin (rev-pinned in ``pyproject.toml``), and
+   the single ``Dockerfile`` image serves Qwen3-VL and Cosmos3-Nano alike.
+   There is no separate Cosmos3 image or venv:
+
+   .. code-block:: bash
+
+      # Build once (same image for every backend)
+      docker build -t video_ingestion_agent .
+
+      # Run: server + pipeline, single container
+      docker run --rm --gpus all --network=host --ipc=host \
+        -v ~/.cache/huggingface:/root/.cache/huggingface \
+        -v /path/to/videos:/path/to/videos:ro \
+        -e HF_HUB_OFFLINE=1 \
+        video_ingestion_agent \
+        bash -c 'python scripts/serve.py -c configs/ingestion.yaml && \
+                 python scripts/run_ingestion.py /path/to/videos/clip.mp4 \
+                   -c configs/ingestion.yaml -o runs/cosmos'
+
+   ``--ipc=host`` gives vLLM enough shared memory, and mounting the HF cache
+   avoids re-downloading the ~33 GB checkpoint. For local (non-Docker) serving,
+   the host additionally needs the CUDA 13 toolkit on ``PATH`` (``CUDA_HOME``)
+   and ``ninja`` (installed by the ``server`` extra) — flashinfer JIT-compiles
+   kernels at engine init.
+
+**Validated combo:** CUDA 13 / torch 2.11+cu130 / vLLM 0.21.0 / vllm-cosmos3
+0.1.0 / Python 3.13 — this is exactly what ``uv.lock`` reproduces.
+
+**When to use:**
+
+- Physical-AI / robotics reasoning where Cosmos3 outperforms a generic VLM
+- A drop-in alternative to Qwen3-VL via the ``vllm`` backend (no code changes)
+
+
 api — NVIDIA Inference API
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -252,11 +312,14 @@ No local GPU is required.
      vlm_model: "openai/openai/gpt-5.2"
      vlm_backend: "api"
      api_key: null     # reads from NIM_API_KEY env var
+     api_url: null     # endpoint override; null = NVIDIA Inference API
 
 **How it works:**
 
-1. ``APIModel`` sends a ``POST`` request to the NVIDIA Inference API endpoint
-   (``https://inference-api.nvidia.com/v1/chat/completions``).
+1. ``APIModel`` sends a ``POST`` request to an OpenAI-compatible
+   ``chat/completions`` endpoint. By default this is NVIDIA's internal
+   Inference API gateway (``https://inference-api.nvidia.com/v1/chat/completions``);
+   set ``models.api_url`` to target a different gateway.
 2. For video input, the client extracts frames at ``vlm_fps``, encodes each as a base64 JPEG,
    and includes them as ``image_url`` content items alongside a text prompt that provides
    frame-to-timestamp mapping context.
@@ -264,8 +327,20 @@ No local GPU is required.
 
 **Requirements:**
 
-- ``NIM_API_KEY`` or ``OPENAI_API_KEY`` environment variable
+- ``NIM_API_KEY`` environment variable (or ``models.api_key``) holding a key that is
+  valid **for the endpoint being used** — a key issued for one gateway will get
+  ``401 Unauthorized`` from another. The pipeline aborts immediately on 401/403
+  with a hint to set ``models.api_url``.
 - Internet access
+
+.. note::
+
+   Key/endpoint pairing matters. The default endpoint is NVIDIA's internal
+   Inference API gateway; keys issued for other OpenAI-compatible gateways
+   authenticate only against their own endpoint. If you have such a key, point
+   ``models.api_url`` at that gateway's ``chat/completions`` URL and use the
+   model identifiers that gateway expects (model naming differs between
+   gateways — ``openai/openai/gpt-5.2`` is the internal gateway's naming).
 
 **Supported model providers** (via NVIDIA NIM):
 
@@ -476,8 +551,12 @@ For interactive or notebook use:
        api_url="http://localhost:8000/v1",
    )
 
-   # API model
-   api = manager.get_model("openai/openai/gpt-5.2", backend="api")
+   # API model (api_url optional; defaults to the NVIDIA Inference API)
+   api = manager.get_model(
+       "openai/openai/gpt-5.2",
+       backend="api",
+       api_url=None,  # or another OpenAI-compatible chat/completions URL
+   )
 
    # All share the same interface
    result = local.generate_from_video("demo.mp4", "Describe the actions.")
@@ -507,6 +586,11 @@ Troubleshooting
        Check ``~/.video_ingestion_agent/vllm.log`` for errors.
    * - ``NIM_API_KEY environment variable not set``
      - Export the key: ``export NIM_API_KEY="nvapi-..."``
+   * - ``Authentication failed (401)`` from the api backend
+     - The key does not match the endpoint. The default endpoint is NVIDIA's
+       internal Inference API gateway; if your key belongs to a different
+       OpenAI-compatible gateway, set ``models.api_url`` to that gateway's
+       ``chat/completions`` URL (and use its model naming).
    * - ``CUDA out of memory`` (local backend)
      - Use the ``vllm`` backend instead (more memory-efficient), or reduce
        ``vlm_fps``.

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ego Reconstruction Setup"
+  short_description: "Prepare egocentric reconstruction pipeline setup"
+  default_prompt: "Use $ego-reconstruction-setup to finish setup for the egocentric reconstruction pipeline."

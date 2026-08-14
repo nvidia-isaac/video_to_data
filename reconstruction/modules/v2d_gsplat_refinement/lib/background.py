@@ -45,6 +45,7 @@ class BackgroundGaussians(nn.Module):
         init_color: torch.Tensor,         # (N, 3) RGB in [0, 1]
         init_scale: torch.Tensor,         # (N,)   per-point initial Gaussian size
         init_opacity: float = 0.9,
+        init_scale_factor: float = 1.0,
     ) -> None:
         super().__init__()
         N = anchor_positions.shape[0]
@@ -57,7 +58,7 @@ class BackgroundGaussians(nn.Module):
         )
         # Per-point init scale (depth-aware: farther points get larger Gaussians
         # so 1-pixel image coverage holds at any depth).
-        log_scale = init_scale.clamp_min(1e-6).log().unsqueeze(-1).expand(-1, 3).contiguous()
+        log_scale = (init_scale * float(init_scale_factor)).clamp_min(1e-6).log().unsqueeze(-1).expand(-1, 3).contiguous()
         self._log_scale     = nn.Parameter(log_scale.to(device).clone())
         self._opacity_logit = nn.Parameter(
             torch.full((N,), float(_logit(init_opacity)), device=device)

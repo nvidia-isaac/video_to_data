@@ -1,6 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """
 Configuration models for the retrieval agent.
 
@@ -32,6 +31,14 @@ class RetrievalModelConfig(BaseModel):
     api_key: str | None = Field(
         default=None,
         description="API key for API backends (or set NIM_API_KEY env var)",
+    )
+    api_url: str | None = Field(
+        default=None,
+        description=(
+            "Endpoint override for the 'api' backend (OpenAI-compatible "
+            "chat/completions URL). When null, APIModel's built-in NVIDIA "
+            "Inference API endpoint is used."
+        ),
     )
     device: str = Field(default="cuda", description="Device for local models")
 

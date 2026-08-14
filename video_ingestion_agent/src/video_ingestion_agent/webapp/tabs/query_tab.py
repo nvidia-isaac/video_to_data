@@ -1,6 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Video query tab — dark card-based layout with horizontal pipeline."""
 
 import logging
@@ -275,6 +274,7 @@ def create_query_tab(services: dict[str, Any], config: AppConfig) -> dict[str, A
                     llm_backend=config.llm_backend,
                     embedding_model=config.embedding_model,
                     api_key=config.api_key,
+                    api_url=config.api_url,
                     device=config.default_device if config.enable_gpu else "cpu",
                     vllm_url=config.vllm_url,
                     vllm_local_media=config.vllm_local_media,

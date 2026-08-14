@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 
 from v2d.docker.container import run_in_container
+from v2d_cusfm.docker.gpu_compatibility import require_compatible_cusfm_gpus
 
 IMAGE_NAME = "v2d_cusfm"
 _MODULES_DIR = str(Path(__file__).parents[3])  # reconstruction/modules/
@@ -28,6 +29,7 @@ def run_image_list_to_sfm(
     num_threads: int = 1,
     dev: bool = False,
 ) -> None:
+    require_compatible_cusfm_gpus()
     os.makedirs(output_dir, exist_ok=True)
     extra = {"config_set": config_set, "num_threads": num_threads}
     if feature_type:

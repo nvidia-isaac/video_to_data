@@ -4,6 +4,7 @@
 #
 # Usage:
 #   osmo workflow submit reconstruction/workflows/mv_hoi/mv_hoi_reconstruction.yaml \
+#     --set image_registry=<registry>/<namespace> \
 #     --set rosbag_url=swift://... \
 #     --set extrinsics_url=swift://... \
 #     --set mesh_url=swift://... \
@@ -33,7 +34,7 @@ workflow:
 
   # Extract images + intrinsics from rosbag
   - name: rosbag_to_edex
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_rosbag:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_rosbag:{{image_tag}}"
     resource: cpu_large
     command: [/bin/bash]
     args: [/tmp/entry.sh]
@@ -83,7 +84,7 @@ workflow:
 
   # Preprocessing (rectify, rescale, encode video, remap HOI bbox)
   - name: mv_preprocess
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_preprocess:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_mv_preprocess:{{image_tag}}"
     resource: cpu_large
     command: [/bin/bash]
     args: [/tmp/entry.sh]
@@ -119,7 +120,7 @@ workflow:
 
   # Stereo depth estimation
   - name: foundation_stereo
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_foundation_stereo:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_foundation_stereo:{{image_tag}}"
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
@@ -152,7 +153,7 @@ workflow:
 
   # Object bounding-box detection (Grounding DINO)
   - name: grounding_dino
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_grounding_dino:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_grounding_dino:{{image_tag}}"
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
@@ -184,7 +185,7 @@ workflow:
 
   # Object masks (SAM2 with grounding-dino JSON bboxes)
   - name: sam2_object_masks
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_sam2:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_sam2:{{image_tag}}"
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
@@ -219,7 +220,7 @@ workflow:
 
   # Gate: object mask containment vs labeled bboxes
   - name: check_object_mask
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_mv_postprocess:{{image_tag}}"
     resource: cpu_small
     command: [/bin/bash]
     args: [/tmp/entry.sh]
@@ -241,7 +242,7 @@ workflow:
 
   # Object pose tracking (FoundationPose)
   - name: foundation_pose
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_foundation_pose:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_foundation_pose:{{image_tag}}"
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
@@ -294,7 +295,7 @@ workflow:
 
   # Human bounding-box detection + tracking (Detectron2)
   - name: detectron2
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_detectron2:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_detectron2:{{image_tag}}"
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
@@ -325,7 +326,7 @@ workflow:
 
   # Human masks (SAM2 with detectron2 PT bboxes)
   - name: sam2_human_masks
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_sam2:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_sam2:{{image_tag}}"
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
@@ -359,7 +360,7 @@ workflow:
 
   # Human body reconstruction (SAM3D-Body)
   - name: sam3d_body
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_sam3d_body:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_sam3d_body:{{image_tag}}"
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
@@ -397,7 +398,7 @@ workflow:
 
   # Export MHR parameters to SOMA format
   - name: export_soma
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_sam3d_body:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_sam3d_body:{{image_tag}}"
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
@@ -428,7 +429,7 @@ workflow:
 
   # Ground plane estimation (depth + MHR foot keypoints)
   - name: estimate_ground_plane
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_mv_postprocess:{{image_tag}}"
     resource: cpu_large
     command: [/bin/bash]
     args: [/tmp/entry.sh]
@@ -457,7 +458,7 @@ workflow:
 
   # Fused multiview point cloud export
   - name: export_fused_pointcloud
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_mv_postprocess:{{image_tag}}"
     resource: cpu_large
     command: [/bin/bash]
     args: [/tmp/entry.sh]
@@ -484,7 +485,7 @@ workflow:
 
   # Chamfer evaluation – object
   - name: eval_chamfer_object
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_mv_postprocess:{{image_tag}}"
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
@@ -526,7 +527,7 @@ workflow:
 
   # Chamfer evaluation – human
   - name: eval_chamfer_human
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_mv_postprocess:{{image_tag}}"
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
@@ -562,7 +563,7 @@ workflow:
 
   # Render HOI overlay videos
   - name: render_hoi_overlay
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_mv_postprocess:{{image_tag}}"
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
@@ -602,7 +603,7 @@ workflow:
 
   # Final QC gate – aggregate chamfer + mask-containment checks
   - name: check_accuracy
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_mv_postprocess:{{image_tag}}"
     resource: cpu_small
     command: [/bin/bash]
     args: [/tmp/entry.sh]
@@ -627,7 +628,7 @@ workflow:
   # HITL intake staging – OSMO copies the output to both swift_output_base
   # and hitl_s3_base. Depends on check_accuracy so it only runs on PASS.
   - name: upload_hitl
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_mv_postprocess:{{image_tag}}"
     resource: cpu_small
     command: [/bin/bash]
     args: [/tmp/entry.sh]
@@ -653,6 +654,7 @@ workflow:
 
 default-values:
   workflow_name: v2d_mv_hoi_reconstruction
+  image_registry: image-registry-not-configured-see-readme.invalid
   image_tag: latest
   rosbag_url: ???
   extrinsics_url: ???

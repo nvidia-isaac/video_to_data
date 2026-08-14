@@ -1,6 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Tool for semantic search over frame embeddings."""
 
 import logging
@@ -97,6 +96,9 @@ class SearchFramesTool(BaseTool):
 
         with torch.no_grad():
             text_features = self._model.get_text_features(**inputs)
+            # transformers >=5 returns a ModelOutput, not a tensor
+            if hasattr(text_features, "pooler_output"):
+                text_features = text_features.pooler_output
             # Normalize
             text_features = text_features / text_features.norm(dim=-1, keepdim=True)
             embedding = text_features.cpu().numpy()[0]

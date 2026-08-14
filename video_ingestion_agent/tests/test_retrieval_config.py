@@ -1,6 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """Tests for retrieval agent configuration."""
 
 from pathlib import Path
@@ -19,6 +18,7 @@ class TestRetrievalConfigDefaults:
         assert config.models.llm_backend == "api"
         assert config.models.embedding_model == "google/siglip2-base-patch16-256"
         assert config.models.api_key is None
+        assert config.models.api_url is None
         assert config.models.device == "cuda"
 
     def test_default_agent_config(self):

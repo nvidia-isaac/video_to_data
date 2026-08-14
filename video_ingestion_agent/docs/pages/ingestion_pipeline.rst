@@ -247,6 +247,21 @@ For processing large video datasets (1000+ videos):
 - **Error isolation** — A failed video is logged and skipped; the shard continues
 - **Shared database** — All shards write to a single ``graph.db`` and ``vector.db``
 
+.. note::
+
+   **Re-ingest vs. resume semantics.** Ingesting a video whose path is
+   already in ``graph.db`` *replaces* that video's previous rows: the
+   video keeps its id, and its old segments/entities/relationships and
+   frame embeddings are purged in the same transaction (logged as
+   "Re-ingest of ... purged previous run"). With ``--resume`` the video
+   is skipped before any write, so the replace path never runs. The two
+   are mutually exclusive by construction — there is no combination that
+   double-writes or orphans rows.
+
+   A run that produces zero valid clips (e.g. every chunk failed) writes
+   nothing to either database — the video is not marked as processed, so
+   a later ``--resume`` run will retry it instead of skipping it.
+
 LPT Sharding Algorithm
 ^^^^^^^^^^^^^^^^^^^^^^^
 

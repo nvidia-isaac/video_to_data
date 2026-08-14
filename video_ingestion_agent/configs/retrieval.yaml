@@ -1,11 +1,9 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 # Agent Configuration for Video Retrieval
 
 models:
-  # LLM for agent reasoning
-  llm_model: "Qwen/Qwen3-VL-8B-Instruct"
+  llm_model: "Qwen/Qwen3-VL-8B-Instruct"  # or "nvidia/Cosmos3-Nano"
   llm_backend: "vllm"  # "local" or "api"
 
   # Embedding model for semantic frame search
@@ -13,6 +11,7 @@ models:
 
   # API key for API backends (or set NIM_API_KEY env var)
   api_key: null
+  api_url: null  # "api" backend endpoint override; null = built-in NVIDIA Inference API URL
 
   # Device for local models
   device: "cuda"

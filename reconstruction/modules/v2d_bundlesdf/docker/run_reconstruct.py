@@ -15,6 +15,7 @@ relying on a specific folder structure:
 
 Outputs:
   <output_path>/textured_mesh.obj  — final textured mesh
+  <output_path>/output.glb          — self-contained GLB exported from the textured mesh
   <output_path>/mesh_cleaned.obj   — untextured SDF mesh
 """
 import argparse
@@ -32,7 +33,10 @@ def run_reconstruct(
     weights_dir: str,
     config: str = None,
     bbox_str: str = None,
+    trunc: float = None,
+    mesh_resolution: float = None,
     skip_texture: bool = False,
+    skip_glb_export: bool = False,
     skip_sdf: bool = False,
     gpu_id: int = None,
     dev: bool = False,
@@ -59,8 +63,14 @@ def run_reconstruct(
     extra = {}
     if bbox_str:
         extra["bbox_str"] = bbox_str
+    if trunc is not None:
+        extra["trunc"] = trunc
+    if mesh_resolution is not None:
+        extra["mesh_resolution"] = mesh_resolution
     if skip_texture:
         extra["skip-texture"] = True
+    if skip_glb_export:
+        extra["skip-glb-export"] = True
     if skip_sdf:
         extra["skip-sdf"] = True
 
@@ -87,7 +97,11 @@ if __name__ == "__main__":
     parser.add_argument("--weights_dir",      required=True, help="Root weights directory (roma/ subdirs)")
     parser.add_argument("--config",           default=None,  help="NeRF config YAML path (host-side)")
     parser.add_argument("--bbox_str",         default=None,  help="Bounding box 'x1,y1,x2,y2' (informational only)")
+    parser.add_argument("--trunc",            type=float, default=None, help="Override nerf.trunc and trunc_start in meters")
+    parser.add_argument("--mesh_resolution", "--mesh-resolution", dest="mesh_resolution",
+                        type=float, default=None, help="Override nerf.mesh_resolution in meters")
     parser.add_argument("--skip-texture",     action="store_true", help="Skip texture baking")
+    parser.add_argument("--skip-glb-export",  action="store_true", help="Skip exporting textured_mesh.obj to output.glb")
     parser.add_argument("--skip-sdf",         action="store_true", help="Skip SDF training; reuse existing model_latest.pth")
     parser.add_argument("--gpu_id",           type=int, default=None)
     parser.add_argument("--dev",              action="store_true", help="Mount local modules for development")
@@ -102,7 +116,10 @@ if __name__ == "__main__":
         weights_dir=args.weights_dir,
         config=args.config,
         bbox_str=args.bbox_str,
+        trunc=args.trunc,
+        mesh_resolution=args.mesh_resolution,
         skip_texture=args.skip_texture,
+        skip_glb_export=args.skip_glb_export,
         skip_sdf=args.skip_sdf,
         gpu_id=args.gpu_id,
         dev=args.dev,

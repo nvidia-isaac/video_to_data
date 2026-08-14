@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Docker wrapper for export_sequence.
 
-Export from CSS (remote):
+Export from S3-compatible object storage (remote):
     python -m v2d.mv.postprocess.docker.run_export_sequence \\
-        --swift_output_base swift://pdx.s8k.io/AUTH_.../data_output/<seq> \\
+        --swift_output_base s3://<bucket>/data_output/<sequence> \\
         --output_dir /local/path/to/sequence \\
         --dev
 
@@ -14,11 +14,11 @@ Export from local directory:
         --output_dir /local/path/to/sequence \\
         --dev
 
-Requires CSS_ACCESS_KEY and CSS_SECRET_KEY env vars for remote mode.
+Remote mode requires S3_ACCESS_KEY and S3_SECRET_KEY. Set S3_ENDPOINT_URL for
+an S3-compatible endpoint; omit it when using AWS S3.
 """
 
 import os
-from pathlib import Path
 
 from v2d.docker.container import run_in_container
 from v2d.mv.postprocess.docker._config import IMAGE_NAME, MODULES_DIR
@@ -40,9 +40,10 @@ def run_export_sequence(
     if swift_output_base is not None:
         extra_args["swift_output_base"] = swift_output_base
         env = {
-            "CSS_ACCESS_KEY": os.environ.get("CSS_ACCESS_KEY", ""),
-            "CSS_SECRET_KEY": os.environ.get("CSS_SECRET_KEY", ""),
-            "CSS_ENDPOINT_URL": os.environ.get("CSS_ENDPOINT_URL", "https://pdx.s8k.io"),
+            "S3_ACCESS_KEY": os.environ.get("S3_ACCESS_KEY", ""),
+            "S3_SECRET_KEY": os.environ.get("S3_SECRET_KEY", ""),
+            "S3_ENDPOINT_URL": os.environ.get("S3_ENDPOINT_URL", ""),
+            "S3_REGION": os.environ.get("S3_REGION", "us-east-1"),
         }
     elif source_dir is not None:
         inputs["source_dir"] = source_dir
@@ -75,7 +76,7 @@ if __name__ == "__main__":
     )
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--swift_output_base", type=str,
-                        help="Swift URL for remote download")
+                        help="Object-storage URL for remote download")
     source.add_argument("--source_dir", type=str,
                         help="Local directory containing OSMO task outputs")
     parser.add_argument("--output_dir", type=str, required=True,

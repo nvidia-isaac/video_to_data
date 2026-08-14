@@ -149,37 +149,48 @@ RUN cd / && \
     make -j$(nproc) && make install && \
     cd / && rm -rf /yaml-cpp
 
-# Clone 3d-object-reconstruction from the public GitHub repo (V1).
-# To upgrade to V2 (internal dev branch) when released, replace with:
-#   ARG GITLAB_TOKEN
-#   RUN git clone --branch dev/bundlefusion-replacement-and-texture-refinement --depth 1 \
-#       https://oauth2:${GITLAB_TOKEN}@gitlab-master.nvidia.com/metropolis-perf/3d-reconstruction/3d-object-reconstruction-github.git \
-#       /workspace/3d-object-reconstruction
-RUN git clone \
-        --branch main \
-        --depth 1 \
-        https://github.com/NVIDIA/3DObjectReconstruction.git \
-        /workspace/3d-object-reconstruction
+# Clone a tested, Apache-2.0-licensed 3d-object-reconstruction revision from
+# the public GitHub repo (V1). Keep this pinned so release builds do not change
+# when upstream main advances.
+ARG OBJECT_RECONSTRUCTION_COMMIT=e7aa98dc2dcc92de9cebb6f2a991fa6d2aa6f284
+RUN git init /workspace/3d-object-reconstruction && \
+    git -C /workspace/3d-object-reconstruction remote add origin \
+        https://github.com/NVIDIA/3DObjectReconstruction.git && \
+    git -C /workspace/3d-object-reconstruction fetch --depth 1 origin \
+        ${OBJECT_RECONSTRUCTION_COMMIT} && \
+    git -C /workspace/3d-object-reconstruction checkout --detach FETCH_HEAD && \
+    test "$(git -C /workspace/3d-object-reconstruction rev-parse HEAD)" = \
+        "${OBJECT_RECONSTRUCTION_COMMIT}"
 
-# Fix upstream bug in 3d-object-reconstruction:
-#   zfar dynamic computation to prevent mesh clipping during texture baking
-#   (default far*sc_factor is too small when cameras are far from the origin)
+# Fix upstream texture-baking clipping in 3d-object-reconstruction.
+# The renderer now accepts an optional config-driven zfar. Old configs still get
+# the dynamic camera-distance fallback instead of reverting to far*sc_factor.
 RUN python3 - <<'EOF'
 import pathlib
 
 f = pathlib.Path("/workspace/3d-object-reconstruction/src/nvidia/objectreconstruction/networks/nerf_runner.py")
 src = f.read_text()
 
+old = "def build_texture_from_images(mesh, reader, poses, Height, Width, K, sc_factor, far, tex_res, debug_dir=None, config=None,logger: logging.Logger = logger):"
+new = "def build_texture_from_images(mesh, reader, poses, Height, Width, K, sc_factor, far, tex_res, debug_dir=None, config=None, texture_zfar=None, texture_zfar_camera_distance_margin=2.0, logger: logging.Logger = logger):"
+assert old in src, "pinned build_texture_from_images signature not found in nerf_runner.py"
+src = src.replace(old, new, 1)
+
 old = "    renderer = ModelRendererOffscreen([], cam_K=K, H=Height, W=Width, zfar=far*sc_factor)"
 new = (
-    "    # Compute zfar from actual camera distances to avoid clipping the mesh.\n"
-    "    # The default far*sc_factor is often too small when cameras are far from the origin\n"
-    "    # in normalized space (e.g. far=1.0, sc_factor=1.56 -> zfar=1.56, but cameras may\n"
-    "    # sit at distance >1.9 from the mesh center).\n"
+    "    # Use config-driven texture zfar when provided; otherwise compute a safe fallback\n"
+    "    # from actual camera distances to avoid clipping the mesh.\n"
     "    cam_dists = np.linalg.norm(poses[:, :3, 3], axis=-1)\n"
-    "    computed_zfar = max(far * sc_factor, float(cam_dists.max()) * 2.0)\n"
-    "    logger.info(f\"Texture baking zfar: {computed_zfar:.3f} \"\n"
-    "                f\"(far={far}, sc_factor={sc_factor:.3f}, max_cam_dist={cam_dists.max():.3f})\")\n"
+    "    if texture_zfar is not None:\n"
+    "        computed_zfar = float(texture_zfar)\n"
+    "        zfar_source = \"config\"\n"
+    "    else:\n"
+    "        zfar_margin = float(texture_zfar_camera_distance_margin)\n"
+    "        computed_zfar = max(far * sc_factor, float(cam_dists.max()) * zfar_margin)\n"
+    "        zfar_source = f\"auto margin={zfar_margin:.3f}\"\n"
+    "    logging.info(f\"Texture baking zfar: {computed_zfar:.3f} \"\n"
+    "                 f\"({zfar_source}, far={far}, sc_factor={sc_factor:.3f}, \"\n"
+    "                 f\"max_cam_dist={cam_dists.max():.3f})\")\n"
     "\n"
     "    renderer = ModelRendererOffscreen([], cam_K=K, H=Height, W=Width, zfar=computed_zfar)"
 )
@@ -187,7 +198,27 @@ assert old in src, "zfar anchor not found in nerf_runner.py"
 src = src.replace(old, new, 1)
 
 f.write_text(src)
-print("nerf_runner.py patched successfully")
+
+f = pathlib.Path("/workspace/3d-object-reconstruction/src/nvidia/objectreconstruction/networks/nvbundlesdf.py")
+src = f.read_text()
+
+old = (
+    "            config=cfg_texture['color_fusion'] if 'color_fusion' in cfg_texture else None,\n"
+    "            logger=self.logger\n"
+    "        )"
+)
+new = (
+    "            config=cfg_texture['color_fusion'] if 'color_fusion' in cfg_texture else None,\n"
+    "            texture_zfar=self.cfg_nerf.get('texture_zfar'),\n"
+    "            texture_zfar_camera_distance_margin=self.cfg_nerf.get('texture_zfar_camera_distance_margin', 2.0),\n"
+    "            logger=self.logger\n"
+    "        )"
+)
+assert old in src, "pinned texture zfar call anchor not found in nvbundlesdf.py"
+src = src.replace(old, new, 1)
+
+f.write_text(src)
+print("3d-object-reconstruction texture zfar patch applied successfully")
 EOF
 
 # Install Python dependencies from repo requirements
@@ -209,8 +240,14 @@ RUN pip3 install -U pip && pip3 install --no-cache-dir \
 RUN update-alternatives --install /usr/bin/python python /usr/bin/python3 1 && \
     update-alternatives --install /usr/bin/pip pip /usr/bin/pip3 1
 
-# Install BundleSDF CUDA extension
-RUN git clone --branch nvbundlesdf --depth 1 https://github.com/NVLabs/BundleSDF.git /BundleSDF
+# Install BundleSDF CUDA extension. Keep this pinned so release builds do not
+# change when upstream nvbundlesdf advances.
+ARG BUNDLESDF_COMMIT=56f21198759558f921c5e74e247c7a6dbf611d66
+RUN git init /BundleSDF && \
+    git -C /BundleSDF remote add origin https://github.com/NVLabs/BundleSDF.git && \
+    git -C /BundleSDF fetch --depth 1 origin ${BUNDLESDF_COMMIT} && \
+    git -C /BundleSDF checkout --detach FETCH_HEAD && \
+    test "$(git -C /BundleSDF rev-parse HEAD)" = "${BUNDLESDF_COMMIT}"
 RUN cp -r /BundleSDF/mycuda /customize_cuda && \
     cd /customize_cuda && \
     TORCH_CUDA_ARCH_LIST="7.0;7.5;8.0;8.6;9.0" FORCE_CUDA=1 pip install . --no-build-isolation

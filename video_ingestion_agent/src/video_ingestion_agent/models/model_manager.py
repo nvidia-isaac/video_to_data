@@ -1,6 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """
 Model Manager - Unified interface for local, API, and vLLM-based models.
 
@@ -193,7 +192,7 @@ class APIModelWrapper(BaseModel):
 
     def __init__(
         self,
-        model_name: str = "openai/gpt-4o",
+        model_name: str = "openai/openai/gpt-5.2",
         api_key: str | None = None,
         api_url: str | None = None,
         fps: int = 4,
@@ -332,6 +331,35 @@ class VLLMModelWrapper(BaseModel):
 # =============================================================================
 
 
+def resolve_api_url(
+    backend: str,
+    vllm_url: str | None = None,
+    api_url: str | None = None,
+) -> str | None:
+    """Pick the endpoint that matches the backend.
+
+    The "vllm" and "api" backends each have their own endpoint config
+    (``models.vllm_url`` / ``models.api_url``); passing the wrong one to
+    ``ModelManager.get_model`` silently sends api-backend traffic to the
+    local vLLM server (or vice versa). Every construction site should
+    route through this helper instead of hand-rolling the ternary.
+
+    Args:
+        backend: "local", "api", or "vllm"
+        vllm_url: vLLM server URL from config
+        api_url: 'api'-backend endpoint override from config (None means
+            APIModel's built-in NVIDIA Inference API endpoint)
+
+    Returns:
+        The URL to pass as ``api_url`` to ``get_model``, or None.
+    """
+    if backend == "vllm":
+        return vllm_url
+    if backend == "api":
+        return api_url
+    return None
+
+
 class ModelManager:
     """
     Singleton model manager supporting both local and API models.
@@ -392,8 +420,12 @@ class ModelManager:
             Model instance (LocalModelWrapper, APIModelWrapper,
             or VLLMModelWrapper)
         """
-        # Create cache key
-        cache_key = f"{backend}::{model_name}::{device if backend == 'local' else 'api'}"
+        # Create cache key. The endpoint is part of the key for remote
+        # backends: the same model served from two URLs must not collide.
+        if backend == "local":
+            cache_key = f"{backend}::{model_name}::{device}"
+        else:
+            cache_key = f"{backend}::{model_name}::{api_url or 'default'}"
 
         if cache_key in self._models:
             logger.info(f"[ModelManager] Reusing cached model: {model_name} ({backend})")
@@ -411,6 +443,8 @@ class ModelManager:
         elif backend == "vllm":
             logger.info(f"[ModelManager] vLLM URL: {api_url or 'http://localhost:8000/v1'}")
             logger.info(f"[ModelManager] Local media: {use_local_media}")
+        elif backend == "api":
+            logger.info(f"[ModelManager] API URL: {api_url or 'default NVIDIA Inference API'}")
         logger.info(f"[ModelManager] FPS: {fps}")
 
         if backend == "local":
@@ -508,14 +542,17 @@ def get_local_model(
 
 
 def get_api_model(
-    model_name: str = "openai/gpt-4o",
+    model_name: str = "openai/openai/gpt-5.2",
     api_key: str | None = None,
+    api_url: str | None = None,
 ) -> BaseModel:
     """Convenience function to get an API model.
 
     Args:
-        model_name: Model identifier (e.g., "openai/gpt-4o")
+        model_name: Model identifier (e.g., "openai/openai/gpt-5.2")
         api_key: API key (or set via NIM_API_KEY environment variable)
+        api_url: Endpoint override (None means APIModel's built-in
+            NVIDIA Inference API endpoint)
 
     Returns:
         APIModelWrapper instance (implements BaseModel interface)
@@ -524,4 +561,5 @@ def get_api_model(
         model_name=model_name,
         backend="api",
         api_key=api_key,
+        api_url=api_url,
     )

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 """
 vLLM server manager for video_ingestion_agent.
 
@@ -76,6 +75,8 @@ def start_server(
     max_model_len: int = 32768,
     tensor_parallel_size: int = 1,
     gpu_memory_utilization: float = 0.8,
+    mm_min_pixels: int = 262144,
+    mm_max_pixels: int = 16777216,
 ) -> int:
     """Start a vLLM server as a background process.
 
@@ -85,6 +86,10 @@ def start_server(
         max_model_len: Maximum model context length.
         tensor_parallel_size: Number of GPUs for tensor parallelism.
         gpu_memory_utilization: Fraction of GPU memory vLLM may use (0.0-1.0).
+        mm_min_pixels: Qwen3-VL processor min_pixels (ignored for Cosmos3).
+        mm_max_pixels: Qwen3-VL processor max_pixels (ignored for Cosmos3).
+            On vLLM >=0.20 this also sets the encoder-cache admission
+            ceiling; see the comment at the Qwen branch below.
 
     Returns:
         PID of the vLLM process.
@@ -97,6 +102,8 @@ def start_server(
     # Extract port from URL
     parsed = urlparse(api_url)
     port = parsed.port or 8000
+
+    is_cosmos3 = "cosmos3" in model_name.lower()
 
     # Build command
     cmd = [
@@ -113,9 +120,38 @@ def start_server(
         str(gpu_memory_utilization),
         "--media-io-kwargs",
         '{"video": {"num_frames": -1}}',
-        "--mm-processor-kwargs",
-        '{"min_pixels": 262144, "max_pixels": 8388608}',
     ]
+
+    if is_cosmos3:
+        # Load only the Reasoner (VLM) tower of the Cosmos3 Omni model
+        # (requires the vllm-cosmos3 plugin).
+        cmd.extend(
+            [
+                "--hf-overrides",
+                '{"architectures": ["Cosmos3ReasonerForConditionalGeneration"]}',
+                "--mm-encoder-tp-mode",
+                "data",
+                "--async-scheduling",
+            ]
+        )
+    else:
+        # Qwen3-VL processor knobs (invalid for Cosmos3).
+        #
+        # On vLLM >=0.20, max_pixels also sets the per-item encoder-cache
+        # admission ceiling: encoder_cache_size = max(max_num_batched_tokens
+        # [8192 OpenAI-server default], max_tokens_per_mm_item), where
+        # max_tokens_per_mm_item = max_pixels / (16^2 patch * 2^2 merge).
+        # The former 8388608 default gave an 8192-token ceiling that rejected
+        # any video item over 8192 embedding tokens with HTTP 400 (a 1408^2
+        # clip is ~11.8k tokens). 16777216 lifts the ceiling to 16384 without
+        # changing actual tokenization -- frames below both caps are not
+        # resized, so this only widens the admission gate.
+        cmd.extend(
+            [
+                "--mm-processor-kwargs",
+                f'{{"min_pixels": {mm_min_pixels}, "max_pixels": {mm_max_pixels}}}',
+            ]
+        )
 
     if tensor_parallel_size > 1:
         cmd.extend(["--tensor-parallel-size", str(tensor_parallel_size)])
@@ -331,6 +367,26 @@ Examples:
             "Default 0.8 reserves ~20%% for embeddings."
         ),
     )
+    parser.add_argument(
+        "--max-pixels",
+        type=int,
+        default=None,
+        help=(
+            "Qwen3-VL mm-processor max_pixels. On vLLM >=0.20 this also sets "
+            "the encoder-cache admission ceiling (= max_pixels/1024 tokens); "
+            "items above the ceiling are rejected with HTTP 400. Overrides "
+            "config models.vllm_mm_max_pixels (default: 16777216)."
+        ),
+    )
+    parser.add_argument(
+        "--min-pixels",
+        type=int,
+        default=None,
+        help=(
+            "Qwen3-VL mm-processor min_pixels. Overrides config "
+            "models.vllm_mm_min_pixels (default: 262144)."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -343,6 +399,17 @@ Examples:
     tp_size = args.tp if args.tp is not None else config.models.vllm_tp_size
     gpu_mem = (
         args.gpu_mem if args.gpu_mem is not None else config.models.vllm_gpu_memory_utilization
+    )
+    # getattr: the config schema may predate these keys.
+    mm_max_pixels = (
+        args.max_pixels
+        if args.max_pixels is not None
+        else getattr(config.models, "vllm_mm_max_pixels", None) or 16777216
+    )
+    mm_min_pixels = (
+        args.min_pixels
+        if args.min_pixels is not None
+        else getattr(config.models, "vllm_mm_min_pixels", None) or 262144
     )
     vlm_backend = config.models.vlm_backend
 
@@ -366,6 +433,8 @@ Examples:
             max_model_len=args.max_model_len,
             tensor_parallel_size=tp_size,
             gpu_memory_utilization=gpu_mem,
+            mm_min_pixels=mm_min_pixels,
+            mm_max_pixels=mm_max_pixels,
         )
 
 

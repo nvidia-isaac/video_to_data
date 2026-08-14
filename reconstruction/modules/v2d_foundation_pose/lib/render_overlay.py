@@ -41,7 +41,7 @@ def render_overlay(
     cx, cy = intr["cx"], intr["cy"]
     width, height = int(intr["width"]), int(intr["height"])
 
-    tm = trimesh.load(mesh_path, force="mesh")
+    tm = trimesh.load(mesh_path, force="mesh", process=False)
     mesh = pyrender.Mesh.from_trimesh(tm)
 
     poses = {}

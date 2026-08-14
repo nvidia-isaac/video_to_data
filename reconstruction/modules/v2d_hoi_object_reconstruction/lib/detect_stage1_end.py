@@ -16,7 +16,7 @@ Algorithm:
   7. Stage-1 end = frame just before the longest plateau starts (backed off by
      buffer_deg for safety).
 
-  If no qualifying plateau is found the script exits with code 1 and writes
+  If no qualifying plateau is found the script exits with code 0 and writes
   result.json with stage1_end_frame=null.  The pipeline should treat this as a
   fatal error and stop with a clear message rather than continuing with an
   incorrect split point.
@@ -88,10 +88,10 @@ def project_onto_plane(points, centroid, basis_u, basis_v):
 
 # ── Rolling statistics ─────────────────────────────────────────────────────────
 
-def sliding_window_slope(angles_deg, window):
+def sliding_window_slope(angles_deg, x_values, window):
     """
-    Compute local slope (deg/keyframe) as a centered finite difference
-    over a sliding window: slope[i] = (angle[i+W//2] - angle[i-W//2]) / W.
+    Compute local slope as a centered finite difference over x_values:
+    slope[i] = (angle[i+W//2] - angle[i-W//2]) / (x[i+W//2] - x[i-W//2]).
     Edge frames use the available span.
     """
     N = len(angles_deg)
@@ -100,7 +100,7 @@ def sliding_window_slope(angles_deg, window):
     for i in range(N):
         lo = max(0, i - half)
         hi = min(N - 1, i + half)
-        span = hi - lo
+        span = x_values[hi] - x_values[lo]
         if span > 0:
             slopes[i] = (angles_deg[hi] - angles_deg[lo]) / span
     return slopes
@@ -108,7 +108,7 @@ def sliding_window_slope(angles_deg, window):
 
 # ── Plateau detection ──────────────────────────────────────────────────────────
 
-def detect_longest_plateau(slopes, median_slope, drop_frac, min_len,
+def detect_longest_plateau(slopes, median_abs_slope, drop_frac, min_len,
                            tail_exclude_frac=0.15, qualify_frac=0.65,
                            spread_frac=1.5):
     """
@@ -121,9 +121,9 @@ def detect_longest_plateau(slopes, median_slope, drop_frac, min_len,
       1. Compute rolling-mean of |slope| over min_len frames → window_mean[i].
       2. Find the global minimum of window_mean (before the tail exclusion zone).
          This is the "quietest" part of the scan.
-      3. Qualify check: min_wm must be < median * qualify_frac (default 0.65).
+      3. Qualify check: min_wm must be < median_abs_slope * qualify_frac (default 0.65).
          Scans with no real transition have no deep minimum and fail here.
-      4. Adaptive threshold = max(min_wm * spread_frac, |median| * drop_frac).
+      4. Adaptive threshold = max(min_wm * spread_frac, median_abs_slope * drop_frac).
          • For a clean, crisp pause  : spread term is tiny → strict drop_frac wins.
          • For a noisy / partial pause: spread term gives a threshold relative to
            the actual minimum, catching the whole neighbourhood even when the
@@ -154,12 +154,11 @@ def detect_longest_plateau(slopes, median_slope, drop_frac, min_len,
     min_wm = window_mean[i_min]
 
     # Step 3: qualify check — the minimum must be a meaningful slowdown
-    abs_median = abs(median_slope)
-    if min_wm >= abs_median * qualify_frac:
+    if min_wm >= median_abs_slope * qualify_frac:
         return None, 0, 'no_plateau'
 
     # Step 4: adaptive threshold
-    threshold = max(min_wm * spread_frac, abs_median * drop_frac)
+    threshold = max(min_wm * spread_frac, median_abs_slope * drop_frac)
 
     # Step 5: longest contiguous qualifying run (start < tail_start)
     best_start    = None
@@ -249,11 +248,12 @@ def main():
         if seq_idx is None:
             continue
         T = cam_to_world_to_matrix(kf['camera_to_world'])
-        frames.append((seq_idx, T[:3, 3]))
+        frames.append((seq_idx, ts_us, T[:3, 3]))
 
     frames.sort(key=lambda x: x[0])
     seq_indices = np.array([f[0] for f in frames])
-    positions   = np.array([f[1] for f in frames])
+    timestamps_us = np.array([f[1] for f in frames])
+    positions   = np.array([f[2] for f in frames])
     N = len(frames)
     print(f"Loaded {N} CuSFM keyframes, seq_idx {seq_indices[0]}–{seq_indices[-1]}")
 
@@ -276,20 +276,32 @@ def main():
 
     # ── Slope with rolling linear fit + smoothing ─────────────────────────────
     W = args.smooth_window
-    slopes_smooth = sliding_window_slope(angles_deg, W)
+    timestamps_s = (timestamps_us - timestamps_us[0]) / 1e6
+    if np.all(np.diff(timestamps_s) > 0):
+        slope_x = timestamps_s
+        slope_units = "°/s"
+        slope_source = "timestamp"
+    else:
+        slope_x = seq_indices
+        slope_units = "°/frame"
+        slope_source = "seq_idx fallback"
+    slopes_smooth = sliding_window_slope(angles_deg, slope_x, W)
 
     # Median slope computed over the middle 60% of frames (avoid edges)
     lo, hi       = int(0.2 * N), int(0.8 * N)
-    median_slope  = np.median(slopes_smooth[lo:hi])
-    print(f"Median slope (active scanning): {median_slope:.3f} °/keyframe")
-    print(f"Strict drop threshold:          < {median_slope * args.slope_drop_frac:.3f} °/keyframe  "
+    median_slope = np.median(slopes_smooth[lo:hi])
+    median_abs_slope = np.median(np.abs(slopes_smooth[lo:hi]))
+    print(f"Slope source:                   {slope_source}")
+    print(f"Median slope (signed):          {median_slope:.3f} {slope_units}")
+    print(f"Median abs slope (active scan): {median_abs_slope:.3f} {slope_units}")
+    print(f"Strict drop threshold:          < {median_abs_slope * args.slope_drop_frac:.3f} {slope_units}  "
           f"({args.slope_drop_frac*100:.0f}% of median)")
-    print(f"Qualify threshold:              global min must be < {median_slope * 0.65:.3f} °/keyframe  "
+    print(f"Qualify threshold:              global min must be < {median_abs_slope * 0.65:.3f} {slope_units}  "
           f"(65% of median)")
 
     # ── Detect longest sustained low-slope plateau (full sequence) ───────────
     plateau_idx, plateau_len, method = detect_longest_plateau(
-        slopes_smooth, median_slope,
+        slopes_smooth, median_abs_slope,
         args.slope_drop_frac, args.min_plateau_len,
         tail_exclude_frac=args.tail_exclude_frac,
     )
@@ -318,7 +330,7 @@ def main():
         print(f"  Plateau length:               {plateau_len} keyframes")
         print(f"  Buffer:                       {args.buffer_deg:.0f}° toward 0 → target angle {target_angle:.1f}°")
         print(f"  Buffered keyframe index:      {buffered_idx}  (seq={stage1_end_seq}, angle={angles_deg[buffered_idx]:.1f}°)")
-        print(f"  Slope at plateau start:       {slopes_smooth[plateau_idx]:.3f} °/keyframe  (median: {median_slope:.3f})")
+        print(f"  Slope at plateau start:       {slopes_smooth[plateau_idx]:.3f} {slope_units}  (median abs: {median_abs_slope:.3f})")
     else:
         buffered_idx   = None
         stage1_end_seq = None
@@ -410,7 +422,7 @@ def main():
     print(f"Saved: {out_dir}/3_cumulative_angle.png")
 
     # ── Plot 4: Slope (raw + smoothed) + threshold ────────────────────────────
-    strict_thr = abs(median_slope) * args.slope_drop_frac
+    strict_thr = median_abs_slope * args.slope_drop_frac
     # Recompute the adaptive threshold used by detect_longest_plateau for display
     abs_slopes_disp = np.abs(slopes_smooth)
     cumsum_disp = np.concatenate([[0.0], np.cumsum(abs_slopes_disp)])
@@ -422,9 +434,10 @@ def main():
     fig, ax = plt.subplots(figsize=(12, 4))
     ax.plot(seq_indices, slopes_smooth, color='blue', lw=1.8, label=f'slope (sliding window, w={W})')
     ax.axhline(thr_line,  color='green', ls='--', lw=1.5,
-               label=f'adaptive threshold ({thr_line:.2f}°/kf = max(min×1.5, {strict_thr:.2f}))')
+               label=f'adaptive threshold ({thr_line:.2f} {slope_units} = max(min×1.5, {strict_thr:.2f}))')
     ax.axhline(-thr_line, color='green', ls='--', lw=1.5)   # mirror for CW scans
-    ax.axhline(median_slope, color='gray', ls=':', lw=1, label=f'median slope ({median_slope:.2f}°/kf)')
+    ax.axhline(median_slope, color='gray', ls=':', lw=1, label=f'signed median slope ({median_slope:.2f} {slope_units})')
+    ax.axhline(median_abs_slope, color='gray', ls='-.', lw=1, label=f'median abs slope ({median_abs_slope:.2f} {slope_units})')
     ax.axhline(0, color='k', lw=0.5)
     # Shade the tail-exclusion zone
     tail_start_seq = seq_indices[int(N * (1.0 - args.tail_exclude_frac))]
@@ -440,8 +453,8 @@ def main():
                    label=f'plateau start (seq={seq_indices[plateau_idx]})')
         ax.axvline(stage1_end_seq, color='orange', lw=2,
                    label=f'stage1 end (seq={stage1_end_seq}, -{args.buffer_deg:.0f}°)')
-    ax.set_xlabel('seq_idx'); ax.set_ylabel('Angular velocity (°/keyframe)')
-    ax.set_title(f'Slope of cumulative angle  [smooth_window={W}, drop_frac={args.slope_drop_frac}, min_len={args.min_plateau_len}, tail_excl={args.tail_exclude_frac}]')
+    ax.set_xlabel('seq_idx'); ax.set_ylabel(f'Angular velocity ({slope_units})')
+    ax.set_title(f'Slope of cumulative angle  [source={slope_source}, smooth_window={W}, drop_frac={args.slope_drop_frac}, min_len={args.min_plateau_len}, tail_excl={args.tail_exclude_frac}]')
     ax.legend(fontsize=8); ax.grid(True, alpha=0.3)
     fig.tight_layout()
     fig.savefig(out_dir / '4_slope.png', dpi=120)
@@ -475,6 +488,9 @@ def main():
                 "plateau_start_seq": int(seq_indices[plateau_idx]),
                 "plateau_len_keyframes": int(plateau_len),
                 "method": method,
+                "slope_source": slope_source,
+                "slope_units": slope_units,
+                "median_abs_slope": float(median_abs_slope),
             })
         )
     else:
@@ -484,6 +500,9 @@ def main():
             json.dumps({
                 "stage1_end_frame": None,
                 "method": "no_plateau",
+                "slope_source": slope_source,
+                "slope_units": slope_units,
+                "median_abs_slope": float(median_abs_slope),
                 "reason": (
                     "No sustained low-slope plateau found. "
                     "The scan may lack a Stage-1 to Stage-2 transition. "

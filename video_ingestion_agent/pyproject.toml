@@ -1,6 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: CC-BY-4.0 AND Apache-2.0
 [project]
 name = "video_ingestion_agent"
 version = "0.1.0"
@@ -60,17 +59,41 @@ local = [
     "accelerate>=0.30.0",
     "timm>=0.9.0",           # For SigLIP
     "bitsandbytes>=0.43.0",  # For quantization
+    # Video decoder for transformers >=5 (torchvision.io.read_video is gone
+    # in 0.26). Bounds track torch 2.11 compat; bump deliberately with torch.
+    "torchcodec>=0.11,<0.16",
 ]
 
-# vLLM server (install in the server env, not the pipeline env)
-# Both bounds matter for Qwen3-VL TP=8 multimodal serving:
-#   - Lower bound stays on 0.12.x: 0.13+ introduces a ~6x per-video
-#     slowdown on Qwen3-VL multimodal prefill at TP=8 (verified by A/B
-#     on identical HoT3D Aria 1080p workload, groot-h100-01).
-#   - Upper bound dodges the 0.20+ Qwen3-VL deepstack-tokens regression
-#     (`num_tokens > deepstack_input_embeds_num_tokens`).
+# vLLM server. One stack serves every backend: Qwen3-VL needs plain vLLM;
+# Cosmos3-Nano additionally needs the vllm-cosmos3 plugin (pulls
+# transformers 5.x). History of the old `vllm>=0.12,<0.13` pin, retired
+# after re-validation on 0.21:
+#   - the 0.20+ "encoder cache size 8192" HTTP 400 on video items is an
+#     admission-ceiling artifact fixed in scripts/serve.py (raised
+#     max_pixels default; see the comment there), not a model regression;
+#   - the 0.20+ Qwen3-VL deepstack-tokens regression did not reproduce
+#     on 0.21 (stir-bowl smoke + HoT3D S1 A/B);
+#   - the 0.13-era ~6x TP=8 multimodal prefill slowdown was re-benchmarked
+#     on 0.21 via the HoT3D S1 A/B on groot-h100-01 (see
+#     docs/experiment_log.md).
+# vllm-cosmos3 is pinned to the exact rev validated in that A/B image;
+# bump deliberately, never implicitly (upstream HEAD moves).
+# ninja: flashinfer JIT-compiles kernels at engine init (Qwen too, not
+# just Cosmos3) and shells out to `ninja`, else EngineCore dies with
+# FileNotFoundError. The host also needs the CUDA 13 toolkit on PATH
+# (CUDA_HOME) for that JIT; the Docker image ships it via the devel base.
 server = [
-    "vllm>=0.12.0,<0.13",
+    "vllm>=0.21,<0.22",
+    "vllm-cosmos3 @ git+https://github.com/NVIDIA/cosmos-framework.git@8ea43183588961648a8fd8cf33866c849eeaa21d#subdirectory=packages/vllm-cosmos3",
+    # The validated serving stack runs transformers 5.12-5.13 (SigLIP handled
+    # via the pooler_output compat path). Both bounds are load-bearing:
+    # nothing upstream forces 5.x (transformers-cosmos3 only floors at
+    # >=4.57), so without the floor a re-lock silently settles back to 4.x;
+    # and 5.14.x breaks vllm 0.21's import chain (NameError: SpecialTokens in
+    # transformers/tokenization_mistral_common.py, imported unconditionally
+    # by vllm's CLI) — caught by the in-image serve smoke test.
+    "transformers>=5,<5.14",
+    "ninja>=1.11",
 ]
 
 dev = [
@@ -122,6 +145,26 @@ Homepage = "https://github.com/nvidia-isaac/video_to_data/tree/main/video_ingest
 Documentation = "https://github.com/nvidia-isaac/video_to_data/tree/main/video_ingestion_agent"
 Repository = "https://github.com/nvidia-isaac/video_to_data"
 Issues = "https://github.com/nvidia-isaac/video_to_data/issues"
+
+[tool.uv]
+# GPU serving stack is linux-only; restricting the universal resolution
+# keeps the cu130 torch index from breaking the lock on other platforms.
+environments = ["sys_platform == 'linux'"]
+
+# vllm 0.21 / torch 2.11 must come from the cu130 wheel index so the
+# bundled CUDA libs match the CUDA 13 base image (Dockerfile) and the
+# CUDA 13.1 host toolchain. `uv pip install --torch-backend=cu130` is
+# install-time only and would not survive `uv sync`; this is the
+# declarative, lock-recorded equivalent.
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+torchvision = { index = "pytorch-cu130" }
+torchaudio = { index = "pytorch-cu130" }
 
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
