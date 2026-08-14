@@ -100,21 +100,29 @@ jobs:
           python -m pip install --upgrade pip
           pip install uv
 
+      # ~/.local/share/uv/python is where uv installs the managed CPython it
+      # selects from .python-version (3.13). `.venv/bin/python` symlinks into
+      # that directory, so it must be cached alongside the venv — otherwise a
+      # restored venv points at an interpreter absent on the new runner.
       - name: Cache uv + venv
         uses: actions/cache@v4
         with:
           path: |
             ~/.cache/uv
+            ~/.local/share/uv/python
             video_ingestion_agent/.venv
-          key: vi-agent-venv-${{ runner.os }}-py311-${{ hashFiles('video_ingestion_agent/pyproject.toml') }}
+          key: vi-agent-venv-${{ runner.os }}-py313-${{ hashFiles('video_ingestion_agent/pyproject.toml', 'video_ingestion_agent/.python-version') }}
           restore-keys: |
-            vi-agent-venv-${{ runner.os }}-py311-
+            vi-agent-venv-${{ runner.os }}-py313-
 
       - name: Install package + extras
         run: |
-          # Reuse a cache-restored venv when present; `uv venv` errors out on
-          # an existing directory and `--clear` would defeat the cache.
-          [ -f .venv/bin/activate ] || uv venv .venv
+          # Reuse a cache-restored venv only when its interpreter still
+          # resolves. Testing for `activate` alone is not enough: that file
+          # restores fine while `.venv/bin/python` can be a dangling symlink
+          # into a uv-managed CPython that is absent on this runner, which
+          # fails later as "Broken symlink at `.venv/bin/python3`".
+          .venv/bin/python -c '' 2>/dev/null || uv venv .venv --clear
           source .venv/bin/activate
           # [local] for torch/transformers/timm needed by visual-extractor tests;
           # [dev] for pytest + ruff; [benchmark] for sentence-transformers/wandb
