@@ -3,9 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """OSMO workflow submission script.
 
-SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-SPDX-License-Identifier: Apache-2.0
-
 Script to submit OSMO workflow for robotic grounding development environment.
 """
 
