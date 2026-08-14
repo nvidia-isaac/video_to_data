@@ -435,7 +435,8 @@ Whole-body ReconHand — the three-stage retarget → plan → train recipe
 
 ## Visualizer
 
-Browse retargeted sequences as 3D animations at **http://10.111.83.14:8080/**
+Browse retargeted sequences as 3D animations in a local gallery server at
+**http://\<server-ip\>:8080/**.
 
 To run the server yourself or generate new recordings:
 
