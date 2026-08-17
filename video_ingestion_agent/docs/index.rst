@@ -20,11 +20,11 @@ a cup."*
 .. raw:: html
 
    <video controls muted playsinline preload="metadata"
-          poster="v2d_video_agent_integration_e2e_poster.jpg"
+          poster="video_ingestion_demo_poster.jpg"
           style="width: 100%; max-width: 960px; height: auto; display: block; margin: 1.5rem auto; border-radius: 8px; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);">
-     <source src="v2d_video_agent_integration_e2e.mp4" type="video/mp4">
+     <source src="video_ingestion_demo.mp4" type="video/mp4">
      Your browser does not support the video tag.
-     <a href="v2d_video_agent_integration_e2e.mp4">Download the demo video</a>.
+     <a href="video_ingestion_demo.mp4">Download the demo video</a>.
    </video>
 
 ----
