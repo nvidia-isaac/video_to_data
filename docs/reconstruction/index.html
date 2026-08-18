@@ -373,6 +373,7 @@
     <div class="content">
       <nav class="toc" aria-label="Page sections">
         <a href="#overview">Overview</a>
+        <a href="#v020">What&rsquo;s New in v0.2.0</a>
         <a href="#ego-pipeline">Ego Pipeline</a>
         <a href="#outputs">Outputs</a>
         <a href="#next">Next Steps</a>
@@ -394,6 +395,33 @@
             with file-based inputs and outputs. That makes pipelines easier to
             resume, debug, compare, and extend as better models become available.
           </p>
+        </section>
+
+        <section class="doc-section" id="v020">
+          <h2>What&rsquo;s New in v0.2.0</h2>
+          <p>
+            v0.2.0 expands the ego-centric reconstruction workflow with more
+            robust scene alignment, hand-tracking choices, and trajectory
+            refinement options.
+          </p>
+          <div class="cards">
+            <article class="card">
+              <h3>Gravity Alignment</h3>
+              <p>Align reconstructed hand and object trajectories to gravity for a stable, physically meaningful world orientation.</p>
+            </article>
+            <article class="card">
+              <h3>SAM2 + HaMeR Hand Tracking</h3>
+              <p>Choose an alternative hand-tracking pipeline that uses SAM2 hand masks with HaMeR hand reconstruction.</p>
+            </article>
+            <article class="card">
+              <h3>Gaussian-Splat Optimization</h3>
+              <p>Refine global trajectories using Gaussian-splat-based optimization for improved consistency across the sequence.</p>
+            </article>
+            <article class="card">
+              <h3>Provided Object Meshes</h3>
+              <p>Run ego-centric reconstruction with a predefined object mesh when a suitable asset is already available.</p>
+            </article>
+          </div>
         </section>
 
         <section class="doc-section" id="ego-pipeline">
