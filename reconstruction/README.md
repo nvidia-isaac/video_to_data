@@ -1,4 +1,4 @@
-# Video-to-Policy Reconstruction Modules
+# Video-to-Data Reconstruction Modules
 
 Docker-based modules for video reconstruction, depth estimation, object detection, segmentation, mesh generation, pose tracking, and human body modeling.
 
