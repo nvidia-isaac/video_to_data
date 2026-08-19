@@ -1,0 +1,295 @@
+/* Kaizen UI — production-ish component styles.
+   Pair with colors_and_type.css. */
+
+/* ============================ Button ============================ */
+.kui-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 4px;
+  height: 32px; padding: 0 12px;
+  border-radius: var(--kui-radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  font: var(--kui-button);
+  color: var(--kui-fg-strong);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: background-color 120ms ease-out, border-color 120ms ease-out, color 120ms ease-out;
+  box-sizing: border-box;
+}
+.kui-btn svg { flex: none; }
+.kui-btn:focus-visible { outline: 2px solid var(--kui-brand-green); outline-offset: 2px; }
+.kui-btn[disabled], .kui-btn.is-disabled { color: var(--kui-fg-disabled); cursor: not-allowed; }
+.kui-btn--tiny    { height: 20px; padding: 0 6px; font-size: 12px; gap: 2px; }
+.kui-btn--small   { height: 24px; padding: 0 8px; font-size: 12px; }
+.kui-btn--medium  { height: 32px; padding: 0 12px; }
+.kui-btn--large   { height: 40px; padding: 0 16px; }
+.kui-btn--icon    { width: 32px; padding: 0; }
+
+.kui-btn--primary   { background: var(--kui-brand-green); color: #000; }
+.kui-btn--primary:hover   { background: #6BA800; }
+.kui-btn--primary:active  { background: var(--kui-brand-green-darker); }
+.kui-btn--primary[disabled]{ background: #DEEEC2; color: #FFFFFF; }
+
+.kui-btn--secondary { background: transparent; color: var(--kui-fg-strong); border-color: var(--kui-n600); }
+.kui-btn--secondary:hover  { background: var(--kui-n050); border-color: var(--kui-n800); }
+.kui-btn--secondary:active { background: var(--kui-n100); }
+.kui-btn--secondary[disabled]{ border-color: var(--kui-n200); color: var(--kui-fg-disabled); background: transparent; }
+
+.kui-btn--tertiary  { background: transparent; color: var(--kui-fg-strong); }
+.kui-btn--tertiary:hover   { background: var(--kui-n050); }
+.kui-btn--tertiary:active  { background: var(--kui-n100); }
+.kui-btn--tertiary[disabled]{ background: transparent; color: var(--kui-fg-disabled); }
+
+.kui-btn--danger.kui-btn--primary    { background: var(--kui-danger); color: #fff; }
+.kui-btn--danger.kui-btn--primary:hover  { background: #BE2A20; }
+.kui-btn--danger.kui-btn--secondary  { border-color: var(--kui-danger); color: var(--kui-danger); }
+.kui-btn--danger.kui-btn--tertiary   { color: var(--kui-danger); }
+
+/* ============================ Input ============================ */
+.kui-input-shell {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 32px; padding: 0 8px;
+  background: #fff;
+  border: 1px solid var(--kui-n200);
+  border-radius: var(--kui-radius-xs);
+  font: var(--kui-body);
+  color: var(--kui-fg-strong);
+  box-sizing: border-box;
+  transition: border-color 120ms ease-out;
+}
+.kui-input-shell:hover { border-color: var(--kui-n400); }
+.kui-input-shell:focus-within { border-color: var(--kui-brand-green); outline: 1px solid var(--kui-brand-green); outline-offset: -2px; }
+.kui-input-shell.is-error { border-color: var(--kui-danger); }
+.kui-input-shell.is-disabled { background: var(--kui-n050); color: var(--kui-fg-disabled); border-color: var(--kui-n100); cursor: not-allowed; }
+.kui-input-shell--small  { height: 24px; padding: 0 6px; font-size: 12px; }
+.kui-input-shell--large  { height: 40px; padding: 0 12px; }
+
+.kui-input {
+  flex: 1; min-width: 0;
+  border: 0; outline: 0; padding: 0; background: transparent;
+  font: inherit; color: inherit;
+}
+.kui-input::placeholder { color: var(--kui-fg-disabled); }
+.kui-input-shell .right-icons { display: flex; align-items: center; gap: 4px; color: var(--kui-fg-muted); }
+
+.kui-field { display: flex; flex-direction: column; gap: 4px; }
+.kui-label { font: 500 12px/1.2 var(--kui-font-sans); color: var(--kui-fg-strong); }
+.kui-help  { font: 400 12px/1.25 var(--kui-font-sans); color: var(--kui-fg-muted); }
+.kui-help.is-error { color: var(--kui-danger); }
+
+/* ============================ Checkbox / Radio / Switch ============================ */
+.kui-check {
+  appearance: none;
+  width: 16px; height: 16px;
+  border: 1px solid var(--kui-n400);
+  border-radius: 2px;
+  background: #fff;
+  display: inline-grid; place-content: center;
+  cursor: pointer;
+  transition: background-color 120ms, border-color 120ms;
+}
+.kui-check:checked { background: var(--kui-brand-green); border-color: var(--kui-brand-green); }
+.kui-check:checked::after { content: ""; width: 9px; height: 5px; border-left: 2px solid #000; border-bottom: 2px solid #000; transform: translate(0,-1px) rotate(-45deg); }
+.kui-radio { border-radius: 50%; }
+.kui-radio:checked { background: #fff; border-color: var(--kui-brand-green); border-width: 5px; }
+.kui-radio:checked::after { content: none; }
+
+.kui-switch {
+  appearance: none;
+  width: 32px; height: 18px;
+  background: var(--kui-n300);
+  border-radius: 999px;
+  position: relative; cursor: pointer;
+  transition: background-color 120ms;
+}
+.kui-switch::after {
+  content: ""; position: absolute; top: 2px; left: 2px;
+  width: 14px; height: 14px; border-radius: 50%; background: #fff;
+  transition: left 120ms ease-out;
+}
+.kui-switch:checked { background: var(--kui-brand-green); }
+.kui-switch:checked::after { left: 16px; }
+
+/* ============================ Tag ============================ */
+.kui-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 20px; padding: 0 8px;
+  border-radius: var(--kui-radius-xs);
+  font: 500 12px/1 var(--kui-font-sans);
+  background: var(--kui-n050); color: var(--kui-fg-strong);
+}
+.kui-tag--roomy { height: 24px; padding: 0 10px; }
+.kui-tag--outline { background: transparent; border: 1px solid var(--kui-border-default); }
+.kui-tag--green  { background: #E8F4D6; color: #3D6300; }
+.kui-tag--blue   { background: #E9F4FB; color: #0D69D4; }
+.kui-tag--red    { background: #FCE9E8; color: #B82A20; }
+.kui-tag--orange { background: #FDEFE6; color: #C54600; }
+.kui-tag--purple { background: #FBEEFE; color: #7A2EA1; }
+.kui-tag--teal   { background: #DBF4F0; color: #006B5E; }
+
+/* ============================ Card ============================ */
+.kui-card {
+  background: #fff; border: 1px solid var(--kui-border-default);
+  border-radius: var(--kui-radius-sm); overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.kui-card:hover { border-color: var(--kui-n300); }
+.kui-card.is-selected { border: 2px solid var(--kui-brand-green); }
+.kui-card__media { background: var(--kui-n050); aspect-ratio: 16/9; display: grid; place-items: center; color: var(--kui-fg-muted); }
+.kui-card__body { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+.kui-card__title    { font: 500 16px/1.25 var(--kui-font-sans); letter-spacing: -0.25px; color: var(--kui-fg-strong); }
+.kui-card__subtitle { font: 400 14px/1   var(--kui-font-sans); color: var(--kui-fg-muted); margin-top: 4px; }
+.kui-card__text     { font: 400 14px/1.5 var(--kui-font-sans); color: var(--kui-fg-strong); }
+
+/* ============================ Banner ============================ */
+.kui-banner {
+  display: flex; gap: 12px; align-items: flex-start;
+  padding: 12px 16px;
+  border-radius: var(--kui-radius-sm);
+  border-left: 4px solid var(--kui-n400);
+  background: var(--kui-n050);
+  font: var(--kui-body);
+  color: var(--kui-fg-strong);
+}
+.kui-banner__icon { width: 20px; height: 20px; color: var(--kui-fg-muted); flex: none; margin-top: 1px; }
+.kui-banner__title { font: 500 14px/1.25 var(--kui-font-sans); margin-bottom: 2px; }
+.kui-banner__close { margin-left: auto; color: var(--kui-fg-muted); cursor: pointer; }
+.kui-banner--info    { background: #E9F4FB; border-color: #0D69D4; }
+.kui-banner--info .kui-banner__icon { color: #0D69D4; }
+.kui-banner--success { background: #E8F4D6; border-color: #007D00; }
+.kui-banner--success .kui-banner__icon { color: #007D00; }
+.kui-banner--warning { background: #FDEFE6; border-color: #C54600; }
+.kui-banner--warning .kui-banner__icon { color: #C54600; }
+.kui-banner--danger  { background: #FCE9E8; border-color: #DC3528; }
+.kui-banner--danger .kui-banner__icon { color: #DC3528; }
+
+/* ============================ Toast ============================ */
+.kui-toast {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; min-width: 280px;
+  background: #fff; border: 1px solid var(--kui-border-default);
+  border-radius: var(--kui-radius-sm);
+  box-shadow: 0 4px 12px 0 rgba(0,0,0,0.12);
+}
+.kui-toast__icon { width: 20px; height: 20px; color: var(--kui-fg-muted); flex: none; }
+.kui-toast__title { font: 500 14px/1.25 var(--kui-font-sans); }
+.kui-toast__body  { font: 400 13px/1.4  var(--kui-font-sans); color: var(--kui-fg-muted); }
+.kui-toast__close { margin-left: auto; color: var(--kui-fg-muted); cursor: pointer; }
+.kui-toast--success .kui-toast__icon { color: #007D00; }
+.kui-toast--info    .kui-toast__icon { color: #0D69D4; }
+.kui-toast--warning .kui-toast__icon { color: #C54600; }
+.kui-toast--danger  .kui-toast__icon { color: #DC3528; }
+
+/* ============================ Avatar ============================ */
+.kui-avatar {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: var(--kui-n100); color: var(--kui-fg-strong);
+  display: inline-grid; place-content: center;
+  font: 500 14px/1 var(--kui-font-sans);
+  overflow: hidden;
+  flex: none;
+}
+.kui-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.kui-avatar--small { width: 24px; height: 24px; font-size: 12px; }
+.kui-avatar--medium { width: 32px; height: 32px; font-size: 14px; }
+.kui-avatar--large { width: 40px; height: 40px; font-size: 16px; }
+.kui-avatar--xlarge { width: 56px; height: 56px; font-size: 20px; }
+
+/* ============================ Badge ============================ */
+.kui-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 16px; height: 16px; padding: 0 5px;
+  border-radius: 999px;
+  background: var(--kui-danger); color: #fff;
+  font: 500 10px/1 var(--kui-font-sans);
+}
+.kui-badge--dot { width: 8px; height: 8px; min-width: 0; padding: 0; border-radius: 50%; }
+
+/* ============================ App Bar ============================ */
+.kui-appbar {
+  display: flex; align-items: center; gap: 8px;
+  height: 48px; padding: 0 16px;
+  background: #fff; border-bottom: 1px solid var(--kui-border-default);
+}
+.kui-appbar__brand { display: flex; align-items: center; gap: 12px; }
+.kui-appbar__brand img.wm  { height: 20px; }
+.kui-appbar__brand .pname  { font: 500 14px/1 var(--kui-font-sans); padding-left: 12px; border-left: 1px solid var(--kui-border-default); }
+.kui-appbar__nav { display: flex; gap: 4px; margin-left: 16px; }
+.kui-appbar__nav a {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 32px; padding: 0 10px; border-radius: 4px;
+  font: 500 14px/1 var(--kui-font-sans); color: var(--kui-fg-strong);
+  text-decoration: none;
+}
+.kui-appbar__nav a:hover { background: var(--kui-n050); }
+.kui-appbar__nav a.is-current { border-bottom: 2px solid var(--kui-brand-green); border-radius: 0; padding-bottom: 0; }
+.kui-appbar__spacer { flex: 1; }
+
+/* ============================ Vertical Nav ============================ */
+.kui-vnav {
+  width: 240px; padding: 8px;
+  background: #fff; border-right: 1px solid var(--kui-border-default);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.kui-vnav__section { font: 500 10px/1 var(--kui-font-sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--kui-fg-muted); padding: 16px 12px 6px; }
+.kui-vnav a {
+  display: flex; align-items: center; gap: 10px;
+  height: 32px; padding: 0 12px;
+  border-radius: 4px;
+  font: 500 14px/1 var(--kui-font-sans); color: var(--kui-fg-strong);
+  text-decoration: none;
+}
+.kui-vnav a:hover { background: var(--kui-n050); }
+.kui-vnav a.is-current { background: var(--kui-n050); box-shadow: inset 2px 0 0 var(--kui-brand-green); }
+.kui-vnav a svg { color: var(--kui-fg-muted); }
+.kui-vnav a.is-current svg { color: var(--kui-fg-strong); }
+
+/* ============================ Modal ============================ */
+.kui-blanket { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: grid; place-items: center; z-index: 10; }
+.kui-modal {
+  background: #fff;
+  width: 480px;
+  border-radius: var(--kui-radius-sm);
+  box-shadow: 0 8px 24px 0 rgba(0,0,0,0.15);
+  display: flex; flex-direction: column;
+}
+.kui-modal__head { padding: 16px 20px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--kui-border-subtle); }
+.kui-modal__title { font: 500 16px/1.25 var(--kui-font-sans); letter-spacing: -0.25px; }
+.kui-modal__close { margin-left: auto; cursor: pointer; color: var(--kui-fg-muted); }
+.kui-modal__body { padding: 20px; font: var(--kui-body); color: var(--kui-fg-strong); }
+.kui-modal__foot { padding: 12px 20px; display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--kui-border-subtle); }
+
+/* ============================ Table ============================ */
+.kui-table {
+  width: 100%; border-collapse: collapse;
+  font: var(--kui-body); color: var(--kui-fg-strong);
+}
+.kui-table th, .kui-table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--kui-border-subtle); }
+.kui-table th { font-weight: 500; background: var(--kui-n050); color: var(--kui-fg-default); }
+.kui-table tr:hover td { background: var(--kui-n050); }
+
+/* ============================ Progress / Spinner ============================ */
+.kui-progress { height: 4px; width: 100%; background: var(--kui-n100); border-radius: 999px; overflow: hidden; }
+.kui-progress__bar { height: 100%; background: var(--kui-brand-green); transition: width 200ms ease-out; }
+
+.kui-spinner {
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--kui-n200);
+  border-top-color: var(--kui-brand-green);
+  animation: kui-spin 800ms linear infinite;
+  display: inline-block;
+}
+@keyframes kui-spin { to { transform: rotate(360deg); } }
+
+/* ============================ Tooltip / Popover (visual only) ============================ */
+.kui-tooltip {
+  display: inline-block;
+  padding: 6px 10px;
+  background: #202020; color: #fff;
+  font: 400 12px/1.25 var(--kui-font-sans);
+  border-radius: var(--kui-radius-xs);
+  box-shadow: 0 4px 12px 0 rgba(0,0,0,0.12);
+}

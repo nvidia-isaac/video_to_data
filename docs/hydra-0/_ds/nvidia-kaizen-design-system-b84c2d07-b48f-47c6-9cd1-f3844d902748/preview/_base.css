@@ -1,0 +1,23 @@
+/* Shared base for every preview card.
+   Each card is self-contained, ~700 px wide.
+*/
+@import url("../colors_and_type.css");
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #FFFFFF;
+  font-family: var(--kui-font-sans);
+  color: var(--kui-fg-strong);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+body {
+  width: 700px;
+  padding: 20px 24px;
+  box-sizing: border-box;
+}
+.card-row { display: flex; align-items: center; gap: 16px; }
+.card-col { display: flex; flex-direction: column; gap: 12px; }
+.muted { color: var(--kui-fg-muted); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; }
+.mono  { font-family: var(--kui-font-mono); font-size: 11px; color: var(--kui-fg-muted); }

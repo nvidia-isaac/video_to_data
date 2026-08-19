@@ -1,0 +1,680 @@
+/* ==========================================================================
+   Kaizen UI Foundations — Design Tokens
+   Faithful port of @kui/foundations-react base.css (v1.0.1)
+   Source: https://webassets.nvidia.com/kaizen-ui-foundations/docs/llms.txt
+
+   Layers:
+   1. Primitive variables (static, not theme-dependent)
+   2. Themed properties — light (:root) + dark ([data-theme="dark"])
+   3. Density theme — standard (default) / compact / spacious
+   4. Semantic text utilities (Text kind="..." + .text-* classes)
+
+   Font note: NVIDIA Sans + JetBrains Mono are the real families. They are
+   proprietary; this port substitutes DM Sans / JetBrains Mono (the latter is
+   open). Drop real .woff2 into fonts/ and edit --font-sans to restore.
+   ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300..700;1,9..40,400&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+/* ==========================================================================
+   1. PRIMITIVE VARIABLES
+   ========================================================================== */
+:root {
+  --spacing: 4px;
+
+  --color-black: #000000;
+  --color-white: #ffffff;
+  --color-brand: #76b900;
+
+  --color-red-050: #ffe9e9;
+  --color-red-100: #ffd7d7;
+  --color-red-200: #ffbbbb;
+  --color-red-300: #ff8181;
+  --color-red-400: #fe3f3f;
+  --color-red-500: #e52020;
+  --color-red-600: #c21e1e;
+  --color-red-700: #961515;
+  --color-red-800: #650b0b;
+  --color-red-900: #4b0404;
+  --color-red-950: #2d0100;
+
+  --color-yellow-050: #feeeb2;
+  --color-yellow-100: #fcde7b;
+  --color-yellow-200: #f9c500;
+  --color-yellow-300: #ef9100;
+  --color-yellow-400: #df6500;
+  --color-yellow-500: #d73d00;
+  --color-yellow-600: #b93100;
+  --color-yellow-700: #8d2600;
+  --color-yellow-800: #601600;
+  --color-yellow-900: #441000;
+  --color-yellow-950: #2d0b00;
+
+  --color-green-025: #dafb7d;
+  --color-green-050: #cfff40;
+  --color-green-100: #bff230;
+  --color-green-200: #a5de15;
+  --color-green-300: #76b900;
+  --color-green-400: #549a00;
+  --color-green-500: #3f8500;
+  --color-green-600: #327100;
+  --color-green-700: #265600;
+  --color-green-800: #193800;
+  --color-green-900: #142700;
+  --color-green-950: #0d1a00;
+
+  --color-teal-050: #adfcf8;
+  --color-teal-100: #9aefe5;
+  --color-teal-200: #3ae3c9;
+  --color-teal-300: #1dbba4;
+  --color-teal-400: #139a86;
+  --color-teal-500: #0d8473;
+  --color-teal-600: #097061;
+  --color-teal-700: #04554b;
+  --color-teal-800: #033831;
+  --color-teal-900: #022723;
+  --color-teal-950: #011a19;
+
+  --color-blue-050: #cbf5ff;
+  --color-blue-100: #aaccee;
+  --color-blue-200: #7cd7fe;
+  --color-blue-300: #10b1fb;
+  --color-blue-400: #008af9;
+  --color-blue-500: #0074df;
+  --color-blue-600: #0060c7;
+  --color-blue-700: #0046a4;
+  --color-blue-800: #002781;
+  --color-blue-900: #002050;
+  --color-blue-950: #00112c;
+
+  --color-purple-050: #fae9ff;
+  --color-purple-100: #f9d4ff;
+  --color-purple-200: #f0b9fd;
+  --color-purple-300: #cd8ef0;
+  --color-purple-400: #c359ef;
+  --color-purple-500: #a846db;
+  --color-purple-600: #952fc6;
+  --color-purple-700: #741d9d;
+  --color-purple-800: #4d1368;
+  --color-purple-900: #331344;
+  --color-purple-950: #1f0f27;
+
+  --color-fuchsia-050: #ffe8f9;
+  --color-fuchsia-100: #ffd3f2;
+  --color-fuchsia-200: #feb5ee;
+  --color-fuchsia-300: #fc79ca;
+  --color-fuchsia-400: #e050b7;
+  --color-fuchsia-500: #d2308e;
+  --color-fuchsia-600: #b62475;
+  --color-fuchsia-700: #8c1c55;
+  --color-fuchsia-800: #5d1337;
+  --color-fuchsia-900: #420d25;
+  --color-fuchsia-950: #2d0919;
+
+  --color-gray-000: #ffffff;
+  --color-gray-025: #f7f7f7;
+  --color-gray-050: #eeeeee;
+  --color-gray-100: #e0e0e0;
+  --color-gray-200: #cccccc;
+  --color-gray-300: #a7a7a7;
+  --color-gray-400: #898989;
+  --color-gray-500: #757575;
+  --color-gray-600: #636363;
+  --color-gray-700: #4b4b4b;
+  --color-gray-800: #313131;
+  --color-gray-900: #222222;
+  --color-gray-950: #161616;
+  --color-gray-975: #0c0c0c;
+  --color-gray-1000: #000000;
+
+  --color-translucent-black-000: #00000000;
+  --color-translucent-black-050: #0000000d;
+  --color-translucent-black-100: #0000001a;
+  --color-translucent-black-120: #0000001f;
+  --color-translucent-black-150: #00000026;
+  --color-translucent-black-200: #00000033;
+  --color-translucent-black-300: #0000004d;
+  --color-translucent-black-400: #00000066;
+  --color-translucent-black-500: #00000080;
+  --color-translucent-black-600: #00000099;
+  --color-translucent-black-700: #000000b2;
+  --color-translucent-black-800: #000000cc;
+  --color-translucent-black-900: #000000e5;
+
+  --color-translucent-white-000: #ffffff00;
+  --color-translucent-white-050: #ffffff0d;
+  --color-translucent-white-100: #ffffff1a;
+  --color-translucent-white-120: #ffffff1f;
+  --color-translucent-white-200: #ffffff33;
+  --color-translucent-white-250: #ffffff40;
+  --color-translucent-white-300: #ffffff4d;
+  --color-translucent-white-400: #ffffff66;
+  --color-translucent-white-500: #ffffff80;
+  --color-translucent-white-600: #ffffff99;
+  --color-translucent-white-700: #ffffffb2;
+  --color-translucent-white-800: #ffffffcc;
+  --color-translucent-white-900: #ffffffe5;
+
+  --font-sans: "DM Sans", "NVIDIA Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --text-10: 0.625rem;
+  --text-12: 0.75rem;
+  --text-14: 0.875rem;
+  --text-16: 1rem;
+  --text-18: 1.125rem;
+  --text-20: 1.25rem;
+  --text-22: 1.375rem;
+  --text-24: 1.5rem;
+  --text-28: 1.75rem;
+  --text-32: 2rem;
+  --text-36: 2.25rem;
+  --text-40: 2.5rem;
+  --text-44: 2.75rem;
+  --text-48: 3rem;
+  --text-50: 3.125rem;
+  --text-56: 3.5rem;
+  --text-60: 3.75rem;
+  --text-64: 4rem;
+  --text-72: 4.5rem;
+  --text-80: 5rem;
+
+  --font-weight-light: 300;
+  --font-weight-regular: 400;
+  --font-weight-semibold: 500;
+  --font-weight-bold: 700;
+
+  --leading-lh-100: 1;
+  --leading-lh-125: 1.25;
+  --leading-lh-150: 1.5;
+  --leading-lh-175: 1.75;
+
+  --breakpoint-xs: 20rem;
+  --breakpoint-sm: 36rem;
+  --breakpoint-md: 48rem;
+  --breakpoint-lg: 62rem;
+  --breakpoint-xl: 75rem;
+  --breakpoint-2xl: 100rem;
+
+  --border-width-none: 0px;
+  --border-width-1: 1px;
+  --border-width-2: 2px;
+  --border-width-3: 3px;
+  --border-width-4: 4px;
+
+  --radius-none: 0px;
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 8px;
+  --radius-xl: 16px;
+  --radius-2xl: 24px;
+  --radius-3xl: 32px;
+  --radius-round: 9999px;
+
+  --shadow-lg: 0px 8px 12px 0px var(--color-translucent-black-150);
+  --shadow-md: 0px 4px 6px 0px var(--color-translucent-black-120);
+  --shadow-sm: 0px 2px 4px 0px var(--color-translucent-black-120);
+
+  --animate-pulse: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-spin: spin 1s linear infinite;
+
+  --transition-duration-150: 150ms;
+  --transition-duration-200: 200ms;
+  --transition-duration-250: 250ms;
+  --transition-duration-300: 300ms;
+  --ease-out: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ==========================================================================
+   2. THEMED PROPERTIES — LIGHT (default)
+   ========================================================================== */
+:root,
+[data-theme="light"],
+.kui-theme-light {
+  --nv-current-theme: light;
+
+  /* backgrounds — accents */
+  --background-color-accent-blue: var(--color-blue-050);
+  --background-color-accent-blue-hover: var(--color-blue-050);
+  --background-color-accent-blue-selected: var(--color-blue-200);
+  --background-color-accent-blue-strong: var(--color-blue-700);
+  --background-color-accent-blue-subtle: var(--color-blue-050);
+  --background-color-accent-blue-subtle-hover: var(--color-blue-200);
+  --background-color-accent-blue-subtle-selected: var(--color-blue-600);
+  --background-color-accent-gray: var(--color-gray-200);
+  --background-color-accent-gray-hover: var(--color-gray-300);
+  --background-color-accent-gray-selected: var(--color-gray-700);
+  --background-color-accent-gray-strong: var(--color-gray-700);
+  --background-color-accent-gray-subtle: var(--color-gray-100);
+  --background-color-accent-gray-subtle-hover: var(--color-gray-300);
+  --background-color-accent-gray-subtle-selected: var(--color-gray-700);
+  --background-color-accent-green: var(--color-green-025);
+  --background-color-accent-green-hover: var(--color-green-025);
+  --background-color-accent-green-selected: var(--color-green-050);
+  --background-color-accent-green-strong: var(--color-green-800);
+  --background-color-accent-green-subtle: var(--color-green-100);
+  --background-color-accent-green-subtle-hover: var(--color-green-200);
+  --background-color-accent-green-subtle-selected: var(--color-green-600);
+  --background-color-accent-purple: var(--color-purple-200);
+  --background-color-accent-purple-hover: var(--color-purple-050);
+  --background-color-accent-purple-selected: var(--color-purple-100);
+  --background-color-accent-purple-strong: var(--color-purple-700);
+  --background-color-accent-purple-subtle: var(--color-purple-050);
+  --background-color-accent-purple-subtle-hover: var(--color-purple-100);
+  --background-color-accent-purple-subtle-selected: var(--color-purple-600);
+  --background-color-accent-red: var(--color-red-100);
+  --background-color-accent-red-hover: var(--color-red-050);
+  --background-color-accent-red-selected: var(--color-red-100);
+  --background-color-accent-red-strong: var(--color-red-700);
+  --background-color-accent-red-subtle: var(--color-red-100);
+  --background-color-accent-red-subtle-hover: var(--color-red-200);
+  --background-color-accent-red-subtle-selected: var(--color-red-600);
+  --background-color-accent-teal: var(--color-teal-100);
+  --background-color-accent-teal-hover: var(--color-teal-050);
+  --background-color-accent-teal-selected: var(--color-teal-100);
+  --background-color-accent-teal-strong: var(--color-teal-800);
+  --background-color-accent-teal-subtle: var(--color-teal-100);
+  --background-color-accent-teal-subtle-hover: var(--color-teal-200);
+  --background-color-accent-teal-subtle-selected: var(--color-teal-600);
+  --background-color-accent-yellow: var(--color-yellow-100);
+  --background-color-accent-yellow-hover: var(--color-yellow-050);
+  --background-color-accent-yellow-selected: var(--color-yellow-100);
+  --background-color-accent-yellow-strong: var(--color-yellow-700);
+  --background-color-accent-yellow-subtle: var(--color-yellow-100);
+  --background-color-accent-yellow-subtle-hover: var(--color-yellow-200);
+  --background-color-accent-yellow-subtle-selected: var(--color-yellow-600);
+
+  /* backgrounds — surfaces / structure */
+  --background-color-background-contrast: var(--color-gray-900);
+  --background-color-background-default: var(--color-gray-000);
+  --background-color-background-emphasis: var(--color-gray-050);
+  --background-color-background-highlight: var(--color-gray-100);
+  --background-color-background-subtle: var(--color-gray-025);
+  --background-color-component-skeleton: var(--color-gray-100);
+  --background-color-component-skeleton-subtle: var(--color-gray-200);
+  --background-color-component-tooltip: var(--color-gray-800);
+  --background-color-component-track: var(--color-translucent-black-100);
+  --background-color-component-track-inverse: var(--color-translucent-black-100);
+  --background-color-feedback-danger: var(--color-red-300);
+  --background-color-feedback-danger-hover: var(--color-red-600);
+  --background-color-feedback-danger-pressed: var(--color-red-700);
+  --background-color-feedback-danger-strong: var(--color-red-500);
+  --background-color-feedback-danger-subtle-hover: var(--color-red-100);
+  --background-color-feedback-danger-subtle-pressed: var(--color-red-200);
+  --background-color-feedback-info: var(--color-blue-050);
+  --background-color-feedback-success: var(--color-green-025);
+  --background-color-feedback-warning: var(--color-yellow-100);
+  --background-color-interaction-base: var(--color-gray-000);
+  --background-color-interaction-disabled: var(--color-translucent-black-050);
+  --background-color-interaction-disabled-checked: var(--color-translucent-black-400);
+  --background-color-interaction-hover: var(--color-translucent-black-050);
+  --background-color-interaction-inverse: var(--color-gray-900);
+  --background-color-interaction-inverse-hover: var(--color-gray-950);
+  --background-color-interaction-inverse-pressed: var(--color-gray-975);
+  --background-color-interaction-pressed: var(--color-translucent-black-100);
+  --background-color-interaction-primary-base: var(--color-green-300);
+  --background-color-interaction-primary-hover: var(--color-green-400);
+  --background-color-interaction-primary-selected: var(--color-green-500);
+  --background-color-interaction-selected: var(--color-gray-000);
+  --background-color-surface-base: var(--color-gray-000);
+  --background-color-surface-blanket: var(--color-translucent-black-700);
+  --background-color-surface-glass: var(--color-translucent-white-800);
+  --background-color-surface-navigation: var(--color-gray-000);
+  --background-color-surface-overlay: var(--color-gray-000);
+  --background-color-surface-raised: var(--color-gray-000);
+  --background-color-surface-sunken: var(--color-gray-025);
+
+  /* borders */
+  --border-color-accent-black: var(--color-gray-1000);
+  --border-color-accent-blue: var(--color-blue-600);
+  --border-color-accent-gray: var(--color-gray-700);
+  --border-color-accent-green: var(--color-green-700);
+  --border-color-accent-purple: var(--color-purple-600);
+  --border-color-accent-red: var(--color-red-600);
+  --border-color-accent-teal: var(--color-teal-600);
+  --border-color-accent-white: var(--color-gray-000);
+  --border-color-accent-yellow: var(--color-yellow-600);
+  --border-color-base: var(--color-translucent-black-200);
+  --border-color-brand: var(--color-brand);
+  --border-color-component-tooltip: var(--color-gray-600);
+  --border-color-disabled: var(--color-translucent-black-400);
+  --border-color-feedback-danger: var(--color-red-500);
+  --border-color-feedback-danger-hover: var(--color-red-600);
+  --border-color-feedback-danger-strong: var(--color-red-700);
+  --border-color-feedback-danger-subtle: var(--color-red-500);
+  --border-color-feedback-info: var(--color-blue-400);
+  --border-color-feedback-success: var(--color-green-400);
+  --border-color-feedback-warning: var(--color-yellow-400);
+  --border-color-interaction-base: var(--color-translucent-black-300);
+  --border-color-interaction-disabled: var(--color-translucent-black-100);
+  --border-color-interaction-hover: var(--color-translucent-black-900);
+  --border-color-interaction-inverse: var(--color-gray-900);
+  --border-color-interaction-inverse-hover: var(--color-gray-950);
+  --border-color-interaction-inverse-pressed: var(--color-gray-975);
+  --border-color-interaction-pressed: var(--color-translucent-black-900);
+  --border-color-interaction-primary-base: var(--color-green-300);
+  --border-color-interaction-primary-hover: var(--color-green-400);
+  --border-color-interaction-primary-selected: var(--color-green-500);
+  --border-color-interaction-selected: var(--text-color-brand);
+  --border-color-interaction-strong: var(--color-translucent-black-700);
+
+  /* text */
+  --text-color-accent-black: var(--color-gray-1000);
+  --text-color-accent-blue: var(--color-blue-700);
+  --text-color-accent-blue-strong: var(--color-blue-700);
+  --text-color-accent-blue-subtle: var(--color-blue-200);
+  --text-color-accent-gray: var(--color-gray-700);
+  --text-color-accent-green: var(--color-green-700);
+  --text-color-accent-green-strong: var(--color-green-700);
+  --text-color-accent-green-subtle: var(--color-green-200);
+  --text-color-accent-purple: var(--color-purple-700);
+  --text-color-accent-purple-strong: var(--color-purple-700);
+  --text-color-accent-purple-subtle: var(--color-purple-200);
+  --text-color-accent-red: var(--color-red-700);
+  --text-color-accent-red-strong: var(--color-red-700);
+  --text-color-accent-red-subtle: var(--color-red-200);
+  --text-color-accent-teal: var(--color-teal-700);
+  --text-color-accent-teal-strong: var(--color-teal-700);
+  --text-color-accent-teal-subtle: var(--color-teal-200);
+  --text-color-accent-white: var(--color-gray-000);
+  --text-color-accent-yellow: var(--color-yellow-700);
+  --text-color-accent-yellow-strong: var(--color-yellow-700);
+  --text-color-accent-yellow-subtle: var(--color-yellow-200);
+  --text-color-base: var(--color-gray-600);
+  --text-color-brand: var(--color-brand);
+  --text-color-component-nvidia-logo: var(--color-gray-1000);
+  --text-color-disabled: var(--color-gray-400);
+  --text-color-feedback-danger: var(--color-red-500);
+  --text-color-feedback-danger-inverse: var(--color-gray-900);
+  --text-color-feedback-danger-strong: var(--color-red-700);
+  --text-color-feedback-danger-subtle: var(--color-red-600);
+  --text-color-feedback-info: var(--color-blue-500);
+  --text-color-feedback-info-inverse: var(--color-gray-900);
+  --text-color-feedback-success: var(--color-green-500);
+  --text-color-feedback-success-inverse: var(--color-gray-900);
+  --text-color-feedback-warning: var(--color-yellow-500);
+  --text-color-feedback-warning-inverse: var(--color-gray-900);
+  --text-color-interaction-disabled-checked: var(--color-translucent-black-300);
+  --text-color-interaction-selected: var(--color-gray-000);
+  --text-color-inverse: var(--color-gray-000);
+  --text-color-inverse-brand: var(--color-gray-950);
+  --text-color-placeholder: var(--color-gray-500);
+  --text-color-primary: var(--color-gray-1000);
+  --text-color-secondary: var(--color-gray-600);
+  --text-color-strong: var(--color-gray-900);
+  --text-color-subtle: var(--color-gray-400);
+}
+
+/* ==========================================================================
+   2b. THEMED PROPERTIES — DARK
+   ========================================================================== */
+[data-theme="dark"],
+.kui-theme-dark {
+  --nv-current-theme: dark;
+
+  --background-color-accent-blue: var(--color-blue-900);
+  --background-color-accent-blue-hover: var(--color-blue-900);
+  --background-color-accent-blue-selected: var(--color-blue-800);
+  --background-color-accent-blue-strong: var(--color-blue-900);
+  --background-color-accent-blue-subtle: var(--color-blue-900);
+  --background-color-accent-blue-subtle-hover: var(--color-blue-800);
+  --background-color-accent-blue-subtle-selected: var(--color-blue-500);
+  --background-color-accent-gray: var(--color-gray-600);
+  --background-color-accent-gray-hover: var(--color-gray-1000);
+  --background-color-accent-gray-selected: var(--color-gray-200);
+  --background-color-accent-gray-strong: var(--color-gray-700);
+  --background-color-accent-gray-subtle: var(--color-gray-700);
+  --background-color-accent-gray-subtle-hover: var(--color-gray-200);
+  --background-color-accent-gray-subtle-selected: var(--color-gray-600);
+  --background-color-accent-green: var(--color-green-900);
+  --background-color-accent-green-hover: var(--color-green-900);
+  --background-color-accent-green-selected: var(--color-green-800);
+  --background-color-accent-green-strong: var(--color-green-900);
+  --background-color-accent-green-subtle: var(--color-green-900);
+  --background-color-accent-green-subtle-hover: var(--color-green-800);
+  --background-color-accent-green-subtle-selected: var(--color-green-600);
+  --background-color-accent-purple: var(--color-purple-900);
+  --background-color-accent-purple-hover: var(--color-purple-900);
+  --background-color-accent-purple-selected: var(--color-purple-800);
+  --background-color-accent-purple-strong: var(--color-purple-900);
+  --background-color-accent-purple-subtle: var(--color-purple-900);
+  --background-color-accent-purple-subtle-hover: var(--color-purple-800);
+  --background-color-accent-purple-subtle-selected: var(--color-purple-700);
+  --background-color-accent-red: var(--color-red-900);
+  --background-color-accent-red-hover: var(--color-red-900);
+  --background-color-accent-red-selected: var(--color-red-800);
+  --background-color-accent-red-strong: var(--color-red-900);
+  --background-color-accent-red-subtle: var(--color-red-900);
+  --background-color-accent-red-subtle-hover: var(--color-red-800);
+  --background-color-accent-red-subtle-selected: var(--color-red-700);
+  --background-color-accent-teal: var(--color-teal-900);
+  --background-color-accent-teal-hover: var(--color-teal-900);
+  --background-color-accent-teal-selected: var(--color-teal-800);
+  --background-color-accent-teal-strong: var(--color-teal-900);
+  --background-color-accent-teal-subtle: var(--color-teal-900);
+  --background-color-accent-teal-subtle-hover: var(--color-teal-800);
+  --background-color-accent-teal-subtle-selected: var(--color-teal-500);
+  --background-color-accent-yellow: var(--color-yellow-900);
+  --background-color-accent-yellow-hover: var(--color-yellow-900);
+  --background-color-accent-yellow-selected: var(--color-yellow-800);
+  --background-color-accent-yellow-strong: var(--color-yellow-900);
+  --background-color-accent-yellow-subtle: var(--color-yellow-900);
+  --background-color-accent-yellow-subtle-hover: var(--color-yellow-800);
+  --background-color-accent-yellow-subtle-selected: var(--color-yellow-600);
+
+  --background-color-background-contrast: var(--color-gray-000);
+  --background-color-background-default: var(--color-gray-900);
+  --background-color-background-emphasis: var(--color-gray-700);
+  --background-color-background-highlight: var(--color-gray-600);
+  --background-color-background-subtle: var(--color-gray-800);
+  --background-color-component-skeleton: var(--color-gray-800);
+  --background-color-component-skeleton-subtle: var(--color-gray-900);
+  --background-color-component-tooltip: var(--color-gray-800);
+  --background-color-component-track: var(--color-translucent-white-200);
+  --background-color-component-track-inverse: var(--color-translucent-black-400);
+  --background-color-feedback-danger: var(--color-red-900);
+  --background-color-feedback-danger-hover: var(--color-red-600);
+  --background-color-feedback-danger-pressed: var(--color-red-700);
+  --background-color-feedback-danger-strong: var(--color-red-500);
+  --background-color-feedback-danger-subtle-hover: var(--color-red-900);
+  --background-color-feedback-danger-subtle-pressed: var(--color-red-800);
+  --background-color-feedback-info: var(--color-blue-950);
+  --background-color-feedback-success: var(--color-green-950);
+  --background-color-feedback-warning: var(--color-yellow-950);
+  --background-color-interaction-base: var(--color-translucent-black-600);
+  --background-color-interaction-disabled: var(--color-translucent-white-100);
+  --background-color-interaction-disabled-checked: var(--color-translucent-white-500);
+  --background-color-interaction-hover: var(--color-translucent-white-100);
+  --background-color-interaction-inverse: var(--color-gray-000);
+  --background-color-interaction-inverse-hover: var(--color-gray-100);
+  --background-color-interaction-inverse-pressed: var(--color-gray-200);
+  --background-color-interaction-pressed: var(--color-translucent-white-200);
+  --background-color-interaction-primary-base: var(--color-green-300);
+  --background-color-interaction-primary-hover: var(--color-green-400);
+  --background-color-interaction-primary-selected: var(--color-green-500);
+  --background-color-interaction-selected: var(--color-gray-1000);
+  --background-color-surface-base: var(--color-gray-1000);
+  --background-color-surface-blanket: var(--color-translucent-black-700);
+  --background-color-surface-glass: var(--color-translucent-black-600);
+  --background-color-surface-navigation: var(--color-gray-1000);
+  --background-color-surface-overlay: var(--color-gray-900);
+  --background-color-surface-raised: var(--color-gray-950);
+  --background-color-surface-sunken: var(--color-gray-975);
+
+  --border-color-accent-black: var(--color-gray-1000);
+  --border-color-accent-blue: var(--color-blue-300);
+  --border-color-accent-gray: var(--color-gray-300);
+  --border-color-accent-green: var(--color-green-300);
+  --border-color-accent-purple: var(--color-purple-300);
+  --border-color-accent-red: var(--color-red-300);
+  --border-color-accent-teal: var(--color-teal-300);
+  --border-color-accent-white: var(--color-gray-000);
+  --border-color-accent-yellow: var(--color-yellow-300);
+  --border-color-base: var(--color-translucent-white-200);
+  --border-color-brand: var(--color-brand);
+  --border-color-component-tooltip: var(--color-gray-600);
+  --border-color-disabled: var(--color-translucent-white-300);
+  --border-color-feedback-danger: var(--color-red-500);
+  --border-color-feedback-danger-hover: var(--color-red-600);
+  --border-color-feedback-danger-strong: var(--color-red-700);
+  --border-color-feedback-danger-subtle: var(--color-red-300);
+  --border-color-feedback-info: var(--color-blue-400);
+  --border-color-feedback-success: var(--color-green-400);
+  --border-color-feedback-warning: var(--color-yellow-200);
+  --border-color-interaction-base: var(--color-translucent-white-200);
+  --border-color-interaction-disabled: var(--color-translucent-white-100);
+  --border-color-interaction-hover: var(--color-translucent-white-400);
+  --border-color-interaction-inverse: var(--color-gray-000);
+  --border-color-interaction-inverse-hover: var(--color-gray-100);
+  --border-color-interaction-inverse-pressed: var(--color-gray-200);
+  --border-color-interaction-pressed: var(--color-translucent-white-400);
+  --border-color-interaction-primary-base: var(--color-green-300);
+  --border-color-interaction-primary-hover: var(--color-green-400);
+  --border-color-interaction-primary-selected: var(--color-green-500);
+  --border-color-interaction-selected: var(--text-color-brand);
+  --border-color-interaction-strong: var(--color-translucent-white-700);
+
+  --text-color-accent-black: var(--color-gray-1000);
+  --text-color-accent-blue: var(--color-blue-300);
+  --text-color-accent-blue-strong: var(--color-blue-200);
+  --text-color-accent-blue-subtle: var(--color-blue-200);
+  --text-color-accent-gray: var(--color-gray-050);
+  --text-color-accent-green: var(--color-green-300);
+  --text-color-accent-green-strong: var(--color-green-200);
+  --text-color-accent-green-subtle: var(--color-green-200);
+  --text-color-accent-purple: var(--color-purple-200);
+  --text-color-accent-purple-strong: var(--color-purple-200);
+  --text-color-accent-purple-subtle: var(--color-purple-200);
+  --text-color-accent-red: var(--color-red-300);
+  --text-color-accent-red-strong: var(--color-red-200);
+  --text-color-accent-red-subtle: var(--color-red-200);
+  --text-color-accent-teal: var(--color-teal-300);
+  --text-color-accent-teal-strong: var(--color-teal-200);
+  --text-color-accent-teal-subtle: var(--color-teal-200);
+  --text-color-accent-white: var(--color-gray-000);
+  --text-color-accent-yellow: var(--color-yellow-300);
+  --text-color-accent-yellow-strong: var(--color-yellow-200);
+  --text-color-accent-yellow-subtle: var(--color-yellow-200);
+  --text-color-base: var(--color-gray-200);
+  --text-color-brand: var(--color-brand);
+  --text-color-component-nvidia-logo: var(--color-gray-000);
+  --text-color-disabled: var(--color-translucent-white-300);
+  --text-color-feedback-danger: var(--color-red-400);
+  --text-color-feedback-danger-inverse: var(--color-red-300);
+  --text-color-feedback-danger-strong: var(--color-red-300);
+  --text-color-feedback-danger-subtle: var(--color-red-400);
+  --text-color-feedback-info: var(--color-blue-500);
+  --text-color-feedback-info-inverse: var(--color-blue-300);
+  --text-color-feedback-success: var(--color-green-400);
+  --text-color-feedback-success-inverse: var(--color-green-300);
+  --text-color-feedback-warning: var(--color-yellow-300);
+  --text-color-feedback-warning-inverse: var(--color-yellow-200);
+  --text-color-interaction-disabled-checked: var(--color-translucent-black-600);
+  --text-color-interaction-selected: var(--color-translucent-white-200);
+  --text-color-inverse: var(--color-gray-1000);
+  --text-color-inverse-brand: var(--text-color-brand);
+  --text-color-placeholder: var(--color-gray-400);
+  --text-color-primary: var(--color-gray-000);
+  --text-color-secondary: var(--color-gray-300);
+  --text-color-strong: var(--color-gray-000);
+  --text-color-subtle: var(--color-gray-400);
+}
+
+/* ==========================================================================
+   3. DENSITY THEME — standard (default) / compact / spacious
+   ========================================================================== */
+:root,
+[data-density="standard"] {
+  --radius-density-xl: var(--radius-xl);
+  --spacing-density-xxs: 2px;
+  --spacing-density-xs: 4px;
+  --spacing-density-sm: 6px;
+  --spacing-density-md: 8px;
+  --spacing-density-lg: 12px;
+  --spacing-density-xl: 16px;
+  --spacing-density-2xl: 24px;
+  --spacing-density-3xl: 32px;
+  --spacing-density-4xl: 48px;
+  --spacing-density-5xl: 64px;
+}
+
+[data-density="compact"] {
+  --radius-density-xl: var(--radius-lg);
+  --spacing-density-xxs: 1px;
+  --spacing-density-xs: 2px;
+  --spacing-density-sm: 4px;
+  --spacing-density-md: 6px;
+  --spacing-density-lg: 8px;
+  --spacing-density-xl: 12px;
+  --spacing-density-2xl: 16px;
+  --spacing-density-3xl: 24px;
+  --spacing-density-4xl: 32px;
+  --spacing-density-5xl: 48px;
+}
+
+[data-density="spacious"] {
+  --radius-density-xl: var(--radius-xl);
+  --spacing-density-xxs: 4px;
+  --spacing-density-xs: 6px;
+  --spacing-density-sm: 8px;
+  --spacing-density-md: 12px;
+  --spacing-density-lg: 16px;
+  --spacing-density-xl: 24px;
+  --spacing-density-2xl: 32px;
+  --spacing-density-3xl: 48px;
+  --spacing-density-4xl: 64px;
+  --spacing-density-5xl: 80px;
+}
+
+/* ==========================================================================
+   4. SEMANTIC TEXT UTILITIES — Text kind="..." maps to .kui-text-*
+   Naming: kind "body/regular/md" -> class .kui-text-body-regular-md
+   ========================================================================== */
+.kui-text-display-xs { font-weight: 700; font-size: var(--text-36); line-height: 1.25; }
+.kui-text-display-sm { font-weight: 700; font-size: var(--text-40); line-height: 1.25; }
+.kui-text-display-md { font-weight: 700; font-size: var(--text-44); line-height: 1.25; }
+.kui-text-display-lg { font-weight: 700; font-size: var(--text-50); line-height: 1.24; }
+.kui-text-display-xl { font-weight: 700; font-size: var(--text-56); line-height: 1.25; }
+.kui-text-display-2xl { font-weight: 700; font-size: var(--text-64); line-height: 1.25; }
+
+.kui-text-title-xs { font-weight: 700; font-size: var(--text-18); line-height: 1.22; }
+.kui-text-title-sm { font-weight: 700; font-size: var(--text-20); line-height: 1.25; }
+.kui-text-title-md { font-weight: 700; font-size: var(--text-24); line-height: 1.25; }
+.kui-text-title-lg { font-weight: 700; font-size: var(--text-28); line-height: 1.25; }
+.kui-text-title-xl { font-weight: 700; font-size: var(--text-32); line-height: 1.25; }
+.kui-text-title-2xl { font-weight: 700; font-size: var(--text-36); line-height: 1.25; }
+
+.kui-text-label-light-md { font-weight: 300; font-size: var(--text-14); line-height: calc(17/14); }
+.kui-text-label-regular-xs { font-size: var(--text-10); line-height: calc(12/10); }
+.kui-text-label-regular-sm { font-size: var(--text-12); line-height: 1.25; }
+.kui-text-label-regular-md { font-size: var(--text-14); line-height: calc(17/14); }
+.kui-text-label-regular-lg { font-size: var(--text-16); line-height: 1.25; }
+.kui-text-label-regular-xl { font-size: var(--text-18); line-height: calc(22/18); }
+.kui-text-label-semibold-xs { font-weight: 500; font-size: var(--text-10); line-height: calc(12/10); }
+.kui-text-label-semibold-sm { font-weight: 500; font-size: var(--text-12); line-height: 1.25; }
+.kui-text-label-semibold-md { font-weight: 500; font-size: var(--text-14); line-height: calc(17/14); }
+.kui-text-label-semibold-lg { font-weight: 500; font-size: var(--text-16); line-height: 1.25; }
+.kui-text-label-bold-sm { font-weight: 700; font-size: var(--text-12); line-height: 1.25; }
+.kui-text-label-bold-md { font-weight: 700; font-size: var(--text-14); line-height: calc(17/14); }
+.kui-text-label-bold-lg { font-weight: 700; font-size: var(--text-16); line-height: 1.25; }
+
+.kui-text-body-regular-xs { font-size: var(--text-10); line-height: 1.5; }
+.kui-text-body-regular-sm { font-size: var(--text-12); line-height: 1.5; }
+.kui-text-body-regular-md { font-size: var(--text-14); line-height: 1.5; }
+.kui-text-body-regular-lg { font-size: var(--text-16); line-height: 1.5; }
+.kui-text-body-regular-xl { font-size: var(--text-18); line-height: 1.5; }
+.kui-text-body-regular-2xl { font-size: var(--text-24); line-height: 1.5; }
+.kui-text-body-semibold-sm { font-weight: 500; font-size: var(--text-12); line-height: 1.5; }
+.kui-text-body-semibold-md { font-weight: 500; font-size: var(--text-14); line-height: 1.5; }
+.kui-text-body-semibold-lg { font-weight: 500; font-size: var(--text-16); line-height: 1.5; }
+.kui-text-body-bold-sm { font-weight: 700; font-size: var(--text-12); line-height: 1.5; }
+.kui-text-body-bold-md { font-weight: 700; font-size: var(--text-14); line-height: 1.5; }
+.kui-text-body-bold-lg { font-weight: 700; font-size: var(--text-16); line-height: 1.5; }
+
+.kui-text-mono-sm { font-family: var(--font-mono); font-size: var(--text-12); line-height: 1.5; }
+.kui-text-mono-md { font-family: var(--font-mono); font-size: var(--text-14); line-height: 1.5; }
+.kui-text-mono-lg { font-family: var(--font-mono); font-size: var(--text-16); line-height: 1.5; }
+.kui-text-mono-xl { font-family: var(--font-mono); font-size: var(--text-20); line-height: 1.5; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }

@@ -1,1 +1,1273 @@
-test
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<!-- <link rel="stylesheet" href="_ds/nvidia-kaizen-design-system-b84c2d07-b48f-47c6-9cd1-f3844d902748/colors_and_type.css"> -->
+<!-- <link rel="stylesheet" href="_ds/nvidia-kaizen-design-system-b84c2d07-b48f-47c6-9cd1-f3844d902748/kaizen-react/kui-base.css"> -->
+<!-- <link rel="stylesheet" href="_ds/nvidia-kaizen-design-system-b84c2d07-b48f-47c6-9cd1-f3844d902748/kaizen-react/kui-tokens.css"> -->
+<!-- <link rel="stylesheet" href="_ds/nvidia-kaizen-design-system-b84c2d07-b48f-47c6-9cd1-f3844d902748/kui-components.css"> -->
+<!-- <script src="_ds/nvidia-kaizen-design-system-b84c2d07-b48f-47c6-9cd1-f3844d902748/_ds_bundle.js"></script> -->
+<style>
+  body { margin: 0; background: #F2F2F2; }
+  a { color: #4E7C00; text-decoration: none; }
+  a:hover { color: #76B900; text-decoration: underline; }
+  html { scroll-behavior: smooth; }
+
+  /* Narrow screens.
+     The page is authored with inline styles and no class names, so the folds
+     hook onto `data-cols`, which records what a grid is on a wide screen:
+     `rail` is a section's 200 px heading column, `labelled` a grid whose first
+     column is row labels, a number the column count. Value-matching selectors
+     were tried first and are a trap here -- the x-dc renderer rewrites the
+     style attribute (`grid-template-columns:200px` comes back as
+     `grid-template-columns: 200px`), so they match until the page is rendered.
+     `data-span` marks a cell that labels a whole row, `data-narrow-hide` a
+     spacer that only exists to hold a column open, `data-col-head` a column
+     heading that means nothing once the columns are stacked. */
+  @media (max-width: 900px) {
+    [data-span] { grid-column: 1 / -1 !important; }
+    [data-narrow-hide] { display: none !important; }
+    [data-cols="rail"] {
+      grid-template-columns: minmax(0, 1fr) !important; gap: 18px !important;
+    }
+    [data-cols="labelled"], [data-cols="2"], [data-cols="3"],
+    [data-cols="4"], [data-cols="5"], [data-cols="6"] {
+      grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+    h1 { font-size: 34px !important; }
+    /* Seven section links do not fit a phone. Scrolling them keeps the 48 px
+       bar intact; without this they are what drags the whole document
+       sideways, which then makes every section look too wide. */
+    nav > div > div:last-child {
+      overflow-x: auto !important; min-width: 0 !important; flex: 1 1 auto !important;
+      scrollbar-width: none;
+    }
+    nav > div > div:last-child > a { white-space: nowrap; }
+  }
+  /* Figure 3 is the one grid on the page that must not fold. It lays one
+     dataset per row and one method per column so a method reads down a column
+     across all three datasets, and stacking it destroys exactly that. So it
+     carries none of the hooks above -- in particular not `data-cols`, whose
+     560 px rule matches any value and would collapse it to a single column --
+     and below its own min-width the row scrolls sideways instead: four 90 px
+     panels compare nothing. The scrollbar is left visible; it is the
+     affordance. The dataset column is sticky, so the name stays readable while
+     the row is scrolled off its right edge. */
+  /* The page was authored against NVIDIA's internal Kaizen design system, but
+     uses none of its tokens (`--kui-*`) or classes and none of its bundled
+     components -- the one thing it actually inherited was this reset, without
+     which every padded box grows by its padding and the page runs 238 px
+     longer. Restated here so the page stands alone. */
+  *, *::before, *::after { box-sizing: border-box; }
+
+  [data-rollout-scroll] { scrollbar-width: thin; overscroll-behavior-x: contain; }
+
+  /* Author links sit on the dark hero, where a default anchor colour would be
+     unreadable and a full underline would clutter a dense eleven-name byline.
+     The rule inherits the byline's own colour and marks the link with a dim
+     rule underneath, which the NVIDIA green picks up on hover. `:focus-visible`
+     is styled with it so keyboard traversal of the byline is not invisible. */
+  a[data-author] {
+    color: inherit;
+    text-decoration: none;
+    border-bottom: 1px solid #4A4A4A;
+    transition: color .12s ease, border-color .12s ease;
+  }
+  a[data-author]:hover, a[data-author]:focus-visible {
+    color: #76B900;
+    border-bottom-color: #76B900;
+  }
+
+  /* The banner mosaic is decorative motion behind the title block; drop it (and
+     its scrim, so the flat #050505 header returns) when motion is unwelcome. */
+  @media (prefers-reduced-motion: reduce) {
+    [data-banner], [data-banner-scrim] { display: none !important; }
+  }
+  @media (max-width: 560px) {
+    [data-cols] { grid-template-columns: minmax(0, 1fr) !important; }
+    [data-col-head] { display: none !important; }
+    h1 { font-size: 28px !important; }
+    /* On a phone the dataset column is a third of the viewport; the row is
+       scrolling anyway, so give the width back to the panels. */
+    [data-rollout-grid] {
+      grid-template-columns: 104px repeat(4, minmax(0, 1fr)) !important;
+    }
+  }
+</style>
+</helmet>
+
+<div style="background:#F2F2F2; color:#202020; font-family:'NVIDIA Sans','DM Sans',system-ui,sans-serif; font-size:14px; line-height:1.5;">
+
+  <nav style="position:sticky; top:0; z-index:20; background:#FFFFFF; border-bottom:1px solid #D8D8D8;">
+    <div style="max-width:1180px; margin:0 auto; padding:0 24px; height:48px; display:flex; align-items:center; gap:24px;">
+      <div style="display:flex; align-items:center; gap:12px; white-space:nowrap;">
+        <a href="https://www.nvidia.com/" style="display:block;"><img src="img/nvidia-logo-black.png" alt="NVIDIA" style="height:18px; width:auto; display:block;"></a>
+        <span aria-hidden="true" style="width:1px; height:18px; background:#D8D8D8;"></span>
+        <span style="font-weight:700; letter-spacing:-0.25px; font-size:15px;">Hydra-0</span>
+      </div>
+      <div style="display:flex; gap:18px; font-size:13px;">
+        <a href="#abstract" style="color:#5E5E5E;">Abstract</a>
+        <a href="#method" style="color:#5E5E5E;">Method</a>
+        <a href="#flow" style="color:#5E5E5E;">Action flow</a>
+        <!-- <a href="#data" style="color:#5E5E5E;">Data</a> -->
+        <a href="#results" style="color:#5E5E5E;">Results</a>
+        <a href="#policy" style="color:#5E5E5E;">Policy evaluation</a>
+        <a href="#control" style="color:#5E5E5E;">Control</a>
+      </div>
+    </div>
+  </nav>
+
+  <header style="position:relative; overflow:hidden; background:#050505; color:#FFFFFF; border-bottom:4px solid #76B900;">
+    <video data-banner src="media/banner.mp4" poster="media/posters/banner.jpg" aria-hidden="true" tabindex="-1" autoplay muted loop playsinline preload="auto" style="position:absolute; left:0; right:0; bottom:0; width:100%; height:auto; opacity:0.78; pointer-events:none; -webkit-mask-image:linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 42%); mask-image:linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 42%);"></video>
+    <div data-banner-scrim aria-hidden="true" style="position:absolute; inset:0; pointer-events:none; background:linear-gradient(90deg, rgba(5,5,5,0.86) 0%, rgba(5,5,5,0.78) 45%, rgba(5,5,5,0.46) 100%),linear-gradient(180deg, rgba(5,5,5,0.22) 0%, rgba(5,5,5,0) 32%, rgba(5,5,5,0.34) 100%);"></div>
+    <div style="position:relative; max-width:1180px; margin:0 auto; padding:56px 24px 44px; display:grid; gap:22px;">
+      <div style="display:flex; align-items:center; gap:10px; font-size:12px; letter-spacing:1.5px; text-transform:uppercase; color:#76B900;">
+        <img src="img/nvidia-logo.png" alt="NVIDIA" style="height:22px; width:auto; display:block;">
+        <span>technical report · preprint</span>
+      </div>
+      <h1 style="margin:0; font-size:44px; line-height:1.1; font-weight:700; letter-spacing:-1px; max-width:22ch; text-wrap:balance;">Hydra-0: Action Flow for Generalist World Modeling and Control</h1>
+      <p style="margin:0; max-width:72ch; font-size:17px; line-height:1.55; color:#C9C9C9; text-wrap:pretty;">A generalist world model conditioned on action flow — robot actions represented as pixel motion — so one model trains across embodiments, simulates, evaluates policies, and drives a real robot.</p>
+      <div style="display:flex; flex-wrap:wrap; column-gap:18px; row-gap:6px; font-size:14px; color:#EDEDED; max-width:90ch;">
+        <span><a data-author href="https://lhy.xyz/" target="_blank" rel="noopener noreferrer">Hongyu Li</a><sup style="color:#76B900;">1,2,3</sup></span>
+        <span><a data-author href="https://wenbowen123.github.io/" target="_blank" rel="noopener noreferrer">Bowen Wen</a><sup style="color:#76B900;">1</sup></span>
+        <span><a data-author href="https://rolandzhu.github.io/" target="_blank" rel="noopener noreferrer">Xinghao Zhu</a><sup style="color:#76B900;">1</sup></span>
+        <span><a data-author href="https://www.yixuanwang.me/" target="_blank" rel="noopener noreferrer">Yixuan Wang</a><sup style="color:#76B900;">1</sup></span>
+        <span><a data-author href="https://yilundu.github.io/" target="_blank" rel="noopener noreferrer">Yilun Du</a><sup style="color:#76B900;">1,4</sup></span>
+        <span><a data-author href="https://yunzhuli.github.io/" target="_blank" rel="noopener noreferrer">Yunzhu Li</a><sup style="color:#76B900;">3</sup></span>
+        <span><a data-author href="https://cs.brown.edu/people/gdk/index.html" target="_blank" rel="noopener noreferrer">George Konidaris</a><sup style="color:#76B900;">2</sup></span>
+        <span><a data-author href="https://sbirchfield.github.io/" target="_blank" rel="noopener noreferrer">Stan Birchfield</a><sup style="color:#76B900;">1</sup></span>
+        <span><a data-author href="https://www.linkedin.com/in/sohapouya/" target="_blank" rel="noopener noreferrer">Soha Pouya</a><sup style="color:#76B900;">1</sup></span>
+        <span><a data-author href="https://scholar.google.com/citations?user=O_PbKNMAAAAJ&amp;hl=zh-CN" target="_blank" rel="noopener noreferrer">Chenran Li</a><sup style="color:#76B900;">1</sup></span>
+        <span><a data-author href="https://www.linkedin.com/in/yanchang1/" target="_blank" rel="noopener noreferrer">Yan Chang</a><sup style="color:#76B900;">1</sup></span>
+      </div>
+      <div style="display:flex; flex-wrap:wrap; column-gap:20px; row-gap:4px; font-size:13px; color:#8F8F8F;">
+        <span><sup>1</sup> NVIDIA</span>
+        <span><sup>2</sup> Brown University</span>
+        <span><sup>3</sup> Columbia University</span>
+        <span><sup>4</sup> Harvard University</span>
+      </div>
+      <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:4px;">
+        <a href="#" style="display:inline-flex; align-items:center; height:36px; padding:0 16px; border:1px solid #343434; border-radius:4px; color:#FFFFFF; font-size:14px;" style-hover="border-color:#76B900;">arXiv — coming soon</a>
+        <a href="#" style="display:inline-flex; align-items:center; height:36px; padding:0 16px; border:1px solid #343434; border-radius:4px; color:#FFFFFF; font-size:14px;" style-hover="border-color:#76B900;">Code — coming soon</a>
+      </div>
+    </div>
+  </header>
+
+  <section style="max-width:1180px; margin:0 auto; padding:32px 24px 0;">
+    <div style="border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:20px;">
+      <div style="margin-bottom:14px;">
+        <h2 style="margin:0; font-size:16px; font-weight:500; letter-spacing:-0.25px;">Overview video</h2>
+      </div>
+      <video src="media/hero.mp4" poster="media/posters/hero.jpg" aria-label="Overview video" autoplay controls muted loop playsinline preload="auto" style="width:100%; aspect-ratio:16/9; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+    </div>
+  </section>
+
+  <section style="max-width:1180px; margin:0 auto; padding:20px 24px 0;">
+    <div style="border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:20px;">
+      <div style="display:flex; align-items:baseline; justify-content:space-between; gap:16px; margin-bottom:14px;">
+        <h2 style="margin:0; font-size:16px; font-weight:500; letter-spacing:-0.25px;">Action flow as a shared visual interface</h2>
+        <span style="font-size:12px; color:#8F8F8F;">Figure 1</span>
+      </div>
+      <div data-cols="labelled" style="display:grid; grid-template-columns:120px repeat(4, 1fr); gap:8px; align-items:center;">
+        <div data-span style="font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#5E5E5E;">Sources</div>
+        <video src="media/teaser_source_egodex.mp4" poster="media/posters/teaser_source_egodex.jpg" aria-label="EgoDex source window" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+        <video src="media/teaser_source_deform360.mp4" poster="media/posters/teaser_source_deform360.jpg" aria-label="Deform360 source window" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+        <video src="media/teaser_source_droid.mp4" poster="media/posters/teaser_source_droid.jpg" aria-label="DROID source window" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+        <video src="media/teaser_source_xvla_yam.mp4" poster="media/posters/teaser_source_xvla_yam.jpg" aria-label="XVLA-Soft-Fold source window" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+        <div data-span style="font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#5E5E5E;">Shared action flow</div>
+        <video src="media/teaser_flow_egodex.mp4" poster="media/posters/teaser_flow_egodex.jpg" aria-label="EgoDex window with its action flow" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+        <video src="media/teaser_flow_deform360.mp4" poster="media/posters/teaser_flow_deform360.jpg" aria-label="Deform360 window with its action flow" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+        <video src="media/teaser_flow_droid.mp4" poster="media/posters/teaser_flow_droid.jpg" aria-label="DROID window with its action flow" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+        <video src="media/teaser_flow_xvla_yam.mp4" poster="media/posters/teaser_flow_xvla_yam.jpg" aria-label="XVLA-Soft-Fold window with its action flow" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+        <div data-narrow-hide></div>
+        <div style="font-size:12px; color:#5E5E5E;">EgoDex · human hands</div>
+        <div style="font-size:12px; color:#5E5E5E;">Deform360 · handheld gripper</div>
+        <div style="font-size:12px; color:#5E5E5E;">DROID · single arm</div>
+        <div style="font-size:12px; color:#5E5E5E;">XVLA-Soft-Fold · bimanual</div>
+      </div>
+      <p style="margin:16px 0 0; max-width:90ch; font-size:13px; color:#5E5E5E; text-wrap:pretty;">One representation, four embodiments: an egocentric human hand, a handheld gripper, a single arm and a bimanual robot. The lower row is the upper row plus the interface — the same window carrying the trajectories the model is conditioned on. What that interface then buys is the rest of this page: simulation, policy evaluation, and control.</p>
+    </div>
+  </section>
+
+  <section id="abstract" style="max-width:1180px; margin:0 auto; padding:40px 24px 0;">
+    <div data-cols="rail" style="display:grid; grid-template-columns:200px minmax(0, 1fr); gap:32px; align-items:start;">
+      <h2 style="margin:0; font-size:16px; font-weight:500; letter-spacing:-0.25px;">Abstract</h2>
+      <div style="max-width:78ch; display:grid; gap:14px;">
+        <p style="margin:0; font-size:16px; line-height:1.6; text-wrap:pretty;">Foundation world models for robotics should scale with heterogeneous interaction data and transfer across embodiments, yet most current models are conditioned on embodiment-specific joint or end-effector commands, which never specify the image-plane motion those commands produce. We introduce <strong>Hydra-0</strong>, a generalist world model conditioned on <strong>action flow</strong>, which represents robot actions as pixel motion: camera-plane trajectories of the visible embodiment, obtained at deployment by executing a candidate command through the robot controller and physics simulation and projecting the moving robot surface through robot geometry and camera calibration.</p>
+        <p style="margin:0; font-size:16px; line-height:1.6; text-wrap:pretty;">Because the condition lives in visual coordinates, it is a shared interface for learning action consequences across embodiments, tasks, environments, and video-generation backbones. Against our action-conditioned Cosmos 2.5 baseline, Hydra-0 cuts robot-motion error by 90.40% and object-motion error by 60.16%, and supports zero-shot composition and data-efficient adaptation. On RoboLab, replayed and reference success rates correlate at Pearson r = 0.96. The interface also inverts: a world action model predicts compatible robot motion from desired object flow transferred from a human demonstration, and a trained action head maps its latent features to executable actions without task-specific expert robot demonstrations.</p>
+      </div>
+    </div>
+  </section>
+
+  <section style="max-width:1180px; margin:0 auto; padding:28px 24px 0;">
+    <div data-cols="5" style="display:grid; grid-template-columns:repeat(5, 1fr); gap:1px; background:#D8D8D8; border:1px solid #D8D8D8; border-radius:4px; overflow:hidden;">
+      <div style="background:#FFFFFF; padding:18px 16px;">
+        <div style="font-size:28px; font-weight:700; letter-spacing:-1px;">90.40%</div>
+        <div style="font-size:12px; color:#5E5E5E; margin-top:4px;">lower robot-motion error vs. native-action baseline</div>
+      </div>
+      <div style="background:#FFFFFF; padding:18px 16px;">
+        <div style="font-size:28px; font-weight:700; letter-spacing:-1px;">60.16%</div>
+        <div style="font-size:12px; color:#5E5E5E; margin-top:4px;">lower object-motion error</div>
+      </div>
+      <div style="background:#FFFFFF; padding:18px 16px;">
+        <div style="font-size:28px; font-weight:700; letter-spacing:-1px;">0.96</div>
+        <div style="font-size:12px; color:#5E5E5E; margin-top:4px;">correlation with RoboLab success over 300 episodes</div>
+      </div>
+      <div style="background:#FFFFFF; padding:18px 16px;">
+        <div style="font-size:28px; font-weight:700; letter-spacing:-1px;">16.0×</div>
+        <div style="font-size:12px; color:#5E5E5E; margin-top:4px;">generation-only speedup after few-step distillation</div>
+      </div>
+      <div style="background:#FFFFFF; padding:18px 16px;">
+        <div style="font-size:28px; font-weight:700; letter-spacing:-1px;">2,202 h</div>
+        <div style="font-size:12px; color:#5E5E5E; margin-top:4px;">filtered multi-embodiment training video</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="method" style="max-width:1180px; margin:0 auto; padding:48px 24px 0;">
+    <div data-cols="rail" style="display:grid; grid-template-columns:200px minmax(0, 1fr); gap:32px; align-items:start;">
+      <div>
+        <h2 style="margin:0 0 8px; font-size:16px; font-weight:500; letter-spacing:-0.25px;">Method</h2>
+        <p style="margin:0; font-size:13px; color:#5E5E5E; text-wrap:pretty;">One conditioning interface, built two ways: from video during training, from kinematics at deployment.</p>
+        <!-- One colour key for every overlay on the page: the teaser bands, the
+             method lanes and the sampling panels all draw with these two. -->
+        <div style="margin-top:14px; display:grid; gap:6px; font-size:12px; color:#5E5E5E;">
+          <div style="display:flex; align-items:center; gap:8px;"><span style="width:11px; height:11px; border-radius:2px; background:#FF6030; flex:0 0 auto;"></span>Embodiment — the acting body</div>
+          <div style="display:flex; align-items:center; gap:8px;"><span style="width:11px; height:11px; border-radius:2px; background:#48E088; flex:0 0 auto;"></span>Manipulated object</div>
+        </div>
+      </div>
+      <div style="display:grid; gap:20px; min-width:0;">
+        <p style="margin:0; max-width:78ch; font-size:16px; line-height:1.6; text-wrap:pretty;">Action flow is a set of camera-plane trajectories describing the commanded motion of the visible embodiment: image positions with visibility flags, tracked over the prediction horizon. The same representation can describe a robot arm, a handheld gripper, or a human hand, without exposing any of their native action spaces to the video model.</p>
+
+        <div id="method-training" style="min-width:0; border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:20px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px; flex-wrap:wrap;">
+            <div style="display:flex; align-items:baseline; gap:10px;">
+              <span style="font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#4E7C00; font-weight:500;">Offline training</span>
+              <span style="font-size:12px; color:#8F8F8F;">action flow recovered from interaction video</span>
+            </div>
+            <div style="display:flex; gap:6px;">
+              <button type="button" data-hscroll-prev="method-training" aria-label="Scroll left" style="width:30px; height:30px; padding:0; display:inline-flex; align-items:center; justify-content:center; border:1px solid #D8D8D8; border-radius:4px; background:#FFFFFF; color:#5E5E5E; cursor:pointer; font-family:inherit; transition:opacity 120ms ease-out, border-color 120ms ease-out;"><svg width="8" height="14" viewBox="0 0 8 14" fill="none" aria-hidden="true"><path d="M6.5 1 1.5 7l5 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+              <button type="button" data-hscroll-next="method-training" aria-label="Scroll right" style="width:30px; height:30px; padding:0; display:inline-flex; align-items:center; justify-content:center; border:1px solid #D8D8D8; border-radius:4px; background:#FFFFFF; color:#5E5E5E; cursor:pointer; font-family:inherit; transition:opacity 120ms ease-out, border-color 120ms ease-out;"><svg width="8" height="14" viewBox="0 0 8 14" fill="none" aria-hidden="true"><path d="M1.5 1l5 6-5 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            </div>
+          </div>
+          <div data-hscroll="method-training" style="overflow-x:auto; scroll-behavior:smooth;">
+          <div style="display:flex; gap:26px; min-width:1428px; align-items:flex-start;">
+            <div style="flex:0 0 auto; width:460px;">
+              <div style="font-size:13px; line-height:1.35; margin-bottom:8px;">DROID<br><span style="color:#8F8F8F;">single arm</span></div>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                <div style="font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#5E5E5E; border-bottom:2px solid #EDEDED; padding-bottom:5px;">Interaction video</div>
+                <div style="font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#4E7C00; border-bottom:2px solid #76B900; padding-bottom:5px;">Action flow</div>
+                <video src="media/method_train_video_droid.mp4" poster="media/posters/method_train_video_droid.jpg" controls muted loop playsinline preload="none" aria-label="DROID interaction video" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+                <video src="media/method_train_flow_droid.mp4" poster="media/posters/method_train_flow_droid.jpg" controls muted loop playsinline preload="none" aria-label="DROID action flow over the same window" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+              </div>
+            </div>
+            <div style="flex:0 0 auto; width:460px;">
+              <div style="font-size:13px; line-height:1.35; margin-bottom:8px;">Deform360<br><span style="color:#8F8F8F;">handheld gripper</span></div>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                <div style="font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#5E5E5E; border-bottom:2px solid #EDEDED; padding-bottom:5px;">Interaction video</div>
+                <div style="font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#4E7C00; border-bottom:2px solid #76B900; padding-bottom:5px;">Action flow</div>
+                <video src="media/method_train_video_deform360.mp4" poster="media/posters/method_train_video_deform360.jpg" controls muted loop playsinline preload="none" aria-label="Deform360 interaction video" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+                <video src="media/method_train_flow_deform360.mp4" poster="media/posters/method_train_flow_deform360.jpg" controls muted loop playsinline preload="none" aria-label="Deform360 action flow over the same window" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+              </div>
+            </div>
+            <div style="flex:0 0 auto; width:460px;">
+              <div style="font-size:13px; line-height:1.35; margin-bottom:8px;">XVLA-Soft-Fold<br><span style="color:#8F8F8F;">bimanual arms</span></div>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                <div style="font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#5E5E5E; border-bottom:2px solid #EDEDED; padding-bottom:5px;">Interaction video</div>
+                <div style="font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#4E7C00; border-bottom:2px solid #76B900; padding-bottom:5px;">Action flow</div>
+                <video src="media/method_train_video_xvla.mp4" poster="media/posters/method_train_video_xvla.jpg" controls muted loop playsinline preload="none" aria-label="XVLA-Soft-Fold interaction video" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+                <video src="media/method_train_flow_xvla.mp4" poster="media/posters/method_train_flow_xvla.jpg" controls muted loop playsinline preload="none" aria-label="XVLA-Soft-Fold action flow over the same window" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+              </div>
+            </div>
+          </div>
+          </div>
+          <p style="margin:14px 0 0; max-width:92ch; font-size:13px; color:#5E5E5E; text-wrap:pretty;">Each pair is one five-second window played twice, frame-locked: on the right, the same window carrying the trajectories the model is conditioned on, drawn over a one-second rolling history. The row scrolls sideways. Tracks are annotated on both the embodiment and the manipulated object: a dense tracker recovers the trajectories from the video, and grounded masks split them. Nothing in this lane is projected from robot geometry — that is the deployment route below. The first frame plus this flow is the entire condition; the rest of the clip is the flow-matching target.</p>
+        </div>
+
+        <div id="method-deployment" style="border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:20px;">
+          <div style="display:flex; align-items:baseline; gap:10px; margin-bottom:14px;">
+            <span style="font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#4E7C00; font-weight:500;">Online deployment</span>
+            <span style="font-size:12px; color:#8F8F8F;">action flow projected from an executable command</span>
+          </div>
+          <!-- Two by two rather than a row of four: at four across, each pane is
+               ~220 px wide in this column and the projected flow, which is the
+               pane the lane is actually about, stops being readable. -->
+          <div data-cols="2" style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:14px; align-items:start;">
+            <figure style="margin:0;">
+              <img src="img/method/deploy_real_rgb.png" alt="Real RGB observation at the start of the rollout" style="width:100%; aspect-ratio:4/3; object-fit:cover; border:1px solid #D8D8D8; border-radius:2px; display:block;">
+              <figcaption style="font-size:12px; color:#5E5E5E; padding-top:6px;">Observation<br><span style="color:#8F8F8F;">the single frame the model is conditioned on</span></figcaption>
+            </figure>
+            <figure style="margin:0;">
+              <video src="media/method_deploy_isaac.mp4" poster="media/posters/method_deploy_isaac.jpg" controls muted loop playsinline preload="none" aria-label="Isaac Lab replay of the commanded rollout" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+              <figcaption style="font-size:12px; color:#5E5E5E; padding-top:6px;">Command rollout in Isaac Lab<br><span style="color:#8F8F8F;">the candidate command, executed by a simulator</span></figcaption>
+            </figure>
+            <figure style="margin:0;">
+              <video src="media/method_deploy_flow.mp4" poster="media/posters/method_deploy_flow.jpg" controls muted loop playsinline preload="none" aria-label="Action flow projected from the command onto the observation" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+              <figcaption style="font-size:12px; color:#5E5E5E; padding-top:6px;">Kinematically projected flow<br><span style="color:#8F8F8F;">the same command, in the image plane</span></figcaption>
+            </figure>
+            <figure style="margin:0;">
+              <video src="media/method_deploy_prediction.mp4" poster="media/posters/method_deploy_prediction.jpg" controls muted loop playsinline preload="none" aria-label="World-model prediction of the command's consequence" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+              <figcaption style="font-size:12px; color:#5E5E5E; padding-top:6px;">Predicted consequence<br><span style="color:#8F8F8F;">what the world model generates</span></figcaption>
+            </figure>
+          </div>
+          <p style="margin:14px 0 0; max-width:92ch; font-size:13px; color:#5E5E5E; text-wrap:pretty;">Visible robot-surface points are propagated by the commanded link transforms and projected through the calibrated camera; the model then predicts the command's consequence. The three clips are one seventeen-second closed-loop rollout on a single clock, so the arm pose in the simulator, the flow drawn on the observation and the generated frame all belong to the same instant.</p>
+        </div>
+
+        <div data-cols="2" style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+          <div style="border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:16px;">
+            <h3 style="margin:0 0 8px; font-size:14px; font-weight:500;">Geometry-aware construction</h3>
+            <p style="margin:0; font-size:14px; color:#5E5E5E; line-height:1.55; text-wrap:pretty;">When robot geometry and calibration are available, surface points visible in the first observation are propagated under the candidate command and projected into the camera plane. A point counts as visible only when it has positive camera depth, lies inside the image, and agrees with the rendered depth buffer within 1.2 cm over a 3×3 neighborhood, which is what rejects self-occluded points.</p>
+          </div>
+          <div style="border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:16px;">
+            <h3 style="margin:0 0 8px; font-size:14px; font-weight:500;">Video-only construction</h3>
+            <p style="margin:0; font-size:14px; color:#5E5E5E; line-height:1.55; text-wrap:pretty;">Most large interaction datasets ship neither robot description files nor calibration. There we recover dense image-plane trajectories with a flow tracker and segment them with grounded embodiment and object masks — the same representation, no privileged metadata.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="flow" style="max-width:1180px; margin:0 auto; padding:48px 24px 0;">
+    <div data-cols="rail" style="display:grid; grid-template-columns:200px minmax(0, 1fr); gap:32px; align-items:start;">
+      <div>
+        <h2 style="margin:0 0 8px; font-size:16px; font-weight:500; letter-spacing:-0.25px;">Grounding and sampling</h2>
+        <p style="margin:0; font-size:13px; color:#5E5E5E; text-wrap:pretty;">Figure 2 · dense tracks are split by mask, then one conditioning mode is drawn per training step.</p>
+        <div style="margin-top:14px; display:grid; gap:6px; font-size:12px; color:#5E5E5E;">
+          <div style="display:flex; align-items:center; gap:8px;"><span style="width:11px; height:11px; border-radius:2px; background:#FF6030; flex:0 0 auto;"></span>Embodiment — the acting body</div>
+          <div style="display:flex; align-items:center; gap:8px;"><span style="width:11px; height:11px; border-radius:2px; background:#48E088; flex:0 0 auto;"></span>Manipulated object</div>
+        </div>
+      </div>
+      <div style="border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:20px;">
+        <div data-cols="3" style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:10px;">
+          <figure style="margin:0;">
+            <video src="media/flow_dense_tracks.mp4" poster="media/posters/flow_dense_tracks.jpg" controls muted loop playsinline preload="none" aria-label="Dense tracker output before grounding" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+            <figcaption style="font-size:12px; color:#5E5E5E; padding-top:6px;">Dense tracks<br><span style="color:#8F8F8F;">tracker output, before anything is labelled</span></figcaption>
+          </figure>
+          <figure style="margin:0;">
+            <video src="media/flow_embodiment_mask.mp4" poster="media/posters/flow_embodiment_mask.jpg" controls muted loop playsinline preload="none" aria-label="Grounded embodiment mask, per frame" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+            <figcaption style="font-size:12px; color:#5E5E5E; padding-top:6px;">Embodiment mask<br><span style="color:#8F8F8F;">held on both arms as they move</span></figcaption>
+          </figure>
+          <figure style="margin:0;">
+            <video src="media/flow_object_mask.mp4" poster="media/posters/flow_object_mask.jpg" controls muted loop playsinline preload="none" aria-label="Grounded manipulated-object mask, per frame" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+            <figcaption style="font-size:12px; color:#5E5E5E; padding-top:6px;">Manipulated-object mask<br><span style="color:#8F8F8F;">held on the cloth as it deforms</span></figcaption>
+          </figure>
+        </div>
+        <div style="height:1px; background:#D8D8D8; margin:18px 0;"></div>
+        <div data-cols="4" style="display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:10px;">
+          <figure style="margin:0;">
+            <video src="media/flow_sample_embodiment.mp4" poster="media/posters/flow_sample_embodiment.jpg" controls muted loop playsinline preload="none" aria-label="Embodiment sampling mode" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+            <figcaption style="font-size:12px; padding-top:6px;"><span style="font-weight:500;">Embodiment</span> · p = 0.40<br><span style="color:#5E5E5E;">Acting-body tracks — the primary action condition.</span></figcaption>
+          </figure>
+          <figure style="margin:0;">
+            <video src="media/flow_sample_object.mp4" poster="media/posters/flow_sample_object.jpg" controls muted loop playsinline preload="none" aria-label="Object sampling mode" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+            <figcaption style="font-size:12px; padding-top:6px;"><span style="font-weight:500;">Object</span> · p = 0.40<br><span style="color:#5E5E5E;">Task or desired-motion flow; the mode that inverts the model.</span></figcaption>
+          </figure>
+          <figure style="margin:0;">
+            <video src="media/flow_sample_all.mp4" poster="media/posters/flow_sample_all.jpg" controls muted loop playsinline preload="none" aria-label="All sampling mode" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+            <figcaption style="font-size:12px; padding-top:6px;"><span style="font-weight:500;">All</span> · p = 0.15<br><span style="color:#5E5E5E;">Fallback when semantic grounding is incomplete.</span></figcaption>
+          </figure>
+          <figure style="margin:0;">
+            <video src="media/flow_sample_none.mp4" poster="media/posters/flow_sample_none.jpg" controls muted loop playsinline preload="none" aria-label="Conditioning dropout, no flow drawn" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+            <figcaption style="font-size:12px; padding-top:6px;"><span style="font-weight:500;">None</span> · p = 0.05<br><span style="color:#5E5E5E;">Conditioning dropout — text and image only.</span></figcaption>
+          </figure>
+        </div>
+        <p style="margin:16px 0 0; max-width:92ch; font-size:13px; color:#5E5E5E; text-wrap:pretty;">All seven panels are the same 81-frame window, played together. One conditioning mode is drawn per training step, from the pools the masks define: 1,819 embodiment tracks and 3,250 object tracks out of 14,997 the tracker returns.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Multi-embodiment training corpus section commented out, dataset
+       table included. The nav entry that pointed here is commented out
+       too; restore both together. -->
+  <!--
+  <section id="data" style="max-width:1180px; margin:0 auto; padding:48px 24px 0;">
+    <div data-cols="rail" style="display:grid; grid-template-columns:200px minmax(0, 1fr); gap:32px; align-items:start;">
+      <div>
+        <h2 style="margin:0 0 8px; font-size:16px; font-weight:500; letter-spacing:-0.25px;">Multi-embodiment training corpus</h2>
+        <p style="margin:0; font-size:13px; color:#5E5E5E; text-wrap:pretty;">Seven public sources, kept mainly where the interaction is with a deformable object — cloth, cable, rope, bag, paper — then resampled to 480p at 16 fps and cut into non-overlapping 81-frame windows of about 5 s. Window filters remove static and frozen-gripper windows against a 50-pixel floor on track path length, plus DROID episodes whose language annotation describes no actionable content.</p>
+      </div>
+      <div>
+        <div style="border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; overflow-x:auto;">
+          <table style="width:100%; border-collapse:collapse; font-size:13px; min-width:640px;">
+            <thead>
+              <tr style="background:#F2F2F2;">
+                <th style="padding:10px 14px; font-weight:500; text-align:left; border-bottom:1px solid #D8D8D8;">Dataset</th>
+                <th style="padding:10px 14px; font-weight:500; text-align:left; border-bottom:1px solid #D8D8D8;">Embodiment</th>
+                <th style="padding:10px 14px; font-weight:500; text-align:right; border-bottom:1px solid #D8D8D8;">Episodes</th>
+                <th style="padding:10px 14px; font-weight:500; text-align:right; border-bottom:1px solid #D8D8D8;">Windows</th>
+                <th style="padding:10px 14px; font-weight:500; text-align:right; border-bottom:1px solid #D8D8D8;">After filtering</th>
+                <th style="padding:10px 14px; font-weight:500; text-align:right; border-bottom:1px solid #D8D8D8;">Hours</th>
+                <th style="padding:10px 14px; font-weight:500; text-align:left; border-bottom:1px solid #D8D8D8;">License</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED;">DROID</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#5E5E5E;">single arm</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">70,339</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums; color:#5E5E5E;">494,680</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">223,075</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">313.7</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#5E5E5E;">CC-BY-4.0</td>
+              </tr>
+              <tr>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED;">ABC-130k</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#5E5E5E;">bimanual arms</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">54,961</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums; color:#5E5E5E;">1,060,456</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">1,048,681</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">1,474.7</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#5E5E5E;">Apache-2.0</td>
+              </tr>
+              <tr>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED;">MolmoAct2</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#5E5E5E;">bimanual arms</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">7,723</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums; color:#5E5E5E;">129,589</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">126,335</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">177.7</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#5E5E5E;">Apache-2.0</td>
+              </tr>
+              <tr>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED;">EgoDex</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#5E5E5E;">human hands</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">41,888</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums; color:#5E5E5E;">89,380</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">89,380</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">125.7</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#5E5E5E;">CC-BY-NC-ND-4.0</td>
+              </tr>
+              <tr>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED;">Deform360</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#5E5E5E;">handheld grippers</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">1,714</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums; color:#5E5E5E;">87,224</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">60,315</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">84.8</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#5E5E5E;">MIT</td>
+              </tr>
+              <tr>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED;">XVLA-Soft-Fold</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#5E5E5E;">bimanual arms</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">1,524</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums; color:#5E5E5E;">17,891</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">17,772</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">25.0</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#5E5E5E;">Apache-2.0</td>
+              </tr>
+              <tr>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED;">H1-Fold-Clothes</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#5E5E5E;">bimanual arms</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">38</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums; color:#5E5E5E;">76</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">76</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">0.1</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#5E5E5E;">Apache-2.0</td>
+              </tr>
+              <tr style="background:#F2F2F2; font-weight:500;">
+                <td style="padding:10px 14px;">Total</td>
+                <td style="padding:10px 14px;"></td>
+                <td style="padding:10px 14px; text-align:right; font-variant-numeric:tabular-nums;">178,187</td>
+                <td style="padding:10px 14px; text-align:right; font-variant-numeric:tabular-nums;">1,879,296</td>
+                <td style="padding:10px 14px; text-align:right; font-variant-numeric:tabular-nums;">1,565,634</td>
+                <td style="padding:10px 14px; text-align:right; font-variant-numeric:tabular-nums;">2,201.7</td>
+                <td style="padding:10px 14px;"></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="margin:10px 0 0; font-size:12px; color:#5E5E5E; max-width:78ch; text-wrap:pretty;">Hours count filtered camera windows and double-count simultaneous views on the multi-view Deform360 rig. Interactive World Simulator tasks are held out of training and used only for the data-efficiency study.</p>
+      </div>
+    </div>
+  </section>
+  -->
+
+  <section id="results" style="max-width:1180px; margin:0 auto; padding:48px 24px 0;">
+    <div style="border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:20px;">
+      <div style="display:flex; align-items:baseline; justify-content:space-between; gap:16px; margin-bottom:6px;">
+        <h2 style="margin:0; font-size:16px; font-weight:500; letter-spacing:-0.25px;">Qualitative rollouts</h2>
+        <span style="font-size:12px; color:#8F8F8F;">Figure 3</span>
+      </div>
+      <p style="margin:0 0 16px; font-size:14px; color:#5E5E5E; max-width:90ch; text-wrap:pretty;">Full five-second rollouts, one held-out dataset per row. Every panel in a row is the same evaluation sample at the same timestep, so a method reads down a column and a dataset reads across. Each row carries three held-out samples — step through them with the arrows beside the dataset name, and hover the counter to see the task the model was conditioned on.</p>
+<!-- BEGIN rollout-gallery: generated by scripts/website/build_rollout_gallery.py -->
+      <div data-rollout-scroll style="overflow-x:auto;">
+        <div data-rollout-grid style="display:grid; grid-template-columns:176px repeat(4, minmax(0, 1fr)); gap:10px; min-width:946px; align-items:center;">
+          <div style="position:sticky; left:0; z-index:1; align-self:stretch; background:#FFFFFF; box-shadow:10px 0 0 0 #FFFFFF;"></div>
+          <div style="font-size:11px; letter-spacing:1px; text-transform:uppercase; border-bottom:2px solid #EDEDED; padding-bottom:5px; color:#5E5E5E;">Wan-Move</div>
+          <div style="font-size:11px; letter-spacing:1px; text-transform:uppercase; border-bottom:2px solid #EDEDED; padding-bottom:5px; color:#5E5E5E;">Cosmos 2.5</div>
+          <div style="font-size:11px; letter-spacing:1px; text-transform:uppercase; border-bottom:2px solid #76B900; padding-bottom:5px; color:#4E7C00; font-weight:600;">Ours</div>
+          <div style="font-size:11px; letter-spacing:1px; text-transform:uppercase; border-bottom:2px solid #EDEDED; padding-bottom:5px; color:#5E5E5E;">Ground truth</div>
+
+          <div style="position:sticky; left:0; z-index:1; align-self:stretch; background:#FFFFFF; box-shadow:10px 0 0 0 #FFFFFF; display:flex; flex-direction:column; justify-content:center; border-right:1px solid #D8D8D8; padding-right:10px; font-size:13px; line-height:1.4;"><div style="font-weight:500;">XVLA-Soft-Fold</div><div style="font-size:12px; color:#8F8F8F; text-wrap:balance;">bimanual YAM &middot; garment folding</div><div data-rollout-nav="rollout_xvla_soft_fold" data-current="1" data-count="3" aria-label="XVLA-Soft-Fold evaluation sample" style="display:flex; align-items:center; gap:5px; margin-top:8px;"><button type="button" data-rollout-step="rollout_xvla_soft_fold" data-delta="-1" aria-label="Previous XVLA-Soft-Fold sample" style="appearance:none; -webkit-appearance:none; font:inherit; font-size:13px; line-height:1; width:20px; height:20px; padding:0; cursor:pointer; border-radius:2px; background:#FFFFFF; border:1px solid #D8D8D8; color:#5E5E5E; display:flex; align-items:center; justify-content:center;">&lsaquo;</button><span data-rollout-counter="rollout_xvla_soft_fold" aria-live="polite" title="fold the cloth — 0706_17pm_stage_1_stage2new_new_cam_very_slow/episode_22 / cam_high — the sample the paper figure shows" style="font-size:11px; color:#8F8F8F; font-variant-numeric:tabular-nums; letter-spacing:0.5px; cursor:default;">1 / 3</span><button type="button" data-rollout-step="rollout_xvla_soft_fold" data-delta="1" aria-label="Next XVLA-Soft-Fold sample" style="appearance:none; -webkit-appearance:none; font:inherit; font-size:13px; line-height:1; width:20px; height:20px; padding:0; cursor:pointer; border-radius:2px; background:#FFFFFF; border:1px solid #D8D8D8; color:#5E5E5E; display:flex; align-items:center; justify-content:center;">&rsaquo;</button></div></div>
+          <video data-rollout-cell="rollout_xvla_soft_fold" data-rollout-tag="wan_move" data-sync-group="rollout:rollout_xvla_soft_fold" src="media/rollout_xvla_soft_fold__s01__wan_move.mp4" poster="media/posters/rollout_xvla_soft_fold__s01__wan_move.jpg" aria-label="XVLA-Soft-Fold rollout, sample 1, Wan-Move" controls muted loop playsinline preload="none" style="aspect-ratio:4/3; width:100%; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+          <video data-rollout-cell="rollout_xvla_soft_fold" data-rollout-tag="cosmos2p5" data-sync-group="rollout:rollout_xvla_soft_fold" src="media/rollout_xvla_soft_fold__s01__cosmos2p5.mp4" poster="media/posters/rollout_xvla_soft_fold__s01__cosmos2p5.jpg" aria-label="XVLA-Soft-Fold rollout, sample 1, Cosmos 2.5" controls muted loop playsinline preload="none" style="aspect-ratio:4/3; width:100%; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+          <video data-rollout-cell="rollout_xvla_soft_fold" data-rollout-tag="ours" data-sync-group="rollout:rollout_xvla_soft_fold" src="media/rollout_xvla_soft_fold__s01__ours.mp4" poster="media/posters/rollout_xvla_soft_fold__s01__ours.jpg" aria-label="XVLA-Soft-Fold rollout, sample 1, Ours" controls muted loop playsinline preload="none" style="aspect-ratio:4/3; width:100%; object-fit:cover; background:#050505; border:1px solid #76B900; border-radius:2px; display:block;"></video>
+          <video data-rollout-cell="rollout_xvla_soft_fold" data-rollout-tag="gt" data-sync-group="rollout:rollout_xvla_soft_fold" src="media/rollout_xvla_soft_fold__s01__gt.mp4" poster="media/posters/rollout_xvla_soft_fold__s01__gt.jpg" aria-label="XVLA-Soft-Fold rollout, sample 1, Ground truth" controls muted loop playsinline preload="none" style="aspect-ratio:4/3; width:100%; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+
+          <div style="position:sticky; left:0; z-index:1; align-self:stretch; background:#FFFFFF; box-shadow:10px 0 0 0 #FFFFFF; display:flex; flex-direction:column; justify-content:center; border-right:1px solid #D8D8D8; padding-right:10px; font-size:13px; line-height:1.4;"><div style="font-weight:500;">Deform360</div><div style="font-size:12px; color:#8F8F8F; text-wrap:balance;">handheld gripper &middot; single-object manipulation</div><div data-rollout-nav="rollout_deform360" data-current="1" data-count="3" aria-label="Deform360 evaluation sample" style="display:flex; align-items:center; gap:5px; margin-top:8px;"><button type="button" data-rollout-step="rollout_deform360" data-delta="-1" aria-label="Previous Deform360 sample" style="appearance:none; -webkit-appearance:none; font:inherit; font-size:13px; line-height:1; width:20px; height:20px; padding:0; cursor:pointer; border-radius:2px; background:#FFFFFF; border:1px solid #D8D8D8; color:#5E5E5E; display:flex; align-items:center; justify-content:center;">&lsaquo;</button><span data-rollout-counter="rollout_deform360" aria-live="polite" title="a human hand holding a robot gripper manipulating a rope — 001-rope/episode_3 / brics-odroid-015_cam0 — the sample the paper figure shows" style="font-size:11px; color:#8F8F8F; font-variant-numeric:tabular-nums; letter-spacing:0.5px; cursor:default;">1 / 3</span><button type="button" data-rollout-step="rollout_deform360" data-delta="1" aria-label="Next Deform360 sample" style="appearance:none; -webkit-appearance:none; font:inherit; font-size:13px; line-height:1; width:20px; height:20px; padding:0; cursor:pointer; border-radius:2px; background:#FFFFFF; border:1px solid #D8D8D8; color:#5E5E5E; display:flex; align-items:center; justify-content:center;">&rsaquo;</button></div></div>
+          <video data-rollout-cell="rollout_deform360" data-rollout-tag="wan_move" data-sync-group="rollout:rollout_deform360" src="media/rollout_deform360__s01__wan_move.mp4" poster="media/posters/rollout_deform360__s01__wan_move.jpg" aria-label="Deform360 rollout, sample 1, Wan-Move" controls muted loop playsinline preload="none" style="aspect-ratio:30/17; width:100%; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+          <video data-rollout-cell="rollout_deform360" data-rollout-tag="cosmos2p5" data-sync-group="rollout:rollout_deform360" src="media/rollout_deform360__s01__cosmos2p5.mp4" poster="media/posters/rollout_deform360__s01__cosmos2p5.jpg" aria-label="Deform360 rollout, sample 1, Cosmos 2.5" controls muted loop playsinline preload="none" style="aspect-ratio:30/17; width:100%; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+          <video data-rollout-cell="rollout_deform360" data-rollout-tag="ours" data-sync-group="rollout:rollout_deform360" src="media/rollout_deform360__s01__ours.mp4" poster="media/posters/rollout_deform360__s01__ours.jpg" aria-label="Deform360 rollout, sample 1, Ours" controls muted loop playsinline preload="none" style="aspect-ratio:30/17; width:100%; object-fit:cover; background:#050505; border:1px solid #76B900; border-radius:2px; display:block;"></video>
+          <video data-rollout-cell="rollout_deform360" data-rollout-tag="gt" data-sync-group="rollout:rollout_deform360" src="media/rollout_deform360__s01__gt.mp4" poster="media/posters/rollout_deform360__s01__gt.jpg" aria-label="Deform360 rollout, sample 1, Ground truth" controls muted loop playsinline preload="none" style="aspect-ratio:30/17; width:100%; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+
+          <div style="position:sticky; left:0; z-index:1; align-self:stretch; background:#FFFFFF; box-shadow:10px 0 0 0 #FFFFFF; display:flex; flex-direction:column; justify-content:center; border-right:1px solid #D8D8D8; padding-right:10px; font-size:13px; line-height:1.4;"><div style="font-weight:500;">DROID</div><div style="font-size:12px; color:#8F8F8F; text-wrap:balance;">single Franka arm &middot; in-the-wild scenes</div><div data-rollout-nav="rollout_droid" data-current="1" data-count="3" aria-label="DROID evaluation sample" style="display:flex; align-items:center; gap:5px; margin-top:8px;"><button type="button" data-rollout-step="rollout_droid" data-delta="-1" aria-label="Previous DROID sample" style="appearance:none; -webkit-appearance:none; font:inherit; font-size:13px; line-height:1; width:20px; height:20px; padding:0; cursor:pointer; border-radius:2px; background:#FFFFFF; border:1px solid #D8D8D8; color:#5E5E5E; display:flex; align-items:center; justify-content:center;">&lsaquo;</button><span data-rollout-counter="rollout_droid" aria-live="polite" title="fold, spread out, or clump object — 1.0.1/TRI/success/2023-10-25/Wed_Oct_25_17:11:21_2023 / ext1 — the sample the paper figure shows" style="font-size:11px; color:#8F8F8F; font-variant-numeric:tabular-nums; letter-spacing:0.5px; cursor:default;">1 / 3</span><button type="button" data-rollout-step="rollout_droid" data-delta="1" aria-label="Next DROID sample" style="appearance:none; -webkit-appearance:none; font:inherit; font-size:13px; line-height:1; width:20px; height:20px; padding:0; cursor:pointer; border-radius:2px; background:#FFFFFF; border:1px solid #D8D8D8; color:#5E5E5E; display:flex; align-items:center; justify-content:center;">&rsaquo;</button></div></div>
+          <video data-rollout-cell="rollout_droid" data-rollout-tag="wan_move" data-sync-group="rollout:rollout_droid" src="media/rollout_droid__s01__wan_move.mp4" poster="media/posters/rollout_droid__s01__wan_move.jpg" aria-label="DROID rollout, sample 1, Wan-Move" controls muted loop playsinline preload="none" style="aspect-ratio:30/17; width:100%; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+          <video data-rollout-cell="rollout_droid" data-rollout-tag="cosmos2p5" data-sync-group="rollout:rollout_droid" src="media/rollout_droid__s01__cosmos2p5.mp4" poster="media/posters/rollout_droid__s01__cosmos2p5.jpg" aria-label="DROID rollout, sample 1, Cosmos 2.5" controls muted loop playsinline preload="none" style="aspect-ratio:30/17; width:100%; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+          <video data-rollout-cell="rollout_droid" data-rollout-tag="ours" data-sync-group="rollout:rollout_droid" src="media/rollout_droid__s01__ours.mp4" poster="media/posters/rollout_droid__s01__ours.jpg" aria-label="DROID rollout, sample 1, Ours" controls muted loop playsinline preload="none" style="aspect-ratio:30/17; width:100%; object-fit:cover; background:#050505; border:1px solid #76B900; border-radius:2px; display:block;"></video>
+          <video data-rollout-cell="rollout_droid" data-rollout-tag="gt" data-sync-group="rollout:rollout_droid" src="media/rollout_droid__s01__gt.mp4" poster="media/posters/rollout_droid__s01__gt.jpg" aria-label="DROID rollout, sample 1, Ground truth" controls muted loop playsinline preload="none" style="aspect-ratio:30/17; width:100%; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+
+          <div style="position:sticky; left:0; z-index:1; align-self:stretch; background:#FFFFFF; box-shadow:10px 0 0 0 #FFFFFF; display:flex; flex-direction:column; justify-content:center; border-right:1px solid #D8D8D8; padding-right:10px; font-size:13px; line-height:1.4;"><div style="font-weight:500;">ABC-130k</div><div style="font-size:12px; color:#8F8F8F; text-wrap:balance;">bimanual YAM &middot; household chores</div><div data-rollout-nav="rollout_abc130k" data-current="1" data-count="3" aria-label="ABC-130k evaluation sample" style="display:flex; align-items:center; gap:5px; margin-top:8px;"><button type="button" data-rollout-step="rollout_abc130k" data-delta="-1" aria-label="Previous ABC-130k sample" style="appearance:none; -webkit-appearance:none; font:inherit; font-size:13px; line-height:1; width:20px; height:20px; padding:0; cursor:pointer; border-radius:2px; background:#FFFFFF; border:1px solid #D8D8D8; color:#5E5E5E; display:flex; align-items:center; justify-content:center;">&lsaquo;</button><span data-rollout-counter="rollout_abc130k" aria-live="polite" title="fold and stack the t-shirts — fold_and_stack_the_t_shirts/episode_7de09792-96e5-4e59-b3b5-bbef6dd350f4 / top" style="font-size:11px; color:#8F8F8F; font-variant-numeric:tabular-nums; letter-spacing:0.5px; cursor:default;">1 / 3</span><button type="button" data-rollout-step="rollout_abc130k" data-delta="1" aria-label="Next ABC-130k sample" style="appearance:none; -webkit-appearance:none; font:inherit; font-size:13px; line-height:1; width:20px; height:20px; padding:0; cursor:pointer; border-radius:2px; background:#FFFFFF; border:1px solid #D8D8D8; color:#5E5E5E; display:flex; align-items:center; justify-content:center;">&rsaquo;</button></div></div>
+          <video data-rollout-cell="rollout_abc130k" data-rollout-tag="wan_move" data-sync-group="rollout:rollout_abc130k" src="media/rollout_abc130k__s01__wan_move.mp4" poster="media/posters/rollout_abc130k__s01__wan_move.jpg" aria-label="ABC-130k rollout, sample 1, Wan-Move" controls muted loop playsinline preload="none" style="aspect-ratio:4/3; width:100%; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+          <video data-rollout-cell="rollout_abc130k" data-rollout-tag="cosmos2p5" data-sync-group="rollout:rollout_abc130k" src="media/rollout_abc130k__s01__cosmos2p5.mp4" poster="media/posters/rollout_abc130k__s01__cosmos2p5.jpg" aria-label="ABC-130k rollout, sample 1, Cosmos 2.5" controls muted loop playsinline preload="none" style="aspect-ratio:4/3; width:100%; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+          <video data-rollout-cell="rollout_abc130k" data-rollout-tag="ours" data-sync-group="rollout:rollout_abc130k" src="media/rollout_abc130k__s01__ours.mp4" poster="media/posters/rollout_abc130k__s01__ours.jpg" aria-label="ABC-130k rollout, sample 1, Ours" controls muted loop playsinline preload="none" style="aspect-ratio:4/3; width:100%; object-fit:cover; background:#050505; border:1px solid #76B900; border-radius:2px; display:block;"></video>
+          <video data-rollout-cell="rollout_abc130k" data-rollout-tag="gt" data-sync-group="rollout:rollout_abc130k" src="media/rollout_abc130k__s01__gt.mp4" poster="media/posters/rollout_abc130k__s01__gt.jpg" aria-label="ABC-130k rollout, sample 1, Ground truth" controls muted loop playsinline preload="none" style="aspect-ratio:4/3; width:100%; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+        </div>
+      </div>
+      <script type="application/json" data-rollout-samples>
+      {"rollout_xvla_soft_fold":[{"i":1,"w":480,"h":360,"cap":"fold the cloth","ep":"0706_17pm_stage_1_stage2new_new_cam_very_slow/episode_22","cam":"cam_high","pinned":true},{"i":2,"w":480,"h":360,"cap":"fold the cloth","ep":"0708_11am_stage_1_stage2new_new_cam_very_slow/episode_11","cam":"cam_high","pinned":false},{"i":3,"w":480,"h":360,"cap":"fold the cloth","ep":"0712_8pm_stage_1_stage2new_new_cam_very_slow/episode_14","cam":"cam_high","pinned":false}],"rollout_deform360":[{"i":1,"w":480,"h":272,"cap":"a human hand holding a robot gripper manipulating a rope","ep":"001-rope/episode_3","cam":"brics-odroid-015_cam0","pinned":true},{"i":2,"w":480,"h":272,"cap":"a human hand holding a robot gripper manipulating a net cloth","ep":"091-net-cloth/episode_4","cam":"brics-odroid-024_cam0","pinned":false},{"i":3,"w":480,"h":272,"cap":"a human hand holding a robot gripper manipulating a cotton scarf cloth","ep":"086-cotton-scarf-cloth/episode_0","cam":"brics-odroid-015_cam1","pinned":false}],"rollout_droid":[{"i":1,"w":480,"h":272,"cap":"fold, spread out, or clump object","ep":"1.0.1/TRI/success/2023-10-25/Wed_Oct_25_17:11:21_2023","cam":"ext1","pinned":true},{"i":2,"w":480,"h":272,"cap":"Use the towel on the left to wipe the table","ep":"1.0.1/REAL/success/2023-06-27/Tue_Jun_27_15:26:55_2023","cam":"ext2","pinned":false},{"i":3,"w":480,"h":272,"cap":"pnp-table-to-plate-onlycans","ep":"1.0.1/RPL/success/2023-12-03/Sun_Dec__3_18:48:18_2023","cam":"ext1","pinned":false}],"rollout_abc130k":[{"i":1,"w":480,"h":360,"cap":"fold and stack the t-shirts","ep":"fold_and_stack_the_t_shirts/episode_7de09792-96e5-4e59-b3b5-bbef6dd350f4","cam":"top","pinned":false},{"i":2,"w":480,"h":360,"cap":"place the food in the zip-top bag and seal the zipper","ep":"place_the_food_in_the_zip_top_bag_and_seal_the_zipper/episode_70656bde-7b22-43f1-81be-248d03d930eb","cam":"top","pinned":false},{"i":3,"w":480,"h":360,"cap":"fold and stack the t-shirts","ep":"fold_and_stack_the_t_shirts/episode_a570cd33-108f-41ab-8ee9-f96f43961f86","cam":"top","pinned":false}]}
+      </script>
+<!-- END rollout-gallery -->
+      <p style="margin:14px 0 0; max-width:92ch; font-size:13px; color:#5E5E5E; text-wrap:pretty;">The four panels of a row play as one clip: the page pins them to a shared clock and corrects them on the frame a loop wraps, so a difference on screen is a difference between methods rather than between players. Each baseline is resampled into that sample's ground-truth frame shape — Cosmos 2.5 renders every sample at 320×256, and Wan-Move at its own 720×544 to 832×464, against ground truths running 640×480 to 848×480 — so how much of a panel an object fills is not an artifact of who rendered larger.</p>
+    </div>
+
+    <div data-cols="rail" style="margin-top:28px; display:grid; grid-template-columns:200px minmax(0, 1fr); gap:32px; align-items:start;">
+      <div>
+        <h2 style="margin:0 0 8px; font-size:16px; font-weight:500; letter-spacing:-0.25px;">Evaluation on multi-embodiment datasets</h2>
+        <p style="margin:0; font-size:13px; color:#5E5E5E; text-wrap:pretty;">All methods see the same 100 validation clips per dataset across five held-out sets.</p>
+      </div>
+      <div>
+        <p style="margin:0 0 16px; max-width:78ch; font-size:16px; line-height:1.6; text-wrap:pretty;">Within the same Cosmos 2.5 backbone, swapping the native relative 6D action for action flow improves PSNR, SSIM, gripper EPE, FID and FVD on all five datasets, and object EPE on the four where it is measured — a controlled comparison that isolates the conditioning representation. VLM scores are the exception, and are mixed: the judge rates physical plausibility and temporal consistency rather than whether the generated motion follows the commanded trajectories, which flow EPE measures directly. The best configuration is the distilled four-step Wan2.2 A14B model, best in nearly every cell and also the fastest.</p>
+        <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px;">
+          <sc-for list="{{ tabs }}" as="tab" hint-placeholder-count="6">
+            <button type="button" onClick="{{ tab.select }}" style="height:32px; padding:0 14px; border-radius:4px; font-size:13px; font-family:inherit; cursor:pointer; transition:background 120ms ease-out, border-color 120ms ease-out; border:{{ tab.border }}; background:{{ tab.bg }}; color:{{ tab.fg }};">{{ tab.label }}</button>
+          </sc-for>
+        </div>
+        <div style="border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; overflow-x:auto;">
+          <table style="width:100%; border-collapse:collapse; font-size:13px; min-width:720px;">
+            <thead>
+              <tr style="background:#F2F2F2;">
+                <th style="padding:10px 14px; font-weight:500; text-align:left; border-bottom:1px solid #D8D8D8;">Model</th>
+                <th style="padding:10px 10px; font-weight:500; text-align:right; border-bottom:1px solid #D8D8D8;">PSNR ↑</th>
+                <th style="padding:10px 10px; font-weight:500; text-align:right; border-bottom:1px solid #D8D8D8;">SSIM ↑</th>
+                <th style="padding:10px 10px; font-weight:500; text-align:right; border-bottom:1px solid #D8D8D8;">Obj. EPE ↓</th>
+                <th style="padding:10px 10px; font-weight:500; text-align:right; border-bottom:1px solid #D8D8D8;">Grip. EPE ↓</th>
+                <th style="padding:10px 10px; font-weight:500; text-align:right; border-bottom:1px solid #D8D8D8;">FID ↓</th>
+                <th style="padding:10px 10px; font-weight:500; text-align:right; border-bottom:1px solid #D8D8D8;">FVD ↓</th>
+                <th style="padding:10px 14px; font-weight:500; text-align:right; border-bottom:1px solid #D8D8D8;">VLM ↑</th>
+              </tr>
+            </thead>
+            <tbody>
+              <sc-for list="{{ rows }}" as="row" hint-placeholder-count="7">
+                <tr style="background:{{ row.bg }};">
+                  <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:{{ row.fg }}; font-weight:{{ row.weight }};">{{ row.name }}</td>
+                  <sc-for list="{{ row.cells }}" as="cell" hint-placeholder-count="7">
+                    <td style="padding:9px 10px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums; font-weight:{{ cell.weight }}; color:{{ cell.color }};">{{ cell.text }}</td>
+                  </sc-for>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+        <p style="margin:10px 0 0; font-size:12px; color:#5E5E5E; max-width:78ch; text-wrap:pretty;">Gray rows are zero-shot baselines using released checkpoints; the best value per column is bold green. Standard errors are reported in the paper. Object EPE is omitted for DROID, where object grounding is unreliable in cluttered scenes.</p>
+      </div>
+    </div>
+
+    <div style="margin-top:20px; border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:20px;">
+      <h3 style="margin:0 0 6px; font-size:16px; font-weight:500; letter-spacing:-0.25px;">Wrist-camera egomotion</h3>
+      <p style="margin:0 0 14px; font-size:14px; color:#5E5E5E; line-height:1.55; text-wrap:pretty;">A camera bolted to the arm produces global image motion that a fixed viewpoint never sees. Given depth and relative camera pose, camera egomotion converts into the same image-space condition, so one interface covers both camera and interaction motion. This is a single-rollout proof of concept, not a systematic evaluation.</p>
+      <video src="media/wrist_camera_egomotion.mp4" poster="media/posters/wrist_camera_egomotion.jpg" aria-label="DROID wrist window: ground truth, generation and conditioning flow" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:324/71; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+      <p style="margin:8px 0 0; font-size:12px; color:#5E5E5E;">One DROID wrist window: ground truth, our generation, and the conditioning flow it was given.</p>
+    </div>
+
+    <div style="margin-top:20px; border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:20px;">
+      <h3 style="margin:0 0 6px; font-size:16px; font-weight:500; letter-spacing:-0.25px;">Data efficiency from multi-embodiment mid-training</h3>
+      <p style="margin:0 0 14px; font-size:14px; color:#5E5E5E; line-height:1.55; text-wrap:pretty;">Six held-out Interactive World Simulator tasks, adapted with 0–100% of each task's training split.</p>
+      <figure style="margin:0 0 16px;">
+        <img src="img/iws_data_efficiency.png" alt="LPIPS, object-flow EPE and FVD versus the percentage of task-specific training data, for six Interactive World Simulator tasks" style="width:100%; height:auto; display:block; border:1px solid #D8D8D8; border-radius:2px; background:#FFFFFF;">
+        <figcaption style="margin-top:10px; font-size:12px; color:#5E5E5E; max-width:100ch; text-wrap:pretty;">Data efficiency on the six held-out IWS tasks; lower is better on all three metrics. <strong>Ours (MT)</strong> starts from the multi-embodiment mid-trained checkpoint, <strong>Ours (PT)</strong> from the original Wan2.2 weights; Wan-Move and ATI are evaluated zero-shot.</figcaption>
+      </figure>
+      <div data-cols="3" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px;">
+        <div style="border-left:2px solid #76B900; padding:2px 0 2px 12px;">
+          <div style="font-size:14px; font-weight:500;">Strongest transfer before any task data</div>
+            <div style="font-size:14px; color:#5E5E5E; line-height:1.55; text-wrap:pretty;">At 0%, mid-trained beats pretrained-only on LPIPS, object-flow EPE, and FVD across all six tasks. The task-specific IWS model and the newly added Cosmos 2.5 action layers are substantially worse on all three, so their unadapted action interfaces do not transfer to held-out tasks.</div>
+          </div>
+        <div style="border-left:2px solid #76B900; padding:2px 0 2px 12px;">
+          <div style="font-size:14px; font-weight:500;">The lead survives adaptation</div>
+            <div style="font-size:14px; color:#5E5E5E; line-height:1.55; text-wrap:pretty;">At 100%, mid-trained has the lowest LPIPS and FVD on all six tasks and the lowest flow EPE on four.</div>
+          </div>
+        <div style="border-left:2px solid #76B900; padding:2px 0 2px 12px;">
+          <div style="font-size:14px; font-weight:500;">Most gains arrive by 20%</div>
+            <div style="font-size:14px; color:#5E5E5E; line-height:1.55; text-wrap:pretty;">Between 20% and 100% of the task split, per-task values move at most 3.4% in LPIPS, 6.7% in flow EPE, and 6.8% in FVD.</div>
+          </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="policy" style="max-width:1180px; margin:0 auto; padding:48px 24px 0;">
+    <div data-cols="rail" style="display:grid; grid-template-columns:200px minmax(0, 1fr); gap:32px; align-items:start;">
+      <div>
+        <h2 style="margin:0 0 8px; font-size:16px; font-weight:500; letter-spacing:-0.25px;">Policy evaluation by open-loop replay</h2>
+        <p style="margin:0; font-size:13px; color:#5E5E5E; text-wrap:pretty;">The simulator is initialized from an episode's first observation and replays that episode's achieved trajectory as action flow.</p>
+      </div>
+      <div style="display:grid; gap:20px;">
+        <p style="margin:0; max-width:78ch; font-size:16px; line-height:1.6; text-wrap:pretty;">Because the policy is never queried on generated observations, this measures whether the simulator preserves an outcome it is shown — not prospective evaluation of an unexecuted command. Generated rollouts are scored by a human rater applying the same task predicate, with policy identity withheld.</p>
+        <div style="border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:20px;">
+          <div style="display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:6px;">
+            <h3 style="margin:0; font-size:16px; font-weight:500; letter-spacing:-0.25px;">RoboLab</h3>
+            <span style="font-size:12px; color:#8F8F8F;">5 policies × 6 tasks · 300 episodes</span>
+          </div>
+          <p style="margin:0 0 14px; font-size:14px; color:#5E5E5E; line-height:1.55; text-wrap:pretty;">π₀, π₀.₅, GR00T N1.7, Cosmos-3 Nano, and Cosmos-3 Edge, rolled out 10 times per task.</p>
+          <div data-cols="2" style="display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start;">
+          <figure style="margin:0;">
+            <img src="img/policy_evaluation_correlation.png" alt="Scatter of replayed success rate against reference success rate for five policies over six RoboLab tasks, with a least-squares fit" style="width:100%; height:auto; display:block; border:1px solid #D8D8D8; border-radius:2px; background:#FFFFFF;">
+            <figcaption style="margin-top:8px; font-size:12px; color:#5E5E5E; text-wrap:pretty;">Each point aggregates the 10 rollouts of one policy–task pair; the dashed line is the least-squares fit.</figcaption>
+          </figure>
+          <div>
+          <div data-cols="3" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin-bottom:14px;">
+            <div style="border:1px solid #D8D8D8; border-radius:4px; padding:12px;"><div style="font-size:24px; font-weight:700; letter-spacing:-0.5px; color:#4E7C00;">0.96</div><div style="font-size:12px; color:#5E5E5E;">Pearson r</div></div>
+            <div style="border:1px solid #D8D8D8; border-radius:4px; padding:12px;"><div style="font-size:24px; font-weight:700; letter-spacing:-0.5px;">0.93</div><div style="font-size:12px; color:#5E5E5E;">Spearman ρ</div></div>
+            <div style="border:1px solid #D8D8D8; border-radius:4px; padding:12px;"><div style="font-size:24px; font-weight:700; letter-spacing:-0.5px;">5.7 pp</div><div style="font-size:12px; color:#5E5E5E;">Mean abs. error</div></div>
+          </div>
+          <ul style="margin:0; padding-left:18px; font-size:14px; line-height:1.7; color:#5E5E5E;">
+            <li>Aggregate success 26.3% simulated vs. 26.7% in RoboLab — a bias of −0.3 points.</li>
+            <li>The two agree on the ordering of all five policies.</li>
+            <li>Per-episode verdicts match 93.0% of the time (Cohen's κ = 0.82): 10 false positives, 11 false negatives.</li>
+          </ul>
+          </div>
+          </div>
+        </div>
+        <div style="border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:20px;">
+          <div style="display:flex; align-items:baseline; justify-content:space-between; gap:16px; margin-bottom:12px;">
+            <h3 style="margin:0; font-size:16px; font-weight:500; letter-spacing:-0.25px;">Side-by-side replay</h3>
+            <span style="font-size:12px; color:#8F8F8F;">reference vs. simulated, same reset and camera</span>
+          </div>
+          <div data-cols="4" style="display:grid; grid-template-columns:repeat(4, 1fr); gap:12px;">
+            <figure style="margin:0;">
+              <video src="media/policy_robolab_success_reference.mp4" poster="media/posters/policy_robolab_success_reference.jpg" aria-label="Policy success episode, RoboLab reference" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:428/221; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+              <figcaption style="font-size:12px; color:#5E5E5E; padding-top:6px;">RoboLab reference · success</figcaption>
+            </figure>
+            <figure style="margin:0;">
+              <video src="media/policy_robolab_success_simulated.mp4" poster="media/posters/policy_robolab_success_simulated.jpg" aria-label="Policy success episode, our neural simulator" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:428/221; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+              <figcaption style="font-size:12px; color:#5E5E5E; padding-top:6px;">Simulated · success</figcaption>
+            </figure>
+            <figure style="margin:0;">
+              <video src="media/policy_robolab_failure_reference.mp4" poster="media/posters/policy_robolab_failure_reference.jpg" aria-label="Policy failure episode, RoboLab reference" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:428/221; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+              <figcaption style="font-size:12px; color:#5E5E5E; padding-top:6px;">RoboLab reference · failure</figcaption>
+            </figure>
+            <figure style="margin:0;">
+              <video src="media/policy_robolab_failure_simulated.mp4" poster="media/posters/policy_robolab_failure_simulated.jpg" aria-label="Policy failure episode, our neural simulator" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:428/221; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+              <figcaption style="font-size:12px; color:#5E5E5E; padding-top:6px;">Simulated · failure</figcaption>
+            </figure>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="control" style="max-width:1180px; margin:0 auto; padding:48px 24px 0;">
+    <div data-cols="rail" style="display:grid; grid-template-columns:200px minmax(0, 1fr); gap:32px; align-items:start;">
+      <div>
+        <h2 style="margin:0 0 8px; font-size:16px; font-weight:500; letter-spacing:-0.25px;">Running the interface backwards</h2>
+        <p style="margin:0; font-size:13px; color:#5E5E5E; text-wrap:pretty;">Figure 4 · flexible-pipe bending, from the human demonstration through to the robot's execution.</p>
+      </div>
+      <div style="display:grid; gap:20px;">
+        <p style="margin:0; max-width:78ch; font-size:16px; line-height:1.6; text-wrap:pretty;">Supply desired object flow instead of embodiment flow and the world model generates a compatible robot motion, from which a learned action readout produces executable 14-DoF commands. The object flow here is transferred from a held-out human demonstration, and the readout is trained on paired real-world rollouts of both successes and failures — no task-specific expert robot demonstration is required.</p>
+        <div style="border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:20px;">
+          <div data-cols="4" style="display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; margin-bottom:12px;">
+            <figure style="margin:0;">
+              <video src="media/control_human_demo.mp4" poster="media/posters/control_human_demo.jpg" aria-label="Human demonstration" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:320/209; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+              <figcaption style="font-size:12px; padding-top:6px;">Human demonstration<br><span style="color:#5E5E5E;">held-out source</span></figcaption>
+            </figure>
+            <figure style="margin:0;">
+              <video src="media/control_object_flow.mp4" poster="media/posters/control_object_flow.jpg" aria-label="Object flow derived from the demonstration" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:320/209; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+              <figcaption style="font-size:12px; padding-top:6px;">Desired object flow<br><span style="color:#5E5E5E;">the only condition supplied</span></figcaption>
+            </figure>
+            <figure style="margin:0;">
+              <video src="media/control_generated_motion.mp4" poster="media/posters/control_generated_motion.jpg" aria-label="World-model generation from the transferred flow" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:320/209; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+              <figcaption style="font-size:12px; padding-top:6px;">Generated robot motion<br><span style="color:#5E5E5E;">no embodiment flow input</span></figcaption>
+            </figure>
+            <figure style="margin:0;">
+              <video src="media/control_physical_execution.mp4" poster="media/posters/control_physical_execution.jpg" aria-label="Physical YAM execution of the read-out actions" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:320/209; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+              <figcaption style="font-size:12px; padding-top:6px;">Physical execution<br><span style="color:#5E5E5E;">14-DoF YAM, action readout</span></figcaption>
+            </figure>
+          </div>
+          <p style="margin:0; font-size:12px; color:#5E5E5E; text-wrap:pretty;">All four clips come from one flexible-pipe run.</p>
+        </div>
+        <div style="border:1px solid #D8D8D8; border-left:2px solid #C54600; background:#FFFFFF; border-radius:4px; padding:16px 20px;">
+          <div style="font-size:14px; font-weight:500; margin-bottom:6px;">Limitations</div>
+          <p style="margin:0; font-size:14px; color:#5E5E5E; line-height:1.6; max-width:90ch; text-wrap:pretty;">The world action model can exhibit roughly 1 cm of grasp imprecision. We hypothesize that limited depth awareness contributes, but do not establish it as the cause. Grasp and contact state can also be ambiguous in generated rollouts, including whether an object has actually been secured. Conditioning on depth, tactile, or force signals is the obvious next step. The wrist-camera result is a qualitative DROID proof of concept; systematic evaluation under mobile manipulation and broader camera motion remains future work, as does closed-loop policy evaluation — everything reported here is open-loop.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer style="max-width:1180px; margin:0 auto; padding:48px 24px 64px;">
+    <div style="border-top:1px solid #D8D8D8; padding-top:20px; display:flex; flex-wrap:wrap; gap:24px; justify-content:space-between; align-items:baseline;">
+      <span style="font-size:12px; color:#5E5E5E;">Hydra-0 · NVIDIA technical report</span>
+      <span style="font-size:12px; color:#5E5E5E;">Paper and code links to follow</span>
+    </div>
+  </footer>
+
+</div>
+</x-dc>
+<script>
+// Play each clip while it is on screen, and only while it is on screen.
+//
+// The page holds 46 clip players and tens of megabytes of video. Autoplaying them
+// all would fetch every byte on load; leaving them paused means a reader sees 37 stills
+// and has to click each one. Both are wrong, so playback is tied to visibility:
+// `preload="none"` keeps a clip off the wire until it scrolls in, and it pauses
+// again on the way out.
+//
+// The players are authored `controls muted loop playsinline`, but the x-dc
+// renderer drops bare boolean attributes it does not recognise: inspect the live
+// DOM and only `playsinline` and `preload` survive. Without `muted` a browser
+// refuses programmatic playback, without `loop` a clip stops after one pass, and
+// without `controls` a reader cannot play or scrub at all. Re-assert all four as
+// IDL properties, which the renderer does not touch.
+//
+// Matched pairs play as one clip, not as two players that happen to sit next to
+// each other. These families are only meaningful frame-aligned:
+//
+//   teaser_source_X    / teaser_flow_X               same 81-frame window, pixel-aligned
+//   method_train_video_X / method_train_flow_X       likewise, the method lane's own windows
+//   method_deploy_*    (isaac / flow / prediction)   one 277-frame rollout, three views of it
+//   flow_*             (the sampling panels)         seven views of one 81-frame window
+//   rollout_X__*       (the qualitative rows)        four methods on one 81-frame sample
+//   policy_robolab_X_* (reference / simulated)       two panes split from one source mp4
+//   teaser_eval_X_*    (robolab / sim)               likewise -- currently unused, the
+//                                                    teaser tiles were cut as duplicates
+//                                                    of the policy-evaluation section
+//
+// Every pair is the same length and frame rate by construction, so they can be
+// held together: the first member in document order leads, the rest are pinned
+// to its clock and corrected whenever they drift past SYNC_TOL. Started
+// independently they diverge immediately -- each element buffers and decodes on
+// its own schedule -- and a flow overlay drifting against its own footage reads
+// as a broken overlay rather than a late one.
+//
+// A reader who pauses or scrubs keeps that state, and it applies to the whole
+// pair: we only ever resume what we ourselves paused.
+(function () {
+  // ~1.5 frames at the 16 fps every paired cohort is built at. Tight enough that
+  // no drift is visible, loose enough that we are not seeking every tick.
+  var SYNC_TOL = 0.10;
+  var selfPaused = new WeakSet();
+  var selfSeeked = new WeakSet();
+  var visible = new WeakSet();
+  var groups = [];          // [{members: [video, ...]}]
+  var byKey = {};
+  var solo = [];
+
+  // Which players belong together, keyed off the filename the slot ships under.
+  function syncKey(v) {
+    // The qualitative rows declare their group instead of having it read off a
+    // filename: their four players keep their identity while a chip swaps what
+    // they play, so a key derived from `src` would name a group that changes
+    // out from under the membership built here.
+    var declared = v.getAttribute("data-sync-group");
+    if (declared) { return declared; }
+    var src = v.getAttribute("src") || "";
+    var m;
+    if ((m = /teaser_(?:source|flow)_(.+)\.mp4$/.exec(src))) { return "teaser:" + m[1]; }
+    if ((m = /teaser_eval_(.+)_(?:robolab|sim)\.mp4$/.exec(src))) { return "eval:" + m[1]; }
+    if ((m = /policy_robolab_(.+)_(?:reference|simulated)\.mp4$/.exec(src))) { return "policy:" + m[1]; }
+    if ((m = /method_train_(?:video|flow)_(.+)\.mp4$/.exec(src))) { return "method:" + m[1]; }
+    // The deployment lane and the sampling panels are each one clock shared by
+    // every member, not a pair: the simulator, the projected flow and the
+    // generation are three readings of the same rollout instant, and the seven
+    // sampling panels are seven readings of the same window.
+    if (/method_deploy_.+\.mp4$/.test(src)) { return "deploy"; }
+    if (/\/flow_(?:dense_tracks|embodiment_mask|object_mask|sample_.+)\.mp4$/.test(src)) { return "sampling"; }
+    // A qualitative row is four separate players showing one evaluation sample.
+    // Unlocked they drift within a second of starting, and a reader comparing
+    // four panels at four different timesteps is being shown a difference that
+    // does not exist. Those rows carry `data-sync-group` and are handled above;
+    // this is the fallback for a rollout clip embedded anywhere else.
+    if ((m = /rollout_(.+)__s\d+__(?:wan_move|cosmos2p5|ours|gt)\.mp4$/.exec(src))) { return "rollout:" + m[1]; }
+    return null;
+  }
+
+  function play(v) {
+    if (!v.paused) { return; }
+    selfPaused.delete(v);
+    // A missing file rejects here; the poster stays.
+    var p = v.play();
+    if (p && p.catch) { p.catch(function () {}); }
+  }
+
+  function pause(v) {
+    if (v.paused) { return; }
+    selfPaused.add(v);
+    v.pause();
+  }
+
+  function setUserPaused(list, on) {
+    list.forEach(function (m) {
+      if (on) { m.dataset.userPaused = "1"; } else { delete m.dataset.userPaused; }
+    });
+  }
+
+  // Pin every other member of the group to `ref`'s clock.
+  function align(list, ref) {
+    var t = ref.currentTime;
+    list.forEach(function (m) {
+      if (m === ref || m.seeking || m.readyState < 1) { return; }
+      if (Math.abs(m.currentTime - t) > SYNC_TOL) {
+        selfSeeked.add(m);
+        try { m.currentTime = t; } catch (err) { /* not seekable yet */ }
+      }
+    });
+  }
+
+  // Drive correction off the leader's own frame clock rather than a timer.
+  //
+  // A `loop` wrap is where a pair visibly comes apart: members reach the end
+  // microseconds apart, so for one instant the leader is at 0.0 and the follower
+  // is still at 5.0. Waiting for the next poll to notice leaves that gap on
+  // screen. requestVideoFrameCallback fires per presented frame, and a wrap is
+  // detectable exactly (the clock ran backwards), so it is corrected on the
+  // frame it happens.
+  function follow(g) {
+    var lead = g.members[0];
+    if (!lead || g.following) { return; }
+    g.following = true;
+    var step = function () {
+      g.following = false;
+      if (lead.paused) { return; }
+      if (g.lastT !== undefined && lead.currentTime < g.lastT - 0.5) {
+        // Wrapped: snap unconditionally, the tolerance test would also fire but
+        // this makes the intent explicit and skips a redundant comparison.
+        g.members.forEach(function (m) {
+          if (m === lead || m.readyState < 1) { return; }
+          selfSeeked.add(m);
+          try { m.currentTime = lead.currentTime; } catch (err) { /* not seekable */ }
+        });
+      } else {
+        align(g.members, lead);
+      }
+      g.lastT = lead.currentTime;
+      follow(g);
+    };
+    if (lead.requestVideoFrameCallback) {
+      lead.requestVideoFrameCallback(step);
+    } else {
+      g.following = false;              // the interval backstop covers this case
+    }
+  }
+
+  // `preload="none"` means a member has no data until we ask for it, and two
+  // members asked at the same instant do not arrive at the same instant. Start
+  // the pair only once every member can actually play, or the leader runs ahead
+  // while the follower is still fetching and the pair opens a gap it then has to
+  // snap shut on screen. An errored member (a slot with no file) never arrives,
+  // so it must not hold the rest hostage.
+  function ready(g) {
+    return g.members.every(function (m) { return m.readyState >= 3 || m.error; });
+  }
+
+  function prime(g) {
+    g.members.forEach(function (m) {
+      if (m.dataset.primed) { return; }
+      m.dataset.primed = "1";
+      m.preload = "auto";
+      m.load();
+    });
+  }
+
+  function update() {
+    groups.forEach(function (g) {
+      var wanted = g.members.some(function (m) { return visible.has(m); })
+        && !g.members.some(function (m) { return m.dataset.userPaused; });
+      if (!wanted) { g.members.forEach(pause); return; }
+      if (!ready(g)) { prime(g); return; }
+      align(g.members, g.members[0]);
+      g.members.forEach(play);
+      follow(g);
+    });
+    solo.forEach(function (v) {
+      (visible.has(v) && !v.dataset.userPaused ? play : pause)(v);
+    });
+  }
+
+  var io = "IntersectionObserver" in window
+    ? new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting) { visible.add(e.target); } else { visible.delete(e.target); }
+        });
+        update();
+      }, { rootMargin: "200px 0px", threshold: 0.15 })
+    : null;
+
+  // The header banner is decoration behind the title, not a clip a reader plays:
+  // no controls, no pause state a reader can own, never a member of a synced
+  // group. It still rides the same visibility gate, so it stops decoding once it
+  // is scrolled past, and it preloads rather than waiting to be scrolled in --
+  // it is already on screen when the page opens.
+  function wireBanner(v) {
+    v.muted = true;
+    v.loop = true;
+    v.playsInline = true;
+    v.controls = false;
+    v.preload = "auto";
+    solo.push(v);
+    if (io) { io.observe(v); } else { play(v); }
+  }
+
+  function wire(v) {
+    if (v.dataset.autoplayWired) { return; }
+    v.dataset.autoplayWired = "1";
+    if (v.hasAttribute("data-banner")) { wireBanner(v); return; }
+    v.muted = true;                     // all four are stripped from the markup
+    v.loop = true;                      // by the renderer, so set them here
+    v.controls = true;
+    v.playsInline = true;
+
+    var key = syncKey(v);
+    var list;
+    if (key) {
+      if (!byKey[key]) { byKey[key] = { members: [] }; groups.push(byKey[key]); }
+      // Document order decides the leader, which puts band 1 ahead of band 2 and
+      // the reference pane ahead of the simulated one.
+      byKey[key].members.push(v);
+      list = byKey[key].members;
+    } else {
+      solo.push(v);
+      list = [v];
+    }
+
+    v.addEventListener("pause", function () {
+      if (selfPaused.has(v)) { selfPaused.delete(v); return; }
+      setUserPaused(list, true);        // a reader pausing one pauses the pair
+      update();
+    });
+    v.addEventListener("play", function () {
+      if (v.dataset.userPaused) { setUserPaused(list, false); }
+      update();
+    });
+    // A reader scrubbing one member drags the rest with it; our own corrections
+    // must not be mistaken for that and bounce the group back.
+    v.addEventListener("seeked", function () {
+      if (selfSeeked.has(v)) { selfSeeked.delete(v); return; }
+      align(list, v);
+    });
+    // Buffering finishing is what unblocks a gated group, so re-run the decision.
+    if (key) {
+      ["canplay", "canplaythrough", "loadeddata", "error"].forEach(function (ev) {
+        v.addEventListener(ev, update);
+      });
+    }
+
+    if (io) { io.observe(v); } else { v.setAttribute("autoplay", ""); }
+  }
+
+  function scan() { document.querySelectorAll("video").forEach(wire); }
+
+  // ---- qualitative rollouts: ten samples per row, four players -------------
+  //
+  // Each row ships ten evaluation samples but only four players. A chip swaps
+  // what those four point at rather than adding forty more elements to the
+  // document, which keeps `preload="none"` meaningful: a reader fetches the
+  // sample they asked for and nothing else.
+  //
+  // Everything the swap needs travels in one JSON block, because the elements
+  // it describes do not exist until they are selected. The cell shape is part
+  // of it -- ABC-130k samples are not all the same width, so the declared
+  // aspect has to move with the sample or `object-fit:cover` starts cropping.
+  var ROLLOUTS = (function () {
+    var el = document.querySelector("script[data-rollout-samples]");
+    if (!el) { return {}; }
+    try { return JSON.parse(el.textContent); } catch (err) { return {}; }
+  })();
+
+  // The declared aspect, in lowest terms -- the same form the generator and
+  // `apply_video_aspects.py` write. Three places set this value; two of them
+  // reducing and one not would leave a row's aspect looking different in the
+  // markup than after a step, for no reason a reader could see and every
+  // reason to mistrust later.
+  function aspect(w, h) {
+    var a = w, b = h, t;
+    while (b) { t = b; b = a % b; a = t; }
+    return (w / a) + "/" + (h / a);
+  }
+
+  // Where each row currently is. Read off the markup, so the generator decides
+  // the starting sample and this script only moves it.
+  function navOf(slot) {
+    return document.querySelector('[data-rollout-nav="' + slot + '"]');
+  }
+
+  function pick(slot, index) {
+    var samples = ROLLOUTS[slot] || [];
+    var s = null;
+    samples.forEach(function (c) { if (c.i === index) { s = c; } });
+    if (!s) { return; }
+
+    var cells = document.querySelectorAll('video[data-rollout-cell="' + slot + '"]');
+    if (!cells.length) { return; }
+
+    // `dataset.userPaused` is left exactly as it was. It is the only record of
+    // what the reader asked for, and stepping to another sample is not such a
+    // request: reading "is it playing right now" instead would mistake a row
+    // that is merely still buffering for one the reader had stopped.
+    var pad = s.i < 10 ? "0" + s.i : "" + s.i;
+    cells.forEach(function (v) {
+      var name = slot + "__s" + pad + "__" + v.getAttribute("data-rollout-tag");
+      pause(v);
+      v.style.aspectRatio = aspect(s.w, s.h);
+      v.setAttribute("aria-label", v.getAttribute("aria-label")
+        .replace(/sample \d+/, "sample " + s.i));
+      // Setting `src` runs the media load algorithm by itself, so `prime()`
+      // does the one real fetch once the group is wanted -- calling `load()`
+      // here as well would start a fetch that is immediately superseded.
+      delete v.dataset.primed;
+      v.preload = "none";
+      v.setAttribute("poster", "media/posters/" + name + ".jpg");
+      v.setAttribute("src", "media/" + name + ".mp4");
+    });
+    var group = byKey["rollout:" + slot];
+    if (group) { group.lastT = undefined; }
+
+    var nav = navOf(slot);
+    if (nav) { nav.setAttribute("data-current", String(s.i)); }
+    var counter = document.querySelector('[data-rollout-counter="' + slot + '"]');
+    if (counter) {
+      counter.textContent = s.i + " / " + samples.length;
+      // The caption the numbered chips used to carry on hover; the counter is
+      // now the only per-sample thing there is to hover.
+      var where = s.ep + (s.cam ? " / " + s.cam : "");
+      counter.title = [s.cap || "(no caption)", where,
+                       s.pinned ? "the sample the paper figure shows" : ""]
+        .filter(Boolean).join(" \u2014 ");
+    }
+    update();
+  }
+
+  // Step by position in the row's own list, wrapping at both ends so neither
+  // arrow is ever a dead control.
+  function stepSample(slot, delta) {
+    var samples = ROLLOUTS[slot] || [];
+    if (!samples.length) { return; }
+    var nav = navOf(slot);
+    var cur = nav ? Number(nav.getAttribute("data-current")) : samples[0].i;
+    var at = 0;
+    samples.forEach(function (c, k) { if (c.i === cur) { at = k; } });
+    pick(slot, samples[(at + delta + samples.length) % samples.length].i);
+  }
+
+  document.addEventListener("click", function (ev) {
+    var b = ev.target.closest ? ev.target.closest("[data-rollout-step]") : null;
+    if (!b) { return; }
+    ev.preventDefault();
+    stepSample(b.getAttribute("data-rollout-step"),
+               Number(b.getAttribute("data-delta")));
+  });
+
+  // Left/right also step once an arrow has focus, so the control is usable
+  // from the keyboard without tabbing between the two buttons.
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key !== "ArrowRight" && ev.key !== "ArrowLeft") { return; }
+    var b = document.activeElement;
+    if (!b || !b.getAttribute || !b.getAttribute("data-rollout-step")) { return; }
+    ev.preventDefault();
+    stepSample(b.getAttribute("data-rollout-step"), ev.key === "ArrowRight" ? 1 : -1);
+  });
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", scan);
+  } else {
+    scan();
+  }
+  // The page's own script re-renders parts of the document, so pick up any
+  // players that appear after the first pass.
+  if ("MutationObserver" in window) {
+    new MutationObserver(scan).observe(document.documentElement,
+      { childList: true, subtree: true });
+  }
+
+  // Backstop for browsers without requestVideoFrameCallback, and the thing that
+  // restarts `follow` after a pause or a stall drops its callback chain.
+  setInterval(function () {
+    groups.forEach(function (g) {
+      var lead = g.members[0];
+      if (!lead || lead.paused || lead.seeking) { return; }
+      align(g.members, lead);
+      follow(g);
+    });
+  }, 120);
+})();
+</script>
+<script type="text/x-dc" data-dc-script data-props="{&quot;defaultDataset&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Average&quot;,&quot;XVLA-Soft-Fold&quot;,&quot;Deform360&quot;,&quot;DROID&quot;,&quot;MolmoAct2&quot;,&quot;ABC-130k&quot;],&quot;default&quot;:&quot;Average&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Results table&quot;},&quot;showZeroShotBaselines&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Results table&quot;}}">
+const MODELS = ["ATI", "Wan-Move", "Cosmos 2.5", "Ours (Cosmos 2.5 2B)", "Ours (Wan2.2 5B)", "Ours (Wan2.2 A14B)", "Ours (Wan2.2 A14B 4-step)"];
+const TABS = ["Average", "XVLA-Soft-Fold", "Deform360", "DROID", "MolmoAct2", "ABC-130k"];
+const RESULTS = {
+  "Average": [
+    ["17.01", "0.700", "23.19", "4.62", "36.4", "444.2", "3.14"],
+    ["16.35", "0.688", "21.53", "4.67", "34.4", "408.3", "3.71"],
+    ["15.62", "0.668", "13.23", "34.28", "39.1", "405.8", "3.88"],
+    ["18.41", "0.725", "6.27", "13.80", "32.4", "277.4", "3.83"],
+    ["19.64", "0.770", "6.61", "3.88", "24.1", "248.8", "3.90"],
+    ["20.76", "0.805", "6.00", "3.83", "20.7", "193.7", "3.98"],
+    ["21.84*", "0.830*", "5.27*", "3.29*", "18.7*", "155.9*", "4.23*"]
+  ],
+  "XVLA-Soft-Fold": [
+    ["14.47", "0.653", "15.84", "4.61", "29.8", "533.6", "3.58"],
+    ["12.82", "0.614", "24.06", "4.88", "31.7", "681.1", "3.65"],
+    ["14.95", "0.677", "6.65", "35.78", "36.0", "479.9", "4.56"],
+    ["16.62", "0.719", "5.29", "17.36", "32.1", "378.5", "4.42"],
+    ["17.89", "0.738", "3.40*", "3.80", "21.3", "345.1", "4.53"],
+    ["18.25", "0.746", "3.42", "4.17", "19.8", "255.0", "4.58"],
+    ["19.23*", "0.781*", "3.47", "3.20*", "19.3*", "238.5*", "4.67*"]
+  ],
+  "Deform360": [
+    ["15.56", "0.643", "30.15", "6.85", "48.9", "569.1", "2.66"],
+    ["16.11", "0.676", "21.13", "7.05", "42.9", "389.1", "3.54"],
+    ["15.86", "0.630", "20.02", "47.85", "51.1", "474.5", "2.90"],
+    ["17.53", "0.671", "8.47", "21.53", "41.6", "295.0", "2.67"],
+    ["18.53", "0.751", "9.29", "6.02", "30.3", "228.3", "3.06"],
+    ["19.50", "0.786", "7.69", "5.68", "29.1", "213.0", "2.90"],
+    ["20.63*", "0.804*", "6.86*", "5.06*", "25.5*", "166.5*", "3.70*"]
+  ],
+  "DROID": [
+    ["17.27", "0.706", "—", "4.00", "40.4", "344.9", "3.08"],
+    ["16.03", "0.658", "—", "4.24", "41.2", "349.5", "3.65"],
+    ["16.21", "0.651", "—", "28.45", "39.9", "295.4", "4.04"],
+    ["19.50", "0.717", "—", "3.97", "30.0", "179.7", "4.09"],
+    ["19.22", "0.753", "—", "3.55", "28.8", "228.9", "3.85"],
+    ["21.14", "0.826", "—", "3.55", "21.7", "163.2", "4.14"],
+    ["22.10*", "0.851*", "—", "3.13*", "19.0*", "118.6*", "4.26*"]
+  ],
+  "MolmoAct2": [
+    ["17.18", "0.706", "29.75", "4.02", "28.4", "414.0", "3.16"],
+    ["17.67", "0.734", "13.85", "3.91", "21.6", "293.5", "3.68"],
+    ["14.03", "0.618", "12.24", "33.30", "29.8", "476.3", "3.71"],
+    ["17.24", "0.698", "5.36", "15.47", "25.5", "307.5", "3.73"],
+    ["20.16", "0.776", "7.06", "3.21", "18.7", "240.2", "3.81"],
+    ["21.50", "0.806", "6.43", "2.97", "14.3", "203.0", "3.94"],
+    ["22.63*", "0.837*", "5.22*", "2.63*", "12.3*", "147.5*", "4.14*"]
+  ],
+  "ABC-130k": [
+    ["20.55", "0.790", "17.01", "3.63", "34.6", "359.3", "3.19"],
+    ["19.10", "0.758", "27.08", "3.29", "34.7", "328.1", "4.04"],
+    ["17.07", "0.764", "14.00", "26.05", "38.9", "303.0", "4.16"],
+    ["21.14", "0.823", "5.98", "10.65", "32.6", "226.4", "4.23"],
+    ["22.40", "0.833", "6.70", "2.82", "21.6", "201.5", "4.26"],
+    ["23.43", "0.859", "6.45", "2.80", "18.9", "134.2", "4.36"],
+    ["24.62*", "0.880*", "5.53*", "2.45*", "17.5*", "108.6*", "4.37*"]
+  ]
+};
+
+class Component extends DCLogic {
+  state = { dataset: null };
+
+  renderVals() {
+    const active = this.state.dataset || this.props.defaultDataset || "Average";
+    const showBaselines = this.props.showZeroShotBaselines !== false;
+
+    const tabs = TABS.map(label => {
+      const on = label === active;
+      return {
+        label,
+        border: on ? "1px solid #76B900" : "1px solid #D8D8D8",
+        bg: on ? "#76B900" : "#FFFFFF",
+        fg: on ? "#0D0D0D" : "#202020",
+        select: () => this.setState({ dataset: label })
+      };
+    });
+
+    const rows = RESULTS[active].map((cells, i) => {
+      const zeroShot = i < 2;
+      return {
+        name: MODELS[i],
+        zeroShot,
+        bg: zeroShot ? "#F7F7F7" : "#FFFFFF",
+        fg: zeroShot ? "#5E5E5E" : "#202020",
+        weight: i === 6 ? "500" : "400",
+        cells: cells.map(v => {
+          const best = v.endsWith("*");
+          return {
+            text: best ? v.slice(0, -1) : v,
+            weight: best ? "600" : "400",
+            color: best ? "#4E7C00" : (zeroShot ? "#5E5E5E" : "#202020")
+          };
+        })
+      };
+    }).filter(r => showBaselines || !r.zeroShot);
+
+    return { tabs, rows };
+  }
+}
+</script>
+<script>
+// Arrow control for the horizontal rails.
+//
+// A rail that only responds to a trackpad swipe reads as a static, clipped row
+// on a mouse: there is no visible affordance and nothing to click. The buttons
+// advance by exactly one card plus the flex gap, so a press always lands on a
+// card boundary rather than mid-pane, and they disable themselves at each end
+// so the control tells the reader where in the rail they are.
+(function () {
+  function track(rail) { return rail.firstElementChild; }
+
+  // One card plus the gap between cards, read off the live layout rather than
+  // hard-coded, so the step follows the card width the CSS actually resolved.
+  function step(rail) {
+    var t = track(rail), card = t && t.firstElementChild;
+    if (!card) { return Math.round(rail.clientWidth * 0.9); }
+    var gap = parseFloat(getComputedStyle(t).columnGap) || 0;
+    return Math.round(card.getBoundingClientRect().width + gap);
+  }
+
+  function paint(btn, off) {
+    btn.disabled = off;
+    btn.style.opacity = off ? "0.3" : "1";
+    btn.style.cursor = off ? "default" : "pointer";
+  }
+
+  function wire(rail) {
+    if (rail.dataset.hscrollWired) { return; }
+    var name = rail.getAttribute("data-hscroll");
+    var prev = document.querySelector('[data-hscroll-prev="' + name + '"]');
+    var next = document.querySelector('[data-hscroll-next="' + name + '"]');
+    if (!prev || !next) { return; }          // markup not rendered yet
+    rail.dataset.hscrollWired = "1";
+
+    function update() {
+      // A rail that does not overflow has no work for the arrows to do.
+      var slack = rail.scrollWidth - rail.clientWidth;
+      var idle = slack <= 1;
+      paint(prev, idle || rail.scrollLeft <= 1);
+      paint(next, idle || rail.scrollLeft >= slack - 1);
+    }
+
+    prev.addEventListener("click", function () { rail.scrollBy({ left: -step(rail) }); });
+    next.addEventListener("click", function () { rail.scrollBy({ left: step(rail) }); });
+    rail.addEventListener("scroll", update, { passive: true });
+    addEventListener("resize", update);
+    update();
+  }
+
+  function scan() { document.querySelectorAll("[data-hscroll]").forEach(wire); }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", scan);
+  } else {
+    scan();
+  }
+  // The x-dc renderer replaces nodes after the first pass, so pick up rails and
+  // buttons that appear later.
+  if ("MutationObserver" in window) {
+    new MutationObserver(scan).observe(document.documentElement,
+      { childList: true, subtree: true });
+  }
+})();
+</script>
+
+</body>
+</html>
