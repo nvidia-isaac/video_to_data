@@ -1,0 +1,329 @@
+{
+  "slot": "media/overview.mp4",
+  "size": "1920x1080",
+  "frames": 900,
+  "fps": 30,
+  "construction": "flat uniform lattice, one tile size on screen at a time, continuous 9x exponential pull-back over the clip, 18-frame fade to/from black at each end (does not loop)",
+  "seed": 20260817,
+  "iteration": "iter00044033",
+  "mode": "gripper",
+  "pool_root": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts",
+  "stats": {
+    "egodex": {
+      "candidates": 16,
+      "rejected": 4,
+      "threshold": 2.2019271850585938,
+      "median_score": 3.468526005744934
+    },
+    "interactive_world_sim": {
+      "candidates": 22,
+      "rejected": 6,
+      "threshold": 1.5597558915615082,
+      "median_score": 2.13645076751709
+    },
+    "droid_raw": {
+      "candidates": 8,
+      "rejected": 2,
+      "threshold": 1.3193467259407043,
+      "median_score": 2.1637911796569824
+    },
+    "deform360": {
+      "candidates": 20,
+      "rejected": 5,
+      "threshold": 2.3323029577732086,
+      "median_score": 3.311887264251709
+    },
+    "molmoact2": {
+      "candidates": 15,
+      "rejected": 4,
+      "threshold": 2.1731887459754944,
+      "median_score": 3.5188748836517334
+    },
+    "abc130k": {
+      "candidates": 16,
+      "rejected": 4,
+      "threshold": 1.619056522846222,
+      "median_score": 2.3074172735214233
+    },
+    "xvla_soft_fold": {
+      "candidates": 15,
+      "rejected": 4,
+      "threshold": 3.303814649581909,
+      "median_score": 4.3372297286987305
+    }
+  },
+  "levels": [
+    [
+      {
+        "cohort": "abc130k",
+        "cell": 0,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/abc130k/gripper/sample_00018/iter00044033_remove_the_t_shirt_from_the_hanger_episode_f53c792c-1f26-4a5f-8ff6-f9e5c8ec217f_top_567.mp4",
+        "tile": "tiles/L0_C0_abc130k.mp4"
+      },
+      {
+        "cohort": "interactive_world_sim",
+        "cell": 1,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/interactive_world_sim/gripper/sample_00004/iter00044033_bimanual_box_val_episode_0_camera_0_0.mp4",
+        "tile": "tiles/L0_C1_interactive_world_sim.mp4"
+      },
+      {
+        "cohort": "droid_raw",
+        "cell": 2,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/droid_raw/gripper/sample_00028/iter00044033_1.0.1_CLVR_success_2023-06-03_Sat_Jun__3_22:16:07_2023_ext2_0.mp4",
+        "tile": "tiles/L0_C2_droid_raw.mp4"
+      },
+      {
+        "cohort": "deform360",
+        "cell": 3,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/deform360/gripper/sample_00001/iter00044033_069-jump-rope_episode_0_brics-odroid-008_cam1_0.mp4",
+        "tile": "tiles/L0_C3_deform360.mp4"
+      },
+      {
+        "cohort": "egodex",
+        "cell": 4,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/egodex/gripper/sample_00029/iter00044033_part5_wipe_screen_985_ego_0.mp4",
+        "tile": "tiles/L0_C4_egodex.mp4"
+      },
+      {
+        "cohort": "molmoact2",
+        "cell": 5,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/molmoact2/gripper/sample_00032/iter00044033_ep_029375_top_648.mp4",
+        "tile": "tiles/L0_C5_molmoact2.mp4"
+      },
+      {
+        "cohort": "xvla_soft_fold",
+        "cell": 6,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/xvla_soft_fold/gripper/sample_00033/iter00044033_0710_11am_stage_1_stage2new_new_cam_very_slow_episode_15_cam_high_0.mp4",
+        "tile": "tiles/L0_C6_xvla_soft_fold.mp4"
+      }
+    ],
+    [
+      {
+        "cohort": "egodex",
+        "cell": 0,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/egodex/gripper/sample_00061/iter00044033_part2_basic_fold_1138_ego_0.mp4",
+        "tile": "tiles/L1_C0_egodex.mp4"
+      },
+      {
+        "cohort": "droid_raw",
+        "cell": 1,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/droid_raw/gripper/sample_00036/iter00044033_1.0.1_TRI_success_2024-01-30_Tue_Jan_30_10:18:13_2024_ext2_162.mp4",
+        "tile": "tiles/L1_C1_droid_raw.mp4"
+      },
+      {
+        "cohort": "interactive_world_sim",
+        "cell": 2,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/interactive_world_sim/gripper/sample_00009/iter00044033_single_grasp_val_episode_0_camera_1_162.mp4",
+        "tile": "tiles/L1_C2_interactive_world_sim.mp4"
+      },
+      {
+        "cohort": "abc130k",
+        "cell": 3,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/abc130k/gripper/sample_00026/iter00044033_place_the_flowers_into_the_vase_episode_1570fa86-4b06-45e7-9789-69a1d4d1b530_top_2592.mp4",
+        "tile": "tiles/L1_C3_abc130k.mp4"
+      },
+      {
+        "cohort": "xvla_soft_fold",
+        "cell": 4,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/xvla_soft_fold/gripper/sample_00049/iter00044033_0711_10am_stage_1_stage2new_new_cam_very_slow_episode_100_cam_high_729.mp4",
+        "tile": "tiles/L1_C4_xvla_soft_fold.mp4"
+      },
+      {
+        "cohort": "deform360",
+        "cell": 5,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/deform360/gripper/sample_00003/iter00044033_001-rope_episode_0_brics-odroid-015_cam0_0.mp4",
+        "tile": "tiles/L1_C5_deform360.mp4"
+      },
+      {
+        "cohort": "molmoact2",
+        "cell": 6,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/molmoact2/gripper/sample_00048/iter00044033_ep_032081_top_81.mp4",
+        "tile": "tiles/L1_C6_molmoact2.mp4"
+      }
+    ],
+    [
+      {
+        "cohort": "xvla_soft_fold",
+        "cell": 0,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/xvla_soft_fold/gripper/sample_00080/iter00044033_0930_10am_new_episode_8_cam_high_324.mp4",
+        "tile": "tiles/L2_C0_xvla_soft_fold.mp4"
+      },
+      {
+        "cohort": "molmoact2",
+        "cell": 1,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/molmoact2/gripper/sample_00064/iter00044033_ep_028926_top_891.mp4",
+        "tile": "tiles/L2_C1_molmoact2.mp4"
+      },
+      {
+        "cohort": "droid_raw",
+        "cell": 2,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/droid_raw/gripper/sample_00044/iter00044033_1.0.1_ILIAD_success_2023-07-20_Thu_Jul_20_12:32:22_2023_ext2_162.mp4",
+        "tile": "tiles/L2_C2_droid_raw.mp4"
+      },
+      {
+        "cohort": "interactive_world_sim",
+        "cell": 3,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/interactive_world_sim/gripper/sample_00015/iter00044033_bimanual_rope_val_episode_6_camera_1_0.mp4",
+        "tile": "tiles/L2_C3_interactive_world_sim.mp4"
+      },
+      {
+        "cohort": "abc130k",
+        "cell": 4,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/abc130k/gripper/sample_00042/iter00044033_pack_the_luggage_episode_47457767-4b4a-4120-a12d-f2b4c7ce651b_top_810.mp4",
+        "tile": "tiles/L2_C4_abc130k.mp4"
+      },
+      {
+        "cohort": "egodex",
+        "cell": 5,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/egodex/gripper/sample_00084/iter00044033_part2_basic_fold_798_ego_162.mp4",
+        "tile": "tiles/L2_C5_egodex.mp4"
+      },
+      {
+        "cohort": "deform360",
+        "cell": 6,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/deform360/gripper/sample_00011/iter00044033_031-cotton-cloth_episode_8_brics-odroid-017_cam1_0.mp4",
+        "tile": "tiles/L2_C6_deform360.mp4"
+      }
+    ],
+    [
+      {
+        "cohort": "interactive_world_sim",
+        "cell": 0,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/interactive_world_sim/gripper/sample_00023/iter00044033_single_grasp_val_episode_2_camera_0_162.mp4",
+        "tile": "tiles/L3_C0_interactive_world_sim.mp4"
+      },
+      {
+        "cohort": "deform360",
+        "cell": 1,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/deform360/gripper/sample_00027/iter00044033_032-teabag-cloth_episode_7_brics-odroid-017_cam1_0.mp4",
+        "tile": "tiles/L3_C1_deform360.mp4"
+      },
+      {
+        "cohort": "xvla_soft_fold",
+        "cell": 2,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/xvla_soft_fold/gripper/sample_00087/iter00044033_0706_17pm_stage_1_stage2new_new_cam_very_slow_episode_11_cam_high_729.mp4",
+        "tile": "tiles/L3_C2_xvla_soft_fold.mp4"
+      },
+      {
+        "cohort": "droid_raw",
+        "cell": 3,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/droid_raw/gripper/sample_00068/iter00044033_1.0.1_WEIRD_success_2023-11-21_Tue_Nov_21_21:53:16_2023_ext2_1701.mp4",
+        "tile": "tiles/L3_C3_droid_raw.mp4"
+      },
+      {
+        "cohort": "molmoact2",
+        "cell": 4,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/molmoact2/gripper/sample_00079/iter00044033_ep_029289_top_891.mp4",
+        "tile": "tiles/L3_C4_molmoact2.mp4"
+      },
+      {
+        "cohort": "egodex",
+        "cell": 5,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/egodex/gripper/sample_00112/iter00044033_part1_dry_hands_2153_ego_0.mp4",
+        "tile": "tiles/L3_C5_egodex.mp4"
+      },
+      {
+        "cohort": "abc130k",
+        "cell": 6,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/abc130k/gripper/sample_00081/iter00044033_roll_the_towels_episode_d95ca2b9-874f-490d-9c77-da8895f74229_top_1215.mp4",
+        "tile": "tiles/L3_C6_abc130k.mp4"
+      }
+    ],
+    [
+      {
+        "cohort": "molmoact2",
+        "cell": 0,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/molmoact2/gripper/sample_00107/iter00044033_ep_011715_top_1377.mp4",
+        "tile": "tiles/L4_C0_molmoact2.mp4"
+      },
+      {
+        "cohort": "interactive_world_sim",
+        "cell": 1,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/interactive_world_sim/gripper/sample_00078/iter00044033_single_chain_in_box_val_episode_8_camera_0_162.mp4",
+        "tile": "tiles/L4_C1_interactive_world_sim.mp4"
+      },
+      {
+        "cohort": "egodex",
+        "cell": 2,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/egodex/gripper/sample_00119/iter00044033_part1_dry_hands_3831_ego_0.mp4",
+        "tile": "tiles/L4_C2_egodex.mp4"
+      },
+      {
+        "cohort": "xvla_soft_fold",
+        "cell": 3,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/xvla_soft_fold/gripper/sample_00094/iter00044033_0714_12am_stage_1_stage2new_new_cam_very_slow_no_sleeve_episode_63_cam_high_0.mp4",
+        "tile": "tiles/L4_C3_xvla_soft_fold.mp4"
+      },
+      {
+        "cohort": "abc130k",
+        "cell": 4,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/abc130k/gripper/sample_00088/iter00044033_fold_and_stack_the_shorts_episode_8c3a72ae-8573-48b1-8857-e0b405af01b3_top_324.mp4",
+        "tile": "tiles/L4_C4_abc130k.mp4"
+      },
+      {
+        "cohort": "droid_raw",
+        "cell": 5,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/droid_raw/gripper/sample_00111/iter00044033_1.0.1_AUTOLab_success_2023-12-16_Sat_Dec_16_17:33:35_2023_ext2_81.mp4",
+        "tile": "tiles/L4_C5_droid_raw.mp4"
+      },
+      {
+        "cohort": "deform360",
+        "cell": 6,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/deform360/gripper/sample_00082/iter00044033_090-sloth_episode_6_brics-odroid-022_cam0_81.mp4",
+        "tile": "tiles/L4_C6_deform360.mp4"
+      }
+    ],
+    [
+      {
+        "cohort": "egodex",
+        "cell": 0,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/egodex/gripper/sample_00126/iter00044033_part2_fold_stack_unstack_unfold_cloths_34_ego_0.mp4",
+        "tile": "tiles/L5_C0_egodex.mp4"
+      },
+      {
+        "cohort": "droid_raw",
+        "cell": 1,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/droid_raw/gripper/sample_00118/iter00044033_1.0.1_PennPAL_success_2023-10-29_Sun_Oct_29_20:15:50_2023_ext1_81.mp4",
+        "tile": "tiles/L5_C1_droid_raw.mp4"
+      },
+      {
+        "cohort": "abc130k",
+        "cell": 2,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/abc130k/gripper/sample_00116/iter00044033_remove_the_shirt_from_the_hanger_episode_a410204d-4586-4a25-8e92-9519c2b5ce87_top_567.mp4",
+        "tile": "tiles/L5_C2_abc130k.mp4"
+      },
+      {
+        "cohort": "interactive_world_sim",
+        "cell": 3,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/interactive_world_sim/gripper/sample_00099/iter00044033_bimanual_rope_val_episode_8_camera_0_81.mp4",
+        "tile": "tiles/L5_C3_interactive_world_sim.mp4"
+      },
+      {
+        "cohort": "deform360",
+        "cell": 4,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/deform360/gripper/sample_00110/iter00044033_106-baking-mat_episode_6_brics-odroid-015_cam0_162.mp4",
+        "tile": "tiles/L5_C4_deform360.mp4"
+      },
+      {
+        "cohort": "molmoact2",
+        "cell": 5,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/molmoact2/gripper/sample_00114/iter00044033_ep_011356_top_405.mp4",
+        "tile": "tiles/L5_C5_molmoact2.mp4"
+      },
+      {
+        "cohort": "xvla_soft_fold",
+        "cell": 6,
+        "source": "/mnt/amlfs-07/shared/deformable/outputs/wan22_motion_cond_high_noise_lora/visualizer/rollouts/xvla_soft_fold/gripper/sample_00115/iter00044033_0804_12am_stage_1_stage2new_new_cam_very_slow_no_sleeve_episode_138_cam_high_0.mp4",
+        "tile": "tiles/L5_C6_xvla_soft_fold.mp4"
+      }
+    ]
+  ],
+  "banner": {
+    "slot": "media/banner.mp4",
+    "size": "1920x480",
+    "frames": 150,
+    "fps": 30,
+    "grid": "4x10 of 212x120",
+    "tiles_used": 42
+  }
+}

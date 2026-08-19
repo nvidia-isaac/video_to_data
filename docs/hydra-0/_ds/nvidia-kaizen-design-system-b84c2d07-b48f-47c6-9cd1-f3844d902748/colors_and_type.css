@@ -1,0 +1,246 @@
+/* ============================================================
+   Kaizen Design System — Color, Type, Spacing, Elevation tokens
+   ------------------------------------------------------------
+   NVIDIA Kaizen UI (KUI) v11 (Beta).
+   Tokens reconstructed from the KUI v11 Figma library.
+
+   Font note: NVIDIA Sans is proprietary. We map "NVIDIA Sans"
+   to DM Sans as the closest open-source substitute. Drop the
+   real NVIDIA Sans .woff2 files into fonts/ to override.
+   ============================================================ */
+
+/* ---------- Webfont (Inter + DM Sans substitute) ---------- */
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=Inter:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap");
+
+/* If the user adds real NVIDIA Sans files to /fonts/, uncomment:
+@font-face {
+  font-family: "NVIDIA Sans";
+  src: url("./fonts/NVIDIASans-Regular.woff2") format("woff2");
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "NVIDIA Sans";
+  src: url("./fonts/NVIDIASans-Medium.woff2") format("woff2");
+  font-weight: 500; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "NVIDIA Sans";
+  src: url("./fonts/NVIDIASans-Bold.woff2") format("woff2");
+  font-weight: 700; font-style: normal; font-display: swap;
+}
+*/
+
+:root {
+  /* ─────────────────────────────────────────
+     BRAND
+     ───────────────────────────────────────── */
+  --kui-brand-green:        #76B900;   /* NVIDIA Green — primary */
+  --kui-brand-green-darker: #5E9600;
+  --kui-brand-black:        #000000;
+  --kui-brand-eye-green:    #76B900;
+
+  /* ─────────────────────────────────────────
+     NEUTRAL SCALE (Nxxx)
+     Light theme uses N000/N050; dark theme uses N700–N950.
+     ───────────────────────────────────────── */
+  --kui-n000: #FFFFFF;
+  --kui-n050: #F2F2F2;
+  --kui-n100: #E3E3E3;
+  --kui-n150: #D8D8D8;
+  --kui-n200: #C6C6C6;
+  --kui-n300: #8F8F8F;
+  --kui-n400: #767676;
+  --kui-n500: #6B6B6B;
+  --kui-n600: #5E5E5E;
+  --kui-n700: #343434;
+  --kui-n800: #202020;
+  --kui-n900: #0D0D0D;
+  --kui-n950: #050505;
+
+  /* ─────────────────────────────────────────
+     SEMANTIC FOREGROUND (light)
+     ───────────────────────────────────────── */
+  --kui-fg-strong:   var(--kui-n800);    /* #202020 — headings, body */
+  --kui-fg-default:  var(--kui-n700);    /* #343434 — body */
+  --kui-fg-muted:    var(--kui-n600);    /* #5E5E5E — captions, icons */
+  --kui-fg-subtle:   var(--kui-n500);    /* #6B6B6B */
+  --kui-fg-disabled: var(--kui-n300);    /* #8F8F8F */
+  --kui-fg-inverse:  var(--kui-n000);
+
+  /* ─────────────────────────────────────────
+     SEMANTIC BACKGROUND (light)
+     ───────────────────────────────────────── */
+  --kui-bg-canvas:   var(--kui-n050);    /* page background */
+  --kui-bg-low:      var(--kui-n050);
+  --kui-bg-mid:      var(--kui-n000);    /* surfaces */
+  --kui-bg-high:     var(--kui-n000);    /* popovers, cards */
+  --kui-bg-higher:   var(--kui-n000);    /* modals */
+
+  /* Dark counterparts (apply by setting [data-theme="dark"]) */
+  --kui-bg-canvas-dark: var(--kui-n900); /* #0D0D0D */
+  --kui-bg-low-dark:    #131313;
+  --kui-bg-mid-dark:    var(--kui-n900); /* #0D0D0D */
+  --kui-bg-high-dark:   var(--kui-n800); /* #202020 */
+  --kui-bg-higher-dark: var(--kui-n700); /* #343434 */
+
+  /* ─────────────────────────────────────────
+     BORDERS / DIVIDERS
+     ───────────────────────────────────────── */
+  --kui-border-subtle:   var(--kui-n100); /* #E3E3E3 */
+  --kui-border-default:  var(--kui-n150); /* #D8D8D8 */
+  --kui-border-strong:   var(--kui-n400); /* #767676 */
+  --kui-border-hover:    var(--kui-n400); /* hovered input */
+  --kui-border-focus:    var(--kui-brand-green);
+
+  /* ─────────────────────────────────────────
+     STATUS / SEMANTIC
+     ───────────────────────────────────────── */
+  --kui-success:        #007D00;
+  --kui-success-bg:     #E8F4D6;
+  --kui-info:           #0D69D4;
+  --kui-info-bg:        #E9F4FB;
+  --kui-info-text:      #2378CA;
+  --kui-warning:        #C54600;
+  --kui-warning-bg:     #FDEFE6;
+  --kui-danger:         #DC3528;
+  --kui-danger-strong:  #F5222D;
+  --kui-danger-bg:      #FCE9E8;
+
+  /* Accent extras seen in KUI library */
+  --kui-accent-teal:    #1FA18D;
+  --kui-accent-teal-dk: #006B5E;
+  --kui-accent-magenta: #851F41;
+  --kui-accent-purple:  #A05AB4;
+  --kui-accent-violet:  #9747FF;   /* used for Figma scaffolding outlines */
+  --kui-accent-pink-bg: #FBEEFE;
+  --kui-accent-blue-bg: #E9F4FB;
+  --kui-accent-sky:     #9ACCF2;
+
+  /* ─────────────────────────────────────────
+     ELEVATION / SHADOW
+     KUI is mostly flat; elevation comes from value, not blur.
+     Two light shadows are used sparingly on popovers/toasts.
+     ───────────────────────────────────────── */
+  --kui-shadow-1: 0 1px 2px 0 rgba(0,0,0,0.08);
+  --kui-shadow-2: 0 2px 3px 0 rgba(0,0,0,0.14);                         /* carousel arrows */
+  --kui-shadow-3: 0 4px 12px 0 rgba(0,0,0,0.12);                        /* popovers, toasts */
+  --kui-shadow-4: 0 8px 24px 0 rgba(0,0,0,0.15);                        /* modals */
+  --kui-overlay:  rgba(0,0,0,0.5);                                      /* modal scrim / blanket */
+
+  /* ─────────────────────────────────────────
+     RADII
+     KUI is sharp — inputs r=2, buttons/cards r=4, pills r=999.
+     ───────────────────────────────────────── */
+  --kui-radius-0:    0px;
+  --kui-radius-xs:   2px;   /* inputs, tags */
+  --kui-radius-sm:   4px;   /* buttons, cards */
+  --kui-radius-md:   5px;
+  --kui-radius-lg:   8px;
+  --kui-radius-pill: 999px;
+
+  /* ─────────────────────────────────────────
+     SPACING SCALE (Kaizen names)
+     ───────────────────────────────────────── */
+  --kui-space-xxs:  2px;
+  --kui-space-xs:   4px;
+  --kui-space-ss:   6px;
+  --kui-space-sm:   8px;
+  --kui-space-ms:  12px;
+  --kui-space-md:  16px;
+  --kui-space-ml:  24px;
+  --kui-space-lg:  32px;
+  --kui-space-xl:  48px;
+  --kui-space-xxl: 64px;
+
+  /* ─────────────────────────────────────────
+     TYPOGRAPHY — primitives
+     ───────────────────────────────────────── */
+  --kui-font-sans:    "NVIDIA Sans", "DM Sans", system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+  --kui-font-display: "Inter", "NVIDIA Sans", "DM Sans", system-ui, sans-serif; /* docs/anatomy headings */
+  --kui-font-mono:    "Roboto Mono", ui-monospace, "SF Mono", Consolas, monospace;
+
+  --kui-fw-regular: 400;
+  --kui-fw-medium:  500;
+  --kui-fw-bold:    700;
+
+  /* Sizes used across KUI (px) */
+  --kui-fs-10: 10px;
+  --kui-fs-12: 12px;
+  --kui-fs-14: 14px;
+  --kui-fs-16: 16px;
+  --kui-fs-20: 20px;
+  --kui-fs-24: 24px;
+  --kui-fs-32: 32px;
+  --kui-fs-36: 36px;
+  --kui-fs-48: 48px;
+
+  /* Line heights */
+  --kui-lh-tight:  1;       /* Text / button labels */
+  --kui-lh-snug:   1.25;    /* Headings */
+  --kui-lh-normal: 1.5;     /* Body */
+
+  /* Tracking */
+  --kui-tracking-heading: -0.25px;
+
+  /* ─────────────────────────────────────────
+     SEMANTIC TYPE ROLES (Kaizen exposes 3 kinds)
+       Heading — NVIDIA Sans Medium, 16/1.25, -0.25 tracking
+       Body    — NVIDIA Sans Regular, 14/1.5
+       Text    — NVIDIA Sans Regular, 14/1 (one-line UI labels)
+     Display / docs scale uses Inter Bold.
+     ───────────────────────────────────────── */
+  --kui-display-1: 700 48px/1 var(--kui-font-display);
+  --kui-display-2: 700 36px/1 var(--kui-font-display);
+  --kui-display-3: 700 24px/1 var(--kui-font-display);
+
+  --kui-h1: 500 32px/1.25 var(--kui-font-sans);
+  --kui-h2: 500 24px/1.25 var(--kui-font-sans);
+  --kui-h3: 500 20px/1.25 var(--kui-font-sans);
+  --kui-h4: 500 16px/1.25 var(--kui-font-sans);     /* Kaizen "Heading" */
+
+  --kui-body:       400 14px/1.5  var(--kui-font-sans); /* Kaizen "Body" */
+  --kui-body-md:    400 16px/1.5  var(--kui-font-sans);
+  --kui-text:       400 14px/1    var(--kui-font-sans); /* Kaizen "Text" — UI labels */
+  --kui-text-sm:    400 12px/1    var(--kui-font-sans);
+  --kui-caption:    400 12px/1.25 var(--kui-font-sans);
+  --kui-overline:   500 10px/1    var(--kui-font-sans);
+  --kui-button:     500 14px/1    var(--kui-font-sans); /* button label */
+  --kui-code:       400 13px/1.5  var(--kui-font-mono);
+}
+
+/* ─────────────────────────────────────────
+   Optional element defaults (opt-in)
+   Apply to a root container with class .kui:
+     <div class="kui"> … </div>
+   ───────────────────────────────────────── */
+.kui {
+  font: var(--kui-body);
+  color: var(--kui-fg-strong);
+  background: var(--kui-bg-mid);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+.kui h1 { font: var(--kui-h1); letter-spacing: var(--kui-tracking-heading); margin: 0; }
+.kui h2 { font: var(--kui-h2); letter-spacing: var(--kui-tracking-heading); margin: 0; }
+.kui h3 { font: var(--kui-h3); letter-spacing: var(--kui-tracking-heading); margin: 0; }
+.kui h4 { font: var(--kui-h4); letter-spacing: var(--kui-tracking-heading); margin: 0; }
+.kui p  { font: var(--kui-body); margin: 0; }
+.kui code, .kui pre { font: var(--kui-code); }
+.kui .kui-display { font: var(--kui-display-1); letter-spacing: -0.5px; }
+
+/* Dark theme — apply by setting data-theme="dark" on a container */
+.kui[data-theme="dark"], .kui-dark {
+  --kui-fg-strong:  #F2F2F2;
+  --kui-fg-default: #E3E3E3;
+  --kui-fg-muted:   #C6C6C6;
+  --kui-fg-subtle:  #8F8F8F;
+  --kui-bg-canvas:  var(--kui-bg-canvas-dark);
+  --kui-bg-mid:     var(--kui-bg-mid-dark);
+  --kui-bg-high:    var(--kui-bg-high-dark);
+  --kui-bg-higher:  var(--kui-bg-higher-dark);
+  --kui-border-subtle:  #2A2A2A;
+  --kui-border-default: #343434;
+  --kui-border-strong:  #5E5E5E;
+  color: var(--kui-fg-strong);
+  background: var(--kui-bg-mid);
+}

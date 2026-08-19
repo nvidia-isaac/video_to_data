@@ -1,0 +1,2091 @@
+[
+ {
+  "slot": "media/teaser_source_egodex.mp4",
+  "section": "Figure 1 band 1 - heterogeneous sources",
+  "provenance": "processed_v2 intermediate window, EgoDex",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 352782,
+  "poster": "website/media/posters/teaser_source_egodex.jpg",
+  "poster_bytes": 28668,
+  "poster_frame": 48,
+  "transform": "centre-crop to 4:3, resize to 640x480"
+ },
+ {
+  "slot": "media/teaser_flow_egodex.mp4",
+  "section": "Figure 1 band 2 - shared action flow",
+  "provenance": "AllTracker tracks x grounded masks over the same window, EgoDex",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 453385,
+  "poster": "website/media/posters/teaser_flow_egodex.jpg",
+  "poster_bytes": 39312,
+  "poster_frame": 48,
+  "transform": "progressive per-track trail, then the same 4:3 crop",
+  "flow": {
+   "n_tracks_kept": 504,
+   "n_tracks_total": 16182,
+   "n_embodiment": 504,
+   "n_object": 0,
+   "drawn_embodiment": 15,
+   "drawn_object": 0,
+   "cell_grip": 40.0,
+   "cell_object": 36.0
+  }
+ },
+ {
+  "slot": "media/teaser_source_deform360.mp4",
+  "section": "Figure 1 band 1 - heterogeneous sources",
+  "provenance": "processed_v2 intermediate window, Deform360",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 508762,
+  "poster": "website/media/posters/teaser_source_deform360.jpg",
+  "poster_bytes": 50061,
+  "poster_frame": 48,
+  "transform": "centre-crop to 4:3, resize to 640x480"
+ },
+ {
+  "slot": "media/teaser_flow_deform360.mp4",
+  "section": "Figure 1 band 2 - shared action flow",
+  "provenance": "AllTracker tracks x grounded masks over the same window, Deform360",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 920408,
+  "poster": "website/media/posters/teaser_flow_deform360.jpg",
+  "poster_bytes": 65720,
+  "poster_frame": 48,
+  "transform": "progressive per-track trail, then the same 4:3 crop",
+  "flow": {
+   "n_tracks_kept": 1706,
+   "n_tracks_total": 16150,
+   "n_embodiment": 555,
+   "n_object": 1151,
+   "drawn_embodiment": 22,
+   "drawn_object": 47,
+   "cell_grip": 40.0,
+   "cell_object": 36.0
+  }
+ },
+ {
+  "slot": "media/teaser_source_droid.mp4",
+  "section": "Figure 1 band 1 - heterogeneous sources",
+  "provenance": "processed_v2 intermediate window, DROID",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 510966,
+  "poster": "website/media/posters/teaser_source_droid.jpg",
+  "poster_bytes": 69070,
+  "poster_frame": 48,
+  "transform": "centre-crop to 4:3, resize to 640x480"
+ },
+ {
+  "slot": "media/teaser_flow_droid.mp4",
+  "section": "Figure 1 band 2 - shared action flow",
+  "provenance": "AllTracker tracks x grounded masks over the same window, DROID",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 602197,
+  "poster": "website/media/posters/teaser_flow_droid.jpg",
+  "poster_bytes": 74069,
+  "poster_frame": 48,
+  "transform": "progressive per-track trail, then the same 4:3 crop",
+  "flow": {
+   "n_tracks_kept": 1683,
+   "n_tracks_total": 16374,
+   "n_embodiment": 1683,
+   "n_object": 0,
+   "drawn_embodiment": 47,
+   "drawn_object": 0,
+   "cell_grip": 40.0,
+   "cell_object": 36.0
+  }
+ },
+ {
+  "slot": "media/teaser_source_xvla_yam.mp4",
+  "section": "Figure 1 band 1 - heterogeneous sources",
+  "provenance": "processed_v2 intermediate window, XVLA-Soft-Fold",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 651638,
+  "poster": "website/media/posters/teaser_source_xvla_yam.jpg",
+  "poster_bytes": 49036,
+  "poster_frame": 48,
+  "transform": "centre-crop to 4:3, resize to 640x480"
+ },
+ {
+  "slot": "media/teaser_flow_xvla_yam.mp4",
+  "section": "Figure 1 band 2 - shared action flow",
+  "provenance": "AllTracker tracks x grounded masks over the same window, XVLA-Soft-Fold",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 799236,
+  "poster": "website/media/posters/teaser_flow_xvla_yam.jpg",
+  "poster_bytes": 57186,
+  "poster_frame": 48,
+  "transform": "progressive per-track trail, then the same 4:3 crop",
+  "flow": {
+   "n_tracks_kept": 3842,
+   "n_tracks_total": 16384,
+   "n_embodiment": 1731,
+   "n_object": 2111,
+   "drawn_embodiment": 44,
+   "drawn_object": 41,
+   "cell_grip": 40.0,
+   "cell_object": 36.0
+  }
+ },
+ {
+  "slot": "media/teaser_simulate_deform360.mp4",
+  "section": "Figure 1 band 3a - SIMULATE",
+  "provenance": "eval bundle predicted.mp4, deform360 held-out sample",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 542489,
+  "poster": "website/media/posters/teaser_simulate_deform360.jpg",
+  "poster_bytes": 54554,
+  "poster_frame": 48,
+  "transform": "centre-crop to 4:3, resize to 640x480"
+ },
+ {
+  "slot": "media/teaser_simulate_droid.mp4",
+  "section": "Figure 1 band 3a - SIMULATE",
+  "provenance": "eval bundle predicted.mp4, droid_raw held-out sample",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 350270,
+  "poster": "website/media/posters/teaser_simulate_droid.jpg",
+  "poster_bytes": 46897,
+  "poster_frame": 48,
+  "transform": "centre-crop to 4:3, resize to 640x480"
+ },
+ {
+  "slot": "media/policy_robolab_success_reference.mp4",
+  "section": "Policy evaluation - side-by-side replay",
+  "provenance": "RoboLab rating clip, success row, RoboLab reference pane",
+  "size": [
+   856,
+   442
+  ],
+  "frames": 109,
+  "fps": 16.0,
+  "bytes": 388501,
+  "poster": "website/media/posters/policy_robolab_success_reference.jpg",
+  "poster_bytes": 63303,
+  "poster_frame": 64,
+  "transform": "split at the midpoint, crop 20 rows off the top and 50 off the bottom to drop the burned-in caption and badge"
+ },
+ {
+  "slot": "media/teaser_eval_success_robolab.mp4",
+  "section": "Figure 1 band 3b - EVALUATE",
+  "provenance": "RoboLab rating clip, success row, RoboLab reference pane",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 109,
+  "fps": 16.0,
+  "bytes": 321559,
+  "poster": "website/media/posters/teaser_eval_success_robolab.jpg",
+  "poster_bytes": 53572,
+  "poster_frame": 64,
+  "transform": "same pane split, then centre-crop to 4:3"
+ },
+ {
+  "slot": "media/policy_robolab_success_simulated.mp4",
+  "section": "Policy evaluation - side-by-side replay",
+  "provenance": "RoboLab rating clip, success row, our neural simulator pane",
+  "size": [
+   856,
+   442
+  ],
+  "frames": 109,
+  "fps": 16.0,
+  "bytes": 692122,
+  "poster": "website/media/posters/policy_robolab_success_simulated.jpg",
+  "poster_bytes": 65362,
+  "poster_frame": 64,
+  "transform": "split at the midpoint, crop 20 rows off the top and 50 off the bottom to drop the burned-in caption and badge"
+ },
+ {
+  "slot": "media/teaser_eval_success_sim.mp4",
+  "section": "Figure 1 band 3b - EVALUATE",
+  "provenance": "RoboLab rating clip, success row, our neural simulator pane",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 109,
+  "fps": 16.0,
+  "bytes": 480647,
+  "poster": "website/media/posters/teaser_eval_success_sim.jpg",
+  "poster_bytes": 52572,
+  "poster_frame": 64,
+  "transform": "same pane split, then centre-crop to 4:3"
+ },
+ {
+  "slot": "media/policy_robolab_failure_reference.mp4",
+  "section": "Policy evaluation - side-by-side replay",
+  "provenance": "RoboLab rating clip, failure row, RoboLab reference pane",
+  "size": [
+   856,
+   442
+  ],
+  "frames": 277,
+  "fps": 16.0,
+  "bytes": 790540,
+  "poster": "website/media/posters/policy_robolab_failure_reference.jpg",
+  "poster_bytes": 66482,
+  "poster_frame": 165,
+  "transform": "split at the midpoint, crop 20 rows off the top and 50 off the bottom to drop the burned-in caption and badge"
+ },
+ {
+  "slot": "media/teaser_eval_failure_robolab.mp4",
+  "section": "Figure 1 band 3b - EVALUATE",
+  "provenance": "RoboLab rating clip, failure row, RoboLab reference pane",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 277,
+  "fps": 16.0,
+  "bytes": 624660,
+  "poster": "website/media/posters/teaser_eval_failure_robolab.jpg",
+  "poster_bytes": 54949,
+  "poster_frame": 165,
+  "transform": "same pane split, then centre-crop to 4:3"
+ },
+ {
+  "slot": "media/policy_robolab_failure_simulated.mp4",
+  "section": "Policy evaluation - side-by-side replay",
+  "provenance": "RoboLab rating clip, failure row, our neural simulator pane",
+  "size": [
+   856,
+   442
+  ],
+  "frames": 277,
+  "fps": 16.0,
+  "bytes": 1946235,
+  "poster": "website/media/posters/policy_robolab_failure_simulated.jpg",
+  "poster_bytes": 66728,
+  "poster_frame": 165,
+  "transform": "split at the midpoint, crop 20 rows off the top and 50 off the bottom to drop the burned-in caption and badge"
+ },
+ {
+  "slot": "media/teaser_eval_failure_sim.mp4",
+  "section": "Figure 1 band 3b - EVALUATE",
+  "provenance": "RoboLab rating clip, failure row, our neural simulator pane",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 277,
+  "fps": 16.0,
+  "bytes": 1270690,
+  "poster": "website/media/posters/teaser_eval_failure_sim.jpg",
+  "poster_bytes": 52531,
+  "poster_frame": 165,
+  "transform": "same pane split, then centre-crop to 4:3"
+ },
+ {
+  "slot": "media/control_human_demo.mp4",
+  "section": "Figure 4 - running the interface backwards",
+  "provenance": "GEAR-YAM/wam_rollout/pipe_play, human demonstration, pipe_play",
+  "size": [
+   640,
+   418
+  ],
+  "frames": 107,
+  "fps": 15.0,
+  "bytes": 455715,
+  "poster": "website/media/posters/control_human_demo.jpg",
+  "poster_bytes": 37970,
+  "poster_frame": 63,
+  "transform": "crop 62 rows off the bottom to drop the burned-in badge"
+ },
+ {
+  "slot": "media/control_object_flow.mp4",
+  "section": "Figure 4 - running the interface backwards",
+  "provenance": "GEAR-YAM/wam_rollout/pipe_play, object flow derived from that demo",
+  "size": [
+   640,
+   418
+  ],
+  "frames": 107,
+  "fps": 15.0,
+  "bytes": 455852,
+  "poster": "website/media/posters/control_object_flow.jpg",
+  "poster_bytes": 39044,
+  "poster_frame": 63,
+  "transform": "crop 62 rows off the bottom to drop the burned-in badge"
+ },
+ {
+  "slot": "media/control_generated_motion.mp4",
+  "section": "Figure 4 - running the interface backwards",
+  "provenance": "GEAR-YAM/wam_rollout/pipe_play, world-model generation conditioned on the transferred object flow",
+  "size": [
+   640,
+   418
+  ],
+  "frames": 137,
+  "fps": 16.0,
+  "bytes": 607224,
+  "poster": "website/media/posters/control_generated_motion.jpg",
+  "poster_bytes": 32396,
+  "poster_frame": 81,
+  "transform": "crop 62 rows off the bottom to drop the burned-in badge"
+ },
+ {
+  "slot": "media/control_physical_execution.mp4",
+  "section": "Figure 4 - running the interface backwards",
+  "provenance": "GEAR-YAM/wam_rollout/pipe_play, physical YAM execution of the read-out actions",
+  "size": [
+   640,
+   418
+  ],
+  "frames": 68,
+  "fps": 15.0,
+  "bytes": 295031,
+  "poster": "website/media/posters/control_physical_execution.jpg",
+  "poster_bytes": 34044,
+  "poster_frame": 40,
+  "transform": "crop 62 rows off the bottom to drop the burned-in badge"
+ },
+ {
+  "slot": "media/teaser_control_human.mp4",
+  "section": "Figure 1 band 3c - CONTROL",
+  "provenance": "GEAR-YAM/wam_rollout/pipe_play, human demonstration with its derived object flow",
+  "size": [
+   556,
+   418
+  ],
+  "frames": 107,
+  "fps": 15.0,
+  "bytes": 445007,
+  "poster": "website/media/posters/teaser_control_human.jpg",
+  "poster_bytes": 36180,
+  "poster_frame": 63,
+  "transform": "crop 62 rows off the bottom, then centre-crop to 4:3 (557x418, matching the teaser stills)"
+ },
+ {
+  "slot": "media/teaser_control_robot.mp4",
+  "section": "Figure 1 band 3c - CONTROL",
+  "provenance": "GEAR-YAM/wam_rollout/pipe_play, physical YAM execution driven by that flow",
+  "size": [
+   556,
+   418
+  ],
+  "frames": 68,
+  "fps": 15.0,
+  "bytes": 271406,
+  "poster": "website/media/posters/teaser_control_robot.jpg",
+  "poster_bytes": 32691,
+  "poster_frame": 40,
+  "transform": "crop 62 rows off the bottom, then centre-crop to 4:3 (557x418, matching the teaser stills)"
+ },
+ {
+  "slot": "media/wrist_camera_egomotion.mp4",
+  "section": "Wrist-camera egomotion",
+  "provenance": "outputs/wan22_droid_wrist_a14b, one DROID wrist 17-frame window",
+  "size": [
+   1296,
+   284
+  ],
+  "frames": 17,
+  "fps": 3.0,
+  "bytes": 455007,
+  "poster": "website/media/posters/wrist_camera_egomotion.jpg",
+  "poster_bytes": 77917,
+  "poster_frame": 9,
+  "transform": "three labelled panes side by side, native 848x480 each"
+ },
+ {
+  "slot": "media/method_train_video_droid.mp4",
+  "section": "Method - offline training",
+  "provenance": "processed_v2 intermediate window, DROID (fig:method_overview top lane)",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 455594,
+  "poster": "website/media/posters/method_train_video_droid.jpg",
+  "poster_bytes": 44789,
+  "poster_frame": 48,
+  "transform": "centre-crop to 4:3, resize to 640x480"
+ },
+ {
+  "slot": "media/method_train_flow_droid.mp4",
+  "section": "Method - offline training",
+  "provenance": "AllTracker tracks x grounded masks over the same window, DROID",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 1001556,
+  "poster": "website/media/posters/method_train_flow_droid.jpg",
+  "poster_bytes": 63259,
+  "poster_frame": 48,
+  "transform": "per-track trail over a 16-frame rolling history, then the same 4:3 crop",
+  "flow": {
+   "n_tracks_kept": 16143,
+   "n_tracks_total": 16143,
+   "n_embodiment": 3347,
+   "n_object": 0,
+   "drawn_embodiment": 71,
+   "drawn_object": 0,
+   "cell_grip": 40.0,
+   "cell_object": 36.0,
+   "trail_tail_frames": 16
+  }
+ },
+ {
+  "slot": "media/method_train_video_deform360.mp4",
+  "section": "Method - offline training",
+  "provenance": "processed_v2 intermediate window, Deform360 (fig:method_overview top lane)",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 360954,
+  "poster": "website/media/posters/method_train_video_deform360.jpg",
+  "poster_bytes": 36972,
+  "poster_frame": 48,
+  "transform": "centre-crop to 4:3, resize to 640x480"
+ },
+ {
+  "slot": "media/method_train_flow_deform360.mp4",
+  "section": "Method - offline training",
+  "provenance": "AllTracker tracks x grounded masks over the same window, Deform360",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 657789,
+  "poster": "website/media/posters/method_train_flow_deform360.jpg",
+  "poster_bytes": 46115,
+  "poster_frame": 48,
+  "transform": "per-track trail over a 16-frame rolling history, then the same 4:3 crop",
+  "flow": {
+   "n_tracks_kept": 16004,
+   "n_tracks_total": 16004,
+   "n_embodiment": 1045,
+   "n_object": 1051,
+   "drawn_embodiment": 29,
+   "drawn_object": 37,
+   "cell_grip": 40.0,
+   "cell_object": 36.0,
+   "trail_tail_frames": 16
+  }
+ },
+ {
+  "slot": "media/method_train_video_xvla.mp4",
+  "section": "Method - offline training",
+  "provenance": "processed_v2 intermediate window, XVLA-Soft-Fold (fig:method_overview top lane)",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 878066,
+  "poster": "website/media/posters/method_train_video_xvla.jpg",
+  "poster_bytes": 40089,
+  "poster_frame": 48,
+  "transform": "centre-crop to 4:3, resize to 640x480"
+ },
+ {
+  "slot": "media/method_train_flow_xvla.mp4",
+  "section": "Method - offline training",
+  "provenance": "AllTracker tracks x grounded masks over the same window, XVLA-Soft-Fold",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 1307265,
+  "poster": "website/media/posters/method_train_flow_xvla.jpg",
+  "poster_bytes": 60805,
+  "poster_frame": 48,
+  "transform": "per-track trail over a 16-frame rolling history, then the same 4:3 crop",
+  "flow": {
+   "n_tracks_kept": 16094,
+   "n_tracks_total": 16094,
+   "n_embodiment": 2363,
+   "n_object": 1238,
+   "drawn_embodiment": 58,
+   "drawn_object": 31,
+   "cell_grip": 40.0,
+   "cell_object": 36.0,
+   "trail_tail_frames": 16
+  }
+ },
+ {
+  "slot": "media/method_deploy_isaac.mp4",
+  "section": "Method - online deployment",
+  "provenance": "Isaac Lab kinematic replay of the same policy rollout (real_world/isaaclab_replay.py, RTX raytraced, calibrated top D405)",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 277,
+  "fps": 16.0,
+  "bytes": 457650,
+  "poster": "website/media/posters/method_deploy_isaac.jpg",
+  "poster_bytes": 28834,
+  "poster_frame": 165,
+  "transform": "native 640x480 render, no crop",
+  "note": "frame 0 is byte-identical to the shipped tile; later frames differ from the three sampled tiles only by the raytracer's temporal accumulation, since this pass renders every frame in sequence"
+ },
+ {
+  "slot": "media/method_deploy_flow.mp4",
+  "section": "Method - online deployment",
+  "provenance": "URDF forward kinematics of the policy's own states, projected through the calibrated camera (GEAR-YAM ep_000000)",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 277,
+  "fps": 16.0,
+  "bytes": 364272,
+  "poster": "website/media/posters/method_deploy_flow.jpg",
+  "poster_bytes": 50289,
+  "poster_frame": 165,
+  "transform": "trails grow over the held observation frame",
+  "flow": {
+   "n_tracks_kept": 365,
+   "n_tracks_total": 365,
+   "n_embodiment": 365,
+   "n_object": 0,
+   "drawn_embodiment": 98,
+   "drawn_object": 0,
+   "cell_grip": 18.0,
+   "cell_object": 36.0
+  }
+ },
+ {
+  "slot": "media/method_deploy_prediction.mp4",
+  "section": "Method - online deployment",
+  "provenance": "closed-loop world-model generation, GEAR-YAM policy_in_wm/ep_000000",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 277,
+  "fps": 16.0,
+  "bytes": 933463,
+  "poster": "website/media/posters/method_deploy_prediction.jpg",
+  "poster_bytes": 36091,
+  "poster_frame": 165,
+  "transform": "none, native 640x480"
+ },
+ {
+  "slot": "media/flow_dense_tracks.mp4",
+  "section": "Grounding and sampling",
+  "provenance": "AllTracker output before grounding, processed_v2 xvla_soft_fold episode_29/cam_high window 0, the window fig:action_flow_sampling is cut from",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 816087,
+  "poster": "website/media/posters/flow_dense_tracks.jpg",
+  "poster_bytes": 65489,
+  "poster_frame": 48,
+  "transform": "611 tracks on a 34x19 image lattice, hue keyed to frame-0 position so the pool reads as unlabeled",
+  "pools": {
+   "scene": 572,
+   "embodiment": 151,
+   "object": 224
+  }
+ },
+ {
+  "slot": "media/flow_embodiment_mask.mp4",
+  "section": "Grounding and sampling",
+  "provenance": "SAM3 embodiment masks (gripper_left u gripper_right), processed_v2 xvla_soft_fold episode_29/cam_high window 0, the window fig:action_flow_sampling is cut from",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 644624,
+  "poster": "website/media/posters/flow_embodiment_mask.jpg",
+  "poster_bytes": 43213,
+  "poster_frame": 48,
+  "transform": "per-frame mask, translucent fill plus outline"
+ },
+ {
+  "slot": "media/flow_object_mask.mp4",
+  "section": "Grounding and sampling",
+  "provenance": "SAM3 primary_object mask, processed_v2 xvla_soft_fold episode_29/cam_high window 0, the window fig:action_flow_sampling is cut from",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 595225,
+  "poster": "website/media/posters/flow_object_mask.jpg",
+  "poster_bytes": 41956,
+  "poster_frame": 48,
+  "transform": "per-frame mask, translucent fill plus outline"
+ },
+ {
+  "slot": "media/flow_sample_embodiment.mp4",
+  "section": "Grounding and sampling",
+  "provenance": "embodiment sampling mode over the same window, processed_v2 xvla_soft_fold episode_29/cam_high window 0, the window fig:action_flow_sampling is cut from",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 540105,
+  "poster": "website/media/posters/flow_sample_embodiment.jpg",
+  "poster_bytes": 44518,
+  "poster_frame": 48,
+  "transform": "48 tracks drawn by the figure's own selection rule"
+ },
+ {
+  "slot": "media/flow_sample_object.mp4",
+  "section": "Grounding and sampling",
+  "provenance": "object sampling mode over the same window, processed_v2 xvla_soft_fold episode_29/cam_high window 0, the window fig:action_flow_sampling is cut from",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 504718,
+  "poster": "website/media/posters/flow_sample_object.jpg",
+  "poster_bytes": 37001,
+  "poster_frame": 48,
+  "transform": "48 tracks drawn by the figure's own selection rule"
+ },
+ {
+  "slot": "media/flow_sample_all.mp4",
+  "section": "Grounding and sampling",
+  "provenance": "all sampling mode over the same window, processed_v2 xvla_soft_fold episode_29/cam_high window 0, the window fig:action_flow_sampling is cut from",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 629231,
+  "poster": "website/media/posters/flow_sample_all.jpg",
+  "poster_bytes": 46141,
+  "poster_frame": 48,
+  "transform": "256 tracks drawn by the figure's own selection rule"
+ },
+ {
+  "slot": "media/flow_sample_none.mp4",
+  "section": "Grounding and sampling",
+  "provenance": "conditioning dropout: the clip with no flow at all, processed_v2 xvla_soft_fold episode_29/cam_high window 0, the window fig:action_flow_sampling is cut from",
+  "size": [
+   640,
+   480
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 601702,
+  "poster": "website/media/posters/flow_sample_none.jpg",
+  "poster_bytes": 41589,
+  "poster_frame": 48,
+  "transform": "none"
+ },
+ {
+  "slot": "media/rollout_xvla_soft_fold__s01__wan_move.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 1 of xvla_soft_fold (the sample fig:qualitative freezes), Wan-Move",
+  "size": [
+   480,
+   360
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 337032,
+  "poster": "website/media/posters/rollout_xvla_soft_fold__s01__wan_move.jpg",
+  "poster_bytes": 31764,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x360); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Wan-Move",
+  "rollout": {
+   "dataset": "xvla_soft_fold",
+   "row_slot": "rollout_xvla_soft_fold",
+   "index": 1,
+   "sample_id": "sample_2acae14159ae078d53614900117ad6b70d60f7cc699f14ba7a92b4119207146e",
+   "pinned": true,
+   "episode_key": "0706_17pm_stage_1_stage2new_new_cam_very_slow/episode_22",
+   "cam_id": "cam_high",
+   "caption": "fold the cloth",
+   "start_frame": 1539
+  }
+ },
+ {
+  "slot": "media/rollout_xvla_soft_fold__s01__cosmos2p5.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 1 of xvla_soft_fold (the sample fig:qualitative freezes), Cosmos 2.5",
+  "size": [
+   480,
+   360
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 244940,
+  "poster": "website/media/posters/rollout_xvla_soft_fold__s01__cosmos2p5.jpg",
+  "poster_bytes": 26594,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x360); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Cosmos 2.5",
+  "rollout": {
+   "dataset": "xvla_soft_fold",
+   "row_slot": "rollout_xvla_soft_fold",
+   "index": 1,
+   "sample_id": "sample_2acae14159ae078d53614900117ad6b70d60f7cc699f14ba7a92b4119207146e",
+   "pinned": true,
+   "episode_key": "0706_17pm_stage_1_stage2new_new_cam_very_slow/episode_22",
+   "cam_id": "cam_high",
+   "caption": "fold the cloth",
+   "start_frame": 1539
+  }
+ },
+ {
+  "slot": "media/rollout_xvla_soft_fold__s01__ours.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 1 of xvla_soft_fold (the sample fig:qualitative freezes), Ours",
+  "size": [
+   480,
+   360
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 217012,
+  "poster": "website/media/posters/rollout_xvla_soft_fold__s01__ours.jpg",
+  "poster_bytes": 28726,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x360); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Ours",
+  "rollout": {
+   "dataset": "xvla_soft_fold",
+   "row_slot": "rollout_xvla_soft_fold",
+   "index": 1,
+   "sample_id": "sample_2acae14159ae078d53614900117ad6b70d60f7cc699f14ba7a92b4119207146e",
+   "pinned": true,
+   "episode_key": "0706_17pm_stage_1_stage2new_new_cam_very_slow/episode_22",
+   "cam_id": "cam_high",
+   "caption": "fold the cloth",
+   "start_frame": 1539
+  }
+ },
+ {
+  "slot": "media/rollout_xvla_soft_fold__s01__gt.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 1 of xvla_soft_fold (the sample fig:qualitative freezes), Ground Truth",
+  "size": [
+   480,
+   360
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 279943,
+  "poster": "website/media/posters/rollout_xvla_soft_fold__s01__gt.jpg",
+  "poster_bytes": 30636,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x360); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Ground Truth",
+  "rollout": {
+   "dataset": "xvla_soft_fold",
+   "row_slot": "rollout_xvla_soft_fold",
+   "index": 1,
+   "sample_id": "sample_2acae14159ae078d53614900117ad6b70d60f7cc699f14ba7a92b4119207146e",
+   "pinned": true,
+   "episode_key": "0706_17pm_stage_1_stage2new_new_cam_very_slow/episode_22",
+   "cam_id": "cam_high",
+   "caption": "fold the cloth",
+   "start_frame": 1539
+  }
+ },
+ {
+  "slot": "media/rollout_xvla_soft_fold__s02__wan_move.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 2 of xvla_soft_fold, Wan-Move",
+  "size": [
+   480,
+   360
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 432738,
+  "poster": "website/media/posters/rollout_xvla_soft_fold__s02__wan_move.jpg",
+  "poster_bytes": 31661,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x360); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Wan-Move",
+  "rollout": {
+   "dataset": "xvla_soft_fold",
+   "row_slot": "rollout_xvla_soft_fold",
+   "index": 2,
+   "sample_id": "sample_5bba6b196c19ff5b20ccb9b174a3f3a32ac15226c37ab7a286d8218c44498e99",
+   "pinned": false,
+   "episode_key": "0708_11am_stage_1_stage2new_new_cam_very_slow/episode_11",
+   "cam_id": "cam_high",
+   "caption": "fold the cloth",
+   "start_frame": 0
+  }
+ },
+ {
+  "slot": "media/rollout_xvla_soft_fold__s02__cosmos2p5.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 2 of xvla_soft_fold, Cosmos 2.5",
+  "size": [
+   480,
+   360
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 293678,
+  "poster": "website/media/posters/rollout_xvla_soft_fold__s02__cosmos2p5.jpg",
+  "poster_bytes": 24466,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x360); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Cosmos 2.5",
+  "rollout": {
+   "dataset": "xvla_soft_fold",
+   "row_slot": "rollout_xvla_soft_fold",
+   "index": 2,
+   "sample_id": "sample_5bba6b196c19ff5b20ccb9b174a3f3a32ac15226c37ab7a286d8218c44498e99",
+   "pinned": false,
+   "episode_key": "0708_11am_stage_1_stage2new_new_cam_very_slow/episode_11",
+   "cam_id": "cam_high",
+   "caption": "fold the cloth",
+   "start_frame": 0
+  }
+ },
+ {
+  "slot": "media/rollout_xvla_soft_fold__s02__ours.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 2 of xvla_soft_fold, Ours",
+  "size": [
+   480,
+   360
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 287948,
+  "poster": "website/media/posters/rollout_xvla_soft_fold__s02__ours.jpg",
+  "poster_bytes": 26015,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x360); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Ours",
+  "rollout": {
+   "dataset": "xvla_soft_fold",
+   "row_slot": "rollout_xvla_soft_fold",
+   "index": 2,
+   "sample_id": "sample_5bba6b196c19ff5b20ccb9b174a3f3a32ac15226c37ab7a286d8218c44498e99",
+   "pinned": false,
+   "episode_key": "0708_11am_stage_1_stage2new_new_cam_very_slow/episode_11",
+   "cam_id": "cam_high",
+   "caption": "fold the cloth",
+   "start_frame": 0
+  }
+ },
+ {
+  "slot": "media/rollout_xvla_soft_fold__s02__gt.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 2 of xvla_soft_fold, Ground Truth",
+  "size": [
+   480,
+   360
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 375318,
+  "poster": "website/media/posters/rollout_xvla_soft_fold__s02__gt.jpg",
+  "poster_bytes": 29481,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x360); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Ground Truth",
+  "rollout": {
+   "dataset": "xvla_soft_fold",
+   "row_slot": "rollout_xvla_soft_fold",
+   "index": 2,
+   "sample_id": "sample_5bba6b196c19ff5b20ccb9b174a3f3a32ac15226c37ab7a286d8218c44498e99",
+   "pinned": false,
+   "episode_key": "0708_11am_stage_1_stage2new_new_cam_very_slow/episode_11",
+   "cam_id": "cam_high",
+   "caption": "fold the cloth",
+   "start_frame": 0
+  }
+ },
+ {
+  "slot": "media/rollout_xvla_soft_fold__s03__wan_move.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 3 of xvla_soft_fold, Wan-Move",
+  "size": [
+   480,
+   360
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 291685,
+  "poster": "website/media/posters/rollout_xvla_soft_fold__s03__wan_move.jpg",
+  "poster_bytes": 27603,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x360); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Wan-Move",
+  "rollout": {
+   "dataset": "xvla_soft_fold",
+   "row_slot": "rollout_xvla_soft_fold",
+   "index": 3,
+   "sample_id": "sample_c553f3bc75d4ba3357cdabb8b0bf6c7bea0e077793371d9c1c2febb817fc9001",
+   "pinned": false,
+   "episode_key": "0712_8pm_stage_1_stage2new_new_cam_very_slow/episode_14",
+   "cam_id": "cam_high",
+   "caption": "fold the cloth",
+   "start_frame": 810
+  }
+ },
+ {
+  "slot": "media/rollout_xvla_soft_fold__s03__cosmos2p5.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 3 of xvla_soft_fold, Cosmos 2.5",
+  "size": [
+   480,
+   360
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 197255,
+  "poster": "website/media/posters/rollout_xvla_soft_fold__s03__cosmos2p5.jpg",
+  "poster_bytes": 22924,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x360); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Cosmos 2.5",
+  "rollout": {
+   "dataset": "xvla_soft_fold",
+   "row_slot": "rollout_xvla_soft_fold",
+   "index": 3,
+   "sample_id": "sample_c553f3bc75d4ba3357cdabb8b0bf6c7bea0e077793371d9c1c2febb817fc9001",
+   "pinned": false,
+   "episode_key": "0712_8pm_stage_1_stage2new_new_cam_very_slow/episode_14",
+   "cam_id": "cam_high",
+   "caption": "fold the cloth",
+   "start_frame": 810
+  }
+ },
+ {
+  "slot": "media/rollout_xvla_soft_fold__s03__ours.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 3 of xvla_soft_fold, Ours",
+  "size": [
+   480,
+   360
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 283595,
+  "poster": "website/media/posters/rollout_xvla_soft_fold__s03__ours.jpg",
+  "poster_bytes": 24710,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x360); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Ours",
+  "rollout": {
+   "dataset": "xvla_soft_fold",
+   "row_slot": "rollout_xvla_soft_fold",
+   "index": 3,
+   "sample_id": "sample_c553f3bc75d4ba3357cdabb8b0bf6c7bea0e077793371d9c1c2febb817fc9001",
+   "pinned": false,
+   "episode_key": "0712_8pm_stage_1_stage2new_new_cam_very_slow/episode_14",
+   "cam_id": "cam_high",
+   "caption": "fold the cloth",
+   "start_frame": 810
+  }
+ },
+ {
+  "slot": "media/rollout_xvla_soft_fold__s03__gt.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 3 of xvla_soft_fold, Ground Truth",
+  "size": [
+   480,
+   360
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 302131,
+  "poster": "website/media/posters/rollout_xvla_soft_fold__s03__gt.jpg",
+  "poster_bytes": 26430,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x360); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Ground Truth",
+  "rollout": {
+   "dataset": "xvla_soft_fold",
+   "row_slot": "rollout_xvla_soft_fold",
+   "index": 3,
+   "sample_id": "sample_c553f3bc75d4ba3357cdabb8b0bf6c7bea0e077793371d9c1c2febb817fc9001",
+   "pinned": false,
+   "episode_key": "0712_8pm_stage_1_stage2new_new_cam_very_slow/episode_14",
+   "cam_id": "cam_high",
+   "caption": "fold the cloth",
+   "start_frame": 810
+  }
+ },
+ {
+  "slot": "media/rollout_deform360__s01__wan_move.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 1 of deform360 (the sample fig:qualitative freezes), Wan-Move",
+  "size": [
+   480,
+   272
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 315245,
+  "poster": "website/media/posters/rollout_deform360__s01__wan_move.jpg",
+  "poster_bytes": 27729,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x272); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Wan-Move",
+  "rollout": {
+   "dataset": "deform360",
+   "row_slot": "rollout_deform360",
+   "index": 1,
+   "sample_id": "sample_1032eaed65c84077590ed72a7d28b207ac413bb57d9a728418eb4994239f449b",
+   "pinned": true,
+   "episode_key": "001-rope/episode_3",
+   "cam_id": "brics-odroid-015_cam0",
+   "caption": "a human hand holding a robot gripper manipulating a rope",
+   "start_frame": 0
+  }
+ },
+ {
+  "slot": "media/rollout_deform360__s01__cosmos2p5.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 1 of deform360 (the sample fig:qualitative freezes), Cosmos 2.5",
+  "size": [
+   480,
+   272
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 113211,
+  "poster": "website/media/posters/rollout_deform360__s01__cosmos2p5.jpg",
+  "poster_bytes": 24517,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x272); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Cosmos 2.5",
+  "rollout": {
+   "dataset": "deform360",
+   "row_slot": "rollout_deform360",
+   "index": 1,
+   "sample_id": "sample_1032eaed65c84077590ed72a7d28b207ac413bb57d9a728418eb4994239f449b",
+   "pinned": true,
+   "episode_key": "001-rope/episode_3",
+   "cam_id": "brics-odroid-015_cam0",
+   "caption": "a human hand holding a robot gripper manipulating a rope",
+   "start_frame": 0
+  }
+ },
+ {
+  "slot": "media/rollout_deform360__s01__ours.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 1 of deform360 (the sample fig:qualitative freezes), Ours",
+  "size": [
+   480,
+   272
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 216889,
+  "poster": "website/media/posters/rollout_deform360__s01__ours.jpg",
+  "poster_bytes": 26124,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x272); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Ours",
+  "rollout": {
+   "dataset": "deform360",
+   "row_slot": "rollout_deform360",
+   "index": 1,
+   "sample_id": "sample_1032eaed65c84077590ed72a7d28b207ac413bb57d9a728418eb4994239f449b",
+   "pinned": true,
+   "episode_key": "001-rope/episode_3",
+   "cam_id": "brics-odroid-015_cam0",
+   "caption": "a human hand holding a robot gripper manipulating a rope",
+   "start_frame": 0
+  }
+ },
+ {
+  "slot": "media/rollout_deform360__s01__gt.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 1 of deform360 (the sample fig:qualitative freezes), Ground Truth",
+  "size": [
+   480,
+   272
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 235694,
+  "poster": "website/media/posters/rollout_deform360__s01__gt.jpg",
+  "poster_bytes": 27542,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x272); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Ground Truth",
+  "rollout": {
+   "dataset": "deform360",
+   "row_slot": "rollout_deform360",
+   "index": 1,
+   "sample_id": "sample_1032eaed65c84077590ed72a7d28b207ac413bb57d9a728418eb4994239f449b",
+   "pinned": true,
+   "episode_key": "001-rope/episode_3",
+   "cam_id": "brics-odroid-015_cam0",
+   "caption": "a human hand holding a robot gripper manipulating a rope",
+   "start_frame": 0
+  }
+ },
+ {
+  "slot": "media/rollout_deform360__s02__wan_move.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 2 of deform360, Wan-Move",
+  "size": [
+   480,
+   272
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 243964,
+  "poster": "website/media/posters/rollout_deform360__s02__wan_move.jpg",
+  "poster_bytes": 25759,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x272); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Wan-Move",
+  "rollout": {
+   "dataset": "deform360",
+   "row_slot": "rollout_deform360",
+   "index": 2,
+   "sample_id": "sample_bfc497ef1d388f962e8dbe7cbdd1fea0284f75f0d69f2504374a38c705507a3f",
+   "pinned": false,
+   "episode_key": "091-net-cloth/episode_4",
+   "cam_id": "brics-odroid-024_cam0",
+   "caption": "a human hand holding a robot gripper manipulating a net cloth",
+   "start_frame": 81
+  }
+ },
+ {
+  "slot": "media/rollout_deform360__s02__cosmos2p5.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 2 of deform360, Cosmos 2.5",
+  "size": [
+   480,
+   272
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 246054,
+  "poster": "website/media/posters/rollout_deform360__s02__cosmos2p5.jpg",
+  "poster_bytes": 22670,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x272); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Cosmos 2.5",
+  "rollout": {
+   "dataset": "deform360",
+   "row_slot": "rollout_deform360",
+   "index": 2,
+   "sample_id": "sample_bfc497ef1d388f962e8dbe7cbdd1fea0284f75f0d69f2504374a38c705507a3f",
+   "pinned": false,
+   "episode_key": "091-net-cloth/episode_4",
+   "cam_id": "brics-odroid-024_cam0",
+   "caption": "a human hand holding a robot gripper manipulating a net cloth",
+   "start_frame": 81
+  }
+ },
+ {
+  "slot": "media/rollout_deform360__s02__ours.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 2 of deform360, Ours",
+  "size": [
+   480,
+   272
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 138035,
+  "poster": "website/media/posters/rollout_deform360__s02__ours.jpg",
+  "poster_bytes": 20152,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x272); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Ours",
+  "rollout": {
+   "dataset": "deform360",
+   "row_slot": "rollout_deform360",
+   "index": 2,
+   "sample_id": "sample_bfc497ef1d388f962e8dbe7cbdd1fea0284f75f0d69f2504374a38c705507a3f",
+   "pinned": false,
+   "episode_key": "091-net-cloth/episode_4",
+   "cam_id": "brics-odroid-024_cam0",
+   "caption": "a human hand holding a robot gripper manipulating a net cloth",
+   "start_frame": 81
+  }
+ },
+ {
+  "slot": "media/rollout_deform360__s02__gt.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 2 of deform360, Ground Truth",
+  "size": [
+   480,
+   272
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 175902,
+  "poster": "website/media/posters/rollout_deform360__s02__gt.jpg",
+  "poster_bytes": 22825,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x272); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Ground Truth",
+  "rollout": {
+   "dataset": "deform360",
+   "row_slot": "rollout_deform360",
+   "index": 2,
+   "sample_id": "sample_bfc497ef1d388f962e8dbe7cbdd1fea0284f75f0d69f2504374a38c705507a3f",
+   "pinned": false,
+   "episode_key": "091-net-cloth/episode_4",
+   "cam_id": "brics-odroid-024_cam0",
+   "caption": "a human hand holding a robot gripper manipulating a net cloth",
+   "start_frame": 81
+  }
+ },
+ {
+  "slot": "media/rollout_deform360__s03__wan_move.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 3 of deform360, Wan-Move",
+  "size": [
+   480,
+   272
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 182286,
+  "poster": "website/media/posters/rollout_deform360__s03__wan_move.jpg",
+  "poster_bytes": 26041,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x272); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Wan-Move",
+  "rollout": {
+   "dataset": "deform360",
+   "row_slot": "rollout_deform360",
+   "index": 3,
+   "sample_id": "sample_e8ab8a7effa6d30be81460fa80b57553beb6770e8894c5baa0cc31f3565b147d",
+   "pinned": false,
+   "episode_key": "086-cotton-scarf-cloth/episode_0",
+   "cam_id": "brics-odroid-015_cam1",
+   "caption": "a human hand holding a robot gripper manipulating a cotton scarf cloth",
+   "start_frame": 81
+  }
+ },
+ {
+  "slot": "media/rollout_deform360__s03__cosmos2p5.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 3 of deform360, Cosmos 2.5",
+  "size": [
+   480,
+   272
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 139968,
+  "poster": "website/media/posters/rollout_deform360__s03__cosmos2p5.jpg",
+  "poster_bytes": 21259,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x272); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Cosmos 2.5",
+  "rollout": {
+   "dataset": "deform360",
+   "row_slot": "rollout_deform360",
+   "index": 3,
+   "sample_id": "sample_e8ab8a7effa6d30be81460fa80b57553beb6770e8894c5baa0cc31f3565b147d",
+   "pinned": false,
+   "episode_key": "086-cotton-scarf-cloth/episode_0",
+   "cam_id": "brics-odroid-015_cam1",
+   "caption": "a human hand holding a robot gripper manipulating a cotton scarf cloth",
+   "start_frame": 81
+  }
+ },
+ {
+  "slot": "media/rollout_deform360__s03__ours.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 3 of deform360, Ours",
+  "size": [
+   480,
+   272
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 150371,
+  "poster": "website/media/posters/rollout_deform360__s03__ours.jpg",
+  "poster_bytes": 23983,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x272); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Ours",
+  "rollout": {
+   "dataset": "deform360",
+   "row_slot": "rollout_deform360",
+   "index": 3,
+   "sample_id": "sample_e8ab8a7effa6d30be81460fa80b57553beb6770e8894c5baa0cc31f3565b147d",
+   "pinned": false,
+   "episode_key": "086-cotton-scarf-cloth/episode_0",
+   "cam_id": "brics-odroid-015_cam1",
+   "caption": "a human hand holding a robot gripper manipulating a cotton scarf cloth",
+   "start_frame": 81
+  }
+ },
+ {
+  "slot": "media/rollout_deform360__s03__gt.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 3 of deform360, Ground Truth",
+  "size": [
+   480,
+   272
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 172322,
+  "poster": "website/media/posters/rollout_deform360__s03__gt.jpg",
+  "poster_bytes": 26929,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x272); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Ground Truth",
+  "rollout": {
+   "dataset": "deform360",
+   "row_slot": "rollout_deform360",
+   "index": 3,
+   "sample_id": "sample_e8ab8a7effa6d30be81460fa80b57553beb6770e8894c5baa0cc31f3565b147d",
+   "pinned": false,
+   "episode_key": "086-cotton-scarf-cloth/episode_0",
+   "cam_id": "brics-odroid-015_cam1",
+   "caption": "a human hand holding a robot gripper manipulating a cotton scarf cloth",
+   "start_frame": 81
+  }
+ },
+ {
+  "slot": "media/rollout_droid__s01__wan_move.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 1 of droid_raw (the sample fig:qualitative freezes), Wan-Move",
+  "size": [
+   480,
+   272
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 304269,
+  "poster": "website/media/posters/rollout_droid__s01__wan_move.jpg",
+  "poster_bytes": 35901,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x272); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Wan-Move",
+  "rollout": {
+   "dataset": "droid_raw",
+   "row_slot": "rollout_droid",
+   "index": 1,
+   "sample_id": "sample_08c1bc051bca737da63dc15f7b06d7d8762f9a8563cce74a4ae180e4851f45d0",
+   "pinned": true,
+   "episode_key": "1.0.1/TRI/success/2023-10-25/Wed_Oct_25_17:11:21_2023",
+   "cam_id": "ext1",
+   "caption": "fold, spread out, or clump object",
+   "start_frame": 162
+  }
+ },
+ {
+  "slot": "media/rollout_droid__s01__cosmos2p5.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 1 of droid_raw (the sample fig:qualitative freezes), Cosmos 2.5",
+  "size": [
+   480,
+   272
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 228023,
+  "poster": "website/media/posters/rollout_droid__s01__cosmos2p5.jpg",
+  "poster_bytes": 32882,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x272); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Cosmos 2.5",
+  "rollout": {
+   "dataset": "droid_raw",
+   "row_slot": "rollout_droid",
+   "index": 1,
+   "sample_id": "sample_08c1bc051bca737da63dc15f7b06d7d8762f9a8563cce74a4ae180e4851f45d0",
+   "pinned": true,
+   "episode_key": "1.0.1/TRI/success/2023-10-25/Wed_Oct_25_17:11:21_2023",
+   "cam_id": "ext1",
+   "caption": "fold, spread out, or clump object",
+   "start_frame": 162
+  }
+ },
+ {
+  "slot": "media/rollout_droid__s01__ours.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 1 of droid_raw (the sample fig:qualitative freezes), Ours",
+  "size": [
+   480,
+   272
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 213056,
+  "poster": "website/media/posters/rollout_droid__s01__ours.jpg",
+  "poster_bytes": 34074,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x272); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Ours",
+  "rollout": {
+   "dataset": "droid_raw",
+   "row_slot": "rollout_droid",
+   "index": 1,
+   "sample_id": "sample_08c1bc051bca737da63dc15f7b06d7d8762f9a8563cce74a4ae180e4851f45d0",
+   "pinned": true,
+   "episode_key": "1.0.1/TRI/success/2023-10-25/Wed_Oct_25_17:11:21_2023",
+   "cam_id": "ext1",
+   "caption": "fold, spread out, or clump object",
+   "start_frame": 162
+  }
+ },
+ {
+  "slot": "media/rollout_droid__s01__gt.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 1 of droid_raw (the sample fig:qualitative freezes), Ground Truth",
+  "size": [
+   480,
+   272
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 236336,
+  "poster": "website/media/posters/rollout_droid__s01__gt.jpg",
+  "poster_bytes": 35824,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x272); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Ground Truth",
+  "rollout": {
+   "dataset": "droid_raw",
+   "row_slot": "rollout_droid",
+   "index": 1,
+   "sample_id": "sample_08c1bc051bca737da63dc15f7b06d7d8762f9a8563cce74a4ae180e4851f45d0",
+   "pinned": true,
+   "episode_key": "1.0.1/TRI/success/2023-10-25/Wed_Oct_25_17:11:21_2023",
+   "cam_id": "ext1",
+   "caption": "fold, spread out, or clump object",
+   "start_frame": 162
+  }
+ },
+ {
+  "slot": "media/rollout_droid__s02__wan_move.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 2 of droid_raw, Wan-Move",
+  "size": [
+   480,
+   272
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 147469,
+  "poster": "website/media/posters/rollout_droid__s02__wan_move.jpg",
+  "poster_bytes": 17165,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x272); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Wan-Move",
+  "rollout": {
+   "dataset": "droid_raw",
+   "row_slot": "rollout_droid",
+   "index": 2,
+   "sample_id": "sample_492a9788d932e69877302af06c3586b487c69f926b9f683e00bf5bc57e275fed",
+   "pinned": false,
+   "episode_key": "1.0.1/REAL/success/2023-06-27/Tue_Jun_27_15:26:55_2023",
+   "cam_id": "ext2",
+   "caption": "Use the towel on the left to wipe the table",
+   "start_frame": 162
+  }
+ },
+ {
+  "slot": "media/rollout_droid__s02__cosmos2p5.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 2 of droid_raw, Cosmos 2.5",
+  "size": [
+   480,
+   272
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 113403,
+  "poster": "website/media/posters/rollout_droid__s02__cosmos2p5.jpg",
+  "poster_bytes": 16100,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x272); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Cosmos 2.5",
+  "rollout": {
+   "dataset": "droid_raw",
+   "row_slot": "rollout_droid",
+   "index": 2,
+   "sample_id": "sample_492a9788d932e69877302af06c3586b487c69f926b9f683e00bf5bc57e275fed",
+   "pinned": false,
+   "episode_key": "1.0.1/REAL/success/2023-06-27/Tue_Jun_27_15:26:55_2023",
+   "cam_id": "ext2",
+   "caption": "Use the towel on the left to wipe the table",
+   "start_frame": 162
+  }
+ },
+ {
+  "slot": "media/rollout_droid__s02__ours.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 2 of droid_raw, Ours",
+  "size": [
+   480,
+   272
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 129851,
+  "poster": "website/media/posters/rollout_droid__s02__ours.jpg",
+  "poster_bytes": 16936,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x272); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Ours",
+  "rollout": {
+   "dataset": "droid_raw",
+   "row_slot": "rollout_droid",
+   "index": 2,
+   "sample_id": "sample_492a9788d932e69877302af06c3586b487c69f926b9f683e00bf5bc57e275fed",
+   "pinned": false,
+   "episode_key": "1.0.1/REAL/success/2023-06-27/Tue_Jun_27_15:26:55_2023",
+   "cam_id": "ext2",
+   "caption": "Use the towel on the left to wipe the table",
+   "start_frame": 162
+  }
+ },
+ {
+  "slot": "media/rollout_droid__s02__gt.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 2 of droid_raw, Ground Truth",
+  "size": [
+   480,
+   272
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 132121,
+  "poster": "website/media/posters/rollout_droid__s02__gt.jpg",
+  "poster_bytes": 16807,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x272); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Ground Truth",
+  "rollout": {
+   "dataset": "droid_raw",
+   "row_slot": "rollout_droid",
+   "index": 2,
+   "sample_id": "sample_492a9788d932e69877302af06c3586b487c69f926b9f683e00bf5bc57e275fed",
+   "pinned": false,
+   "episode_key": "1.0.1/REAL/success/2023-06-27/Tue_Jun_27_15:26:55_2023",
+   "cam_id": "ext2",
+   "caption": "Use the towel on the left to wipe the table",
+   "start_frame": 162
+  }
+ },
+ {
+  "slot": "media/rollout_droid__s03__wan_move.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 3 of droid_raw, Wan-Move",
+  "size": [
+   480,
+   272
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 148811,
+  "poster": "website/media/posters/rollout_droid__s03__wan_move.jpg",
+  "poster_bytes": 26027,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x272); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Wan-Move",
+  "rollout": {
+   "dataset": "droid_raw",
+   "row_slot": "rollout_droid",
+   "index": 3,
+   "sample_id": "sample_d1b96df38273581b061900473dfa678dd9c79ff6ed7714de452e9e040100c880",
+   "pinned": false,
+   "episode_key": "1.0.1/RPL/success/2023-12-03/Sun_Dec__3_18:48:18_2023",
+   "cam_id": "ext1",
+   "caption": "pnp-table-to-plate-onlycans",
+   "start_frame": 810
+  }
+ },
+ {
+  "slot": "media/rollout_droid__s03__cosmos2p5.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 3 of droid_raw, Cosmos 2.5",
+  "size": [
+   480,
+   272
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 179962,
+  "poster": "website/media/posters/rollout_droid__s03__cosmos2p5.jpg",
+  "poster_bytes": 23100,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x272); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Cosmos 2.5",
+  "rollout": {
+   "dataset": "droid_raw",
+   "row_slot": "rollout_droid",
+   "index": 3,
+   "sample_id": "sample_d1b96df38273581b061900473dfa678dd9c79ff6ed7714de452e9e040100c880",
+   "pinned": false,
+   "episode_key": "1.0.1/RPL/success/2023-12-03/Sun_Dec__3_18:48:18_2023",
+   "cam_id": "ext1",
+   "caption": "pnp-table-to-plate-onlycans",
+   "start_frame": 810
+  }
+ },
+ {
+  "slot": "media/rollout_droid__s03__ours.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 3 of droid_raw, Ours",
+  "size": [
+   480,
+   272
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 134439,
+  "poster": "website/media/posters/rollout_droid__s03__ours.jpg",
+  "poster_bytes": 24304,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x272); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Ours",
+  "rollout": {
+   "dataset": "droid_raw",
+   "row_slot": "rollout_droid",
+   "index": 3,
+   "sample_id": "sample_d1b96df38273581b061900473dfa678dd9c79ff6ed7714de452e9e040100c880",
+   "pinned": false,
+   "episode_key": "1.0.1/RPL/success/2023-12-03/Sun_Dec__3_18:48:18_2023",
+   "cam_id": "ext1",
+   "caption": "pnp-table-to-plate-onlycans",
+   "start_frame": 810
+  }
+ },
+ {
+  "slot": "media/rollout_droid__s03__gt.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 3 of droid_raw, Ground Truth",
+  "size": [
+   480,
+   272
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 137349,
+  "poster": "website/media/posters/rollout_droid__s03__gt.jpg",
+  "poster_bytes": 25238,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x272); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Ground Truth",
+  "rollout": {
+   "dataset": "droid_raw",
+   "row_slot": "rollout_droid",
+   "index": 3,
+   "sample_id": "sample_d1b96df38273581b061900473dfa678dd9c79ff6ed7714de452e9e040100c880",
+   "pinned": false,
+   "episode_key": "1.0.1/RPL/success/2023-12-03/Sun_Dec__3_18:48:18_2023",
+   "cam_id": "ext1",
+   "caption": "pnp-table-to-plate-onlycans",
+   "start_frame": 810
+  }
+ },
+ {
+  "slot": "media/rollout_abc130k__s01__wan_move.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 1 of abc130k, Wan-Move",
+  "size": [
+   480,
+   360
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 284232,
+  "poster": "website/media/posters/rollout_abc130k__s01__wan_move.jpg",
+  "poster_bytes": 26547,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x360); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Wan-Move",
+  "rollout": {
+   "dataset": "abc130k",
+   "row_slot": "rollout_abc130k",
+   "index": 1,
+   "sample_id": "sample_8762897a20b3e5e4afa2ef918b419bf3397b407118d7852161bf65038a7956a8",
+   "pinned": false,
+   "episode_key": "fold_and_stack_the_t_shirts/episode_7de09792-96e5-4e59-b3b5-bbef6dd350f4",
+   "cam_id": "top",
+   "caption": "fold and stack the t-shirts",
+   "start_frame": 891
+  }
+ },
+ {
+  "slot": "media/rollout_abc130k__s01__cosmos2p5.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 1 of abc130k, Cosmos 2.5",
+  "size": [
+   480,
+   360
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 192141,
+  "poster": "website/media/posters/rollout_abc130k__s01__cosmos2p5.jpg",
+  "poster_bytes": 23218,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x360); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Cosmos 2.5",
+  "rollout": {
+   "dataset": "abc130k",
+   "row_slot": "rollout_abc130k",
+   "index": 1,
+   "sample_id": "sample_8762897a20b3e5e4afa2ef918b419bf3397b407118d7852161bf65038a7956a8",
+   "pinned": false,
+   "episode_key": "fold_and_stack_the_t_shirts/episode_7de09792-96e5-4e59-b3b5-bbef6dd350f4",
+   "cam_id": "top",
+   "caption": "fold and stack the t-shirts",
+   "start_frame": 891
+  }
+ },
+ {
+  "slot": "media/rollout_abc130k__s01__ours.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 1 of abc130k, Ours",
+  "size": [
+   480,
+   360
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 200593,
+  "poster": "website/media/posters/rollout_abc130k__s01__ours.jpg",
+  "poster_bytes": 24750,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x360); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Ours",
+  "rollout": {
+   "dataset": "abc130k",
+   "row_slot": "rollout_abc130k",
+   "index": 1,
+   "sample_id": "sample_8762897a20b3e5e4afa2ef918b419bf3397b407118d7852161bf65038a7956a8",
+   "pinned": false,
+   "episode_key": "fold_and_stack_the_t_shirts/episode_7de09792-96e5-4e59-b3b5-bbef6dd350f4",
+   "cam_id": "top",
+   "caption": "fold and stack the t-shirts",
+   "start_frame": 891
+  }
+ },
+ {
+  "slot": "media/rollout_abc130k__s01__gt.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 1 of abc130k, Ground Truth",
+  "size": [
+   480,
+   360
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 220010,
+  "poster": "website/media/posters/rollout_abc130k__s01__gt.jpg",
+  "poster_bytes": 25425,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x360); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Ground Truth",
+  "rollout": {
+   "dataset": "abc130k",
+   "row_slot": "rollout_abc130k",
+   "index": 1,
+   "sample_id": "sample_8762897a20b3e5e4afa2ef918b419bf3397b407118d7852161bf65038a7956a8",
+   "pinned": false,
+   "episode_key": "fold_and_stack_the_t_shirts/episode_7de09792-96e5-4e59-b3b5-bbef6dd350f4",
+   "cam_id": "top",
+   "caption": "fold and stack the t-shirts",
+   "start_frame": 891
+  }
+ },
+ {
+  "slot": "media/rollout_abc130k__s02__wan_move.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 2 of abc130k, Wan-Move",
+  "size": [
+   480,
+   360
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 242476,
+  "poster": "website/media/posters/rollout_abc130k__s02__wan_move.jpg",
+  "poster_bytes": 27131,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x360); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Wan-Move",
+  "rollout": {
+   "dataset": "abc130k",
+   "row_slot": "rollout_abc130k",
+   "index": 2,
+   "sample_id": "sample_bf1276a7302b3a484bc56e76975bcd351b87d964c1ae5f276798f9a9b8d38ba9",
+   "pinned": false,
+   "episode_key": "place_the_food_in_the_zip_top_bag_and_seal_the_zipper/episode_70656bde-7b22-43f1-81be-248d03d930eb",
+   "cam_id": "top",
+   "caption": "place the food in the zip-top bag and seal the zipper",
+   "start_frame": 891
+  }
+ },
+ {
+  "slot": "media/rollout_abc130k__s02__cosmos2p5.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 2 of abc130k, Cosmos 2.5",
+  "size": [
+   480,
+   360
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 198113,
+  "poster": "website/media/posters/rollout_abc130k__s02__cosmos2p5.jpg",
+  "poster_bytes": 23218,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x360); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Cosmos 2.5",
+  "rollout": {
+   "dataset": "abc130k",
+   "row_slot": "rollout_abc130k",
+   "index": 2,
+   "sample_id": "sample_bf1276a7302b3a484bc56e76975bcd351b87d964c1ae5f276798f9a9b8d38ba9",
+   "pinned": false,
+   "episode_key": "place_the_food_in_the_zip_top_bag_and_seal_the_zipper/episode_70656bde-7b22-43f1-81be-248d03d930eb",
+   "cam_id": "top",
+   "caption": "place the food in the zip-top bag and seal the zipper",
+   "start_frame": 891
+  }
+ },
+ {
+  "slot": "media/rollout_abc130k__s02__ours.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 2 of abc130k, Ours",
+  "size": [
+   480,
+   360
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 228539,
+  "poster": "website/media/posters/rollout_abc130k__s02__ours.jpg",
+  "poster_bytes": 25476,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x360); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Ours",
+  "rollout": {
+   "dataset": "abc130k",
+   "row_slot": "rollout_abc130k",
+   "index": 2,
+   "sample_id": "sample_bf1276a7302b3a484bc56e76975bcd351b87d964c1ae5f276798f9a9b8d38ba9",
+   "pinned": false,
+   "episode_key": "place_the_food_in_the_zip_top_bag_and_seal_the_zipper/episode_70656bde-7b22-43f1-81be-248d03d930eb",
+   "cam_id": "top",
+   "caption": "place the food in the zip-top bag and seal the zipper",
+   "start_frame": 891
+  }
+ },
+ {
+  "slot": "media/rollout_abc130k__s02__gt.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 2 of abc130k, Ground Truth",
+  "size": [
+   480,
+   360
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 276231,
+  "poster": "website/media/posters/rollout_abc130k__s02__gt.jpg",
+  "poster_bytes": 26884,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x360); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Ground Truth",
+  "rollout": {
+   "dataset": "abc130k",
+   "row_slot": "rollout_abc130k",
+   "index": 2,
+   "sample_id": "sample_bf1276a7302b3a484bc56e76975bcd351b87d964c1ae5f276798f9a9b8d38ba9",
+   "pinned": false,
+   "episode_key": "place_the_food_in_the_zip_top_bag_and_seal_the_zipper/episode_70656bde-7b22-43f1-81be-248d03d930eb",
+   "cam_id": "top",
+   "caption": "place the food in the zip-top bag and seal the zipper",
+   "start_frame": 891
+  }
+ },
+ {
+  "slot": "media/rollout_abc130k__s03__wan_move.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 3 of abc130k, Wan-Move",
+  "size": [
+   480,
+   360
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 341648,
+  "poster": "website/media/posters/rollout_abc130k__s03__wan_move.jpg",
+  "poster_bytes": 26061,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x360); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Wan-Move",
+  "rollout": {
+   "dataset": "abc130k",
+   "row_slot": "rollout_abc130k",
+   "index": 3,
+   "sample_id": "sample_dc3a72ee5776d3f20a03b3cedabd2de3938ca5f65bf8c603739c32039d3a1d35",
+   "pinned": false,
+   "episode_key": "fold_and_stack_the_t_shirts/episode_a570cd33-108f-41ab-8ee9-f96f43961f86",
+   "cam_id": "top",
+   "caption": "fold and stack the t-shirts",
+   "start_frame": 162
+  }
+ },
+ {
+  "slot": "media/rollout_abc130k__s03__cosmos2p5.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 3 of abc130k, Cosmos 2.5",
+  "size": [
+   480,
+   360
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 375763,
+  "poster": "website/media/posters/rollout_abc130k__s03__cosmos2p5.jpg",
+  "poster_bytes": 22663,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x360); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Cosmos 2.5",
+  "rollout": {
+   "dataset": "abc130k",
+   "row_slot": "rollout_abc130k",
+   "index": 3,
+   "sample_id": "sample_dc3a72ee5776d3f20a03b3cedabd2de3938ca5f65bf8c603739c32039d3a1d35",
+   "pinned": false,
+   "episode_key": "fold_and_stack_the_t_shirts/episode_a570cd33-108f-41ab-8ee9-f96f43961f86",
+   "cam_id": "top",
+   "caption": "fold and stack the t-shirts",
+   "start_frame": 162
+  }
+ },
+ {
+  "slot": "media/rollout_abc130k__s03__ours.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 3 of abc130k, Ours",
+  "size": [
+   480,
+   360
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 304878,
+  "poster": "website/media/posters/rollout_abc130k__s03__ours.jpg",
+  "poster_bytes": 23097,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x360); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Ours",
+  "rollout": {
+   "dataset": "abc130k",
+   "row_slot": "rollout_abc130k",
+   "index": 3,
+   "sample_id": "sample_dc3a72ee5776d3f20a03b3cedabd2de3938ca5f65bf8c603739c32039d3a1d35",
+   "pinned": false,
+   "episode_key": "fold_and_stack_the_t_shirts/episode_a570cd33-108f-41ab-8ee9-f96f43961f86",
+   "cam_id": "top",
+   "caption": "fold and stack the t-shirts",
+   "start_frame": 162
+  }
+ },
+ {
+  "slot": "media/rollout_abc130k__s03__gt.mp4",
+  "section": "Figure 3 - qualitative rollouts",
+  "provenance": "eval sample 3 of abc130k, Ground Truth",
+  "size": [
+   480,
+   360
+  ],
+  "frames": 81,
+  "fps": 16.0,
+  "bytes": 316989,
+  "poster": "website/media/posters/rollout_abc130k__s03__gt.jpg",
+  "poster_bytes": 24289,
+  "poster_frame": 48,
+  "transform": "resampled into the ground-truth cell shape (480x360); unlabelled and ungutted -- the page draws the column heading and frame-locks the four members of the row",
+  "column": "Ground Truth",
+  "rollout": {
+   "dataset": "abc130k",
+   "row_slot": "rollout_abc130k",
+   "index": 3,
+   "sample_id": "sample_dc3a72ee5776d3f20a03b3cedabd2de3938ca5f65bf8c603739c32039d3a1d35",
+   "pinned": false,
+   "episode_key": "fold_and_stack_the_t_shirts/episode_a570cd33-108f-41ab-8ee9-f96f43961f86",
+   "cam_id": "top",
+   "caption": "fold and stack the t-shirts",
+   "start_frame": 162
+  }
+ }
+]
