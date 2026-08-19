@@ -4,6 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="./support.js"></script>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-0N75MEWQ2J"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-0N75MEWQ2J');
+</script>
 </head>
 <body>
 <x-dc>
@@ -40,7 +49,7 @@
     [data-cols="4"], [data-cols="5"], [data-cols="6"] {
       grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     }
-    h1 { font-size: 34px !important; }
+    h1 { font-size: 36px !important; }
     /* Seven section links do not fit a phone. Scrolling them keeps the 48 px
        bar intact; without this they are what drags the whole document
        sideways, which then makes every section look too wide. */
@@ -92,7 +101,7 @@
   @media (max-width: 560px) {
     [data-cols] { grid-template-columns: minmax(0, 1fr) !important; }
     [data-col-head] { display: none !important; }
-    h1 { font-size: 28px !important; }
+    h1 { font-size: 30px !important; }
     /* On a phone the dataset column is a third of the viewport; the row is
        scrolling anyway, so give the width back to the panels. */
     [data-rollout-grid] {
@@ -102,23 +111,23 @@
 </style>
 </helmet>
 
-<div style="background:#F2F2F2; color:#202020; font-family:'NVIDIA Sans','DM Sans',system-ui,sans-serif; font-size:14px; line-height:1.5;">
+<div style="background:#F2F2F2; color:#202020; font-family:'NVIDIA Sans','DM Sans',system-ui,sans-serif; font-size:17px; line-height:1.6;">
 
   <nav style="position:sticky; top:0; z-index:20; background:#FFFFFF; border-bottom:1px solid #D8D8D8;">
     <div style="max-width:1180px; margin:0 auto; padding:0 24px; height:48px; display:flex; align-items:center; gap:24px;">
       <div style="display:flex; align-items:center; gap:12px; white-space:nowrap;">
         <a href="https://www.nvidia.com/" style="display:block;"><img src="img/nvidia-logo-black.png" alt="NVIDIA" style="height:18px; width:auto; display:block;"></a>
         <span aria-hidden="true" style="width:1px; height:18px; background:#D8D8D8;"></span>
-        <span style="font-weight:700; letter-spacing:-0.25px; font-size:15px;">Hydra-0</span>
+        <span style="font-weight:700; letter-spacing:-0.25px; font-size:17px;">Hydra-0</span>
       </div>
-      <div style="display:flex; gap:18px; font-size:13px;">
-        <a href="#abstract" style="color:#5E5E5E;">Abstract</a>
-        <a href="#method" style="color:#5E5E5E;">Method</a>
-        <a href="#flow" style="color:#5E5E5E;">Action flow</a>
-        <!-- <a href="#data" style="color:#5E5E5E;">Data</a> -->
-        <a href="#results" style="color:#5E5E5E;">Results</a>
-        <a href="#policy" style="color:#5E5E5E;">Policy evaluation</a>
-        <a href="#control" style="color:#5E5E5E;">Control</a>
+      <div style="display:flex; gap:18px; font-size:15px;">
+        <a href="#abstract" style="color:#4A4A4A;">Abstract</a>
+        <a href="#method" style="color:#4A4A4A;">Method</a>
+        <a href="#flow" style="color:#4A4A4A;">Action flow</a>
+        <!-- <a href="#data" style="color:#4A4A4A;">Data</a> -->
+        <a href="#results" style="color:#4A4A4A;">Results</a>
+        <a href="#policy" style="color:#4A4A4A;">Policy evaluation</a>
+        <a href="#control" style="color:#4A4A4A;">Control</a>
       </div>
     </div>
   </nav>
@@ -127,13 +136,13 @@
     <video data-banner src="media/banner.mp4" poster="media/posters/banner.jpg" aria-hidden="true" tabindex="-1" autoplay muted loop playsinline preload="auto" style="position:absolute; left:0; right:0; bottom:0; width:100%; height:auto; opacity:0.78; pointer-events:none; -webkit-mask-image:linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 42%); mask-image:linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 42%);"></video>
     <div data-banner-scrim aria-hidden="true" style="position:absolute; inset:0; pointer-events:none; background:linear-gradient(90deg, rgba(5,5,5,0.86) 0%, rgba(5,5,5,0.78) 45%, rgba(5,5,5,0.46) 100%),linear-gradient(180deg, rgba(5,5,5,0.22) 0%, rgba(5,5,5,0) 32%, rgba(5,5,5,0.34) 100%);"></div>
     <div style="position:relative; max-width:1180px; margin:0 auto; padding:56px 24px 44px; display:grid; gap:22px;">
-      <div style="display:flex; align-items:center; gap:10px; font-size:12px; letter-spacing:1.5px; text-transform:uppercase; color:#76B900;">
+      <div style="display:flex; align-items:center; gap:10px; font-size:13px; letter-spacing:1.5px; text-transform:uppercase; color:#76B900;">
         <img src="img/nvidia-logo.png" alt="NVIDIA" style="height:22px; width:auto; display:block;">
         <span>technical report · preprint</span>
       </div>
-      <h1 style="margin:0; font-size:44px; line-height:1.1; font-weight:700; letter-spacing:-1px; max-width:22ch; text-wrap:balance;">Hydra-0: Action Flow for Generalist World Modeling and Control</h1>
-      <p style="margin:0; max-width:72ch; font-size:17px; line-height:1.55; color:#C9C9C9; text-wrap:pretty;">A generalist world model conditioned on action flow — robot actions represented as pixel motion — so one model trains across embodiments, simulates, evaluates policies, and drives a real robot.</p>
-      <div style="display:flex; flex-wrap:wrap; column-gap:18px; row-gap:6px; font-size:14px; color:#EDEDED; max-width:90ch;">
+      <h1 style="margin:0; font-size:48px; line-height:1.12; font-weight:700; letter-spacing:-1px; max-width:34ch; text-wrap:balance;">Hydra-0: Action Flow for Generalist World Modeling and Control</h1>
+      <p style="margin:0; max-width:86ch; font-size:19px; line-height:1.6; color:#C9C9C9; text-wrap:pretty;">A generalist world model conditioned on action flow: robot actions represented as pixel motion. One model trains across embodiments, simulates them, evaluates policies, and drives a real robot.</p>
+      <div style="display:flex; flex-wrap:wrap; column-gap:18px; row-gap:6px; font-size:15px;">
         <span><a data-author href="https://lhy.xyz/" target="_blank" rel="noopener noreferrer">Hongyu Li</a><sup style="color:#76B900;">1,2,3</sup></span>
         <span><a data-author href="https://wenbowen123.github.io/" target="_blank" rel="noopener noreferrer">Bowen Wen</a><sup style="color:#76B900;">1</sup></span>
         <span><a data-author href="https://rolandzhu.github.io/" target="_blank" rel="noopener noreferrer">Xinghao Zhu</a><sup style="color:#76B900;">1</sup></span>
@@ -146,15 +155,15 @@
         <span><a data-author href="https://scholar.google.com/citations?user=O_PbKNMAAAAJ&amp;hl=zh-CN" target="_blank" rel="noopener noreferrer">Chenran Li</a><sup style="color:#76B900;">1</sup></span>
         <span><a data-author href="https://www.linkedin.com/in/yanchang1/" target="_blank" rel="noopener noreferrer">Yan Chang</a><sup style="color:#76B900;">1</sup></span>
       </div>
-      <div style="display:flex; flex-wrap:wrap; column-gap:20px; row-gap:4px; font-size:13px; color:#8F8F8F;">
+      <div style="display:flex; flex-wrap:wrap; column-gap:20px; row-gap:4px; font-size:15px; color:#C9C9C9;">
         <span><sup>1</sup> NVIDIA</span>
         <span><sup>2</sup> Brown University</span>
         <span><sup>3</sup> Columbia University</span>
         <span><sup>4</sup> Harvard University</span>
       </div>
       <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:4px;">
-        <a href="#" style="display:inline-flex; align-items:center; height:36px; padding:0 16px; border:1px solid #343434; border-radius:4px; color:#FFFFFF; font-size:14px;" style-hover="border-color:#76B900;">arXiv — coming soon</a>
-        <a href="#" style="display:inline-flex; align-items:center; height:36px; padding:0 16px; border:1px solid #343434; border-radius:4px; color:#FFFFFF; font-size:14px;" style-hover="border-color:#76B900;">Code — coming soon</a>
+        <a href="https://arxiv.org/abs/2608.18077" target="_blank" rel="noopener noreferrer" style="display:inline-flex; align-items:center; height:36px; padding:0 16px; border:1px solid #343434; border-radius:4px; color:#FFFFFF; font-size:17px;" style-hover="border-color:#76B900;">arXiv</a>
+        <a href="#" style="display:inline-flex; align-items:center; height:36px; padding:0 16px; border:1px solid #343434; border-radius:4px; color:#FFFFFF; font-size:17px;" style-hover="border-color:#76B900;">Code — coming soon</a>
       </div>
     </div>
   </header>
@@ -162,7 +171,7 @@
   <section style="max-width:1180px; margin:0 auto; padding:32px 24px 0;">
     <div style="border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:20px;">
       <div style="margin-bottom:14px;">
-        <h2 style="margin:0; font-size:16px; font-weight:500; letter-spacing:-0.25px;">Overview video</h2>
+        <h2 style="margin:0; font-size:17px; font-weight:600; letter-spacing:-0.25px;">Overview video</h2>
       </div>
       <video src="media/hero.mp4" poster="media/posters/hero.jpg" aria-label="Overview video" autoplay controls muted loop playsinline preload="auto" style="width:100%; aspect-ratio:16/9; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
     </div>
@@ -171,36 +180,36 @@
   <section style="max-width:1180px; margin:0 auto; padding:20px 24px 0;">
     <div style="border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:20px;">
       <div style="display:flex; align-items:baseline; justify-content:space-between; gap:16px; margin-bottom:14px;">
-        <h2 style="margin:0; font-size:16px; font-weight:500; letter-spacing:-0.25px;">Action flow as a shared visual interface</h2>
-        <span style="font-size:12px; color:#8F8F8F;">Figure 1</span>
+        <h2 style="margin:0; font-size:17px; font-weight:600; letter-spacing:-0.25px;">Action flow as a shared visual interface</h2>
+        <span style="font-size:15px; color:#4A4A4A; white-space:nowrap;">Figure 1</span>
       </div>
       <div data-cols="labelled" style="display:grid; grid-template-columns:120px repeat(4, 1fr); gap:8px; align-items:center;">
-        <div data-span style="font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#5E5E5E;">Sources</div>
+        <div data-span style="font-size:13px; letter-spacing:1px; text-transform:uppercase; color:#4A4A4A;">Sources</div>
         <video src="media/teaser_source_egodex.mp4" poster="media/posters/teaser_source_egodex.jpg" aria-label="EgoDex source window" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
         <video src="media/teaser_source_deform360.mp4" poster="media/posters/teaser_source_deform360.jpg" aria-label="Deform360 source window" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
         <video src="media/teaser_source_droid.mp4" poster="media/posters/teaser_source_droid.jpg" aria-label="DROID source window" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
         <video src="media/teaser_source_xvla_yam.mp4" poster="media/posters/teaser_source_xvla_yam.jpg" aria-label="XVLA-Soft-Fold source window" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
-        <div data-span style="font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#5E5E5E;">Shared action flow</div>
+        <div data-span style="font-size:13px; letter-spacing:1px; text-transform:uppercase; color:#4A4A4A;">Shared action flow</div>
         <video src="media/teaser_flow_egodex.mp4" poster="media/posters/teaser_flow_egodex.jpg" aria-label="EgoDex window with its action flow" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
         <video src="media/teaser_flow_deform360.mp4" poster="media/posters/teaser_flow_deform360.jpg" aria-label="Deform360 window with its action flow" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
         <video src="media/teaser_flow_droid.mp4" poster="media/posters/teaser_flow_droid.jpg" aria-label="DROID window with its action flow" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
         <video src="media/teaser_flow_xvla_yam.mp4" poster="media/posters/teaser_flow_xvla_yam.jpg" aria-label="XVLA-Soft-Fold window with its action flow" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
         <div data-narrow-hide></div>
-        <div style="font-size:12px; color:#5E5E5E;">EgoDex · human hands</div>
-        <div style="font-size:12px; color:#5E5E5E;">Deform360 · handheld gripper</div>
-        <div style="font-size:12px; color:#5E5E5E;">DROID · single arm</div>
-        <div style="font-size:12px; color:#5E5E5E;">XVLA-Soft-Fold · bimanual</div>
+        <div style="font-size:15px; color:#4A4A4A;">EgoDex · human hands</div>
+        <div style="font-size:15px; color:#4A4A4A;">Deform360 · handheld gripper</div>
+        <div style="font-size:15px; color:#4A4A4A;">DROID · single arm</div>
+        <div style="font-size:15px; color:#4A4A4A;">XVLA-Soft-Fold · bimanual</div>
       </div>
-      <p style="margin:16px 0 0; max-width:90ch; font-size:13px; color:#5E5E5E; text-wrap:pretty;">One representation, four embodiments: an egocentric human hand, a handheld gripper, a single arm and a bimanual robot. The lower row is the upper row plus the interface — the same window carrying the trajectories the model is conditioned on. What that interface then buys is the rest of this page: simulation, policy evaluation, and control.</p>
+      <p style="margin:16px 0 0; font-size:15px; color:#4A4A4A; text-wrap:pretty;">One representation, four embodiments: an egocentric human hand, a handheld gripper, a single arm and a bimanual robot. The lower row is the upper row plus the interface — the same window carrying the trajectories the model is conditioned on. What that interface then buys is the rest of this page: simulation, policy evaluation, and control.</p>
     </div>
   </section>
 
   <section id="abstract" style="max-width:1180px; margin:0 auto; padding:40px 24px 0;">
     <div data-cols="rail" style="display:grid; grid-template-columns:200px minmax(0, 1fr); gap:32px; align-items:start;">
-      <h2 style="margin:0; font-size:16px; font-weight:500; letter-spacing:-0.25px;">Abstract</h2>
+      <h2 style="margin:0; font-size:17px; font-weight:600; letter-spacing:-0.25px;">Abstract</h2>
       <div style="max-width:78ch; display:grid; gap:14px;">
-        <p style="margin:0; font-size:16px; line-height:1.6; text-wrap:pretty;">Foundation world models for robotics should scale with heterogeneous interaction data and transfer across embodiments, yet most current models are conditioned on embodiment-specific joint or end-effector commands, which never specify the image-plane motion those commands produce. We introduce <strong>Hydra-0</strong>, a generalist world model conditioned on <strong>action flow</strong>, which represents robot actions as pixel motion: camera-plane trajectories of the visible embodiment, obtained at deployment by executing a candidate command through the robot controller and physics simulation and projecting the moving robot surface through robot geometry and camera calibration.</p>
-        <p style="margin:0; font-size:16px; line-height:1.6; text-wrap:pretty;">Because the condition lives in visual coordinates, it is a shared interface for learning action consequences across embodiments, tasks, environments, and video-generation backbones. Against our action-conditioned Cosmos 2.5 baseline, Hydra-0 cuts robot-motion error by 90.40% and object-motion error by 60.16%, and supports zero-shot composition and data-efficient adaptation. On RoboLab, replayed and reference success rates correlate at Pearson r = 0.96. The interface also inverts: a world action model predicts compatible robot motion from desired object flow transferred from a human demonstration, and a trained action head maps its latent features to executable actions without task-specific expert robot demonstrations.</p>
+        <p style="margin:0; font-size:17px; line-height:1.6; text-wrap:pretty;">We introduce <strong>Hydra-0</strong>, a generalist world model conditioned on <strong>action flow</strong>, which represents robot actions as pixel motion. This shared visual interface enables generalist world modeling and control by learning action consequences across embodiments, tasks, environments, and video-generation backbones. Our best configuration achieves 90.4% lower robot-motion error and 60.2% lower object-motion error than our action-conditioned baseline, while supporting zero-shot composition and data-efficient adaptation. On the RoboLab benchmark, Hydra-0 achieves a Pearson correlation of r = 0.96 between replayed and reference success rates.</p>
+        <p style="margin:0; font-size:17px; line-height:1.6; text-wrap:pretty;">Finally, we uncover an emergent inverse mode of this interface: a world action model that predicts compatible robot motion from desired object flow transferred from a human demonstration. A trained action head maps the resulting latent features to executable actions without requiring task-specific expert robot demonstrations. Together, these results demonstrate the potential of action flow as a shared control interface connecting heterogeneous training data, open-loop policy evaluation, and robot control.</p>
       </div>
     </div>
   </section>
@@ -208,24 +217,24 @@
   <section style="max-width:1180px; margin:0 auto; padding:28px 24px 0;">
     <div data-cols="5" style="display:grid; grid-template-columns:repeat(5, 1fr); gap:1px; background:#D8D8D8; border:1px solid #D8D8D8; border-radius:4px; overflow:hidden;">
       <div style="background:#FFFFFF; padding:18px 16px;">
-        <div style="font-size:28px; font-weight:700; letter-spacing:-1px;">90.40%</div>
-        <div style="font-size:12px; color:#5E5E5E; margin-top:4px;">lower robot-motion error vs. native-action baseline</div>
+        <div style="font-size:28px; font-weight:700; letter-spacing:-1px;">90.4%</div>
+        <div style="font-size:15px; color:#4A4A4A; margin-top:4px;">lower robot-motion error vs. native-action baseline</div>
       </div>
       <div style="background:#FFFFFF; padding:18px 16px;">
-        <div style="font-size:28px; font-weight:700; letter-spacing:-1px;">60.16%</div>
-        <div style="font-size:12px; color:#5E5E5E; margin-top:4px;">lower object-motion error</div>
+        <div style="font-size:28px; font-weight:700; letter-spacing:-1px;">60.2%</div>
+        <div style="font-size:15px; color:#4A4A4A; margin-top:4px;">lower object-motion error</div>
       </div>
       <div style="background:#FFFFFF; padding:18px 16px;">
         <div style="font-size:28px; font-weight:700; letter-spacing:-1px;">0.96</div>
-        <div style="font-size:12px; color:#5E5E5E; margin-top:4px;">correlation with RoboLab success over 300 episodes</div>
+        <div style="font-size:15px; color:#4A4A4A; margin-top:4px;">correlation with RoboLab success over 300 episodes</div>
       </div>
       <div style="background:#FFFFFF; padding:18px 16px;">
         <div style="font-size:28px; font-weight:700; letter-spacing:-1px;">16.0×</div>
-        <div style="font-size:12px; color:#5E5E5E; margin-top:4px;">generation-only speedup after few-step distillation</div>
+        <div style="font-size:15px; color:#4A4A4A; margin-top:4px;">generation-only speedup after few-step distillation</div>
       </div>
       <div style="background:#FFFFFF; padding:18px 16px;">
         <div style="font-size:28px; font-weight:700; letter-spacing:-1px;">2,202 h</div>
-        <div style="font-size:12px; color:#5E5E5E; margin-top:4px;">filtered multi-embodiment training video</div>
+        <div style="font-size:15px; color:#4A4A4A; margin-top:4px;">filtered multi-embodiment training video</div>
       </div>
     </div>
   </section>
@@ -233,67 +242,67 @@
   <section id="method" style="max-width:1180px; margin:0 auto; padding:48px 24px 0;">
     <div data-cols="rail" style="display:grid; grid-template-columns:200px minmax(0, 1fr); gap:32px; align-items:start;">
       <div>
-        <h2 style="margin:0 0 8px; font-size:16px; font-weight:500; letter-spacing:-0.25px;">Method</h2>
-        <p style="margin:0; font-size:13px; color:#5E5E5E; text-wrap:pretty;">One conditioning interface, built two ways: from video during training, from kinematics at deployment.</p>
+        <h2 style="margin:0 0 8px; font-size:17px; font-weight:600; letter-spacing:-0.25px;">Method</h2>
+        <p style="margin:0; font-size:15px; color:#4A4A4A; text-wrap:pretty;">One conditioning interface, built two ways: from video during training, from kinematics at deployment.</p>
         <!-- One colour key for every overlay on the page: the teaser bands, the
              method lanes and the sampling panels all draw with these two. -->
-        <div style="margin-top:14px; display:grid; gap:6px; font-size:12px; color:#5E5E5E;">
+        <div style="margin-top:14px; display:grid; gap:6px; font-size:15px; color:#4A4A4A;">
           <div style="display:flex; align-items:center; gap:8px;"><span style="width:11px; height:11px; border-radius:2px; background:#FF6030; flex:0 0 auto;"></span>Embodiment — the acting body</div>
           <div style="display:flex; align-items:center; gap:8px;"><span style="width:11px; height:11px; border-radius:2px; background:#48E088; flex:0 0 auto;"></span>Manipulated object</div>
         </div>
       </div>
       <div style="display:grid; gap:20px; min-width:0;">
-        <p style="margin:0; max-width:78ch; font-size:16px; line-height:1.6; text-wrap:pretty;">Action flow is a set of camera-plane trajectories describing the commanded motion of the visible embodiment: image positions with visibility flags, tracked over the prediction horizon. The same representation can describe a robot arm, a handheld gripper, or a human hand, without exposing any of their native action spaces to the video model.</p>
+        <p style="margin:0; max-width:78ch; font-size:17px; line-height:1.6; text-wrap:pretty;">Action flow is a set of camera-plane trajectories describing the commanded motion of the visible embodiment: image positions with visibility flags, tracked over the prediction horizon. The same representation can describe a robot arm, a handheld gripper, or a human hand, without exposing any of their native action spaces to the video model.</p>
 
         <div id="method-training" style="min-width:0; border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:20px;">
           <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px; flex-wrap:wrap;">
             <div style="display:flex; align-items:baseline; gap:10px;">
-              <span style="font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#4E7C00; font-weight:500;">Offline training</span>
-              <span style="font-size:12px; color:#8F8F8F;">action flow recovered from interaction video</span>
+              <span style="font-size:13px; letter-spacing:1px; text-transform:uppercase; color:#4E7C00; font-weight:600;">Offline training</span>
+              <span style="font-size:15px; color:#4A4A4A;">action flow recovered from interaction video</span>
             </div>
             <div style="display:flex; gap:6px;">
-              <button type="button" data-hscroll-prev="method-training" aria-label="Scroll left" style="width:30px; height:30px; padding:0; display:inline-flex; align-items:center; justify-content:center; border:1px solid #D8D8D8; border-radius:4px; background:#FFFFFF; color:#5E5E5E; cursor:pointer; font-family:inherit; transition:opacity 120ms ease-out, border-color 120ms ease-out;"><svg width="8" height="14" viewBox="0 0 8 14" fill="none" aria-hidden="true"><path d="M6.5 1 1.5 7l5 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-              <button type="button" data-hscroll-next="method-training" aria-label="Scroll right" style="width:30px; height:30px; padding:0; display:inline-flex; align-items:center; justify-content:center; border:1px solid #D8D8D8; border-radius:4px; background:#FFFFFF; color:#5E5E5E; cursor:pointer; font-family:inherit; transition:opacity 120ms ease-out, border-color 120ms ease-out;"><svg width="8" height="14" viewBox="0 0 8 14" fill="none" aria-hidden="true"><path d="M1.5 1l5 6-5 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+              <button type="button" data-hscroll-prev="method-training" aria-label="Scroll left" style="width:30px; height:30px; padding:0; display:inline-flex; align-items:center; justify-content:center; border:1px solid #D8D8D8; border-radius:4px; background:#FFFFFF; color:#4A4A4A; cursor:pointer; font-family:inherit; transition:opacity 120ms ease-out, border-color 120ms ease-out;"><svg width="8" height="14" viewBox="0 0 8 14" fill="none" aria-hidden="true"><path d="M6.5 1 1.5 7l5 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+              <button type="button" data-hscroll-next="method-training" aria-label="Scroll right" style="width:30px; height:30px; padding:0; display:inline-flex; align-items:center; justify-content:center; border:1px solid #D8D8D8; border-radius:4px; background:#FFFFFF; color:#4A4A4A; cursor:pointer; font-family:inherit; transition:opacity 120ms ease-out, border-color 120ms ease-out;"><svg width="8" height="14" viewBox="0 0 8 14" fill="none" aria-hidden="true"><path d="M1.5 1l5 6-5 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
             </div>
           </div>
           <div data-hscroll="method-training" style="overflow-x:auto; scroll-behavior:smooth;">
           <div style="display:flex; gap:26px; min-width:1428px; align-items:flex-start;">
             <div style="flex:0 0 auto; width:460px;">
-              <div style="font-size:13px; line-height:1.35; margin-bottom:8px;">DROID<br><span style="color:#8F8F8F;">single arm</span></div>
+              <div style="font-size:15px; line-height:1.35; margin-bottom:8px;">DROID<br><span style="color:#4A4A4A;">single arm</span></div>
               <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-                <div style="font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#5E5E5E; border-bottom:2px solid #EDEDED; padding-bottom:5px;">Interaction video</div>
-                <div style="font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#4E7C00; border-bottom:2px solid #76B900; padding-bottom:5px;">Action flow</div>
+                <div style="font-size:13px; letter-spacing:1px; text-transform:uppercase; color:#4A4A4A; border-bottom:2px solid #EDEDED; padding-bottom:5px;">Interaction video</div>
+                <div style="font-size:13px; letter-spacing:1px; text-transform:uppercase; color:#4E7C00; border-bottom:2px solid #76B900; padding-bottom:5px;">Action flow</div>
                 <video src="media/method_train_video_droid.mp4" poster="media/posters/method_train_video_droid.jpg" controls muted loop playsinline preload="none" aria-label="DROID interaction video" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
                 <video src="media/method_train_flow_droid.mp4" poster="media/posters/method_train_flow_droid.jpg" controls muted loop playsinline preload="none" aria-label="DROID action flow over the same window" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
               </div>
             </div>
             <div style="flex:0 0 auto; width:460px;">
-              <div style="font-size:13px; line-height:1.35; margin-bottom:8px;">Deform360<br><span style="color:#8F8F8F;">handheld gripper</span></div>
+              <div style="font-size:15px; line-height:1.35; margin-bottom:8px;">Deform360<br><span style="color:#4A4A4A;">handheld gripper</span></div>
               <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-                <div style="font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#5E5E5E; border-bottom:2px solid #EDEDED; padding-bottom:5px;">Interaction video</div>
-                <div style="font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#4E7C00; border-bottom:2px solid #76B900; padding-bottom:5px;">Action flow</div>
+                <div style="font-size:13px; letter-spacing:1px; text-transform:uppercase; color:#4A4A4A; border-bottom:2px solid #EDEDED; padding-bottom:5px;">Interaction video</div>
+                <div style="font-size:13px; letter-spacing:1px; text-transform:uppercase; color:#4E7C00; border-bottom:2px solid #76B900; padding-bottom:5px;">Action flow</div>
                 <video src="media/method_train_video_deform360.mp4" poster="media/posters/method_train_video_deform360.jpg" controls muted loop playsinline preload="none" aria-label="Deform360 interaction video" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
                 <video src="media/method_train_flow_deform360.mp4" poster="media/posters/method_train_flow_deform360.jpg" controls muted loop playsinline preload="none" aria-label="Deform360 action flow over the same window" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
               </div>
             </div>
             <div style="flex:0 0 auto; width:460px;">
-              <div style="font-size:13px; line-height:1.35; margin-bottom:8px;">XVLA-Soft-Fold<br><span style="color:#8F8F8F;">bimanual arms</span></div>
+              <div style="font-size:15px; line-height:1.35; margin-bottom:8px;">XVLA-Soft-Fold<br><span style="color:#4A4A4A;">bimanual arms</span></div>
               <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-                <div style="font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#5E5E5E; border-bottom:2px solid #EDEDED; padding-bottom:5px;">Interaction video</div>
-                <div style="font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#4E7C00; border-bottom:2px solid #76B900; padding-bottom:5px;">Action flow</div>
+                <div style="font-size:13px; letter-spacing:1px; text-transform:uppercase; color:#4A4A4A; border-bottom:2px solid #EDEDED; padding-bottom:5px;">Interaction video</div>
+                <div style="font-size:13px; letter-spacing:1px; text-transform:uppercase; color:#4E7C00; border-bottom:2px solid #76B900; padding-bottom:5px;">Action flow</div>
                 <video src="media/method_train_video_xvla.mp4" poster="media/posters/method_train_video_xvla.jpg" controls muted loop playsinline preload="none" aria-label="XVLA-Soft-Fold interaction video" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
                 <video src="media/method_train_flow_xvla.mp4" poster="media/posters/method_train_flow_xvla.jpg" controls muted loop playsinline preload="none" aria-label="XVLA-Soft-Fold action flow over the same window" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
               </div>
             </div>
           </div>
           </div>
-          <p style="margin:14px 0 0; max-width:92ch; font-size:13px; color:#5E5E5E; text-wrap:pretty;">Each pair is one five-second window played twice, frame-locked: on the right, the same window carrying the trajectories the model is conditioned on, drawn over a one-second rolling history. The row scrolls sideways. Tracks are annotated on both the embodiment and the manipulated object: a dense tracker recovers the trajectories from the video, and grounded masks split them. Nothing in this lane is projected from robot geometry — that is the deployment route below. The first frame plus this flow is the entire condition; the rest of the clip is the flow-matching target.</p>
+          <p style="margin:14px 0 0; font-size:15px; color:#4A4A4A; text-wrap:pretty;">Each pair is one five-second window played twice, frame-locked: on the right, the same window carrying the trajectories the model is conditioned on, drawn over a one-second rolling history. The row scrolls sideways. Tracks are annotated on both the embodiment and the manipulated object: a dense tracker recovers the trajectories from the video, and grounded masks split them. Nothing in this lane is projected from robot geometry — that is the deployment route below. The first frame plus this flow is the entire condition; the rest of the clip is the flow-matching target.</p>
         </div>
 
         <div id="method-deployment" style="border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:20px;">
           <div style="display:flex; align-items:baseline; gap:10px; margin-bottom:14px;">
-            <span style="font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#4E7C00; font-weight:500;">Online deployment</span>
-            <span style="font-size:12px; color:#8F8F8F;">action flow projected from an executable command</span>
+            <span style="font-size:13px; letter-spacing:1px; text-transform:uppercase; color:#4E7C00; font-weight:600;">Online deployment</span>
+            <span style="font-size:15px; color:#4A4A4A;">action flow projected from an executable command</span>
           </div>
           <!-- Two by two rather than a row of four: at four across, each pane is
                ~220 px wide in this column and the projected flow, which is the
@@ -301,32 +310,32 @@
           <div data-cols="2" style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:14px; align-items:start;">
             <figure style="margin:0;">
               <img src="img/method/deploy_real_rgb.png" alt="Real RGB observation at the start of the rollout" style="width:100%; aspect-ratio:4/3; object-fit:cover; border:1px solid #D8D8D8; border-radius:2px; display:block;">
-              <figcaption style="font-size:12px; color:#5E5E5E; padding-top:6px;">Observation<br><span style="color:#8F8F8F;">the single frame the model is conditioned on</span></figcaption>
+              <figcaption style="font-size:15px; padding-top:6px;">Observation<br><span style="color:#4A4A4A;">the single frame the model is conditioned on</span></figcaption>
             </figure>
             <figure style="margin:0;">
               <video src="media/method_deploy_isaac.mp4" poster="media/posters/method_deploy_isaac.jpg" controls muted loop playsinline preload="none" aria-label="Isaac Lab replay of the commanded rollout" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
-              <figcaption style="font-size:12px; color:#5E5E5E; padding-top:6px;">Command rollout in Isaac Lab<br><span style="color:#8F8F8F;">the candidate command, executed by a simulator</span></figcaption>
+              <figcaption style="font-size:15px; padding-top:6px;">Command rollout in Isaac Lab<br><span style="color:#4A4A4A;">the candidate command, executed by a simulator</span></figcaption>
             </figure>
             <figure style="margin:0;">
               <video src="media/method_deploy_flow.mp4" poster="media/posters/method_deploy_flow.jpg" controls muted loop playsinline preload="none" aria-label="Action flow projected from the command onto the observation" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
-              <figcaption style="font-size:12px; color:#5E5E5E; padding-top:6px;">Kinematically projected flow<br><span style="color:#8F8F8F;">the same command, in the image plane</span></figcaption>
+              <figcaption style="font-size:15px; padding-top:6px;">Kinematically projected flow<br><span style="color:#4A4A4A;">the same command, in the image plane</span></figcaption>
             </figure>
             <figure style="margin:0;">
               <video src="media/method_deploy_prediction.mp4" poster="media/posters/method_deploy_prediction.jpg" controls muted loop playsinline preload="none" aria-label="World-model prediction of the command's consequence" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
-              <figcaption style="font-size:12px; color:#5E5E5E; padding-top:6px;">Predicted consequence<br><span style="color:#8F8F8F;">what the world model generates</span></figcaption>
+              <figcaption style="font-size:15px; padding-top:6px;">Predicted consequence<br><span style="color:#4A4A4A;">what the world model generates</span></figcaption>
             </figure>
           </div>
-          <p style="margin:14px 0 0; max-width:92ch; font-size:13px; color:#5E5E5E; text-wrap:pretty;">Visible robot-surface points are propagated by the commanded link transforms and projected through the calibrated camera; the model then predicts the command's consequence. The three clips are one seventeen-second closed-loop rollout on a single clock, so the arm pose in the simulator, the flow drawn on the observation and the generated frame all belong to the same instant.</p>
+          <p style="margin:14px 0 0; font-size:15px; color:#4A4A4A; text-wrap:pretty;">Visible robot-surface points are propagated by the commanded link transforms and projected through the calibrated camera; the model then predicts the command's consequence. The three clips are one seventeen-second closed-loop rollout on a single clock, so the arm pose in the simulator, the flow drawn on the observation and the generated frame all belong to the same instant.</p>
         </div>
 
         <div data-cols="2" style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
           <div style="border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:16px;">
-            <h3 style="margin:0 0 8px; font-size:14px; font-weight:500;">Geometry-aware construction</h3>
-            <p style="margin:0; font-size:14px; color:#5E5E5E; line-height:1.55; text-wrap:pretty;">When robot geometry and calibration are available, surface points visible in the first observation are propagated under the candidate command and projected into the camera plane. A point counts as visible only when it has positive camera depth, lies inside the image, and agrees with the rendered depth buffer within 1.2 cm over a 3×3 neighborhood, which is what rejects self-occluded points.</p>
+            <h3 style="margin:0 0 8px; font-size:17px; font-weight:600;">Geometry-aware construction</h3>
+            <p style="margin:0; font-size:17px; line-height:1.6; text-wrap:pretty;">When robot geometry and calibration are available, surface points visible in the first observation are propagated under the candidate command and projected into the camera plane. A point counts as visible only when it has positive camera depth, lies inside the image, and agrees with the rendered depth buffer within 1.2 cm over a 3×3 neighborhood, which is what rejects self-occluded points.</p>
           </div>
           <div style="border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:16px;">
-            <h3 style="margin:0 0 8px; font-size:14px; font-weight:500;">Video-only construction</h3>
-            <p style="margin:0; font-size:14px; color:#5E5E5E; line-height:1.55; text-wrap:pretty;">Most large interaction datasets ship neither robot description files nor calibration. There we recover dense image-plane trajectories with a flow tracker and segment them with grounded embodiment and object masks — the same representation, no privileged metadata.</p>
+            <h3 style="margin:0 0 8px; font-size:17px; font-weight:600;">Video-only construction</h3>
+            <p style="margin:0; font-size:17px; line-height:1.6; text-wrap:pretty;">Most large interaction datasets ship neither robot description files nor calibration. There we recover dense image-plane trajectories with a flow tracker and segment them with grounded embodiment and object masks — the same representation, no privileged metadata.</p>
           </div>
         </div>
       </div>
@@ -336,9 +345,9 @@
   <section id="flow" style="max-width:1180px; margin:0 auto; padding:48px 24px 0;">
     <div data-cols="rail" style="display:grid; grid-template-columns:200px minmax(0, 1fr); gap:32px; align-items:start;">
       <div>
-        <h2 style="margin:0 0 8px; font-size:16px; font-weight:500; letter-spacing:-0.25px;">Grounding and sampling</h2>
-        <p style="margin:0; font-size:13px; color:#5E5E5E; text-wrap:pretty;">Figure 2 · dense tracks are split by mask, then one conditioning mode is drawn per training step.</p>
-        <div style="margin-top:14px; display:grid; gap:6px; font-size:12px; color:#5E5E5E;">
+        <h2 style="margin:0 0 8px; font-size:17px; font-weight:600; letter-spacing:-0.25px;">Grounding and sampling</h2>
+        <p style="margin:0; font-size:15px; color:#4A4A4A; text-wrap:pretty;">Figure 2 · dense tracks are split by mask, then one conditioning mode is drawn per training step.</p>
+        <div style="margin-top:14px; display:grid; gap:6px; font-size:15px; color:#4A4A4A;">
           <div style="display:flex; align-items:center; gap:8px;"><span style="width:11px; height:11px; border-radius:2px; background:#FF6030; flex:0 0 auto;"></span>Embodiment — the acting body</div>
           <div style="display:flex; align-items:center; gap:8px;"><span style="width:11px; height:11px; border-radius:2px; background:#48E088; flex:0 0 auto;"></span>Manipulated object</div>
         </div>
@@ -347,37 +356,37 @@
         <div data-cols="3" style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:10px;">
           <figure style="margin:0;">
             <video src="media/flow_dense_tracks.mp4" poster="media/posters/flow_dense_tracks.jpg" controls muted loop playsinline preload="none" aria-label="Dense tracker output before grounding" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
-            <figcaption style="font-size:12px; color:#5E5E5E; padding-top:6px;">Dense tracks<br><span style="color:#8F8F8F;">tracker output, before anything is labelled</span></figcaption>
+            <figcaption style="font-size:15px; padding-top:6px;">Dense tracks<br><span style="color:#4A4A4A;">tracker output, before anything is labelled</span></figcaption>
           </figure>
           <figure style="margin:0;">
             <video src="media/flow_embodiment_mask.mp4" poster="media/posters/flow_embodiment_mask.jpg" controls muted loop playsinline preload="none" aria-label="Grounded embodiment mask, per frame" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
-            <figcaption style="font-size:12px; color:#5E5E5E; padding-top:6px;">Embodiment mask<br><span style="color:#8F8F8F;">held on both arms as they move</span></figcaption>
+            <figcaption style="font-size:15px; padding-top:6px;">Embodiment mask<br><span style="color:#4A4A4A;">held on both arms as they move</span></figcaption>
           </figure>
           <figure style="margin:0;">
             <video src="media/flow_object_mask.mp4" poster="media/posters/flow_object_mask.jpg" controls muted loop playsinline preload="none" aria-label="Grounded manipulated-object mask, per frame" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
-            <figcaption style="font-size:12px; color:#5E5E5E; padding-top:6px;">Manipulated-object mask<br><span style="color:#8F8F8F;">held on the cloth as it deforms</span></figcaption>
+            <figcaption style="font-size:15px; padding-top:6px;">Manipulated-object mask<br><span style="color:#4A4A4A;">held on the cloth as it deforms</span></figcaption>
           </figure>
         </div>
         <div style="height:1px; background:#D8D8D8; margin:18px 0;"></div>
         <div data-cols="4" style="display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:10px;">
           <figure style="margin:0;">
             <video src="media/flow_sample_embodiment.mp4" poster="media/posters/flow_sample_embodiment.jpg" controls muted loop playsinline preload="none" aria-label="Embodiment sampling mode" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
-            <figcaption style="font-size:12px; padding-top:6px;"><span style="font-weight:500;">Embodiment</span> · p = 0.40<br><span style="color:#5E5E5E;">Acting-body tracks — the primary action condition.</span></figcaption>
+            <figcaption style="font-size:15px; padding-top:6px;"><span style="font-weight:600;">Embodiment</span> · p = 0.40<br><span style="color:#4A4A4A;">Acting-body tracks — the primary action condition.</span></figcaption>
           </figure>
           <figure style="margin:0;">
             <video src="media/flow_sample_object.mp4" poster="media/posters/flow_sample_object.jpg" controls muted loop playsinline preload="none" aria-label="Object sampling mode" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
-            <figcaption style="font-size:12px; padding-top:6px;"><span style="font-weight:500;">Object</span> · p = 0.40<br><span style="color:#5E5E5E;">Task or desired-motion flow; the mode that inverts the model.</span></figcaption>
+            <figcaption style="font-size:15px; padding-top:6px;"><span style="font-weight:600;">Object</span> · p = 0.40<br><span style="color:#4A4A4A;">Task or desired-motion flow; the mode that inverts the model.</span></figcaption>
           </figure>
           <figure style="margin:0;">
             <video src="media/flow_sample_all.mp4" poster="media/posters/flow_sample_all.jpg" controls muted loop playsinline preload="none" aria-label="All sampling mode" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
-            <figcaption style="font-size:12px; padding-top:6px;"><span style="font-weight:500;">All</span> · p = 0.15<br><span style="color:#5E5E5E;">Fallback when semantic grounding is incomplete.</span></figcaption>
+            <figcaption style="font-size:15px; padding-top:6px;"><span style="font-weight:600;">All</span> · p = 0.15<br><span style="color:#4A4A4A;">Fallback when semantic grounding is incomplete.</span></figcaption>
           </figure>
           <figure style="margin:0;">
             <video src="media/flow_sample_none.mp4" poster="media/posters/flow_sample_none.jpg" controls muted loop playsinline preload="none" aria-label="Conditioning dropout, no flow drawn" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
-            <figcaption style="font-size:12px; padding-top:6px;"><span style="font-weight:500;">None</span> · p = 0.05<br><span style="color:#5E5E5E;">Conditioning dropout — text and image only.</span></figcaption>
+            <figcaption style="font-size:15px; padding-top:6px;"><span style="font-weight:600;">None</span> · p = 0.05<br><span style="color:#4A4A4A;">Conditioning dropout — text and image only.</span></figcaption>
           </figure>
         </div>
-        <p style="margin:16px 0 0; max-width:92ch; font-size:13px; color:#5E5E5E; text-wrap:pretty;">All seven panels are the same 81-frame window, played together. One conditioning mode is drawn per training step, from the pools the masks define: 1,819 embodiment tracks and 3,250 object tracks out of 14,997 the tracker returns.</p>
+        <p style="margin:16px 0 0; font-size:15px; color:#4A4A4A; text-wrap:pretty;">All seven panels are the same 81-frame window, played together. One conditioning mode is drawn per training step, from the pools the masks define: 1,819 embodiment tracks and 3,250 object tracks out of 14,997 the tracker returns.</p>
       </div>
     </div>
   </section>
@@ -389,88 +398,88 @@
   <section id="data" style="max-width:1180px; margin:0 auto; padding:48px 24px 0;">
     <div data-cols="rail" style="display:grid; grid-template-columns:200px minmax(0, 1fr); gap:32px; align-items:start;">
       <div>
-        <h2 style="margin:0 0 8px; font-size:16px; font-weight:500; letter-spacing:-0.25px;">Multi-embodiment training corpus</h2>
-        <p style="margin:0; font-size:13px; color:#5E5E5E; text-wrap:pretty;">Seven public sources, kept mainly where the interaction is with a deformable object — cloth, cable, rope, bag, paper — then resampled to 480p at 16 fps and cut into non-overlapping 81-frame windows of about 5 s. Window filters remove static and frozen-gripper windows against a 50-pixel floor on track path length, plus DROID episodes whose language annotation describes no actionable content.</p>
+        <h2 style="margin:0 0 8px; font-size:17px; font-weight:600; letter-spacing:-0.25px;">Multi-embodiment training corpus</h2>
+        <p style="margin:0; font-size:15px; color:#4A4A4A; text-wrap:pretty;">Seven public sources, kept mainly where the interaction is with a deformable object — cloth, cable, rope, bag, paper — then resampled to 480p at 16 fps and cut into non-overlapping 81-frame windows of about 5 s. Window filters remove static and frozen-gripper windows against a 50-pixel floor on track path length, plus DROID episodes whose language annotation describes no actionable content.</p>
       </div>
       <div>
         <div style="border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; overflow-x:auto;">
-          <table style="width:100%; border-collapse:collapse; font-size:13px; min-width:640px;">
+          <table style="width:100%; border-collapse:collapse; font-size:15px; min-width:640px;">
             <thead>
               <tr style="background:#F2F2F2;">
-                <th style="padding:10px 14px; font-weight:500; text-align:left; border-bottom:1px solid #D8D8D8;">Dataset</th>
-                <th style="padding:10px 14px; font-weight:500; text-align:left; border-bottom:1px solid #D8D8D8;">Embodiment</th>
-                <th style="padding:10px 14px; font-weight:500; text-align:right; border-bottom:1px solid #D8D8D8;">Episodes</th>
-                <th style="padding:10px 14px; font-weight:500; text-align:right; border-bottom:1px solid #D8D8D8;">Windows</th>
-                <th style="padding:10px 14px; font-weight:500; text-align:right; border-bottom:1px solid #D8D8D8;">After filtering</th>
-                <th style="padding:10px 14px; font-weight:500; text-align:right; border-bottom:1px solid #D8D8D8;">Hours</th>
-                <th style="padding:10px 14px; font-weight:500; text-align:left; border-bottom:1px solid #D8D8D8;">License</th>
+                <th style="padding:10px 14px; font-weight:600; text-align:left; border-bottom:1px solid #D8D8D8;">Dataset</th>
+                <th style="padding:10px 14px; font-weight:600; text-align:left; border-bottom:1px solid #D8D8D8;">Embodiment</th>
+                <th style="padding:10px 14px; font-weight:600; text-align:right; border-bottom:1px solid #D8D8D8;">Episodes</th>
+                <th style="padding:10px 14px; font-weight:600; text-align:right; border-bottom:1px solid #D8D8D8;">Windows</th>
+                <th style="padding:10px 14px; font-weight:600; text-align:right; border-bottom:1px solid #D8D8D8;">After filtering</th>
+                <th style="padding:10px 14px; font-weight:600; text-align:right; border-bottom:1px solid #D8D8D8;">Hours</th>
+                <th style="padding:10px 14px; font-weight:600; text-align:left; border-bottom:1px solid #D8D8D8;">License</th>
               </tr>
             </thead>
             <tbody>
               <tr>
                 <td style="padding:9px 14px; border-bottom:1px solid #EDEDED;">DROID</td>
-                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#5E5E5E;">single arm</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#4A4A4A;">single arm</td>
                 <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">70,339</td>
-                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums; color:#5E5E5E;">494,680</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums; color:#4A4A4A;">494,680</td>
                 <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">223,075</td>
                 <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">313.7</td>
-                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#5E5E5E;">CC-BY-4.0</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#4A4A4A;">CC-BY-4.0</td>
               </tr>
               <tr>
                 <td style="padding:9px 14px; border-bottom:1px solid #EDEDED;">ABC-130k</td>
-                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#5E5E5E;">bimanual arms</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#4A4A4A;">bimanual arms</td>
                 <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">54,961</td>
-                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums; color:#5E5E5E;">1,060,456</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums; color:#4A4A4A;">1,060,456</td>
                 <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">1,048,681</td>
                 <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">1,474.7</td>
-                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#5E5E5E;">Apache-2.0</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#4A4A4A;">Apache-2.0</td>
               </tr>
               <tr>
                 <td style="padding:9px 14px; border-bottom:1px solid #EDEDED;">MolmoAct2</td>
-                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#5E5E5E;">bimanual arms</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#4A4A4A;">bimanual arms</td>
                 <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">7,723</td>
-                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums; color:#5E5E5E;">129,589</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums; color:#4A4A4A;">129,589</td>
                 <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">126,335</td>
                 <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">177.7</td>
-                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#5E5E5E;">Apache-2.0</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#4A4A4A;">Apache-2.0</td>
               </tr>
               <tr>
                 <td style="padding:9px 14px; border-bottom:1px solid #EDEDED;">EgoDex</td>
-                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#5E5E5E;">human hands</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#4A4A4A;">human hands</td>
                 <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">41,888</td>
-                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums; color:#5E5E5E;">89,380</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums; color:#4A4A4A;">89,380</td>
                 <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">89,380</td>
                 <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">125.7</td>
-                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#5E5E5E;">CC-BY-NC-ND-4.0</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#4A4A4A;">CC-BY-NC-ND-4.0</td>
               </tr>
               <tr>
                 <td style="padding:9px 14px; border-bottom:1px solid #EDEDED;">Deform360</td>
-                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#5E5E5E;">handheld grippers</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#4A4A4A;">handheld grippers</td>
                 <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">1,714</td>
-                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums; color:#5E5E5E;">87,224</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums; color:#4A4A4A;">87,224</td>
                 <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">60,315</td>
                 <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">84.8</td>
-                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#5E5E5E;">MIT</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#4A4A4A;">MIT</td>
               </tr>
               <tr>
                 <td style="padding:9px 14px; border-bottom:1px solid #EDEDED;">XVLA-Soft-Fold</td>
-                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#5E5E5E;">bimanual arms</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#4A4A4A;">bimanual arms</td>
                 <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">1,524</td>
-                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums; color:#5E5E5E;">17,891</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums; color:#4A4A4A;">17,891</td>
                 <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">17,772</td>
                 <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">25.0</td>
-                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#5E5E5E;">Apache-2.0</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#4A4A4A;">Apache-2.0</td>
               </tr>
               <tr>
                 <td style="padding:9px 14px; border-bottom:1px solid #EDEDED;">H1-Fold-Clothes</td>
-                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#5E5E5E;">bimanual arms</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#4A4A4A;">bimanual arms</td>
                 <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">38</td>
-                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums; color:#5E5E5E;">76</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums; color:#4A4A4A;">76</td>
                 <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">76</td>
                 <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums;">0.1</td>
-                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#5E5E5E;">Apache-2.0</td>
+                <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:#4A4A4A;">Apache-2.0</td>
               </tr>
-              <tr style="background:#F2F2F2; font-weight:500;">
+              <tr style="background:#F2F2F2; font-weight:600;">
                 <td style="padding:10px 14px;">Total</td>
                 <td style="padding:10px 14px;"></td>
                 <td style="padding:10px 14px; text-align:right; font-variant-numeric:tabular-nums;">178,187</td>
@@ -482,7 +491,7 @@
             </tbody>
           </table>
         </div>
-        <p style="margin:10px 0 0; font-size:12px; color:#5E5E5E; max-width:78ch; text-wrap:pretty;">Hours count filtered camera windows and double-count simultaneous views on the multi-view Deform360 rig. Interactive World Simulator tasks are held out of training and used only for the data-efficiency study.</p>
+        <p style="margin:10px 0 0; font-size:15px; color:#4A4A4A; text-wrap:pretty;">Hours count filtered camera windows and double-count simultaneous views on the multi-view Deform360 rig. Interactive World Simulator tasks are held out of training and used only for the data-efficiency study.</p>
       </div>
     </div>
   </section>
@@ -491,38 +500,38 @@
   <section id="results" style="max-width:1180px; margin:0 auto; padding:48px 24px 0;">
     <div style="border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:20px;">
       <div style="display:flex; align-items:baseline; justify-content:space-between; gap:16px; margin-bottom:6px;">
-        <h2 style="margin:0; font-size:16px; font-weight:500; letter-spacing:-0.25px;">Qualitative rollouts</h2>
-        <span style="font-size:12px; color:#8F8F8F;">Figure 3</span>
+        <h2 style="margin:0; font-size:17px; font-weight:600; letter-spacing:-0.25px;">Qualitative rollouts</h2>
+        <span style="font-size:15px; color:#4A4A4A; white-space:nowrap;">Figure 3</span>
       </div>
-      <p style="margin:0 0 16px; font-size:14px; color:#5E5E5E; max-width:90ch; text-wrap:pretty;">Full five-second rollouts, one held-out dataset per row. Every panel in a row is the same evaluation sample at the same timestep, so a method reads down a column and a dataset reads across. Each row carries three held-out samples — step through them with the arrows beside the dataset name, and hover the counter to see the task the model was conditioned on.</p>
+      <p style="margin:0 0 16px; font-size:17px; text-wrap:pretty;">Full five-second rollouts, one held-out dataset per row. Every panel in a row is the same evaluation sample at the same timestep, so a method reads down a column and a dataset reads across. Each row carries three held-out samples — step through them with the arrows beside the dataset name, and hover the counter to see the task the model was conditioned on.</p>
 <!-- BEGIN rollout-gallery: generated by scripts/website/build_rollout_gallery.py -->
       <div data-rollout-scroll style="overflow-x:auto;">
         <div data-rollout-grid style="display:grid; grid-template-columns:176px repeat(4, minmax(0, 1fr)); gap:10px; min-width:946px; align-items:center;">
           <div style="position:sticky; left:0; z-index:1; align-self:stretch; background:#FFFFFF; box-shadow:10px 0 0 0 #FFFFFF;"></div>
-          <div style="font-size:11px; letter-spacing:1px; text-transform:uppercase; border-bottom:2px solid #EDEDED; padding-bottom:5px; color:#5E5E5E;">Wan-Move</div>
-          <div style="font-size:11px; letter-spacing:1px; text-transform:uppercase; border-bottom:2px solid #EDEDED; padding-bottom:5px; color:#5E5E5E;">Cosmos 2.5</div>
-          <div style="font-size:11px; letter-spacing:1px; text-transform:uppercase; border-bottom:2px solid #76B900; padding-bottom:5px; color:#4E7C00; font-weight:600;">Ours</div>
-          <div style="font-size:11px; letter-spacing:1px; text-transform:uppercase; border-bottom:2px solid #EDEDED; padding-bottom:5px; color:#5E5E5E;">Ground truth</div>
+          <div style="font-size:13px; letter-spacing:1px; text-transform:uppercase; border-bottom:2px solid #EDEDED; padding-bottom:5px; color:#4A4A4A;">Wan-Move</div>
+          <div style="font-size:13px; letter-spacing:1px; text-transform:uppercase; border-bottom:2px solid #EDEDED; padding-bottom:5px; color:#4A4A4A;">Cosmos 2.5</div>
+          <div style="font-size:13px; letter-spacing:1px; text-transform:uppercase; border-bottom:2px solid #76B900; padding-bottom:5px; color:#4E7C00; font-weight:600;">Ours</div>
+          <div style="font-size:13px; letter-spacing:1px; text-transform:uppercase; border-bottom:2px solid #EDEDED; padding-bottom:5px; color:#4A4A4A;">Ground truth</div>
 
-          <div style="position:sticky; left:0; z-index:1; align-self:stretch; background:#FFFFFF; box-shadow:10px 0 0 0 #FFFFFF; display:flex; flex-direction:column; justify-content:center; border-right:1px solid #D8D8D8; padding-right:10px; font-size:13px; line-height:1.4;"><div style="font-weight:500;">XVLA-Soft-Fold</div><div style="font-size:12px; color:#8F8F8F; text-wrap:balance;">bimanual YAM &middot; garment folding</div><div data-rollout-nav="rollout_xvla_soft_fold" data-current="1" data-count="3" aria-label="XVLA-Soft-Fold evaluation sample" style="display:flex; align-items:center; gap:5px; margin-top:8px;"><button type="button" data-rollout-step="rollout_xvla_soft_fold" data-delta="-1" aria-label="Previous XVLA-Soft-Fold sample" style="appearance:none; -webkit-appearance:none; font:inherit; font-size:13px; line-height:1; width:20px; height:20px; padding:0; cursor:pointer; border-radius:2px; background:#FFFFFF; border:1px solid #D8D8D8; color:#5E5E5E; display:flex; align-items:center; justify-content:center;">&lsaquo;</button><span data-rollout-counter="rollout_xvla_soft_fold" aria-live="polite" title="fold the cloth — 0706_17pm_stage_1_stage2new_new_cam_very_slow/episode_22 / cam_high — the sample the paper figure shows" style="font-size:11px; color:#8F8F8F; font-variant-numeric:tabular-nums; letter-spacing:0.5px; cursor:default;">1 / 3</span><button type="button" data-rollout-step="rollout_xvla_soft_fold" data-delta="1" aria-label="Next XVLA-Soft-Fold sample" style="appearance:none; -webkit-appearance:none; font:inherit; font-size:13px; line-height:1; width:20px; height:20px; padding:0; cursor:pointer; border-radius:2px; background:#FFFFFF; border:1px solid #D8D8D8; color:#5E5E5E; display:flex; align-items:center; justify-content:center;">&rsaquo;</button></div></div>
+          <div style="position:sticky; left:0; z-index:1; align-self:stretch; background:#FFFFFF; box-shadow:10px 0 0 0 #FFFFFF; display:flex; flex-direction:column; justify-content:center; border-right:1px solid #D8D8D8; padding-right:10px; font-size:15px; line-height:1.4;"><div style="font-weight:600;">XVLA-Soft-Fold</div><div style="font-size:15px; color:#4A4A4A; text-wrap:balance;">bimanual YAM &middot; garment folding</div><div data-rollout-nav="rollout_xvla_soft_fold" data-current="1" data-count="3" aria-label="XVLA-Soft-Fold evaluation sample" style="display:flex; align-items:center; gap:5px; margin-top:8px;"><button type="button" data-rollout-step="rollout_xvla_soft_fold" data-delta="-1" aria-label="Previous XVLA-Soft-Fold sample" style="appearance:none; -webkit-appearance:none; font:inherit; font-size:15px; line-height:1; width:20px; height:20px; padding:0; cursor:pointer; border-radius:2px; background:#FFFFFF; border:1px solid #D8D8D8; color:#4A4A4A; display:flex; align-items:center; justify-content:center;">&lsaquo;</button><span data-rollout-counter="rollout_xvla_soft_fold" aria-live="polite" title="fold the cloth — 0706_17pm_stage_1_stage2new_new_cam_very_slow/episode_22 / cam_high — the sample the paper figure shows" style="font-size:13px; color:#4A4A4A; font-variant-numeric:tabular-nums; letter-spacing:0.5px; cursor:default;">1 / 3</span><button type="button" data-rollout-step="rollout_xvla_soft_fold" data-delta="1" aria-label="Next XVLA-Soft-Fold sample" style="appearance:none; -webkit-appearance:none; font:inherit; font-size:15px; line-height:1; width:20px; height:20px; padding:0; cursor:pointer; border-radius:2px; background:#FFFFFF; border:1px solid #D8D8D8; color:#4A4A4A; display:flex; align-items:center; justify-content:center;">&rsaquo;</button></div></div>
           <video data-rollout-cell="rollout_xvla_soft_fold" data-rollout-tag="wan_move" data-sync-group="rollout:rollout_xvla_soft_fold" src="media/rollout_xvla_soft_fold__s01__wan_move.mp4" poster="media/posters/rollout_xvla_soft_fold__s01__wan_move.jpg" aria-label="XVLA-Soft-Fold rollout, sample 1, Wan-Move" controls muted loop playsinline preload="none" style="aspect-ratio:4/3; width:100%; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
           <video data-rollout-cell="rollout_xvla_soft_fold" data-rollout-tag="cosmos2p5" data-sync-group="rollout:rollout_xvla_soft_fold" src="media/rollout_xvla_soft_fold__s01__cosmos2p5.mp4" poster="media/posters/rollout_xvla_soft_fold__s01__cosmos2p5.jpg" aria-label="XVLA-Soft-Fold rollout, sample 1, Cosmos 2.5" controls muted loop playsinline preload="none" style="aspect-ratio:4/3; width:100%; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
           <video data-rollout-cell="rollout_xvla_soft_fold" data-rollout-tag="ours" data-sync-group="rollout:rollout_xvla_soft_fold" src="media/rollout_xvla_soft_fold__s01__ours.mp4" poster="media/posters/rollout_xvla_soft_fold__s01__ours.jpg" aria-label="XVLA-Soft-Fold rollout, sample 1, Ours" controls muted loop playsinline preload="none" style="aspect-ratio:4/3; width:100%; object-fit:cover; background:#050505; border:1px solid #76B900; border-radius:2px; display:block;"></video>
           <video data-rollout-cell="rollout_xvla_soft_fold" data-rollout-tag="gt" data-sync-group="rollout:rollout_xvla_soft_fold" src="media/rollout_xvla_soft_fold__s01__gt.mp4" poster="media/posters/rollout_xvla_soft_fold__s01__gt.jpg" aria-label="XVLA-Soft-Fold rollout, sample 1, Ground truth" controls muted loop playsinline preload="none" style="aspect-ratio:4/3; width:100%; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
 
-          <div style="position:sticky; left:0; z-index:1; align-self:stretch; background:#FFFFFF; box-shadow:10px 0 0 0 #FFFFFF; display:flex; flex-direction:column; justify-content:center; border-right:1px solid #D8D8D8; padding-right:10px; font-size:13px; line-height:1.4;"><div style="font-weight:500;">Deform360</div><div style="font-size:12px; color:#8F8F8F; text-wrap:balance;">handheld gripper &middot; single-object manipulation</div><div data-rollout-nav="rollout_deform360" data-current="1" data-count="3" aria-label="Deform360 evaluation sample" style="display:flex; align-items:center; gap:5px; margin-top:8px;"><button type="button" data-rollout-step="rollout_deform360" data-delta="-1" aria-label="Previous Deform360 sample" style="appearance:none; -webkit-appearance:none; font:inherit; font-size:13px; line-height:1; width:20px; height:20px; padding:0; cursor:pointer; border-radius:2px; background:#FFFFFF; border:1px solid #D8D8D8; color:#5E5E5E; display:flex; align-items:center; justify-content:center;">&lsaquo;</button><span data-rollout-counter="rollout_deform360" aria-live="polite" title="a human hand holding a robot gripper manipulating a rope — 001-rope/episode_3 / brics-odroid-015_cam0 — the sample the paper figure shows" style="font-size:11px; color:#8F8F8F; font-variant-numeric:tabular-nums; letter-spacing:0.5px; cursor:default;">1 / 3</span><button type="button" data-rollout-step="rollout_deform360" data-delta="1" aria-label="Next Deform360 sample" style="appearance:none; -webkit-appearance:none; font:inherit; font-size:13px; line-height:1; width:20px; height:20px; padding:0; cursor:pointer; border-radius:2px; background:#FFFFFF; border:1px solid #D8D8D8; color:#5E5E5E; display:flex; align-items:center; justify-content:center;">&rsaquo;</button></div></div>
+          <div style="position:sticky; left:0; z-index:1; align-self:stretch; background:#FFFFFF; box-shadow:10px 0 0 0 #FFFFFF; display:flex; flex-direction:column; justify-content:center; border-right:1px solid #D8D8D8; padding-right:10px; font-size:15px; line-height:1.4;"><div style="font-weight:600;">Deform360</div><div style="font-size:15px; color:#4A4A4A; text-wrap:balance;">handheld gripper &middot; single-object manipulation</div><div data-rollout-nav="rollout_deform360" data-current="1" data-count="3" aria-label="Deform360 evaluation sample" style="display:flex; align-items:center; gap:5px; margin-top:8px;"><button type="button" data-rollout-step="rollout_deform360" data-delta="-1" aria-label="Previous Deform360 sample" style="appearance:none; -webkit-appearance:none; font:inherit; font-size:15px; line-height:1; width:20px; height:20px; padding:0; cursor:pointer; border-radius:2px; background:#FFFFFF; border:1px solid #D8D8D8; color:#4A4A4A; display:flex; align-items:center; justify-content:center;">&lsaquo;</button><span data-rollout-counter="rollout_deform360" aria-live="polite" title="a human hand holding a robot gripper manipulating a rope — 001-rope/episode_3 / brics-odroid-015_cam0 — the sample the paper figure shows" style="font-size:13px; color:#4A4A4A; font-variant-numeric:tabular-nums; letter-spacing:0.5px; cursor:default;">1 / 3</span><button type="button" data-rollout-step="rollout_deform360" data-delta="1" aria-label="Next Deform360 sample" style="appearance:none; -webkit-appearance:none; font:inherit; font-size:15px; line-height:1; width:20px; height:20px; padding:0; cursor:pointer; border-radius:2px; background:#FFFFFF; border:1px solid #D8D8D8; color:#4A4A4A; display:flex; align-items:center; justify-content:center;">&rsaquo;</button></div></div>
           <video data-rollout-cell="rollout_deform360" data-rollout-tag="wan_move" data-sync-group="rollout:rollout_deform360" src="media/rollout_deform360__s01__wan_move.mp4" poster="media/posters/rollout_deform360__s01__wan_move.jpg" aria-label="Deform360 rollout, sample 1, Wan-Move" controls muted loop playsinline preload="none" style="aspect-ratio:30/17; width:100%; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
           <video data-rollout-cell="rollout_deform360" data-rollout-tag="cosmos2p5" data-sync-group="rollout:rollout_deform360" src="media/rollout_deform360__s01__cosmos2p5.mp4" poster="media/posters/rollout_deform360__s01__cosmos2p5.jpg" aria-label="Deform360 rollout, sample 1, Cosmos 2.5" controls muted loop playsinline preload="none" style="aspect-ratio:30/17; width:100%; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
           <video data-rollout-cell="rollout_deform360" data-rollout-tag="ours" data-sync-group="rollout:rollout_deform360" src="media/rollout_deform360__s01__ours.mp4" poster="media/posters/rollout_deform360__s01__ours.jpg" aria-label="Deform360 rollout, sample 1, Ours" controls muted loop playsinline preload="none" style="aspect-ratio:30/17; width:100%; object-fit:cover; background:#050505; border:1px solid #76B900; border-radius:2px; display:block;"></video>
           <video data-rollout-cell="rollout_deform360" data-rollout-tag="gt" data-sync-group="rollout:rollout_deform360" src="media/rollout_deform360__s01__gt.mp4" poster="media/posters/rollout_deform360__s01__gt.jpg" aria-label="Deform360 rollout, sample 1, Ground truth" controls muted loop playsinline preload="none" style="aspect-ratio:30/17; width:100%; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
 
-          <div style="position:sticky; left:0; z-index:1; align-self:stretch; background:#FFFFFF; box-shadow:10px 0 0 0 #FFFFFF; display:flex; flex-direction:column; justify-content:center; border-right:1px solid #D8D8D8; padding-right:10px; font-size:13px; line-height:1.4;"><div style="font-weight:500;">DROID</div><div style="font-size:12px; color:#8F8F8F; text-wrap:balance;">single Franka arm &middot; in-the-wild scenes</div><div data-rollout-nav="rollout_droid" data-current="1" data-count="3" aria-label="DROID evaluation sample" style="display:flex; align-items:center; gap:5px; margin-top:8px;"><button type="button" data-rollout-step="rollout_droid" data-delta="-1" aria-label="Previous DROID sample" style="appearance:none; -webkit-appearance:none; font:inherit; font-size:13px; line-height:1; width:20px; height:20px; padding:0; cursor:pointer; border-radius:2px; background:#FFFFFF; border:1px solid #D8D8D8; color:#5E5E5E; display:flex; align-items:center; justify-content:center;">&lsaquo;</button><span data-rollout-counter="rollout_droid" aria-live="polite" title="fold, spread out, or clump object — 1.0.1/TRI/success/2023-10-25/Wed_Oct_25_17:11:21_2023 / ext1 — the sample the paper figure shows" style="font-size:11px; color:#8F8F8F; font-variant-numeric:tabular-nums; letter-spacing:0.5px; cursor:default;">1 / 3</span><button type="button" data-rollout-step="rollout_droid" data-delta="1" aria-label="Next DROID sample" style="appearance:none; -webkit-appearance:none; font:inherit; font-size:13px; line-height:1; width:20px; height:20px; padding:0; cursor:pointer; border-radius:2px; background:#FFFFFF; border:1px solid #D8D8D8; color:#5E5E5E; display:flex; align-items:center; justify-content:center;">&rsaquo;</button></div></div>
+          <div style="position:sticky; left:0; z-index:1; align-self:stretch; background:#FFFFFF; box-shadow:10px 0 0 0 #FFFFFF; display:flex; flex-direction:column; justify-content:center; border-right:1px solid #D8D8D8; padding-right:10px; font-size:15px; line-height:1.4;"><div style="font-weight:600;">DROID</div><div style="font-size:15px; color:#4A4A4A; text-wrap:balance;">single Franka arm &middot; in-the-wild scenes</div><div data-rollout-nav="rollout_droid" data-current="1" data-count="3" aria-label="DROID evaluation sample" style="display:flex; align-items:center; gap:5px; margin-top:8px;"><button type="button" data-rollout-step="rollout_droid" data-delta="-1" aria-label="Previous DROID sample" style="appearance:none; -webkit-appearance:none; font:inherit; font-size:15px; line-height:1; width:20px; height:20px; padding:0; cursor:pointer; border-radius:2px; background:#FFFFFF; border:1px solid #D8D8D8; color:#4A4A4A; display:flex; align-items:center; justify-content:center;">&lsaquo;</button><span data-rollout-counter="rollout_droid" aria-live="polite" title="fold, spread out, or clump object — 1.0.1/TRI/success/2023-10-25/Wed_Oct_25_17:11:21_2023 / ext1 — the sample the paper figure shows" style="font-size:13px; color:#4A4A4A; font-variant-numeric:tabular-nums; letter-spacing:0.5px; cursor:default;">1 / 3</span><button type="button" data-rollout-step="rollout_droid" data-delta="1" aria-label="Next DROID sample" style="appearance:none; -webkit-appearance:none; font:inherit; font-size:15px; line-height:1; width:20px; height:20px; padding:0; cursor:pointer; border-radius:2px; background:#FFFFFF; border:1px solid #D8D8D8; color:#4A4A4A; display:flex; align-items:center; justify-content:center;">&rsaquo;</button></div></div>
           <video data-rollout-cell="rollout_droid" data-rollout-tag="wan_move" data-sync-group="rollout:rollout_droid" src="media/rollout_droid__s01__wan_move.mp4" poster="media/posters/rollout_droid__s01__wan_move.jpg" aria-label="DROID rollout, sample 1, Wan-Move" controls muted loop playsinline preload="none" style="aspect-ratio:30/17; width:100%; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
           <video data-rollout-cell="rollout_droid" data-rollout-tag="cosmos2p5" data-sync-group="rollout:rollout_droid" src="media/rollout_droid__s01__cosmos2p5.mp4" poster="media/posters/rollout_droid__s01__cosmos2p5.jpg" aria-label="DROID rollout, sample 1, Cosmos 2.5" controls muted loop playsinline preload="none" style="aspect-ratio:30/17; width:100%; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
           <video data-rollout-cell="rollout_droid" data-rollout-tag="ours" data-sync-group="rollout:rollout_droid" src="media/rollout_droid__s01__ours.mp4" poster="media/posters/rollout_droid__s01__ours.jpg" aria-label="DROID rollout, sample 1, Ours" controls muted loop playsinline preload="none" style="aspect-ratio:30/17; width:100%; object-fit:cover; background:#050505; border:1px solid #76B900; border-radius:2px; display:block;"></video>
           <video data-rollout-cell="rollout_droid" data-rollout-tag="gt" data-sync-group="rollout:rollout_droid" src="media/rollout_droid__s01__gt.mp4" poster="media/posters/rollout_droid__s01__gt.jpg" aria-label="DROID rollout, sample 1, Ground truth" controls muted loop playsinline preload="none" style="aspect-ratio:30/17; width:100%; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
 
-          <div style="position:sticky; left:0; z-index:1; align-self:stretch; background:#FFFFFF; box-shadow:10px 0 0 0 #FFFFFF; display:flex; flex-direction:column; justify-content:center; border-right:1px solid #D8D8D8; padding-right:10px; font-size:13px; line-height:1.4;"><div style="font-weight:500;">ABC-130k</div><div style="font-size:12px; color:#8F8F8F; text-wrap:balance;">bimanual YAM &middot; household chores</div><div data-rollout-nav="rollout_abc130k" data-current="1" data-count="3" aria-label="ABC-130k evaluation sample" style="display:flex; align-items:center; gap:5px; margin-top:8px;"><button type="button" data-rollout-step="rollout_abc130k" data-delta="-1" aria-label="Previous ABC-130k sample" style="appearance:none; -webkit-appearance:none; font:inherit; font-size:13px; line-height:1; width:20px; height:20px; padding:0; cursor:pointer; border-radius:2px; background:#FFFFFF; border:1px solid #D8D8D8; color:#5E5E5E; display:flex; align-items:center; justify-content:center;">&lsaquo;</button><span data-rollout-counter="rollout_abc130k" aria-live="polite" title="fold and stack the t-shirts — fold_and_stack_the_t_shirts/episode_7de09792-96e5-4e59-b3b5-bbef6dd350f4 / top" style="font-size:11px; color:#8F8F8F; font-variant-numeric:tabular-nums; letter-spacing:0.5px; cursor:default;">1 / 3</span><button type="button" data-rollout-step="rollout_abc130k" data-delta="1" aria-label="Next ABC-130k sample" style="appearance:none; -webkit-appearance:none; font:inherit; font-size:13px; line-height:1; width:20px; height:20px; padding:0; cursor:pointer; border-radius:2px; background:#FFFFFF; border:1px solid #D8D8D8; color:#5E5E5E; display:flex; align-items:center; justify-content:center;">&rsaquo;</button></div></div>
+          <div style="position:sticky; left:0; z-index:1; align-self:stretch; background:#FFFFFF; box-shadow:10px 0 0 0 #FFFFFF; display:flex; flex-direction:column; justify-content:center; border-right:1px solid #D8D8D8; padding-right:10px; font-size:15px; line-height:1.4;"><div style="font-weight:600;">ABC-130k</div><div style="font-size:15px; color:#4A4A4A; text-wrap:balance;">bimanual YAM &middot; household chores</div><div data-rollout-nav="rollout_abc130k" data-current="1" data-count="3" aria-label="ABC-130k evaluation sample" style="display:flex; align-items:center; gap:5px; margin-top:8px;"><button type="button" data-rollout-step="rollout_abc130k" data-delta="-1" aria-label="Previous ABC-130k sample" style="appearance:none; -webkit-appearance:none; font:inherit; font-size:15px; line-height:1; width:20px; height:20px; padding:0; cursor:pointer; border-radius:2px; background:#FFFFFF; border:1px solid #D8D8D8; color:#4A4A4A; display:flex; align-items:center; justify-content:center;">&lsaquo;</button><span data-rollout-counter="rollout_abc130k" aria-live="polite" title="fold and stack the t-shirts — fold_and_stack_the_t_shirts/episode_7de09792-96e5-4e59-b3b5-bbef6dd350f4 / top" style="font-size:13px; color:#4A4A4A; font-variant-numeric:tabular-nums; letter-spacing:0.5px; cursor:default;">1 / 3</span><button type="button" data-rollout-step="rollout_abc130k" data-delta="1" aria-label="Next ABC-130k sample" style="appearance:none; -webkit-appearance:none; font:inherit; font-size:15px; line-height:1; width:20px; height:20px; padding:0; cursor:pointer; border-radius:2px; background:#FFFFFF; border:1px solid #D8D8D8; color:#4A4A4A; display:flex; align-items:center; justify-content:center;">&rsaquo;</button></div></div>
           <video data-rollout-cell="rollout_abc130k" data-rollout-tag="wan_move" data-sync-group="rollout:rollout_abc130k" src="media/rollout_abc130k__s01__wan_move.mp4" poster="media/posters/rollout_abc130k__s01__wan_move.jpg" aria-label="ABC-130k rollout, sample 1, Wan-Move" controls muted loop playsinline preload="none" style="aspect-ratio:4/3; width:100%; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
           <video data-rollout-cell="rollout_abc130k" data-rollout-tag="cosmos2p5" data-sync-group="rollout:rollout_abc130k" src="media/rollout_abc130k__s01__cosmos2p5.mp4" poster="media/posters/rollout_abc130k__s01__cosmos2p5.jpg" aria-label="ABC-130k rollout, sample 1, Cosmos 2.5" controls muted loop playsinline preload="none" style="aspect-ratio:4/3; width:100%; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
           <video data-rollout-cell="rollout_abc130k" data-rollout-tag="ours" data-sync-group="rollout:rollout_abc130k" src="media/rollout_abc130k__s01__ours.mp4" poster="media/posters/rollout_abc130k__s01__ours.jpg" aria-label="ABC-130k rollout, sample 1, Ours" controls muted loop playsinline preload="none" style="aspect-ratio:4/3; width:100%; object-fit:cover; background:#050505; border:1px solid #76B900; border-radius:2px; display:block;"></video>
@@ -533,77 +542,84 @@
       {"rollout_xvla_soft_fold":[{"i":1,"w":480,"h":360,"cap":"fold the cloth","ep":"0706_17pm_stage_1_stage2new_new_cam_very_slow/episode_22","cam":"cam_high","pinned":true},{"i":2,"w":480,"h":360,"cap":"fold the cloth","ep":"0708_11am_stage_1_stage2new_new_cam_very_slow/episode_11","cam":"cam_high","pinned":false},{"i":3,"w":480,"h":360,"cap":"fold the cloth","ep":"0712_8pm_stage_1_stage2new_new_cam_very_slow/episode_14","cam":"cam_high","pinned":false}],"rollout_deform360":[{"i":1,"w":480,"h":272,"cap":"a human hand holding a robot gripper manipulating a rope","ep":"001-rope/episode_3","cam":"brics-odroid-015_cam0","pinned":true},{"i":2,"w":480,"h":272,"cap":"a human hand holding a robot gripper manipulating a net cloth","ep":"091-net-cloth/episode_4","cam":"brics-odroid-024_cam0","pinned":false},{"i":3,"w":480,"h":272,"cap":"a human hand holding a robot gripper manipulating a cotton scarf cloth","ep":"086-cotton-scarf-cloth/episode_0","cam":"brics-odroid-015_cam1","pinned":false}],"rollout_droid":[{"i":1,"w":480,"h":272,"cap":"fold, spread out, or clump object","ep":"1.0.1/TRI/success/2023-10-25/Wed_Oct_25_17:11:21_2023","cam":"ext1","pinned":true},{"i":2,"w":480,"h":272,"cap":"Use the towel on the left to wipe the table","ep":"1.0.1/REAL/success/2023-06-27/Tue_Jun_27_15:26:55_2023","cam":"ext2","pinned":false},{"i":3,"w":480,"h":272,"cap":"pnp-table-to-plate-onlycans","ep":"1.0.1/RPL/success/2023-12-03/Sun_Dec__3_18:48:18_2023","cam":"ext1","pinned":false}],"rollout_abc130k":[{"i":1,"w":480,"h":360,"cap":"fold and stack the t-shirts","ep":"fold_and_stack_the_t_shirts/episode_7de09792-96e5-4e59-b3b5-bbef6dd350f4","cam":"top","pinned":false},{"i":2,"w":480,"h":360,"cap":"place the food in the zip-top bag and seal the zipper","ep":"place_the_food_in_the_zip_top_bag_and_seal_the_zipper/episode_70656bde-7b22-43f1-81be-248d03d930eb","cam":"top","pinned":false},{"i":3,"w":480,"h":360,"cap":"fold and stack the t-shirts","ep":"fold_and_stack_the_t_shirts/episode_a570cd33-108f-41ab-8ee9-f96f43961f86","cam":"top","pinned":false}]}
       </script>
 <!-- END rollout-gallery -->
-      <p style="margin:14px 0 0; max-width:92ch; font-size:13px; color:#5E5E5E; text-wrap:pretty;">The four panels of a row play as one clip: the page pins them to a shared clock and corrects them on the frame a loop wraps, so a difference on screen is a difference between methods rather than between players. Each baseline is resampled into that sample's ground-truth frame shape — Cosmos 2.5 renders every sample at 320×256, and Wan-Move at its own 720×544 to 832×464, against ground truths running 640×480 to 848×480 — so how much of a panel an object fills is not an artifact of who rendered larger.</p>
+      <p style="margin:14px 0 0; font-size:15px; color:#4A4A4A; text-wrap:pretty;">The four panels of a row play as one clip: the page pins them to a shared clock and corrects them on the frame a loop wraps, so a difference on screen is a difference between methods rather than between players. Each baseline is resampled into that sample's ground-truth frame shape — Cosmos 2.5 renders every sample at 320×256, and Wan-Move at its own 720×544 to 832×464, against ground truths running 640×480 to 848×480 — so how much of a panel an object fills is not an artifact of who rendered larger.</p>
     </div>
 
     <div data-cols="rail" style="margin-top:28px; display:grid; grid-template-columns:200px minmax(0, 1fr); gap:32px; align-items:start;">
       <div>
-        <h2 style="margin:0 0 8px; font-size:16px; font-weight:500; letter-spacing:-0.25px;">Evaluation on multi-embodiment datasets</h2>
-        <p style="margin:0; font-size:13px; color:#5E5E5E; text-wrap:pretty;">All methods see the same 100 validation clips per dataset across five held-out sets.</p>
+        <h2 style="margin:0 0 8px; font-size:17px; font-weight:600; letter-spacing:-0.25px;">Evaluation on multi-embodiment datasets</h2>
+        <p style="margin:0; font-size:15px; color:#4A4A4A; text-wrap:pretty;">All methods see the same 100 validation clips per dataset across five held-out sets.</p>
       </div>
       <div>
-        <p style="margin:0 0 16px; max-width:78ch; font-size:16px; line-height:1.6; text-wrap:pretty;">Within the same Cosmos 2.5 backbone, swapping the native relative 6D action for action flow improves PSNR, SSIM, gripper EPE, FID and FVD on all five datasets, and object EPE on the four where it is measured — a controlled comparison that isolates the conditioning representation. VLM scores are the exception, and are mixed: the judge rates physical plausibility and temporal consistency rather than whether the generated motion follows the commanded trajectories, which flow EPE measures directly. The best configuration is the distilled four-step Wan2.2 A14B model, best in nearly every cell and also the fastest.</p>
+        <p style="margin:0 0 16px; max-width:78ch; font-size:17px; line-height:1.6; text-wrap:pretty;">Within the same Cosmos 2.5 backbone, swapping the native relative 6D action for action flow improves PSNR, SSIM, gripper EPE, FID and FVD on all five datasets, and object EPE on the four where it is measured — a controlled comparison that isolates the conditioning representation. VLM scores are the exception, and are mixed: the judge rates physical plausibility and temporal consistency rather than whether the generated motion follows the commanded trajectories, which flow EPE measures directly. The best configuration is the distilled four-step Wan2.2 A14B model, best in nearly every cell and also the fastest.</p>
         <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px;">
           <sc-for list="{{ tabs }}" as="tab" hint-placeholder-count="6">
-            <button type="button" onClick="{{ tab.select }}" style="height:32px; padding:0 14px; border-radius:4px; font-size:13px; font-family:inherit; cursor:pointer; transition:background 120ms ease-out, border-color 120ms ease-out; border:{{ tab.border }}; background:{{ tab.bg }}; color:{{ tab.fg }};">{{ tab.label }}</button>
+            <button type="button" onClick="{{ tab.select }}" style="height:32px; padding:0 14px; border-radius:4px; font-size:15px; font-family:inherit; cursor:pointer; transition:background 120ms ease-out, border-color 120ms ease-out; border:{{ tab.border }}; background:{{ tab.bg }}; color:{{ tab.fg }};">{{ tab.label }}</button>
           </sc-for>
         </div>
         <div style="border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; overflow-x:auto;">
-          <table style="width:100%; border-collapse:collapse; font-size:13px; min-width:720px;">
-            <thead>
-              <tr style="background:#F2F2F2;">
-                <th style="padding:10px 14px; font-weight:500; text-align:left; border-bottom:1px solid #D8D8D8;">Model</th>
-                <th style="padding:10px 10px; font-weight:500; text-align:right; border-bottom:1px solid #D8D8D8;">PSNR ↑</th>
-                <th style="padding:10px 10px; font-weight:500; text-align:right; border-bottom:1px solid #D8D8D8;">SSIM ↑</th>
-                <th style="padding:10px 10px; font-weight:500; text-align:right; border-bottom:1px solid #D8D8D8;">Obj. EPE ↓</th>
-                <th style="padding:10px 10px; font-weight:500; text-align:right; border-bottom:1px solid #D8D8D8;">Grip. EPE ↓</th>
-                <th style="padding:10px 10px; font-weight:500; text-align:right; border-bottom:1px solid #D8D8D8;">FID ↓</th>
-                <th style="padding:10px 10px; font-weight:500; text-align:right; border-bottom:1px solid #D8D8D8;">FVD ↓</th>
-                <th style="padding:10px 14px; font-weight:500; text-align:right; border-bottom:1px solid #D8D8D8;">VLM ↑</th>
-              </tr>
-            </thead>
-            <tbody>
+          <!-- Laid out with `display:table` divs rather than real table elements.
+               The row loop is an `<sc-for>` element, and the HTML parser
+               foster-parents any unknown element out of table content: inside a
+               `<tbody>` the loop was hoisted above the `<table>` before the
+               renderer ever saw it, so every data row came out empty. Divs keep
+               the loop inside the grid it belongs to, and the roles carry the
+               semantics the tags used to.  -->
+          <div role="table" aria-label="Evaluation on multi-embodiment datasets" style="display:table; width:100%; border-collapse:collapse; font-size:15px; min-width:720px;">
+            <div role="rowgroup" style="display:table-header-group;">
+              <div role="row" style="display:table-row; background:#F2F2F2;">
+                <span role="columnheader" style="display:table-cell; padding:10px 14px; font-weight:600; text-align:left; border-bottom:1px solid #D8D8D8;">Model</span>
+                <span role="columnheader" style="display:table-cell; padding:10px 10px; font-weight:600; text-align:right; border-bottom:1px solid #D8D8D8;">PSNR ↑</span>
+                <span role="columnheader" style="display:table-cell; padding:10px 10px; font-weight:600; text-align:right; border-bottom:1px solid #D8D8D8;">SSIM ↑</span>
+                <span role="columnheader" style="display:table-cell; padding:10px 10px; font-weight:600; text-align:right; border-bottom:1px solid #D8D8D8;">Obj. EPE ↓</span>
+                <span role="columnheader" style="display:table-cell; padding:10px 10px; font-weight:600; text-align:right; border-bottom:1px solid #D8D8D8;">Grip. EPE ↓</span>
+                <span role="columnheader" style="display:table-cell; padding:10px 10px; font-weight:600; text-align:right; border-bottom:1px solid #D8D8D8;">FID ↓</span>
+                <span role="columnheader" style="display:table-cell; padding:10px 10px; font-weight:600; text-align:right; border-bottom:1px solid #D8D8D8;">FVD ↓</span>
+                <span role="columnheader" style="display:table-cell; padding:10px 14px; font-weight:600; text-align:right; border-bottom:1px solid #D8D8D8;">VLM ↑</span>
+              </div>
+            </div>
+            <div role="rowgroup" style="display:table-row-group;">
               <sc-for list="{{ rows }}" as="row" hint-placeholder-count="7">
-                <tr style="background:{{ row.bg }};">
-                  <td style="padding:9px 14px; border-bottom:1px solid #EDEDED; color:{{ row.fg }}; font-weight:{{ row.weight }};">{{ row.name }}</td>
+                <div role="row" style="display:table-row; background:{{ row.bg }};">
+                  <span role="cell" style="display:table-cell; padding:9px 14px; border-bottom:1px solid #EDEDED; color:{{ row.fg }}; font-weight:{{ row.weight }};">{{ row.name }}</span>
                   <sc-for list="{{ row.cells }}" as="cell" hint-placeholder-count="7">
-                    <td style="padding:9px 10px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums; font-weight:{{ cell.weight }}; color:{{ cell.color }};">{{ cell.text }}</td>
+                    <span role="cell" style="display:table-cell; padding:9px 10px; border-bottom:1px solid #EDEDED; text-align:right; font-variant-numeric:tabular-nums; font-weight:{{ cell.weight }}; color:{{ cell.color }};">{{ cell.text }}</span>
                   </sc-for>
-                </tr>
+                </div>
               </sc-for>
-            </tbody>
-          </table>
+            </div>
+          </div>
         </div>
-        <p style="margin:10px 0 0; font-size:12px; color:#5E5E5E; max-width:78ch; text-wrap:pretty;">Gray rows are zero-shot baselines using released checkpoints; the best value per column is bold green. Standard errors are reported in the paper. Object EPE is omitted for DROID, where object grounding is unreliable in cluttered scenes.</p>
+        <p style="margin:10px 0 0; font-size:15px; color:#4A4A4A; text-wrap:pretty;">Gray rows are zero-shot baselines using released checkpoints; the best value per column is bold green. Standard errors are reported in the paper. Object EPE is omitted for DROID, where object grounding is unreliable in cluttered scenes.</p>
       </div>
     </div>
 
     <div style="margin-top:20px; border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:20px;">
-      <h3 style="margin:0 0 6px; font-size:16px; font-weight:500; letter-spacing:-0.25px;">Wrist-camera egomotion</h3>
-      <p style="margin:0 0 14px; font-size:14px; color:#5E5E5E; line-height:1.55; text-wrap:pretty;">A camera bolted to the arm produces global image motion that a fixed viewpoint never sees. Given depth and relative camera pose, camera egomotion converts into the same image-space condition, so one interface covers both camera and interaction motion. This is a single-rollout proof of concept, not a systematic evaluation.</p>
+      <h3 style="margin:0 0 6px; font-size:17px; font-weight:600; letter-spacing:-0.25px;">Wrist-camera egomotion</h3>
+      <p style="margin:0 0 14px; font-size:17px; line-height:1.6; text-wrap:pretty;">A camera bolted to the arm produces global image motion that a fixed viewpoint never sees. Given depth and relative camera pose, camera egomotion converts into the same image-space condition, so one interface covers both camera and interaction motion. This is a single-rollout proof of concept, not a systematic evaluation.</p>
       <video src="media/wrist_camera_egomotion.mp4" poster="media/posters/wrist_camera_egomotion.jpg" aria-label="DROID wrist window: ground truth, generation and conditioning flow" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:324/71; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
-      <p style="margin:8px 0 0; font-size:12px; color:#5E5E5E;">One DROID wrist window: ground truth, our generation, and the conditioning flow it was given.</p>
+      <p style="margin:8px 0 0; font-size:15px; color:#4A4A4A;">One DROID wrist window: ground truth, our generation, and the conditioning flow it was given.</p>
     </div>
 
     <div style="margin-top:20px; border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:20px;">
-      <h3 style="margin:0 0 6px; font-size:16px; font-weight:500; letter-spacing:-0.25px;">Data efficiency from multi-embodiment mid-training</h3>
-      <p style="margin:0 0 14px; font-size:14px; color:#5E5E5E; line-height:1.55; text-wrap:pretty;">Six held-out Interactive World Simulator tasks, adapted with 0–100% of each task's training split.</p>
+      <h3 style="margin:0 0 6px; font-size:17px; font-weight:600; letter-spacing:-0.25px;">Data efficiency from multi-embodiment mid-training</h3>
+      <p style="margin:0 0 14px; font-size:17px; line-height:1.6; text-wrap:pretty;">Six held-out Interactive World Simulator tasks, adapted with 0–100% of each task's training split.</p>
       <figure style="margin:0 0 16px;">
         <img src="img/iws_data_efficiency.png" alt="LPIPS, object-flow EPE and FVD versus the percentage of task-specific training data, for six Interactive World Simulator tasks" style="width:100%; height:auto; display:block; border:1px solid #D8D8D8; border-radius:2px; background:#FFFFFF;">
-        <figcaption style="margin-top:10px; font-size:12px; color:#5E5E5E; max-width:100ch; text-wrap:pretty;">Data efficiency on the six held-out IWS tasks; lower is better on all three metrics. <strong>Ours (MT)</strong> starts from the multi-embodiment mid-trained checkpoint, <strong>Ours (PT)</strong> from the original Wan2.2 weights; Wan-Move and ATI are evaluated zero-shot.</figcaption>
+        <figcaption style="margin-top:10px; font-size:15px; color:#4A4A4A; text-wrap:pretty;">Data efficiency on the six held-out IWS tasks; lower is better on all three metrics. <strong>Ours (MT)</strong> starts from the multi-embodiment mid-trained checkpoint, <strong>Ours (PT)</strong> from the original Wan2.2 weights; Wan-Move and ATI are evaluated zero-shot.</figcaption>
       </figure>
       <div data-cols="3" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px;">
         <div style="border-left:2px solid #76B900; padding:2px 0 2px 12px;">
-          <div style="font-size:14px; font-weight:500;">Strongest transfer before any task data</div>
-            <div style="font-size:14px; color:#5E5E5E; line-height:1.55; text-wrap:pretty;">At 0%, mid-trained beats pretrained-only on LPIPS, object-flow EPE, and FVD across all six tasks. The task-specific IWS model and the newly added Cosmos 2.5 action layers are substantially worse on all three, so their unadapted action interfaces do not transfer to held-out tasks.</div>
+          <div style="font-size:17px; font-weight:600;">Strongest transfer before any task data</div>
+            <div style="font-size:17px; line-height:1.6; text-wrap:pretty;">At 0%, mid-trained beats pretrained-only on LPIPS, object-flow EPE, and FVD across all six tasks. The task-specific IWS model and the newly added Cosmos 2.5 action layers are substantially worse on all three, so their unadapted action interfaces do not transfer to held-out tasks.</div>
           </div>
         <div style="border-left:2px solid #76B900; padding:2px 0 2px 12px;">
-          <div style="font-size:14px; font-weight:500;">The lead survives adaptation</div>
-            <div style="font-size:14px; color:#5E5E5E; line-height:1.55; text-wrap:pretty;">At 100%, mid-trained has the lowest LPIPS and FVD on all six tasks and the lowest flow EPE on four.</div>
+          <div style="font-size:17px; font-weight:600;">The lead survives adaptation</div>
+            <div style="font-size:17px; line-height:1.6; text-wrap:pretty;">At 100%, mid-trained has the lowest LPIPS and FVD on all six tasks and the lowest flow EPE on four.</div>
           </div>
         <div style="border-left:2px solid #76B900; padding:2px 0 2px 12px;">
-          <div style="font-size:14px; font-weight:500;">Most gains arrive by 20%</div>
-            <div style="font-size:14px; color:#5E5E5E; line-height:1.55; text-wrap:pretty;">Between 20% and 100% of the task split, per-task values move at most 3.4% in LPIPS, 6.7% in flow EPE, and 6.8% in FVD.</div>
+          <div style="font-size:17px; font-weight:600;">Most gains arrive by 20%</div>
+            <div style="font-size:17px; line-height:1.6; text-wrap:pretty;">Between 20% and 100% of the task split, per-task values move at most 3.4% in LPIPS, 6.7% in flow EPE, and 6.8% in FVD.</div>
           </div>
       </div>
     </div>
@@ -612,29 +628,29 @@
   <section id="policy" style="max-width:1180px; margin:0 auto; padding:48px 24px 0;">
     <div data-cols="rail" style="display:grid; grid-template-columns:200px minmax(0, 1fr); gap:32px; align-items:start;">
       <div>
-        <h2 style="margin:0 0 8px; font-size:16px; font-weight:500; letter-spacing:-0.25px;">Policy evaluation by open-loop replay</h2>
-        <p style="margin:0; font-size:13px; color:#5E5E5E; text-wrap:pretty;">The simulator is initialized from an episode's first observation and replays that episode's achieved trajectory as action flow.</p>
+        <h2 style="margin:0 0 8px; font-size:17px; font-weight:600; letter-spacing:-0.25px;">Policy evaluation by open-loop replay</h2>
+        <p style="margin:0; font-size:15px; color:#4A4A4A; text-wrap:pretty;">The simulator is initialized from an episode's first observation and replays that episode's achieved trajectory as action flow.</p>
       </div>
       <div style="display:grid; gap:20px;">
-        <p style="margin:0; max-width:78ch; font-size:16px; line-height:1.6; text-wrap:pretty;">Because the policy is never queried on generated observations, this measures whether the simulator preserves an outcome it is shown — not prospective evaluation of an unexecuted command. Generated rollouts are scored by a human rater applying the same task predicate, with policy identity withheld.</p>
+        <p style="margin:0; max-width:78ch; font-size:17px; line-height:1.6; text-wrap:pretty;">Because the policy is never queried on generated observations, this measures whether the simulator preserves an outcome it is shown — not prospective evaluation of an unexecuted command. Generated rollouts are scored by a human rater applying the same task predicate, with policy identity withheld.</p>
         <div style="border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:20px;">
           <div style="display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:6px;">
-            <h3 style="margin:0; font-size:16px; font-weight:500; letter-spacing:-0.25px;">RoboLab</h3>
-            <span style="font-size:12px; color:#8F8F8F;">5 policies × 6 tasks · 300 episodes</span>
+            <h3 style="margin:0; font-size:17px; font-weight:600; letter-spacing:-0.25px;">RoboLab</h3>
+            <span style="font-size:15px; color:#4A4A4A;">5 policies × 6 tasks · 300 episodes</span>
           </div>
-          <p style="margin:0 0 14px; font-size:14px; color:#5E5E5E; line-height:1.55; text-wrap:pretty;">π₀, π₀.₅, GR00T N1.7, Cosmos-3 Nano, and Cosmos-3 Edge, rolled out 10 times per task.</p>
+          <p style="margin:0 0 14px; font-size:17px; line-height:1.6; text-wrap:pretty;">π₀, π₀.₅, GR00T N1.7, Cosmos-3 Nano, and Cosmos-3 Edge, rolled out 10 times per task.</p>
           <div data-cols="2" style="display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start;">
           <figure style="margin:0;">
             <img src="img/policy_evaluation_correlation.png" alt="Scatter of replayed success rate against reference success rate for five policies over six RoboLab tasks, with a least-squares fit" style="width:100%; height:auto; display:block; border:1px solid #D8D8D8; border-radius:2px; background:#FFFFFF;">
-            <figcaption style="margin-top:8px; font-size:12px; color:#5E5E5E; text-wrap:pretty;">Each point aggregates the 10 rollouts of one policy–task pair; the dashed line is the least-squares fit.</figcaption>
+            <figcaption style="margin-top:8px; font-size:15px; color:#4A4A4A; text-wrap:pretty;">Each point aggregates the 10 rollouts of one policy–task pair; the dashed line is the least-squares fit.</figcaption>
           </figure>
           <div>
           <div data-cols="3" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin-bottom:14px;">
-            <div style="border:1px solid #D8D8D8; border-radius:4px; padding:12px;"><div style="font-size:24px; font-weight:700; letter-spacing:-0.5px; color:#4E7C00;">0.96</div><div style="font-size:12px; color:#5E5E5E;">Pearson r</div></div>
-            <div style="border:1px solid #D8D8D8; border-radius:4px; padding:12px;"><div style="font-size:24px; font-weight:700; letter-spacing:-0.5px;">0.93</div><div style="font-size:12px; color:#5E5E5E;">Spearman ρ</div></div>
-            <div style="border:1px solid #D8D8D8; border-radius:4px; padding:12px;"><div style="font-size:24px; font-weight:700; letter-spacing:-0.5px;">5.7 pp</div><div style="font-size:12px; color:#5E5E5E;">Mean abs. error</div></div>
+            <div style="border:1px solid #D8D8D8; border-radius:4px; padding:12px;"><div style="font-size:28px; font-weight:700; letter-spacing:-0.5px; color:#4E7C00;">0.96</div><div style="font-size:15px; color:#4A4A4A;">Pearson r</div></div>
+            <div style="border:1px solid #D8D8D8; border-radius:4px; padding:12px;"><div style="font-size:28px; font-weight:700; letter-spacing:-0.5px;">0.93</div><div style="font-size:15px; color:#4A4A4A;">Spearman ρ</div></div>
+            <div style="border:1px solid #D8D8D8; border-radius:4px; padding:12px;"><div style="font-size:28px; font-weight:700; letter-spacing:-0.5px;">5.7 pp</div><div style="font-size:15px; color:#4A4A4A;">Mean abs. error</div></div>
           </div>
-          <ul style="margin:0; padding-left:18px; font-size:14px; line-height:1.7; color:#5E5E5E;">
+          <ul style="margin:0; padding-left:18px; font-size:17px; line-height:1.6;">
             <li>Aggregate success 26.3% simulated vs. 26.7% in RoboLab — a bias of −0.3 points.</li>
             <li>The two agree on the ordering of all five policies.</li>
             <li>Per-episode verdicts match 93.0% of the time (Cohen's κ = 0.82): 10 false positives, 11 false negatives.</li>
@@ -644,25 +660,25 @@
         </div>
         <div style="border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:20px;">
           <div style="display:flex; align-items:baseline; justify-content:space-between; gap:16px; margin-bottom:12px;">
-            <h3 style="margin:0; font-size:16px; font-weight:500; letter-spacing:-0.25px;">Side-by-side replay</h3>
-            <span style="font-size:12px; color:#8F8F8F;">reference vs. simulated, same reset and camera</span>
+            <h3 style="margin:0; font-size:17px; font-weight:600; letter-spacing:-0.25px;">Side-by-side replay</h3>
+            <span style="font-size:15px; color:#4A4A4A;">reference vs. simulated, same reset and camera</span>
           </div>
           <div data-cols="4" style="display:grid; grid-template-columns:repeat(4, 1fr); gap:12px;">
             <figure style="margin:0;">
               <video src="media/policy_robolab_success_reference.mp4" poster="media/posters/policy_robolab_success_reference.jpg" aria-label="Policy success episode, RoboLab reference" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:428/221; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
-              <figcaption style="font-size:12px; color:#5E5E5E; padding-top:6px;">RoboLab reference · success</figcaption>
+              <figcaption style="font-size:15px; padding-top:6px;">RoboLab reference · success</figcaption>
             </figure>
             <figure style="margin:0;">
               <video src="media/policy_robolab_success_simulated.mp4" poster="media/posters/policy_robolab_success_simulated.jpg" aria-label="Policy success episode, our neural simulator" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:428/221; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
-              <figcaption style="font-size:12px; color:#5E5E5E; padding-top:6px;">Simulated · success</figcaption>
+              <figcaption style="font-size:15px; padding-top:6px;">Simulated · success</figcaption>
             </figure>
             <figure style="margin:0;">
               <video src="media/policy_robolab_failure_reference.mp4" poster="media/posters/policy_robolab_failure_reference.jpg" aria-label="Policy failure episode, RoboLab reference" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:428/221; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
-              <figcaption style="font-size:12px; color:#5E5E5E; padding-top:6px;">RoboLab reference · failure</figcaption>
+              <figcaption style="font-size:15px; padding-top:6px;">RoboLab reference · failure</figcaption>
             </figure>
             <figure style="margin:0;">
               <video src="media/policy_robolab_failure_simulated.mp4" poster="media/posters/policy_robolab_failure_simulated.jpg" aria-label="Policy failure episode, our neural simulator" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:428/221; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
-              <figcaption style="font-size:12px; color:#5E5E5E; padding-top:6px;">Simulated · failure</figcaption>
+              <figcaption style="font-size:15px; padding-top:6px;">Simulated · failure</figcaption>
             </figure>
           </div>
         </div>
@@ -673,35 +689,35 @@
   <section id="control" style="max-width:1180px; margin:0 auto; padding:48px 24px 0;">
     <div data-cols="rail" style="display:grid; grid-template-columns:200px minmax(0, 1fr); gap:32px; align-items:start;">
       <div>
-        <h2 style="margin:0 0 8px; font-size:16px; font-weight:500; letter-spacing:-0.25px;">Running the interface backwards</h2>
-        <p style="margin:0; font-size:13px; color:#5E5E5E; text-wrap:pretty;">Figure 4 · flexible-pipe bending, from the human demonstration through to the robot's execution.</p>
+        <h2 style="margin:0 0 8px; font-size:17px; font-weight:600; letter-spacing:-0.25px;">Running the interface backwards</h2>
+        <p style="margin:0; font-size:15px; color:#4A4A4A; text-wrap:pretty;">Figure 4 · flexible-pipe bending, from the human demonstration through to the robot's execution.</p>
       </div>
       <div style="display:grid; gap:20px;">
-        <p style="margin:0; max-width:78ch; font-size:16px; line-height:1.6; text-wrap:pretty;">Supply desired object flow instead of embodiment flow and the world model generates a compatible robot motion, from which a learned action readout produces executable 14-DoF commands. The object flow here is transferred from a held-out human demonstration, and the readout is trained on paired real-world rollouts of both successes and failures — no task-specific expert robot demonstration is required.</p>
+        <p style="margin:0; max-width:78ch; font-size:17px; line-height:1.6; text-wrap:pretty;">Supply desired object flow instead of embodiment flow and the world model generates a compatible robot motion, from which a learned action readout produces executable 14-DoF commands. The object flow here is transferred from a held-out human demonstration, and the readout is trained on paired real-world rollouts of both successes and failures — no task-specific expert robot demonstration is required.</p>
         <div style="border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:20px;">
           <div data-cols="4" style="display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; margin-bottom:12px;">
             <figure style="margin:0;">
               <video src="media/control_human_demo.mp4" poster="media/posters/control_human_demo.jpg" aria-label="Human demonstration" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:320/209; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
-              <figcaption style="font-size:12px; padding-top:6px;">Human demonstration<br><span style="color:#5E5E5E;">held-out source</span></figcaption>
+              <figcaption style="font-size:15px; padding-top:6px;">Human demonstration<br><span style="color:#4A4A4A;">held-out source</span></figcaption>
             </figure>
             <figure style="margin:0;">
               <video src="media/control_object_flow.mp4" poster="media/posters/control_object_flow.jpg" aria-label="Object flow derived from the demonstration" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:320/209; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
-              <figcaption style="font-size:12px; padding-top:6px;">Desired object flow<br><span style="color:#5E5E5E;">the only condition supplied</span></figcaption>
+              <figcaption style="font-size:15px; padding-top:6px;">Desired object flow<br><span style="color:#4A4A4A;">the only condition supplied</span></figcaption>
             </figure>
             <figure style="margin:0;">
               <video src="media/control_generated_motion.mp4" poster="media/posters/control_generated_motion.jpg" aria-label="World-model generation from the transferred flow" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:320/209; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
-              <figcaption style="font-size:12px; padding-top:6px;">Generated robot motion<br><span style="color:#5E5E5E;">no embodiment flow input</span></figcaption>
+              <figcaption style="font-size:15px; padding-top:6px;">Generated robot motion<br><span style="color:#4A4A4A;">no embodiment flow input</span></figcaption>
             </figure>
             <figure style="margin:0;">
               <video src="media/control_physical_execution.mp4" poster="media/posters/control_physical_execution.jpg" aria-label="Physical YAM execution of the read-out actions" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:320/209; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
-              <figcaption style="font-size:12px; padding-top:6px;">Physical execution<br><span style="color:#5E5E5E;">14-DoF YAM, action readout</span></figcaption>
+              <figcaption style="font-size:15px; padding-top:6px;">Physical execution<br><span style="color:#4A4A4A;">14-DoF YAM, action readout</span></figcaption>
             </figure>
           </div>
-          <p style="margin:0; font-size:12px; color:#5E5E5E; text-wrap:pretty;">All four clips come from one flexible-pipe run.</p>
+          <p style="margin:0; font-size:15px; color:#4A4A4A; text-wrap:pretty;">All four clips come from one flexible-pipe run.</p>
         </div>
         <div style="border:1px solid #D8D8D8; border-left:2px solid #C54600; background:#FFFFFF; border-radius:4px; padding:16px 20px;">
-          <div style="font-size:14px; font-weight:500; margin-bottom:6px;">Limitations</div>
-          <p style="margin:0; font-size:14px; color:#5E5E5E; line-height:1.6; max-width:90ch; text-wrap:pretty;">The world action model can exhibit roughly 1 cm of grasp imprecision. We hypothesize that limited depth awareness contributes, but do not establish it as the cause. Grasp and contact state can also be ambiguous in generated rollouts, including whether an object has actually been secured. Conditioning on depth, tactile, or force signals is the obvious next step. The wrist-camera result is a qualitative DROID proof of concept; systematic evaluation under mobile manipulation and broader camera motion remains future work, as does closed-loop policy evaluation — everything reported here is open-loop.</p>
+          <div style="font-size:17px; font-weight:600; margin-bottom:6px;">Limitations</div>
+          <p style="margin:0; font-size:17px; line-height:1.6; text-wrap:pretty;">The world action model can exhibit roughly 1 cm of grasp imprecision. We hypothesize that limited depth awareness contributes, but do not establish it as the cause. Grasp and contact state can also be ambiguous in generated rollouts, including whether an object has actually been secured. Conditioning on depth, tactile, or force signals is the obvious next step. The wrist-camera result is a qualitative DROID proof of concept; systematic evaluation under mobile manipulation and broader camera motion remains future work, as does closed-loop policy evaluation — everything reported here is open-loop.</p>
         </div>
       </div>
     </div>
@@ -709,8 +725,8 @@
 
   <footer style="max-width:1180px; margin:0 auto; padding:48px 24px 64px;">
     <div style="border-top:1px solid #D8D8D8; padding-top:20px; display:flex; flex-wrap:wrap; gap:24px; justify-content:space-between; align-items:baseline;">
-      <span style="font-size:12px; color:#5E5E5E;">Hydra-0 · NVIDIA technical report</span>
-      <span style="font-size:12px; color:#5E5E5E;">Paper and code links to follow</span>
+      <span style="font-size:15px; color:#4A4A4A;">Hydra-0 · NVIDIA technical report</span>
+      <span style="font-size:15px; color:#4A4A4A;">Paper and code links to follow</span>
     </div>
   </footer>
 
@@ -761,6 +777,8 @@
   var selfPaused = new WeakSet();
   var selfSeeked = new WeakSet();
   var visible = new WeakSet();
+  var wired = new WeakSet();
+  var primed = new WeakSet();
   var groups = [];          // [{members: [video, ...]}]
   var byKey = {};
   var solo = [];
@@ -797,6 +815,7 @@
   function play(v) {
     if (!v.paused) { return; }
     selfPaused.delete(v);
+    assertPlayerProps(v);               // see below: React reconciles these off
     // A missing file rejects here; the poster stays.
     var p = v.play();
     if (p && p.catch) { p.catch(function () {}); }
@@ -874,8 +893,8 @@
 
   function prime(g) {
     g.members.forEach(function (m) {
-      if (m.dataset.primed) { return; }
-      m.dataset.primed = "1";
+      if (primed.has(m)) { return; }
+      primed.add(m);
       m.preload = "auto";
       m.load();
     });
@@ -911,23 +930,33 @@
   // is scrolled past, and it preloads rather than waiting to be scrolled in --
   // it is already on screen when the page opens.
   function wireBanner(v) {
-    v.muted = true;
-    v.loop = true;
-    v.playsInline = true;
-    v.controls = false;
     v.preload = "auto";
     solo.push(v);
     if (io) { io.observe(v); } else { play(v); }
   }
 
-  function wire(v) {
-    if (v.dataset.autoplayWired) { return; }
-    v.dataset.autoplayWired = "1";
-    if (v.hasAttribute("data-banner")) { wireBanner(v); return; }
-    v.muted = true;                     // all four are stripped from the markup
-    v.loop = true;                      // by the renderer, so set them here
-    v.controls = true;
+  // The four properties the markup cannot carry, re-asserted rather than set
+  // once. The renderer hands the page to React, and React reconciles these
+  // straight back off the element a few tens of milliseconds after the first
+  // wiring: `muted` it writes as a property (bare `muted` reaches it as the
+  // empty string, which it reads as false), `loop` and `controls` it drops
+  // along with the attribute. What is left is a player that cannot autoplay
+  // because it is no longer muted, would stop after one pass, and offers a
+  // reader no play button to recover with -- the whole page of clips sitting
+  // on their posters. So every scan re-asserts them, and so does `play`.
+  function assertPlayerProps(v) {
+    v.muted = true;
+    v.loop = true;
     v.playsInline = true;
+    // The banner is decoration behind the title, never a clip a reader drives.
+    v.controls = !v.hasAttribute("data-banner");
+  }
+
+  function wire(v) {
+    assertPlayerProps(v);
+    if (wired.has(v)) { return; }
+    wired.add(v);
+    if (v.hasAttribute("data-banner")) { wireBanner(v); return; }
 
     var key = syncKey(v);
     var list;
@@ -967,7 +996,18 @@
     if (io) { io.observe(v); } else { v.setAttribute("autoplay", ""); }
   }
 
-  function scan() { document.querySelectorAll("video").forEach(wire); }
+  function dropDetached(list) {
+    for (var i = list.length - 1; i >= 0; i--) {
+      if (!list[i].isConnected) { list.splice(i, 1); }
+    }
+  }
+
+  function scan() {
+    document.querySelectorAll("video").forEach(wire);
+    groups.forEach(function (g) { dropDetached(g.members); });
+    dropDetached(solo);
+    update();
+  }
 
   // ---- qualitative rollouts: ten samples per row, four players -------------
   //
@@ -1026,7 +1066,7 @@
       // Setting `src` runs the media load algorithm by itself, so `prime()`
       // does the one real fetch once the group is wanted -- calling `load()`
       // here as well would start a fetch that is immediately superseded.
-      delete v.dataset.primed;
+      primed.delete(v);
       v.preload = "none";
       v.setAttribute("poster", "media/posters/" + name + ".jpg");
       v.setAttribute("src", "media/" + name + ".mp4");
@@ -1187,14 +1227,14 @@ class Component extends DCLogic {
         name: MODELS[i],
         zeroShot,
         bg: zeroShot ? "#F7F7F7" : "#FFFFFF",
-        fg: zeroShot ? "#5E5E5E" : "#202020",
-        weight: i === 6 ? "500" : "400",
+        fg: zeroShot ? "#4A4A4A" : "#202020",
+        weight: i === 6 ? "600" : "400",
         cells: cells.map(v => {
           const best = v.endsWith("*");
           return {
             text: best ? v.slice(0, -1) : v,
             weight: best ? "600" : "400",
-            color: best ? "#4E7C00" : (zeroShot ? "#5E5E5E" : "#202020")
+            color: best ? "#4E7C00" : (zeroShot ? "#4A4A4A" : "#202020")
           };
         })
       };
