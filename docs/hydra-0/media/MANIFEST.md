@@ -11,6 +11,16 @@ evaluation samples already frozen by the paper's figure provenance records
 `robolab/annotations/manifest.json`), so a clip on this page and the same
 clip in the paper are the same bytes upstream of the crop.
 
+One exception, and it is deliberate. The two RoboLab rows are re-renders
+rather than the rated corpus bytes: the rating render draws the
+conditioning tracks into the prediction pane as cyan dots, a debug aid
+that on this page reads as an artefact of the prediction. They were rolled
+out again at the same LoRA step 6000, the same episode, the same
+conditioning pool and the same seed with `--no-draw-tracks`. Both come
+back at the same length as the rated clip (109 and 277 frames), and the
+prediction pane agrees with the rated one to within re-encode noise
+outside the pixels the overlay used to cover.
+
 The method and sampling sections play what those two figures could only
 sample: same episodes, same window starts, same tracks, same selection
 rules and the same drawn counts (the deployment lane draws 98 of its 365
@@ -49,10 +59,10 @@ browser shows before playback is always a frame of what it is about to play.
 
 | Slot | Size | Frames | fps | Source | Transform |
 |---|---|---:|---:|---|---|
-| `media/teaser_eval_failure_robolab.mp4` | 640x480 | 277 | 16 | RoboLab rating clip, failure row, RoboLab reference pane | same pane split, then centre-crop to 4:3 |
-| `media/teaser_eval_failure_sim.mp4` | 640x480 | 277 | 16 | RoboLab rating clip, failure row, our neural simulator pane | same pane split, then centre-crop to 4:3 |
-| `media/teaser_eval_success_robolab.mp4` | 640x480 | 109 | 16 | RoboLab rating clip, success row, RoboLab reference pane | same pane split, then centre-crop to 4:3 |
-| `media/teaser_eval_success_sim.mp4` | 640x480 | 109 | 16 | RoboLab rating clip, success row, our neural simulator pane | same pane split, then centre-crop to 4:3 |
+| `media/teaser_eval_failure_robolab.mp4` | 640x480 | 277 | 16 | rated RoboLab episode, failure row, re-rendered without the conditioning overlay -- RoboLab reference pane | same pane split, then centre-crop to 4:3 |
+| `media/teaser_eval_failure_sim.mp4` | 640x480 | 277 | 16 | rated RoboLab episode, failure row, re-rendered without the conditioning overlay -- our neural simulator pane | same pane split, then centre-crop to 4:3 |
+| `media/teaser_eval_success_robolab.mp4` | 640x480 | 109 | 16 | rated RoboLab episode, success row, re-rendered without the conditioning overlay -- RoboLab reference pane | same pane split, then centre-crop to 4:3 |
+| `media/teaser_eval_success_sim.mp4` | 640x480 | 109 | 16 | rated RoboLab episode, success row, re-rendered without the conditioning overlay -- our neural simulator pane | same pane split, then centre-crop to 4:3 |
 
 ## Figure 1 band 3c - CONTROL
 
@@ -126,7 +136,7 @@ wide across its evaluation set, so a per-row aspect would crop.
 
 | Slot | Size | Frames | fps | Source | Transform |
 |---|---|---:|---:|---|---|
-| `media/method_deploy_flow.mp4` | 640x480 | 277 | 16 | URDF forward kinematics of the policy's own states, projected through the calibrated camera (GEAR-YAM ep_000000) | trails grow over the held observation frame |
+| `media/method_deploy_flow.mp4` | 640x480 | 277 | 16 | URDF forward kinematics of the policy's own states, projected through the calibrated camera (GEAR-YAM ep_000000), drawn first over the Isaac Lab replay of the same command | trails grow over a background that cross-fades from the Isaac replay to the held observation |
 | `media/method_deploy_isaac.mp4` | 640x480 | 277 | 16 | Isaac Lab kinematic replay of the same policy rollout (real_world/isaaclab_replay.py, RTX raytraced, calibrated top D405) | native 640x480 render, no crop |
 | `media/method_deploy_prediction.mp4` | 640x480 | 277 | 16 | closed-loop world-model generation, GEAR-YAM policy_in_wm/ep_000000 | none, native 640x480 |
 
@@ -134,10 +144,10 @@ wide across its evaluation set, so a per-row aspect would crop.
 
 | Slot | Size | Frames | fps | Source | Transform |
 |---|---|---:|---:|---|---|
-| `media/policy_robolab_failure_reference.mp4` | 856x442 | 277 | 16 | RoboLab rating clip, failure row, RoboLab reference pane | split at the midpoint, crop 20 rows off the top and 50 off the bottom to drop the burned-in caption and badge |
-| `media/policy_robolab_failure_simulated.mp4` | 856x442 | 277 | 16 | RoboLab rating clip, failure row, our neural simulator pane | split at the midpoint, crop 20 rows off the top and 50 off the bottom to drop the burned-in caption and badge |
-| `media/policy_robolab_success_reference.mp4` | 856x442 | 109 | 16 | RoboLab rating clip, success row, RoboLab reference pane | split at the midpoint, crop 20 rows off the top and 50 off the bottom to drop the burned-in caption and badge |
-| `media/policy_robolab_success_simulated.mp4` | 856x442 | 109 | 16 | RoboLab rating clip, success row, our neural simulator pane | split at the midpoint, crop 20 rows off the top and 50 off the bottom to drop the burned-in caption and badge |
+| `media/policy_robolab_failure_reference.mp4` | 856x442 | 277 | 16 | rated RoboLab episode, failure row, re-rendered without the conditioning overlay -- RoboLab reference pane | split at the midpoint, crop 20 rows off the top and 50 off the bottom to drop the burned-in caption and badge |
+| `media/policy_robolab_failure_simulated.mp4` | 856x442 | 277 | 16 | rated RoboLab episode, failure row, re-rendered without the conditioning overlay -- our neural simulator pane | split at the midpoint, crop 20 rows off the top and 50 off the bottom to drop the burned-in caption and badge |
+| `media/policy_robolab_success_reference.mp4` | 856x442 | 109 | 16 | rated RoboLab episode, success row, re-rendered without the conditioning overlay -- RoboLab reference pane | split at the midpoint, crop 20 rows off the top and 50 off the bottom to drop the burned-in caption and badge |
+| `media/policy_robolab_success_simulated.mp4` | 856x442 | 109 | 16 | rated RoboLab episode, success row, re-rendered without the conditioning overlay -- our neural simulator pane | split at the midpoint, crop 20 rows off the top and 50 off the bottom to drop the burned-in caption and badge |
 
 ## Wrist-camera egomotion
 
@@ -153,8 +163,14 @@ come from the cohort's own AllTracker window and are classified by the
 training reader's rule -- frame-0 position against the frame-0 grounded
 masks, embodiment taking precedence over object. Colour is per-track and
 constant in time (measured to be the convention the shipped stills use)
-and encodes the class the captions name: embodiment `rgb(255, 96, 48)`, object `rgb(72, 224, 136)` -- the same
-palette as the method-lane stills. Density is one track per lattice cell
+and encodes the class the captions name. Each class draws from a band
+rather than one flat value -- embodiment H 0-34, object H 100-158, with saturation and value
+ramped alongside -- keyed to the track's frame-0 position within its own
+class extent, so neighbouring tracks take neighbouring tones and a
+two-armed rollout separates into a red arm and an amber one. The bands are
+centred on the flat key colours (embodiment `rgb(255, 96, 48)`, object `rgb(72, 224, 136)`),
+which are what the page's legend swatches and the mask fills still use.
+Density is one track per lattice cell
 (40 px embodiment, 36 px object).
 
 `method_train_flow_*` draws the same way but keeps only the last
@@ -162,7 +178,11 @@ palette as the method-lane stills. Density is one track per lattice cell
 large motion, and at full history the accumulated trails cover the arm
 and the cloth they are tracking by the middle of the window. The
 deployment lane keeps full history on purpose -- its observation is
-held, so the growing trail *is* the commanded trajectory.
+held, so the growing trail *is* the commanded trajectory. That lane's
+clip opens on the Isaac Lab replay and dissolves to the observation over
+frames 32-48: both are the same
+calibrated top D405, so the projected tracks sit on the arms in either,
+and the page's step 2 -> step 3 hand-off is shown rather than asserted.
 
 One deviation from the paper. `fig:action_flow_sampling` colours
 embodiment `#76B900` and object `#F09039`, i.e. the opposite way round

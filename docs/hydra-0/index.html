@@ -77,6 +77,26 @@
 
   [data-rollout-scroll] { scrollbar-width: thin; overscroll-behavior-x: contain; }
 
+  /* The deployment lane's four panes are ordered steps. The badge is the part
+     that is always true -- it survives any fold -- so the connectors are pure
+     reinforcement and are dropped the moment the grid stops being 2x2, where a
+     chevron pointing right would be pointing at nothing. The badge sits on the
+     media rather than in the caption because the arrows run between the media,
+     and a number half a caption away from its arrow reads as a footnote. */
+  [data-step] {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: rgba(5, 5, 5, 0.72); color: #FFFFFF;
+    font-size: 13px; font-weight: 700; line-height: 1;
+    font-variant-numeric: tabular-nums;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.28);
+    pointer-events: none;
+  }
+  @media (max-width: 620px) {
+    [data-deploy-steps] { grid-template-columns: minmax(0, 1fr) !important; }
+    [data-step-link] { display: none !important; }
+  }
+
   /* Author links sit on the dark hero, where a default anchor colour would be
      unreadable and a full underline would clutter a dense eleven-name byline.
      The rule inherits the byline's own colour and marks the link with a dim
@@ -128,6 +148,7 @@
         <a href="#results" style="color:#4A4A4A;">Results</a>
         <a href="#policy" style="color:#4A4A4A;">Policy evaluation</a>
         <a href="#control" style="color:#4A4A4A;">Control</a>
+        <a href="#bibtex" style="color:#4A4A4A;">BibTeX</a>
       </div>
     </div>
   </nav>
@@ -136,12 +157,13 @@
     <video data-banner src="media/banner.mp4" poster="media/posters/banner.jpg" aria-hidden="true" tabindex="-1" autoplay muted loop playsinline preload="auto" style="position:absolute; left:0; right:0; bottom:0; width:100%; height:auto; opacity:0.78; pointer-events:none; -webkit-mask-image:linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 42%); mask-image:linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 42%);"></video>
     <div data-banner-scrim aria-hidden="true" style="position:absolute; inset:0; pointer-events:none; background:linear-gradient(90deg, rgba(5,5,5,0.86) 0%, rgba(5,5,5,0.78) 45%, rgba(5,5,5,0.46) 100%),linear-gradient(180deg, rgba(5,5,5,0.22) 0%, rgba(5,5,5,0) 32%, rgba(5,5,5,0.34) 100%);"></div>
     <div style="position:relative; max-width:1180px; margin:0 auto; padding:56px 24px 44px; display:grid; gap:22px;">
-      <div style="display:flex; align-items:center; gap:10px; font-size:13px; letter-spacing:1.5px; text-transform:uppercase; color:#76B900;">
-        <img src="img/nvidia-logo.png" alt="NVIDIA" style="height:22px; width:auto; display:block;">
-        <span>technical report · preprint</span>
-      </div>
+      <!-- No mark here: the sticky nav carries the NVIDIA logo directly above,
+           and it stays on screen, so a second one 60 px below it is the same
+           badge twice. Plain block rather than the flex row it was, which only
+           existed to seat the logo beside the text. -->
+      <div style="font-size:13px; letter-spacing:1.5px; text-transform:uppercase; color:#76B900;">technical report · preprint</div>
       <h1 style="margin:0; font-size:48px; line-height:1.12; font-weight:700; letter-spacing:-1px; max-width:34ch; text-wrap:balance;">Hydra-0: Action Flow for Generalist World Modeling and Control</h1>
-      <p style="margin:0; max-width:86ch; font-size:19px; line-height:1.6; color:#C9C9C9; text-wrap:pretty;">A generalist world model conditioned on action flow: robot actions represented as pixel motion. One model trains across embodiments, simulates them, evaluates policies, and drives a real robot.</p>
+      <p style="margin:0; max-width:86ch; font-size:19px; line-height:1.6; color:#C9C9C9; text-wrap:pretty;">A generalist world model conditioned on action flow: robot actions represented as pixel motion. At deployment it runs as a <strong style="color:#FFFFFF; font-weight:600;">hybrid simulator</strong> — a physics engine moves the robot, a learned video model predicts what the world does in response. One model trains across embodiments, simulates them, evaluates policies, and drives a real robot.</p>
       <div style="display:flex; flex-wrap:wrap; column-gap:18px; row-gap:6px; font-size:15px;">
         <span><a data-author href="https://lhy.xyz/" target="_blank" rel="noopener noreferrer">Hongyu Li</a><sup style="color:#76B900;">1,2,3</sup></span>
         <span><a data-author href="https://wenbowen123.github.io/" target="_blank" rel="noopener noreferrer">Bowen Wen</a><sup style="color:#76B900;">1</sup></span>
@@ -173,7 +195,24 @@
       <div style="margin-bottom:14px;">
         <h2 style="margin:0; font-size:17px; font-weight:600; letter-spacing:-0.25px;">Overview video</h2>
       </div>
-      <video src="media/hero.mp4" poster="media/posters/hero.jpg" aria-label="Overview video" autoplay controls muted loop playsinline preload="auto" style="width:100%; aspect-ratio:16/9; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+      <!-- object-fit:contain, not cover: this clip is a titled explainer whose
+           frames carry text and labelled panels to their own edges, and `cover`
+           crops whatever the container's aspect does not match. The clip is
+           16:9 and so is the box, so nothing is letterboxed today -- contain is
+           what keeps that true if either changes. -->
+      <video src="media/overview.mp4" poster="media/posters/overview.jpg" aria-label="Overview video" autoplay controls muted loop playsinline preload="auto" style="width:100%; aspect-ratio:16/9; object-fit:contain; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+
+      <!-- The static teaser under the clip rather than beside it: the video
+           shows breadth and nothing else, and a reader who has just watched
+           400 tiles go by needs the map that says what the model is *for*.
+           The caption is the paper's own (fig:teaser), so the two do not drift
+           apart -- edit it there and bring it across, not the other way. -->
+      <div style="margin-top:20px; padding-top:20px; border-top:1px solid #D8D8D8;">
+        <a href="img/teaser_figure1.webp" target="_blank" rel="noopener noreferrer" style="display:block;">
+          <img src="img/teaser_figure1.webp" alt="Figure 1: heterogeneous interaction videos from egocentric human, UMI gripper, bimanual and unimanual sources are converted to a shared action flow, which conditions Hydra-0; the model then supports simulation, policy evaluation and policy learning." style="width:100%; height:auto; display:block; border:1px solid #D8D8D8; border-radius:2px; background:#FFFFFF;">
+        </a>
+        <p style="margin:12px 0 0; font-size:15px; color:#4A4A4A; text-wrap:pretty;"><strong>Figure 1: Action flow as a shared control interface.</strong> <em>Top:</em> Hydra-0 learns from diverse interaction videos featuring egocentric human demonstrations, handheld UMI grippers, bimanual robot arms, and single-arm robots. <em>Middle:</em> Visible embodiment motion is represented as image-plane flow trajectories, placing heterogeneous interactions in a common, pixel-aligned action flow space independent of embodiment-specific joint or end-effector coordinates. This unified interface enables a single generalist world model to learn from multi-embodiment data and transfer across interaction settings. <em>Bottom:</em> In forward mode, provided gripper flow conditions future scene prediction, whose rollouts support open-loop policy evaluation; in inverse mode, desired object flow elicits compatible robot motion that a supervised readout converts into executable actions.</p>
+      </div>
     </div>
   </section>
 
@@ -181,7 +220,10 @@
     <div style="border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:20px;">
       <div style="display:flex; align-items:baseline; justify-content:space-between; gap:16px; margin-bottom:14px;">
         <h2 style="margin:0; font-size:17px; font-weight:600; letter-spacing:-0.25px;">Action flow as a shared visual interface</h2>
-        <span style="font-size:15px; color:#4A4A4A; white-space:nowrap;">Figure 1</span>
+        <!-- Not a figure number of its own: this is the paper's Figure 1, top
+             two bands, with the frames running. Numbering it separately would
+             claim a fifth figure the paper does not have. -->
+        <span style="font-size:15px; color:#4A4A4A; white-space:nowrap;">Figure 1, bands 1–2 · animated</span>
       </div>
       <div data-cols="labelled" style="display:grid; grid-template-columns:120px repeat(4, 1fr); gap:8px; align-items:center;">
         <div data-span style="font-size:13px; letter-spacing:1px; text-transform:uppercase; color:#4A4A4A;">Sources</div>
@@ -245,10 +287,15 @@
         <h2 style="margin:0 0 8px; font-size:17px; font-weight:600; letter-spacing:-0.25px;">Method</h2>
         <p style="margin:0; font-size:15px; color:#4A4A4A; text-wrap:pretty;">One conditioning interface, built two ways: from video during training, from kinematics at deployment.</p>
         <!-- One colour key for every overlay on the page: the teaser bands, the
-             method lanes and the sampling panels all draw with these two. -->
+             method lanes and the sampling panels all draw from these two bands. -->
         <div style="margin-top:14px; display:grid; gap:6px; font-size:15px; color:#4A4A4A;">
-          <div style="display:flex; align-items:center; gap:8px;"><span style="width:11px; height:11px; border-radius:2px; background:#FF6030; flex:0 0 auto;"></span>Embodiment — the acting body</div>
-          <div style="display:flex; align-items:center; gap:8px;"><span style="width:11px; height:11px; border-radius:2px; background:#48E088; flex:0 0 auto;"></span>Manipulated object</div>
+          <!-- Swatches are ramps, not chips, because the overlays are: each
+               class draws from a band of hue/saturation/value keyed to where a
+               track starts, so a two-armed rollout separates into a red arm and
+               an amber one instead of one flat orange decal. A flat chip would
+               under-describe what the reader is about to see. -->
+          <div style="display:flex; align-items:center; gap:8px;"><span style="width:22px; height:11px; border-radius:2px; background:linear-gradient(90deg, #E62D2D, #F25218, #FF9100); flex:0 0 auto;"></span>Embodiment — the acting body</div>
+          <div style="display:flex; align-items:center; gap:8px;"><span style="width:22px; height:11px; border-radius:2px; background:linear-gradient(90deg, #72D73F, #29EB42, #0DFFA6); flex:0 0 auto;"></span>Manipulated object</div>
         </div>
       </div>
       <div style="display:grid; gap:20px; min-width:0;">
@@ -300,32 +347,56 @@
         </div>
 
         <div id="method-deployment" style="border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:20px;">
-          <div style="display:flex; align-items:baseline; gap:10px; margin-bottom:14px;">
+          <div style="display:flex; align-items:baseline; gap:10px; margin-bottom:14px; flex-wrap:wrap;">
             <span style="font-size:13px; letter-spacing:1px; text-transform:uppercase; color:#4E7C00; font-weight:600;">Online deployment</span>
-            <span style="font-size:15px; color:#4A4A4A;">action flow projected from an executable command</span>
+            <span style="font-size:15px; color:#4A4A4A;">a hybrid loop: physics moves the robot, the world model moves the world</span>
           </div>
+          <p style="margin:0 0 16px; max-width:78ch; font-size:17px; line-height:1.6; text-wrap:pretty;">Deployment is not one simulator but two, and each does only what it is good at. <strong>Isaac Lab</strong> owns the robot: a rigid, calibrated, fully known body whose response to a command is a solved problem, so it is executed exactly rather than predicted. <strong>Hydra-0</strong> owns everything the physics engine would need an asset and a material model for — the cloth, the deformable, the contact, the lighting, the scene it has never been given a mesh of. Action flow is the seam between them: it is what the physics engine <em>hands over</em>, and the only thing about the robot the video model is ever told.</p>
           <!-- Two by two rather than a row of four: at four across, each pane is
                ~220 px wide in this column and the projected flow, which is the
-               pane the lane is actually about, stops being readable. -->
-          <div data-cols="2" style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:14px; align-items:start;">
-            <figure style="margin:0;">
+               pane the lane is actually about, stops being readable. The four
+               are sequential, not a set, so the grid carries its own reading
+               order: numbered badges, a chevron between each horizontal pair,
+               and a serpentine rule that takes the eye from step 2 back down to
+               step 3 -- the one hop a left-to-right, top-to-bottom grid does not
+               make on its own. -->
+          <div data-deploy-steps style="display:grid; grid-template-columns:minmax(0, 1fr) 34px minmax(0, 1fr); gap:14px 0; align-items:start;">
+            <figure style="margin:0; position:relative;">
               <img src="img/method/deploy_real_rgb.png" alt="Real RGB observation at the start of the rollout" style="width:100%; aspect-ratio:4/3; object-fit:cover; border:1px solid #D8D8D8; border-radius:2px; display:block;">
+              <span data-step style="position:absolute; top:8px; left:8px;">1</span>
               <figcaption style="font-size:15px; padding-top:6px;">Observation<br><span style="color:#4A4A4A;">the single frame the model is conditioned on</span></figcaption>
             </figure>
-            <figure style="margin:0;">
+            <div data-step-link aria-hidden="true" style="align-self:center; display:flex; justify-content:center; padding-bottom:34px;">
+              <svg width="13" height="20" viewBox="0 0 13 20" fill="none"><path d="M2 2l8 8-8 8" stroke="#8A8A8A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <figure style="margin:0; position:relative;">
               <video src="media/method_deploy_isaac.mp4" poster="media/posters/method_deploy_isaac.jpg" controls muted loop playsinline preload="none" aria-label="Isaac Lab replay of the commanded rollout" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
-              <figcaption style="font-size:15px; padding-top:6px;">Command rollout in Isaac Lab<br><span style="color:#4A4A4A;">the candidate command, executed by a simulator</span></figcaption>
+              <span data-step style="position:absolute; top:8px; left:8px;">2</span>
+              <figcaption style="font-size:15px; padding-top:6px;">Command rollout in Isaac Lab<br><span style="color:#4A4A4A;">the candidate command, executed by a physics simulator</span></figcaption>
             </figure>
-            <figure style="margin:0;">
-              <video src="media/method_deploy_flow.mp4" poster="media/posters/method_deploy_flow.jpg" controls muted loop playsinline preload="none" aria-label="Action flow projected from the command onto the observation" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
-              <figcaption style="font-size:15px; padding-top:6px;">Kinematically projected flow<br><span style="color:#4A4A4A;">the same command, in the image plane</span></figcaption>
+
+            <div data-step-link aria-hidden="true" style="grid-column:1 / -1; position:relative; height:30px;">
+              <div style="position:absolute; right:25%; top:0; width:1px; height:15px; background:#B0B0B0;"></div>
+              <div style="position:absolute; left:25%; right:25%; top:15px; height:1px; background:#B0B0B0;"></div>
+              <div style="position:absolute; left:25%; top:15px; width:1px; height:9px; background:#B0B0B0;"></div>
+              <div style="position:absolute; left:calc(25% - 4px); top:23px; width:0; height:0; border-left:4.5px solid transparent; border-right:4.5px solid transparent; border-top:7px solid #8A8A8A;"></div>
+            </div>
+
+            <figure style="margin:0; position:relative;">
+              <video src="media/method_deploy_flow.mp4" poster="media/posters/method_deploy_flow.jpg" controls muted loop playsinline preload="none" aria-label="Action flow projected from the command, drawn first over the Isaac Lab replay and then over the real observation" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+              <span data-step style="position:absolute; top:8px; left:8px;">3</span>
+              <figcaption style="font-size:15px; padding-top:6px;">Kinematically projected flow<br><span style="color:#4A4A4A;">the hand-off — the same command, in the image plane</span></figcaption>
             </figure>
-            <figure style="margin:0;">
+            <div data-step-link aria-hidden="true" style="align-self:center; display:flex; justify-content:center; padding-bottom:34px;">
+              <svg width="13" height="20" viewBox="0 0 13 20" fill="none"><path d="M2 2l8 8-8 8" stroke="#8A8A8A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <figure style="margin:0; position:relative;">
               <video src="media/method_deploy_prediction.mp4" poster="media/posters/method_deploy_prediction.jpg" controls muted loop playsinline preload="none" aria-label="World-model prediction of the command's consequence" style="width:100%; aspect-ratio:4/3; object-fit:cover; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+              <span data-step style="position:absolute; top:8px; left:8px;">4</span>
               <figcaption style="font-size:15px; padding-top:6px;">Predicted consequence<br><span style="color:#4A4A4A;">what the world model generates</span></figcaption>
             </figure>
           </div>
-          <p style="margin:14px 0 0; font-size:15px; color:#4A4A4A; text-wrap:pretty;">Visible robot-surface points are propagated by the commanded link transforms and projected through the calibrated camera; the model then predicts the command's consequence. The three clips are one seventeen-second closed-loop rollout on a single clock, so the arm pose in the simulator, the flow drawn on the observation and the generated frame all belong to the same instant.</p>
+          <p style="margin:14px 0 0; font-size:15px; color:#4A4A4A; text-wrap:pretty;">Visible robot-surface points are propagated by the commanded link transforms and projected through the calibrated camera; the model then predicts the command's consequence. Step 3 opens on the Isaac Lab render carrying its own projected flow and dissolves to the real observation carrying the same flow — both are the same calibrated top camera, which is why the tracks sit on the arms in either, and is the whole reason a command executed in simulation can condition a prediction about the real scene. The three clips are one seventeen-second closed-loop rollout on a single clock, so the arm pose in the simulator, the flow drawn on the observation and the generated frame all belong to the same instant.</p>
         </div>
 
         <div data-cols="2" style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
@@ -348,8 +419,13 @@
         <h2 style="margin:0 0 8px; font-size:17px; font-weight:600; letter-spacing:-0.25px;">Grounding and sampling</h2>
         <p style="margin:0; font-size:15px; color:#4A4A4A; text-wrap:pretty;">Figure 2 · dense tracks are split by mask, then one conditioning mode is drawn per training step.</p>
         <div style="margin-top:14px; display:grid; gap:6px; font-size:15px; color:#4A4A4A;">
-          <div style="display:flex; align-items:center; gap:8px;"><span style="width:11px; height:11px; border-radius:2px; background:#FF6030; flex:0 0 auto;"></span>Embodiment — the acting body</div>
-          <div style="display:flex; align-items:center; gap:8px;"><span style="width:11px; height:11px; border-radius:2px; background:#48E088; flex:0 0 auto;"></span>Manipulated object</div>
+          <!-- Swatches are ramps, not chips, because the overlays are: each
+               class draws from a band of hue/saturation/value keyed to where a
+               track starts, so a two-armed rollout separates into a red arm and
+               an amber one instead of one flat orange decal. A flat chip would
+               under-describe what the reader is about to see. -->
+          <div style="display:flex; align-items:center; gap:8px;"><span style="width:22px; height:11px; border-radius:2px; background:linear-gradient(90deg, #E62D2D, #F25218, #FF9100); flex:0 0 auto;"></span>Embodiment — the acting body</div>
+          <div style="display:flex; align-items:center; gap:8px;"><span style="width:22px; height:11px; border-radius:2px; background:linear-gradient(90deg, #72D73F, #29EB42, #0DFFA6); flex:0 0 auto;"></span>Manipulated object</div>
         </div>
       </div>
       <div style="border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:20px;">
@@ -723,10 +799,41 @@
     </div>
   </section>
 
+  <section id="bibtex" style="max-width:1180px; margin:0 auto; padding:48px 24px 0;">
+    <div data-cols="rail" style="display:grid; grid-template-columns:200px minmax(0, 1fr); gap:32px; align-items:start;">
+      <div>
+        <h2 style="margin:0 0 8px; font-size:17px; font-weight:600; letter-spacing:-0.25px;">BibTeX</h2>
+        <p style="margin:0; font-size:15px; color:#4A4A4A; text-wrap:pretty;">If you find this work useful, please cite the report.</p>
+      </div>
+      <div style="min-width:0; border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; overflow:hidden;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 16px; border-bottom:1px solid #D8D8D8;">
+          <span style="font-size:13px; letter-spacing:1px; text-transform:uppercase; color:#4A4A4A;">arXiv:2608.18077</span>
+          <button type="button" data-copy="bibtex" style="height:30px; padding:0 12px; border:1px solid #D8D8D8; border-radius:4px; background:#FFFFFF; color:#4A4A4A; font-family:inherit; font-size:15px; cursor:pointer; transition:border-color 120ms ease-out, color 120ms ease-out;">Copy</button>
+        </div>
+        <!-- pre-wrap rather than the usual overflow-x:auto. The author line is
+             a single 240-character line, so scrolling would hide nine of the
+             eleven authors behind a scrollbar that only appears on hover. The
+             copied text is the element's textContent either way, so wrapping
+             costs nothing but makes the entry readable in place. -->
+        <pre id="bibtex-text" style="margin:0; padding:16px; white-space:pre-wrap; overflow-wrap:anywhere; font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace; font-size:13px; line-height:1.55; color:#202020; tab-size:2;">@misc{li_hydra-0_2026,
+    title = {Hydra-0: {Action} {Flow} for {Generalist} {World} {Modeling} and {Control}},
+    shorttitle = {Hydra-0},
+    url = {http://arxiv.org/abs/2608.18077},
+    doi = {10.48550/arXiv.2608.18077},
+    publisher = {arXiv},
+    author = {Li, Hongyu and Wen, Bowen and Zhu, Xinghao and Wang, Yixuan and Du, Yilun and Li, Yunzhu and Konidaris, George and Birchfield, Stan and Pouya, Soha and Li, Chenran and Chang, Yan},
+    month = aug,
+    year = {2026},
+    note = {arXiv:2608.18077 [cs.RO]},
+}</pre>
+      </div>
+    </div>
+  </section>
+
   <footer style="max-width:1180px; margin:0 auto; padding:48px 24px 64px;">
     <div style="border-top:1px solid #D8D8D8; padding-top:20px; display:flex; flex-wrap:wrap; gap:24px; justify-content:space-between; align-items:baseline;">
       <span style="font-size:15px; color:#4A4A4A;">Hydra-0 · NVIDIA technical report</span>
-      <span style="font-size:15px; color:#4A4A4A;">Paper and code links to follow</span>
+      <span style="font-size:15px; color:#4A4A4A;">Code links to follow</span>
     </div>
   </footer>
 
@@ -1306,6 +1413,37 @@ class Component extends DCLogic {
     new MutationObserver(scan).observe(document.documentElement,
       { childList: true, subtree: true });
   }
+})();
+
+// Copy the BibTeX entry.
+//
+// Delegated off the document rather than bound to the button, because the x-dc
+// renderer replaces nodes after the first pass and a handler bound at load
+// would be attached to a button that is no longer in the tree. The clipboard
+// API is unavailable over plain http and on older Safari, so a failure has to
+// be visible: the label says so rather than silently doing nothing, and the
+// text stays selectable either way.
+(function () {
+  var RESET_MS = 1400;
+  document.addEventListener("click", function (ev) {
+    var btn = ev.target && ev.target.closest && ev.target.closest("[data-copy]");
+    if (!btn) { return; }
+    var src = document.getElementById(btn.getAttribute("data-copy") + "-text");
+    if (!src) { return; }
+    var label = btn.textContent;
+    var done = function (msg) {
+      btn.textContent = msg;
+      setTimeout(function () { btn.textContent = label; }, RESET_MS);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(src.textContent).then(
+        function () { done("Copied"); },
+        function () { done("Press ⌘C"); }
+      );
+    } else {
+      done("Press ⌘C");
+    }
+  });
 })();
 </script>
 
