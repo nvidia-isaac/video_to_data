@@ -25,9 +25,9 @@
   ],
   "frames": 81,
   "fps": 16.0,
-  "bytes": 453385,
+  "bytes": 459748,
   "poster": "website/media/posters/teaser_flow_egodex.jpg",
-  "poster_bytes": 39312,
+  "poster_bytes": 40035,
   "poster_frame": 48,
   "transform": "progressive per-track trail, then the same 4:3 crop",
   "flow": {
@@ -67,9 +67,9 @@
   ],
   "frames": 81,
   "fps": 16.0,
-  "bytes": 920408,
+  "bytes": 935657,
   "poster": "website/media/posters/teaser_flow_deform360.jpg",
-  "poster_bytes": 65720,
+  "poster_bytes": 67729,
   "poster_frame": 48,
   "transform": "progressive per-track trail, then the same 4:3 crop",
   "flow": {
@@ -109,9 +109,9 @@
   ],
   "frames": 81,
   "fps": 16.0,
-  "bytes": 602197,
+  "bytes": 602635,
   "poster": "website/media/posters/teaser_flow_droid.jpg",
-  "poster_bytes": 74069,
+  "poster_bytes": 73626,
   "poster_frame": 48,
   "transform": "progressive per-track trail, then the same 4:3 crop",
   "flow": {
@@ -151,9 +151,9 @@
   ],
   "frames": 81,
   "fps": 16.0,
-  "bytes": 799236,
+  "bytes": 806838,
   "poster": "website/media/posters/teaser_flow_xvla_yam.jpg",
-  "poster_bytes": 57186,
+  "poster_bytes": 58130,
   "poster_frame": 48,
   "transform": "progressive per-track trail, then the same 4:3 crop",
   "flow": {
@@ -202,128 +202,128 @@
  {
   "slot": "media/policy_robolab_success_reference.mp4",
   "section": "Policy evaluation - side-by-side replay",
-  "provenance": "RoboLab rating clip, success row, RoboLab reference pane",
+  "provenance": "rated RoboLab episode, success row, re-rendered without the conditioning overlay -- RoboLab reference pane",
   "size": [
    856,
    442
   ],
   "frames": 109,
   "fps": 16.0,
-  "bytes": 388501,
+  "bytes": 387939,
   "poster": "website/media/posters/policy_robolab_success_reference.jpg",
-  "poster_bytes": 63303,
+  "poster_bytes": 63214,
   "poster_frame": 64,
   "transform": "split at the midpoint, crop 20 rows off the top and 50 off the bottom to drop the burned-in caption and badge"
  },
  {
   "slot": "media/teaser_eval_success_robolab.mp4",
   "section": "Figure 1 band 3b - EVALUATE",
-  "provenance": "RoboLab rating clip, success row, RoboLab reference pane",
+  "provenance": "rated RoboLab episode, success row, re-rendered without the conditioning overlay -- RoboLab reference pane",
   "size": [
    640,
    480
   ],
   "frames": 109,
   "fps": 16.0,
-  "bytes": 321559,
+  "bytes": 318873,
   "poster": "website/media/posters/teaser_eval_success_robolab.jpg",
-  "poster_bytes": 53572,
+  "poster_bytes": 53454,
   "poster_frame": 64,
   "transform": "same pane split, then centre-crop to 4:3"
  },
  {
   "slot": "media/policy_robolab_success_simulated.mp4",
   "section": "Policy evaluation - side-by-side replay",
-  "provenance": "RoboLab rating clip, success row, our neural simulator pane",
+  "provenance": "rated RoboLab episode, success row, re-rendered without the conditioning overlay -- our neural simulator pane",
   "size": [
    856,
    442
   ],
   "frames": 109,
   "fps": 16.0,
-  "bytes": 692122,
+  "bytes": 430513,
   "poster": "website/media/posters/policy_robolab_success_simulated.jpg",
-  "poster_bytes": 65362,
+  "poster_bytes": 60256,
   "poster_frame": 64,
   "transform": "split at the midpoint, crop 20 rows off the top and 50 off the bottom to drop the burned-in caption and badge"
  },
  {
   "slot": "media/teaser_eval_success_sim.mp4",
   "section": "Figure 1 band 3b - EVALUATE",
-  "provenance": "RoboLab rating clip, success row, our neural simulator pane",
+  "provenance": "rated RoboLab episode, success row, re-rendered without the conditioning overlay -- our neural simulator pane",
   "size": [
    640,
    480
   ],
   "frames": 109,
   "fps": 16.0,
-  "bytes": 480647,
+  "bytes": 350584,
   "poster": "website/media/posters/teaser_eval_success_sim.jpg",
-  "poster_bytes": 52572,
+  "poster_bytes": 50309,
   "poster_frame": 64,
   "transform": "same pane split, then centre-crop to 4:3"
  },
  {
   "slot": "media/policy_robolab_failure_reference.mp4",
   "section": "Policy evaluation - side-by-side replay",
-  "provenance": "RoboLab rating clip, failure row, RoboLab reference pane",
+  "provenance": "rated RoboLab episode, failure row, re-rendered without the conditioning overlay -- RoboLab reference pane",
   "size": [
    856,
    442
   ],
   "frames": 277,
   "fps": 16.0,
-  "bytes": 790540,
+  "bytes": 786670,
   "poster": "website/media/posters/policy_robolab_failure_reference.jpg",
-  "poster_bytes": 66482,
+  "poster_bytes": 66512,
   "poster_frame": 165,
   "transform": "split at the midpoint, crop 20 rows off the top and 50 off the bottom to drop the burned-in caption and badge"
  },
  {
   "slot": "media/teaser_eval_failure_robolab.mp4",
   "section": "Figure 1 band 3b - EVALUATE",
-  "provenance": "RoboLab rating clip, failure row, RoboLab reference pane",
+  "provenance": "rated RoboLab episode, failure row, re-rendered without the conditioning overlay -- RoboLab reference pane",
   "size": [
    640,
    480
   ],
   "frames": 277,
   "fps": 16.0,
-  "bytes": 624660,
+  "bytes": 624362,
   "poster": "website/media/posters/teaser_eval_failure_robolab.jpg",
-  "poster_bytes": 54949,
+  "poster_bytes": 55004,
   "poster_frame": 165,
   "transform": "same pane split, then centre-crop to 4:3"
  },
  {
   "slot": "media/policy_robolab_failure_simulated.mp4",
   "section": "Policy evaluation - side-by-side replay",
-  "provenance": "RoboLab rating clip, failure row, our neural simulator pane",
+  "provenance": "rated RoboLab episode, failure row, re-rendered without the conditioning overlay -- our neural simulator pane",
   "size": [
    856,
    442
   ],
   "frames": 277,
   "fps": 16.0,
-  "bytes": 1946235,
+  "bytes": 1036429,
   "poster": "website/media/posters/policy_robolab_failure_simulated.jpg",
-  "poster_bytes": 66728,
+  "poster_bytes": 61033,
   "poster_frame": 165,
   "transform": "split at the midpoint, crop 20 rows off the top and 50 off the bottom to drop the burned-in caption and badge"
  },
  {
   "slot": "media/teaser_eval_failure_sim.mp4",
   "section": "Figure 1 band 3b - EVALUATE",
-  "provenance": "RoboLab rating clip, failure row, our neural simulator pane",
+  "provenance": "rated RoboLab episode, failure row, re-rendered without the conditioning overlay -- our neural simulator pane",
   "size": [
    640,
    480
   ],
   "frames": 277,
   "fps": 16.0,
-  "bytes": 1270690,
+  "bytes": 807361,
   "poster": "website/media/posters/teaser_eval_failure_sim.jpg",
-  "poster_bytes": 52531,
+  "poster_bytes": 49606,
   "poster_frame": 165,
   "transform": "same pane split, then centre-crop to 4:3"
  },
@@ -465,9 +465,9 @@
   ],
   "frames": 81,
   "fps": 16.0,
-  "bytes": 1001556,
+  "bytes": 1033806,
   "poster": "website/media/posters/method_train_flow_droid.jpg",
-  "poster_bytes": 63259,
+  "poster_bytes": 64272,
   "poster_frame": 48,
   "transform": "per-track trail over a 16-frame rolling history, then the same 4:3 crop",
   "flow": {
@@ -508,9 +508,9 @@
   ],
   "frames": 81,
   "fps": 16.0,
-  "bytes": 657789,
+  "bytes": 691125,
   "poster": "website/media/posters/method_train_flow_deform360.jpg",
-  "poster_bytes": 46115,
+  "poster_bytes": 48269,
   "poster_frame": 48,
   "transform": "per-track trail over a 16-frame rolling history, then the same 4:3 crop",
   "flow": {
@@ -551,9 +551,9 @@
   ],
   "frames": 81,
   "fps": 16.0,
-  "bytes": 1307265,
+  "bytes": 1331418,
   "poster": "website/media/posters/method_train_flow_xvla.jpg",
-  "poster_bytes": 60805,
+  "poster_bytes": 63097,
   "poster_frame": 48,
   "transform": "per-track trail over a 16-frame rolling history, then the same 4:3 crop",
   "flow": {
@@ -588,18 +588,18 @@
  {
   "slot": "media/method_deploy_flow.mp4",
   "section": "Method - online deployment",
-  "provenance": "URDF forward kinematics of the policy's own states, projected through the calibrated camera (GEAR-YAM ep_000000)",
+  "provenance": "URDF forward kinematics of the policy's own states, projected through the calibrated camera (GEAR-YAM ep_000000), drawn first over the Isaac Lab replay of the same command",
   "size": [
    640,
    480
   ],
   "frames": 277,
   "fps": 16.0,
-  "bytes": 364272,
+  "bytes": 510685,
   "poster": "website/media/posters/method_deploy_flow.jpg",
-  "poster_bytes": 50289,
+  "poster_bytes": 51306,
   "poster_frame": 165,
-  "transform": "trails grow over the held observation frame",
+  "transform": "trails grow over a background that cross-fades from the Isaac replay to the held observation",
   "flow": {
    "n_tracks_kept": 365,
    "n_tracks_total": 365,
@@ -609,6 +609,12 @@
    "drawn_object": 0,
    "cell_grip": 18.0,
    "cell_object": 36.0
+  },
+  "crossfade": {
+   "from": "isaac_top_camera.mp4",
+   "to": "first_frame.png",
+   "start_frame": 32,
+   "end_frame": 48
   }
  },
  {
@@ -690,9 +696,9 @@
   ],
   "frames": 81,
   "fps": 16.0,
-  "bytes": 540105,
+  "bytes": 541760,
   "poster": "website/media/posters/flow_sample_embodiment.jpg",
-  "poster_bytes": 44518,
+  "poster_bytes": 49045,
   "poster_frame": 48,
   "transform": "48 tracks drawn by the figure's own selection rule"
  },
@@ -706,9 +712,9 @@
   ],
   "frames": 81,
   "fps": 16.0,
-  "bytes": 504718,
+  "bytes": 514173,
   "poster": "website/media/posters/flow_sample_object.jpg",
-  "poster_bytes": 37001,
+  "poster_bytes": 37725,
   "poster_frame": 48,
   "transform": "48 tracks drawn by the figure's own selection rule"
  },
@@ -722,9 +728,9 @@
   ],
   "frames": 81,
   "fps": 16.0,
-  "bytes": 629231,
+  "bytes": 631439,
   "poster": "website/media/posters/flow_sample_all.jpg",
-  "poster_bytes": 46141,
+  "poster_bytes": 49459,
   "poster_frame": 48,
   "transform": "256 tracks drawn by the figure's own selection rule"
  },
