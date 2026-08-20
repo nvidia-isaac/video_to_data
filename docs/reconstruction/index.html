@@ -253,6 +253,18 @@
       gap: 0.9rem;
       margin-top: 1rem;
     }
+    .release-subhead {
+      margin: 1.25rem 0 0.5rem;
+      font-size: 1.15rem;
+    }
+    .update-list {
+      max-width: 72ch;
+      margin: 0.5rem 0 0;
+      padding-left: 1.25rem;
+      color: var(--text-muted);
+    }
+    .update-list li + li { margin-top: 0.6rem; }
+    .update-list strong { color: var(--heading); }
     .card {
       padding: 1rem;
       background: var(--surface);
@@ -261,6 +273,27 @@
     }
     .card h3 { font-size: 1rem; margin-bottom: 0.4rem; }
     .card p { font-size: 0.94rem; }
+    .object-mesh-media {
+      max-width: 36rem;
+      margin: 1.5rem 0 0;
+      overflow: hidden;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      box-shadow: var(--shadow);
+    }
+    .object-mesh-media img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    .object-mesh-media figcaption {
+      padding: 0.65rem 0.8rem;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      line-height: 1.4;
+      border-top: 1px solid var(--border);
+    }
     .callout {
       padding: 1rem 1.1rem;
       border-left: 4px solid var(--accent);
@@ -373,8 +406,8 @@
     <div class="content">
       <nav class="toc" aria-label="Page sections">
         <a href="#overview">Overview</a>
-        <a href="#v020">What&rsquo;s New in v0.2.0</a>
-        <a href="#ego-pipeline">Ego Pipeline</a>
+        <a href="#ego-pipeline">Ego-Centric Hand-Object</a>
+        <a href="#object-mesh-reconstruction">Object Mesh</a>
         <a href="#outputs">Outputs</a>
         <a href="#next">Next Steps</a>
       </nav>
@@ -389,50 +422,20 @@
             retargeting, robot simulation, policy training, and dataset analysis.
           </p>
           <p>
-            The reconstruction stack is modular: depth estimation,
-            segmentation, mesh generation, object pose tracking, hand/body
-            reconstruction, calibration, and visualization are separate tools
-            with file-based inputs and outputs. That makes pipelines easier to
-            resume, debug, compare, and extend as better models become available.
+            All reconstruction components are containerized with scripts to
+            easily build and execute them. This makes reproducing results
+            straightforward.
           </p>
-        </section>
-
-        <section class="doc-section" id="v020">
-          <h2>What&rsquo;s New in v0.2.0</h2>
-          <p>
-            v0.2.0 expands the ego-centric reconstruction workflow with more
-            robust scene alignment, hand-tracking choices, and trajectory
-            refinement options.
-          </p>
-          <div class="cards">
-            <article class="card">
-              <h3>Gravity Alignment</h3>
-              <p>Align reconstructed hand and object trajectories to gravity for a stable, physically meaningful world orientation.</p>
-            </article>
-            <article class="card">
-              <h3>SAM2 + HaMeR Hand Tracking</h3>
-              <p>Choose an alternative hand-tracking pipeline that uses SAM2 hand masks with HaMeR hand reconstruction.</p>
-            </article>
-            <article class="card">
-              <h3>Gaussian-Splat Optimization</h3>
-              <p>Refine global trajectories using Gaussian-splat-based optimization for improved consistency across the sequence.</p>
-            </article>
-            <article class="card">
-              <h3>Provided Object Meshes</h3>
-              <p>Run ego-centric reconstruction with a predefined object mesh when a suitable asset is already available.</p>
-            </article>
-          </div>
         </section>
 
         <section class="doc-section" id="ego-pipeline">
-          <h2>Ego-Centric Pipeline</h2>
+          <h2>Ego-Centric Hand-Object Reconstruction</h2>
           <p>
-            The current first-class workflow is
-            <code>modules/v2d_pipelines/run_v2d_ego_e2e.py</code>. Given an MP4
-            and a text prompt for the held object, it runs an end-to-end
-            egocentric hand-object reconstruction flow. The pipeline first
-            undistorts footage into a pinhole camera model, then estimates the
-            object, hands, depth, pose trajectory, and final alignment.
+            Video to Data includes a pipeline for ego-centric hand-object
+            reconstruction, detailed in
+            <a href="https://github.com/nvidia-isaac/video_to_data/blob/main/reconstruction/docs/ego_e2e_setup.md" target="_blank" rel="noopener">ego_e2e_setup.md</a>.
+            Given an MP4 and a text prompt for the held object, it estimates
+            the object, hands, depth, pose trajectory, and final alignment.
           </p>
           <div class="cards">
             <article class="card">
@@ -452,6 +455,30 @@
               <p>The pipeline writes overlay and multi-view videos so object poses, hand tracks, and alignment quality can be checked without opening raw artifacts manually.</p>
             </article>
           </div>
+          <h3 class="release-subhead">New in v0.2.0</h3>
+          <ul class="update-list">
+            <li><strong>Gravity Alignment:</strong> Align reconstructed hand and object trajectories to gravity for a stable, physically meaningful world orientation.</li>
+            <li><strong>SAM2 + HaMeR Hand Tracking:</strong> Choose an alternative hand-tracking pipeline that uses SAM2 hand masks with HaMeR hand reconstruction.</li>
+            <li><strong>Gaussian-Splat Optimization:</strong> Refine global trajectories using Gaussian-splat-based optimization for improved consistency across the sequence.</li>
+          </ul>
+        </section>
+
+        <section class="doc-section" id="object-mesh-reconstruction">
+          <h2>Object Mesh Reconstruction</h2>
+          <p>
+            As of v0.2.0, Video to Data now supports object mesh reconstruction
+            using a variety of methods. BundleSDF reconstructs a textured mesh
+            from a multi-view scan, while SAM3D generates representative
+            single-image meshes with silhouette-based scale estimation. A
+            predefined object mesh can also be used when a suitable asset is
+            available. See
+            <a href="https://github.com/nvidia-isaac/video_to_data/blob/main/reconstruction/modules/v2d_hoi_object_reconstruction/README.md" target="_blank" rel="noopener">v2d_hoi_object_reconstruction/README.md</a>
+            for capture requirements and usage details.
+          </p>
+          <figure class="object-mesh-media">
+            <img src="./airplane-input-reference.gif" alt="Toy airplane used as the input reference for object mesh reconstruction.">
+            <figcaption>Input reference for the toy-airplane object mesh reconstruction example.</figcaption>
+          </figure>
         </section>
 
         <section class="doc-section" id="outputs">
