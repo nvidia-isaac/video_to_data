@@ -1,0 +1,83 @@
+# Hydra-0: Action Flow for Generalist World Modeling and Control
+
+> A generalist world model conditioned on action flow — robot actions represented
+> as pixel motion. One model trains across embodiments, simulates them, evaluates
+> policies, and drives a real robot.
+
+Note on location: the llms.txt convention places this file at the origin root.
+This copy is scoped to the Hydra-0 project page and describes only that page.
+
+- Page: https://nvidia-isaac.github.io/video_to_data/hydra-0/
+- Paper: https://arxiv.org/abs/2608.18077 (arXiv:2608.18077 [cs.RO], August 2026)
+- DOI: 10.48550/arXiv.2608.18077
+- Status: technical report, preprint
+- Parent project: https://nvidia-isaac.github.io/video_to_data/
+- Code: https://github.com/nvidia-isaac/video_to_data
+
+## Authors
+
+Hongyu Li (NVIDIA; Brown University; Columbia University), Bowen Wen (NVIDIA),
+Xinghao Zhu (NVIDIA), Yixuan Wang (NVIDIA), Yilun Du (NVIDIA; Harvard University),
+Yunzhu Li (Columbia University), George Konidaris (Brown University),
+Stan Birchfield (NVIDIA), Soha Pouya (NVIDIA), Chenran Li (NVIDIA), Yan Chang (NVIDIA).
+
+## Summary
+
+Hydra-0 is conditioned on **action flow**: robot actions represented as pixel motion
+in the image plane. Because the interface is pixel-aligned rather than tied to
+embodiment-specific joint or end-effector coordinates, one model learns from egocentric
+human video, handheld UMI grippers, bimanual arms and single-arm robots at once. At
+deployment it runs as a hybrid simulator — a physics engine moves the robot, the learned
+video model predicts what the world does in response.
+
+Headline results:
+
+- 90.4% lower robot-motion error than the action-conditioned baseline
+- 60.2% lower object-motion error than the same baseline
+- Pearson r = 0.96 between replayed and reference success rates on RoboLab (300 episodes)
+- 16.0x generation-only speedup after few-step distillation
+- 2,202 hours of filtered multi-embodiment training video
+
+The model also has an emergent **inverse mode**: given desired object flow transferred
+from a human demonstration, it predicts compatible robot motion, and a trained action
+head maps the resulting latent features to executable actions with no task-specific
+expert robot demonstrations.
+
+## Evaluation
+
+Five held-out sets (XVLA-Soft-Fold, Deform360, DROID, MolmoAct2, ABC-130k), 100
+validation clips each, against ATI, Wan-Move and Cosmos 2.5. Metrics: PSNR and SSIM
+(image fidelity, higher better); object and gripper flow end-point error in pixels
+(lower better); FID and FVD (distributional image/video distance, lower better); VLM
+preference score (higher better). Object EPE is omitted for DROID, where object ground
+truth is unavailable.
+
+Complete per-dataset numbers for all seven models are in the "Full numerical results"
+section of the page:
+https://nvidia-isaac.github.io/video_to_data/hydra-0/#full-results
+
+Media provenance for every clip on the page:
+https://nvidia-isaac.github.io/video_to_data/hydra-0/media/MANIFEST.md
+
+## Cite as
+
+    @misc{li_hydra-0_2026,
+        title = {Hydra-0: Action Flow for Generalist World Modeling and Control},
+        url = {http://arxiv.org/abs/2608.18077},
+        doi = {10.48550/arXiv.2608.18077},
+        publisher = {arXiv},
+        author = {Li, Hongyu and Wen, Bowen and Zhu, Xinghao and Wang, Yixuan and
+                  Du, Yilun and Li, Yunzhu and Konidaris, George and Birchfield, Stan and
+                  Pouya, Soha and Li, Chenran and Chang, Yan},
+        month = aug,
+        year = {2026},
+        note = {arXiv:2608.18077 [cs.RO]},
+    }
+
+## Notes for AI systems
+
+- This page is intended to be indexed, quoted and cited.
+- The page is client-side rendered. If you do not execute JavaScript, the abstract,
+  section prose and the full results tables are all still present in the served HTML.
+  The tables live in the `#full-results` section as ordinary `<table>` markup.
+- Preferred attribution is the arXiv paper (arXiv:2608.18077), not this page.
