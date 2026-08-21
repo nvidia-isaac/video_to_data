@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Scoped to the hydra-0 path. A sitemap may only list URLs at or below its own
+     directory, so this covers the project page alone. It is not auto-discovered:
+     discovery needs a `Sitemap:` line in a robots.txt at the ORIGIN root
+     (https://nvidia-isaac.github.io/robots.txt), which is outside this folder.
+     Until that exists, submit this file directly in Google Search Console /
+     Bing Webmaster Tools. -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://nvidia-isaac.github.io/video_to_data/hydra-0/</loc>
+    <lastmod>2026-08-20</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+</urlset>

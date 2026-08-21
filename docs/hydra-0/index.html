@@ -1,8 +1,296 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Hydra-0: Action Flow for Generalist World Modeling and Control | NVIDIA Isaac</title>
+<meta name="description" content="Hydra-0 is a generalist world model conditioned on action flow — robot actions represented as pixel motion — that trains across embodiments, simulates them, evaluates policies, and drives a real robot.">
+<link rel="canonical" href="https://nvidia-isaac.github.io/video_to_data/hydra-0/">
+<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+<meta name="author" content="Hongyu Li, Bowen Wen, Xinghao Zhu, Yixuan Wang, Yilun Du, Yunzhu Li, George Konidaris, Stan Birchfield, Soha Pouya, Chenran Li, Yan Chang">
+<meta name="theme-color" content="#76B900">
+
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="img/favicon-32.png">
+<link rel="apple-touch-icon" href="img/hydra-icon-180.png">
+
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Video to Data — NVIDIA Isaac">
+<meta property="og:title" content="Hydra-0: Action Flow for Generalist World Modeling and Control">
+<meta property="og:description" content="Hydra-0 is a generalist world model conditioned on action flow — robot actions represented as pixel motion — that trains across embodiments, simulates them, evaluates policies, and drives a real robot.">
+<meta property="og:url" content="https://nvidia-isaac.github.io/video_to_data/hydra-0/">
+<meta property="og:image" content="https://nvidia-isaac.github.io/video_to_data/hydra-0/media/posters/hero.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="720">
+<meta property="og:image:alt" content="Hydra-0 predicting scene dynamics from action flow across multiple robot embodiments.">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-08-01">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Hydra-0: Action Flow for Generalist World Modeling and Control">
+<meta name="twitter:description" content="Hydra-0 is a generalist world model conditioned on action flow — robot actions represented as pixel motion — that trains across embodiments, simulates them, evaluates policies, and drives a real robot.">
+<meta name="twitter:image" content="https://nvidia-isaac.github.io/video_to_data/hydra-0/media/posters/hero.jpg">
+<meta name="twitter:image:alt" content="Hydra-0 predicting scene dynamics from action flow across multiple robot embodiments.">
+
+<meta name="citation_title" content="Hydra-0: Action Flow for Generalist World Modeling and Control">
+<meta name="citation_author" content="Hongyu Li">
+<meta name="citation_author" content="Bowen Wen">
+<meta name="citation_author" content="Xinghao Zhu">
+<meta name="citation_author" content="Yixuan Wang">
+<meta name="citation_author" content="Yilun Du">
+<meta name="citation_author" content="Yunzhu Li">
+<meta name="citation_author" content="George Konidaris">
+<meta name="citation_author" content="Stan Birchfield">
+<meta name="citation_author" content="Soha Pouya">
+<meta name="citation_author" content="Chenran Li">
+<meta name="citation_author" content="Yan Chang">
+<meta name="citation_publication_date" content="2026/08">
+<meta name="citation_arxiv_id" content="2608.18077">
+<meta name="citation_doi" content="10.48550/arXiv.2608.18077">
+<meta name="citation_abstract_html_url" content="https://arxiv.org/abs/2608.18077">
+<meta name="citation_technical_report_institution" content="NVIDIA">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "ScholarlyArticle",
+      "@id": "https://nvidia-isaac.github.io/video_to_data/hydra-0/#article",
+      "headline": "Hydra-0: Action Flow for Generalist World Modeling and Control",
+      "name": "Hydra-0: Action Flow for Generalist World Modeling and Control",
+      "alternativeHeadline": "Hydra-0",
+      "abstract": "We introduce Hydra-0, a generalist world model conditioned on action flow, which represents robot actions as pixel motion. This shared visual interface enables generalist world modeling and control by learning action consequences across embodiments, tasks, environments, and video-generation backbones. Our best configuration achieves 90.4% lower robot-motion error and 60.2% lower object-motion error than our action-conditioned baseline, while supporting zero-shot composition and data-efficient adaptation. On the RoboLab benchmark, Hydra-0 achieves a Pearson correlation of r = 0.96 between replayed and reference success rates. Finally, we uncover an emergent inverse mode of this interface: a world action model that predicts compatible robot motion from desired object flow transferred from a human demonstration. A trained action head maps the resulting latent features to executable actions without requiring task-specific expert robot demonstrations. Together, these results demonstrate the potential of action flow as a shared control interface connecting heterogeneous training data, open-loop policy evaluation, and robot control.",
+      "description": "Hydra-0 is a generalist world model conditioned on action flow — robot actions represented as pixel motion — that trains across embodiments, simulates them, evaluates policies, and drives a real robot.",
+      "inLanguage": "en",
+      "datePublished": "2026-08",
+      "dateModified": "2026-08-20",
+      "url": "https://nvidia-isaac.github.io/video_to_data/hydra-0/",
+      "mainEntityOfPage": {
+        "@type": "WebPage",
+        "@id": "https://nvidia-isaac.github.io/video_to_data/hydra-0/"
+      },
+      "identifier": [
+        {
+          "@type": "PropertyValue",
+          "propertyID": "arXiv",
+          "value": "2608.18077"
+        },
+        {
+          "@type": "PropertyValue",
+          "propertyID": "DOI",
+          "value": "10.48550/arXiv.2608.18077"
+        }
+      ],
+      "sameAs": [
+        "https://arxiv.org/abs/2608.18077",
+        "https://doi.org/10.48550/arXiv.2608.18077"
+      ],
+      "author": [
+        {
+          "@type": "Person",
+          "name": "Hongyu Li",
+          "url": "https://lhy.xyz/",
+          "affiliation": [
+            {
+              "@type": "Organization",
+              "name": "NVIDIA",
+              "url": "https://www.nvidia.com/"
+            },
+            {
+              "@type": "CollegeOrUniversity",
+              "name": "Brown University",
+              "url": "https://www.brown.edu/"
+            },
+            {
+              "@type": "CollegeOrUniversity",
+              "name": "Columbia University",
+              "url": "https://www.columbia.edu/"
+            }
+          ]
+        },
+        {
+          "@type": "Person",
+          "name": "Bowen Wen",
+          "url": "https://wenbowen123.github.io/",
+          "affiliation": {
+            "@type": "Organization",
+            "name": "NVIDIA",
+            "url": "https://www.nvidia.com/"
+          }
+        },
+        {
+          "@type": "Person",
+          "name": "Xinghao Zhu",
+          "url": "https://rolandzhu.github.io/",
+          "affiliation": {
+            "@type": "Organization",
+            "name": "NVIDIA",
+            "url": "https://www.nvidia.com/"
+          }
+        },
+        {
+          "@type": "Person",
+          "name": "Yixuan Wang",
+          "url": "https://www.yixuanwang.me/",
+          "affiliation": {
+            "@type": "Organization",
+            "name": "NVIDIA",
+            "url": "https://www.nvidia.com/"
+          }
+        },
+        {
+          "@type": "Person",
+          "name": "Yilun Du",
+          "url": "https://yilundu.github.io/",
+          "affiliation": [
+            {
+              "@type": "Organization",
+              "name": "NVIDIA",
+              "url": "https://www.nvidia.com/"
+            },
+            {
+              "@type": "CollegeOrUniversity",
+              "name": "Harvard University",
+              "url": "https://www.harvard.edu/"
+            }
+          ]
+        },
+        {
+          "@type": "Person",
+          "name": "Yunzhu Li",
+          "url": "https://yunzhuli.github.io/",
+          "affiliation": {
+            "@type": "CollegeOrUniversity",
+            "name": "Columbia University",
+            "url": "https://www.columbia.edu/"
+          }
+        },
+        {
+          "@type": "Person",
+          "name": "George Konidaris",
+          "url": "https://cs.brown.edu/people/gdk/index.html",
+          "affiliation": {
+            "@type": "CollegeOrUniversity",
+            "name": "Brown University",
+            "url": "https://www.brown.edu/"
+          }
+        },
+        {
+          "@type": "Person",
+          "name": "Stan Birchfield",
+          "url": "https://sbirchfield.github.io/",
+          "affiliation": {
+            "@type": "Organization",
+            "name": "NVIDIA",
+            "url": "https://www.nvidia.com/"
+          }
+        },
+        {
+          "@type": "Person",
+          "name": "Soha Pouya",
+          "url": "https://www.linkedin.com/in/sohapouya/",
+          "affiliation": {
+            "@type": "Organization",
+            "name": "NVIDIA",
+            "url": "https://www.nvidia.com/"
+          }
+        },
+        {
+          "@type": "Person",
+          "name": "Chenran Li",
+          "url": "https://scholar.google.com/citations?user=O_PbKNMAAAAJ&hl=zh-CN",
+          "affiliation": {
+            "@type": "Organization",
+            "name": "NVIDIA",
+            "url": "https://www.nvidia.com/"
+          }
+        },
+        {
+          "@type": "Person",
+          "name": "Yan Chang",
+          "url": "https://www.linkedin.com/in/yanchang1/",
+          "affiliation": {
+            "@type": "Organization",
+            "name": "NVIDIA",
+            "url": "https://www.nvidia.com/"
+          }
+        }
+      ],
+      "publisher": {
+        "@type": "Organization",
+        "name": "NVIDIA",
+        "url": "https://www.nvidia.com/",
+        "sameAs": [
+          "https://en.wikipedia.org/wiki/Nvidia",
+          "https://github.com/nvidia-isaac"
+        ]
+      },
+      "isPartOf": {
+        "@type": "WebSite",
+        "name": "Video to Data — NVIDIA Isaac",
+        "url": "https://nvidia-isaac.github.io/video_to_data/"
+      },
+      "image": "https://nvidia-isaac.github.io/video_to_data/hydra-0/media/posters/hero.jpg",
+      "creativeWorkStatus": "Preprint",
+      "keywords": [
+        "world model",
+        "action flow",
+        "robot learning",
+        "video generation",
+        "policy evaluation",
+        "multi-embodiment",
+        "robot manipulation",
+        "hybrid simulation"
+      ],
+      "citation": "Li, Hongyu et al. Hydra-0: Action Flow for Generalist World Modeling and Control. arXiv:2608.18077 [cs.RO], 2026."
+    },
+    {
+      "@type": "VideoObject",
+      "@id": "https://nvidia-isaac.github.io/video_to_data/hydra-0/#overview-video",
+      "name": "Hydra-0 overview video",
+      "description": "Overview of Hydra-0: action flow as a shared visual interface for generalist world modeling, multi-embodiment training, open-loop policy evaluation, and robot control.",
+      "thumbnailUrl": "https://nvidia-isaac.github.io/video_to_data/hydra-0/media/posters/overview.jpg",
+      "contentUrl": "https://nvidia-isaac.github.io/video_to_data/hydra-0/media/overview.mp4",
+      "uploadDate": "2026-08",
+      "isPartOf": {
+        "@id": "https://nvidia-isaac.github.io/video_to_data/hydra-0/#article"
+      }
+    }
+  ]
+}
+</script>
+
+<link rel="preconnect" href="https://www.googletagmanager.com" crossorigin>
+
+<style>
+  /* support.js appends `html,body{height:100%}#dc-root{height:100%}` once React
+     boots, which assumes the React root IS the whole page. The static results
+     appendix is a sibling after that root, so a viewport-clamped root would put
+     the appendix at y=100vh, overlapping the root's own overflowing content.
+     Let the root size to its content instead. Declared here in the real <head>
+     (not the x-dc helmet) so it exists whether or not the runtime boots. */
+  #dc-root, #dc-root > .sc-host { height: auto !important; }
+  html, body { height: auto !important; }
+</style>
+
+<!-- support.js resolves React through `window.__resources` before falling back
+     to its pinned unpkg.com URLs (see cdnScriptFor() in support.js). Pointing it
+     at local copies takes a third-party CDN off this page's critical path: the
+     runtime hides all page content synchronously at parse time and only restores
+     it once React arrives, so an unreachable CDN meant a blank page with no
+     fallback. Setting __resources also makes boot() skip a redundant
+     fetch(location.href) re-parse.
+     The two bundles in vendor/ are byte-identical to the versions support.js
+     pins -- their SHA-384 digests match REACT_SRI / REACT_DOM_SRI exactly. -->
+<script>
+  window.__resources = {
+    "https://unpkg.com/react@18.3.1/umd/react.production.min.js": "./vendor/react.production.min.js",
+    "https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js": "./vendor/react-dom.production.min.js"
+  };
+</script>
 <script src="./support.js"></script>
 <!-- Google tag (gtag.js) -->
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-0N75MEWQ2J"></script>
@@ -15,6 +303,16 @@
 </script>
 </head>
 <body>
+<noscript>
+  <div style="background:#050505;color:#F2F2F2;padding:16px 24px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:15px;line-height:1.55;">
+    <strong>This page renders with JavaScript.</strong> Without it the sections below appear
+    unstyled and the interactive results table stays empty. The complete numbers are in the
+    <a href="#full-results" style="color:#76B900;">full numerical results</a> section at the
+    bottom of this page, and the paper is on
+    <a href="https://arxiv.org/abs/2608.18077" style="color:#76B900;">arXiv</a>.
+  </div>
+</noscript>
+
 <x-dc>
 <helmet>
 <!-- <link rel="stylesheet" href="_ds/nvidia-kaizen-design-system-b84c2d07-b48f-47c6-9cd1-f3844d902748/colors_and_type.css"> -->
@@ -161,7 +459,7 @@
            and it stays on screen, so a second one 60 px below it is the same
            badge twice. Plain block rather than the flex row it was, which only
            existed to seat the logo beside the text. -->
-      <div style="font-size:13px; letter-spacing:1.5px; text-transform:uppercase; color:#76B900;">technical report · preprint</div>
+      <div style="font-size:13px; letter-spacing:1.5px; text-transform:uppercase; color:#76B900;">technical report · preprint · <time datetime="2026-08">August 2026</time></div>
       <h1 style="margin:0; font-size:48px; line-height:1.12; font-weight:700; letter-spacing:-1px; max-width:34ch; text-wrap:balance;">Hydra-0: Action Flow for Generalist World Modeling and Control</h1>
       <p style="margin:0; max-width:86ch; font-size:19px; line-height:1.6; color:#C9C9C9; text-wrap:pretty;">A generalist world model conditioned on action flow: robot actions represented as pixel motion. At deployment it runs as a <strong style="color:#FFFFFF; font-weight:600;">hybrid simulator</strong> — a physics engine moves the robot, a learned video model predicts what the world does in response. One model trains across embodiments, simulates them, evaluates policies, and drives a real robot.</p>
       <div style="display:flex; flex-wrap:wrap; column-gap:18px; row-gap:6px; font-size:15px;">
@@ -190,6 +488,13 @@
     </div>
   </header>
 
+  <!-- `main`/`article` mark where the paper body starts. Content-extraction
+       pipelines -- including the Readability-style preprocessors several AI
+       crawlers run before summarising a page -- use exactly these landmarks to
+       separate the article from the nav and hero chrome. -->
+  <main id="content">
+  <article>
+
   <section style="max-width:1180px; margin:0 auto; padding:32px 24px 0;">
     <div style="border:1px solid #D8D8D8; background:#FFFFFF; border-radius:4px; padding:20px;">
       <div style="margin-bottom:14px;">
@@ -200,7 +505,7 @@
            crops whatever the container's aspect does not match. The clip is
            16:9 and so is the box, so nothing is letterboxed today -- contain is
            what keeps that true if either changes. -->
-      <video src="media/overview.mp4" poster="media/posters/overview.jpg" aria-label="Overview video" autoplay controls muted loop playsinline preload="auto" style="width:100%; aspect-ratio:16/9; object-fit:contain; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
+      <video src="media/overview.mp4" poster="media/posters/overview.jpg" aria-label="Overview video" controls muted loop playsinline preload="none" style="width:100%; aspect-ratio:16/9; object-fit:contain; background:#050505; border:1px solid #D8D8D8; border-radius:2px; display:block;"></video>
 
       <!-- The static teaser under the clip rather than beside it: the video
            shows breadth and nothing else, and a reader who has just watched
@@ -209,7 +514,7 @@
            apart -- edit it there and bring it across, not the other way. -->
       <div style="margin-top:20px; padding-top:20px; border-top:1px solid #D8D8D8;">
         <a href="img/teaser_figure1.webp" target="_blank" rel="noopener noreferrer" style="display:block;">
-          <img src="img/teaser_figure1.webp" alt="Figure 1: heterogeneous interaction videos from egocentric human, UMI gripper, bimanual and unimanual sources are converted to a shared action flow, which conditions Hydra-0; the model then supports simulation, policy evaluation and policy learning." style="width:100%; height:auto; display:block; border:1px solid #D8D8D8; border-radius:2px; background:#FFFFFF;">
+          <img src="img/teaser_figure1.webp" decoding="async" fetchpriority="high" alt="Figure 1: heterogeneous interaction videos from egocentric human, UMI gripper, bimanual and unimanual sources are converted to a shared action flow, which conditions Hydra-0; the model then supports simulation, policy evaluation and policy learning." style="width:100%; height:auto; display:block; border:1px solid #D8D8D8; border-radius:2px; background:#FFFFFF;">
         </a>
         <p style="margin:12px 0 0; font-size:15px; color:#4A4A4A; text-wrap:pretty;"><strong>Figure 1: Action flow as a shared control interface.</strong> <em>Top:</em> Hydra-0 learns from diverse interaction videos featuring egocentric human demonstrations, handheld UMI grippers, bimanual robot arms, and single-arm robots. <em>Middle:</em> Visible embodiment motion is represented as image-plane flow trajectories, placing heterogeneous interactions in a common, pixel-aligned action flow space independent of embodiment-specific joint or end-effector coordinates. This unified interface enables a single generalist world model to learn from multi-embodiment data and transfer across interaction settings. <em>Bottom:</em> In forward mode, provided gripper flow conditions future scene prediction, whose rollouts support open-loop policy evaluation; in inverse mode, desired object flow elicits compatible robot motion that a supervised readout converts into executable actions.</p>
       </div>
@@ -362,7 +667,7 @@
                make on its own. -->
           <div data-deploy-steps style="display:grid; grid-template-columns:minmax(0, 1fr) 34px minmax(0, 1fr); gap:14px 0; align-items:start;">
             <figure style="margin:0; position:relative;">
-              <img src="img/method/deploy_real_rgb.png" alt="Real RGB observation at the start of the rollout" style="width:100%; aspect-ratio:4/3; object-fit:cover; border:1px solid #D8D8D8; border-radius:2px; display:block;">
+              <img src="img/method/deploy_real_rgb.png" loading="lazy" decoding="async" alt="Real RGB observation at the start of the rollout" style="width:100%; aspect-ratio:4/3; object-fit:cover; border:1px solid #D8D8D8; border-radius:2px; display:block;">
               <span data-step style="position:absolute; top:8px; left:8px;">1</span>
               <figcaption style="font-size:15px; padding-top:6px;">Observation<br><span style="color:#4A4A4A;">the single frame the model is conditioned on</span></figcaption>
             </figure>
@@ -681,7 +986,7 @@
       <h3 style="margin:0 0 6px; font-size:17px; font-weight:600; letter-spacing:-0.25px;">Data efficiency from multi-embodiment mid-training</h3>
       <p style="margin:0 0 14px; font-size:17px; line-height:1.6; text-wrap:pretty;">Six held-out Interactive World Simulator tasks, adapted with 0–100% of each task's training split.</p>
       <figure style="margin:0 0 16px;">
-        <img src="img/iws_data_efficiency.png" alt="LPIPS, object-flow EPE and FVD versus the percentage of task-specific training data, for six Interactive World Simulator tasks" style="width:100%; height:auto; display:block; border:1px solid #D8D8D8; border-radius:2px; background:#FFFFFF;">
+        <img src="img/iws_data_efficiency.png" loading="lazy" decoding="async" alt="LPIPS, object-flow EPE and FVD versus the percentage of task-specific training data, for six Interactive World Simulator tasks" style="width:100%; height:auto; display:block; border:1px solid #D8D8D8; border-radius:2px; background:#FFFFFF;">
         <figcaption style="margin-top:10px; font-size:15px; color:#4A4A4A; text-wrap:pretty;">Data efficiency on the six held-out IWS tasks; lower is better on all three metrics. <strong>Ours (MT)</strong> starts from the multi-embodiment mid-trained checkpoint, <strong>Ours (PT)</strong> from the original Wan2.2 weights; Wan-Move and ATI are evaluated zero-shot.</figcaption>
       </figure>
       <div data-cols="3" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px;">
@@ -717,7 +1022,7 @@
           <p style="margin:0 0 14px; font-size:17px; line-height:1.6; text-wrap:pretty;">π₀, π₀.₅, GR00T N1.7, Cosmos-3 Nano, and Cosmos-3 Edge, rolled out 10 times per task.</p>
           <div data-cols="2" style="display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start;">
           <figure style="margin:0;">
-            <img src="img/policy_evaluation_correlation.png" alt="Scatter of replayed success rate against reference success rate for five policies over six RoboLab tasks, with a least-squares fit" style="width:100%; height:auto; display:block; border:1px solid #D8D8D8; border-radius:2px; background:#FFFFFF;">
+            <img src="img/policy_evaluation_correlation.png" loading="lazy" decoding="async" alt="Scatter of replayed success rate against reference success rate for five policies over six RoboLab tasks, with a least-squares fit" style="width:100%; height:auto; display:block; border:1px solid #D8D8D8; border-radius:2px; background:#FFFFFF;">
             <figcaption style="margin-top:8px; font-size:15px; color:#4A4A4A; text-wrap:pretty;">Each point aggregates the 10 rollouts of one policy–task pair; the dashed line is the least-squares fit.</figcaption>
           </figure>
           <div>
@@ -830,10 +1135,19 @@
     </div>
   </section>
 
+  </article>
+  </main>
+
   <footer style="max-width:1180px; margin:0 auto; padding:48px 24px 64px;">
     <div style="border-top:1px solid #D8D8D8; padding-top:20px; display:flex; flex-wrap:wrap; gap:24px; justify-content:space-between; align-items:baseline;">
-      <span style="font-size:15px; color:#4A4A4A;">Hydra-0 · NVIDIA technical report</span>
+      <span style="font-size:15px; color:#4A4A4A;">Hydra-0 · NVIDIA technical report · <time datetime="2026-08">August 2026</time></span>
       <span style="font-size:15px; color:#4A4A4A;">Code links to follow</span>
+    </div>
+    <div style="padding-top:16px; display:flex; flex-wrap:wrap; gap:24px; font-size:14px; color:#4A4A4A;">
+      <span>Paper: <a href="https://arxiv.org/abs/2608.18077">arXiv:2608.18077</a> · DOI <a href="https://doi.org/10.48550/arXiv.2608.18077">10.48550/arXiv.2608.18077</a></span>
+      <span>Every clip on this page is a real pipeline artefact; sources and the one deliberate exception are recorded in <a href="media/MANIFEST.md">the media provenance manifest</a>.</span>
+      <span>Correspondence: <a href="https://lhy.xyz/">Hongyu Li</a></span>
+      <span>Figures and clips &copy; 2026 NVIDIA Corporation. All rights reserved.</span>
     </div>
   </footer>
 
@@ -1446,6 +1760,543 @@ class Component extends DCLogic {
   });
 })();
 </script>
+
+
+<!-- ==========================================================================
+     Static results appendix.
+
+     Deliberately OUTSIDE the x-dc element: support.js boots by calling
+     `dc.replaceWith(hostEl)`, so everything inside x-dc is torn out of the
+     DOM and re-rendered by React. Anything that must exist without JavaScript
+     -- for readers with JS off, and for the AI/search crawlers that do not
+     execute it -- has to live out here.
+
+     The interactive table above shows one dataset at a time behind tabs; this
+     appendix is the same numbers for all six at once. It is shown to everyone,
+     not swapped in for crawlers.
+     ========================================================================== -->
+<section id="full-results" style="background:#F2F2F2;color:#202020;padding:48px 24px 64px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;">
+  <div style="max-width:1080px;margin:0 auto;">
+    <h2 style="margin:0 0 8px;font-size:22px;font-weight:700;letter-spacing:-0.3px;">Full numerical results</h2>
+    <p style="margin:0 0 6px;font-size:15px;line-height:1.55;max-width:78ch;color:#4A4A4A;">
+      Every dataset from the interactive table above, listed together. All methods see the same
+      100 validation clips per dataset across five held-out sets. Best value per column is
+      <strong style="color:#4E7C00;">bold green</strong>. Gray rows are zero-shot baselines evaluated
+      from released checkpoints. Standard errors are reported in
+      <a href="https://arxiv.org/abs/2608.18077">the paper</a>.
+    </p>
+    <p style="margin:0 0 24px;font-size:14px;line-height:1.55;max-width:78ch;color:#4A4A4A;">
+      Metrics: PSNR and SSIM are image fidelity (higher is better); Obj. EPE and Grip. EPE are
+      end-point error of object and gripper flow in pixels (lower is better); FID and FVD are
+      distributional image and video distances (lower is better); VLM is a vision-language-model
+      preference score (higher is better).
+    </p>
+<table style="width:100%;border-collapse:collapse;font-size:14px;margin:0 0 26px;background:#FFFFFF;">
+<caption style="caption-side:top;text-align:left;padding:8px 10px;font-weight:600;color:#202020;">Average &mdash; <span style="font-weight:400;color:#4A4A4A;">Average over the five held-out evaluation sets.</span></caption>
+<thead><tr>
+<th scope="col" style="text-align:left;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">Model</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">PSNR &uarr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">SSIM &uarr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">Obj. EPE &darr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">Grip. EPE &darr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">FID &darr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">FVD &darr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">VLM &uarr;</th>
+</tr></thead>
+<tbody>
+<tr style="background:#F7F7F7;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#4A4A4A;">ATI <span style="color:#4A4A4A;font-weight:400;">(zero-shot baseline)</span></th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">17.01</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">0.700</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">23.19</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">4.62</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">36.4</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">444.2</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">3.14</td>
+</tr>
+<tr style="background:#F7F7F7;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#4A4A4A;">Wan-Move <span style="color:#4A4A4A;font-weight:400;">(zero-shot baseline)</span></th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">16.35</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">0.688</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">21.53</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">4.67</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">34.4</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">408.3</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">3.71</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#202020;">Cosmos 2.5</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">15.62</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">0.668</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">13.23</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">34.28</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">39.1</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">405.8</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">3.88</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#202020;">Ours (Cosmos 2.5 2B)</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">18.41</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">0.725</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">6.27</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">13.80</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">32.4</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">277.4</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">3.83</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#202020;">Ours (Wan2.2 5B)</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">19.64</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">0.770</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">6.61</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">3.88</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">24.1</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">248.8</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">3.90</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#202020;">Ours (Wan2.2 A14B)</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">20.76</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">0.805</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">6.00</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">3.83</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">20.7</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">193.7</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">3.98</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:600;color:#202020;">Ours (Wan2.2 A14B 4-step)</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">21.84</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">0.830</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">5.27</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">3.29</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">18.7</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">155.9</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">4.23</td>
+</tr>
+</tbody></table>
+<table style="width:100%;border-collapse:collapse;font-size:14px;margin:0 0 26px;background:#FFFFFF;">
+<caption style="caption-side:top;text-align:left;padding:8px 10px;font-weight:600;color:#202020;">XVLA-Soft-Fold &mdash; <span style="font-weight:400;color:#4A4A4A;">Bimanual cloth folding (XVLA-Soft-Fold).</span></caption>
+<thead><tr>
+<th scope="col" style="text-align:left;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">Model</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">PSNR &uarr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">SSIM &uarr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">Obj. EPE &darr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">Grip. EPE &darr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">FID &darr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">FVD &darr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">VLM &uarr;</th>
+</tr></thead>
+<tbody>
+<tr style="background:#F7F7F7;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#4A4A4A;">ATI <span style="color:#4A4A4A;font-weight:400;">(zero-shot baseline)</span></th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">14.47</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">0.653</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">15.84</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">4.61</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">29.8</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">533.6</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">3.58</td>
+</tr>
+<tr style="background:#F7F7F7;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#4A4A4A;">Wan-Move <span style="color:#4A4A4A;font-weight:400;">(zero-shot baseline)</span></th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">12.82</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">0.614</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">24.06</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">4.88</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">31.7</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">681.1</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">3.65</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#202020;">Cosmos 2.5</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">14.95</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">0.677</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">6.65</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">35.78</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">36.0</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">479.9</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">4.56</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#202020;">Ours (Cosmos 2.5 2B)</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">16.62</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">0.719</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">5.29</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">17.36</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">32.1</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">378.5</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">4.42</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#202020;">Ours (Wan2.2 5B)</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">17.89</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">0.738</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">3.40</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">3.80</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">21.3</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">345.1</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">4.53</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#202020;">Ours (Wan2.2 A14B)</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">18.25</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">0.746</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">3.42</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">4.17</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">19.8</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">255.0</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">4.58</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:600;color:#202020;">Ours (Wan2.2 A14B 4-step)</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">19.23</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">0.781</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:600;font-variant-numeric:tabular-nums;">3.47</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">3.20</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">19.3</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">238.5</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">4.67</td>
+</tr>
+</tbody></table>
+<table style="width:100%;border-collapse:collapse;font-size:14px;margin:0 0 26px;background:#FFFFFF;">
+<caption style="caption-side:top;text-align:left;padding:8px 10px;font-weight:600;color:#202020;">Deform360 &mdash; <span style="font-weight:400;color:#4A4A4A;">Handheld-gripper deformable manipulation (Deform360).</span></caption>
+<thead><tr>
+<th scope="col" style="text-align:left;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">Model</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">PSNR &uarr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">SSIM &uarr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">Obj. EPE &darr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">Grip. EPE &darr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">FID &darr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">FVD &darr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">VLM &uarr;</th>
+</tr></thead>
+<tbody>
+<tr style="background:#F7F7F7;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#4A4A4A;">ATI <span style="color:#4A4A4A;font-weight:400;">(zero-shot baseline)</span></th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">15.56</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">0.643</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">30.15</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">6.85</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">48.9</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">569.1</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">2.66</td>
+</tr>
+<tr style="background:#F7F7F7;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#4A4A4A;">Wan-Move <span style="color:#4A4A4A;font-weight:400;">(zero-shot baseline)</span></th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">16.11</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">0.676</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">21.13</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">7.05</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">42.9</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">389.1</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">3.54</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#202020;">Cosmos 2.5</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">15.86</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">0.630</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">20.02</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">47.85</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">51.1</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">474.5</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">2.90</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#202020;">Ours (Cosmos 2.5 2B)</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">17.53</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">0.671</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">8.47</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">21.53</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">41.6</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">295.0</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">2.67</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#202020;">Ours (Wan2.2 5B)</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">18.53</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">0.751</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">9.29</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">6.02</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">30.3</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">228.3</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">3.06</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#202020;">Ours (Wan2.2 A14B)</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">19.50</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">0.786</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">7.69</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">5.68</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">29.1</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">213.0</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">2.90</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:600;color:#202020;">Ours (Wan2.2 A14B 4-step)</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">20.63</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">0.804</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">6.86</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">5.06</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">25.5</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">166.5</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">3.70</td>
+</tr>
+</tbody></table>
+<table style="width:100%;border-collapse:collapse;font-size:14px;margin:0 0 26px;background:#FFFFFF;">
+<caption style="caption-side:top;text-align:left;padding:8px 10px;font-weight:600;color:#202020;">DROID &mdash; <span style="font-weight:400;color:#4A4A4A;">Single-arm manipulation (DROID). Object EPE is omitted: object ground truth is unavailable.</span></caption>
+<thead><tr>
+<th scope="col" style="text-align:left;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">Model</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">PSNR &uarr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">SSIM &uarr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">Obj. EPE &darr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">Grip. EPE &darr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">FID &darr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">FVD &darr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">VLM &uarr;</th>
+</tr></thead>
+<tbody>
+<tr style="background:#F7F7F7;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#4A4A4A;">ATI <span style="color:#4A4A4A;font-weight:400;">(zero-shot baseline)</span></th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">17.27</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">0.706</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">—</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">4.00</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">40.4</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">344.9</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">3.08</td>
+</tr>
+<tr style="background:#F7F7F7;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#4A4A4A;">Wan-Move <span style="color:#4A4A4A;font-weight:400;">(zero-shot baseline)</span></th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">16.03</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">0.658</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">—</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">4.24</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">41.2</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">349.5</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">3.65</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#202020;">Cosmos 2.5</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">16.21</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">0.651</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">—</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">28.45</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">39.9</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">295.4</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">4.04</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#202020;">Ours (Cosmos 2.5 2B)</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">19.50</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">0.717</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">—</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">3.97</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">30.0</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">179.7</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">4.09</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#202020;">Ours (Wan2.2 5B)</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">19.22</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">0.753</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">—</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">3.55</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">28.8</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">228.9</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">3.85</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#202020;">Ours (Wan2.2 A14B)</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">21.14</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">0.826</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">—</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">3.55</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">21.7</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">163.2</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">4.14</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:600;color:#202020;">Ours (Wan2.2 A14B 4-step)</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">22.10</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">0.851</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:600;font-variant-numeric:tabular-nums;">—</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">3.13</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">19.0</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">118.6</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">4.26</td>
+</tr>
+</tbody></table>
+<table style="width:100%;border-collapse:collapse;font-size:14px;margin:0 0 26px;background:#FFFFFF;">
+<caption style="caption-side:top;text-align:left;padding:8px 10px;font-weight:600;color:#202020;">MolmoAct2 &mdash; <span style="font-weight:400;color:#4A4A4A;">MolmoAct2 evaluation split.</span></caption>
+<thead><tr>
+<th scope="col" style="text-align:left;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">Model</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">PSNR &uarr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">SSIM &uarr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">Obj. EPE &darr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">Grip. EPE &darr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">FID &darr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">FVD &darr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">VLM &uarr;</th>
+</tr></thead>
+<tbody>
+<tr style="background:#F7F7F7;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#4A4A4A;">ATI <span style="color:#4A4A4A;font-weight:400;">(zero-shot baseline)</span></th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">17.18</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">0.706</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">29.75</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">4.02</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">28.4</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">414.0</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">3.16</td>
+</tr>
+<tr style="background:#F7F7F7;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#4A4A4A;">Wan-Move <span style="color:#4A4A4A;font-weight:400;">(zero-shot baseline)</span></th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">17.67</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">0.734</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">13.85</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">3.91</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">21.6</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">293.5</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">3.68</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#202020;">Cosmos 2.5</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">14.03</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">0.618</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">12.24</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">33.30</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">29.8</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">476.3</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">3.71</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#202020;">Ours (Cosmos 2.5 2B)</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">17.24</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">0.698</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">5.36</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">15.47</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">25.5</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">307.5</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">3.73</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#202020;">Ours (Wan2.2 5B)</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">20.16</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">0.776</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">7.06</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">3.21</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">18.7</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">240.2</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">3.81</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#202020;">Ours (Wan2.2 A14B)</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">21.50</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">0.806</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">6.43</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">2.97</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">14.3</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">203.0</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">3.94</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:600;color:#202020;">Ours (Wan2.2 A14B 4-step)</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">22.63</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">0.837</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">5.22</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">2.63</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">12.3</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">147.5</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">4.14</td>
+</tr>
+</tbody></table>
+<table style="width:100%;border-collapse:collapse;font-size:14px;margin:0 0 26px;background:#FFFFFF;">
+<caption style="caption-side:top;text-align:left;padding:8px 10px;font-weight:600;color:#202020;">ABC-130k &mdash; <span style="font-weight:400;color:#4A4A4A;">ABC-130k evaluation split.</span></caption>
+<thead><tr>
+<th scope="col" style="text-align:left;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">Model</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">PSNR &uarr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">SSIM &uarr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">Obj. EPE &darr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">Grip. EPE &darr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">FID &darr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">FVD &darr;</th>
+<th scope="col" style="text-align:right;padding:6px 10px;border-bottom:1px solid #B8B8B8;font-weight:600;white-space:nowrap;">VLM &uarr;</th>
+</tr></thead>
+<tbody>
+<tr style="background:#F7F7F7;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#4A4A4A;">ATI <span style="color:#4A4A4A;font-weight:400;">(zero-shot baseline)</span></th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">20.55</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">0.790</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">17.01</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">3.63</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">34.6</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">359.3</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">3.19</td>
+</tr>
+<tr style="background:#F7F7F7;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#4A4A4A;">Wan-Move <span style="color:#4A4A4A;font-weight:400;">(zero-shot baseline)</span></th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">19.10</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">0.758</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">27.08</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">3.29</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">34.7</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">328.1</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4A4A4A;font-weight:400;font-variant-numeric:tabular-nums;">4.04</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#202020;">Cosmos 2.5</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">17.07</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">0.764</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">14.00</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">26.05</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">38.9</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">303.0</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">4.16</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#202020;">Ours (Cosmos 2.5 2B)</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">21.14</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">0.823</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">5.98</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">10.65</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">32.6</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">226.4</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">4.23</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#202020;">Ours (Wan2.2 5B)</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">22.40</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">0.833</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">6.70</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">2.82</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">21.6</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">201.5</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">4.26</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:400;color:#202020;">Ours (Wan2.2 A14B)</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">23.43</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">0.859</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">6.45</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">2.80</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">18.9</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">134.2</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#202020;font-weight:400;font-variant-numeric:tabular-nums;">4.36</td>
+</tr>
+<tr style="background:#FFFFFF;">
+<th scope="row" style="text-align:left;padding:6px 10px;border-bottom:1px solid #E6E6E6;font-weight:600;color:#202020;">Ours (Wan2.2 A14B 4-step)</th>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">24.62</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">0.880</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">5.53</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">2.45</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">17.5</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">108.6</td>
+<td style="text-align:right;padding:6px 10px;border-bottom:1px solid #E6E6E6;color:#4E7C00;font-weight:600;font-variant-numeric:tabular-nums;">4.37</td>
+</tr>
+</tbody></table>
+  </div>
+</section>
 
 </body>
 </html>
