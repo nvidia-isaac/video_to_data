@@ -423,6 +423,8 @@ Whole-body ReconHand — the three-stage retarget → plan → train recipe
 (warm-up → contact grounding → finetune), documented per sequence in
 [`v2d_whole_body/EXAMPLE_SEQUENCES.md`](source/robotic_grounding/robotic_grounding/tasks/v2d_whole_body/EXAMPLE_SEQUENCES.md).
 
+> The current release uses Isaac Lab and PPO for simulation and RL and may require longer training to converge. The accelerated implementation reported in the paper, which achieves approximately two-hour training times, is currently under internal review and targeted for release in September 2026.
+
 ## RL Tasks
 - `Sharpa-V2D-v0-Play`
 - `Sharpa-V2D-v0`
