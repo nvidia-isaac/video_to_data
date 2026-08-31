@@ -1,0 +1,31 @@
+/* ============================================================
+   FONTS
+   ------------------------------------------------------------
+   Cohere ships three proprietary faces — all now SELF-HOSTED
+   from uploaded files:
+     - CohereText         -> fonts/CohereText-Regular.woff2
+     - CohereMono         -> fonts/CohereMono-Regular.woff2
+     - Unica77 Cohere Web -> fonts/Unica77_LL.woff2
+   ============================================================ */
+
+@font-face {
+  font-family: 'CohereText';
+  src: url('../fonts/CohereText-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'CohereMono';
+  src: url('../fonts/CohereMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Unica77 Cohere Web';
+  src: url('../fonts/Unica77_LL.woff2') format('woff2');
+  font-weight: 400 500;
+  font-style: normal;
+  font-display: swap;
+}

@@ -1,0 +1,126 @@
+/* ============================================================
+   TYPOGRAPHY
+   Display/body/mono split. Massive, tight, carved display type;
+   restrained 16-24px UI copy; uppercase mono for system labels.
+   ============================================================ */
+:root {
+  /* --- Families --- */
+  --font-display: 'CohereText', 'Space Grotesk', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-body: 'Unica77 Cohere Web', 'Inter', Arial, ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'CohereMono', 'Space Mono', Arial, ui-sans-serif, monospace;
+
+  /* --- Weights (avoid heavy bold; size + spacing do the work) --- */
+  --weight-regular: 400;
+  --weight-medium: 500;
+
+  /* ------------------------------------------------------------
+     TYPE ROLES — each is size / line-height / letter-spacing
+     ------------------------------------------------------------ */
+  /* Hero Display — CohereText 96 / 1.00 / -1.92 */
+  --type-hero-size: 96px;
+  --type-hero-lh: 1.0;
+  --type-hero-ls: -1.92px;
+
+  /* Product Display — CohereText 72 / 1.00 / -1.44 */
+  --type-display-size: 72px;
+  --type-display-lh: 1.0;
+  --type-display-ls: -1.44px;
+
+  /* Section Display — Unica77 60 / 1.00 / -1.2 */
+  --type-section-display-size: 60px;
+  --type-section-display-lh: 1.0;
+  --type-section-display-ls: -1.2px;
+
+  /* Section Heading — Unica77 48 / 1.20 / -0.48 */
+  --type-section-size: 48px;
+  --type-section-lh: 1.2;
+  --type-section-ls: -0.48px;
+
+  /* Card Heading — Unica77 32 / 1.20 / -0.32 */
+  --type-card-size: 32px;
+  --type-card-lh: 1.2;
+  --type-card-ls: -0.32px;
+
+  /* Feature Heading — Unica77 24 / 1.30 / 0 */
+  --type-feature-size: 24px;
+  --type-feature-lh: 1.3;
+  --type-feature-ls: 0;
+
+  /* Body Large — Unica77 18 / 1.40 / 0 */
+  --type-body-lg-size: 18px;
+  --type-body-lg-lh: 1.4;
+
+  /* Body — Unica77 16 / 1.50 / 0 */
+  --type-body-size: 16px;
+  --type-body-lh: 1.5;
+
+  /* Button — Unica77 14 / 1.71 / 0  (weight 500) */
+  --type-button-size: 14px;
+  --type-button-lh: 1.71;
+
+  /* Caption — Unica77 14 / 1.40 / 0 */
+  --type-caption-size: 14px;
+  --type-caption-lh: 1.4;
+
+  /* Mono Label — CohereMono 14 / 1.40 / 0.28  (uppercase) */
+  --type-mono-size: 14px;
+  --type-mono-lh: 1.4;
+  --type-mono-ls: 0.28px;
+
+  /* Micro — Unica77 12 / 1.40 / 0 */
+  --type-micro-size: 12px;
+  --type-micro-lh: 1.4;
+}
+
+/* ------------------------------------------------------------
+   Optional utility classes (components may also read tokens raw)
+   ------------------------------------------------------------ */
+.t-hero {
+  font-family: var(--font-display); font-weight: var(--weight-regular);
+  font-size: var(--type-hero-size); line-height: var(--type-hero-lh); letter-spacing: var(--type-hero-ls);
+}
+.t-display {
+  font-family: var(--font-display); font-weight: var(--weight-regular);
+  font-size: var(--type-display-size); line-height: var(--type-display-lh); letter-spacing: var(--type-display-ls);
+}
+.t-section-display {
+  font-family: var(--font-body); font-weight: var(--weight-regular);
+  font-size: var(--type-section-display-size); line-height: var(--type-section-display-lh); letter-spacing: var(--type-section-display-ls);
+}
+.t-section {
+  font-family: var(--font-body); font-weight: var(--weight-regular);
+  font-size: var(--type-section-size); line-height: var(--type-section-lh); letter-spacing: var(--type-section-ls);
+}
+.t-card {
+  font-family: var(--font-body); font-weight: var(--weight-regular);
+  font-size: var(--type-card-size); line-height: var(--type-card-lh); letter-spacing: var(--type-card-ls);
+}
+.t-feature {
+  font-family: var(--font-body); font-weight: var(--weight-regular);
+  font-size: var(--type-feature-size); line-height: var(--type-feature-lh);
+}
+.t-body-lg {
+  font-family: var(--font-body); font-weight: var(--weight-regular);
+  font-size: var(--type-body-lg-size); line-height: var(--type-body-lg-lh);
+}
+.t-body {
+  font-family: var(--font-body); font-weight: var(--weight-regular);
+  font-size: var(--type-body-size); line-height: var(--type-body-lh);
+}
+.t-button {
+  font-family: var(--font-body); font-weight: var(--weight-medium);
+  font-size: var(--type-button-size); line-height: var(--type-button-lh);
+}
+.t-caption {
+  font-family: var(--font-body); font-weight: var(--weight-regular);
+  font-size: var(--type-caption-size); line-height: var(--type-caption-lh);
+}
+.t-mono {
+  font-family: var(--font-mono); font-weight: var(--weight-regular);
+  font-size: var(--type-mono-size); line-height: var(--type-mono-lh); letter-spacing: var(--type-mono-ls);
+  text-transform: uppercase;
+}
+.t-micro {
+  font-family: var(--font-body); font-weight: var(--weight-regular);
+  font-size: var(--type-micro-size); line-height: var(--type-micro-lh);
+}
