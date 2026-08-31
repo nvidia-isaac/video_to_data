@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+<link rel="stylesheet" href="_ds/kaizen-ui-foundations-5919e993-0c25-47fe-9d3b-b24c0049b4d8/fonts/fonts.css">
+<link rel="stylesheet" href="_ds/kaizen-ui-foundations-5919e993-0c25-47fe-9d3b-b24c0049b4d8/_ds_bundle.css">
+<link rel="stylesheet" href="_ds/kaizen-ui-foundations-5919e993-0c25-47fe-9d3b-b24c0049b4d8/styles.css">
+<script src="_ds/kaizen-ui-foundations-5919e993-0c25-47fe-9d3b-b24c0049b4d8/_ds_bundle.js"></script>
+<script src="./image-slot.js"></script>
+<style>
+  html, body { margin: 0; background: #faf9f5; }
+  a { color: var(--text-color-primary); text-decoration: none; }
+  a:hover { color: var(--color-brand, #76b900); }
+  html { scroll-behavior: smooth; }
+</style>
+</helmet>
+<div class="nv-light" style="font-family: var(--font-sans); color: var(--text-color-primary); background: #faf9f5; min-height: 100vh; text-wrap: pretty;">
+
+  <header style="position: sticky; top: 0; z-index: 50; display: flex; align-items: center; justify-content: space-between; gap: 16px 32px; flex-wrap: wrap; padding: 14px 48px; background: #faf9f5; border-bottom: 1px solid var(--border-color-base);">
+    <div style="display: flex; align-items: center; gap: 20px; min-width: 0;">
+      <x-import component-from-global-scope="KuiFoundationsReact.HorizontalLogo" hint-size="110px,24px" style="width: 120px; height: 22px; display: block;"></x-import>
+      <span style="width: 1px; height: 20px; background: var(--border-color-base);"></span>
+      <span style="font-size: 15px; font-weight: 600; letter-spacing: -0.01em;">V2D Challenge</span>
+    </div>
+    <nav style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px 22px; font-size: 14px; color: var(--text-color-secondary); min-width: 0;">
+      <a href="#motivation">Why This, Why Now</a>
+      <a href="#tracks">Tracks</a>
+      <a href="#awards">Awards</a>
+      <a href="#timeline">Timeline</a>
+      <a href="#leaderboard">Leaderboard</a>
+      <a href="#more">More Than a Leaderboard</a>
+      <a href="#organizers">Organizers</a>
+      <a href="#contact">Contact</a>
+      <a href="https://docs.google.com/forms/d/e/1FAIpQLSdZJYNsEPPGDeIRH2yb_Dui-lWcIxWRF2CON7UOIijzCw8zyA/viewform?usp=publish-editor" target="_blank" rel="noopener" style="display: inline-flex;">
+        <x-import component-from-global-scope="KuiFoundationsReact.Button" kind="primary" color="brand" size="medium" hint-size="auto,36px">Register Now</x-import>
+      </a>
+    </nav>
+  </header>
+
+  <template id="__bundler_thumbnail" data-bg-color="#faf9f5">
+    <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+      <rect width="1200" height="800" fill="#faf9f5"></rect>
+      <text x="360" y="430" font-family="monospace" font-size="180" font-weight="700" fill="#76b900">V2D</text>
+      <rect x="360" y="480" width="480" height="6" fill="#17171c"></rect>
+    </svg>
+  </template>
+
+  <section style="position: relative; overflow: hidden; padding: 112px 48px 88px; min-height: calc(100vh - 66px); display: flex; flex-direction: column; justify-content: center;">
+    <div style="position: absolute; inset: 0; background: url(&quot;assets/hero-background.jpg&quot;) center / cover no-repeat; -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 55%, rgba(0,0,0,0)); mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 55%, rgba(0,0,0,0)); pointer-events: none;"></div>
+    <div style="position: relative; max-width: 1180px; margin: 0 auto;">
+    <div style="position: relative; display: flex; align-items: center; gap: 12px; margin-bottom: 36px;">
+      <span style="font-family: var(--font-mono); font-size: 15px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-brand, #76b900); font-weight: 700">CHALLENGE</span>
+      <span style="width: 24px; height: 1px; background: var(--border-color-base);"></span>
+      <span style="font-family: var(--font-mono); font-size: 15px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-color-secondary)">Registration open</span>
+    </div>
+    <h1 style="position: relative; font-size: 80px; line-height: 0.95; letter-spacing: -0.035em; font-weight: 500; margin: 0 0 28px">Video to Data (V2D) Challenge</h1>
+    <p style="position: relative; font-size: 30px; line-height: 1.25; letter-spacing: -0.015em; font-weight: 400; color: var(--text-color-primary); white-space: nowrap; margin: 0 0 44px;">From Human Video to Grounded Data</p>
+    <p style="position: relative; font-size: 19px; line-height: 1.6; color: var(--text-color-primary); max-width: 62ch; margin: 0 0 48px; width: 788px; height: 94px">Where does the pipeline from human video to grounded data break? Three coupled tracks answer this with shared task suites: 4D reconstruction, robotic grounding, and end-to-end egocentric transfer.</p>
+    <div style="position: relative; display: flex; align-items: center; gap: 20px;">
+      <a href="https://docs.google.com/forms/d/e/1FAIpQLSdZJYNsEPPGDeIRH2yb_Dui-lWcIxWRF2CON7UOIijzCw8zyA/viewform?usp=publish-editor" target="_blank" rel="noopener" style="display: inline-flex;">
+        <x-import component-from-global-scope="KuiFoundationsReact.Button" kind="primary" color="brand" size="large" hint-size="auto,44px">Register Now</x-import>
+      </a>
+      <a href="#tracks" style="font-size: 16px; font-weight: 500; color: var(--text-color-primary); border-bottom: 1px solid var(--text-color-primary); padding-bottom: 2px;">Tracks</a>
+      <a href="#awards" style="font-size: 16px; font-weight: 500; color: var(--text-color-primary); border-bottom: 1px solid var(--text-color-primary); padding-bottom: 2px;">Awards</a>
+      <a href="#timeline" style="font-size: 16px; font-weight: 500; color: var(--text-color-primary); border-bottom: 1px solid var(--text-color-primary); padding-bottom: 2px;">Timeline</a>
+      <a href="#leaderboard" style="font-size: 16px; font-weight: 500; color: var(--text-color-primary); border-bottom: 1px solid var(--text-color-primary); padding-bottom: 2px;">Leaderboard</a>
+      <a href="#more" style="font-size: 16px; font-weight: 500; color: var(--text-color-primary); border-bottom: 1px solid var(--text-color-primary); padding-bottom: 2px;">More Than a Leaderboard</a>
+      <a href="https://github.com/nvidia-isaac/video_to_data/tree/release/0.2.0/" target="_blank" rel="noopener" style="font-size: 16px; font-weight: 500; color: var(--text-color-primary); border-bottom: 1px solid var(--text-color-primary); padding-bottom: 2px;">Starter Toolkit</a>
+    </div>
+    
+    
+    </div>
+  </section>
+
+  <section id="motivation" style="padding: 104px 48px; border-top: 1px solid var(--border-color-base);">
+    <div style="max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 48px;">
+      <div>
+        <h2 style="font-size: 28px; line-height: 1.1; letter-spacing: -0.02em; font-weight: 300; margin: 0; position: sticky; top: 100px;">Why This, Why Now</h2>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 44px; max-width: 92ch;">
+        <p style="font-size: 22px; line-height: 1.5; margin: 0; max-width: 60ch;">Human video has the potential to be the largest and most scalable training corpus for robotics; every ingredient needed to use it is ready at once.</p>
+
+        <div>
+          <div style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-color-secondary); padding-bottom: 14px; border-bottom: 1px solid var(--border-color-base);">Ready now</div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0 40px;">
+            <div style="display: flex; gap: 16px; padding: 20px 0;">
+              <div style="font-family: var(--font-mono); font-size: 12px; color: var(--text-color-secondary); padding-top: 4px;">01</div>
+              <div style="font-size: 17px; line-height: 1.6;">VLA and WAM are scaling beyond what teleoperation data can support.</div>
+            </div>
+            <div style="display: flex; gap: 16px; padding: 20px 0;">
+              <div style="font-family: var(--font-mono); font-size: 12px; color: var(--text-color-secondary); padding-top: 4px;">02</div>
+              <div style="font-size: 17px; line-height: 1.6;">4D human-object reconstruction can now produce digital twins of the real world for robots to learn within.</div>
+            </div>
+            <div style="display: flex; gap: 16px; padding: 20px 0;">
+              <div style="font-family: var(--font-mono); font-size: 12px; color: var(--text-color-secondary); padding-top: 4px;">03</div>
+              <div style="font-size: 17px; line-height: 1.6;">The advancements in humanoid and dexterous-hand hardware have narrowed the morphology gap between human demonstrations and deployable robots.</div>
+            </div>
+            <div style="display: flex; gap: 16px; padding: 20px 0;">
+              <div style="font-family: var(--font-mono); font-size: 12px; color: var(--text-color-secondary); padding-top: 4px;">04</div>
+              <div style="font-size: 17px; line-height: 1.6;">With massively parallel GPU simulation, human demonstrations can be transformed into deployable robotic skills through RL and generate diverse, physically grounded data at scale for model pre- and post-training.</div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-color-secondary); padding-bottom: 14px; border-bottom: 1px solid var(--border-color-base);">Still missing</div>
+          <p style="font-size: 22px; line-height: 1.5; margin: 24px 0 0;">What is still missing is <i>measurement</i> and <i>scale</i>.</p>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 32px 40px; margin-top: 24px;">
+            <div style="font-size: 17px; line-height: 1.6;">Measurement, because existing benchmarks evaluate stages in isolation. Without evaluating every stage on the same tasks end-to-end, the field cannot localize where a pipeline breaks, trace how errors propagate, or quantify the downstream value of improving each component.</div>
+            <div style="font-size: 17px; line-height: 1.6;">Scale, because success on a small, curated benchmark does not show whether a method will remain robust across thousands of tasks, objects, behaviors, and environments.</div>
+          </div>
+        </div>
+
+        <div>
+          <div style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-color-secondary); padding-bottom: 14px; border-bottom: 1px solid var(--border-color-base);">This challenge</div>
+          <div style="font-size: 17px; line-height: 1.7; margin-top: 24px;">This challenge supplies both. For measurement, we provide a representative benchmark that evaluates individual stages and the end-to-end pipeline under shared tasks, spanning both third-person and egocentric human video. For scale, participants develop and validate their solutions on a curated subset of our large-scale in-house dataset with held-out ground truth, supported by an end-to-end baseline. After the challenge, we evaluate the top solutions on the broader dataset to determine how well they generalize and perform at large scale.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tracks" style="background: #f0eee6; padding: 104px 48px; border-top: 1px solid var(--border-color-base);">
+    <div style="max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 48px;">
+      <div>
+        <h2 style="font-size: 28px; line-height: 1.1; letter-spacing: -0.02em; font-weight: 300; margin: 0; position: sticky; top: 100px;">Challenge Tracks</h2>
+      </div>
+      <div>
+      
+
+      <article style="border-top: 1px solid var(--border-color-base); padding: 44px 0;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 32px; align-items: center;">
+          <div>
+            <div style="font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; color: var(--text-color-secondary); margin-bottom: 14px;">TRACK 01</div>
+            <h3 style="font-size: 30px; line-height: 1.15; letter-spacing: -0.02em; font-weight: 500; margin: 0 0 8px;">Reconstruction</h3>
+            <div style="font-family: var(--font-mono); font-size: 13px; color: var(--text-color-secondary); margin-bottom: 20px;">Third-Person-View Video → 4D HOI</div>
+            <div style="font-size: 21px; line-height: 1.45; font-weight: 400; margin: 0 0 20px;">Can we reconstruct 4D human-object<br>interaction from monocular video?</div>
+            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px;">
+              <button type="button" onClick="{{ toggle1 }}" style="font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-color-primary); background: none; border: 1px solid var(--border-color-base); border-radius: var(--radius-sm); padding: 8px 14px; cursor: pointer;" style-hover="border-color: var(--color-brand, #76b900);">{{ label1 }}</button>
+              <a href="https://github.com/nvidia-isaac/video_to_data/tree/release/0.2.0/reconstruction" target="_blank" rel="noopener" style="font-family: var(--font-sans); font-size: 14px; letter-spacing: 0; color: var(--text-color-primary); text-decoration: none; border: 1px solid var(--border-color-base); border-radius: var(--radius-sm); padding: 8px 14px;" style-hover="border-color: var(--color-brand, #76b900); color: var(--text-color-primary);">Starter Toolkit: <span style="font-family: var(--font-mono); font-size: 13px;">video_to_data/reconstruction</span> ↗</a>
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: minmax(0, 1fr) 20px minmax(0, 1fr); gap: 8px; align-items: start; min-width: 0;">
+            <div style="min-width: 0;">
+              <div style="width: 100%; aspect-ratio: 1 / 1; border: 1px solid var(--border-color-base); overflow: hidden;">
+                <img src="assets/t1-input.png" alt="" style="width: 100%; height: 100%; object-fit: cover; display: block;">
+              </div>
+              <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-color-secondary); margin-top: 8px;">Third-Person-View Video</div>
+            </div>
+            <div style="align-self: center; text-align: center; color: var(--text-color-secondary); font-size: 16px;">→</div>
+            <div style="min-width: 0;">
+              <div style="width: 100%; aspect-ratio: 1 / 1; border: 1px solid var(--border-color-base); overflow: hidden;">
+                <img src="assets/t1-output.png" alt="" style="width: 100%; height: 100%; object-fit: cover; display: block;">
+              </div>
+              <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-color-secondary); margin-top: 8px;">4D HOI</div>
+            </div>
+          </div>
+        </div>
+        <sc-if value="{{ open1 }}" hint-placeholder-val="{{ true }}">
+          <div style="display: grid; grid-template-columns: minmax(0, 1fr); gap: 32px; margin-top: 28px;">
+            <div style="display: flex; flex-direction: column; gap: 20px; max-width: 62ch;">
+              <p style="font-size: 17px; line-height: 1.65; margin: 0; color: var(--text-color-secondary);">One RGB camera, third person, no rigs, no depth — the setting that scales to internet video and low-cost capture. From a single clip, teams recover the full 4D scene: human body, object pose, and geometry, in metric scale and a consistent world frame. This track identifies the frontier of monocular HOI reconstruction, allowing practitioners to calibrate future stages to the errors expected when applied at scale.</p>
+              <p style="font-size: 17px; line-height: 1.65; margin: 0; color: var(--text-color-secondary);"><strong style="color: var(--text-color-primary); font-weight: 600;">Data.</strong> Our third-person RGB video dataset with held-out ground truth. This dataset includes challenging scenarios such as heavy occlusion, bimanual coordination, and long horizons.</p>
+              <p style="font-size: 17px; line-height: 1.65; margin: 0; color: var(--text-color-secondary);"><strong style="color: var(--text-color-primary); font-weight: 600;">Submissions.</strong>&nbsp;Teams will submit reconstruction results for the test split using the eval_reconstruction.py script to produce the artifact for submission.</p>
+              <p style="font-size: 17px; line-height: 1.65; margin: 0; color: var(--text-color-secondary);"><strong style="color: var(--text-color-primary); font-weight: 600;">Evaluation.</strong> Results will be evaluated on 2 axes against a multi-view reconstruction (MV) baseline, representing an upper bound.</p>
+              <ul style="display: flex; flex-direction: column; gap: 8px; margin: 0; padding-left: 22px; font-size: 17px; line-height: 1.65; color: var(--text-color-secondary);">
+                <li><strong style="color: var(--text-color-primary); font-weight: 600;"><span style="font-weight: normal;">Axis 1, Accuracy:</span></strong> chamfer distance to MV human mesh, chamfer distance to MV object mesh</li>
+                <li><strong style="color: var(--text-color-primary); font-weight: 600;"><span style="font-weight: normal;">Axis 2, Physical Plausibility:</span></strong> acceleration error of joints compared to MV, acceleration error of object compared to MV, contact penetration compared to MV</li>
+              </ul>
+              <p style="font-size: 17px; line-height: 1.65; margin: 0; color: var(--text-color-secondary);">Each axis is weighted equally when awarding points.</p>
+            </div>
+            <div></div>
+          </div>
+        </sc-if>
+      </article>
+
+      <article style="border-top: 1px solid var(--border-color-base); padding: 44px 0;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 32px; align-items: center;">
+          <div>
+            <div style="font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; color: var(--text-color-secondary); margin-bottom: 14px;">TRACK 02</div>
+            <h3 style="font-size: 30px; line-height: 1.15; letter-spacing: -0.02em; font-weight: 500; margin: 0 0 8px;">Robotic Grounding</h3>
+            <div style="font-family: var(--font-mono); font-size: 13px; color: var(--text-color-secondary); margin-bottom: 20px;">Third-Person-View 4D HOI → Policy</div>
+            <div style="font-size: 21px; line-height: 1.45; font-weight: 400; margin: 0 0 20px;">How much reconstruction error<br>can be tolerated?</div>
+            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px;">
+              <button type="button" onClick="{{ toggle2 }}" style="font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-color-primary); background: none; border: 1px solid var(--border-color-base); border-radius: var(--radius-sm); padding: 8px 14px; cursor: pointer;" style-hover="border-color: var(--color-brand, #76b900);">{{ label2 }}</button>
+              <a href="https://github.com/nvidia-isaac/video_to_data/tree/release/0.2.0/robotic_grounding" target="_blank" rel="noopener" style="font-family: var(--font-sans); font-size: 14px; letter-spacing: 0; color: var(--text-color-primary); text-decoration: none; border: 1px solid var(--border-color-base); border-radius: var(--radius-sm); padding: 8px 14px;" style-hover="border-color: var(--color-brand, #76b900);">Starter Toolkit: <span style="font-family: var(--font-mono); font-size: 13px;">video_to_data/robotic_grounding</span> ↗</a>
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: minmax(0, 1fr) 20px minmax(0, 1fr); gap: 8px; align-items: start; min-width: 0;">
+            <div style="min-width: 0;">
+              <div style="width: 100%; aspect-ratio: 1 / 1; border: 1px solid var(--border-color-base); overflow: hidden;">
+                <img src="assets/t2-input.png" alt="" style="width: 100%; height: 100%; object-fit: cover; display: block;">
+              </div>
+              <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-color-secondary); margin-top: 8px;">Third-Person-View 4D HOI</div>
+            </div>
+            <div style="align-self: center; text-align: center; color: var(--text-color-secondary); font-size: 16px;">→</div>
+            <div style="min-width: 0;">
+              <div style="width: 100%; aspect-ratio: 1 / 1; border: 1px solid var(--border-color-base); overflow: hidden;">
+                <img src="assets/t2-output.png" alt="" style="width: 100%; height: 100%; object-fit: cover; display: block;">
+              </div>
+              <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-color-secondary); margin-top: 8px;">Policy</div>
+            </div>
+          </div>
+        </div>
+        <sc-if value="{{ open2 }}" hint-placeholder-val="{{ true }}">
+          <div style="display: grid; grid-template-columns: minmax(0, 1fr); gap: 32px; margin-top: 28px;">
+            <div style="display: flex; flex-direction: column; gap: 20px; max-width: 62ch;">
+              <div style="font-size: 17px; line-height: 1.65; margin: 0; color: var(--text-color-secondary);"><div>Embodiment and simulator are fixed and provided: G1 + Dex3, so entries compete on retargeting and policy learning, not simulation engineering. Teams turn human demonstrations into robot policies at varying levels of noise and inaccuracy. This track identifies the tolerance of human-to-robot transfer pipelines to errors and noise from upstream reconstruction.</div></div>
+              <div style="display: flex; flex-direction: column; gap: 1px; background: var(--border-color-base); border: 1px solid var(--border-color-base);">
+                <div style="background: #ffffff; padding: 16px 20px; display: grid; grid-template-columns: 92px 1fr; gap: 16px;">
+                  <span style="font-family: var(--font-mono); font-size: 12px; color: var(--color-brand, #76b900);">TIER 1</span>
+                  <span style="font-size: 15px;">Clean multi-view caption, representing an upper bound for upstream reconstruction.</span>
+                </div>
+                <div style="background: #ffffff; padding: 16px 20px; display: grid; grid-template-columns: 92px 1fr; gap: 16px;">
+                  <span style="font-family: var(--font-mono); font-size: 12px; color: var(--color-brand, #76b900);">TIER 2</span>
+                  <span style="font-size: 15px;">Synthetic corruption: jitter, dropout, and contact errors are sampled from Track 1's error distributions.</span>
+                </div>
+                <div style="background: #ffffff; padding: 16px 20px; display: grid; grid-template-columns: 92px 1fr; gap: 16px;">
+                  <span style="font-family: var(--font-mono); font-size: 12px; color: var(--color-brand, #76b900);">TIER 3</span>
+                  <span style="font-size: 15px;">Off-the-shelf reconstructions. Today's best practice.</span>
+                </div>
+              </div>
+              <p style="font-size: 17px; line-height: 1.65; margin: 0; color: var(--text-color-secondary);"><strong style="color: var(--text-color-primary); font-weight: 600;">Submission.</strong> Teams will submit recorded evaluations of their trained policies using the eval_robotic_grounding.py script provided to produce the artifact for submission.</p>
+              <p style="font-size: 17px; line-height: 1.65; margin: 0; color: var(--text-color-secondary);"><strong style="color: var(--text-color-primary); font-weight: 600;">Evaluation.</strong> At each tier, submissions will be evaluated for object-tracking accuracy using AUC, SP-SR, MP-SR, and MPPE as defined in the CHORD manuscript. Strong performance on more challenging tiers will be weighted appropriately when awarding points.</p>
+            </div>
+            <div></div>
+          </div>
+        </sc-if>
+      </article>
+
+      <article style="border-top: 1px solid var(--border-color-base); border-bottom: 1px solid var(--border-color-base); padding: 44px 0;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 32px; align-items: center;">
+          <div>
+            <div style="font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; color: var(--text-color-secondary); margin-bottom: 14px;">TRACK 03</div>
+            <h3 style="font-size: 30px; line-height: 1.15; letter-spacing: -0.02em; font-weight: 500; margin: 0 0 8px;">Egocentric</h3>
+            <div style="font-family: var(--font-mono); font-size: 13px; color: var(--text-color-secondary); margin-bottom: 20px;">Egocentric Video → Policy</div>
+            <p style="font-size: 21px; line-height: 1.45; font-weight: 400; margin: 0 0 20px;">Can we holistically reconstruct<br>and transfer from egocentric video?</p>
+            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px;">
+              <button type="button" onClick="{{ toggle3 }}" style="font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-color-primary); background: none; border: 1px solid var(--border-color-base); border-radius: var(--radius-sm); padding: 8px 14px; cursor: pointer;" style-hover="border-color: var(--color-brand, #76b900);">{{ label3 }}</button>
+              <a href="https://github.com/nvidia-isaac/video_to_data/tree/release/0.2.0" target="_blank" rel="noopener" style="font-family: var(--font-sans); font-size: 14px; letter-spacing: 0; color: var(--text-color-primary); text-decoration: none; border: 1px solid var(--border-color-base); border-radius: var(--radius-sm); padding: 8px 14px;" style-hover="border-color: var(--color-brand, #76b900);">Starter Toolkit: <span style="font-family: var(--font-mono); font-size: 13px;">nvidia-isaac/video_to_data</span> ↗</a>
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: minmax(0, 1fr) 20px minmax(0, 1fr); gap: 8px; align-items: start; min-width: 0;">
+            <div style="min-width: 0;">
+              <div style="width: 100%; aspect-ratio: 1 / 1; border: 1px solid var(--border-color-base); overflow: hidden;">
+                <img src="assets/t3-input.png" alt="" style="width: 100%; height: 100%; object-fit: cover; display: block;">
+              </div>
+              <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-color-secondary); margin-top: 8px;">Egocentric Video</div>
+            </div>
+            <div style="align-self: center; text-align: center; color: var(--text-color-secondary); font-size: 16px;">→</div>
+            <div style="min-width: 0;">
+              <div style="width: 100%; aspect-ratio: 1 / 1; border: 1px solid var(--border-color-base); overflow: hidden;">
+                <img src="assets/t3-output.png" alt="" style="width: 100%; height: 100%; object-fit: cover; display: block;">
+              </div>
+              <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-color-secondary); margin-top: 8px;">Policy</div>
+            </div>
+          </div>
+        </div>
+        <sc-if value="{{ open3 }}" hint-placeholder-val="{{ true }}">
+          <div style="display: grid; grid-template-columns: minmax(0, 1fr); gap: 32px; margin-top: 28px;">
+            <div style="display: flex; flex-direction: column; gap: 20px; max-width: 62ch;">
+              <div style="font-size: 17px; line-height: 1.65; margin: 0; color: var(--text-color-secondary);"><div>Unlike motion capture and other data-collection approaches that require extensive equipment and infrastructure, the egocentric view can scale because it can leverage low-cost and accessible capture devices. This track critically evaluates the overall pipeline end-to-end, from egocentric videos to robotic skills.</div></div>
+              <p style="font-size: 17px; line-height: 1.65; margin: 0; color: var(--text-color-secondary);"><strong style="color: var(--text-color-primary); font-weight: 600;">Data.</strong> The provided testing dataset is curated from our large-scale in-house dataset with held-out ground truth. We provide an end-to-end baseline that participants may build upon, modify, or choose not to use.</p>
+              <p style="font-size: 17px; line-height: 1.65; margin: 0; color: var(--text-color-secondary);"><strong style="color: var(--text-color-primary); font-weight: 600;">Method-agnostic.</strong> This track holistically evaluates the end-to-end results without constraining the overall approach, whether through explicit reconstruct-then-retargeting or implicit end-to-end learning with pre-trained VLA or WAM.</p>
+              <p style="font-size: 17px; line-height: 1.65; margin: 0; color: var(--text-color-secondary);"><strong style="color: var(--text-color-primary); font-weight: 600;">Submission.</strong>&nbsp;Teams will submit reconstructions and recorded evaluations of their end-to-end pipeline using the eval_e2e.py script to produce the artifact for submission.</p>
+            </div>
+            <div></div>
+          </div>
+        </sc-if>
+      </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="awards" style="padding: 104px 48px; border-top: 1px solid var(--border-color-base); scroll-margin-top: 80px;">
+    <div style="max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 48px;">
+      <div>
+        <h2 style="font-size: 28px; line-height: 1.1; letter-spacing: -0.02em; font-weight: 300; margin: 0; position: sticky; top: 100px;">Awards</h2>
+      </div>
+      <div>
+        <div style="display: flex; flex-direction: column; gap: 24px; max-width: 92ch;">
+          <p style="font-size: 19px; line-height: 1.65; margin: 0;">Three per track, nine total, announced at the CoRL 2026 tutorial.</p>
+          <ul style="display: flex; flex-direction: column; gap: 12px; margin: 0; padding-left: 24px;">
+            <li style="font-size: 19px; line-height: 1.65;"><strong style="font-weight: 600;">Track Winner:</strong> first on the track leaderboard.<br><span style="display: inline-block; margin-top: 6px; padding: 4px 12px; border-radius: var(--radius-sm); background: #ffffff; border: 1px solid var(--border-color-base); font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.04em; color: var(--text-color-primary);">Prize: To be announced at launch</span></li>
+            <li style="font-size: 19px; line-height: 1.65;"><strong style="font-weight: 600;">Track Runner-Up:</strong> second by the same metric.<br><span style="display: inline-block; margin-top: 6px; padding: 4px 12px; border-radius: var(--radius-sm); background: #ffffff; border: 1px solid var(--border-color-base); font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.04em; color: var(--text-color-primary);"><span style="letter-spacing: 0.52px;">Prize: To be announced at launch</span></span></li>
+            <li style="font-size: 19px; line-height: 1.65;"><strong style="font-weight: 600;">Industry Innovation Award</strong> — selected by an invited industry panel, independent of leaderboard rank, judged on the final submission and report against criteria published at launch: [deployability, data and compute efficiency, novelty, reproducibility].<br><span style="display: inline-block; margin-top: 6px; padding: 4px 12px; border-radius: var(--radius-sm); background: #ffffff; border: 1px solid var(--border-color-base); font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.04em; color: var(--text-color-primary);"><span style="letter-spacing: 0.52px;">Prize: To be announced at launch</span></span></li>
+          </ul>
+          <p style="font-size: 19px; line-height: 1.65; margin: 0; color: var(--text-color-secondary);">Eligibility for all awards: a valid final submission, agreed code release (research license), and the short technical report. Organizer entries are non-competing.</p>
+          <p style="font-size: 19px; line-height: 1.65; margin: 0; color: var(--text-color-secondary);">Top teams will be invited to present at our CoRL 2026 tutorial, with remote participation available, and selected solutions will receive large-scale evaluation and upstream integration. Awardees will serve as core authors of the post-challenge technical report, while all teams with valid final submissions will be invited to contribute as co-authors.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="timeline" style="background: #f0eee6; padding: 104px 48px; border-top: 1px solid var(--border-color-base);">
+    <div style="max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 48px;">
+      <div>
+        <h2 style="font-size: 28px; line-height: 1.1; letter-spacing: -0.02em; font-weight: 300; margin: 0; position: sticky; top: 100px;">Timeline</h2>
+      </div>
+      <div style="display: flex; flex-direction: column;">
+        <div style="display: grid; grid-template-columns: 220px 1fr; gap: 32px; padding: 26px 0; border-top: 1px solid var(--border-color-base);">
+          <div style="font-family: var(--font-mono); font-size: 14px; color: var(--color-brand, #76b900);">Now — September 21</div>
+          <div style="font-size: 18px;">Registration</div>
+        </div>
+        <div style="display: grid; grid-template-columns: 220px 1fr; gap: 32px; padding: 26px 0; border-top: 1px solid var(--border-color-base);">
+          <div style="font-family: var(--font-mono); font-size: 14px; color: var(--text-color-secondary);">September 21</div>
+          <div style="font-size: 18px;">Challenge data release and official launch<br><a href="https://github.com/nvidia-isaac/video_to_data/tree/release/0.2.0/" target="_blank" rel="noopener" style="font-family: var(--font-mono); font-size: 13px; color: var(--text-color-secondary); text-decoration: none; border-bottom: 1px solid var(--border-color-base); display: inline-block; margin-top: 8px;" style-hover="color: var(--text-color-primary); border-bottom-color: var(--color-brand, #76b900);">nvidia-isaac/video_to_data ↗</a></div>
+        </div>
+        <div style="display: grid; grid-template-columns: 220px 1fr; gap: 32px; padding: 26px 0; border-top: 1px solid var(--border-color-base);">
+          <div style="font-family: var(--font-mono); font-size: 14px; color: var(--text-color-secondary);">November 10</div>
+          <div style="font-size: 18px;">Leaderboard freeze</div>
+        </div>
+        <div style="display: grid; grid-template-columns: 220px 1fr; gap: 32px; padding: 26px 0; border-top: 1px solid var(--border-color-base);">
+          <div style="font-family: var(--font-mono); font-size: 14px; color: var(--text-color-secondary);">November 12</div>
+          <div style="font-size: 18px;">Winner announced at our CoRL 2026 tutorial and invited to give a 5-minute presentation to the community.</div>
+        </div>
+        <div style="display: grid; grid-template-columns: 220px 1fr; gap: 32px; padding: 26px 0; border-top: 1px solid var(--border-color-base); border-bottom: 1px solid var(--border-color-base);">
+          <div style="font-family: var(--font-mono); font-size: 14px; color: var(--text-color-secondary);">After November 12</div>
+          <div style="font-size: 18px;">Winner solution eval and tech report preparation</div>
+        </div>
+        <div style="margin-top: 40px; display: flex; align-items: center; gap: 20px;">
+          <a href="https://docs.google.com/forms/d/e/1FAIpQLSdZJYNsEPPGDeIRH2yb_Dui-lWcIxWRF2CON7UOIijzCw8zyA/viewform?usp=publish-editor" target="_blank" rel="noopener" style="display: inline-flex;">
+            <x-import component-from-global-scope="KuiFoundationsReact.Button" kind="primary" color="brand" size="large" hint-size="auto,44px">Register Now</x-import>
+          </a>
+          <span style="font-size: 15px; color: var(--text-color-secondary);">{{ regNote }}</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="leaderboard" style="padding: 104px 48px; border-top: 1px solid var(--border-color-base);">
+    <div style="max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 48px;">
+      <div>
+        <h2 style="font-size: 28px; line-height: 1.1; letter-spacing: -0.02em; font-weight: 300; margin: 0; position: sticky; top: 100px;">Leaderboard</h2>
+      </div>
+      <div>
+      <div style="border: 1px solid var(--border-color-base); padding: 88px 40px; display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center;">
+        <div style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-color-secondary);">Not yet open</div>
+        <div style="font-size: 24px; font-weight: 500;">Leaderboards open September 21</div>
+        <div style="font-size: 16px; color: var(--text-color-secondary); max-width: 52ch;">One leaderboard per track, live from the data release until the freeze on November 10.</div>
+        <div style="font-size: 16px; color: var(--text-color-secondary); max-width: 52ch;">Each team may submit up to five times per week, with unlimited submissions during the final three days.</div>
+      </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="more" style="background: #f0eee6; padding: 96px 48px; border-top: 1px solid var(--border-color-base); scroll-margin-top: 80px;">
+    <div style="max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 48px;">
+      <div>
+        <h2 style="font-size: 28px; line-height: 1.1; letter-spacing: -0.02em; font-weight: 300; margin: 0; position: sticky; top: 100px;">More Than a Leaderboard</h2>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 24px;">
+        <div style="background: #ffffff; border: 1px solid var(--border-color-base); padding: 32px;">
+          <div style="font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-brand, #76b900); margin-bottom: 16px;">Reach</div>
+          <p style="font-size: 17px; line-height: 1.6; margin: 0; color: var(--text-color-secondary);">Top teams are invited to present their solutions at our CoRL 2026 tutorial session.</p>
+        </div>
+        <div style="background: #ffffff; border: 1px solid var(--border-color-base); padding: 32px;">
+          <div style="font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-brand, #76b900); margin-bottom: 16px;">Integration</div>
+          <p style="font-size: 17px; line-height: 1.6; margin: 0; color: var(--text-color-secondary);">Top solutions receive large-scale evaluation and are invited to upstream their solutions to a maintained code repository.</p>
+        </div>
+        <div style="background: #ffffff; border: 1px solid var(--border-color-base); padding: 32px;">
+          <div style="font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-brand, #76b900); margin-bottom: 16px;">Authorship</div>
+          <p style="font-size: 17px; line-height: 1.6; margin: 0; color: var(--text-color-secondary);">Teams are invited to co-author the post-challenge technical report, mapping where the field stands and setting the baseline for the next challenge.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="organizers" style="padding: 104px 48px; border-top: 1px solid var(--border-color-base);">
+    <div style="max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 48px;">
+      <div>
+        <h2 style="font-size: 28px; line-height: 1.1; letter-spacing: -0.02em; font-weight: 300; margin: 0; position: sticky; top: 100px;">Organizers</h2>
+      </div>
+      <div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 20px;">
+        <div style="background: #ffffff; border: 1px solid var(--border-color-base); padding: 16px; min-width: 0;">
+          <div style="width: 100%; aspect-ratio: 1 / 1; margin-bottom: 14px; overflow: hidden;">
+            <img src="assets/org-1.png" alt="" style="width: 100%; height: 100%; object-fit: cover; display: block;">
+          </div>
+          <div style="font-size: 15px; font-weight: 500; margin-bottom: 3px; letter-spacing: -0.01em;">Yan Chang</div>
+          <div style="font-size: 12px; color: var(--text-color-secondary); margin-bottom: 8px;">NVIDIA</div>
+          <a href="mailto:yachang@nvidia.com" style="font-family: var(--font-mono); font-size: 11px; color: var(--text-color-secondary); word-break: break-all;">yachang@nvidia.com</a>
+        </div>
+        <div style="background: #ffffff; border: 1px solid var(--border-color-base); padding: 16px; min-width: 0;">
+          <div style="width: 100%; aspect-ratio: 1 / 1; margin-bottom: 14px; overflow: hidden;">
+            <img src="assets/org-2.png" alt="" style="width: 100%; height: 100%; object-fit: cover; display: block;">
+          </div>
+          <div style="font-size: 15px; font-weight: 500; margin-bottom: 3px; letter-spacing: -0.01em;">Xinghao Zhu</div>
+          <div style="font-size: 12px; color: var(--text-color-secondary); margin-bottom: 8px;">NVIDIA</div>
+          <a href="mailto:xinghaoz@nvidia.com" style="font-family: var(--font-mono); font-size: 11px; color: var(--text-color-secondary); word-break: break-all;">xinghaoz@nvidia.com</a>
+        </div>
+        <div style="background: #ffffff; border: 1px solid var(--border-color-base); padding: 16px; min-width: 0;">
+          <div style="width: 100%; aspect-ratio: 1 / 1; margin-bottom: 14px; overflow: hidden;">
+            <img src="assets/org-3.png" alt="" style="width: 100%; height: 100%; object-fit: cover; display: block;">
+          </div>
+          <div style="font-size: 15px; font-weight: 500; margin-bottom: 3px; letter-spacing: -0.01em;">Bowen Wen</div>
+          <div style="font-size: 12px; color: var(--text-color-secondary); margin-bottom: 8px;">NVIDIA</div>
+          <a href="mailto:bowenw@nvidia.com" style="font-family: var(--font-mono); font-size: 11px; color: var(--text-color-secondary); word-break: break-all;">bowenw@nvidia.com</a>
+        </div>
+        <div style="background: #ffffff; border: 1px solid var(--border-color-base); padding: 16px; min-width: 0;">
+          <div style="width: 100%; aspect-ratio: 1 / 1; margin-bottom: 14px; overflow: hidden;">
+            <img src="assets/org-4.png" alt="" style="width: 100%; height: 100%; object-fit: cover; display: block;">
+          </div>
+          <div style="font-size: 15px; font-weight: 500; margin-bottom: 3px; letter-spacing: -0.01em;">Shalin Jain</div>
+          <div style="font-size: 12px; color: var(--text-color-secondary); margin-bottom: 8px;">NVIDIA</div>
+          <a href="mailto:shalinj@nvidia.com" style="font-family: var(--font-mono); font-size: 11px; color: var(--text-color-secondary); word-break: break-all;">shalinj@nvidia.com</a>
+        </div>
+        <div style="background: #ffffff; border: 1px solid var(--border-color-base); padding: 16px; min-width: 0;">
+          <div style="width: 100%; aspect-ratio: 1 / 1; margin-bottom: 14px; overflow: hidden;">
+            <img src="assets/org-5.png" alt="" style="width: 100%; height: 100%; object-fit: cover; display: block;">
+          </div>
+          <div style="font-size: 15px; font-weight: 500; margin-bottom: 3px; letter-spacing: -0.01em;">Zeo Liu</div>
+          <div style="font-size: 12px; color: var(--text-color-secondary); margin-bottom: 8px;">NVIDIA</div>
+          <a href="mailto:zeol@nvidia.com" style="font-family: var(--font-mono); font-size: 11px; color: var(--text-color-secondary); word-break: break-all;">zeol@nvidia.com</a>
+        </div>
+        <div style="background: #ffffff; border: 1px solid var(--border-color-base); padding: 16px; min-width: 0;">
+          <div style="width: 100%; aspect-ratio: 1 / 1; margin-bottom: 14px; overflow: hidden;">
+            <img src="assets/org-6.png" alt="" style="width: 100%; height: 100%; object-fit: cover; display: block;">
+          </div>
+          <div style="font-size: 15px; font-weight: 500; margin-bottom: 3px; letter-spacing: -0.01em;">Mrinal Verghese</div>
+          <div style="font-size: 12px; color: var(--text-color-secondary); margin-bottom: 8px;">NVIDIA</div>
+          <a href="mailto:mverghese@nvidia.com" style="font-family: var(--font-mono); font-size: 11px; color: var(--text-color-secondary); word-break: break-all;">mverghese@nvidia.com</a>
+        </div>
+        <div style="background: #ffffff; border: 1px solid var(--border-color-base); padding: 16px; min-width: 0;">
+          <div style="width: 100%; aspect-ratio: 1 / 1; margin-bottom: 14px; overflow: hidden;">
+            <img src="assets/org-7.png" alt="" style="width: 100%; height: 100%; object-fit: cover; display: block;">
+          </div>
+          <div style="font-size: 15px; font-weight: 500; margin-bottom: 3px; letter-spacing: -0.01em;">John Welsh</div>
+          <div style="font-size: 12px; color: var(--text-color-secondary); margin-bottom: 8px;">NVIDIA</div>
+          <a href="mailto:jwelsh@nvidia.com" style="font-family: var(--font-mono); font-size: 11px; color: var(--text-color-secondary); word-break: break-all;">jwelsh@nvidia.com</a>
+        </div>
+        <div style="background: #ffffff; border: 1px solid var(--border-color-base); padding: 16px; min-width: 0;">
+          <div style="width: 100%; aspect-ratio: 1 / 1; margin-bottom: 14px; overflow: hidden;">
+            <img src="assets/org-8.png" alt="" style="width: 100%; height: 100%; object-fit: cover; display: block;">
+          </div>
+          <div style="font-size: 15px; font-weight: 500; margin-bottom: 3px; letter-spacing: -0.01em;">Daniel Zou</div>
+          <div style="font-size: 12px; color: var(--text-color-secondary); margin-bottom: 8px;">NVIDIA</div>
+          <a href="mailto:dzou@nvidia.com" style="font-family: var(--font-mono); font-size: 11px; color: var(--text-color-secondary); word-break: break-all;">dzou@nvidia.com</a>
+        </div>
+        <div style="background: #ffffff; border: 1px solid var(--border-color-base); padding: 16px; min-width: 0;">
+          <div style="width: 100%; aspect-ratio: 1 / 1; margin-bottom: 14px; overflow: hidden;">
+            <img src="assets/org-9.png" alt="" style="width: 100%; height: 100%; object-fit: cover; display: block;">
+          </div>
+          <div style="font-size: 15px; font-weight: 500; margin-bottom: 3px; letter-spacing: -0.01em;">Abrar Anwar</div>
+          <div style="font-size: 12px; color: var(--text-color-secondary); margin-bottom: 8px;">NVIDIA</div>
+          <a href="mailto:aanwar@nvidia.com" style="font-family: var(--font-mono); font-size: 11px; color: var(--text-color-secondary); word-break: break-all;">aanwar@nvidia.com</a>
+        </div>
+        <div style="background: #ffffff; border: 1px solid var(--border-color-base); padding: 16px; min-width: 0;">
+          <div style="width: 100%; aspect-ratio: 1 / 1; margin-bottom: 14px; overflow: hidden;">
+            <img src="assets/org-10.png" alt="" style="width: 100%; height: 100%; object-fit: cover; display: block;">
+          </div>
+          <div style="font-size: 15px; font-weight: 500; margin-bottom: 3px; letter-spacing: -0.01em;">Naema Bhatti</div>
+          <div style="font-size: 12px; color: var(--text-color-secondary); margin-bottom: 8px;">NVIDIA</div>
+          <a href="mailto:sbhatti@nvidia.com" style="font-family: var(--font-mono); font-size: 11px; color: var(--text-color-secondary); word-break: break-all;">sbhatti@nvidia.com</a>
+        </div>
+        <div style="background: #ffffff; border: 1px solid var(--border-color-base); padding: 16px; min-width: 0;">
+          <div style="width: 100%; aspect-ratio: 1 / 1; margin-bottom: 14px; overflow: hidden;">
+            <img src="assets/org-11.png" alt="" style="width: 100%; height: 100%; object-fit: cover; display: block;">
+          </div>
+          <div style="font-size: 15px; font-weight: 500; margin-bottom: 3px; letter-spacing: -0.01em;">Michael Lin</div>
+          <div style="font-size: 12px; color: var(--text-color-secondary); margin-bottom: 8px;">NVIDIA</div>
+          <a href="mailto:michalin@nvidia.com" style="font-family: var(--font-mono); font-size: 11px; color: var(--text-color-secondary); word-break: break-all;">michalin@nvidia.com</a>
+        </div>
+      </div>
+
+      </div>
+    </div>
+  </section>
+
+
+  <section id="contact" style="padding: 104px 48px; background: #f0eee6; border-top: 1px solid var(--border-color-base); scroll-margin-top: 80px;">
+    <div style="max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 48px;">
+      <div>
+        <h2 style="font-size: 28px; line-height: 1.1; letter-spacing: -0.02em; font-weight: 300; margin: 0; position: sticky; top: 100px;">Contact</h2>
+      </div>
+      <div>
+        <p style="font-size: 19px; line-height: 1.65; margin: 0 0 28px;">For questions about the challenge, please contact the organizers.</p>
+        <a href="mailto:v2d_challenge@nvidia.com" style="font-family: var(--font-mono); font-size: 19px; color: var(--text-color-primary); text-decoration: none; border-bottom: 1px solid var(--border-color-base); padding-bottom: 4px" style-hover="border-bottom-color: var(--color-brand, #76b900);">v2d_challenge@nvidia.com</a>
+      </div>
+    </div>
+  </section>
+
+  <footer style="padding: 44px 48px; border-top: 1px solid var(--border-color-base); display: flex; align-items: center; justify-content: space-between; gap: 32px; flex-wrap: wrap;">
+    <div style="display: flex; align-items: center; gap: 16px;">
+      <x-import component-from-global-scope="KuiFoundationsReact.HorizontalLogo" hint-size="100px,22px" style="width: 110px; height: 20px; display: block;"></x-import>
+      
+    </div>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;registrationOpen&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Challenge state&quot;},&quot;trackDetail&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;condensed&quot;,&quot;expanded&quot;],&quot;default&quot;:&quot;condensed&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Challenge state&quot;}}">
+class Component extends DCLogic {
+  state = { open: {}, subscribed: false };
+  isOpen(k) {
+    const d = (this.props.trackDetail ?? "condensed") === "expanded";
+    return this.state.open[k] === undefined ? d : this.state.open[k];
+  }
+  tog(k) {
+    return () => this.setState(s => ({ open: { ...s.open, [k]: !this.isOpen(k) } }));
+  }
+  componentDidMount() {
+    const ids = ["motivation","tracks","awards","timeline","leaderboard","more","organizers","contact"];
+    const links = ids.map(id => document.querySelector('nav a[href="#' + id + '"]')).filter(Boolean);
+    links.forEach(a => {
+      a.style.display = "inline-flex";
+      a.style.alignItems = "center";
+      a.style.paddingTop = "6px";
+      a.style.paddingBottom = "4px";
+      a.style.borderTop = "2px solid transparent";
+      a.style.borderBottom = "2px solid transparent";
+      a.style.transition = "border-color 150ms, color 150ms";
+    });
+    const mark = id => links.forEach(a => {
+      const on = a.getAttribute("href") === "#" + id;
+      a.style.borderBottomColor = on ? "var(--color-brand, #76b900)" : "transparent";
+      a.style.color = on ? "var(--text-color-primary)" : "";
+    });
+    const sections = ids.map(id => document.getElementById(id)).filter(Boolean);
+    this._onScroll = () => {
+      let cur = null;
+      for (const s of sections) if (s.getBoundingClientRect().top <= 140) cur = s.id;
+      const atBottom = window.innerHeight + window.scrollY >= document.body.scrollHeight - 4;
+      if (atBottom && sections.length) cur = sections[sections.length - 1].id;
+      mark(cur);
+    };
+    window.addEventListener("scroll", this._onScroll, { passive: true });
+    this._onScroll();
+  }
+  componentWillUnmount() {
+    if (this._onScroll) window.removeEventListener("scroll", this._onScroll);
+  }
+  renderVals() {
+    const open = this.props.registrationOpen ?? false;
+    const lbl = o => (this.isOpen(o) ? "Hide details" : "Read the full track");
+    return {
+      regDisabled: !open,
+      regLabel: open ? "Register" : "Registration opens soon",
+      regLabelShort: open ? "Register" : "Opens soon",
+      regNote: open
+        ? "Teams may enter any subset of the three tracks."
+        : "Teams may enter any subset of the three tracks.",
+      subscribeLabel: this.state.subscribed ? "Subscribed" : "Notify me",
+      onSubscribe: e => { e.preventDefault(); this.setState({ subscribed: true }); },
+      open1: this.isOpen(1), open2: this.isOpen(2), open3: this.isOpen(3),
+      label1: lbl(1), label2: lbl(2), label3: lbl(3),
+      toggle1: this.tog(1), toggle2: this.tog(2), toggle3: this.tog(3)
+    };
+  }
+}
+</script>
+</body>
+</html>
