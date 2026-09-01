@@ -19,6 +19,37 @@
   a { color: var(--text-color-primary); text-decoration: none; }
   a:hover { color: var(--color-brand, #76b900); }
   html { scroll-behavior: smooth; }
+  img { max-width: 100%; }
+  @media (max-width: 860px) {
+    header, section { padding-left: 20px !important; padding-right: 20px !important; }
+    header { position: static !important; }
+    header nav a:not([target="_blank"]) { display: none !important; }
+    section[id] { scroll-margin-top: 12px !important; }
+    section { padding-top: 64px !important; padding-bottom: 64px !important; }
+    section:first-of-type { padding-top: 56px !important; min-height: 0 !important; }
+    header { padding-top: 12px !important; padding-bottom: 12px !important; }
+    header nav { gap: 8px 16px !important; font-size: 13px !important; width: 100%; }
+    h1 { font-size: 34px !important; letter-spacing: -0.02em !important; }
+    h2 { position: static !important; font-size: 21px !important; }
+    [style*="font-size: 22px"] { font-size: 18px !important; }
+    [style*="font-size: 19px"] { font-size: 16px !important; }
+    [style*="font-size: 18px"] { font-size: 16px !important; }
+    [style*="font-size: 17px"] { font-size: 15px !important; }
+    [style*="font-size: 16px"] { font-size: 15px !important; }
+    [style*="font-size: 15px"] { font-size: 14px !important; }
+    section p, section div { text-wrap: pretty; }
+    [style*="white-space: nowrap"] { white-space: normal !important; font-size: 19px !important; }
+    [style*="width: 788px"] { width: auto !important; height: auto !important; font-size: 16px !important; }
+    [style*="grid-template-columns: 180px"] { grid-template-columns: minmax(0px, 1fr) !important; gap: 20px !important; }
+    [style*="grid-template-columns: 220px"] { grid-template-columns: minmax(0px, 1fr) !important; gap: 4px !important; }
+    [style*="grid-template-columns: 92px"] { grid-template-columns: minmax(0px, 1fr) !important; gap: 6px !important; }
+    [style*="20px minmax(0px, 1fr)"] { gap: 6px !important; }
+    [style*="minmax(300px, 1fr)"] { grid-template-columns: minmax(0px, 1fr) !important; }
+    [style*="minmax(280px, 1fr)"] { grid-template-columns: minmax(0px, 1fr) !important; }
+    [style*="minmax(240px, 1fr)"] { grid-template-columns: minmax(0px, 1fr) !important; }
+    [style*="minmax(150px, 1fr)"] { grid-template-columns: repeat(2, minmax(0px, 1fr)) !important; }
+    section > div > div[style*="display: flex"][style*="gap: 20px"] { flex-wrap: wrap !important; gap: 12px 18px !important; }
+  }
 </style>
 </helmet>
 <div class="nv-light" style="font-family: var(--font-sans); color: var(--text-color-primary); background: #faf9f5; min-height: 100vh; text-wrap: pretty;">
