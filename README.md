@@ -1,5 +1,7 @@
 # Video to Data (V2D)
 
+> **This fork adds ARM64/GB10 (Grace-Blackwell) Docker build support** — see [PR #142](https://github.com/nvidia-isaac/video_to_data/pull/142).
+
 > An end-to-end pipeline that converts human demonstration videos into simulation-ready assets and physics-grounded robot training data.
 
 **[Documentation](https://nvidia-isaac.github.io/video_to_data/)** · **[Robotic Grounding Project Page](https://nvidia-isaac.github.io/video_to_data/chord/)** · **[Tech Report](https://nvidia-isaac.github.io/video_to_data/chord/chord.pdf)** · **[Dataset](https://huggingface.co/collections/nvidia/video-to-data)**
