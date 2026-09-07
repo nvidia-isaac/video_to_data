@@ -2,7 +2,9 @@
 
 > An end-to-end pipeline that converts human demonstration videos into simulation-ready assets and physics-grounded robot training data.
 
-**[Documentation](https://nvidia-isaac.github.io/video_to_data/)** · **[Robotic Grounding Project Page](https://nvidia-isaac.github.io/video_to_data/chord/)** · **[Tech Report](https://nvidia-isaac.github.io/video_to_data/chord/chord.pdf)** · **[Dataset](https://huggingface.co/collections/nvidia/video-to-data)**
+**[Documentation](https://nvidia-isaac.github.io/video_to_data/)** · **[Dataset](https://huggingface.co/collections/nvidia/video-to-data)** · **[V2D Challenge](https://nvidia-isaac.github.io/video_to_data/v2d_challenge/)**
+
+Robotic Grounding · **[Project Page](https://nvidia-isaac.github.io/video_to_data/chord/)** · **[Tech Report](https://nvidia-isaac.github.io/video_to_data/chord/chord.pdf)**
 
 ![Video to Data pipeline — from human demonstration video through ingestion, reconstruction, and robotic grounding in Isaac Lab to a physics-grounded policy, dataset, and real-robot deployment](docs/figures/v2d_overview.png)
 
