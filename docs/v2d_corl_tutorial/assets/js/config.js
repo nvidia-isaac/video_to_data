@@ -35,7 +35,7 @@ const schedule = [
   ['exercise', '3:20-3:40', 'Exercise 4: train or evaluate a dexterity task in Isaac Lab'],
   ['coffee-break', '3:40-3:50', 'Break and artifact clinic'],
   ['exercise', '3:50-4:10', 'Exercise 5: leverage an AI agent'],
-  ['challenge', '4:10-5:10', 'Challenge: top teams presentation and Q&A'],
+  ['challenge', '4:10-5:10', 'Challenge: winner announcement and top teams presentations'],
   ['intro', '5:10-5:30', 'Guided extension: failure diagnosis, bring-your-own-data, and challenge submission'],
   ['closing', '5:30-5:40', 'Wrap-up and feedback'],
 ]
