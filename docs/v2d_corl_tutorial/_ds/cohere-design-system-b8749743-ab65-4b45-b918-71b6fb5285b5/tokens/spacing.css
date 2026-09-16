@@ -1,0 +1,52 @@
+/* ============================================================
+   SPACING & RADIUS & ELEVATION
+   8px base with one-off alignment values. Whitespace is a trust
+   signal — large vertical intervals between sections. Mostly flat;
+   depth from surface alternation, rounded corners, thin borders.
+   ============================================================ */
+:root {
+  /* --- Spacing scale (8px base + documented one-offs) --- */
+  --space-2: 2px;
+  --space-6: 6px;
+  --space-8: 8px;
+  --space-10: 10px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-20: 20px;
+  --space-22: 22px;
+  --space-24: 24px;
+  --space-28: 28px;
+  --space-32: 32px;
+  --space-36: 36px;
+  --space-40: 40px;
+  --space-56: 56px;
+  --space-60: 60px;
+  --space-64: 64px;
+  --space-80: 80px;
+
+  /* Section rhythm — dramatic vertical breathing room */
+  --section-pad-y: 120px;
+  --container-max: 1280px;
+  --container-pad-x: 24px;
+
+  /* --- Radius scale --- */
+  --radius-xs: 4px;     /* small images, search fields, thumbnails */
+  --radius-sm: 8px;     /* blog chips, cards, small media, dialogs */
+  --radius-md: 16px;    /* medium product cards, grouped blocks */
+  --radius-lg: 22px;    /* signature media card / soft placeholder */
+  --radius-xl: 30px;    /* research / topic filter pills */
+  --radius-pill: 32px;  /* primary CTA buttons */
+  --radius-full: 9999px;/* round status, fully pill controls */
+
+  /* --- Elevation — Cohere is mostly flat --- */
+  --shadow-none: none;
+  --shadow-media: 0 1px 2px rgba(0,0,0,0.04);  /* barely-there lift under media cards */
+
+  /* --- Borders --- */
+  --border-width: 1px;
+
+  /* --- Motion --- */
+  --ease-standard: cubic-bezier(0.4, 0.0, 0.2, 1); /* @kind other */
+  --duration-fast: 120ms; /* @kind other */
+  --duration-base: 200ms; /* @kind other */
+}

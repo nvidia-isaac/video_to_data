@@ -1,0 +1,69 @@
+/* ============================================================
+   COLORS
+   Cohere keeps the UI shell restrained — black/white/stone — and
+   lets photography, product mockups, and a few editorial accents
+   (coral, blue, deep green/navy) carry the color.
+   ============================================================ */
+:root {
+  /* --- Brand & accent --- */
+  --color-black: #000000;          /* announcement bar, highest-contrast text, brand anchor */
+  --color-near-black: #17171c;     /* primary CTA, dark footer, deep UI cards */
+  --color-green-deep: #003c33;     /* product hero bands (North / Command dark sections) */
+  --color-navy-dark: #071829;      /* financial-services & security solution bands */
+  --color-blue-action: #1863dc;    /* editorial links, pagination, secondary emphasis */
+  --color-coral: #ff7759;          /* blog category chips, taxonomy outlines, warm markers */
+  --color-coral-soft: #ffad9b;     /* pale chip borders, segmented article-label details */
+
+  /* --- Surface & background --- */
+  --color-white: #ffffff;          /* dominant page background, form/card surface */
+  --color-stone: #eeece7;          /* product cards, testimonial placeholders, warm blocks */
+  --color-wash-green: #edfce9;     /* North page backdrop behind dark capability panels */
+  --color-wash-blue: #f1f5ff;      /* blog CTA surface behind abstract 3D imagery */
+  --color-card-border: #f2f2f2;    /* softest card containment line */
+
+  /* --- Text & rules --- */
+  --color-ink: #212121;            /* default body text, link text on light */
+  --color-muted: #93939f;          /* footer links, dates, metadata, de-emphasized labels */
+  --color-slate: #75758a;          /* research separators, tertiary text */
+  --color-hairline: #d9d9dd;       /* standard list rules, section dividers */
+  --color-border-light: #e5e7eb;   /* secondary divider, utility rule */
+
+  /* --- Semantic --- */
+  --color-focus: #4c6ee6;          /* keyboard focus / ring */
+  --color-focus-violet: #9b60aa;   /* focus border for text inputs */
+  --color-error: #b30000;          /* validation-like ring/shadow */
+
+  /* ============================================================
+     SEMANTIC ALIASES — prefer these in components
+     ============================================================ */
+  --surface-page: var(--color-white);
+  --surface-card: var(--color-white);
+  --surface-card-warm: var(--color-stone);
+  --surface-wash-green: var(--color-wash-green);
+  --surface-wash-blue: var(--color-wash-blue);
+  --surface-dark: var(--color-near-black);
+  --surface-dark-green: var(--color-green-deep);
+  --surface-dark-navy: var(--color-navy-dark);
+  --surface-announcement: var(--color-black);
+
+  --text-primary: var(--color-ink);
+  --text-on-dark: var(--color-white);
+  --text-muted: var(--color-muted);
+  --text-tertiary: var(--color-slate);
+  --text-link: var(--color-blue-action);
+
+  --accent-editorial: var(--color-coral);
+  --accent-editorial-soft: var(--color-coral-soft);
+
+  --border-card: var(--color-card-border);
+  --border-rule: var(--color-hairline);
+  --border-utility: var(--color-border-light);
+  --border-on-dark: rgba(255, 255, 255, 0.16);
+
+  --action-primary-bg: var(--color-near-black);
+  --action-primary-fg: var(--color-white);
+  --action-on-dark-bg: var(--color-white);
+  --action-on-dark-fg: var(--color-near-black);
+
+  --ring-focus: var(--color-focus);
+}
