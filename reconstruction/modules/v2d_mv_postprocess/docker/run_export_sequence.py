@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Docker wrapper for export_sequence.
 
-Export from S3-compatible object storage (remote):
+Export from CSS (remote):
     python -m v2d.mv.postprocess.docker.run_export_sequence \\
-        --swift_output_base s3://<bucket>/data_output/<sequence> \\
+        --swift_output_base swift://pdx.s8k.io/AUTH_.../data_output/<seq> \\
         --output_dir /local/path/to/sequence \\
         --dev
 
@@ -14,11 +14,11 @@ Export from local directory:
         --output_dir /local/path/to/sequence \\
         --dev
 
-Remote mode requires S3_ACCESS_KEY and S3_SECRET_KEY. Set S3_ENDPOINT_URL for
-an S3-compatible endpoint; omit it when using AWS S3.
+Requires CSS_ACCESS_KEY and CSS_SECRET_KEY env vars for remote mode.
 """
 
 import os
+from pathlib import Path
 
 from v2d.docker.container import run_in_container
 from v2d.mv.postprocess.docker._config import IMAGE_NAME, MODULES_DIR
@@ -31,6 +31,8 @@ def run_export_sequence(
     dry_run: bool = False,
     max_workers: int | None = None,
     final_only: bool = False,
+    rgb_storage: str = "jpeg_h5",
+    depth_storage: str = "gzip_h5",
     dev: bool = False,
 ) -> None:
     inputs = {}
@@ -40,10 +42,9 @@ def run_export_sequence(
     if swift_output_base is not None:
         extra_args["swift_output_base"] = swift_output_base
         env = {
-            "S3_ACCESS_KEY": os.environ.get("S3_ACCESS_KEY", ""),
-            "S3_SECRET_KEY": os.environ.get("S3_SECRET_KEY", ""),
-            "S3_ENDPOINT_URL": os.environ.get("S3_ENDPOINT_URL", ""),
-            "S3_REGION": os.environ.get("S3_REGION", "us-east-1"),
+            "CSS_ACCESS_KEY": os.environ.get("CSS_ACCESS_KEY", ""),
+            "CSS_SECRET_KEY": os.environ.get("CSS_SECRET_KEY", ""),
+            "CSS_ENDPOINT_URL": os.environ.get("CSS_ENDPOINT_URL", "https://pdx.s8k.io"),
         }
     elif source_dir is not None:
         inputs["source_dir"] = source_dir
@@ -54,6 +55,10 @@ def run_export_sequence(
         extra_args["max_workers"] = max_workers
     if final_only:
         extra_args["final_only"] = True
+    if rgb_storage != "jpeg_h5":
+        extra_args["rgb_storage"] = rgb_storage
+    if depth_storage != "gzip_h5":
+        extra_args["depth_storage"] = depth_storage
 
     run_in_container(
         image=IMAGE_NAME,
@@ -76,7 +81,7 @@ if __name__ == "__main__":
     )
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--swift_output_base", type=str,
-                        help="Object-storage URL for remote download")
+                        help="Swift URL for remote download")
     source.add_argument("--source_dir", type=str,
                         help="Local directory containing OSMO task outputs")
     parser.add_argument("--output_dir", type=str, required=True,
@@ -88,6 +93,12 @@ if __name__ == "__main__":
                         help="Export only final outputs (trajectories, ground plane, object mesh, "
                              "edex, tiled overlay); skip depth/masks/images/videos.")
     parser.add_argument("--dev", action="store_true")
+    parser.add_argument(
+        "--rgb_storage", choices=("jpeg_h5", "ffv1_sidecar"), default="jpeg_h5"
+    )
+    parser.add_argument(
+        "--depth_storage", choices=("gzip_h5", "ffv1_sidecar"), default="gzip_h5"
+    )
     args = parser.parse_args()
 
     run_export_sequence(
@@ -97,5 +108,7 @@ if __name__ == "__main__":
         dry_run=args.dry_run,
         max_workers=args.max_workers,
         final_only=args.final_only,
+        rgb_storage=args.rgb_storage,
+        depth_storage=args.depth_storage,
         dev=args.dev,
     )

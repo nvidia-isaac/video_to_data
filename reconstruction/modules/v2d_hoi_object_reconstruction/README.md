@@ -4,7 +4,11 @@ End-to-end textured 3D mesh reconstruction from hand-object interaction video.
 
 Two reconstruction modes:
 - **BundleSDF** (default) — two-stage scan (stationary → rotated → stationary) → full textured NeRF mesh
-- **SAM3D** — select representative frames → per-frame single-image 3D → silhouette-based scale estimation
+- **SAM3D** — default two-stage or explicit stationary-object capture →
+  representative single-image meshes → silhouette-based scale estimation
+
+For downstream rigid USD generation and an Isaac Sim drop test, see
+[`mesh_to_usd/README.md`](mesh_to_usd/README.md).
 
 ---
 
@@ -37,6 +41,9 @@ BundleSDF on GPU 0, monitor it, and verify the mesh and alignment video.
 /absolute/path/to/mapping_data with prompt "toy airplane" and write a fresh job
 under /absolute/path/to/outputs.
 
+/hoi-object-reconstruction-run Run SAM3D on this arbitrary-path scan; the
+object remains stationary throughout.
+
 /hoi-object-reconstruction-doctor Diagnose the failed job at
 /absolute/path/to/job and give me the narrowest resume command.
 ```
@@ -55,7 +62,8 @@ QA result. A zero exit code or a generated GLB alone is not sufficient.
 
 These skills end at a reviewed reconstruction GLB. Mesh-to-USD conversion and
 physics validation are separate downstream workflows and must have their own
-output directory and status.
+output directory and status. Their dedicated setup/run/doctor skills are
+documented in the [mesh-to-USD agentic workflow](mesh_to_usd/README.md#agentic-workflow).
 
 ---
 
@@ -125,7 +133,8 @@ difficult to reconstruct. Use diffuse, stable lighting and a stationary,
 feature-rich background; clean the object and make sure it can rest securely in
 both scan orientations.
 
-Use one continuous two-round recording to obtain six-face coverage:
+BundleSDF and the default SAM3D capture mode use one continuous two-round
+recording to obtain six-face coverage:
 
 1. Place the object near the center of the capture area with approximately
    20–30 cm of clearance. Keep it fully in frame, typically from a distance of
@@ -145,6 +154,14 @@ Use one continuous two-round recording to obtain six-face coverage:
 
 Move smoothly to limit motion blur and avoid abrupt changes in distance or
 lighting.
+
+SAM3D also supports a stationary-object capture. Keep the object fixed for the
+entire recording and move the stereo camera smoothly through diverse azimuth
+and elevation viewpoints. The path does not need to be planar, circular, or
+ordered into loops, but the object must remain visible and the views must have
+enough overlap for CuSFM. Run this contract explicitly with
+`--mode sam3d --sam3d_capture_mode stationary`. It does not silently replace a
+failed two-stage scan, and it cannot observe a bottom face that remains hidden.
 
 ---
 
@@ -434,9 +451,9 @@ Resume from any checkpoint by skipping completed steps:
 |---------|-----------|---------|-------------|
 | `stage1_detect` | `buffer_deg` | 10.0 | Angle buffer (°) before detected Stage-1 transition |
 | `sfm` | `config_set` | `backpack` | CuSFM preset (`backpack` \| `av` \| `isaac` \| `rgbd`) |
-| `sfm_scan_quality` | `enabled` | `true` | Validate CuSFM poses before automatic stage split |
-| `sfm_scan_quality` | `min_angle_span_deg` | 600.0 | Minimum projected orbit span for the expected two-loop scan |
-| `sfm_scan_quality` | `max_backtracking_fraction` | 0.25 | Maximum reverse angular motion fraction |
+| `sfm_scan_quality` | `enabled` | `true` | Validate CuSFM pose count and continuity; also validate the two-loop contract when applicable |
+| `sfm_scan_quality` | `min_angle_span_deg` | 600.0 | Minimum projected orbit span in `two_stage` mode; not applied to stationary mode |
+| `sfm_scan_quality` | `max_backtracking_fraction` | 0.25 | Maximum reverse angular motion fraction in `two_stage` mode; not applied to stationary mode |
 | `sfm_scan_quality` | `max_translation_step_m` | 2.0 | Maximum allowed consecutive CuSFM translation jump |
 | `depth` | `num_workers` | 1 | FoundationStereo depth workers; increase explicitly for multi-GPU hosts |
 | `foundationpose` | `reference_frame` | 0 | FP registration reference frame |
@@ -462,7 +479,9 @@ Resume from any checkpoint by skipping completed steps:
 
 ## SAM3D Pipeline
 
-Single-image 3D reconstruction per representative frame. No multi-stage scan required.
+Single-image 3D reconstruction per representative frame. The existing
+two-stage/two-loop capture remains the default. A separate stationary mode
+supports an arbitrary camera path when the object does not move.
 
 ### Quick Start
 
@@ -481,13 +500,33 @@ python modules/v2d_hoi_object_reconstruction/docker/run_reconstruction.py ... \
   --mode sam3d --sam3d_use_depth
 ```
 
+For a stationary object and a non-loop or otherwise arbitrary camera path:
+
+```bash
+python modules/v2d_hoi_object_reconstruction/docker/run_reconstruction.py \
+  --mapping_data_dir data/hoi_obj_recon/raw_data/<job> \
+  --job_dir          data/outputs/hoi_recon/<job> \
+  --prompt           "basketball" \
+  --mode sam3d \
+  --sam3d_capture_mode stationary
+```
+
+Choose the mode explicitly from the capture procedure. `two_stage` requires a
+detected or supplied Stage-1 boundary. `stationary` skips transition detection,
+selects source frames by camera viewing-direction diversity, and makes the full
+sequence eligible for SRT alignment. It never automatically falls back from a
+failed two-stage capture. Object stationarity is a capture-procedure contract;
+the pipeline records the assumption but does not independently prove that the
+object never moved.
+
 ### Pipeline Steps
 
 ```mermaid
 flowchart TD
     A["Calibrated stereo input<br/>images + frames_meta.json"] --> B["Prepare job<br/>left/right frames, calibration, video"]
-    B --> C["CuSFM + scan QA<br/>camera poses and stage boundary"]
-    C --> D["Grounding DINO + SAM2<br/>object boxes and masks"]
+    B --> C["CuSFM + capture-aware scan QA<br/>camera poses"]
+    C --> C2["Two-stage: detect boundary<br/>Stationary: use full sequence"]
+    C2 --> D["Grounding DINO + SAM2<br/>object boxes and masks"]
     D --> E["Select representative views<br/>sam3d/selected_frames.json"]
     E --> F["SAM3D per selected frame<br/>mesh.glb + camera transform"]
     F --> G["SRT scale and pose<br/>output_scaled.glb"]
@@ -504,7 +543,9 @@ flowchart TD
 - `sam3d/<frame_id>/srt/output_scaled.glb` — scale-corrected mesh (world space)
 - `sam3d/<frame_id>/srt/srt_result.json` — estimated scale, rotation, translation
 - `sam3d/<frame_id>/render_debug.jpg` — SAM3D mesh overlaid on source image (single frame)
-- `sam3d/<frame_id>/render_video.mp4` — textured mesh overlaid on all Stage-1 keyframes
+- `sam3d/<frame_id>/render_video.mp4` — mesh overlaid on Stage-1 (`two_stage`) or full-sequence (`stationary`) keyframes
+- `sam3d/capture_contract.json` — requested capture mode, object-motion assumption, and stage boundary
+- `sam3d/selection_report.json` — frame-selection method and selected-frame provenance
 - `sam3d/best/best_frame.json` — ranked candidate frames and selection score
 - `sam3d/best/output_scaled.glb` — copied suggested best aligned mesh
 
@@ -512,8 +553,10 @@ flowchart TD
 
 | Flag | Default | Description |
 |------|---------|-------------|
+| `--sam3d_capture_mode {two_stage,stationary}` | `two_stage` | Capture contract; stationary mode requires the object to remain fixed throughout |
 | `--sam3d_use_depth` | off | Use FoundationStereo depth as extra loss in SRT scale estimation |
-| `--sam3d_bin_deg DEG` | 60.0 | Azimuthal bin size for frame selection |
+| `--sam3d_bin_deg DEG` | 60.0 | Two-stage mode: cumulative orbit-angle bin size for frame selection |
+| `--sam3d_stationary_views N` | 6 | Stationary mode: number of pose-diverse SAM3D source views |
 | `--sam3d_seed N` | 42 | Random seed for SAM3D inference |
 | `--sam3d_srt_max_views N` | 25 | Maximum silhouette views per SRT candidate |
 | `--sam3d_srt_maxiter N` | 60 | Powell iterations per SRT optimisation |
@@ -738,6 +781,89 @@ Place the mesh at `<job_dir>/mesh_input.obj` before running.
 | `detect_stage1_end.py` | `v2d_hoi_object_reconstruction/lib/` | Manually inspect Stage-1 end detection from CuSFM trajectory |
 | `visualize_reconstruction_standalone.py` | `v2d_bundlesdf/tools/` | Visualize camera trajectory and point cloud for reconstruction-quality checks |
 | `plot_tum_file.py` | `v2d_cusfm/tools/` | Plot TUM-format trajectory file |
-| `spin_mesh_video.py` | `tools/` | Render a spinning video of a mesh |
+| `spin_mesh_video.py` | `tools/` | Render an appearance-faithful spinning video, including SAM3D vertex colors |
 | `fuse_depth_to_pointcloud.py` | `v2d_bundlesdf/tools/` | Fuse depth maps into a point cloud |
 | `view_glb.py` | `tools/` | View a `.glb` mesh file |
+| `evaluate_mesh_quality.py` | `tools/` | Compare reconstructed geometry with a reference mesh using deterministic surface sampling, rigid registration, Chamfer distance, and threshold coverage |
+
+### Appearance-faithful mesh turntable
+
+[`tools/spin_mesh_video.py`](tools/spin_mesh_video.py) renders GLB, OBJ, and
+other trimesh-supported inputs as H.264 turntable videos. It preserves GLB scene
+node transforms. In the default `--shading auto` mode, conventional materials
+and textures use lit PBR rendering, while SAM3D-style `COLOR_0` vertex colors
+use flat, opaque shading so bright lights do not wash their appearance toward
+white.
+
+```bash
+python modules/v2d_hoi_object_reconstruction/tools/spin_mesh_video.py \
+  /path/to/output.glb /tmp/output_spin.mp4 \
+  --frames 120 --fps 24 --width 1280 --height 720
+```
+
+For watertight vertex-colored inputs with negative signed volume, the renderer
+also repairs clearly inward-facing winding in memory before rendering. It does
+not rewrite the source mesh, and it does not guess the outside of an open
+surface. Use `--shading lit` to force material-lit rendering or
+`--shading flat` to force flat rendering.
+
+### Offline mesh-geometry evaluation
+
+[`tools/evaluate_mesh_quality.py`](tools/evaluate_mesh_quality.py) provides the
+reproducible geometry-only comparison used for offline reconstruction analysis.
+It is not part of either reconstruction pipeline and does not assign an EVT
+pass/fail result.
+
+For one reference/candidate pair:
+
+```bash
+python modules/v2d_hoi_object_reconstruction/tools/evaluate_mesh_quality.py pair \
+  --reference /path/to/einstar/output.glb \
+  --candidate /path/to/sam3d/output.glb \
+  --object-id cyan_water_bottle \
+  --method sam3d \
+  --output /tmp/cyan_water_bottle_metrics.json
+```
+
+For a batch, create a JSON manifest. Relative mesh paths are resolved from the
+manifest's directory:
+
+```json
+{
+  "cases": [
+    {
+      "object_id": "cyan_water_bottle",
+      "reference": "meshes/cyan_water_bottle/einstar/output.glb",
+      "candidates": {
+        "bundlesdf": "meshes/cyan_water_bottle/bundlesdf/output.glb",
+        "sam3d": "meshes/cyan_water_bottle/sam3d/output.glb"
+      }
+    }
+  ]
+}
+```
+
+```bash
+python modules/v2d_hoi_object_reconstruction/tools/evaluate_mesh_quality.py manifest \
+  --manifest /path/to/mesh_pairs.json \
+  --output-dir /tmp/mesh_quality \
+  --keep-going
+```
+
+The evaluator samples 10,000 points from each surface, aligns the candidate to
+the reference with rotation and translation only, and preserves the delivered
+scale. `chamfer_mean_pct_diag` is the unsquared symmetric mean nearest-neighbor
+distance, divided by the reference axis-aligned bounding-box diagonal and
+reported as a percentage. Precision is the percentage of candidate points near
+the reference; recall is the percentage of reference points covered by the
+candidate. The default near-surface thresholds are 1%, 2%, and 5% of the same
+reference diagonal.
+
+`as_delivered` reports geometry with the candidate's original scale.
+`shape_scale_normalized` uniformly corrects the candidate's RMS surface radius
+before repeating registration, which helps separate scale error from shape
+error. Both results ignore texture, color, materials, and semantic correctness.
+Sampling and registration are deterministic for a fixed mesh and seed, but
+symmetric shapes and large missing regions can still make registration
+ambiguous. Always review the meshes and reconstruction overlays alongside the
+numbers.

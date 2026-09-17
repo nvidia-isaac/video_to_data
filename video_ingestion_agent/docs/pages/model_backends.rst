@@ -107,7 +107,8 @@ workloads.
 **Requirements:**
 
 - ``pip install video_ingestion_agent[local]`` (installs ``torch``, ``transformers``,
-  ``accelerate``, ``torchcodec``)
+  ``torchcodec``; the model is placed on the configured ``device`` directly, so
+  ``accelerate`` is not required)
 - Sufficient GPU VRAM — the 8B model requires ~16 GB in ``bfloat16``
 - ``HF_TOKEN`` environment variable for gated models
 - FFmpeg shared libraries on the host — ``torchcodec`` (the video decoder

@@ -96,6 +96,17 @@ uv sync --extra benchmark               # EPIC-KITCHENS evaluation
 uv sync --extra dev                     # tests, ruff, mypy
 ```
 
+On hosts with `git-lfs` installed, prefix any sync that includes the `server`
+extra (`--extra server` or `--all-extras`) with `GIT_LFS_SKIP_SMUDGE=1`:
+
+```bash
+GIT_LFS_SKIP_SMUDGE=1 uv sync --extra server
+```
+
+The `vllm-cosmos3` git dependency lives in a repository that carries LFS
+pointers whose objects are not all retrievable; with git-lfs active the
+checkout aborts in the smudge filter and the sync fails.
+
 ## Quickstart
 
 The full ingestion pipeline runs end-to-end on a single video in under

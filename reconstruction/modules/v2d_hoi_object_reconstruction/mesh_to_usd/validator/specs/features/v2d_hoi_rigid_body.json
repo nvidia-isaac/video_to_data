@@ -1,0 +1,19 @@
+{
+  "id": "V2D_HOI_RIGID_BODY",
+  "version": "1.0.0",
+  "display_name": "V2D HOI Rigid Body",
+  "path": "",
+  "requirements": [
+    "RB.COL.001",
+    "RB.COL.002",
+    "RB.COL.003",
+    "RB.COL.004",
+    "RB.001",
+    "RB.003",
+    "RB.005",
+    "RB.006",
+    "RB.007",
+    "RB.009",
+    "RB.010"
+  ]
+}

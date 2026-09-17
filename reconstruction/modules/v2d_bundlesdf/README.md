@@ -20,7 +20,7 @@ output_path/
 ├── left/               # RGB images
 ├── depth/              # depth maps (one per keyframe)
 ├── masks/              # object masks (one per keyframe)
-└── calibration.json    # camera intrinsics (optional)
+└── calibration.json    # required camera intrinsics and stereo baseline
 ```
 
 ### Custom input directories
@@ -52,6 +52,13 @@ python modules/v2d_bundlesdf/docker/run_reconstruct.py \
 When custom paths are provided, symlinks are created inside `output_path` pointing
 to those locations so BundleSDF can find them without copying data.
 
+Calibration is required by default. BundleSDF first checks
+`<output_path>/calibration.json`, then `<output_path>/../calibration.json` for
+the prepared-job layout. The JSON must contain `fx`, `fy`, `cx`, `cy`, `width`,
+`height`, and `baseline`; its declared resolution must match the RGB images.
+Use `--allow-default-hawk-intrinsics` only for a deliberate 1920x1200 Hawk run
+that has no dataset calibration.
+
 ### Other flags
 
 | Flag | Description |
@@ -60,6 +67,7 @@ to those locations so BundleSDF can find them without copying data.
 | `--bbox_str` | Bounding box `x1,y1,x2,y2` (informational only) |
 | `--skip-texture` | Skip texture baking; produce untextured mesh only |
 | `--skip-sdf` | Skip SDF training; reuse existing `model_latest.pth` |
+| `--allow-default-hawk-intrinsics` | Explicitly permit the embedded 1920x1200 Hawk calibration when the dataset file is absent |
 | `--gpu_id` | GPU index to use |
 | `--dev` | Mount local modules for development |
 

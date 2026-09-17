@@ -30,13 +30,12 @@ from scipy.spatial.transform import Rotation as _Rotation
 from v2d.common.datatypes import CameraIntrinsics, DepthImage, Mask, Transform3d
 from v2d.common.datatypes import Image as V2dImage
 from v2d.mesh.lib.mesh import Mesh
+from v2d.foundation_pose.lib.backends import DEFAULT_BACKEND, create_predictor_backend
 
 _FP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'FoundationPose')
 sys.path.insert(0, _FP_DIR)
 
 from estimater import FoundationPose  # noqa: E402
-from learning.training.predict_score import ScorePredictor  # noqa: E402
-from learning.training.predict_pose_refine import PoseRefinePredictor  # noqa: E402
 from Utils import nvdiffrast_render, erode_depth, bilateral_filter_depth, depth2xyzmap_batch  # noqa: E402
 import nvdiffrast.torch as dr  # noqa: E402
 
@@ -116,12 +115,16 @@ def _weighted_mean_se3(particles: np.ndarray, weights: np.ndarray) -> np.ndarray
 class FoundationPoseTracker:
     """Wraps FoundationPose for stateful 6-DoF object tracking."""
 
-    def __init__(self, mesh: Mesh, weights_dir: str) -> None:
-        if weights_dir:
-            os.environ.setdefault("FOUNDATIONPOSE_WEIGHTS_DIR", weights_dir)
-
-        self._scorer = ScorePredictor()
-        self._refiner = PoseRefinePredictor()
+    def __init__(
+        self,
+        mesh: Mesh,
+        weights_dir: str,
+        backend: str = DEFAULT_BACKEND,
+    ) -> None:
+        predictor_backend = create_predictor_backend(backend, weights_dir)
+        self._scorer = predictor_backend.scorer
+        self._refiner = predictor_backend.refiner
+        self.runtime_info = predictor_backend.runtime_info
         self._glctx = dr.RasterizeCudaContext()
         self._original_mesh = mesh
         self._mesh = mesh

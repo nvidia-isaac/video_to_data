@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Source this file to set CSS (PDX) credentials for sync_css.py.
+#
+# Usage:
+#   source ~/secrets/setup_css_env.sh
+#
+# This repo copy is a template. Keep real credentials in a private copy outside
+# git, such as ~/secrets/setup_css_env.sh.
+
+export CSS_ENDPOINT_URL="https://pdx.s8k.io"
+export CSS_ACCESS_KEY="v2p:AUTH_team-isaac"
+export CSS_SECRET_KEY="REPLACE_ME"
+
+if [ "${CSS_ACCESS_KEY}" = "REPLACE_ME" ] || [ "${CSS_SECRET_KEY}" = "REPLACE_ME" ]; then
+  echo "ERROR: CSS credentials have not been configured in this script."
+  echo ""
+  echo "To configure credentials:"
+  echo "  1. Go to the CSS portal: https://pdx.s8k.io"
+  echo "  2. Generate or retrieve your access key and secret key"
+  echo "  3. Create a private copy at ~/secrets/setup_css_env.sh"
+  echo "  4. Replace CSS_ACCESS_KEY and CSS_SECRET_KEY in the private copy"
+  return 1 2>/dev/null || exit 1
+fi
+
+echo "CSS environment configured."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mesh-to-USD Doctor"
+  short_description: "Diagnose USD generation and drop-test failures"
+  default_prompt: "Use $mesh-to-usd-doctor to diagnose the first failure in my mesh-to-USD or drop-test job."

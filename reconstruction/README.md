@@ -52,7 +52,7 @@ run_video_to_depth(
 | **v2d_sam3d** | `run_image_to_mesh`, `run_render_debug_image`, `run_download_weights`, `run_shell` | 3D mesh from image+mask | `python -m v2d.sam3d.docker.build` | `python -m v2d.sam3d.docker.run_<tool> --args` |
 | **v2d_grounding_dino** | `run_image_to_object_bboxes`, `run_image_list_to_object_bboxes`, `run_video_to_object_bboxes`, `run_mv_image_list_to_object_bboxes`, `run_download_weights`, `run_shell` | Text-guided object detection (single + multi-view) | `python -m v2d.grounding_dino.docker.build` | `python -m v2d.grounding_dino.docker.run_<tool> --args` |
 | **v2d_foundation_stereo** | `run_image_to_depth`, `run_image_list_to_depth`, `run_mv_image_list_to_depth`, `run_export_engine`, `run_download_weights`, `run_shell` | Stereo depth (single + multi-view) | `python -m v2d.foundation_stereo.docker.build` | `python -m v2d.foundation_stereo.docker.run_<tool> --args` |
-| **v2d_foundation_pose** | `run_video_to_poses`, `run_mv_videos_to_poses`, `run_render_overlay`, `run_estimate_scale`, `run_align_mesh_scale`, `run_transform_mesh`, `run_simplify_mesh`, `run_download_weights`, `run_shell` | 6D pose tracking (single + multi-view), mesh ops | `python -m v2d.foundation_pose.docker.build` | `python -m v2d.foundation_pose.docker.run_<tool> --args` |
+| **v2d_foundation_pose** | `run_video_to_poses`, `run_mv_videos_to_poses`, `run_render_overlay`, `run_estimate_scale`, `run_align_mesh_scale`, `run_transform_mesh`, `run_simplify_mesh`, `run_download_weights`, `run_export_engines`, `run_shell` | 6D pose tracking (single + multi-view), mesh ops | `python -m v2d.foundation_pose.docker.build` | `python -m v2d.foundation_pose.docker.run_<tool> --args` |
 | **v2d_hoi_object_reconstruction** | `run_reconstruction`, `run_fp_tracking` | End-to-end textured mesh reconstruction from hand-object interaction video (two-stage scan) | `python v2d_hoi_object_reconstruction/docker/build.py` | `python v2d_hoi_object_reconstruction/docker/run_reconstruction.py --args` |
 | **v2d_ego_hand_reconstruction** | `run_reconstruction` | 4D hand reconstruction from egocentric video (ViPE + Dyn-HaMR) | `python v2d_ego_hand_reconstruction/docker/build.py` | `python v2d_ego_hand_reconstruction/docker/run_reconstruction.py --args` |
 | **v2d_cusfm** | `run_image_list_to_sfm` | Structure-from-motion: stereo image list → camera poses | `python v2d_cusfm/docker/build.py` | `python v2d_cusfm/docker/run_image_list_to_sfm.py --input_dir ... --output_dir ...` |
@@ -308,19 +308,43 @@ Stereo depth estimation from left/right image pairs.
 
 | Tool | Function | Description |
 |------|----------|-------------|
-| `run_video_to_poses` | `run_video_to_poses(video_path, depth_folder, masks_folder, camera_intrinsics_path, mesh_path, poses_dir, weights_dir, ...)` | Track object pose per frame using mesh, depth, masks |
-| `run_mv_videos_to_poses` | `run_mv_videos_to_poses(camera_params_path, depth_dir, mask_dir, mesh_path, weights_dir, output_dir, image_dir=None, video_dir=None, config_path=..., debug=-1, dev=False)` | Multi-view 6-DoF tracking with shared-weight FoundationPose estimators and SE(3) pose fusion |
+| `run_video_to_poses` | `run_video_to_poses(video_path, depth_folder, masks_folder, camera_intrinsics_path, mesh_path, poses_dir, weights_dir, backend="nvidia_tensorrt", ...)` | Track object pose per frame using mesh, depth, masks |
+| `run_mv_videos_to_poses` | `run_mv_videos_to_poses(camera_params_path, depth_dir, mask_dir, mesh_path, weights_dir, output_dir, backend="nvidia_tensorrt", image_dir=None, video_dir=None, config_path=..., debug=-1, dev=False)` | Multi-view 6-DoF tracking with one shared scorer/refiner runtime and SE(3) pose fusion |
 | `run_render_overlay` | `run_render_overlay(video_path, poses_dir, mesh_path, camera_intrinsics_path, output_dir, dev=False)` | Render mesh overlay on video given poses |
 | `run_estimate_scale` | `run_estimate_scale(mesh_path, rgb_path, depth_path, mask_path, intrinsics_path, transform_path, output_transform_path, weights_dir, ...)` | Estimate mesh scale from RGBD alignment |
 | `run_align_mesh_scale` | `run_align_mesh_scale(mesh_path, depth_path, mask_path, intrinsics_path, transform_path, output_transform_path, dev=False)` | Align mesh scale to depth map |
 | `run_transform_mesh` | `run_transform_mesh(input_mesh, output_mesh, transform_path, dev=False)` | Apply transform matrix to mesh |
 | `run_simplify_mesh` | `run_simplify_mesh(input_mesh, output_mesh, faces=None, factor=None, dev=False)` | Simplify mesh (reduce polygon count) |
-| `run_download_weights` | `run_download(output_dir, dev=False)` | Download FoundationPose model weights |
+| `run_download_weights` | `run_download(output_dir, backend="nvidia_tensorrt", accept_nvidia_model_eula=True, dev=False)` | Download the pinned NVIDIA NGC ONNX models or explicit NVLabs fallback checkpoints |
+| `run_export_engines` | `run_export_engines(weights_dir, force=False, dev=False)` | Prebuild versioned scorer/refiner TensorRT engines on the current GPU |
 | `run_shell` | `run_shell(dev=False)` | Interactive bash shell in container |
 
 **Build:** `python -m v2d.foundation_pose.docker.build`
 **Execute (single):** `python -m v2d.foundation_pose.docker.run_video_to_poses --video_path ... --depth_folder ... --masks_folder ... --camera_intrinsics_path ... --mesh_path ... --poses_dir ... --weights_dir ...`
 **Execute (multi-view):** `python -m v2d.foundation_pose.docker.run_mv_videos_to_poses --camera_params_path ... --image_dir ... --depth_dir ... --mask_dir ... --mesh_path ... --weights_dir ... --output_dir ...`
+
+The production default is `nvidia_tensorrt`, using the commercial NVIDIA TAO
+FoundationPose release `deployable_v1.0` in FP32. Provision and prebuild the
+cache after reviewing the NVIDIA Open Model License on NGC:
+
+```bash
+python -m v2d.foundation_pose.docker.run_download_weights \
+  --output_dir data/weights/foundation_pose \
+  --backend nvidia_tensorrt \
+  --accept_nvidia_model_eula
+
+python -m v2d.foundation_pose.docker.run_export_engines \
+  --weights_dir data/weights/foundation_pose
+```
+
+Engine names encode the ONNX hash, TensorRT version, GPU compute capability,
+and FP32 precision. Matching prebuilt engines are reused. If none is present,
+the runtime builds one atomically beside the models, or under the writable
+directory selected by `FOUNDATIONPOSE_ENGINE_CACHE_DIR`. It never silently
+falls back to the old checkpoint. Use `--backend nvlabs_pytorch` explicitly
+for comparisons or debugging. Multi-view output includes
+`foundation_pose_runtime.json` with the selected backend and model/runtime
+identity; pose files and downstream schemas are unchanged.
 
 ---
 
@@ -559,11 +583,17 @@ Multi-view stereo rectification, rescaling, video encoding, and HOI metadata pro
 
 | Tool | Function | Description |
 |------|----------|-------------|
-| `run_mv_preprocess` | `run_mv_preprocess(image_dir, output_dir, camera_params_path=None, extrinsics_camera_params_path=None, hoi_metadata_path=None, config_path=..., dev=False)` | Multi-view preprocessing for all stereo pairs in a rig |
+| `run_mv_preprocess` | `run_mv_preprocess(image_dir, output_dir, camera_params_path=None, calibration_camera_params_path=None, hoi_metadata_path=None, config_path=..., dev=False)` | Multi-view preprocessing for all stereo pairs in a rig; imports calibration `K`/`P` before rectification and `T` before saving |
 | `run_preprocess_stereo` | `run_preprocess_stereo(left_image_dir, right_image_dir, left_output_image_dir, right_output_image_dir, camera_params_path, left_cam_id, right_cam_id, ...)` | Single stereo pair rectification |
 
 **Build:** `python -m v2d.mv.preprocess.docker.build`
 **Execute:** `python -m v2d.mv.preprocess.docker.run_mv_preprocess --image_dir ... --output_dir ... --camera_params_path ...`
+
+`calibration_camera_params_path` should point to the calibrated EDEX. The
+deprecated `extrinsics_camera_params_path` Python, YAML, CLI, and Docker name
+remains accepted as an alias. For the current stereo-4 dataset,
+preprocessing's `correction_focal` mapping applies the legacy focal correction
+to cameras 6 and 7 and persists it in the processed camera parameters.
 
 ---
 
@@ -573,10 +603,21 @@ Chessboard-based extrinsic camera calibration. Detects chessboard corners across
 
 | Tool | Function | Description |
 |------|----------|-------------|
-| `run_calibrate_extrinsics` | `run_calibrate_extrinsics(camera_params_path, image_dir, output_dir, config_path=..., start=None, stop=None, step=None, num_workers=None, dev=False)` | Calibrate multi-camera extrinsics from chessboard images |
+| `run_calibrate_extrinsics` | `run_calibrate_extrinsics(camera_params_path, rgb_dir, output_dir, config_path=..., start=None, stop=None, step=None, num_workers=None, dev=False, use_marker_chessboard=False, calibration_setup=None)` | Calibrate multi-camera extrinsics from chessboard images; optionally select a packaged calibration setup or marker-aware SB detection for a contrasting three-dot asymmetric pattern |
+
+Marker mode requires all three contrasting dots and the complete corner grid;
+detections without the unique origin marker are rejected without a legacy
+fallback. The library and Docker wrapper default to legacy detection, while the
+checked-in MV calibration OSMO workflow enables marker mode.
+
+Calibration supports an optional `correction_focal` mapping from camera ID to a
+positive focal scale. When configured, corrections are applied before PnP and
+bundle adjustment and persisted in the output camera parameters. The packaged
+stereo-4 setups currently leave this mapping empty; focal correction remains a
+preprocessing-stage operation until calibration conventions are standardized.
 
 **Build:** `python -m v2d.mv.calibration.docker.build`
-**Execute:** `python -m v2d.mv.calibration.docker.run_calibrate_extrinsics --camera_params_path ... --image_dir ... --output_dir ...`
+**Execute:** `python -m v2d.mv.calibration.docker.run_calibrate_extrinsics --camera_params_path ... --rgb_dir ... --output_dir ... [--calibration_setup stereo4_6x10_100mm_marker] [--use_marker_chessboard]`
 
 ---
 
@@ -600,7 +641,12 @@ Post-processing visualization and evaluation for multi-view reconstruction resul
 
 ### run_mv_hoi_reconstruction.py
 
-Full multi-view reconstruction pipeline. After shared preprocessing and depth estimation, two independent branches run for the object and human, then join for final visualization:
+Local Docker-orchestrated multi-view reconstruction for one rosbag sequence.
+The supported object path uses the prompt in `hoi_metadata.yaml` with Grounding
+DINO, followed by SAM2 and FoundationPose. The human path uses Detectron2, SAM2,
+and SAM3D Body. Post-processing produces SOMA-X parameters, ground-plane and
+fused-point-cloud outputs, Chamfer and silhouette diagnostics, overlay videos,
+and Wis3D data.
 
 ```
                                      ┌─ object detection → object masks → pose tracking ───┐
@@ -608,39 +654,31 @@ rosbag → preprocess → stereo depth ──┤                                
                                      └─ human detection  → human masks  → body estimation ─┘
 ```
 
-**Shared stages:**
-1. **Rosbag extraction** — extract images + intrinsics to EDEX format
-2. **Preprocessing** — stereo rectification, rescaling, video encoding, HOI bbox remap, prompt extraction
-3. **Stereo depth** — Foundation Stereo depth estimation for all stereo pairs
+This local runner stops after reconstruction diagnostics. It does not execute
+production accuracy gating, HITL/human QC, interaction trimming, or final
+dataset export. See the combined
+[local MV calibration and HOI reconstruction runbook](docs/mv_hoi_local_pipeline.md)
+for data and capture guidance, camera and compute expectations, setup,
+prerequisite calibration, the complete reconstruction input contract, output
+validation, rerun behavior, and troubleshooting.
 
-**Object branch:**
-4. **Object detection** — Grounding DINO text-prompted bounding boxes (reads `prompt.txt`)
-5. **Object segmentation** — SAM2 masks from grounding dino detections
-6. **Object pose tracking** — Multi-view FoundationPose 6-DoF tracking
-
-**Human branch:**
-7. **Human detection** — Detectron2 person bbox tracking
-8. **Human segmentation** — SAM2 masks from detectron2 tracks
-9. **Body estimation** — Multi-view MHR body parameter optimization
-
-**Post-processing:**
-10. **Chamfer evaluation** — Mesh vs. depth point cloud distance (object + human)
-11. **HOI overlay** — Render object + human mesh overlay videos
-12. **Wis3D export** — Interactive 3D visualization
-
-**Usage:**
+Basic invocation:
 
 ```bash
 python -m v2d.pipelines.run_mv_hoi_reconstruction \
     --rosbag_path /data/rosbags/2026-03-28_session1 \
     --output_dir /data/datasets/2026-03-28_session1 \
-    --extrinsics_camera_params_path /data/datasets/2026-03-28_calibration/extrinsics/edex \
+    --calibration_camera_params_path /data/datasets/2026-03-28_calibration/extrinsics/edex \
     --obj_mesh_path /data/meshes/object.glb
 ```
 
 ### run_mv_calibration.py
 
-Calibration pipeline for datasets containing chessboard images. Produces an EDEX file with calibrated camera extrinsics.
+Calibration pipeline for datasets containing chessboard images. It uses the
+same marker-aware 100 mm calibration setup as the production workflow by
+default and produces an EDEX file with calibrated camera extrinsics. Rosbag
+extraction and calibration run in local Docker containers; neither stage
+requires a GPU.
 
 **Stages:**
 1. **Rosbag extraction** — extract calibration images + intrinsics
@@ -654,7 +692,19 @@ python -m v2d.pipelines.run_mv_calibration \
     --output_dir /data/datasets/2026-03-28_calibration
 ```
 
-The output extrinsics path (`<output_dir>/extrinsics/edex`) is passed as `--extrinsics_camera_params_path` to `run_mv_hoi_reconstruction.py`.
+Select another packaged board definition when needed, for example:
+
+```bash
+python -m v2d.pipelines.run_mv_calibration \
+    --rosbag_path /data/rosbags/2026-03-28_calibration \
+    --output_dir /data/datasets/2026-03-28_calibration \
+    --calibration_setup stereo4_6x10_22p58mm_marker
+```
+
+The calibration output (`<output_dir>/extrinsics/edex`) is passed as
+`--calibration_camera_params_path` to `run_mv_hoi_reconstruction.py`. The old
+`--extrinsics_camera_params_path` spelling remains a deprecated alias outside
+OSMO workflows.
 
 ---
 

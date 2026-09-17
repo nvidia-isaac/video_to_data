@@ -91,7 +91,7 @@ git lfs version && pre-commit --version
 Pass: `nvidia-smi` prints your GPU inside the container, and both tools report a version.
 
 **If this fails:** GPU not visible → NVIDIA Container Toolkit isn't configured (see README prereqs).
-Image pull denied → build locally or configure an accessible `V2D_IMAGE_REGISTRY`. Then hand off to
+`nvcr.io` pull denied → request access in the `#swngc-help` Slack channel. Then hand off to
 `robotic_grounding_doctor` if still stuck.
 
 Confirm: "Prereqs are in place. Ready to build the images?"
@@ -112,7 +112,7 @@ docker images | grep -E 'robotic-grounding|task_library_loader'
 
 Pass: both images are listed.
 
-**If this fails:** image pull denied → build locally or configure an accessible `V2D_IMAGE_REGISTRY`. Disk
+**If this fails:** `nvcr.io/nvstaging/isaac-amr` pull denied → Slack `#swngc-help` for access. Disk
 space → `docker system df`. Then `robotic_grounding_doctor`.
 
 Confirm: "Both images built. Next we get MANO + your dataset in place — want the download guide?"

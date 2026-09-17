@@ -10,8 +10,10 @@ depth_dir: ???
 mask_dir: ???
 mesh_path: ???
 symmetry_path: null  # optional; defaults to <mesh_dir>/output_symmetry.json if present
+continuous_symmetry_step_deg: 10.0
 weights_dir: ???
 output_dir: ???
+backend: nvidia_tensorrt
 
 rgb_path_template: "${rgb_dir}/{cam_name}"
 depth_path_template: "${depth_dir}/{cam_name}/depth"
@@ -20,11 +22,49 @@ pose_path: "${output_dir}/poses.npy"
 
 scale: 0.5
 depth_direction_trust: 0.5
-visible_ratio_cutoff_high: 0.3
-visible_ratio_cutoff_low: 0.3
+visible_ratio_cutoff_high: 0.5
+visible_ratio_cutoff_low: 0.2
 precision_high: 1.0
-precision_low: 1.0
+precision_low: 0.1
 est_refine_iter: 5
 track_refine_iter: 2
+# Process the half-open source-frame slice [frame_start, frame_end_exclusive).
+frame_start: 0
+frame_end_exclusive: null
+clamp_frame_end_exclusive: false
+smooth_across_recovery: false
+
+recovery:
+  enabled: true
+  refine_iter: 5
+  min_views: 2
+  min_valid_depth_pixels: 25
+  visible_ratio_cutoff: 0.3
+  attempt_stride: 1
+  under_supported:
+    enabled: true
+    mask_pose_iou_cutoff: 0.05
+    mask_explained_ratio_cutoff: 0.10
+
+repair:
+  enabled: true
+  arbitration:
+    max_step_translation_m: 0.15
+    max_step_rotation_deg: 45
+    visible_ratio_tolerance: 0.10
+  recovery_trigger:
+    enabled: true
+    max_window: 30
+    anchor_stable_frames: 5
+  snap_trigger:
+    enabled: true
+    max_span: 150
+    anchor_stable_frames: 8
+    outlier_window: 15
+    rotation_mad_scale: 5.0
+    translation_mad_scale: 5.0
+    min_rotation_deg: 10
+    max_translation_m: 0.08
+    max_burst_frames: 3
 
 debug: 2

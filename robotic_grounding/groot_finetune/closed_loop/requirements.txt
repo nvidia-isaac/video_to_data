@@ -1,0 +1,7 @@
+# Container-side deps for the closed-loop GR00T inference client (groot_finetune/closed_loop).
+# The IsaacLab container already ships numpy + msgpack; pyzmq + msgpack_numpy are the only
+# additions (small standard packages, not a repo dependency). For a reproducible release,
+# these are also added to the container image build (workflow/Dockerfile / setup_deps.sh).
+pyzmq
+msgpack
+msgpack-numpy

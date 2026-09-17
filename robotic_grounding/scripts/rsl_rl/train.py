@@ -92,6 +92,23 @@ parser.add_argument(
     help="Motion file to load.",
 )
 parser.add_argument(
+    "--motion_dir",
+    type=str,
+    default=None,
+    help=(
+        "Directory of motion sequences to sample from (a <dataset>_processed "
+        "folder of sequence_id=*/robot_name=* partitions). Each env samples one "
+        "sequence per reset. Only for free-space whole-body envs. Mutually "
+        "exclusive with --motion_file."
+    ),
+)
+parser.add_argument(
+    "--output_root",
+    type=str,
+    default=None,
+    help="Optional writable root for RSL-RL logs and checkpoints.",
+)
+parser.add_argument(
     "--wandb_id",
     type=str,
     default=None,
@@ -182,7 +199,11 @@ from isaaclab_rl.rsl_rl import RslRlBaseRunnerCfg, RslRlVecEnvWrapper
 
 import isaaclab_tasks  # noqa: F401
 import robotic_grounding.tasks  # noqa: F401
-from robotic_grounding.tasks.scene_utils import SceneConfig, apply_scene_config
+from robotic_grounding.tasks.scene_utils import (
+    SceneConfig,
+    apply_scene_config,
+    discover_motion_files,
+)
 from robotic_grounding.tasks.v2d_whole_body.utils import WandbVideoUploader
 
 from isaaclab_tasks.utils import get_checkpoint_path
@@ -212,14 +233,23 @@ def main(
     )
 
     scene_config = None
-    # Apply scene config: motion_file (from Hydra override) takes priority,
-    # then --scene_config YAML, then the env_cfg default.
-    if args_cli.motion_file is not None:
+    # Apply scene config: --motion_file (single) or --motion_dir (bank) takes
+    # priority, then --scene_config YAML, then the env_cfg default.
+    if args_cli.motion_file is not None and args_cli.motion_dir is not None:
+        raise ValueError("Pass only one of --motion_file / --motion_dir.")
+    motion_files = None
+    if args_cli.motion_dir is not None:
+        motion_files = discover_motion_files(args_cli.motion_dir)
+        env_cfg.motion_file = motion_files[0]
+    elif args_cli.motion_file is not None:
         env_cfg.motion_file = args_cli.motion_file
-    if hasattr(env_cfg, "motion_file") and env_cfg.motion_file is not None:
+    if getattr(env_cfg, "motion_file", None) is not None:
         scene_config = SceneConfig.from_motion_file(env_cfg.motion_file)
         apply_scene_config(
-            env_cfg, scene_config, use_primitive_urdfs=args_cli.use_primitive_urdfs
+            env_cfg,
+            scene_config,
+            use_primitive_urdfs=args_cli.use_primitive_urdfs,
+            motion_files=motion_files,
         )
     elif args_cli.scene_config is not None:
         env_cfg.scene_config_path = args_cli.scene_config
@@ -263,7 +293,12 @@ def main(
         agent_cfg.seed = seed
 
     # specify directory for logging experiments
-    log_root_path = os.path.join("logs", "rsl_rl", agent_cfg.experiment_name)
+    if args_cli.output_root is None:
+        log_root_path = os.path.join("logs", "rsl_rl", agent_cfg.experiment_name)
+    else:
+        log_root_path = os.path.join(
+            args_cli.output_root, "logs", "rsl_rl", agent_cfg.experiment_name
+        )
     log_root_path = os.path.abspath(log_root_path)
     print(f"[INFO] Logging experiment in directory: {log_root_path}")
     # specify directory for logging runs: {time-stamp}_{run_name}

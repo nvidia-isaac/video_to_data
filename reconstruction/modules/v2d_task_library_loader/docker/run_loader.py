@@ -18,7 +18,12 @@ def run_loader(
     output_dir: str,
     mano_model_dir: str,
     human_motion_data_dir: str,
+    dataset_root: str | None = None,
     object_assets_dir: str | None = None,
+    object_name: str | None = None,
+    sequence_name: str | None = None,
+    result_subpath: str | None = None,
+    no_ground_align: bool = False,
     device: str = "cuda:0",
     save: bool = True,
     sequence_pattern: str | None = None,
@@ -40,7 +45,24 @@ def run_loader(
         "max_sequences": max_sequences,
         "shard_id": shard_id,
         "num_shards": num_shards,
+        "object_name": object_name,
+        "sequence_name": sequence_name,
+        "result_subpath": result_subpath,
+        "no_ground_align": no_ground_align,
     }
+    if dataset_root is not None:
+        human_motion_root = os.path.abspath(human_motion_data_dir)
+        absolute_dataset_root = os.path.abspath(dataset_root)
+        relative_dataset_root = os.path.relpath(absolute_dataset_root, human_motion_root)
+        if relative_dataset_root == os.pardir or relative_dataset_root.startswith(
+            os.pardir + os.sep
+        ):
+            extra_volumes.append(f"{absolute_dataset_root}:/data/dataset_root:ro")
+            extra_args["dataset_root"] = "/data/dataset_root"
+        else:
+            extra_args["dataset_root"] = os.path.join(
+                "/data/human_motion_data", relative_dataset_root
+            )
 
     # Object assets (rigid URDFs + meshes). Mount the root containing
     # `urdfs/<dataset>/` and `meshes/<dataset>/` as ONE volume so the URDFs'
@@ -77,6 +99,19 @@ if __name__ == "__main__":
     parser.add_argument("--mano_model_dir", required=True)
     parser.add_argument("--human_motion_data_dir", required=True)
     parser.add_argument(
+        "--dataset_root",
+        default=None,
+        help="Raw dataset or sequence root; mounted read-only when it is external.",
+    )
+    parser.add_argument("--object_name", default=None)
+    parser.add_argument("--sequence_name", default=None)
+    parser.add_argument("--result_subpath", default=None)
+    parser.add_argument(
+        "--no_ground_align",
+        action="store_true",
+        help="Preserve an already gravity-aligned bundle's world rotation.",
+    )
+    parser.add_argument(
         "--object_assets_dir",
         default=None,
         help="Root holding urdfs/<dataset>/ + meshes/<dataset>/ (mounted as one "
@@ -96,7 +131,12 @@ if __name__ == "__main__":
         output_dir=args.output_dir,
         mano_model_dir=args.mano_model_dir,
         human_motion_data_dir=args.human_motion_data_dir,
+        dataset_root=args.dataset_root,
         object_assets_dir=args.object_assets_dir,
+        object_name=args.object_name,
+        sequence_name=args.sequence_name,
+        result_subpath=args.result_subpath,
+        no_ground_align=args.no_ground_align,
         device=args.device,
         save=args.save,
         sequence_pattern=args.sequence_pattern,

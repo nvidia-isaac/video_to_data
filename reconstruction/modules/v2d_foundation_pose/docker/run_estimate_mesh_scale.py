@@ -13,6 +13,7 @@ def run_estimate_mesh_scale(
     intrinsics_path: str,
     weights_dir: str,
     scale_path: str,
+    backend: str = "nvidia_tensorrt",
     rescaled_mesh_path: str = None,
     pose_path: str = None,
     lo: float = 0.5,
@@ -46,6 +47,7 @@ def run_estimate_mesh_scale(
         inputs=inputs,
         outputs=outputs,
         extra_args={
+            "backend": backend,
             "lo": lo,
             "hi": hi,
             "n_samples": n_samples,
@@ -76,6 +78,7 @@ if __name__ == "__main__":
     parser.add_argument("--mask_path", required=True)
     parser.add_argument("--intrinsics_path", required=True)
     parser.add_argument("--weights_dir", required=True)
+    parser.add_argument("--backend", choices=("nvidia_tensorrt", "nvlabs_pytorch"), default="nvidia_tensorrt")
     parser.add_argument("--scale_path", required=True)
     parser.add_argument("--rescaled_mesh_path", default=None)
     parser.add_argument("--pose_path", default=None)
@@ -97,6 +100,7 @@ if __name__ == "__main__":
         args.intrinsics_path,
         args.weights_dir,
         args.scale_path,
+        backend=args.backend,
         rescaled_mesh_path=args.rescaled_mesh_path,
         pose_path=args.pose_path,
         lo=args.lo,

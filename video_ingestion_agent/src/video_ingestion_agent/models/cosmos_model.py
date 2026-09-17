@@ -43,13 +43,16 @@ class CosmosReasonModel:
         # Load model and processor
         logger.info(f"Loading Cosmos Reason 2 model: {model_name}")
 
+        # Explicit placement on `device` instead of device_map="auto". The auto
+        # path is the only thing in this package that needed `accelerate`, which
+        # has an unfixed advisory (CVE-2026-69112); it also sharded one model
+        # across every visible GPU, which the vLLM backend covers for multi-GPU.
         self.model = transformers.Qwen3VLForConditionalGeneration.from_pretrained(
             model_name,
             torch_dtype=torch.bfloat16,
-            device_map="auto",
             attn_implementation="sdpa",
             cache_dir=cache_dir,
-        )
+        ).to(self.device)
         self.processor = transformers.Qwen3VLProcessor.from_pretrained(
             model_name, cache_dir=cache_dir
         )

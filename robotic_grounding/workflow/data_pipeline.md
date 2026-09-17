@@ -33,7 +33,7 @@ ManoSharpaData Parquet (+ robot joint trajectories)
     v  (All stages' outputs written to the swift output_url prefix)
 swift://…/human_motion_data/{dataset}/{dataset}_processed/ (+ _urdfs, reconstructed_stage, _html, _videos)
     |
-    v  Stage 6: object-storage download
+    v  Stage 6: sync_css_data.py / aws s3 sync
 Local assets/human_motion_data/{dataset}/
     |
     v  Stage 7: RL Training (Isaac Sim)
@@ -46,7 +46,7 @@ code, contained in its own image, and writes a `{dataset}_loaded` Parquet to a
 swift prefix. Stages 1.5–5 are the robotic_grounding `retarget.yaml` workflow,
 which **consumes** that `{dataset}_loaded` data (it is manotorch-free); any
 subset can run via `--set stages=<stage>`. All `retarget.yaml` artifacts from one
-run are written to the configured object-storage `output_url` prefix.
+run are written to the swift `output_url` prefix (see [data_storage.md](data_storage.md)).
 
 ## Stage 1: Load
 
@@ -110,18 +110,6 @@ python -m v2d.task_library_loader.docker.run_loader \
 Omit `--object_assets_dir` for h2o/grab/dexycb (meshes come from the raw dataset).
 
 Or submit `reconstruction/workflows/task_library_load/osmo/load.yaml` on OSMO.
-Set the image registry and every input/output URL explicitly:
-
-```bash
-osmo workflow submit reconstruction/workflows/task_library_load/osmo/load.yaml \
-  --set image_registry="$V2D_IMAGE_REGISTRY" \
-  --set dataset=<dataset> \
-  --set raw_url=<object-storage-url> \
-  --set object_assets_url=<object-storage-url> \
-  --set mano_url=<object-storage-url> \
-  --set loaded_output_url=<object-storage-url> \
-  --pool <your-pool>
-```
 
 ## Stage 1.5: Generate Rigid URDFs
 
@@ -259,19 +247,27 @@ version strictly slower in practice.
 
 ## Stage 6: Sync Results Locally
 
-**Purpose:** Pull the workflow's object-storage outputs to the local repo so training
+**Purpose:** Pull the workflow's swift outputs to the local repo so training
 and local visualization scripts can read them.
 
-Use your storage provider's client. For S3 or an S3-compatible endpoint:
+**Command:** `sync_css_data.py` / `aws s3 sync` — full details and
+component-filter examples are in
+[data_storage.md](data_storage.md#pulling-retarget-outputs-locally).
+
+Quick version:
 
 ```bash
-aws s3 sync \
-  s3://<bucket>/<prefix>/<dataset>/<dataset>_processed/ \
-  source/robotic_grounding/robotic_grounding/assets/human_motion_data/<dataset>/<dataset>_processed/
-```
+source scripts/setup_css_env.sh
 
-For an S3-compatible service, also pass its `--endpoint-url` and `--region`
-and configure the credentials required by that service.
+# Pull the pieces training needs (processed / loaded / support_surfaces)
+python scripts/sync_css_data.py --dataset <dataset> --component processed
+
+# Other components (urdfs/html/videos) via the aws CLI against the CSS endpoint
+aws s3 sync \
+  s3://datasets/v2d/human_motion_data/<dataset>/<dataset>_urdfs/ \
+  source/robotic_grounding/robotic_grounding/assets/human_motion_data/<dataset>/<dataset>_urdfs/ \
+  --endpoint-url ${CSS_ENDPOINT_URL} --region us-east-1
+```
 
 ## Stage 7: RL Training
 
@@ -333,25 +329,19 @@ python scripts/rsl_rl/train.py \
 
 ## OSMO Workflow
 
-Stages 1.5 through 5 are submitted as a single OSMO workflow (`workflow/retarget.yaml`) running on the GPU cluster (Stage 1 Load runs separately in `reconstruction`). All artifacts from one run are written to the configured `output_url`. See [README.md](README.md) for submission options.
+Stages 1.5 through 5 are submitted as a single OSMO workflow (`workflow/retarget.yaml`) running on the GPU cluster (Stage 1 Load runs separately in `reconstruction`). All artifacts from one run are written to the swift `output_url` prefix (`…/human_motion_data/{dataset}/`). See [README.md](README.md) for submission options and [data_storage.md](data_storage.md) for the output layout.
 
 ```bash
 python scripts/run_osmo.py \
   --experiment-name retarget-<dataset> \
-  --image <registry>/robotic-grounding:<tag> \
-  --pool <your-pool> \
   --workflow-yaml workflow/retarget.yaml \
-  --set dataset=<name> --set input_url=<object-storage-url> \
-  --set output_url=<object-storage-url>
+  --set dataset=<name>
 
 # Run a subset — e.g. skip the expensive video stage
 python scripts/run_osmo.py \
   --experiment-name retarget-<dataset>-fast \
-  --image <registry>/robotic-grounding:<tag> \
-  --pool <your-pool> \
   --workflow-yaml workflow/retarget.yaml \
-  --set dataset=<name> --set stages=process \
-  --set input_url=<object-storage-url> --set output_url=<object-storage-url>
+  --set dataset=<name> --set stages=process
 ```
 
 ## Dataset Inventory

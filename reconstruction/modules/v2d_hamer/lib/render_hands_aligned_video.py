@@ -158,7 +158,7 @@ def _rec_cam_t(rec: dict, use_pre_dz_cam_t: bool) -> np.ndarray:
     """
     if use_pre_dz_cam_t:
         return np.array(rec["diagnostics"]["cam_t_pre_dz"], dtype=np.float64)
-    return np.array(rec["cam_t"], dtype=np.float64)
+    return np.array(rec["camera"]["cam_t"], dtype=np.float64)
 
 
 def _build_hand_mesh(
@@ -288,10 +288,11 @@ def render_hands_aligned_video(
 
     # Real intrinsics from any aligned record (constant across frames in a run).
     first = next(iter(records.values()))[0]
-    fx = float(first["intrinsics"]["fx"])
-    fy = float(first["intrinsics"]["fy"])
-    cx = float(first["intrinsics"]["cx"])
-    cy = float(first["intrinsics"]["cy"])
+    intr = first["camera"]["intrinsics"]
+    fx = float(intr["fx"])
+    fy = float(intr["fy"])
+    cx = float(intr["cx"])
+    cy = float(intr["cy"])
     # Far plane covers the actual cam_t.z range with margin.
     z_max = max(
         _rec_cam_t(rec, use_pre_dz_cam_t)[2]

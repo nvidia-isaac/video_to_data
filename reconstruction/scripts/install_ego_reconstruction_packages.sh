@@ -8,9 +8,12 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
+# Install into the same interpreter environment that runs run_e2e.sh.
+PYTHON_BIN="${PYTHON:-python3}"
 
 echo "Installing host packages for ego reconstruction..."
-pip install Pillow \
+# Ubuntu's SciPy 1.8 binary is incompatible when dependency resolution selects NumPy 2.
+"$PYTHON_BIN" -m pip install Pillow "scipy>=1.13,<2" \
   -e modules/v2d_common \
   -e modules/v2d_docker \
   -e modules/v2d_depth \
@@ -23,13 +26,12 @@ pip install Pillow \
   -e modules/v2d_gsplat_refinement/docker \
   -e modules/v2d_hamer/docker \
   -e modules/v2d_hand_alignment/docker \
+  -e modules/v2d_hawor/docker \
   -e modules/v2d_mediapipe/docker \
   -e modules/v2d_moge/docker \
   -e modules/v2d_sam2/docker \
   -e modules/v2d_sam3d/docker \
   -e modules/v2d_wilor/docker \
   -e modules/v2d_pipelines
-
-python -c 'from v2d.mediapipe.docker.run_image_to_hand_bboxes import run_image_to_hand_bboxes'
 
 echo "Done. Next: build Docker images with ./scripts/build_ego_reconstruction_packages.sh"

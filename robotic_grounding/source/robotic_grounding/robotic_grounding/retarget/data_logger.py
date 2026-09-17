@@ -11,6 +11,7 @@ from urllib.parse import unquote
 
 import pyarrow as pa
 import pyarrow.compute as pc
+import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 
 # Type alias for field specification
@@ -357,6 +358,21 @@ OBJECT_FIELDS: list[FieldSpec] = [
 
 
 #############################################################
+# Vega whole-body fields
+#############################################################
+VEGA_FIELDS: list[FieldSpec] = [
+    ("robot_joint_names", pa.list_(pa.string()), list[str], False),
+    # Time series
+    (
+        "robot_joints",
+        pa.list_(pa.list_(pa.float32(), 58)),
+        list[list[float]],
+        True,
+    ),
+]
+
+
+#############################################################
 # Data logger class factory
 #############################################################
 def create_data_logger_class(
@@ -463,9 +479,47 @@ def create_data_logger_class(
                 if not parquet_filters:
                     parquet_filters = None
 
-            dataset = pq.read_table(
-                root_path, filters=parquet_filters, schema=cls._schema
+            # `pq.read_table` on a directory reads every file in it, and ego_recon keeps
+            # each clip's mesh, texture and URDF beside the partitions -- pyarrow then
+            # tries to parse `<seq>.obj` as parquet and dies. Go through the dataset API
+            # so non-parquet files are skipped; it also tolerates sibling partitions
+            # written in a different schema, which happens once a sequence is retargeted
+            # to more than one embodiment.
+            source = ds.dataset(
+                root_path,
+                format="parquet",
+                partitioning="hive",
+                exclude_invalid_files=True,
             )
+            dataset = source.to_table(
+                filter=(
+                    pq.filters_to_expression(parquet_filters)
+                    if parquet_filters
+                    else None
+                )
+            )
+            # Callers routinely point `root_path` *inside* the partitions (training
+            # passes `.../sequence_id=<seq>/robot_name=<robot>`), so hive discovery
+            # finds no partition keys and the columns are missing from the scan.
+            # `pq.read_table(schema=...)` used to materialize them as nulls; keep that
+            # behaviour, but recover the values from the path when they are there.
+            path_partitions = {
+                part.split("=", 1)[0]: unquote(part.split("=", 1)[1])
+                for part in Path(root_path).parts
+                if "=" in part
+            }
+            for column_name in cls._schema.names:
+                if column_name in dataset.schema.names:
+                    continue
+                schema_field = cls._schema.field(column_name)
+                value = path_partitions.get(column_name)
+                column = (
+                    pa.nulls(dataset.num_rows, schema_field.type)
+                    if value is None
+                    else pa.array([value] * dataset.num_rows, type=schema_field.type)
+                )
+                dataset = dataset.append_column(schema_field, column)
+
             for col, substring in contains_filters:
                 dataset = dataset.filter(pc.match_substring(dataset[col], substring))
 
@@ -590,4 +644,12 @@ ManoSharpaData = create_data_logger_class(
 ManoDex3Data = create_data_logger_class(
     "ManoDex3Data",
     BASE_FIELDS + MANO_FIELDS + DEX3_MANO_FIELDS + OBJECT_FIELDS,
+)
+
+# Vega mobile-manipulator + Sharpa Wave hands: MANO/Sharpa hand data plus the
+# whole-body robot joint trajectory (VEGA_FIELDS). Consumed by the V2D
+# whole-body hand-object tracking command.
+VegaSharpaData = create_data_logger_class(
+    "VegaSharpaData",
+    BASE_FIELDS + MANO_FIELDS + SHARPA_FIELDS + VEGA_FIELDS + OBJECT_FIELDS,
 )

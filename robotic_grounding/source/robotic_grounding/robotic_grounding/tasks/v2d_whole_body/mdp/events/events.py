@@ -11,9 +11,13 @@ from robotic_grounding.tasks.v2d_whole_body.mdp.commands import TrackingCommand
 def reset_robot_to_trajectory_start(
     env: ManagerBasedRLEnv,
     env_ids: torch.Tensor,
+    *,
     command_name: str = "motion",
     asset_cfg: SceneEntityCfg | None = None,
     trajectory_time_index: tuple[int, int] = (0, 0),
+    joint_position_noise_groups: dict[str, dict] | None = None,
+    object_xy_noise_range: tuple[float, float] = (0.0, 0.0),
+    object_yaw_noise_range: tuple[float, float] = (0.0, 0.0),
 ) -> None:
     """Reset robot and object to a frame in the motion trajectory.
 
@@ -27,27 +31,49 @@ def reset_robot_to_trajectory_start(
     - Optional root Z clamp (reset_root_height_min)
     - Optional yaw-only root quaternion (reset_yaw_only)
     - Optional shoulder spread + finger zeroing during freeze (reset_shoulder_spread)
+
+    Optional initial-condition noise changes only the simulator state constructed from
+    the selected frame. Motion-reference tensors owned by the command are never mutated.
+    Degenerate ranges disable the corresponding perturbation.
     """
     if asset_cfg is None:
         asset_cfg = SceneEntityCfg("robot")
     command: TrackingCommand = env.command_manager.get_term(command_name)
     robot: Articulation = env.scene[asset_cfg.name]
 
-    # --- Frame selection ---
+    # --- Motion and frame selection ---
+    # Multi-motion commands must sample before the reset pose is read. Command
+    # manager resampling happens after reset-mode events, which is too late.
+    if hasattr(command, "sample_motions"):
+        command.sample_motions(env_ids)
+
     low = max(0, int(trajectory_time_index[0]))
-    high = min(command.num_timesteps - 1, int(trajectory_time_index[1]))
-    high = max(low, high)
-    if command.cfg.always_reset_to_first_frame:
-        reset_ts = torch.full(
-            (len(env_ids),), low, dtype=torch.int32, device=env.device
+    requested_high = int(trajectory_time_index[1])
+    if hasattr(command, "selected_motion_lengths"):
+        low_ts = torch.minimum(
+            command.selected_motion_lengths[env_ids] - 1,
+            torch.full((len(env_ids),), low, dtype=torch.long, device=env.device),
         )
+        high = torch.minimum(
+            command.selected_motion_lengths[env_ids] - 1,
+            torch.full(
+                (len(env_ids),), requested_high, dtype=torch.long, device=env.device
+            ),
+        )
+        high = torch.maximum(low_ts, high)
     else:
-        reset_ts = torch.randint(
-            low,
-            high + 1,
-            (len(env_ids),),
-            dtype=torch.int32,
-            device=env.device,
+        scalar_high = max(low, min(command.num_timesteps - 1, requested_high))
+        low_ts = torch.full((len(env_ids),), low, dtype=torch.long, device=env.device)
+        high = torch.full(
+            (len(env_ids),), scalar_high, dtype=torch.long, device=env.device
+        )
+    if command.cfg.always_reset_to_first_frame:
+        reset_ts = low_ts
+    else:
+        # torch.randint does not accept a per-element upper bound.
+        reset_ts = (
+            low_ts
+            + (torch.rand(len(env_ids), device=env.device) * (high - low_ts + 1)).long()
         )
 
     command.timestep[env_ids] = reset_ts
@@ -56,9 +82,20 @@ def reset_robot_to_trajectory_start(
     command.tracking_lengths[env_ids] = (high - reset_ts + 1).clamp(min=1)
 
     # --- Read trajectory frame ---
-    initial_root_pos = command.root_pos_w[reset_ts].clone()
-    initial_root_quat = command.root_quat_w[reset_ts].clone()
-    initial_joint_pos = command.joint_pos[reset_ts].clone()
+    if hasattr(command, "get_frame"):
+        initial_root_pos = command.get_frame(
+            command.root_pos_w, env_ids, reset_ts
+        ).clone()
+        initial_root_quat = command.get_frame(
+            command.root_quat_w, env_ids, reset_ts
+        ).clone()
+        initial_joint_pos = command.get_frame(
+            command.joint_pos, env_ids, reset_ts
+        ).clone()
+    else:
+        initial_root_pos = command.root_pos_w[reset_ts].clone()
+        initial_root_quat = command.root_quat_w[reset_ts].clone()
+        initial_joint_pos = command.joint_pos[reset_ts].clone()
 
     # --- Root Z clamp ---
     if command.cfg.reset_root_height_min is not None:
@@ -105,6 +142,34 @@ def reset_robot_to_trajectory_start(
     else:
         command._spread_joint_offset[env_ids] = 0.0
 
+    # --- Optional collection-time joint perturbations ---
+    for group_name, group in (joint_position_noise_groups or {}).items():
+        joint_names = list(group.get("joint_names", ()))
+        noise_range = tuple(group.get("range", (0.0, 0.0)))
+        if len(noise_range) != 2 or noise_range[0] > noise_range[1]:
+            raise ValueError(
+                f"invalid joint noise range for {group_name!r}: {noise_range}"
+            )
+        if noise_range == (0.0, 0.0):
+            continue
+        if not joint_names:
+            raise ValueError(f"joint noise group {group_name!r} has no joints")
+        joint_ids, resolved_names = robot.find_joints(joint_names, preserve_order=True)
+        if list(resolved_names) != joint_names:
+            raise ValueError(
+                f"joint noise group {group_name!r} did not resolve exactly: "
+                f"requested={joint_names}, resolved={resolved_names}"
+            )
+        offsets = torch.empty(
+            (len(env_ids), len(joint_ids)),
+            dtype=initial_joint_pos.dtype,
+            device=env.device,
+        ).uniform_(float(noise_range[0]), float(noise_range[1]))
+        limits = robot.data.joint_pos_limits[env_ids][:, joint_ids]
+        initial_joint_pos[:, joint_ids] = (
+            initial_joint_pos[:, joint_ids] + offsets
+        ).clamp(min=limits[..., 0], max=limits[..., 1])
+
     # --- Write to sim ---
     root_pos_w = initial_root_pos + env.scene.env_origins[env_ids]
     robot.write_root_pose_to_sim(
@@ -120,16 +185,53 @@ def reset_robot_to_trajectory_start(
     )
 
     # --- Reset objects ---
-    scene_objects = getattr(command, "objects", None) or [
-        env.scene[command.cfg.object_name]
-    ]
+    scene_objects = getattr(command, "objects", None)
+    if not scene_objects:
+        return
+
+    if hasattr(command, "get_frame"):
+        object_positions = command.get_frame(
+            command._object_body_pos_w, env_ids, reset_ts
+        )
+        object_quaternions = command.get_frame(
+            command._object_body_quat_w, env_ids, reset_ts
+        )
+    else:
+        object_positions = command._object_body_pos_w[reset_ts]
+        object_quaternions = command._object_body_quat_w[reset_ts]
     object_pose = torch.cat(
         [
-            command._object_body_pos_w[reset_ts] + env.scene.env_origins[env_ids, None],
-            command._object_body_quat_w[reset_ts],
+            object_positions + env.scene.env_origins[env_ids, None],
+            object_quaternions,
         ],
         dim=-1,
     )
+    for label, noise_range in (
+        ("object_xy_noise_range", object_xy_noise_range),
+        ("object_yaw_noise_range", object_yaw_noise_range),
+    ):
+        if len(noise_range) != 2 or noise_range[0] > noise_range[1]:
+            raise ValueError(f"invalid {label}: {noise_range}")
+    if object_xy_noise_range != (0.0, 0.0):
+        object_pose[..., :2] += torch.empty(
+            (*object_pose.shape[:2], 2),
+            dtype=object_pose.dtype,
+            device=object_pose.device,
+        ).uniform_(*object_xy_noise_range)
+    if object_yaw_noise_range != (0.0, 0.0):
+        yaw = torch.empty(
+            object_pose.shape[:2],
+            dtype=object_pose.dtype,
+            device=object_pose.device,
+        ).uniform_(*object_yaw_noise_range)
+        old_quat = object_pose[..., 3:7].clone()
+        cosine = torch.cos(0.5 * yaw)
+        sine = torch.sin(0.5 * yaw)
+        # World-frame yaw: q_new = q_yaw * q_old, with quaternions in wxyz order.
+        object_pose[..., 3] = cosine * old_quat[..., 0] - sine * old_quat[..., 3]
+        object_pose[..., 4] = cosine * old_quat[..., 1] - sine * old_quat[..., 2]
+        object_pose[..., 5] = cosine * old_quat[..., 2] + sine * old_quat[..., 1]
+        object_pose[..., 6] = cosine * old_quat[..., 3] + sine * old_quat[..., 0]
     object_velocity = torch.zeros(
         object_pose.shape[0],
         object_pose.shape[1],
@@ -139,7 +241,12 @@ def reset_robot_to_trajectory_start(
     )
     object_joint_pos = None
     if command.retargeted_object_articulation.numel() > 0:
-        object_joint_pos = command.retargeted_object_articulation[reset_ts]
+        if hasattr(command, "get_frame"):
+            object_joint_pos = command.get_frame(
+                command.retargeted_object_articulation, env_ids, reset_ts
+            )
+        else:
+            object_joint_pos = command.retargeted_object_articulation[reset_ts]
         if object_joint_pos.dim() == 1:
             object_joint_pos = object_joint_pos.unsqueeze(-1)
 

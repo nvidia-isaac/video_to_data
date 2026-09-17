@@ -21,7 +21,7 @@
 # it, this image installs strictly from uv.lock (--frozen), so builds are
 # reproducible and match the host dev venv byte-for-byte.
 #
-# Stack (locked): Python 3.13 / torch 2.11+cu130 / vllm 0.21.x /
+# Stack (locked): Python 3.13 / torch 2.11+cu130 / vllm 0.24.x /
 # vllm-cosmos3 (rev-pinned in pyproject.toml) / transformers 5.x.
 #
 # Based on the public NVIDIA CUDA + cuDNN devel image. We install uv and
@@ -77,7 +77,7 @@ COPY pyproject.toml uv.lock README.md .python-version ./
 COPY src/ src/
 
 # Sync from the lockfile so the container reproduces the exact versions
-# in the host .venv (vllm 0.21.x / torch 2.11+cu130 / transformers 5.x /
+# in the host .venv (vllm 0.24.x / torch 2.11+cu130 / transformers 5.x /
 # vllm-cosmos3, ...). --frozen aborts if uv.lock is stale relative to
 # pyproject.toml. torch resolves from the cu130 index declared in
 # pyproject's [tool.uv] section, matching the CUDA 13 base above.

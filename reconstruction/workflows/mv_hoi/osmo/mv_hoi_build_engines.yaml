@@ -1,0 +1,62 @@
+# Prebuild architecture-specific TensorRT engines into the immutable weight
+# release. Submit explicitly to the target GPU pool before enabling routing.
+
+workflow:
+  name: {{workflow_name}}
+  resources:
+    gpu:
+      cpu: 8
+      gpu: 1
+      memory: 64Gi
+      storage: 100Gi
+
+  tasks:
+  - name: foundation_stereo_engine
+    resource: gpu
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_foundation_stereo:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - url: {{weights_base_url}}/foundation_stereo/
+    outputs:
+    - url: {{weights_base_url}}/foundation_stereo/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -euxo pipefail
+        MODEL=deployable_foundationstereo_small_576x960_v2.0.onnx
+        test -f "{{input:0}}/$MODEL"
+        mkdir -p /tmp/foundation_stereo_weights
+        cp "{{input:0}}/$MODEL" /tmp/foundation_stereo_weights/
+        python -c 'from v2d.foundation_stereo.lib.export_engine import ensure_engine; ensure_engine("/tmp/foundation_stereo_weights")'
+        find /tmp/foundation_stereo_weights -maxdepth 1 -name '*_sm_8_9.engine' -size +0c -exec cp {} {{output}}/ \;
+        test "$(find {{output}} -maxdepth 1 -name '*_sm_8_9.engine' -size +0c | wc -l)" -eq 1
+        sha256sum {{output}}/*.engine
+
+  - name: foundation_pose_engines
+    resource: gpu
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_foundation_pose:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - url: {{weights_base_url}}/foundation_pose/nvidia_tensorrt/deployable_v1.0/
+    outputs:
+    - url: {{weights_base_url}}/foundation_pose/nvidia_tensorrt/deployable_v1.0/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -euxo pipefail
+        MODEL_DIR=/tmp/foundation_pose_weights/nvidia_tensorrt/deployable_v1.0
+        mkdir -p "$MODEL_DIR" {{output}}
+        cp {{input:0}}/refiner_net.onnx "$MODEL_DIR"/
+        cp {{input:0}}/score_net.onnx "$MODEL_DIR"/
+        cp {{input:0}}/manifest.json "$MODEL_DIR"/
+        FOUNDATIONPOSE_ENGINE_CACHE_DIR={{output}} python -c 'from v2d.foundation_pose.lib.trt_engine import ensure_engines; print(ensure_engines("/tmp/foundation_pose_weights"))'
+        rm -f {{output}}/.*.lock
+        test "$(find {{output}} -maxdepth 1 -name '*_sm_89_fp32.engine' -size +0c | wc -l)" -eq 2
+        sha256sum {{output}}/*.engine
+
+default-values:
+  workflow_name: v2d_mv_hoi_build_engines
+  image_tag: latest
+  weights_base_url: ???

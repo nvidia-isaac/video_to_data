@@ -13,6 +13,7 @@ def run_video_to_poses(
     mesh_path: str,
     poses_dir: str,
     weights_dir: str,
+    backend: str = "nvidia_tensorrt",
     reference_frame: int = 0,
     target_width: int = None,
     target_height: int = None,
@@ -35,6 +36,7 @@ def run_video_to_poses(
         inputs={"video_path": video_path, "depth_folder": depth_folder, "masks_folder": masks_folder, "camera_intrinsics_path": camera_intrinsics_path, "mesh_path": mesh_path, "weights_dir": weights_dir},
         outputs={"poses_dir": poses_dir},
         extra_args={
+            "backend":                  backend,
             "reference_frame":          reference_frame,
             "target_width":             target_width,
             "target_height":            target_height,
@@ -67,6 +69,10 @@ if __name__ == "__main__":
     parser.add_argument("--mesh_path", required=True)
     parser.add_argument("--poses_dir", required=True)
     parser.add_argument("--weights_dir", required=True)
+    parser.add_argument(
+        "--backend", choices=("nvidia_tensorrt", "nvlabs_pytorch"),
+        default="nvidia_tensorrt",
+    )
     parser.add_argument("--reference_frame", type=int, default=0)
     parser.add_argument("--target_width", type=int, default=None)
     parser.add_argument("--target_height", type=int, default=None)
@@ -84,7 +90,7 @@ if __name__ == "__main__":
     run_video_to_poses(
         args.video_path, args.depth_folder, args.masks_folder,
         args.camera_intrinsics_path, args.mesh_path, args.poses_dir,
-        args.weights_dir, reference_frame=args.reference_frame,
+        args.weights_dir, backend=args.backend, reference_frame=args.reference_frame,
         target_width=args.target_width, target_height=args.target_height,
         reregister_iou_thresh=args.reregister_iou_thresh,
         register_iteration=args.register_iteration,

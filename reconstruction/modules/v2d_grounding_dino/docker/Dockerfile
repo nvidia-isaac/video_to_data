@@ -18,6 +18,13 @@ RUN git clone https://github.com/IDEA-Research/GroundingDINO.git /tmp/GroundingD
 RUN pip install "transformers==4.27.4"
 RUN pip install huggingface-hub requests Pillow opencv-python
 
+# GroundingDINO's SwinT config uses bert-base-uncased for text encoding.
+# Cache it while building the image so inference never depends on live Hub access.
+ENV HF_HOME=/opt/huggingface
+RUN python -c "from transformers import AutoTokenizer, BertModel; AutoTokenizer.from_pretrained('bert-base-uncased'); BertModel.from_pretrained('bert-base-uncased')"
+ENV HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1
+
 COPY . /workspace
 
 RUN pip install -e "/workspace/v2d_common[io]" \

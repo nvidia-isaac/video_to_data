@@ -85,8 +85,8 @@ def _record_from_pred(pred: dict, image_size: tuple[int, int]) -> dict:
             "hand_pose":     hand_pose.tolist(),
         },
         "camera": {
-            "pred_cam_t_full":     cam_t_full.tolist(),
-            "scaled_focal_length": float(wp["scaled_focal_length"]),
+            "cam_t":        cam_t_full.tolist(),
+            "focal_length": float(wp["scaled_focal_length"]),
         },
         "image_size": [int(W), int(H)],
     }

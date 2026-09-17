@@ -1,0 +1,4 @@
+interface:
+  display_name: "GR00T Fine-Tuning"
+  short_description: "Run embodiment-aware GR00T post-training"
+  default_prompt: "Use $groot-finetune to collect successful robot episodes, fine-tune GR00T, and validate the resulting policy."

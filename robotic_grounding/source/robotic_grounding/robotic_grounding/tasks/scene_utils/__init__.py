@@ -15,6 +15,7 @@ from .scene_config import (
     ArticulatedObjectConfig,
     ObjectConfig,
     SceneConfig,
+    discover_motion_files,
 )
 
 SCENE_CONFIG_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "config"))
@@ -28,5 +29,6 @@ __all__ = [
     "apply_scene_contact_sensors",
     "apply_scene_objects",
     "apply_scene_robot",
+    "discover_motion_files",
     "SCENE_CONFIG_DIR",
 ]

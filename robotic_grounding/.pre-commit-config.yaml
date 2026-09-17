@@ -47,6 +47,7 @@ repos:
       exclude: |
         (?x)^(
           robotic_grounding/scripts/rsl_rl/.*
+          | robotic_grounding/scripts/(batch_taco_datagen|export_lerobot|visualize_dataset|test_lerobot_format)\.py
         )$
 
 - repo: https://github.com/psf/black

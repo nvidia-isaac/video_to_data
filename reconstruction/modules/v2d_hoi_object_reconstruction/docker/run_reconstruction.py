@@ -5,7 +5,7 @@ End-to-end object reconstruction pipeline (HOST-SIDE orchestrator).
 
 Two modes:
   bundlesdf (default) – Two-stage scan (stationary → rotated → stationary) → textured mesh
-  sam3d               – Select representative frames → SAM3D per-frame → SRT scale estimation
+  sam3d               – Two-stage (default) or stationary-object scan → SAM3D → SRT
 
 ── BundleSDF steps ──────────────────────────────────────────────────────────────────
   1.  prepare_FP_folder           – copy images, write calibration + video
@@ -28,16 +28,16 @@ Two modes:
 ── SAM3D steps ──────────────────────────────────────────────────────────────────────
   1.  prepare_FP_folder           – copy images, write calibration + video
   2.  CuSFM                       – camera poses for frame selection + SRT scale
-  2b. CuSFM scan quality          – validate two-loop pose trajectory before auto split
-  2c. Stage-1 auto-detect         – detect Stage-1 end (used to exclude transition frames)
+  2b. CuSFM scan quality          – validate poses and the selected capture contract
+  2c. Stage-1 auto-detect         – two-stage mode only; stationary mode needs no split
   3.  Grounding DINO               – detect object bbox from text prompt
   4b. Mask                        – SAM2 masks + optional cleanup for ALL frames (used for SRT scale)
  [4a. Depth (optional)]           – FoundationStereo depth, used by SRT scale (--sam3d_use_depth)
-  S1. Select frames               – pick one frame per azimuthal bin (60° default)
+  S1. Select frames               – orbit bins (two-stage) or view diversity (stationary)
   S2. SAM3D                       – run SAM3D on each selected frame → GLB mesh
-  S3. SRT scale                   – estimate scale+pose using Stage-1 silhouettes only
+  S3. SRT scale                   – align with Stage-1 or full-sequence stationary silhouettes
   S4. Render debug                – render debug overlay image for each SAM3D mesh
-  S5. Render video                – project SRT mesh onto all Stage-1 keyframes → render_video.mp4
+  S5. Render video                – project SRT mesh over eligible alignment frames
   S6. Select suggested best       – rank candidates and copy best artifacts to sam3d/best/
 
 Two frames_meta.json files are used:
@@ -53,7 +53,8 @@ Usage:
     # SAM3D mode:
     python modules/v2d_hoi_object_reconstruction/docker/run_reconstruction.py \\
         --mapping_data_dir ... --job_dir ... --prompt "bowl" \\
-        --mode sam3d [--sam3d_use_depth] [--sam3d_bin_deg 60] [--sam3d_seed 42] \\
+        --mode sam3d [--sam3d_capture_mode {two_stage,stationary}] \\
+        [--sam3d_use_depth] [--sam3d_bin_deg 60] [--sam3d_seed 42] \\
         [--sam3d_srt_max_views 25] [--sam3d_srt_maxiter 60] \\
         [--sam3d_srt_top_k 1] [--sam3d_srt_parallel 8]
 
@@ -282,8 +283,23 @@ def main():
                         help="Reconstruction mode (default: bundlesdf)")
     parser.add_argument("--sam3d_use_depth", action="store_true",
                         help="SAM3D mode: also run FoundationStereo depth for SRT scale estimation")
+    parser.add_argument(
+        "--sam3d_capture_mode",
+        choices=["two_stage", "stationary"],
+        default="two_stage",
+        help=(
+            "SAM3D capture contract: existing two-loop/two-stage scan (default), "
+            "or an arbitrary camera path around an object that remains stationary"
+        ),
+    )
     parser.add_argument("--sam3d_bin_deg", type=float, default=60.0,
-                        help="SAM3D mode: azimuthal bin size for frame selection (default: 60°)")
+                        help="SAM3D two-stage mode: azimuthal bin size for frame selection (default: 60°)")
+    parser.add_argument(
+        "--sam3d_stationary_views",
+        type=int,
+        default=6,
+        help="SAM3D stationary mode: number of pose-diverse source views (default: 6)",
+    )
     parser.add_argument("--sam3d_seed", type=int, default=42,
                         help="SAM3D mode: random seed passed to SAM3D (default: 42)")
     parser.add_argument("--sam3d_srt_max_views", type=int, default=25,
@@ -305,9 +321,9 @@ def main():
     parser.add_argument("--skip_prepare",        action="store_true")
     parser.add_argument("--skip_sfm",            action="store_true")
     parser.add_argument("--skip_sfm_quality_check", action="store_true",
-                        help="Skip CuSFM two-loop scan quality validation")
+                        help="Skip CuSFM pose and capture-contract quality validation")
     parser.add_argument("--skip_stage1_detect",  action="store_true",
-                        help="Skip auto stage-1 end detection (requires manual --stage1_end_frame/timestamp)")
+                        help="Skip auto stage-1 end detection in two-stage mode")
     parser.add_argument("--skip_dino",         action="store_true")
     parser.add_argument("--skip_depth",        action="store_true")
     parser.add_argument("--skip_mask",         action="store_true")
@@ -338,7 +354,7 @@ def main():
     parser.add_argument("--skip_render_debug",  action="store_true",
                         help="SAM3D mode: skip SAM3D debug render")
     parser.add_argument("--skip_render_video",  action="store_true",
-                        help="SAM3D mode: skip Stage-1 overlay video render")
+                        help="SAM3D mode: skip alignment overlay video render")
     parser.add_argument("--skip_select_best_mesh", action="store_true",
                         help="SAM3D mode: skip suggested best mesh selection")
 
@@ -349,9 +365,20 @@ def main():
         "sam3d_srt_maxiter",
         "sam3d_srt_top_k",
         "sam3d_srt_parallel",
+        "sam3d_stationary_views",
     ):
         if getattr(args, name) < 1:
             parser.error(f"--{name} must be at least 1")
+
+    if args.mode != "sam3d" and args.sam3d_capture_mode != "two_stage":
+        parser.error("--sam3d_capture_mode only applies when --mode sam3d")
+    if args.sam3d_capture_mode == "stationary" and (
+        args.stage1_end_frame is not None or args.stage1_end_timestamp is not None
+    ):
+        parser.error(
+            "Stage-1 boundary options are incompatible with "
+            "--sam3d_capture_mode stationary"
+        )
 
     gpu_ids = args.gpu_ids or detect_gpu_ids()
     require_compatible_cusfm_gpus(gpu_ids)
@@ -391,6 +418,10 @@ def main():
         and not args.skip_sfm_quality_check
     )
     sfm_quality_fail_on_error = bool(sfm_quality_cfg.get("fail_on_error", True))
+    capture_mode = (
+        args.sam3d_capture_mode if args.mode == "sam3d" else "two_stage"
+    )
+    requires_stage1_boundary = capture_mode == "two_stage"
 
     mask_postprocess_cfg = _pcfg.get("mask_postprocess") or {}
     mask_postprocess_modes = mask_postprocess_cfg.get("modes")
@@ -563,7 +594,7 @@ def main():
         if not os.path.exists(sfm_poses_meta):
             raise FileNotFoundError(
                 f"CuSFM quality check requested, but poses were not found: {sfm_poses_meta}")
-        print("[pipeline] checking CuSFM two-loop scan quality")
+        print(f"[pipeline] checking CuSFM scan quality ({capture_mode})")
         quality_out = Path(job_dir) / "sfm_scan_quality"
         t0 = time.time()
         run_sfm_quality_check(
@@ -573,6 +604,7 @@ def main():
             output_dir=quality_out,
             config=sfm_quality_cfg,
             fail_on_error=sfm_quality_fail_on_error,
+            capture_mode=capture_mode,
         )
         _timings["sfm_scan_quality"] = time.time() - t0
         print(f"[pipeline] sfm_scan_quality done in {_timings['sfm_scan_quality']:.1f}s")
@@ -581,14 +613,14 @@ def main():
     # When detection is explicitly skipped, reuse its prior result so downstream
     # SRT/render steps still have the Stage-1 boundary. A normal rerun must
     # recompute this value from the newly generated SfM trajectory.
-    if stage1_end_frame is None and args.skip_stage1_detect:
+    if requires_stage1_boundary and stage1_end_frame is None and args.skip_stage1_detect:
         _existing = Path(job_dir) / "stage1_detect_debug" / "result.json"
         if _existing.exists():
             with open(_existing) as _f:
                 stage1_end_frame = json.load(_f).get("stage1_end_frame")
             print(f"[pipeline] stage1_end_frame={stage1_end_frame} (loaded from existing result.json)")
 
-    if stage1_end_frame is None and not args.skip_stage1_detect:
+    if requires_stage1_boundary and stage1_end_frame is None and not args.skip_stage1_detect:
         print("[pipeline] auto-detecting Stage-1 end from CuSFM trajectory")
         detect_out = Path(job_dir) / "stage1_detect_debug"
         t0 = time.time()
@@ -602,11 +634,15 @@ def main():
         _timings["stage1_detect"] = time.time() - t0
         print(f"[pipeline] stage1_detect done in {_timings['stage1_detect']:.1f}s → seq_idx {stage1_end_frame}")
 
-    if stage1_end_frame is None and args.mode == "bundlesdf":
+    if requires_stage1_boundary and stage1_end_frame is None:
         raise ValueError(
             "Stage-1 end frame could not be determined. "
             "Provide --stage1_end_frame, --stage1_end_timestamp, "
-            "or remove --skip_stage1_detect to enable auto-detection.")
+            "or remove --skip_stage1_detect to enable auto-detection. For a "
+            "stationary-object SAM3D capture, explicitly pass "
+            "--sam3d_capture_mode stationary.")
+    if not requires_stage1_boundary:
+        print("[pipeline] stationary SAM3D capture: stage detection is not applicable")
 
     # ── Step 3: Grounding DINO ────────────────────────────────────────────────
     if not args.skip_dino or not args.skip_mask:
@@ -977,12 +1013,14 @@ def main():
         # ── Step S1: Select representative frames ─────────────────────────────
         selected_frames: list[str] = []
         if not args.skip_select_frames:
-            print(f"[pipeline] selecting SAM3D frames (bin_deg={args.sam3d_bin_deg}°)")
+            print(f"[pipeline] selecting SAM3D frames ({capture_mode})")
             t0 = time.time()
             selected_frames = select_sam3d_frames(
                 image=IMAGE_HOI,
                 job_dir=job_dir,
                 bin_deg=args.sam3d_bin_deg,
+                capture_mode=capture_mode,
+                stationary_count=args.sam3d_stationary_views,
             )
             _timings["select_frames"] = time.time() - t0
             print(f"[pipeline] select_frames done in {_timings['select_frames']:.1f}s "
@@ -991,11 +1029,39 @@ def main():
             sel_path = sam3d_dir / "selected_frames.json"
             if sel_path.exists():
                 selected_frames = json.loads(sel_path.read_text())
+                report_path = sam3d_dir / "selection_report.json"
+                if report_path.exists():
+                    report_mode = json.loads(report_path.read_text()).get("capture_mode")
+                    if report_mode != capture_mode:
+                        raise ValueError(
+                            f"Existing SAM3D selection uses capture_mode={report_mode!r}, "
+                            f"but this run requested {capture_mode!r}. Rerun without "
+                            "--skip_select_frames."
+                        )
+                elif capture_mode != "two_stage":
+                    raise ValueError(
+                        "Existing selected_frames.json has no capture-mode provenance. "
+                        "Rerun without --skip_select_frames for stationary mode."
+                    )
                 print(f"[pipeline] skip_select_frames: loaded {len(selected_frames)} frames from {sel_path}")
             else:
                 print("[warning] skip_select_frames but selected_frames.json not found; "
                       "SAM3D and SRT steps will have no frames to process", file=sys.stderr)
                 sel_path.write_text("[]\n")
+
+        capture_contract = {
+            "capture_mode": capture_mode,
+            "object_motion_assumption": (
+                "object_stationary_throughout"
+                if capture_mode == "stationary"
+                else "stationary_then_reoriented_then_stationary"
+            ),
+            "object_motion_validation": "capture_procedure_contract",
+            "stage1_end_frame": stage1_end_frame,
+        }
+        (sam3d_dir / "capture_contract.json").write_text(
+            json.dumps(capture_contract, indent=2) + "\n"
+        )
 
         # ── Step S2: SAM3D mesh reconstruction per frame ──────────────────────
         if not args.skip_sam3d:
@@ -1027,6 +1093,7 @@ def main():
                 job_dir=job_dir,
                 use_depth=args.sam3d_use_depth,
                 stage1_end_frame=stage1_end_frame,
+                capture_mode=capture_mode,
                 max_views=args.sam3d_srt_max_views,
                 maxiter=args.sam3d_srt_maxiter,
                 top_k=args.sam3d_srt_top_k,
@@ -1061,43 +1128,46 @@ def main():
                 _timings[f"render_debug_{frame_id}"] = elapsed
                 print(f"[pipeline] render_debug {frame_id} done in {elapsed:.1f}s")
 
-        # ── Step S5: Stage-1 textured overlay video (pyrender inside v2d_sam3d) ──────
+        # ── Step S5: Alignment overlay video (pyrender inside v2d_sam3d) ──────
         if not args.skip_render_video:
-            if stage1_end_frame is None:
-                print("[pipeline] skip_render_video: stage1_end_frame unknown, cannot render Stage-1 video",
-                      file=sys.stderr)
-            else:
-                c_job = "/data/job"
-                for frame_id in selected_frames:
-                    srt_out = sam3d_dir / frame_id / "srt"
-                    if not (srt_out / "output_scaled.glb").exists():
-                        print(f"[pipeline] render_video {frame_id}: srt output not found, skipping")
-                        continue
-                    frames_dir = sam3d_dir / frame_id / "render_video_frames"
-                    video_path = sam3d_dir / frame_id / "render_video.mp4"
-                    c_glb     = f"{c_job}/sam3d/{frame_id}/srt/output_scaled.glb"
-                    c_out     = f"{c_job}/sam3d/{frame_id}/render_video_frames"
-                    print(f"[pipeline] render_video {frame_id} (stage1_end_frame={stage1_end_frame})")
-                    _step(f"render_video_{frame_id}", lambda _fid=frame_id, _cg=c_glb, _co=c_out: _run_gpu(
-                        IMAGE_SAM3D,
-                        [
-                            "python", "-m", "v2d.sam3d.lib.render_textured_video",
-                            "--job_dir",          c_job,
-                            "--glb_path",         _cg,
-                            "--output_dir",       _co,
-                            "--stage1_end_frame", str(stage1_end_frame),
-                        ],
-                        mounts=[(job_dir, "/data/job")],
-                        user=f"{os.getuid()}:{os.getgid()}",
-                    ))
-                    _step(
-                        f"render_video_stitch_{frame_id}",
-                        lambda _fd=frames_dir, _vp=video_path: stitch_mp4(
-                            image=IMAGE_HOI,
-                            frames_dir=_fd,
-                            output_mp4=_vp,
-                        ),
-                    )
+            c_job = "/data/job"
+            for frame_id in selected_frames:
+                srt_out = sam3d_dir / frame_id / "srt"
+                if not (srt_out / "output_scaled.glb").exists():
+                    print(f"[pipeline] render_video {frame_id}: srt output not found, skipping")
+                    continue
+                frames_dir = sam3d_dir / frame_id / "render_video_frames"
+                video_path = sam3d_dir / frame_id / "render_video.mp4"
+                c_glb = f"{c_job}/sam3d/{frame_id}/srt/output_scaled.glb"
+                c_out = f"{c_job}/sam3d/{frame_id}/render_video_frames"
+                render_cmd = [
+                    "python", "-m", "v2d.sam3d.lib.render_textured_video",
+                    "--job_dir", c_job,
+                    "--glb_path", c_glb,
+                    "--output_dir", c_out,
+                ]
+                if stage1_end_frame is not None:
+                    render_cmd.extend(["--frame_end", str(stage1_end_frame)])
+                frame_scope = (
+                    f"through Stage-1 frame {stage1_end_frame}"
+                    if stage1_end_frame is not None
+                    else "all stationary-capture frames"
+                )
+                print(f"[pipeline] render_video {frame_id} ({frame_scope})")
+                _step(f"render_video_{frame_id}", lambda _cmd=render_cmd: _run_gpu(
+                    IMAGE_SAM3D,
+                    _cmd,
+                    mounts=[(job_dir, "/data/job")],
+                    user=f"{os.getuid()}:{os.getgid()}",
+                ))
+                _step(
+                    f"render_video_stitch_{frame_id}",
+                    lambda _fd=frames_dir, _vp=video_path: stitch_mp4(
+                        image=IMAGE_HOI,
+                        frames_dir=_fd,
+                        output_mp4=_vp,
+                    ),
+                )
 
         # ── Step S6: Suggested best mesh selection ───────────────────────────
         if not args.skip_select_best_mesh:

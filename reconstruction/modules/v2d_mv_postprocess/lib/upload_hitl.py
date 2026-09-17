@@ -25,7 +25,7 @@ Usage (inside container):
         --overlay_dir /data/render_hoi_overlay \
         --hoi_metadata_path /data/mv_preprocess/hoi_metadata.yaml \
         --output_dir  /data/upload_hitl \
-        --hitl_s3_base s3://your-bucket/path/to/intake \
+        --hitl_s3_base s3://hitl-intake-testing/production-folder/... \
         --hitl_batch_name sc_office_4exo_1_v3 \
         --video_name v2d_mv_hoi_reconstruction_0-1-0_20260416_120000 \
         --s3_region us-west-2
@@ -34,7 +34,6 @@ Usage (inside container):
 from __future__ import annotations
 
 import argparse
-import glob
 import json
 import os
 import shutil
@@ -64,6 +63,29 @@ def _read_hoi_metadata(hoi_metadata_path: str) -> tuple[str, str]:
     return str(object_id), str(action_desc)
 
 
+def _list_overlay_files(overlay_dir: str) -> str:
+    try:
+        entries = sorted(os.listdir(overlay_dir))
+    except FileNotFoundError:
+        return "(overlay_dir does not exist)"
+    if not entries:
+        return "(empty)"
+    return "\n".join(f"  - {entry}" for entry in entries)
+
+
+def _require_tiled_overlay(overlay_dir: str) -> str:
+    video_src = os.path.join(overlay_dir, "tiled_hoi_overlay.mp4")
+    if os.path.isfile(video_src):
+        return video_src
+    raise FileNotFoundError(
+        "HITL upload blocked: expected tiled multi-view overlay is missing.\n"
+        f"Expected: {video_src}\n"
+        "Available files:\n"
+        f"{_list_overlay_files(overlay_dir)}\n"
+        "Refusing to upload a single-view fallback video."
+    )
+
+
 def upload_hitl(
     overlay_dir: str,
     hoi_metadata_path: str,
@@ -74,13 +96,7 @@ def upload_hitl(
     s3_region: str = "us-west-2",
 ) -> dict:
     object_id, action_desc = _read_hoi_metadata(hoi_metadata_path)
-
-    video_src = os.path.join(overlay_dir, "tiled_hoi_overlay.mp4")
-    if not os.path.isfile(video_src):
-        candidates = sorted(glob.glob(os.path.join(overlay_dir, "*.mp4")))
-        video_src = candidates[0] if candidates else None
-    if not video_src:
-        raise FileNotFoundError(f"no overlay video found in {overlay_dir}")
+    video_src = _require_tiled_overlay(overlay_dir)
 
     dataset_dir = os.path.join(output_dir, "dataset")
     jsons_dir = os.path.join(output_dir, "jsons")

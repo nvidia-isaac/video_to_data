@@ -85,7 +85,7 @@ def _build_mesh_for_record(rec: dict, mano: ManoLayer) -> Tuple[np.ndarray, np.n
     verts_local = out.verts[0].detach().numpy()
     if not rec["is_right"]:
         verts_local[:, 0] *= -1
-    cam_t = np.array(rec["camera"]["pred_cam_t_full"], dtype=np.float64)
+    cam_t = np.array(rec["camera"]["cam_t"], dtype=np.float64)
     verts_cam = verts_local + cam_t[None, :]
     faces = mano.th_faces.numpy()
     if not rec["is_right"]:
@@ -103,7 +103,7 @@ def _silhouette(
     """Render a single detection's MANO mesh to a boolean silhouette."""
     verts_cv, faces = _build_mesh_for_record(rec, mano)
     verts_gl = verts_cv * _CV_TO_GL
-    focal = rec["camera"]["scaled_focal_length"]
+    focal = rec["camera"]["focal_length"]
     z_max = float(verts_cv[:, 2].max())
     zfar = max(50.0, z_max * 1.5)
     cam = pyrender.IntrinsicsCamera(fx=focal, fy=focal, cx=W / 2, cy=H / 2,

@@ -214,13 +214,22 @@ huggingface-cli download nvidia/video-to-data-robotic-grounding-example \
   --local-dir checkpoints/pretrained
 ```
 
+The Hugging Face repo stores its weights under a top-level `checkpoints/` folder, so the
+download lands at `checkpoints/pretrained/checkpoints/<family>/<name>.pt`. The doubled
+`checkpoints/` is expected; if you change `--local-dir`, adjust the paths below to match.
+
 | Checkpoint | Eval task | Motion |
 |---|---|---|
-| `checkpoints/floating_hand/box_grab_seed24_model_30000.pt` | `Sharpa-V2D-v0` | arctic `s07_box_grab_01` |
-| `checkpoints/floating_hand/mixer_seed24_model_30000.pt` | `Sharpa-V2D-v0` | arctic `s01_mixer_use_01` |
-| `checkpoints/floating_hand/hot3d_P0002_2f137f83_seg003_seed42_model_30000.pt` | `Sharpa-V2D-v0` | hot3d `P0002_2f137f83` seg003 |
-| `checkpoints/recon_hand/espresso_use_s09_seed42_model_59997.pt` | `SonicG1-ReconHand-v0` | arctic `s09_espressomachine_use_02` |
-| `checkpoints/recon_hand/taco_empty_cup_bowl_seed42_model_59997.pt` | `SonicG1-ReconHand-v0` | taco `empty__cup__bowl_20231006_280` |
+| `checkpoints/pretrained/checkpoints/floating_hand/box_grab_seed24_model_30000.pt` | `Sharpa-V2D-v0` | arctic `s07_box_grab_01` |
+| `checkpoints/pretrained/checkpoints/floating_hand/mixer_seed24_model_30000.pt` | `Sharpa-V2D-v0` | arctic `s01_mixer_use_01` |
+| `checkpoints/pretrained/checkpoints/floating_hand/hot3d_P0002_2f137f83_seg003_seed42_model_30000.pt` | `Sharpa-V2D-v0` | hot3d `P0002_2f137f83` seg003 |
+| `checkpoints/pretrained/checkpoints/recon_hand/espresso_use_s09_seed42_model_59997.pt` | `SonicG1-ReconHand-v0` | arctic `s09_espressomachine_use_02` |
+| `checkpoints/pretrained/checkpoints/recon_hand/taco_empty_cup_bowl_seed42_model_59997.pt` | `SonicG1-ReconHand-v0` | taco `empty__cup__bowl_20231006_280` |
+
+No pretrained `SonicG1-ReconBody-v0` checkpoint ships: the one previously published was
+trained on a SOMA capture that is no longer part of the release. For ReconBody, train on one
+of the shipped `whole_body/soma/` sequences (see the
+[README's RL training section](../README.md#rl-training)) and evaluate that checkpoint.
 
 Pass the downloaded file to `eval.py --checkpoint`; see the
 [whole-body README](../source/robotic_grounding/robotic_grounding/tasks/v2d_whole_body/README.md)

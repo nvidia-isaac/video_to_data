@@ -15,6 +15,7 @@ from v2d.common.datatypes import CameraIntrinsics, DepthImage, Mask
 from v2d.common.datatypes import Image as V2dImage
 from v2d.mesh.lib.mesh import Mesh
 from v2d.foundation_pose.lib.foundation_pose_tracker import FoundationPoseTracker
+from v2d.foundation_pose.lib.backends import DEFAULT_BACKEND, SUPPORTED_BACKENDS
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -28,6 +29,7 @@ def run_align_depth_to_object(
     intrinsics_path: str,
     weights_dir: str,
     output_depth_path: str,
+    backend: str = DEFAULT_BACKEND,
     scale_lo: float = 0.5,
     scale_hi: float = 2.0,
     shift_lo: float = -0.5,
@@ -64,7 +66,7 @@ def run_align_depth_to_object(
         Corrected DepthImage (also saved to output_depth_path).
     """
     mesh = Mesh.load(mesh_path)
-    tracker = FoundationPoseTracker(mesh, weights_dir)
+    tracker = FoundationPoseTracker(mesh, weights_dir, backend=backend)
 
     intrinsics = CameraIntrinsics.load(intrinsics_path)
     depth_raw = DepthImage.load(depth_path)
@@ -98,6 +100,7 @@ if __name__ == "__main__":
     parser.add_argument("--mask_path", required=True)
     parser.add_argument("--intrinsics_path", required=True)
     parser.add_argument("--weights_dir", required=True)
+    parser.add_argument("--backend", choices=SUPPORTED_BACKENDS, default=DEFAULT_BACKEND)
     parser.add_argument("--output_depth_path", required=True)
     parser.add_argument("--scale_lo", type=float, default=0.5)
     parser.add_argument("--scale_hi", type=float, default=2.0)
@@ -113,6 +116,7 @@ if __name__ == "__main__":
     run_align_depth_to_object(
         args.mesh_path, args.rgb_path, args.depth_path, args.mask_path,
         args.intrinsics_path, args.weights_dir, args.output_depth_path,
+        backend=args.backend,
         scale_lo=args.scale_lo, scale_hi=args.scale_hi,
         shift_lo=args.shift_lo, shift_hi=args.shift_hi,
         n_scale_samples=args.n_scale_samples, n_shift_samples=args.n_shift_samples,

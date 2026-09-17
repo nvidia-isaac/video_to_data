@@ -2,10 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Select representative frames for SAM3D reconstruction.
 
-Uses CuSFM camera trajectory to pick one frame per azimuthal angle bin,
-preferring frames with the largest object mask area within each bin.
-
-Falls back to top-N by mask area if SfM data is unavailable.
+Two-stage captures use cumulative orbit-angle bins. Stationary-object captures
+use camera viewing-direction diversity and therefore do not require a planar or
+ordered orbit. Both methods prefer frames with a large visible object mask.
 """
 
 from __future__ import annotations
@@ -35,10 +34,11 @@ def _aa_to_matrix(aa: dict) -> np.ndarray:
 def _load_sfm_keyframes(
     sfm_keyframes_path: Path,
     frames_meta_path: Path,
-) -> Optional[tuple[np.ndarray, np.ndarray]]:
-    """Load CuSFM left-camera keyframe seq_indices and world positions.
+) -> Optional[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    """Load CuSFM left-camera indices, positions, and viewing directions.
 
-    Returns (seq_indices, positions) or None if data is missing.
+    Returns ``(seq_indices, positions, view_directions)`` or ``None`` if data
+    is missing. Viewing directions are the camera +Z axes in world space.
     seq_indices[i] is the sequential frame index matching left/*.jpg filenames.
     """
     if not sfm_keyframes_path.exists() or not frames_meta_path.exists():
@@ -64,7 +64,7 @@ def _load_sfm_keyframes(
     with open(sfm_keyframes_path) as f:
         sfm = json.load(f)
 
-    frames: list[tuple[int, np.ndarray]] = []
+    frames: list[tuple[int, np.ndarray, np.ndarray]] = []
     for kf in sfm["keyframes_metadata"]:
         if "front_stereo_camera_left" not in kf.get("image_name", ""):
             continue
@@ -77,7 +77,9 @@ def _load_sfm_keyframes(
         R = _aa_to_matrix(aa)
         # Camera position in world = R @ [0,0,0] + t = t (since c2w)
         pos = np.array([t["x"], t["y"], t["z"]])
-        frames.append((seq_idx, pos))
+        # CuSFM camera-to-world uses the OpenCV camera convention (+Z forward).
+        view_direction = R[:, 2]
+        frames.append((seq_idx, pos, view_direction))
 
     if not frames:
         return None
@@ -85,7 +87,8 @@ def _load_sfm_keyframes(
     frames.sort(key=lambda x: x[0])
     seq_indices = np.array([f[0] for f in frames])
     positions = np.array([f[1] for f in frames])
-    return seq_indices, positions
+    view_directions = np.array([f[2] for f in frames])
+    return seq_indices, positions, view_directions
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -143,7 +146,7 @@ def select_frames_by_angle_bins(
         print("  [select_frames] SfM data not found, will fall back to mask-area selection")
         return []
 
-    seq_indices, positions = sfm_data
+    seq_indices, positions, _ = sfm_data
     angles_deg = _cumulative_azimuth(positions)
 
     # Exclude transition frames (the manual flip) using stage1_detect result
@@ -191,6 +194,70 @@ def select_frames_by_angle_bins(
     return selected
 
 
+def _select_pose_diverse_candidates(
+    candidates: list[tuple[int, np.ndarray, int]],
+    count: int,
+) -> list[str]:
+    """Greedily select mask-visible frames with diverse viewing directions.
+
+    The largest-mask candidate seeds the selection. Each later candidate
+    maximizes its minimum angular distance from the directions already chosen;
+    mask area and then frame order break ties deterministically.
+    """
+    normalized: list[tuple[int, np.ndarray, int]] = []
+    for seq_idx, direction, area in candidates:
+        norm = float(np.linalg.norm(direction))
+        if norm > 1e-12 and area > 0:
+            normalized.append((seq_idx, direction / norm, area))
+    if not normalized:
+        return []
+
+    remaining = sorted(normalized, key=lambda item: item[0])
+    first = max(remaining, key=lambda item: (item[2], -item[0]))
+    selected = [first]
+    remaining.remove(first)
+
+    while remaining and len(selected) < count:
+        def score(candidate: tuple[int, np.ndarray, int]) -> tuple[float, int, int]:
+            min_angle = min(
+                float(np.arccos(np.clip(np.dot(candidate[1], chosen[1]), -1.0, 1.0)))
+                for chosen in selected
+            )
+            return min_angle, candidate[2], -candidate[0]
+
+        chosen = max(remaining, key=score)
+        selected.append(chosen)
+        remaining.remove(chosen)
+
+    return [f"{seq_idx:06d}" for seq_idx, _, _ in selected]
+
+
+def select_frames_by_view_diversity(
+    job_dir: Path,
+    count: int = 6,
+) -> list[str]:
+    """Select pose-diverse views for a stationary object and arbitrary scan path."""
+    sfm_kf = job_dir / "sfm" / "keyframes" / "frames_meta.json"
+    frames_meta = job_dir / "frames_meta.json"
+    masks_dir = job_dir / "masks" / "0"
+
+    sfm_data = _load_sfm_keyframes(sfm_kf, frames_meta)
+    if sfm_data is None:
+        print("  [select_frames] SfM data not found, will fall back to mask-area selection")
+        return []
+
+    seq_indices, _, view_directions = sfm_data
+    candidates: list[tuple[int, np.ndarray, int]] = []
+    for seq_idx, view_direction in zip(seq_indices, view_directions):
+        mask_path = masks_dir / f"{int(seq_idx):06d}.png"
+        if not mask_path.exists():
+            continue
+        area = _mask_area(mask_path)
+        if area > 0:
+            candidates.append((int(seq_idx), view_direction, area))
+    return _select_pose_diverse_candidates(candidates, count)
+
+
 def select_frames_fallback(job_dir: Path, n: int = 6) -> list[str]:
     """Fallback: return top-n frame IDs by mask area."""
     masks_dir = job_dir / "masks" / "0"
@@ -208,37 +275,94 @@ def select_frames_fallback(job_dir: Path, n: int = 6) -> list[str]:
 def select_frames(
     job_dir: Path,
     *,
+    capture_mode: str = "two_stage",
     bin_deg: float = 60.0,
+    stationary_count: int = 6,
     fallback_count: int = 6,
 ) -> list[str]:
-    """Select frames with the trajectory method and mask-area fallback."""
-    selected = select_frames_by_angle_bins(job_dir, bin_deg=bin_deg)
+    """Select frames for the requested capture contract."""
+    selected, _ = select_frames_with_report(
+        job_dir,
+        capture_mode=capture_mode,
+        bin_deg=bin_deg,
+        stationary_count=stationary_count,
+        fallback_count=fallback_count,
+    )
+    return selected
+
+
+def select_frames_with_report(
+    job_dir: Path,
+    *,
+    capture_mode: str = "two_stage",
+    bin_deg: float = 60.0,
+    stationary_count: int = 6,
+    fallback_count: int = 6,
+) -> tuple[list[str], dict]:
+    """Select frames and return provenance describing the selection policy."""
+    if capture_mode == "two_stage":
+        selected = select_frames_by_angle_bins(job_dir, bin_deg=bin_deg)
+        method = "cumulative_orbit_angle_bins"
+        motion_assumption = "stationary_then_reoriented_then_stationary"
+    elif capture_mode == "stationary":
+        selected = select_frames_by_view_diversity(job_dir, count=stationary_count)
+        method = "camera_view_direction_farthest_point"
+        motion_assumption = "object_stationary_throughout"
+    else:
+        raise ValueError(f"Unsupported capture_mode: {capture_mode}")
+
     if not selected:
         print("[select_frames] SfM selection empty; using mask-area fallback")
         selected = select_frames_fallback(job_dir, n=fallback_count)
-    return selected
+        method = "mask_area_fallback"
+
+    report = {
+        "capture_mode": capture_mode,
+        "object_motion_assumption": motion_assumption,
+        "object_motion_validation": "capture_procedure_contract",
+        "selection_method": method,
+        "selected_frames": selected,
+    }
+    if capture_mode == "two_stage":
+        report["angle_bin_degrees"] = bin_deg
+    else:
+        report["requested_view_count"] = stationary_count
+    return selected, report
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--job_dir", type=Path, required=True)
     parser.add_argument("--output_path", type=Path, required=True)
+    parser.add_argument(
+        "--capture_mode",
+        choices=["two_stage", "stationary"],
+        default="two_stage",
+    )
     parser.add_argument("--bin_deg", type=float, default=60.0)
+    parser.add_argument("--stationary_count", type=int, default=6)
     parser.add_argument("--fallback_count", type=int, default=6)
     args = parser.parse_args()
     if args.bin_deg <= 0:
         parser.error("--bin_deg must be greater than 0")
     if args.fallback_count < 1:
         parser.error("--fallback_count must be at least 1")
+    if args.stationary_count < 1:
+        parser.error("--stationary_count must be at least 1")
 
-    selected = select_frames(
+    selected, report = select_frames_with_report(
         args.job_dir,
+        capture_mode=args.capture_mode,
         bin_deg=args.bin_deg,
+        stationary_count=args.stationary_count,
         fallback_count=args.fallback_count,
     )
     args.output_path.parent.mkdir(parents=True, exist_ok=True)
     args.output_path.write_text(json.dumps(selected, indent=2) + "\n")
+    report_path = args.output_path.parent / "selection_report.json"
+    report_path.write_text(json.dumps(report, indent=2) + "\n")
     print(f"[select_frames] selected {len(selected)} frames: {selected}")
+    print(f"[select_frames] provenance: {report_path}")
     return 0
 
 

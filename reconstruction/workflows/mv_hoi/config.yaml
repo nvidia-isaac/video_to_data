@@ -2,23 +2,137 @@
 # SPDX-License-Identifier: Apache-2.0
 datasets:
   sc_office_4exo_1:
-    swift_base: 
-    calibration_path: calibration
-    calibration_output_path: calibration_output
-    data_path: data
-    data_output_path: data_output
-    mesh_base: 
+    swift_base: swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/multiview/sc_office_4exo_1
+    mesh_base: swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/mesh
+    weights_base_url: swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/multiview_weights/releases/20260722
     pipelines:
       mv_calibration:
-        workflow_yaml: osmo/mv_calibration.yaml
+        input_path: calibration
+        output_path: calibration_output
+        max_concurrent: 20
+        workflows:
+          calibration:
+            workflow_yaml: osmo/mv_calibration.yaml
+            calibration_setup: stereo4_6x10_100mm_marker
+      mv_preprocess:
+        input_path: data
+        output_path: data_output
+        campaign_output_path: data_output
+        max_concurrent: 40
+        campaign_max_concurrent: 40
+        workflows:
+          preprocess:
+            workflow_yaml: osmo/mv_preprocess.yaml
       mv_hoi_reconstruction:
-        workflow_yaml: osmo/mv_hoi_reconstruction.yaml
-    osmo_pool: default
-    max_concurrent: 20
-    qc_thresholds:
-      max_chamfer_object: 30.0
-      max_chamfer_human: 30.0
-      min_mask_containment: 0.8
-      mask_bbox_padding: 0.1
-    hitl_s3_base: 
-    hitl_batch_name_template: "batch_{date}"
+        input_path: data
+        output_path: data_output
+        campaign_output_path: data_output
+        max_concurrent: 60
+        campaign_max_concurrent: 60
+        workflows:
+          reconstruction:
+            workflow_yaml: osmo/mv_hoi_reconstruction.yaml
+            continuous_symmetry_step_deg: 10.0
+            qc_thresholds:
+              max_chamfer_object: 40.0
+              max_chamfer_human: 40.0
+              max_chamfer_segment_object: 50.0
+              max_chamfer_segment_human: 50.0
+              min_mask_containment: 0.8
+              mask_bbox_padding: 0.1
+              min_object_silhouette_bbox_containment: 0.8
+              min_object_segment_pixels: 10
+              min_object_bbox_component_pixels: 3
+              min_object_bbox_component_fraction_of_largest: 0.001
+              object_silhouette_render_bbox_padding_pixels: 8
+              max_object_silhouette_bad_frame_fraction: 0.05
+              min_silhouette_bbox_containment: 0.8
+              min_silhouette_mask_pixels: 10
+              min_silhouette_bbox_component_pixels: 3
+              min_silhouette_bbox_component_fraction_of_largest: 0.001
+              silhouette_render_bbox_padding_pixels: 8
+              silhouette_render_bbox_padding_fraction: 0.1
+              min_accuracy_failure_run_frames: 5
+              max_silhouette_failure_coverage: 0.5
+            hitl_s3_base: s3://hitl-intake-testing/production-folder/isaac-v2d-multiview/data-factory-production/video-to-data-v2d-multiview-data-collection
+            hitl_batch_name_template: "batch_{date}"
+      mv_hoi_export:
+        input_path: data_output
+        legacy_output_path: data_export
+        work_output_path: _export_work
+        output_path: data_export_3
+        promotion:
+          max_per_cycle: 20
+          workers: 4
+        # Enable campaign-by-campaign only after its manual cleanup canary.
+        cleanup_intermediates_after_export:
+          enabled: true
+          campaign_allowlist:
+            - 20260728_backlog_reprocessing_v1628_canonical_preprocess
+            - 20260804_backlog_reprocessing_v1645_segment_accuracy_end_trim_r2
+          automatic_export_cutoff: "2026-08-02T22:46:43Z"
+          mode: asynchronous
+          max_per_cycle: 40
+          workers: 8
+        workflows:
+          export:
+            workflow_yaml: osmo/mv_hoi_export.yaml
+            batch_size: 40
+            kratos_table: llmdf_admin.project_285164_annotations
+            kratos_status_table: llmdf_admin.item_status_transition_metrics
+            kratos_project_id: 285164
+            max_failure_annotations: 10
+            max_failure_coverage: 0.5
+            max_silhouette_failure_coverage: 0.5
+            interaction_trim:
+              enabled: true
+              distance_threshold_m: 0.10
+              pre_contact_padding_seconds: 3.0
+              post_contact_padding_seconds: 3.0
+              window_frames: 7
+              required_under_threshold_frames: 5
+              no_contact_policy: keep_full
+      mv_hoi_revalidation:
+        input_path: data_output
+        legacy_export_path: data_export
+        work_output_path: _revalidation_work
+        output_path: data_export_3
+        max_concurrent: 100
+        workflows:
+          revalidation:
+            workflow_yaml: osmo/mv_hoi_revalidation.yaml
+            qc_thresholds:
+              max_chamfer_object: 40.0
+              max_chamfer_human: 40.0
+              max_chamfer_segment_object: 50.0
+              max_chamfer_segment_human: 50.0
+              min_object_silhouette_bbox_containment: 0.8
+              min_object_segment_pixels: 10
+              min_object_bbox_component_pixels: 3
+              min_object_bbox_component_fraction_of_largest: 0.001
+              object_silhouette_render_bbox_padding_pixels: 8
+              max_object_silhouette_bad_frame_fraction: 0.05
+              min_silhouette_bbox_containment: 0.8
+              min_silhouette_mask_pixels: 10
+              min_silhouette_bbox_component_pixels: 3
+              min_silhouette_bbox_component_fraction_of_largest: 0.001
+              silhouette_render_bbox_padding_pixels: 8
+              silhouette_render_bbox_padding_fraction: 0.1
+              min_accuracy_failure_run_frames: 5
+              max_silhouette_failure_coverage: 0.5
+            interaction_trim:
+              enabled: true
+              distance_threshold_m: 0.10
+              pre_contact_padding_seconds: 3.0
+              post_contact_padding_seconds: 3.0
+              window_frames: 7
+              required_under_threshold_frames: 5
+              no_contact_policy: keep_full
+          export_retry:
+            workflow_yaml: osmo/mv_hoi_revalidation_export_retry.yaml
+    osmo_pools:
+      - isaac-apps-l40-05
+      - isaac-dev-l40s-04
+      - isaac-dev-h100-01
+      - isaac-lab-l40s-03
+    osmo_pool_fallback: isaac-apps-l40-05

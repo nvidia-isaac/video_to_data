@@ -2,9 +2,7 @@
 
 > An end-to-end pipeline that converts human demonstration videos into simulation-ready assets and physics-grounded robot training data.
 
-**[Documentation](https://nvidia-isaac.github.io/video_to_data/)** · **[Dataset](https://huggingface.co/collections/nvidia/video-to-data)** · **[V2D Challenge](https://nvidia-isaac.github.io/video_to_data/v2d_challenge/)**
-
-Robotic Grounding · **[Project Page](https://nvidia-isaac.github.io/video_to_data/chord/)** · **[Tech Report](https://nvidia-isaac.github.io/video_to_data/chord/chord.pdf)**
+**[Documentation](https://nvidia-isaac.github.io/video_to_data/)** · **[Robotic Grounding Project Page](https://nvidia-isaac.github.io/video_to_data/chord/)** · **[Robotic Grounding Tech Report](https://nvidia-isaac.github.io/video_to_data/chord/chord.pdf)**
 
 ![Video to Data pipeline — from human demonstration video through ingestion, reconstruction, and robotic grounding in Isaac Lab to a physics-grounded policy, dataset, and real-robot deployment](docs/figures/v2d_overview.png)
 
@@ -27,11 +25,34 @@ Robotic Grounding · **[Project Page](https://nvidia-isaac.github.io/video_to_da
 
 ## Overview
 
-Video to Data (V2D) turns raw human demonstrations into robot-ready training data through three composable stages. Each stage runs independently and writes its artifacts to disk, so you can stop, inspect, cache, and recompose the pipeline at any boundary.
+Video to Data (V2D) turns raw human demonstrations into robot-ready training data through four composable stages. Each stage runs independently and writes its artifacts to disk, so you can stop, inspect, cache, and recompose the pipeline at any boundary.
 
 1. **Video Ingestion Agent** — a LangGraph-driven agentic workflow that segments demonstration videos into temporally-bounded action clips, extracts an entity-relation scene graph, and stores per-frame SigLIP-2 embeddings. The result is a queryable action database (`graph.db` + `vector.db`) that lets downstream stages select which clips to process via natural-language retrieval, instead of brute-forcing the full video.
 2. **Reconstruction** — containerized vision modules turn the selected RGB (or stereo) clips into per-frame depth, object masks, textured meshes, 6-DoF object poses, and SMPL human body parameters. Multi-view pipelines (`run_mv_hoi_reconstruction`, `run_mv_calibration`) orchestrate the full reconstruction from a rosbag.
 3. **Robotic Grounding** — human motion (e.g. Arctic) is retargeted onto the target robot embodiment (Sharpa), then the reconstructed scene and retargeted motion drive Isaac Lab environments trained with RSL-RL PPO to produce deployable policies.
+4. **GR00T post-training** — successful Vega/Dexmate Sharpa expert episodes are replayed, converted to an audited LeRobot dataset, used to fine-tune GR00T N1.7, and evaluated in closed-loop simulation.
+
+The repository-root launcher connects reconstruction, retargeting, expert training, joint-action
+collection, GR00T fine-tuning, and evaluation while preserving a manifest for every stage:
+
+~~~bash
+./run_e2e.sh init \
+  --run-root /absolute/path/to/e2e_run \
+  --sequence-id example_sequence \
+  --embodiment-contract vega_sharpa_joint \
+  --task-profile /absolute/path/to/task_profile.json
+./run_e2e.sh setup \
+  --mano-dir /absolute/path/to/mano \
+  --isaac-groot-dir /absolute/path/to/Isaac-GR00T \
+  --accept-nvidia-model-eula
+./run_e2e.sh doctor
+~~~
+
+Pass `--accept-nvidia-model-eula` only after reviewing and accepting the
+[NVIDIA Open Model License required by FoundationPose](reconstruction/README.md#v2d_foundation_pose).
+Continue with the concise [reconstruction-to-GR00T workflow](docs/e2e_workflow.md). Inputs such
+as videos, prompts, checkpoints, episode counts, and measured pilot success are configured only
+when their owning stage runs.
 
 ## Demos
 
@@ -45,7 +66,7 @@ The pipeline in action — from a raw human demonstration, to grounded policies 
 |---|---|---|
 | [`video_ingestion_agent/`](video_ingestion_agent/) | Video → action segments + entity scene graph + frame embeddings. LangGraph pipeline (segment → verify/refine → entity graph → embeddings) plus an EGAgent-style natural-language retrieval agent and an optional Gradio UI. | Python venv + vLLM server |
 | [`reconstruction/`](reconstruction/) | Video → depth, masks, meshes, 6D poses, human body. 18 containerized modules + multi-view pipelines. | Docker (per-module images) |
-| [`robotic_grounding/`](robotic_grounding/) | RL training on NVIDIA Isaac Lab 2.3.1 with RSL-RL (PPO); motion retargeting utilities. | Docker (build locally or configure your registry) |
+| [`robotic_grounding/`](robotic_grounding/) | RL training on NVIDIA Isaac Lab 2.3.1 with RSL-RL (PPO); motion retargeting utilities. | Docker (`nvcr.io/nvstaging/isaac-amr`) |
 
 ## Prerequisites
 
@@ -86,7 +107,7 @@ python scripts/run_retrieval.py "Find clips where someone picks up a mug" \
 python scripts/run_webapp.py
 ```
 
-See [video_ingestion_agent/README.md](video_ingestion_agent/README.md) for hardware requirements, the full extras list, the verify/refine loop, and batch-ingestion across multiple GPUs.
+See [video_ingestion_agent/README.md](video_ingestion_agent/README.md) for hardware requirements, the full extras list, the verify/refine loop, and batch-ingestion across multiple GPUs. Pre-publication TODOs are tracked in [video_ingestion_agent/docs/release_readiness.md](video_ingestion_agent/docs/release_readiness.md).
 
 ### Reconstruction (video → 3D data)
 
@@ -114,7 +135,7 @@ Full multi-view HOI pipeline (rosbag → textured object mesh + SMPL body):
 python -m v2d.pipelines.run_mv_hoi_reconstruction \
   --rosbag_path /data/rosbags/session1 \
   --output_dir  /data/datasets/session1 \
-  --extrinsics_camera_params_path /data/datasets/calibration/extrinsics/edex \
+  --calibration_camera_params_path /data/datasets/calibration/extrinsics/edex \
   --obj_mesh_path /data/meshes/object.glb
 ```
 

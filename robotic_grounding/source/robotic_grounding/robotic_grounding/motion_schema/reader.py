@@ -27,6 +27,7 @@ import pyarrow.parquet as pq
 from .schema import (
     DUAL_HAND,
     DUAL_HAND_PER_SIDE_FIELDS,
+    OBJECT_REFERENCE_REQUIRED_FIELDS,
     SCHEMA_VERSION,
     MissingRequiredField,
     MotionData,
@@ -94,6 +95,21 @@ def _is_empty(val: Any) -> bool:
     if isinstance(val, list | tuple | str | bytes):
         return len(val) == 0
     return False
+
+
+def _names_side(name: str | None, side: str) -> bool:
+    """Whether a robot link name designates ``side`` ("left" / "right").
+
+    Accepts both conventions in use: the spelled-out token (``left_thumb_DP``) and the
+    single-letter prefix (Vega's ``L_arm_l7``). A plain ``side in name.lower()`` check
+    misses the latter, and the miss is silent -- the wrist reference stays None, the
+    wrist command falls back to zeros, and the tracking error then reports the wrist's
+    distance from the env origin as if it were a tracking failure.
+    """
+    lowered = (name or "").lower()
+    if not lowered:
+        return False
+    return lowered.startswith(f"{side[0]}_") or side in lowered
 
 
 def _as_tensor(
@@ -202,6 +218,21 @@ def _validate_required(data: dict[str, Any], path: Path) -> None:
     if missing:
         raise MissingRequiredField(missing=missing, path=str(path))
 
+    object_group_present: dict[str, bool] = {}
+    for name in OBJECT_REFERENCE_REQUIRED_FIELDS:
+        values = data.get(name)
+        value = values[0] if values else None
+        object_group_present[name] = value is not None and (
+            not hasattr(value, "__len__") or len(value) > 0
+        )
+    if any(object_group_present.values()) and not all(object_group_present.values()):
+        raise MissingRequiredField(
+            missing=[
+                name for name, present in object_group_present.items() if not present
+            ],
+            path=str(path),
+        )
+
     if motion_kind == DUAL_HAND:
         n_sides = len(data.get("hand_sides", [[]])[0] or [])
         misaligned: list[tuple[str, int]] = []
@@ -308,8 +339,11 @@ def load_motion_data_parquet(
     md.object_root_position = _as_tensor(
         data.get("object_root_position", [None])[0], device=device
     )
-    obj_pos = _as_tensor(data["object_body_position"][0], device=device)
-    obj_quat = _as_tensor(data["object_body_wxyz"][0], device=device)
+    obj_pos = None
+    obj_quat = None
+    if md.object_body_names:
+        obj_pos = _as_tensor(data.get("object_body_position", [None])[0], device=device)
+        obj_quat = _as_tensor(data.get("object_body_wxyz", [None])[0], device=device)
     md.object_body_position = obj_pos
     md.object_body_wxyz = obj_quat
     # Primary body (index 0).
@@ -361,9 +395,9 @@ def load_motion_data_parquet(
         # ee_link_names convention: produce `[left_*, right_*]` in order; the
         # side->ee mapping is left-first when both sides are present.
         if md.ee_pose_w is not None and md.ee_link_names:
-            # Match side to the first ee link whose name contains the side.
+            # Match side to the first ee link naming that side.
             matches = [
-                i for i, n in enumerate(md.ee_link_names) if side in (n or "").lower()
+                i for i, n in enumerate(md.ee_link_names) if _names_side(n, side)
             ]
             if matches:
                 ee_idx = matches[0]

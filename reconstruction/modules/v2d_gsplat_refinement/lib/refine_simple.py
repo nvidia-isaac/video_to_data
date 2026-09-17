@@ -15,7 +15,8 @@ Image losses are full-frame
 L1 photometric error plus optional L1 segmentation-mask supervision, with
 optional relative depth-gradient supervision from MoGe depth, and with
 optional temporal smoothness on the absolute and hand/object-relative dynamic
-poses.
+poses. An optional vertex smoothness term penalizes world-space foreground
+geometry acceleration in metric units.
 
 Run inside the gsplat refinement environment, for example:
 
@@ -30,6 +31,7 @@ Run inside the gsplat refinement environment, for example:
         --right_hand_mask_dir data/outputs/clip/masks/2 \
         --mano_assets_root data/weights/hamer/_DATA/data \
         --refined_object_poses_dir data/outputs/clip/poses_refined_simple \
+        --refined_object_scale_path data/outputs/clip/refined_object_scale.json \
         --refined_right_hand_pose_dir data/outputs/clip/hamer_refined_simple/2 \
         --refined_camera_poses_dir data/outputs/clip/camera_refined_simple \
         --overlay_path data/outputs/clip/refined_simple.mp4
@@ -38,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import json
 import math
 import os
 import subprocess
@@ -749,6 +752,149 @@ def _normalized_smooth(loss: torch.Tensor, n: int) -> torch.Tensor:
     return loss / float(max(n - 1, 1))
 
 
+def _select_vertex_smoothness_indices(
+    n_vertices: int,
+    max_vertices: int,
+    device: torch.device,
+) -> torch.Tensor:
+    n_vertices = int(n_vertices)
+    max_vertices = int(max_vertices)
+    if n_vertices <= 0:
+        return torch.empty((0,), device=device, dtype=torch.long)
+    if max_vertices <= 0 or n_vertices <= max_vertices:
+        return torch.arange(n_vertices, device=device, dtype=torch.long)
+    return torch.linspace(
+        0,
+        n_vertices - 1,
+        max_vertices,
+        device=device,
+    ).round().to(torch.long)
+
+
+def _point_acceleration_smoothness(
+    points_world: torch.Tensor,
+    scale: float,
+) -> torch.Tensor:
+    """Mean squared second difference for stable world-space point tracks.
+
+    ``points_world`` is ``(T, N, 3)`` in scene metric units. Dividing by
+    ``scale`` turns the value dimensionless, so a caller can set
+    ``scale=0.01`` to make a 1 cm/frame^2 acceleration contribute about 1.0
+    before the external loss weight.
+    """
+    if points_world.shape[0] < 3 or points_world.shape[1] == 0:
+        return points_world.sum() * 0.0
+    d2 = points_world[2:] - 2.0 * points_world[1:-1] + points_world[:-2]
+    d2 = d2 / float(scale)
+    return d2.square().sum(dim=-1).mean()
+
+
+def _camera_points_to_world(
+    points_cam: torch.Tensor,
+    bg_pose_field: BackgroundPoseField | None,
+    t_idx: torch.Tensor,
+) -> torch.Tensor:
+    if bg_pose_field is None:
+        return points_cam
+    R_bg, t_bg = bg_pose_field.batched_forward(t_idx)
+    return torch.einsum("tni,tij->tnj", points_cam - t_bg[:, None, :], R_bg)
+
+
+def _object_vertex_smoothness(
+    obj_pose_field: ObjectPoseField,
+    obj_vertices: torch.Tensor,
+    obj_gaussians: torch.nn.Module,
+    bg_pose_field: BackgroundPoseField | None,
+    max_vertices: int,
+    scale: float,
+) -> torch.Tensor:
+    T = obj_pose_field.num_frames()
+    if T < 3:
+        return obj_pose_field.axis_angle.new_zeros(())
+    idx = _select_vertex_smoothness_indices(
+        obj_vertices.shape[0],
+        max_vertices,
+        obj_vertices.device,
+    )
+    verts_obj = obj_vertices.index_select(0, idx)
+    if hasattr(obj_gaussians, "object_scale"):
+        verts_obj = verts_obj * obj_gaussians.object_scale()
+    t_idx = torch.arange(T, device=obj_vertices.device, dtype=torch.long)
+    R_obj, t_obj = obj_pose_field.batched_forward(t_idx)
+    verts_cam = torch.einsum("nj,tij->tni", verts_obj, R_obj) + t_obj[:, None, :]
+    verts_world = _camera_points_to_world(verts_cam, bg_pose_field, t_idx)
+    return _point_acceleration_smoothness(verts_world, scale)
+
+
+def _hand_vertex_smoothness(
+    slot: HandSlot,
+    obj_pose_field: ObjectPoseField,
+    bg_pose_field: BackgroundPoseField | None,
+    max_vertices: int,
+    scale: float,
+    frame_chunk_size: int = 64,
+) -> torch.Tensor:
+    n = slot.pose_field.num_frames()
+    if n < 3:
+        return slot.pose_field.cam_t.new_zeros(())
+    device = slot.pose_field.cam_t.device
+    idx = _select_vertex_smoothness_indices(
+        slot.pose_field.num_verts(),
+        max_vertices,
+        device,
+    )
+    object_frame_to_pos = {fidx: i for i, fidx in enumerate(obj_pose_field.frame_indices)}
+    chunks: list[torch.Tensor] = []
+    for start in range(0, n, int(frame_chunk_size)):
+        end = min(start + int(frame_chunk_size), n)
+        t_idx = torch.arange(start, end, device=device, dtype=torch.long)
+        verts, _ = slot.pose_field.batched_posed_verts_and_rotmats_camera(t_idx)
+        verts = verts.index_select(1, idx)
+        if bg_pose_field is not None:
+            bg_idx = torch.tensor(
+                [object_frame_to_pos[fidx] for fidx in slot.pose_field.frame_indices[start:end]],
+                device=device,
+                dtype=torch.long,
+            )
+            verts = _camera_points_to_world(verts, bg_pose_field, bg_idx)
+        chunks.append(verts)
+    verts_world = torch.cat(chunks, dim=0)
+    return _point_acceleration_smoothness(verts_world, scale)
+
+
+def _vertex_smoothness(
+    obj_pose_field: ObjectPoseField,
+    obj_vertices: torch.Tensor,
+    obj_gaussians: torch.nn.Module,
+    hand_slots: list[HandSlot],
+    bg_pose_field: BackgroundPoseField | None,
+    w_vertex_smoothness: float,
+    vertex_smoothness_scale: float,
+    vertex_smoothness_max_vertices: int,
+) -> torch.Tensor:
+    if float(w_vertex_smoothness) <= 0.0:
+        return obj_pose_field.axis_angle.new_zeros(())
+    losses: list[torch.Tensor] = [
+        _object_vertex_smoothness(
+            obj_pose_field,
+            obj_vertices,
+            obj_gaussians,
+            bg_pose_field,
+            vertex_smoothness_max_vertices,
+            vertex_smoothness_scale,
+        )
+    ]
+    for slot in hand_slots:
+        losses.append(_hand_vertex_smoothness(
+            slot,
+            obj_pose_field,
+            bg_pose_field,
+            vertex_smoothness_max_vertices,
+            vertex_smoothness_scale,
+        ))
+    return float(w_vertex_smoothness) * torch.stack(losses).mean()
+
+
 def _cosine_lr_scale(step: int, total_steps: int, min_factor: float) -> float:
     if total_steps <= 1:
         return float(min_factor)
@@ -1006,6 +1152,7 @@ def refine_simple(
     object_mask_dir: str,
     refined_object_poses_dir: str,
     overlay_path: str,
+    refined_object_scale_path: str | None = None,
     left_hand_pose_dir: str | None = None,
     left_hand_mask_dir: str | None = None,
     right_hand_pose_dir: str | None = None,
@@ -1037,6 +1184,9 @@ def refine_simple(
     w_smooth_hand_object_relative_trans: float = 0.0,
     w_smooth_camera_rot: float = 0.01,
     w_smooth_camera_trans: float = 0.01,
+    w_vertex_smoothness: float = 0.0,
+    vertex_smoothness_scale: float = 0.01,
+    vertex_smoothness_max_vertices: int = 1024,
     w_mask: float = 1.0,
     w_relative_depth: float = 0.0,
     w_perceptual: float = 0.0,
@@ -1082,6 +1232,8 @@ def refine_simple(
     lr_cosine_min_factor = float(lr_cosine_min_factor)
     if lr_cosine_min_factor < 0.0 or lr_cosine_min_factor > 1.0:
         raise ValueError("lr_cosine_min_factor must be in [0, 1]")
+    if float(w_vertex_smoothness) > 0.0 and float(vertex_smoothness_scale) <= 0.0:
+        raise ValueError("vertex_smoothness_scale must be > 0 when w_vertex_smoothness is nonzero")
 
     torch.manual_seed(seed)
     device_t = torch.device(device)
@@ -1296,6 +1448,15 @@ def refine_simple(
         else:
             print("Ignoring hand/object relative smoothness because no hand tracks are present.")
 
+    if float(w_vertex_smoothness) > 0.0:
+        frame_label = "world-space" if bg_pose_field is not None else "camera-frame"
+        print(
+            f"{frame_label} vertex acceleration smoothness: "
+            f"weight={float(w_vertex_smoothness):.4g}, "
+            f"scale={float(vertex_smoothness_scale):.4g} m, "
+            f"max_vertices={int(vertex_smoothness_max_vertices)}"
+        )
+
     use_perceptual_loss = float(w_perceptual) > 0.0
     perceptual_loss_fn: VGG16PerceptualLoss | None = None
     if use_perceptual_loss:
@@ -1307,7 +1468,8 @@ def refine_simple(
               f"resize={int(perceptual_resize)}")
 
     object_sdf: ObjectSDFGrid | None = None
-    if float(w_hand_object_penetration) > 0.0:
+    use_penetration_loss = float(w_hand_object_penetration) > 0.0
+    if use_penetration_loss:
         if hand_slots:
             object_sdf = _build_object_sdf_grid(
                 obj_verts,
@@ -1408,6 +1570,7 @@ def refine_simple(
             relative_depth = obj_pose_field.axis_angle.new_zeros(())
             perceptual = obj_pose_field.axis_angle.new_zeros(())
             penetration = obj_pose_field.axis_angle.new_zeros(())
+            vertex_smooth = obj_pose_field.axis_angle.new_zeros(())
             for t in batch:
                 fidx = frame_indices[t]
                 target = _target_rgb(cache, t, device_t, mask_background)
@@ -1450,16 +1613,17 @@ def refine_simple(
                         depth_mask,
                     )
                 if object_sdf is not None:
-                    penetration = penetration + _hand_object_penetration_loss(
-                        t,
-                        fidx,
-                        obj_pose_field,
-                        obj_gaussians,
-                        hand_slots,
-                        object_sdf,
-                        hand_object_penetration_margin,
-                        hand_object_penetration_max_verts,
-                    )
+                    if use_penetration_loss:
+                        penetration = penetration + _hand_object_penetration_loss(
+                            t,
+                            fidx,
+                            obj_pose_field,
+                            obj_gaussians,
+                            hand_slots,
+                            object_sdf,
+                            hand_object_penetration_margin,
+                            hand_object_penetration_max_verts,
+                        )
             photo = photo / float(max(len(batch), 1))
             mask_l1 = mask_l1 / float(max(len(batch), 1))
             relative_depth = relative_depth / float(max(len(batch), 1))
@@ -1472,6 +1636,16 @@ def refine_simple(
                 w_smooth_hand_object_relative_rot, w_smooth_hand_object_relative_trans,
                 w_smooth_camera_rot, w_smooth_camera_trans,
             ) / float(n_batches)
+            vertex_smooth = _vertex_smoothness(
+                obj_pose_field,
+                obj_verts,
+                obj_gaussians,
+                hand_slots,
+                bg_pose_field,
+                w_vertex_smoothness,
+                vertex_smoothness_scale,
+                vertex_smoothness_max_vertices,
+            ) / float(n_batches)
             loss = (
                 photo
                 + float(w_mask) * mask_l1
@@ -1479,6 +1653,7 @@ def refine_simple(
                 + float(w_perceptual) * perceptual
                 + float(w_hand_object_penetration) * penetration
                 + smooth
+                + vertex_smooth
             )
             if not bool(torch.isfinite(loss)):
                 print(
@@ -1546,6 +1721,7 @@ def refine_simple(
                 rdepth=f"{float(relative_depth.detach()):.4f}",
                 perc=f"{float(perceptual.detach()):.4f}",
                 pen=f"{float(penetration.detach()):.4f}",
+                vsmooth=f"{float(vertex_smooth.detach()):.4f}",
                 lr=f"{lr_scale:.3g}",
                 smooth=f"{float(smooth.detach()):.4f}",
             )
@@ -1560,9 +1736,22 @@ def refine_simple(
 
     refined_obj_track = obj_pose_field.export_track()
     s_obj_learned = float(obj_gaussians.object_scale().detach())
-    refined_obj_track.scales = refined_obj_track.scales * s_obj_learned
     if float(lr_object_scale) > 0.0:
         print(f"Learned object scale: {s_obj_learned:.4f}")
+    scale_output_path = refined_object_scale_path
+    if scale_output_path is None and (
+        float(lr_object_scale) > 0.0 or abs(s_obj_learned - 1.0) > 1e-6
+    ):
+        scale_output_path = os.path.join(
+            os.path.dirname(os.path.abspath(refined_object_poses_dir)),
+            "refined_object_scale.json",
+        )
+    if scale_output_path is not None:
+        os.makedirs(os.path.dirname(os.path.abspath(scale_output_path)) or ".", exist_ok=True)
+        with open(scale_output_path, "w") as f:
+            json.dump({"scale": s_obj_learned}, f, indent=2)
+        print(f"Wrote learned object scale -> {scale_output_path}")
+    refined_obj_track.scales = torch.ones_like(refined_obj_track.scales)
     save_object_poses(refined_obj_track, refined_object_poses_dir)
     print(f"Wrote refined object poses -> {refined_object_poses_dir}")
     for slot in hand_slots:
@@ -1602,6 +1791,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--object_mask_dir", required=True)
     p.add_argument("--refined_object_poses_dir", required=True)
     p.add_argument("--overlay_path", required=True)
+    p.add_argument("--refined_object_scale_path", default=None,
+                   help="Optional JSON path for learned global object scale. Object pose JSONs remain rigid.")
     p.add_argument("--left_hand_pose_dir", default=None)
     p.add_argument("--left_hand_mask_dir", default=None)
     p.add_argument("--right_hand_pose_dir", default=None)
@@ -1644,6 +1835,12 @@ def parse_args() -> argparse.Namespace:
                         "0 disables.")
     p.add_argument("--w_smooth_camera_rot", type=float, default=0.01)
     p.add_argument("--w_smooth_camera_trans", type=float, default=0.01)
+    p.add_argument("--w_vertex_smoothness", type=float, default=0.0,
+                   help="Weight for world-space vertex acceleration smoothness. 0 disables.")
+    p.add_argument("--vertex_smoothness_scale", type=float, default=0.01,
+                   help="Metric tolerance in meters used to normalize vertex acceleration.")
+    p.add_argument("--vertex_smoothness_max_vertices", type=int, default=1024,
+                   help="Max vertices sampled per object/hand for vertex smoothness. <=0 uses all.")
     p.add_argument("--w_mask", type=float, default=1.0,
                    help="Weight for L1 segmentation mask loss. 0 disables.")
     p.add_argument("--w_relative_depth", type=float, default=0.0,

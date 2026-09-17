@@ -490,6 +490,7 @@ def build_frame_views(
     frame_step: int = 1,
     max_views: int = 0,
     max_frame: Optional[int] = None,
+    sample_across_range: bool = False,
 ) -> List[FrameView]:
     """Build FrameView list from SfM poses and mask directory."""
     mask_files = {p.stem: p for p in sorted(masks_dir.glob("*.png"))}
@@ -509,7 +510,11 @@ def build_frame_views(
     if frame_step > 1:
         common = common[::frame_step]
     if max_views > 0:
-        common = common[:max_views]
+        if sample_across_range and len(common) > max_views:
+            sample_indices = np.linspace(0, len(common) - 1, max_views, dtype=int)
+            common = [common[index] for index in sample_indices]
+        else:
+            common = common[:max_views]
 
     views: List[FrameView] = []
     skipped = 0
@@ -1205,12 +1210,13 @@ def estimate_srt_for_frame(
     use_depth: bool = False,
     debug: bool = True,
     stage1_end_frame: Optional[int] = None,
+    capture_mode: str = "two_stage",
 ) -> dict:
     """Estimate scale+rotation+translation for a SAM3D mesh using SfM poses + masks.
 
-    Only Stage-1 frames (object stationary) are used for silhouette alignment.
-    Stage-2 frames (object moved/rotated) would provide contradictory signals and
-    degrade the estimate.
+    Two-stage captures use only Stage-1 frames because later object motion would
+    provide contradictory silhouette signals. Stationary captures may use views
+    across the full sequence.
 
     Args:
         job_dir:           HOI reconstruction job directory (must have sfm/, masks/, intrinsics/).
@@ -1228,14 +1234,25 @@ def estimate_srt_for_frame(
         debug:             Write per-view overlay images.
         stage1_end_frame:  Inclusive upper bound on frame index for Stage-1.
                            If None, auto-read from stage1_detect_debug/result.json.
+        capture_mode:      ``two_stage`` (default) or ``stationary``. Stationary
+                           mode requires no stage boundary and makes every valid
+                           sequence frame eligible for alignment.
 
     Returns:
         The srt_result dict (also written to output_dir/srt_result.json).
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Auto-read stage1_end_frame if not supplied
-    if stage1_end_frame is None:
+    if capture_mode not in {"two_stage", "stationary"}:
+        raise ValueError(f"Unsupported capture_mode: {capture_mode}")
+    if capture_mode == "stationary" and stage1_end_frame is not None:
+        raise ValueError(
+            "stage1_end_frame is incompatible with capture_mode='stationary'; "
+            "all frames must share one stationary object pose"
+        )
+
+    # Auto-read the boundary only for the two-stage capture contract.
+    if capture_mode == "two_stage" and stage1_end_frame is None:
         detect_result = job_dir / "stage1_detect_debug" / "result.json"
         if detect_result.exists():
             with open(detect_result) as f:
@@ -1243,7 +1260,12 @@ def estimate_srt_for_frame(
             if stage1_end_frame is not None:
                 print(f"[srt] stage1_end_frame={stage1_end_frame} (from {detect_result.name})")
         if stage1_end_frame is None:
-            print("[srt] Warning: stage1_end_frame not found; using all SfM keyframes including Stage-2")
+            raise ValueError(
+                "Two-stage SRT requires stage1_end_frame. Run stage detection or "
+                "pass capture_mode='stationary' for a stationary-object capture."
+            )
+    elif capture_mode == "stationary":
+        print("[srt] stationary capture: using views across the full sequence")
 
     # Load intrinsics from the first available file in job_dir/intrinsics/
     intrinsics_dir = job_dir / "intrinsics"
@@ -1257,16 +1279,18 @@ def estimate_srt_for_frame(
     poses = load_sfm_keyframe_poses(job_dir)
     print(f"[srt] {len(poses)} keyframe poses loaded")
 
-    # Build views — restricted to Stage-1 frames only
+    # Build views from Stage-1 only, or across the full stationary capture.
     masks_dir = job_dir / "masks" / "0"
     depth_dir: Optional[Path] = (job_dir / "depth") if use_depth else None
     views = build_frame_views(
         intrinsics, poses, masks_dir, depth_dir,
         frame_step=frame_step, max_views=max_views,
         max_frame=stage1_end_frame,
+        sample_across_range=(capture_mode == "stationary"),
     )
     print(f"[srt] {len(views)} views built "
-          f"(frame_step={frame_step}, max_views={max_views}, stage1_end_frame={stage1_end_frame})")
+          f"(frame_step={frame_step}, max_views={max_views}, capture_mode={capture_mode}, "
+          f"stage1_end_frame={stage1_end_frame})")
 
     # Load mesh vertices
     print(f"[srt] Loading mesh vertices from {glb_path} …")
@@ -1353,6 +1377,13 @@ def estimate_srt_for_frame(
     best_result["orientation_key"] = best_key
     best_result["mesh_center"] = mesh_center.tolist()
     best_result["num_views"] = len(views)
+    best_result["capture_mode"] = capture_mode
+    best_result["alignment_frame_policy"] = (
+        "all_frames_uniformly_sampled"
+        if capture_mode == "stationary"
+        else "stage1_only"
+    )
+    best_result["stage1_end_frame"] = stage1_end_frame
 
     # Save result JSON
     result_path = output_dir / "srt_result.json"

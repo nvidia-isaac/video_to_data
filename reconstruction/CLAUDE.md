@@ -226,6 +226,7 @@ from v2d.mv.calibration.docker.run_calibrate_extrinsics import run_calibrate_ext
 | `v2d_foundation_pose` | 6D pose tracking + mesh alignment/simplification. MV: `run_mv_videos_to_poses` (shared-weight multi-view tracker) |
 | `v2d_cusfm` | Structure-from-motion: stereo image list → camera poses |
 | `v2d_bundlesdf` | SDF learning + texture baking from pre-computed poses, depth, and masks |
+| `v2d_cari4d` | End-to-end monocular human-object reconstruction with MoGe 2, SAM 3D Body, FoundationPose, CoCoNet, and contact-guided refinement |
 | `v2d_pipelines` | End-to-end pipelines: `run_mv_hoi_reconstruction`, `run_mv_calibration` (no Docker) |
 
 ### Multi-View Config Pattern

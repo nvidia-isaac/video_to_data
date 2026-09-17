@@ -1,0 +1,489 @@
+# One-sequence commercial FoundationPose revalidation and direct export.
+# The final task creates commit.json only after every local payload is verified.
+
+workflow:
+  name: {{workflow_name}}
+  resources:
+    gpu:
+      cpu: 8
+      gpu: 1
+      memory: 64Gi
+      storage: 150Gi
+    cpu_large:
+      cpu: 32
+      gpu: 0
+      memory: 64Gi
+      storage: 150Gi
+    cpu_small:
+      cpu: 8
+      gpu: 0
+      memory: 32Gi
+      storage: 150Gi
+    cpu_export:
+      cpu: 16
+      gpu: 0
+      memory: 32Gi
+      storage: 150Gi
+
+  tasks:
+  - name: validate_source
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    resource: cpu_small
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - url: {{inventory_url}}
+    - url: {{configuration_url}}
+    outputs:
+    - url: {{work_output_url}}/validate_source/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        INVENTORY=$(find {{input:0}} -type f -name '*.json' -print -quit 2>/dev/null || true)
+        [ -n "$INVENTORY" ] || INVENTORY={{input:0}}
+        CONFIG=$(find {{input:1}} -type f -name '*.json' -print -quit 2>/dev/null || true)
+        [ -n "$CONFIG" ] || CONFIG={{input:1}}
+        test "$(sha256sum "$CONFIG" | cut -d' ' -f1)" = "{{configuration_sha256}}"
+        python -m v2d.mv.postprocess.lib.verify_revalidation_source \
+          --inventory-path "$INVENTORY" \
+          --sequence "{{sequence_name}}" \
+          --expected-manifest-sha256 "{{source_manifest_sha256}}" \
+          --output-path {{output}}/verification.json
+
+  - name: face_detector
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_face_detector:{{image_tag}}
+    resource: cpu_large
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: validate_source
+    - url: {{source_url}}/mv_preprocess/images/
+    - url: {{weights_base_url}}/face_detector/
+    outputs:
+    - url: {{work_output_url}}/face_detector/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        test -f {{input:2}}/face_detection_yunet_2023mar.onnx
+        python -m v2d.face_detector.lib.mv_detect_and_blur_faces \
+          --rgb_dir {{input:1}} \
+          --model_dir {{input:2}} \
+          --output_dir {{output}} \
+          --config_path /tmp/config.yaml
+    - path: /tmp/config.yaml
+      contents: |-
+        camera_workers: 8
+        opencv_threads: 1
+        rgb_path_template: "${rgb_dir}/{cam_name}.h5"
+        output_image_path_template: "${output_dir}/images/{cam_name}.h5"
+
+  - name: foundation_pose
+    resource: gpu
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_foundation_pose:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: validate_source
+    - url: {{source_url}}/mv_preprocess/edex
+    - url: {{source_url}}/mv_preprocess/images/
+    - url: {{source_url}}/foundation_stereo/
+    - url: {{source_url}}/sam2_object_masks/
+    - url: {{source_url}}/mv_preprocess/object_mesh/
+    - url: {{weights_base_url}}/foundation_pose/
+    - url: {{configuration_url}}
+    # Serialize the two large RGB downloads to avoid CSS request bursts on
+    # legacy per-frame sources. This dependency is intentionally last so the
+    # command's existing input indexes remain stable.
+    - task: face_detector
+    outputs:
+    - url: {{work_output_url}}/foundation_pose/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        MODEL_DIR={{input:6}}/nvidia_tensorrt/deployable_v1.0
+        test -f "$MODEL_DIR/refiner_net.onnx"
+        test -f "$MODEL_DIR/score_net.onnx"
+        test -f "$MODEL_DIR/manifest.json"
+        CONFIG=$(find {{input:7}} -type f -name '*.json' -print -quit 2>/dev/null || true)
+        [ -n "$CONFIG" ] || CONFIG={{input:7}}
+        EXPECTED_MANIFEST_SHA=$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["foundation_pose"]["checkpoint_manifest_sha256"])' "$CONFIG")
+        SYMMETRY_STEP=$(python -c 'import json,sys; print(json.load(open(sys.argv[1])).get("foundation_pose", {}).get("continuous_symmetry_step_deg", 10.0))' "$CONFIG")
+        test "$(sha256sum "$MODEL_DIR/manifest.json" | cut -d' ' -f1)" = "$EXPECTED_MANIFEST_SHA"
+        MESH={{input:5}}/output_aligned.glb
+        SYM={{input:5}}/output_symmetry.json
+        SYM_ARG=""
+        [ ! -f "$SYM" ] || SYM_ARG="--symmetry_path $SYM"
+        export FOUNDATIONPOSE_ENGINE_CACHE_DIR=/tmp/foundation_pose_engine_cache
+        python -m v2d.foundation_pose.lib.mv_videos_to_poses \
+          --camera_params_path {{input:1}}/edex \
+          --rgb_dir {{input:2}} \
+          --depth_dir {{input:3}} \
+          --mask_dir {{input:4}} \
+          --mesh_path "$MESH" $SYM_ARG \
+          --continuous_symmetry_step_deg "$SYMMETRY_STEP" \
+          --weights_dir {{input:6}} \
+          --backend nvidia_tensorrt \
+          --output_dir {{output}} \
+          --config_path /tmp/config.yaml
+    - path: /tmp/config.yaml
+      contents: |-
+        rgb_path_template: "${rgb_dir}/{cam_name}.h5"
+        depth_path_template: "${depth_dir}/{cam_name}/depth.h5"
+        mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}.h5"
+
+  - name: compare_foundation_pose
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    resource: cpu_small
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: foundation_pose
+    - url: {{source_url}}/foundation_pose/
+    - url: {{source_url}}/mv_preprocess/object_mesh/
+    - url: {{configuration_url}}
+    outputs:
+    - url: {{work_output_url}}/compare_foundation_pose/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        CONFIG=$(find {{input:3}} -type f -name '*.json' -print -quit 2>/dev/null || true)
+        [ -n "$CONFIG" ] || CONFIG={{input:3}}
+        SYMMETRY_STEP=$(python -c 'import json,sys; print(json.load(open(sys.argv[1])).get("foundation_pose", {}).get("continuous_symmetry_step_deg", 10.0))' "$CONFIG")
+        LEGACY_POSES={{input:1}}/poses.npy
+        LEGACY_VALID={{input:1}}/pose_valid_mask.npy
+        SYM={{input:2}}/output_symmetry.json
+        SYM_ARG=""
+        [ ! -f "$SYM" ] || SYM_ARG="--symmetry-path $SYM"
+        VALID_ARG=""
+        [ ! -f "$LEGACY_VALID" ] || VALID_ARG="--legacy-valid-path $LEGACY_VALID"
+        python -m v2d.mv.postprocess.lib.compare_object_poses \
+          --legacy-pose-path "$LEGACY_POSES" \
+          --commercial-pose-path {{input:0}}/poses.npy \
+          --commercial-valid-path {{input:0}}/pose_valid_mask.npy \
+          --mesh-path {{input:2}}/output_aligned.glb \
+          --legacy-pose-frame "{{legacy_pose_frame}}" \
+          --continuous-symmetry-step-deg "$SYMMETRY_STEP" \
+          $VALID_ARG $SYM_ARG --tolerances-path "$CONFIG" \
+          --output-path {{output}}/foundation_pose_comparison.json
+
+  - name: eval_chamfer_object
+    resource: gpu
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: foundation_pose
+    - url: {{source_url}}/mv_preprocess/edex
+    - url: {{source_url}}/mv_preprocess/object_mesh/
+    - url: {{source_url}}/foundation_stereo/
+    - url: {{source_url}}/sam2_object_masks/
+    - task: compare_foundation_pose
+    outputs:
+    - url: {{work_output_url}}/eval_chamfer_object/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.mv.postprocess.lib.mv_eval_chamfer_object \
+          --camera_params_path {{input:1}}/edex \
+          --object_mesh_path {{input:2}}/output_aligned.glb \
+          --object_pose_dir {{input:0}} \
+          --depth_dir {{input:3}} \
+          --mask_dir {{input:4}} \
+          --output_dir {{output}} --config_path /tmp/config.yaml
+    - path: /tmp/config.yaml
+      contents: |-
+        depth_path_template: "${depth_dir}/{cam_name}/depth.h5"
+        mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}.h5"
+        camera_workers: 4
+
+  - name: eval_silhouette_mask_object
+    resource: gpu
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: foundation_pose
+    - url: {{source_url}}/mv_preprocess/edex
+    - url: {{source_url}}/mv_preprocess/object_mesh/
+    - url: {{source_url}}/sam2_object_masks/
+    - task: eval_chamfer_object
+    outputs:
+    - url: {{work_output_url}}/eval_silhouette_mask_object/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.mv.postprocess.lib.mv_eval_silhouette_mask_object \
+          --camera_params_path {{input:1}}/edex \
+          --object_mesh_path {{input:2}}/output_aligned.glb \
+          --object_pose_dir {{input:0}} \
+          --mask_dir {{input:3}} \
+          --output_dir {{output}} --config_path /tmp/config.yaml
+    - path: /tmp/config.yaml
+      contents: |-
+        mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}.h5"
+        min_mask_pixels: {{min_object_segment_pixels}}
+        min_bbox_containment: {{min_object_silhouette_bbox_containment}}
+        min_bbox_component_pixels: {{min_object_bbox_component_pixels}}
+        min_bbox_component_fraction_of_largest: {{min_object_bbox_component_fraction_of_largest}}
+        render_bbox_padding_pixels: {{object_silhouette_render_bbox_padding_pixels}}
+        render_bbox_padding_fraction: {{silhouette_render_bbox_padding_fraction}}
+        max_bad_frame_fraction: {{max_object_silhouette_bad_frame_fraction}}
+        camera_workers: 4
+
+  - name: eval_chamfer_human
+    resource: gpu
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - url: {{source_url}}/mv_preprocess/edex
+    - url: {{source_url}}/sam3d_body/
+    - url: {{source_url}}/foundation_stereo/
+    - url: {{source_url}}/sam2_human_masks/
+    outputs:
+    - url: {{work_output_url}}/eval_chamfer_human/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.mv.postprocess.lib.mv_eval_chamfer_human \
+          --camera_params_path {{input:0}}/edex \
+          --human_pose_dir {{input:1}} \
+          --depth_dir {{input:2}} \
+          --mask_dir {{input:3}} \
+          --output_dir {{output}} --config_path /tmp/config.yaml
+    - path: /tmp/config.yaml
+      contents: |-
+        depth_path_template: "${depth_dir}/{cam_name}/depth.h5"
+        mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}.h5"
+        camera_workers: 4
+
+  - name: eval_silhouette_mask_human
+    resource: gpu
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - url: {{source_url}}/mv_preprocess/edex
+    - url: {{source_url}}/sam3d_body/
+    - url: {{source_url}}/sam2_human_masks/
+    - task: eval_chamfer_human
+    outputs:
+    - url: {{work_output_url}}/eval_silhouette_mask_human/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.mv.postprocess.lib.mv_eval_silhouette_mask_human \
+          --camera_params_path {{input:0}}/edex \
+          --human_pose_dir {{input:1}} \
+          --mask_dir {{input:2}} \
+          --output_dir {{output}} --config_path /tmp/config.yaml
+    - path: /tmp/config.yaml
+      contents: |-
+        mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}.h5"
+        min_mask_pixels: {{min_silhouette_mask_pixels}}
+        min_bbox_component_pixels: {{min_silhouette_bbox_component_pixels}}
+        min_bbox_component_fraction_of_largest: {{min_silhouette_bbox_component_fraction_of_largest}}
+        render_bbox_padding_pixels: {{silhouette_render_bbox_padding_pixels}}
+        render_bbox_padding_fraction: {{silhouette_render_bbox_padding_fraction}}
+        camera_workers: 4
+
+  - name: render_hoi_overlay
+    resource: gpu
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: foundation_pose
+    - url: {{source_url}}/mv_preprocess/edex
+    - url: {{source_url}}/mv_preprocess/object_mesh/
+    - url: {{source_url}}/sam3d_body/
+    - task: face_detector
+    - task: eval_silhouette_mask_object
+    outputs:
+    - url: {{work_output_url}}/render_hoi_overlay/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.mv.postprocess.lib.mv_render_hoi_overlay \
+          --camera_params_path {{input:1}}/edex \
+          --object_mesh_path {{input:2}}/output_aligned.glb \
+          --object_pose_dir {{input:0}} \
+          --human_pose_dir {{input:3}} \
+          --rgb_dir {{input:4}}/videos \
+          --output_dir {{output}} --config_path /tmp/config.yaml
+    - path: /tmp/config.yaml
+      contents: |-
+        rgb_path_template: "${rgb_dir}/{cam_name}.mp4"
+        render_workers: 4
+
+  - name: check_accuracy
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    resource: cpu_small
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: eval_chamfer_object
+    - task: eval_silhouette_mask_object
+    - task: eval_chamfer_human
+    - url: {{source_url}}/check_object_mask/
+    - task: eval_silhouette_mask_human
+    outputs:
+    - url: {{work_output_url}}/check_accuracy/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.mv.postprocess.lib.check_accuracy \
+          --chamfer_object_dir {{input:0}} \
+          --chamfer_human_dir {{input:2}} \
+          --check_object_mask_dir {{input:3}} \
+          --silhouette_object_dir {{input:1}} \
+          --silhouette_human_dir {{input:4}} \
+          --output_dir {{output}} \
+          --max_chamfer_object {{max_chamfer_object}} \
+          --max_chamfer_human {{max_chamfer_human}} \
+          --max_chamfer_segment_object {{max_chamfer_segment_object}} \
+          --max_chamfer_segment_human {{max_chamfer_segment_human}} \
+          --min_silhouette_bbox_containment {{min_silhouette_bbox_containment}} \
+          --min_failure_run_frames {{min_accuracy_failure_run_frames}} \
+          --max_silhouette_failure_coverage {{max_silhouette_failure_coverage}}
+
+  - name: revalidate_source
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    resource: cpu_small
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: compare_foundation_pose
+    - task: check_accuracy
+    - task: face_detector
+    - task: render_hoi_overlay
+    - url: {{inventory_url}}
+    outputs:
+    - url: {{work_output_url}}/revalidate_source/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        INVENTORY=$(find {{input:4}} -type f -name '*.json' -print -quit 2>/dev/null || true)
+        [ -n "$INVENTORY" ] || INVENTORY={{input:4}}
+        python -m v2d.mv.postprocess.lib.verify_revalidation_source \
+          --inventory-path "$INVENTORY" \
+          --sequence "{{sequence_name}}" \
+          --expected-manifest-sha256 "{{source_manifest_sha256}}" \
+          --output-path {{output}}/verification.json
+
+  - name: export_revalidated
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    resource: cpu_export
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - url: {{source_url}}
+    - task: foundation_pose
+    - task: face_detector
+    - task: render_hoi_overlay
+    - task: compare_foundation_pose
+    - task: check_accuracy
+    - task: eval_silhouette_mask_object
+    - task: eval_chamfer_object
+    - url: {{weights_base_url}}/foundation_pose/nvidia_tensorrt/deployable_v1.0/
+    - url: {{configuration_url}}
+    - task: revalidate_source
+    - url: {{legacy_export_url}}/failure_segments.json
+    - task: eval_silhouette_mask_human
+    - task: eval_chamfer_human
+    outputs:
+    - url: {{destination_url}}/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        CONFIG=$(find {{input:9}} -type f -name '*.json' -print -quit 2>/dev/null || true)
+        [ -n "$CONFIG" ] || CONFIG={{input:9}}
+        FAILURE_SEGMENTS=$(find {{input:11}} -type f -name 'failure_segments.json' -print -quit 2>/dev/null || true)
+        [ -n "$FAILURE_SEGMENTS" ] || FAILURE_SEGMENTS={{input:11}}
+        test -f "$FAILURE_SEGMENTS"
+        test "$(sha256sum "$CONFIG" | cut -d' ' -f1)" = "{{configuration_sha256}}"
+        read -r TRIM_ENABLED TRIM_DISTANCE TRIM_PRE_PADDING TRIM_POST_PADDING TRIM_WINDOW TRIM_REQUIRED <<< "$(python -c 'import json,sys; c=json.load(open(sys.argv[1])).get("interaction_trim", {}); print(str(bool(c.get("enabled", True))).lower(), c.get("distance_threshold_m", 0.10), c.get("pre_contact_padding_seconds", 3.0), c.get("post_contact_padding_seconds", 3.0), c.get("window_frames", 7), c.get("required_under_threshold_frames", 5))' "$CONFIG")"
+        TRIM_ENABLED_ARG=""
+        [ "$TRIM_ENABLED" = true ] || TRIM_ENABLED_ARG="--disable-interaction-trim"
+        python -m v2d.mv.postprocess.lib.finalize_revalidation_export \
+          --source-dir {{input:0}} \
+          --commercial-foundation-pose-dir {{input:1}} \
+          --anonymized-rgb-dir {{input:2}} \
+          --overlay-dir {{input:3}} \
+          --pose-comparison-path {{input:4}}/foundation_pose_comparison.json \
+          --check-accuracy-path {{input:5}}/check_accuracy.json \
+          --object-silhouette-path {{input:6}}/silhouette_mask_metrics.json \
+          --object-chamfer-path {{input:7}}/chamfer_metrics.json \
+          --human-silhouette-path {{input:12}}/silhouette_mask_metrics.json \
+          --human-chamfer-path {{input:13}}/chamfer_metrics.json \
+          --metric-failure-segments-path {{input:5}}/failure_segments.json \
+          --checkpoint-manifest-path {{input:8}}/manifest.json \
+          --failure-segments-path "$FAILURE_SEGMENTS" \
+          --output-dir {{output}} \
+          --request-id {{request_id}} \
+          --campaign-name "{{campaign_name}}" \
+          --sequence-name "{{sequence_name}}" \
+          --pipeline-version "{{image_tag}}" \
+          --source-manifest-sha256 "{{source_manifest_sha256}}" \
+          --configuration-sha256 "{{configuration_sha256}}" \
+          $TRIM_ENABLED_ARG \
+          --interaction-distance-threshold-m "$TRIM_DISTANCE" \
+          --interaction-pre-contact-padding-seconds "$TRIM_PRE_PADDING" \
+          --interaction-post-contact-padding-seconds "$TRIM_POST_PADDING" \
+          --interaction-window-frames "$TRIM_WINDOW" \
+          --interaction-required-under-threshold-frames "$TRIM_REQUIRED" \
+          --max-failure-annotations {{max_failure_annotations}} \
+          --max-failure-coverage {{max_failure_coverage}} \
+          --max-silhouette-failure-coverage {{max_post_trim_silhouette_failure_coverage}} \
+          --rebuild-incomplete
+
+default-values:
+  workflow_name: v2d_mv_hoi_revalidation
+  image_tag: latest
+  sequence_name: ???
+  request_id: ???
+  campaign_name: ???
+  source_url: ???
+  legacy_export_url: ???
+  inventory_url: ???
+  configuration_url: ???
+  source_manifest_sha256: ???
+  configuration_sha256: ???
+  legacy_pipeline_version: ???
+  legacy_pose_frame: ???
+  weights_base_url: ???
+  work_output_url: ???
+  destination_url: ???
+  max_chamfer_object: 40.0
+  max_chamfer_human: 40.0
+  max_chamfer_segment_object: 50.0
+  max_chamfer_segment_human: 50.0
+  min_object_silhouette_bbox_containment: 0.8
+  min_object_segment_pixels: 10
+  min_object_bbox_component_pixels: 3
+  min_object_bbox_component_fraction_of_largest: 0.001
+  object_silhouette_render_bbox_padding_pixels: 8
+  max_object_silhouette_bad_frame_fraction: 0.05
+  min_silhouette_bbox_containment: 0.8
+  min_silhouette_mask_pixels: 10
+  min_silhouette_bbox_component_pixels: 3
+  min_silhouette_bbox_component_fraction_of_largest: 0.001
+  silhouette_render_bbox_padding_pixels: 8
+  silhouette_render_bbox_padding_fraction: 0.1
+  min_accuracy_failure_run_frames: 5
+  max_silhouette_failure_coverage: 0.5
+  max_failure_annotations: 10
+  max_failure_coverage: 0.5
+  max_post_trim_silhouette_failure_coverage: 0.5

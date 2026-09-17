@@ -14,30 +14,10 @@ from scipy.spatial.transform import Rotation as R
 from robotic_grounding.assets import ASSET_DIR
 from robotic_grounding.assets.object_registry import is_articulated
 
-HUMAN_MOTION_DATA_DIR = os.path.join(ASSET_DIR, "human_motion_data")
+HUMAN_MOTION_DATA_DIR = os.environ.get(
+    "HUMAN_MOTION_DATA_DIR", os.path.join(ASSET_DIR, "human_motion_data")
+)
 URDF_DIR = os.path.join(ASSET_DIR, "urdfs")
-
-_LFS_POINTER_PREFIX = b"version https://git-lfs"
-
-
-def _reject_lfs_pointers(motion_file: str) -> None:
-    """Fail fast if the motion data is an un-fetched git-LFS pointer stub.
-
-    A clone made without ``git lfs install`` (or with ``GIT_LFS_SKIP_SMUDGE=1``)
-    materializes LFS files as small text pointers. Those pass path resolution
-    but crash deep inside the parquet reader; catch them here with a clear fix.
-    """
-    path = Path(motion_file)
-    parquet = path if path.is_file() else next(path.rglob("*.parquet"), None)
-    if parquet is None:
-        return
-    with open(parquet, "rb") as f:
-        if f.read(len(_LFS_POINTER_PREFIX)) == _LFS_POINTER_PREFIX:
-            raise RuntimeError(
-                f"{parquet} is a git-LFS pointer, not motion data. Run "
-                "'git lfs install && git lfs pull' in the checkout mounted "
-                "into the container, then retry."
-            )
 
 
 @dataclass
@@ -78,8 +58,10 @@ class ArticulatedObjectConfig:
 class SceneConfig:
     """Scene configuration auto-discovered from parquet data.
 
-    ``scene_objects[0]`` is the primary object used for command tracking and
-    contact sensors. All objects are spawned into the scene.
+    ``scene_objects`` contains tracked objects and may be empty for robot-only
+    reference tracking. When present, ``scene_objects[0]`` is the primary
+    object used for command tracking and contact sensors. Fixed scene objects
+    are independent and are always spawned.
     """
 
     motion_file: str
@@ -104,14 +86,16 @@ class SceneConfig:
         # Fail fast: check required assets exist before Isaac Sim loads objects
         cls._validate_assets(data, motion_file)
 
-        object_type = cls._detect_object_type(data)
-        scene_objects = cls._build_scene_objects(data, object_type, motion_file)
-        fixed_objects = cls._build_fixed_objects(motion_file)
         object_body_names = (
             data.get("safe_object_body_names", [[]])[0]
             or data.get("object_body_names", [[]])[0]
             or None
         )
+        scene_objects: list[ObjectConfig | ArticulatedObjectConfig] = []
+        if object_body_names:
+            object_type = cls._detect_object_type(data)
+            scene_objects = cls._build_scene_objects(data, object_type, motion_file)
+        fixed_objects = cls._build_fixed_objects(motion_file)
         episode_length_s = cls._build_episode_length_s(data)
 
         return cls(
@@ -159,22 +143,10 @@ class SceneConfig:
                 )
 
         if not Path(motion_file).exists():
-            data_root = Path(HUMAN_MOTION_DATA_DIR)
-            available = (
-                sorted(p.name for p in data_root.iterdir())
-                if data_root.is_dir()
-                else []
-            )
             raise FileNotFoundError(
-                f"Motion file not found: {raw_path} (resolved: {motion_file}). "
-                f"Datasets available under {HUMAN_MOTION_DATA_DIR}: {available}. "
-                "If an expected dataset is missing there, the container may have been "
-                "started with HUMAN_MOTION_DATA_DIR set (overlaying the committed data), "
-                "or the mounted checkout is a different clone/branch than expected. "
-                "See docs/SETUP.md."
+                f"Motion file not found: {raw_path} (resolved: {motion_file})"
             )
 
-        _reject_lfs_pointers(motion_file)
         return motion_file
 
     @staticmethod
@@ -241,6 +213,8 @@ class SceneConfig:
             or data.get("object_body_names", [[]])[0]
             or []
         )
+        if not body_names:
+            return []
         urdf_paths = data.get("object_urdf_paths", [[]])[0] or []
         mesh_paths = data.get("object_mesh_paths", [[]])[0] or []
         obj_name = (
@@ -266,9 +240,11 @@ class SceneConfig:
             # Fallback: derive URDF path from mesh path by convention
             # e.g. meshes/hot3d/12345.glb -> urdfs/hot3d/12345_rigid.urdf
             if not urdf_path or not Path(urdf_path).exists():
-                urdf_path = cls._urdf_from_mesh_path(
+                derived_urdf_path = cls._urdf_from_mesh_path(
                     mesh_paths[i] if i < len(mesh_paths) else None
                 )
+                if derived_urdf_path:
+                    urdf_path = derived_urdf_path
 
             # Fallback: search for URDF by filename in the motion file's dataset
             if (
@@ -290,9 +266,6 @@ class SceneConfig:
             obj = ObjectConfig(name=body_name, usd_path=urdf_path)
             _load_body_pose(data, obj, i)
             objects.append(obj)
-
-        if not objects:
-            raise ValueError("No scene objects could be built from parquet data")
 
         return objects
 
@@ -493,14 +466,23 @@ class SceneConfig:
 
     @staticmethod
     def _build_episode_length_s(data: dict) -> float:
-        """Build the episode length from the parquet data."""
+        """Build episode length from the first available reference trajectory."""
         try:
-            timesteps = len(data.get("object_body_position", [[]])[0])
-            fps = data.get("fps", [30.0])[0]
-            episode_length_s = float(timesteps / fps)
-        except Exception:
-            episode_length_s = 20.0
-        return episode_length_s
+            fps = float(data.get("fps", [30.0])[0])
+            if fps <= 0.0:
+                return 20.0
+            for field_name in (
+                "robot_joint_positions",
+                "robot_root_position",
+                "ee_pose_w",
+                "object_body_position",
+            ):
+                values = data.get(field_name, [None])[0]
+                if values is not None and len(values) > 0:
+                    return float(len(values) / fps)
+        except (IndexError, TypeError, ValueError):
+            pass
+        return 20.0
 
 
 # Parquet pose loading
@@ -568,14 +550,90 @@ def _load_body_pose(data: dict, obj: ObjectConfig, body_index: int) -> None:
 
 
 def _discover_support_surface(motion_file: str) -> str | None:
-    """Find reconstructed support surface USDA from partitioned parquet path."""
+    """Find reconstructed support surface USDA from partitioned parquet path.
+
+    A sequence may be retargeted to several embodiments whose placement worlds differ
+    in scale (the whole-body retarget shrinks the scene into the robot's workspace,
+    the floating-hand one does not), so a single shared surface cannot serve both.
+    Prefer a robot-specific ``<seq>_<robot>_support.usda`` when present and fall back
+    to the shared ``<seq>_support.usda``.
+    """
     path = Path(motion_file).resolve()
-    for parent in [path] + list(path.parents):
+    parents = [path] + list(path.parents)
+    robot_name = next(
+        (p.name.split("=", 1)[1] for p in parents if p.name.startswith("robot_name=")),
+        None,
+    )
+    for parent in parents:
         if parent.name.startswith("sequence_id="):
             seq_id = parent.name.split("=", 1)[1]
             stage_dir = parent.parent.parent / "reconstructed_stage"
-            support_path = stage_dir / f"{seq_id}_support.usda"
-            if support_path.exists():
-                return str(support_path)
+            candidates = [stage_dir / f"{seq_id}_support.usda"]
+            if robot_name:
+                candidates.insert(0, stage_dir / f"{seq_id}_{robot_name}_support.usda")
+            for support_path in candidates:
+                if support_path.exists():
+                    return str(support_path)
             return None
     return None
+
+
+def discover_motion_files(motion_dir: str, robot_name: str | None = None) -> list[str]:
+    """Expand a partitioned motion folder into one motion path per sequence.
+
+    Given a ``<dataset>_processed`` directory laid out as
+    ``sequence_id=<id>/robot_name=<robot>`` partitions, return the partition
+    path for every sequence of the selected robot, sorted by sequence id. This
+    is the ``--motion_dir`` counterpart to ``--motion_file``: it feeds a whole
+    bank of reference motions to a multi-motion command (see
+    ``MotionTrackingCommand``).
+
+    Args:
+        motion_dir: Directory containing ``sequence_id=*/robot_name=*``
+            partitions. Accepts an absolute path or a path relative to the
+            human-motion-data asset root (same shorthand as ``--motion_file``).
+        robot_name: Restrict to this robot. If ``None`` and the directory holds
+            exactly one robot, that robot is used; multiple robots raise.
+
+    Returns:
+        Sorted list of per-sequence partition paths.
+
+    Raises:
+        FileNotFoundError: The directory or its partitions cannot be found.
+        ValueError: The directory holds multiple robots and none was requested.
+    """
+    resolved = motion_dir
+    if not Path(resolved).exists() and not Path(motion_dir).is_absolute():
+        under_root = os.path.join(HUMAN_MOTION_DATA_DIR, motion_dir.strip("/"))
+        if Path(under_root).exists():
+            resolved = under_root
+    if not Path(resolved).is_dir():
+        raise FileNotFoundError(
+            f"Motion directory not found: {motion_dir} (resolved: {resolved})"
+        )
+
+    partitions = sorted(Path(resolved).glob("sequence_id=*/robot_name=*"))
+    if not partitions:
+        raise FileNotFoundError(
+            "No 'sequence_id=*/robot_name=*' partitions found under "
+            f"{resolved}. Point --motion_dir at a <dataset>_processed folder."
+        )
+
+    robots = sorted({p.name.split("=", 1)[1] for p in partitions})
+    if robot_name is None:
+        if len(robots) > 1:
+            raise ValueError(
+                f"Motion directory {resolved} contains multiple robots "
+                f"{robots}; narrow --motion_dir to a single-robot folder."
+            )
+        robot_name = robots[0]
+
+    selected = sorted(
+        str(p) for p in partitions if p.name == f"robot_name={robot_name}"
+    )
+    if not selected:
+        raise FileNotFoundError(
+            f"No partitions for robot_name={robot_name} under {resolved} "
+            f"(available robots: {robots})."
+        )
+    return selected

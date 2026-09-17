@@ -56,8 +56,17 @@ def test_scheduler_reuses_complete_candidates_and_restores_environment(
     config = _sam3d_srt.SRTConfig(parallel=8)
     calls = []
 
-    def fake_run(job_dir, frame_id, use_depth, stage1_end_frame, worker_config):
-        calls.append((frame_id, use_depth, stage1_end_frame, worker_config))
+    def fake_run(
+        job_dir,
+        frame_id,
+        use_depth,
+        stage1_end_frame,
+        capture_mode,
+        worker_config,
+    ):
+        calls.append(
+            (frame_id, use_depth, stage1_end_frame, capture_mode, worker_config)
+        )
         return _sam3d_srt.SRTOutcome(frame_id, {"scale": 2.5}, 3.0)
 
     class FakeFuture:
@@ -91,10 +100,20 @@ def test_scheduler_reuses_complete_candidates_and_restores_environment(
         ["000001", "000002"],
         use_depth=True,
         stage1_end_frame=925,
+        capture_mode="two_stage",
         config=config,
     )
 
     assert [outcome.frame_id for outcome in outcomes] == ["000001", "000002"]
     assert [outcome.resumed for outcome in outcomes] == [True, False]
-    assert calls == [("000002", True, 925, config)]
+    assert calls == [("000002", True, 925, "two_stage", config)]
     assert _sam3d_srt.os.environ["OMP_NUM_THREADS"] == "original"
+
+
+def test_completed_stationary_result_is_not_reused_for_two_stage(tmp_path):
+    _write_completed(tmp_path, "000001", scale=1.0)
+    result_path = tmp_path / "sam3d" / "000001" / "srt" / "srt_result.json"
+    result_path.write_text(json.dumps({"scale": 1.0, "capture_mode": "stationary"}))
+
+    assert _sam3d_srt._completed_result(tmp_path, "000001", "stationary") is not None
+    assert _sam3d_srt._completed_result(tmp_path, "000001", "two_stage") is None

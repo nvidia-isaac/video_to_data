@@ -16,4 +16,5 @@ LOADER_MODULES: dict[str, str] = {
     "h2o": "v2d.task_library_loader.lib.h2o_loader",
     "grab": "v2d.task_library_loader.lib.grab_loader",
     "dexycb": "v2d.task_library_loader.lib.dexycb_loader",
+    "ego_recon": "v2d.task_library_loader.lib.ego_recon_loader",
 }

@@ -6,14 +6,20 @@ Usage:
     python -m v2d.pipelines.run_mv_hoi_reconstruction \
         --rosbag_path /data/rosbags/2026-03-28_session1 \
         --output_dir /data/datasets/2026-03-28_session1 \
-        --extrinsics_camera_params_path /data/datasets/2026-03-28_calibration/extrinsics/edex
+        --calibration_camera_params_path /data/datasets/2026-03-28_calibration/extrinsics/edex
 """
 
 import argparse
 import os
 
 from v2d.rosbag.docker.run_rosbag_to_edex import run_rosbag_to_edex
-from v2d.mv.preprocess.docker.run_mv_preprocess import run_mv_preprocess
+from v2d.mv.preprocess.docker.run_mv_preprocess import (
+    resolve_calibration_camera_params_path,
+    run_mv_preprocess,
+)
+from v2d.face_detector.docker.run_mv_detect_and_blur_faces import (
+    run_mv_detect_and_blur_faces,
+)
 from v2d.foundation_stereo.docker.run_mv_image_list_to_depth import run_mv_image_list_to_depth
 from v2d.grounding_dino.docker.run_mv_image_list_to_object_bboxes import run_mv_image_list_to_object_bboxes
 from v2d.detectron2.docker.run_mv_track_bboxes import run_mv_track_bboxes
@@ -25,11 +31,16 @@ from v2d.mv.postprocess.docker.run_mv_estimate_ground_plane import run_mv_estima
 from v2d.mv.postprocess.docker.run_mv_export_fused_pointcloud import run_mv_export_fused_pointcloud
 from v2d.mv.postprocess.docker.run_mv_eval_chamfer_human import run_mv_eval_chamfer_human
 from v2d.mv.postprocess.docker.run_mv_eval_chamfer_object import run_mv_eval_chamfer_object
+from v2d.mv.postprocess.docker.run_mv_eval_silhouette_mask_human import run_mv_eval_silhouette_mask_human
+from v2d.mv.postprocess.docker.run_mv_eval_silhouette_mask_object import run_mv_eval_silhouette_mask_object
 from v2d.mv.postprocess.docker.run_mv_render_hoi_overlay import run_mv_render_hoi_overlay
 from v2d.mv.postprocess.docker.run_mv_visualize_wis3d import run_mv_visualize_wis3d
 
 RECON_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 MV_CONFIGS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mv_configs")
+OBJECT_BBOX_SOURCE_MARKER = "object_bbox_source.txt"
+OBJECT_BBOX_SOURCE_GROUNDING_DINO = "grounding_dino"
+OBJECT_BBOX_SOURCE_MANUAL = "manual_labeled_bboxes"
 
 
 def _find_pinned_mesh(mesh_dir: str) -> str:
@@ -40,17 +51,39 @@ def _find_pinned_mesh(mesh_dir: str) -> str:
     return path
 
 
+def _read_object_bbox_source(preprocess_dir: str) -> str:
+    marker_path = os.path.join(preprocess_dir, OBJECT_BBOX_SOURCE_MARKER)
+    if not os.path.exists(marker_path):
+        return OBJECT_BBOX_SOURCE_GROUNDING_DINO
+    with open(marker_path) as f:
+        source = f.read().strip()
+    if source not in {OBJECT_BBOX_SOURCE_GROUNDING_DINO, OBJECT_BBOX_SOURCE_MANUAL}:
+        raise ValueError(f"Unknown object bbox source marker in {marker_path}: {source!r}")
+    return source
+
+
 def main(
     rosbag_path: str,
     output_dir: str,
-    extrinsics_camera_params_path: str,
-    obj_mesh_path: str,
+    calibration_camera_params_path: str | None = None,
+    obj_mesh_path: str | None = None,
     dev: bool = False,
+    extrinsics_camera_params_path: str | None = None,
 ):
+    calibration_camera_params_path = resolve_calibration_camera_params_path(
+        calibration_camera_params_path,
+        extrinsics_camera_params_path,
+    )
+    if calibration_camera_params_path is None:
+        raise ValueError("calibration_camera_params_path is required")
+    if obj_mesh_path is None:
+        raise ValueError("obj_mesh_path is required")
+
     raw_dir = os.path.join(output_dir, "raw")
     preprocess_dir = os.path.join(output_dir, "preprocess")
     preprocess_images_dir = os.path.join(preprocess_dir, "images")
     preprocess_mesh_dir = os.path.join(preprocess_dir, "object_mesh")
+    face_detector_dir = os.path.join(output_dir, "face_detector")
     foundation_stereo_dir = os.path.join(output_dir, "foundation_stereo")
     grounding_dino_dir = os.path.join(output_dir, "grounding_dino")
     sam2_object_dir = os.path.join(output_dir, "sam2", "object")
@@ -63,6 +96,8 @@ def main(
     fused_pointcloud_dir = os.path.join(output_dir, "postprocess", "fused_pointcloud")
     chamfer_human_dir = os.path.join(output_dir, "postprocess", "chamfer_human")
     chamfer_object_dir = os.path.join(output_dir, "postprocess", "chamfer_object")
+    silhouette_mask_human_dir = os.path.join(output_dir, "postprocess", "silhouette_mask_human")
+    silhouette_mask_object_dir = os.path.join(output_dir, "postprocess", "silhouette_mask_object")
     hoi_overlay_dir = os.path.join(output_dir, "postprocess", "hoi_overlay")
     wis3d_dir = os.path.join(output_dir, "postprocess", "wis3d")
 
@@ -79,9 +114,18 @@ def main(
         rgb_dir=os.path.join(raw_dir, "images"),
         output_dir=preprocess_dir,
         camera_params_path=os.path.join(raw_dir, "edex"),
-        extrinsics_camera_params_path=extrinsics_camera_params_path,
+        calibration_camera_params_path=calibration_camera_params_path,
         hoi_metadata_path=os.path.join(rosbag_path, "hoi_metadata.yaml"),
         mesh_path=obj_mesh_path,
+        dev=dev,
+    )
+
+    # Detect, temporally stabilize, and blur faces without changing the RGB
+    # streams consumed by reconstruction tasks.
+    run_mv_detect_and_blur_faces(
+        rgb_dir=preprocess_images_dir,
+        model_dir=os.path.join(RECON_DIR, "data/weights/face_detector"),
+        output_dir=face_detector_dir,
         dev=dev,
     )
 
@@ -94,19 +138,31 @@ def main(
         dev=dev,
     )
 
-    # Detect object bounding boxes with Grounding DINO
-    run_mv_image_list_to_object_bboxes(
-        rgb_dir=preprocess_images_dir,
-        prompt_path=os.path.join(preprocess_dir, "prompt.txt"),
-        output_dir=grounding_dino_dir,
-        model_dir=os.path.join(RECON_DIR, "data/weights/grounding_dino"),
-        dev=dev,
-    )
+    object_bbox_source = _read_object_bbox_source(preprocess_dir)
+    if object_bbox_source == OBJECT_BBOX_SOURCE_MANUAL:
+        object_bbox_dir = os.path.join(preprocess_dir, "labeled_bboxes")
+        print(f"Using manual object bbox prompts from {object_bbox_dir}")
+    else:
+        object_bbox_dir = grounding_dino_dir
+        prompt_path = os.path.join(preprocess_dir, "prompt.txt")
+        if not os.path.isfile(prompt_path) or os.path.getsize(prompt_path) == 0:
+            raise FileNotFoundError(
+                "No manual bbox marker found and no nonempty prompt.txt is available "
+                f"at {prompt_path}"
+            )
+        # Detect object bounding boxes with Grounding DINO
+        run_mv_image_list_to_object_bboxes(
+            rgb_dir=preprocess_images_dir,
+            prompt_path=prompt_path,
+            output_dir=grounding_dino_dir,
+            model_dir=os.path.join(RECON_DIR, "data/weights/grounding_dino"),
+            dev=dev,
+        )
 
-    # Segment object masks with SAM2 (using grounding dino bboxes)
+    # Segment object masks with SAM2
     run_mv_videos_to_masks(
         weights_dir=os.path.join(RECON_DIR, "data/weights/sam2"),
-        bbox_dir=grounding_dino_dir,
+        bbox_dir=object_bbox_dir,
         output_dir=sam2_object_dir,
         rgb_dir=preprocess_images_dir,
         config_path=os.path.join(MV_CONFIGS_DIR, "mv_videos_to_object_masks.yaml"),
@@ -207,6 +263,25 @@ def main(
         dev=dev,
     )
 
+    # Evaluate 2D silhouette-vs-SAM2 residual for human mesh
+    run_mv_eval_silhouette_mask_human(
+        camera_params_path=os.path.join(preprocess_dir, "edex"),
+        human_pose_dir=sam3d_body_dir,
+        output_dir=silhouette_mask_human_dir,
+        mask_dir=sam2_human_dir,
+        dev=dev,
+    )
+
+    # Evaluate 2D silhouette-vs-SAM2 residual for object mesh
+    run_mv_eval_silhouette_mask_object(
+        camera_params_path=os.path.join(preprocess_dir, "edex"),
+        object_mesh_path=_find_pinned_mesh(preprocess_mesh_dir),
+        object_pose_dir=foundation_pose_dir,
+        output_dir=silhouette_mask_object_dir,
+        mask_dir=sam2_object_dir,
+        dev=dev,
+    )
+
     # Render HOI overlay videos (object + human mesh on camera frames)
     run_mv_render_hoi_overlay(
         camera_params_path=os.path.join(preprocess_dir, "edex"),
@@ -214,7 +289,7 @@ def main(
         object_pose_dir=foundation_pose_dir,
         human_pose_dir=sam3d_body_dir,
         output_dir=hoi_overlay_dir,
-        rgb_dir=preprocess_images_dir,
+        rgb_dir=os.path.join(face_detector_dir, "videos"),
         dev=dev,
     )
 
@@ -238,16 +313,27 @@ if __name__ == "__main__":
                         help="Path to the ROS bag")
     parser.add_argument("--output_dir", type=str, required=True,
                         help="Root output directory for all pipeline outputs")
-    parser.add_argument("--extrinsics_camera_params_path", type=str, required=True,
-                        help="Path to calibration camera params file with extrinsics")
+    parser.add_argument("--calibration_camera_params_path", type=str, default=None,
+                        help="Path to calibration EDEX with intrinsics and extrinsics")
+    parser.add_argument("--extrinsics_camera_params_path", type=str, default=None,
+                        help="Deprecated alias for --calibration_camera_params_path")
     parser.add_argument("--obj_mesh_path", type=str, required=True,
                         help="Path to object mesh file (for FoundationPose tracking)")
     parser.add_argument("--dev", action="store_true")
     args = parser.parse_args()
+    if (
+        args.calibration_camera_params_path is None
+        and args.extrinsics_camera_params_path is None
+    ):
+        parser.error(
+            "one of --calibration_camera_params_path or "
+            "--extrinsics_camera_params_path is required"
+        )
 
     main(
         rosbag_path=args.rosbag_path,
         output_dir=args.output_dir,
+        calibration_camera_params_path=args.calibration_camera_params_path,
         extrinsics_camera_params_path=args.extrinsics_camera_params_path,
         obj_mesh_path=args.obj_mesh_path,
         dev=args.dev,

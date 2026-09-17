@@ -26,8 +26,8 @@ expects):
       "frame_idx": int,
       "image_size": [W, H],
       "camera": {
-        "scaled_focal_length": float,    # = fx_vipe; align_hands rescales to fx_real
-        "pred_cam_t_full":     [x,y,z]   # cam-frame translation in DynHaMR units
+        "focal_length": float,           # = fx_vipe; align_hands rescales to fx_real
+        "cam_t":        [x,y,z]          # cam-frame translation in DynHaMR units
       },
       "mano": {
         "betas":         [10],
@@ -215,9 +215,10 @@ def convert_dynhamr_to_hamer_tracks(
                 "is_right":   is_r,
                 "frame_idx":  int(f),
                 "image_size": [int(W), int(H)],
+                "bbox": {"x0": 0.0, "y0": 0.0, "x1": float(W), "y1": float(H)},
                 "camera": {
-                    "scaled_focal_length": fx_vipe,
-                    "pred_cam_t_full":     cam_t_cam.tolist(),
+                    "focal_length": fx_vipe,
+                    "cam_t":        cam_t_cam.tolist(),
                 },
                 "mano": {
                     "betas":         list(b_list),

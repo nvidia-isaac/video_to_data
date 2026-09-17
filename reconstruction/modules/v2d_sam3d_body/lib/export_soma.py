@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import logging
 import time
+from collections.abc import Mapping
 from pathlib import Path
 
 import numpy as np
@@ -41,6 +42,56 @@ from soma.units import Unit
 logger = logging.getLogger(__name__)
 
 MHR_JIT_RELPATH = "sam-3d-body-dinov3/assets/mhr_model.pt"
+
+
+def parse_pose_prior_weights(
+    spec: str | Mapping[str, float] | None,
+) -> Mapping[str, float] | None:
+    """Parse a named or comma-separated SOMA-X autograd pose-prior profile."""
+    if spec is None or isinstance(spec, Mapping):
+        return spec
+    if spec == "uniform":
+        return None
+    if spec == "heel_contact":
+        weights: dict[str, float] = {}
+        for joint in ("Hips", "Spine1", "Spine2", "Chest"):
+            weights[joint] = 0.35
+        for side in ("Left", "Right"):
+            weights[f"{side}Leg"] = 0.35
+            weights[f"{side}Shin"] = 6.0
+            weights[f"{side}Foot"] = 8.0
+            weights[f"{side}ToeBase"] = 10.0
+            weights[f"{side}ToeEnd"] = 10.0
+        return weights
+
+    weights = {}
+    for part in spec.split(","):
+        if not part.strip():
+            continue
+        if "=" not in part:
+            raise ValueError(
+                "Expected pose-prior weights as 'JointName=value' entries, "
+                "or the named profile 'heel_contact'."
+            )
+        name, value = part.split("=", 1)
+        weights[name.strip()] = float(value)
+    return weights or None
+
+
+def build_leaf_weight(
+    default: float,
+    *,
+    hand_weight: float | None = None,
+    foot_weight: float | None = None,
+) -> dict[str, float] | float:
+    """Build a SOMA-X leaf-weight argument with optional region overrides."""
+    if hand_weight is None and foot_weight is None:
+        return default
+    return {
+        "head": default,
+        "hands": default if hand_weight is None else hand_weight,
+        "feet": default if foot_weight is None else foot_weight,
+    }
 
 
 def load_vertices_from_mesh(
@@ -69,7 +120,8 @@ def load_vertices_from_forward(
     """Path B: run MHR JIT forward pass to obtain vertices.
 
     mhr_model_params[0:3] already contains global_trans * 10 from the MV pipeline.
-    Zeros out flexible bone-length parameters not representable in SOMA.
+    MHR flexible bone-length parameters are preserved and supplied to SOMA's
+    MHR identity model during pose inversion.
     """
     mhr_path = weights_dir / MHR_JIT_RELPATH
     if not mhr_path.exists():
@@ -82,9 +134,7 @@ def load_vertices_from_forward(
     mhr_jit = torch.jit.load(str(mhr_path), map_location=device)
 
     shape_params = params_data["shape_params"].float()  # (N, 45)
-    model_params = params_data["mhr_model_params"].float().clone()  # (N, 204)
-
-    model_params[:, 130:136] = 0.0
+    model_params = params_data["mhr_model_params"].float()  # (N, 204)
 
     face_expr = torch.zeros(1, 72, device=device)
 
@@ -109,6 +159,7 @@ def _reconstruct_soma_vertices(
     root_transl: torch.Tensor,
     shape_params: torch.Tensor,
     scale_params: torch.Tensor,
+    bone_length_flexibles: torch.Tensor,
     batch_size: int,
     device: str,
 ) -> torch.Tensor:
@@ -121,6 +172,9 @@ def _reconstruct_soma_vertices(
         soma.prepare_identity(
             shape_params[start:end].to(device),
             scale_params[start:end].to(device),
+            kwargs={
+                "bone_length_flexibles": bone_length_flexibles[start:end].to(device),
+            },
         )
         bs.rebind(
             soma._cached_bind_transforms_world,
@@ -375,6 +429,21 @@ def _render_chamfer_heatmap(
     logger.info("Saved: %s", video_path)
 
 
+def create_soma_layer(device: str) -> SOMALayer:
+    """Create the SOMA layer supported by the currently published assets."""
+    return SOMALayer(
+        identity_model_type="mhr",
+        device=device,
+        mode="warp",
+        output_unit=Unit.CENTIMETERS,
+        # py-soma-x 0.2.1 enables the expanded procedural-transform rig by
+        # default, but the public nvidia/SOMA-X asset snapshot does not yet
+        # contain SOMA_procedural_transforms.json or the matching template
+        # rig. Keep using the public 78-joint rig until those assets ship.
+        enable_procedural_transforms=False,
+    )
+
+
 def export_soma(
     params_path: Path,
     output_path: Path,
@@ -383,8 +452,15 @@ def export_soma(
     body_iters: int = 2,
     full_iters: int = 1,
     finger_iters: int = 0,
+    lie_iters: int = 3,
+    lie_lambda: float = 1e-1,
     autograd_iters: int = 0,
     autograd_lr: float = 5e-3,
+    autograd_translation_lr_scale: float = 1.0,
+    autograd_pose_prior: float = 0.0,
+    autograd_pose_prior_weights: str | Mapping[str, float] | None = None,
+    autograd_hand_weight: float | None = None,
+    autograd_foot_weight: float | None = None,
     leaf_weight: float = 1.0,
     foot_weight: float | None = None,
     batch_size: int = 64,
@@ -421,46 +497,61 @@ def export_soma(
     shape_params = params_data["shape_params"].float()  # (N, 45)
     model_params = params_data["mhr_model_params"].float()  # (N, 204)
     scale_params = model_params[:, 136:]  # (N, 68) resolved body-part scales
+    bone_length_flexibles = model_params[:, 130:136]  # (N, 6)
 
     # --- SOMA PoseInversion ---
     logger.info("Initializing SOMA layer (identity_model_type=mhr)")
-    soma = SOMALayer(
-        identity_model_type="mhr",
-        device=device,
-        mode="warp",
-        output_unit=Unit.CENTIMETERS,
-    )
+    soma = create_soma_layer(device)
     inv = PoseInversion(soma, low_lod=True)
 
     all_ic = shape_params.to(device)
     all_sp = scale_params.to(device)
+    all_bl = bone_length_flexibles.to(device)
 
     all_rotations = []
     all_root_transl = []
     all_errors = []
 
-    if foot_weight is not None:
-        leaf_weight_arg: dict | float = {
-            "head": leaf_weight,
-            "hands": leaf_weight,
-            "feet": foot_weight,
-        }
-    else:
-        leaf_weight_arg = leaf_weight
+    leaf_weight_arg = build_leaf_weight(
+        leaf_weight,
+        foot_weight=foot_weight,
+    )
+    autograd_leaf_weight_arg = (
+        build_leaf_weight(
+            1.0,
+            hand_weight=autograd_hand_weight,
+            foot_weight=autograd_foot_weight,
+        )
+        if autograd_hand_weight is not None or autograd_foot_weight is not None
+        else None
+    )
+    pose_prior_weights_arg = parse_pose_prior_weights(
+        autograd_pose_prior_weights
+    )
 
     torch.cuda.synchronize()
     t0 = time.perf_counter()
 
     for start in range(0, N, batch_size):
         end = min(start + batch_size, N)
-        inv.prepare_identity(all_ic[start:end], all_sp[start:end])
+        inv.prepare_identity(
+            all_ic[start:end],
+            all_sp[start:end],
+            kwargs={"bone_length_flexibles": all_bl[start:end]},
+        )
         result = inv.fit(
             verts[start:end].to(device),
             body_iters=body_iters,
             finger_iters=finger_iters,
             full_iters=full_iters,
+            lie_iters=lie_iters,
+            lie_lambda=lie_lambda,
             autograd_iters=autograd_iters,
             autograd_lr=autograd_lr,
+            autograd_translation_lr_scale=autograd_translation_lr_scale,
+            autograd_pose_prior=autograd_pose_prior,
+            autograd_pose_prior_weights=pose_prior_weights_arg,
+            autograd_leaf_weight=autograd_leaf_weight_arg,
             leaf_weight=leaf_weight_arg,
             batch_size=None,
         )
@@ -510,13 +601,16 @@ def export_soma(
         joint_orient=soma._t_pose_orient,
         unit=output_unit,
         keep_root=False,
+        extra_arrays={
+            "bone_length_flexibles": bone_length_flexibles.numpy(),
+        },
     )
 
     # --- Debug: render MHR vs SOMA comparison video ---
     if debug > 0:
         soma_verts = _reconstruct_soma_vertices(
             soma, rotations, root_transl,
-            shape_params, scale_params,
+            shape_params, scale_params, bone_length_flexibles,
             batch_size=batch_size, device=device,
         )
         soma_faces = soma.faces.cpu().numpy()
@@ -551,11 +645,47 @@ def main() -> None:
         help="sam3d_body weights directory (contains MHR JIT model; "
              "fallback when --mesh_path is absent)",
     )
-    parser.add_argument("--body_iters", type=int, default=2)
-    parser.add_argument("--full_iters", type=int, default=1)
-    parser.add_argument("--finger_iters", type=int, default=0)
-    parser.add_argument("--autograd_iters", type=int, default=0)
-    parser.add_argument("--autograd_lr", type=float, default=5e-3)
+    parser.add_argument("--body-iters", "--body_iters", dest="body_iters", type=int, default=2)
+    parser.add_argument("--full-iters", "--full_iters", dest="full_iters", type=int, default=1)
+    parser.add_argument("--finger-iters", "--finger_iters", dest="finger_iters", type=int, default=0)
+    parser.add_argument("--lie-iters", "--lie_iters", dest="lie_iters", type=int, default=3)
+    parser.add_argument(
+        "--lie-lambda", "--lie_lambda", dest="lie_lambda", type=float, default=1e-1,
+    )
+    parser.add_argument(
+        "--autograd-iters", "--autograd_iters",
+        dest="autograd_iters", type=int, default=0,
+    )
+    parser.add_argument(
+        "--autograd-lr", "--autograd_lr",
+        dest="autograd_lr", type=float, default=5e-3,
+    )
+    parser.add_argument(
+        "--autograd-translation-lr-scale", "--autograd_translation_lr_scale",
+        dest="autograd_translation_lr_scale", type=float, default=1.0,
+    )
+    parser.add_argument(
+        "--autograd-pose-prior", "--autograd_pose_prior",
+        dest="autograd_pose_prior", type=float, default=0.0,
+    )
+    parser.add_argument(
+        "--autograd-pose-prior-weights", "--autograd_pose_prior_weights",
+        dest="autograd_pose_prior_weights", default=None,
+        help=(
+            "Named profile ('heel_contact' or 'uniform') or comma-separated "
+            "JointName=value entries."
+        ),
+    )
+    parser.add_argument(
+        "--autograd-hand-weight", "--autograd_hand_weight",
+        dest="autograd_hand_weight", type=float, default=None,
+        help="Whole-hand vertex weight used only by autograd FK.",
+    )
+    parser.add_argument(
+        "--autograd-foot-weight", "--autograd_foot_weight",
+        dest="autograd_foot_weight", type=float, default=None,
+        help="Foot vertex weight used only by autograd FK.",
+    )
     parser.add_argument("--leaf_weight", type=float, default=1.0,
                         help="Uniform extremity vertex weight passed to PoseInversion.fit")
     parser.add_argument("--foot_weight", type=float, default=None,
@@ -583,8 +713,15 @@ def main() -> None:
         body_iters=args.body_iters,
         full_iters=args.full_iters,
         finger_iters=args.finger_iters,
+        lie_iters=args.lie_iters,
+        lie_lambda=args.lie_lambda,
         autograd_iters=args.autograd_iters,
         autograd_lr=args.autograd_lr,
+        autograd_translation_lr_scale=args.autograd_translation_lr_scale,
+        autograd_pose_prior=args.autograd_pose_prior,
+        autograd_pose_prior_weights=args.autograd_pose_prior_weights,
+        autograd_hand_weight=args.autograd_hand_weight,
+        autograd_foot_weight=args.autograd_foot_weight,
         leaf_weight=args.leaf_weight,
         foot_weight=args.foot_weight,
         batch_size=args.batch_size,

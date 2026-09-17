@@ -18,10 +18,26 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any, Iterator
 
+import av
 import cv2
 import imageio.v3 as iio
 import numpy as np
 from tqdm import tqdm
+
+try:
+    from .hdf5_transcode import decode_rgb_jpeg
+    from .ffv1_sidecar import (
+        is_ffv1_sidecar_h5,
+        read_ffv1_metadata,
+        verify_ffv1_sidecar,
+    )
+except ImportError:  # Support direct module imports in lightweight tests.
+    from hdf5_transcode import decode_rgb_jpeg
+    from ffv1_sidecar import (
+        is_ffv1_sidecar_h5,
+        read_ffv1_metadata,
+        verify_ffv1_sidecar,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +50,11 @@ _VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
 
 def get_video_lwh(video_path: Path) -> tuple[int, int, int]:
     L, H, W, _ = iio.improps(video_path, plugin="pyav").shape
+    if L <= 0 or not np.isfinite(L):
+        # Fragmented MP4 and other containers may omit the stream frame count.
+        # Decode incrementally without retaining frames or converting to RGB.
+        with av.open(str(video_path)) as container:
+            L = sum(1 for _ in container.decode(video=0))
     return L, W, H
 
 
@@ -119,6 +140,13 @@ def pack_directory_to_h5(
     h5_path: Path | str,
     remove_pngs: bool = False,
     show_progress: bool = True,
+    *,
+    compression: str | int | None = "gzip",
+    compression_opts: Any = 1,
+    shuffle: bool = False,
+    start_frame: int = 0,
+    end_frame: int | None = None,
+    reindex_stems: bool = False,
 ) -> None:
     """Pack a directory of sorted PNGs into a single HDF5 file.
 
@@ -129,11 +157,23 @@ def pack_directory_to_h5(
 
     image_dir = Path(image_dir)
     h5_path = Path(h5_path)
-    png_files = sorted(image_dir.glob("*.png"))
-    if not png_files:
+    all_png_files = sorted(image_dir.glob("*.png"))
+    if not all_png_files:
         raise FileNotFoundError(f"No PNGs to pack in {image_dir}")
+    start = int(start_frame)
+    end = len(all_png_files) if end_frame is None else int(end_frame)
+    if start < 0 or end <= start or end > len(all_png_files):
+        raise ValueError(
+            f"Invalid PNG frame range [{start}, {end}) for "
+            f"{len(all_png_files)} frames in {image_dir}"
+        )
+    png_files = all_png_files[start:end]
 
-    stems = [p.stem for p in png_files]
+    stems = (
+        [f"{index:06d}" for index in range(len(png_files))]
+        if reindex_stems
+        else [p.stem for p in png_files]
+    )
     first = iio.imread(png_files[0])
     h, w = first.shape[:2]
     frame_shape = first.shape
@@ -145,8 +185,9 @@ def pack_directory_to_h5(
             shape=(len(png_files), *frame_shape),
             dtype=first.dtype,
             chunks=(1, *frame_shape),
-            compression="gzip",
-            compression_opts=1,
+            compression=compression,
+            compression_opts=compression_opts,
+            shuffle=shuffle,
         )
         it = tqdm(png_files, desc=f"Packing {image_dir.name}") if show_progress else png_files
         for i, p in enumerate(it):
@@ -159,7 +200,7 @@ def pack_directory_to_h5(
 
     if remove_pngs:
         import shutil
-        for p in png_files:
+        for p in all_png_files:
             p.unlink()
         shutil.rmtree(image_dir)
 
@@ -196,12 +237,19 @@ class FrameSource:
         """Auto-detect backend from *path*.
 
         Resolution order:
-          1. ``.h5`` / ``.hdf5`` suffix  ->  :class:`_HDF5Source`
-          2. existing directory           ->  :class:`_ImageDirSource`
-          3. video extension              ->  :class:`_VideoSource`
+          1. missing ``camera.h5`` with sibling ``camera/`` -> legacy image dir
+          2. ``.h5`` / ``.hdf5`` suffix  ->  :class:`_HDF5Source`
+          3. existing directory           ->  :class:`_ImageDirSource`
+          4. video extension              ->  :class:`_VideoSource`
         """
         path = Path(path)
+        if path.suffix in (".h5", ".hdf5") and not path.exists():
+            legacy_dir = path.with_suffix("")
+            if legacy_dir.is_dir():
+                path = legacy_dir
         if path.suffix in (".h5", ".hdf5"):
+            if is_ffv1_sidecar_h5(path):
+                return _FFV1SidecarSource(path, frames_slice)
             return _HDF5Source(path, frames_slice)
         if path.is_dir():
             return _ImageDirSource(path, frames_slice)
@@ -332,13 +380,37 @@ class _HDF5Source(FrameSource):
         self._h5_file = None
         self._h5_dataset = None
         self._h5_indices: list[int] | None = None
+        self._frame_encoding: str | None = None
         if not h5_path.exists():
             raise FileNotFoundError(f"HDF5 file not found: {h5_path}")
 
         self._open_h5()
         ds = self._h5_dataset
         total = ds.shape[0]
-        self.image_size = (ds.shape[2], ds.shape[1]) if ds.ndim >= 3 else (0, 0)
+        frame_encoding = self._h5_file.attrs.get("frame_encoding")
+        if isinstance(frame_encoding, bytes):
+            frame_encoding = frame_encoding.decode("utf-8")
+        self._frame_encoding = frame_encoding
+        if self._frame_encoding == "jpeg":
+            if ds.ndim != 1:
+                raise ValueError("JPEG HDF5 frames must be a one-dimensional dataset")
+            # The on-disk dataset contains variable-length encoded byte
+            # payloads, but FrameSource exposes the decoded RGB frames.
+            self.dtype = np.dtype(np.uint8)
+            self.image_size = (
+                int(self._h5_file.attrs["width"]),
+                int(self._h5_file.attrs["height"]),
+            )
+        elif self._frame_encoding is not None:
+            raise ValueError(f"Unsupported HDF5 frame encoding: {self._frame_encoding}")
+        elif ds.ndim >= 3:
+            self.dtype = np.dtype(ds.dtype)
+            self.image_size = (ds.shape[2], ds.shape[1])
+        else:
+            raise ValueError(
+                "One-dimensional HDF5 frame datasets require a supported "
+                "frame_encoding attribute"
+            )
         stems_json = self._h5_file.attrs.get("stems")
         all_stems = json.loads(stems_json) if stems_json is not None else [f"{i:06d}" for i in range(total)]
 
@@ -365,24 +437,120 @@ class _HDF5Source(FrameSource):
         if idx < 0 or idx >= self.n_frames:
             raise IndexError(f"Frame index {idx} out of range [0, {self.n_frames})")
         self._open_h5()
-        return self._h5_dataset[self._physical(idx)]
+        frame = self._h5_dataset[self._physical(idx)]
+        return decode_rgb_jpeg(frame) if self._frame_encoding == "jpeg" else frame
 
     def iter_frames(self) -> Iterator[np.ndarray]:
         self._open_h5()
         for i in range(self.n_frames):
-            yield self._h5_dataset[self._physical(i)]
+            frame = self._h5_dataset[self._physical(i)]
+            yield decode_rgb_jpeg(frame) if self._frame_encoding == "jpeg" else frame
 
     def iter_batches(self, batch_size: int):
         self._open_h5()
         for i in range(0, self.n_frames, batch_size):
             end = min(i + batch_size, self.n_frames)
-            yield i, [self._h5_dataset[self._physical(j)] for j in range(i, end)]
+            frames = [self._h5_dataset[self._physical(j)] for j in range(i, end)]
+            if self._frame_encoding == "jpeg":
+                frames = [decode_rgb_jpeg(frame) for frame in frames]
+            yield i, frames
 
     def close(self) -> None:
         if self._h5_file is not None:
             self._h5_file.close()
             self._h5_file = None
             self._h5_dataset = None
+
+
+class _FFV1SidecarSource(FrameSource):
+    """Reads exact frames from an FFV1 Matroska sidecar committed by HDF5."""
+
+    def __init__(self, metadata_path: Path | str, frames_slice: slice | None = None):
+        metadata_path = Path(metadata_path)
+        self._path = metadata_path
+        self._metadata = read_ffv1_metadata(metadata_path)
+        self._video_path = self._metadata["sidecar_path"]
+        self.image_size = (self._metadata["width"], self._metadata["height"])
+        total = self._metadata["n_frames"]
+        self._all_stems = self._metadata["stems"]
+        self._all_pts = self._metadata["frame_pts"]
+        self._pts_to_index = {pts: index for index, pts in enumerate(self._all_pts)}
+        self._keyframes = self._metadata["keyframe_indices"]
+        if frames_slice is None:
+            self._indices = list(range(total))
+        else:
+            self._indices = list(range(total))[frames_slice]
+        self._stems = [self._all_stems[index] for index in self._indices]
+        self.n_frames = len(self._indices)
+
+    def _format(self) -> str:
+        return "rgb24" if self._metadata["kind"] == "rgb" else "gray16le"
+
+    def _physical(self, idx: int) -> int:
+        return self._indices[idx]
+
+    def __getitem__(self, idx: int) -> np.ndarray:
+        if idx < 0:
+            idx += self.n_frames
+        if idx < 0 or idx >= self.n_frames:
+            raise IndexError(f"Frame index {idx} out of range [0, {self.n_frames})")
+        target = self._physical(idx)
+        keyframe = max(index for index in self._keyframes if index <= target)
+        with av.open(str(self._video_path)) as container:
+            stream = container.streams.video[0]
+            container.seek(
+                self._all_pts[keyframe],
+                stream=stream,
+                backward=True,
+                any_frame=False,
+            )
+            for frame in container.decode(stream):
+                physical = self._pts_to_index.get(int(frame.pts))
+                if physical == target:
+                    return frame.to_ndarray(format=self._format())
+                if physical is not None and physical > target:
+                    break
+        raise RuntimeError(f"Unable to seek to FFV1 frame {target}")
+
+    def iter_frames(self) -> Iterator[np.ndarray]:
+        # Normal forward slices stream in constant memory. Reordered/repeated
+        # slices are uncommon, but preserve FrameSource semantics via indexing.
+        if self._indices == sorted(set(self._indices)):
+            wanted = iter(self._indices)
+            target = next(wanted, None)
+            with av.open(str(self._video_path)) as container:
+                for physical, frame in enumerate(container.decode(video=0)):
+                    if target is None:
+                        break
+                    if physical == target:
+                        yield frame.to_ndarray(format=self._format())
+                        target = next(wanted, None)
+            if target is not None:
+                raise RuntimeError(f"FFV1 sidecar is missing frame {target}")
+            return
+        for index in range(self.n_frames):
+            yield self[index]
+
+    def iter_batches(self, batch_size: int):
+        batch: list[np.ndarray] = []
+        batch_start = 0
+        for frame in self.iter_frames():
+            batch.append(frame)
+            if len(batch) == batch_size:
+                yield batch_start, batch
+                batch_start += len(batch)
+                batch = []
+        if batch:
+            yield batch_start, batch
+
+    def verify_integrity(self, *, verify_decoded_frames: bool = False) -> dict[str, Any]:
+        return verify_ffv1_sidecar(
+            self._path, verify_decoded_frames=verify_decoded_frames
+        )
+
+    def close(self) -> None:
+        # Containers are scoped per operation so random access remains thread-safe.
+        return None
 
 
 class _VideoSource(FrameSource):
@@ -448,12 +616,29 @@ class FrameWriter:
         crf: int = 17,
         png_num_workers: int | None = None,
         png_max_pending: int | None = None,
+        compression: str | int | None = "gzip",
+        compression_opts: Any = 1,
+        shuffle: bool = False,
     ) -> "FrameWriter":
-        """Auto-detect backend and return the appropriate writer subclass."""
+        """Auto-detect the backend and return the appropriate writer.
+
+        ``compression``, ``compression_opts``, and ``shuffle`` use h5py's
+        dataset terminology and apply only to HDF5 outputs. Non-HDF5 outputs
+        reject non-default HDF5 settings so configuration mistakes are visible.
+        """
         path = Path(path)
         suffix = path.suffix.lower()
         if suffix in (".h5", ".hdf5"):
-            return _HDF5Writer(path)
+            return _HDF5Writer(
+                path,
+                compression=compression,
+                compression_opts=compression_opts,
+                shuffle=shuffle,
+            )
+        if (compression, compression_opts, shuffle) != ("gzip", 1, False):
+            raise ValueError(
+                "HDF5 compression options can only be used with .h5/.hdf5 outputs"
+            )
         if suffix in _VIDEO_EXTENSIONS:
             return _VideoWriter(path, fps=fps, crf=crf)
         return _PNGDirWriter(
@@ -593,10 +778,20 @@ class _PNGDirWriter(FrameWriter):
 
 
 class _HDF5Writer(FrameWriter):
-    """Writes frames into a gzip-compressed (level 1) HDF5 dataset."""
+    """Writes frames into a chunked, losslessly compressed HDF5 dataset."""
 
-    def __init__(self, path: Path):
+    def __init__(
+        self,
+        path: Path,
+        *,
+        compression: str | int | None = "gzip",
+        compression_opts: Any = 1,
+        shuffle: bool = False,
+    ):
         self._path = path
+        self._compression = compression
+        self._compression_opts = compression_opts
+        self._shuffle = shuffle
         self._closed = False
         self._h5_file = None
         self._h5_dataset = None
@@ -618,8 +813,9 @@ class _HDF5Writer(FrameWriter):
                 maxshape=(None, *shape_tail),
                 dtype=frame.dtype,
                 chunks=(1, *shape_tail),
-                compression="gzip",
-                compression_opts=1,
+                compression=self._compression,
+                compression_opts=self._compression_opts,
+                shuffle=self._shuffle,
             )
         ds = self._h5_dataset
         ds.resize(self._h5_count + 1, axis=0)

@@ -137,6 +137,19 @@ ignore = [
     "PLR2004",  # magic numbers
 ]
 
+[tool.ruff.lint.per-file-ignores]
+# Test functions are self-describing by name and take only pytest fixtures; requiring
+# docstrings and annotations on them adds noise without adding information.
+"**/test_*.py" = [
+    "ANN001",  # missing type annotation for function argument
+    "ANN201",  # missing return type for public function
+    "ANN202",  # missing return type for private function
+    "ANN204",  # missing return type for special method
+    "D101",  # missing docstring in public class
+    "D102",  # missing docstring in public method
+    "D103",  # missing docstring in public function
+]
+
 [tool.ruff.lint.isort]
 known-third-party = ["wandb"]
 
@@ -172,11 +185,11 @@ platforms = ["linux-64"]
 cuda = "12"
 libc = { family = "glibc", version = "2.35" }
 
-[tool.setuptools]
-packages = ["robotic_grounding"]
-
 [tool.setuptools.package-dir]
 "" = "source/robotic_grounding"
+
+[tool.setuptools.packages.find]
+where = ["source/robotic_grounding"]
 
 [tool.pixi.pypi-options]
 index-url = "https://pypi.org/simple"
@@ -190,7 +203,7 @@ isaaclab = { version = "==2.2.0", extras = ["isaacsim", "all"] }
 nvidia-cudnn-cu12 = { version = "*", index = "https://pypi.org/simple" }
 viser = { version = ">=0.2.11,<0.3" }
 pre-commit = { version = ">=4.3.0,<5" }
-py-soma-x = "*"
+py-soma-x = "==0.2.1"
 
 [tool.pixi.tasks]
 install-hooks = "pre-commit install"

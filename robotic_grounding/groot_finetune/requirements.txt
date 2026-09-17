@@ -1,0 +1,11 @@
+# Dependencies for groot_finetune/convert_to_gr00t.py only.
+# The GR00T training/eval toolchain lives in the external Isaac-GR00T repo (Python 3.10,
+# its own uv env) -- see README.md.
+# h5py/numpy/pyarrow ship in the robotic-grounding container; opencv does NOT, so install
+# this file before running the converter or the tests.
+# opencv is headless on purpose: the converter only encodes video (VideoWriter/imencode)
+# and never opens a window, so the GUI build would only add libGL to CI and the image.
+h5py
+numpy
+pyarrow
+opencv-python-headless

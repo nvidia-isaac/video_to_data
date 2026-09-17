@@ -2,18 +2,18 @@
 
 This file enumerates the direct dependencies of `reconstruction`
 and the license terms under which their upstream projects make them
-available. Transitive dependencies inherit their license terms from
-these direct parents.
+available. Transitive dependencies retain their own upstream license terms;
+consult their package metadata and bundled license files for those terms.
 
 Unlike a single-package component, `reconstruction` is a collection of
 independently containerized modules under `modules/v2d_*/`, each with its
-own `lib/pyproject.toml` and install. There is therefore no single
-`uv.lock`: the versions below reflect each module's `pyproject.toml` /
-install at release time and may be approximate. The SPDX license
-identifier and copyright holder are the authoritative parts of each
-entry; for the precise license terms and exact pinned version of any
-individual package, consult the upstream project URL and the relevant
-module's `pyproject.toml`.
+own dependency manifest or explicit container install. There is therefore no
+single `uv.lock`: the versions below reflect each module's `pyproject.toml`,
+`requirements.txt`, or Dockerfile install at release time and may be
+approximate. The SPDX license identifier and copyright holder are the
+authoritative parts of each entry; for the precise license terms and exact
+pinned version of any individual package, consult the upstream project URL
+and the relevant module dependency manifest or Dockerfile.
 
 ---
 
@@ -36,6 +36,12 @@ Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply 
 License Text(http://spdx.org/licenses/Apache-2.0.html)
 Package: boto3 (version per module pyproject.toml)
 Project URL: https://github.com/boto/boto3
+
+Copyright (c) 2022 Xinyue Wei, Minghua Liu - MIT License
+Attribution Statements: Version 1.0.11 is installed from PyPI by the HOI mesh-to-USD generator image.
+License Text(https://github.com/SarahWeiii/CoACD/blob/1.0.11/LICENSE)
+Package: coacd (version 1.0.11; pinned in mesh_to_usd/Dockerfile)
+Project URL: https://github.com/SarahWeiii/CoACD
 
 Copyright The Decord / DMLC contributors - Apache-2.0 License
 Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
@@ -132,6 +138,18 @@ Attribution Statements: NVIDIA actively chooses the BSD-3-Clause license to appl
 License Text(http://spdx.org/licenses/BSD-3-Clause.html)
 Package: omegaconf (version per module pyproject.toml)
 Project URL: https://github.com/omry/omegaconf
+
+Copyright NVIDIA Corporation & affiliates - Apache-2.0 License
+Attribution Statements: Version 1.18.0 is installed from PyPI by the standalone HOI mesh-to-USD validator image.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: omniverse-asset-validator (version 1.18.0; pinned in mesh_to_usd/validator/requirements.txt)
+Project URL: https://docs.omniverse.nvidia.com/kit/docs/asset-validator/1.18.0/
+
+Copyright NVIDIA Corporation & affiliates - Apache-2.0 License
+Attribution Statements: Version 1.10.22 is installed from PyPI by the standalone HOI mesh-to-USD validator image.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: omniverse-usd-profiles (version 1.10.22; pinned in mesh_to_usd/validator/requirements.txt)
+Project URL: https://docs.omniverse.nvidia.com/kit/docs/asset-requirements/1.10.22/
 
 Copyright www.open3d.org / Open3D contributors - MIT License
 Attribution Statements: NVIDIA actively chooses the MIT license to apply to files with this copyright and license.
@@ -241,6 +259,12 @@ License Text(http://spdx.org/licenses/BSD-3-Clause.html)
 Package: seaborn (version per module pyproject.toml)
 Project URL: https://seaborn.pydata.org/
 
+Copyright NVIDIA Corporation & affiliates - Apache-2.0 License
+Attribution Statements: Version 2026.4.9 is installed from PyPI by the standalone HOI mesh-to-USD validator image.
+License Text(http://spdx.org/licenses/Apache-2.0.html)
+Package: simready-validate (version 2026.4.9; pinned in mesh_to_usd/validator/requirements.txt)
+Project URL: https://pypi.org/project/simready-validate/2026.4.9/
+
 Copyright Ross Wightman - Apache-2.0 License
 Attribution Statements: NVIDIA actively chooses the Apache-2.0 license to apply to files with this copyright and license.
 License Text(http://spdx.org/licenses/Apache-2.0.html)
@@ -264,6 +288,12 @@ Attribution Statements: NVIDIA actively chooses the MIT license to apply to file
 License Text(http://spdx.org/licenses/MIT.html)
 Package: trimesh (version per module pyproject.toml)
 Project URL: https://github.com/mikedh/trimesh
+
+Copyright Pixar Animation Studios - LicenseRef-TOST-1.0 License
+Attribution Statements: usd-core 26.5 is installed from PyPI by the standalone HOI mesh-to-USD validator image. The distributed wheel's LICENSE.txt includes the OpenUSD license and retained third-party notices.
+License Text(https://github.com/PixarAnimationStudios/OpenUSD/blob/v26.05/LICENSE.txt)
+Package: usd-core (version 26.5; pinned in mesh_to_usd/validator/requirements.txt)
+Project URL: https://github.com/PixarAnimationStudios/OpenUSD
 
 Copyright Luigi Piccinelli (ETH Zurich) - CC-BY-NC-4.0 License
 Attribution Statements: NVIDIA actively chooses the CC-BY-NC-4.0 license to apply to files with this copyright and license.
@@ -302,12 +332,12 @@ License Text(http://spdx.org/licenses/Apache-2.0.html)
 Package: Detectron2 / SAM2 support files (redistributed in-tree, permissive Apache-2.0)
 Project URL: https://github.com/facebookresearch/detectron2
 
-## Upstream models fetched at build/download time (NOT redistributed in this tree)
+## Upstream code and models fetched at build/download time (NOT redistributed in this tree)
 
-The following models are NOT redistributed in this repository. Only thin
-NVIDIA-authored wrapper modules are committed under each module's lib/; the
-upstream model code and/or weights are obtained directly from the project URL
-at container-build time (pip / git) or via each module's weight-download step.
+The following code and models are NOT redistributed in this repository. Only
+thin NVIDIA-authored wrapper modules are committed under each module's lib/;
+the upstream code and/or weights are obtained directly from the project URL at
+container-build time (pip / git) or via each module's weight-download step.
 Their license terms govern what the user obtains from upstream, not this source
 distribution. They are listed for completeness, including non-commercial terms
 that downstream users should be aware of.
@@ -324,10 +354,16 @@ License Text(http://spdx.org/licenses/CC-BY-NC-ND-4.0.html)
 Package: WiLoR (fetched at build)
 Project URL: https://github.com/rolpotamias/WiLoR
 
-Copyright NVIDIA Corporation & affiliates - NVIDIA Source Code License (Non-Commercial)
-Attribution Statements: NVIDIA-authored. Fetched from the project URL; not redistributed in this source tree. Non-commercial license (NVIDIA and affiliates may use commercially).
-License Text(https://github.com/NVlabs/BundleSDF/blob/master/LICENSE)
-Package: BundleSDF (fetched at build)
+Copyright Jinglei Zhang, Jiankang Deng, Chao Ma, Rolandos Alexandros Potamias, and contributors - CC-BY-NC-ND-4.0 License
+Attribution Statements: Fetched from the project URL at container-build time; not redistributed in this source tree. Non-commercial, no-derivatives license — applies to the upstream HaWoR code and models the user obtains. The upstream project also requires users to comply with the separately obtained MANO model license.
+License Text(https://github.com/ThunderVVV/HaWoR/blob/main/license.txt)
+Package: HaWoR (fetched at build)
+Project URL: https://github.com/ThunderVVV/HaWoR
+
+Copyright NVIDIA Corporation & affiliates - Apache-2.0 License
+Attribution Statements: Fetched at build at pinned commit 56f21198759558f921c5e74e247c7a6dbf611d66; not redistributed in this source tree. NVIDIA-authored code is licensed under Apache-2.0. Bundled third-party components retain their upstream BSD-3-Clause, Apache-2.0, and MIT licenses as documented in the pinned LICENSE file.
+License Text(https://github.com/NVlabs/BundleSDF/blob/56f21198759558f921c5e74e247c7a6dbf611d66/LICENSE.txt)
+Package: BundleSDF (fetched at build, pinned commit 56f21198759558f921c5e74e247c7a6dbf611d66)
 Project URL: https://github.com/NVlabs/BundleSDF
 
 Copyright NVIDIA Corporation & affiliates - NVIDIA Source Code License (Non-Commercial)
@@ -347,6 +383,12 @@ Attribution Statements: Fetched from the project URL; not redistributed in this 
 License Text(http://spdx.org/licenses/Apache-2.0.html)
 Package: SAM 2 / Segment Anything 2 (fetched at build)
 Project URL: https://github.com/facebookresearch/sam2
+
+Copyright 2026 NVIDIA Corporation & affiliates - Apache-2.0 License
+Attribution Statements: Fetched at build at pinned commit 4d9f3bb2897bc16ff99978774138c68f4e30ecbf and installed into the standalone HOI mesh-to-USD validator image; not redistributed in this source tree. Its LICENSE.txt is retained in the image under /licenses.
+License Text(https://github.com/NVIDIA/simready-foundation/blob/4d9f3bb2897bc16ff99978774138c68f4e30ecbf/LICENSE.txt)
+Package: SimReady Foundation (fetched at build, pinned commit 4d9f3bb2897bc16ff99978774138c68f4e30ecbf)
+Project URL: https://github.com/NVIDIA/simready-foundation
 
 Copyright IDEA Research - Apache-2.0 License
 Attribution Statements: Fetched from the project URL; not redistributed in this source tree.

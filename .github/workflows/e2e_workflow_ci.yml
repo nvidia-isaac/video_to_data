@@ -1,0 +1,75 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+#
+# NVIDIA CORPORATION and its licensors retain all intellectual property
+# and proprietary rights in and to this software, related documentation
+# and any modifications thereto. Any use, reproduction, disclosure or
+# distribution of this software and related documentation without an express
+# license agreement from NVIDIA CORPORATION is strictly prohibited.
+
+name: E2E Workflow CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/e2e_workflow_ci.yml'
+      - 'run_e2e.sh'
+      - 'tools/e2e/**'
+      - 'reconstruction/modules/v2d_pipelines/**'
+      - 'reconstruction/scripts/**'
+      - 'robotic_grounding/groot_finetune/**'
+      - 'robotic_grounding/workflow/run.sh'
+      - 'robotic_grounding/scripts/generate_rigid_urdfs.py'
+      - 'robotic_grounding/scripts/reconstruct_support_surfaces.py'
+      - 'robotic_grounding/scripts/retarget/**'
+      - 'robotic_grounding/scripts/rsl_rl/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/e2e_workflow_ci.yml'
+      - 'run_e2e.sh'
+      - 'tools/e2e/**'
+      - 'reconstruction/modules/v2d_pipelines/**'
+      - 'reconstruction/scripts/**'
+      - 'robotic_grounding/groot_finetune/**'
+      - 'robotic_grounding/workflow/run.sh'
+      - 'robotic_grounding/scripts/generate_rigid_urdfs.py'
+      - 'robotic_grounding/scripts/reconstruct_support_surfaces.py'
+      - 'robotic_grounding/scripts/retarget/**'
+      - 'robotic_grounding/scripts/rsl_rl/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test_e2e_workflow:
+    name: E2E workflow tests (CPU)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: python -m pip install numpy
+
+      - name: Check E2E shell entrypoints
+        run: |
+          bash -n run_e2e.sh
+          bash -n robotic_grounding/workflow/run.sh
+
+      - name: Run E2E workflow tests
+        run: |
+          python -m unittest -v \
+            tools.e2e.tests.test_e2e \
+            tools.e2e.tests.test_workflow_run

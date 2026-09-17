@@ -102,9 +102,7 @@ def validate_dataset(dataset: str) -> dict[str, list[str]]:
     Returns a dict mapping sequence_id to list of errors (empty = valid).
     """
     config = get_dataset_config(dataset)
-    processed_dir = (
-        HUMAN_MOTION_DATA_DIR / config.name / f"{config.name}{config.processed_suffix}"
-    )
+    processed_dir = HUMAN_MOTION_DATA_DIR / config.name / config.processed_dirname
 
     if not processed_dir.exists():
         return {"__dataset__": [f"Processed directory not found: {processed_dir}"]}

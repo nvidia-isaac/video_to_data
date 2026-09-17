@@ -26,6 +26,7 @@ the SOMA exporter so ``soma_to_g1.py`` can consume it directly.
 
 from __future__ import annotations
 
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -93,6 +94,28 @@ _SOMA_REQUIRED_BY_IDENTITY: dict[str, tuple[str, ...]] = {
     ),
 }
 
+# Rig arrays that ``SOMALayer(enable_procedural_transforms=False)`` reads straight
+# out of ``SOMA_neutral.npz``. Mirrors ``soma.io.SOMA_NEUTRAL_RIG_KEYS`` (py-soma-x
+# 0.2.x); duplicated here so the manifest check stays importable without the heavy
+# optional dependency. ``nvidia/SOMA-X`` asset commits from v0.2.2 onward publish a
+# *slim* npz under the same filename with these keys removed (the rig moved into
+# ``SOMA_template_rig.usda`` + ``SOMA_procedural_transforms.json``, which
+# ``SOMA.__init__`` deliberately does not consume). A slim npz passes a presence
+# check but cannot drive retargeting, so ``_missing_assets`` inspects content.
+_SOMA_NEUTRAL_RIG_KEYS: tuple[str, ...] = (
+    "joint_names",
+    "joint_parent_ids",
+    "bind_pose_world",
+    "bind_pose_local",
+    "t_pose_world",
+    "t_pose_local",
+    "bind_shape",
+    "skinning_weights_data",
+    "skinning_weights_indices",
+    "skinning_weights_indptr",
+    "skinning_weights_shape",
+)
+
 
 _LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1"
 
@@ -113,16 +136,46 @@ def _is_lfs_pointer(path: Path) -> bool:
         return False
 
 
+def _unusable_soma_neutral(path: Path) -> str | None:
+    """Return why ``SOMA_neutral.npz`` at ``path`` cannot back ``read_soma``, else ``None``.
+
+    Only the archive directory is read (no array data), so this is cheap even
+    for the ~27 MB production file and safe to run on every ``SOMA()`` construction.
+    """
+    try:
+        with np.load(path, allow_pickle=False) as archive:
+            present = set(archive.files)
+    except (OSError, ValueError, EOFError, zipfile.BadZipFile) as exc:
+        return f"unreadable npz: {exc}"
+    missing = [key for key in _SOMA_NEUTRAL_RIG_KEYS if key not in present]
+    if missing:
+        return "slim SOMA-X asset without embedded rig keys: " + ", ".join(missing)
+    return None
+
+
 def _missing_assets(root: Path, identity_model_type: str) -> list[str]:
-    """Return the expected SOMA asset files missing or unusable under ``root``."""
+    """Return the expected SOMA asset files missing or unusable under ``root``.
+
+    Entries are manifest relpaths. A file that exists but cannot be consumed
+    (Git-LFS stub, slim or corrupt ``SOMA_neutral.npz``) is reported too, with
+    the reason appended in parentheses for the npz, so both the setup script
+    and the runtime hint stay actionable instead of passing an asset set that
+    fails one step later inside ``SOMALayer``.
+    """
     needed = list(_SOMA_REQUIRED_ASSETS) + list(
         _SOMA_REQUIRED_BY_IDENTITY.get(identity_model_type.lower(), ())
     )
-    return [
-        name
-        for name in needed
-        if not (root / name).is_file() or _is_lfs_pointer(root / name)
-    ]
+    missing: list[str] = []
+    for name in needed:
+        path = root / name
+        if not path.is_file() or _is_lfs_pointer(path):
+            missing.append(name)
+            continue
+        if name == "SOMA_neutral.npz":
+            reason = _unusable_soma_neutral(path)
+            if reason is not None:
+                missing.append(f"{name} ({reason})")
+    return missing
 
 
 _SETUP_HINT_PRINTED: set[tuple[str, str]] = set()
@@ -272,9 +325,10 @@ class SOMA:
         self.data_root = _resolve_data_root(data_root, identity_model_type)
         # py-soma-x >= 0.2 defaults ``enable_procedural_transforms=True``, which
         # hard-requires ``SOMA_template_rig.usda`` + ``SOMA_procedural_transforms.json``.
-        # The public ``nvidia/SOMA-X`` HuggingFace bundle that ``_resolve_data_root``
-        # and ``scripts/setup_soma_assets.py`` populate ships neither, so leaving it
-        # enabled makes every asset path raise FileNotFoundError. Procedural mode also
+        # The pinned ``nvidia/SOMA-X`` asset revision that ``scripts/setup_soma_assets.py``
+        # stages ships neither (its ``SOMA_neutral.npz`` embeds the rig instead; see
+        # ``_SOMA_NEUTRAL_RIG_KEYS``), so leaving it enabled raises FileNotFoundError
+        # on every asset path. Procedural mode also
         # replaces ``rig_data["joint_names"]`` with the internal twist rig, breaking
         # the 77-joint indexing that ``soma_params.npz`` exports use. The twist joints
         # only refine mesh skinning; ``joints``/``joints_wxyz`` are unchanged.

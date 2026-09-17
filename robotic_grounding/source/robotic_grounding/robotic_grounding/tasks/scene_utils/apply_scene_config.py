@@ -26,6 +26,7 @@ from pxr import Usd, UsdGeom
 from robotic_grounding.assets.articulated_object import ARTICULATED_OBJECT_CFG
 from robotic_grounding.assets.rigid_object import RIGID_OBJECT_CFG
 from robotic_grounding.assets.robot_registry import get_robot_spec
+from robotic_grounding.motion_schema import resolve_playback_timing
 from robotic_grounding.tasks.scene_utils.scene_config import (
     ArticulatedObjectConfig,
     ObjectConfig,
@@ -109,8 +110,11 @@ def _spawn_rigid(
             scale=obj_scale,
             collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
             rigid_props=RigidBodyPropertiesCfg(
-                solver_position_iteration_count=16,
-                solver_velocity_iteration_count=1,
+                # 8/0 rather than 16/1: measurably faster with no loss of grasp
+                # stability. Keep in sync with RIGID_OBJECT_CFG (the URDF path) and
+                # with the robot/articulated-object configs, which already use 8/0.
+                solver_position_iteration_count=8,
+                solver_velocity_iteration_count=0,
                 max_angular_velocity=1000.0,
                 max_linear_velocity=1000.0,
                 linear_damping=0.01,
@@ -125,8 +129,54 @@ def _spawn_rigid(
     )
 
 
+def _contact_bodies_for_side(
+    scene_config: SceneConfig, hand_contact_bodies: list[str], side: str
+) -> list[str]:
+    """Resolve one side's contact-sensor body names.
+
+    Prefers the robot spec, which may name each side outright when a single ``.*`` ->
+    side substitution cannot produce them (Vega's arms are ``L_``/``R_`` prefixed while
+    its fingers are ``left_``/``right_``). Falls back to substitution for robots that
+    are not in the registry or that use one consistent side token.
+    """
+    spec = get_robot_spec(scene_config.robot_name)
+    if spec is not None and spec.hand_contact_bodies_by_side:
+        return spec.contact_bodies_for_side(side)
+    return [b.replace(".*", side) for b in hand_contact_bodies]
+
+
 def apply_scene_objects(env_cfg: Any, scene_config: SceneConfig) -> None:
     """Spawn all scene objects and fixed objects into env_cfg.scene."""
+    # Optional object solver-iteration overrides set by the env cfg (-1 = disabled).
+    # PhysX steps the whole GPU scene at the max iteration count over all bodies, so one
+    # object left at the 16/1 default forces every body (incl. the robot) to 16/1.
+    solver_pos_iters = getattr(env_cfg, "object_solver_position_iteration_count", -1)
+    solver_vel_iters = getattr(env_cfg, "object_solver_velocity_iteration_count", -1)
+    if solver_pos_iters is None or solver_pos_iters < 0:
+        solver_pos_iters = None
+    if solver_vel_iters is None or solver_vel_iters < 0:
+        solver_vel_iters = None
+    # Object contact material is deliberately NOT configured here. Two mechanisms were
+    # tried and both fail silently: `cfg.spawn.physics_material` is not a field on
+    # `UrdfFileCfg`/`UsdFileCfg` (it exists only on `GroundPlaneCfg` and `ShapeCfg`), so
+    # assigning it just creates a stray attribute that `dataclasses.asdict` -- and hence
+    # the spawner -- drops; and `cfg.spawn.collision_props` offsets never reach the stage
+    # because the object's collider is an instance proxy, which
+    # `isaaclab.sim.utils.apply_nested` skips without descending.
+    #
+    # The repo convention is instead to raise friction on the ROBOT with a startup
+    # `randomize_rigid_body_material` event (see `v2d_hand_env_cfg.py` and
+    # `VegaManipEventsCfg.hand_physics_material`), leaving the object at PhysX defaults.
+    # This guard exists so that convention cannot be silently bypassed again.
+    for dead_attr in ("object_contact_friction", "object_contact_offset"):
+        if getattr(env_cfg, dead_attr, None) is not None:
+            raise ValueError(
+                f"env_cfg sets `{dead_attr}`, which nothing reads -- object contact "
+                "material cannot be delivered through the spawn cfg. Raise friction on "
+                "the robot instead with a `randomize_rigid_body_material` startup event "
+                "(see VegaManipEventsCfg.hand_physics_material)."
+            )
+
     for obj in scene_config.scene_objects:
         attr_name = obj.name
         prim_path = f"{{ENV_REGEX_NS}}/{attr_name}"
@@ -135,6 +185,15 @@ def apply_scene_objects(env_cfg: Any, scene_config: SceneConfig) -> None:
             cfg = _spawn_articulated(obj, prim_path)
         else:
             cfg = _spawn_rigid(obj, prim_path)
+
+        for props_name in ("rigid_props", "articulation_props"):
+            props = getattr(cfg.spawn, props_name, None)
+            if props is None:
+                continue
+            if solver_pos_iters is not None:
+                props.solver_position_iteration_count = solver_pos_iters
+            if solver_vel_iters is not None:
+                props.solver_velocity_iteration_count = solver_vel_iters
 
         setattr(env_cfg.scene, attr_name, cfg)
         if hasattr(env_cfg, "events") and hasattr(
@@ -408,20 +467,55 @@ def apply_scene_contact_sensors(env_cfg: Any, scene_config: SceneConfig) -> None
 
 
 def apply_scene_config(
-    env_cfg: Any, scene_config: SceneConfig, use_primitive_urdfs: bool = False
+    env_cfg: Any,
+    scene_config: SceneConfig,
+    use_primitive_urdfs: bool = False,
+    motion_files: list[str] | None = None,
 ) -> Any:
     """Apply scene config: objects + robot + commands + contacts.
 
-    Supports both dual-hands (V2D) and whole-body envs. Skips commands/contacts
-    if the env_cfg doesn't have the required fields (e.g. scene viewer).
+    Supports dual-hands (V2D) and whole-body environments. Skips
+    commands/contacts if the env_cfg doesn't have the required fields
+    (e.g. scene viewer).
+
+    Args:
+        env_cfg: Environment configuration to update in place.
+        scene_config: Parsed scene, robot, and motion configuration.
+        use_primitive_urdfs: Whether to select primitive-collision robot assets.
+        motion_files: Optional bank of per-sequence motion paths (from
+            ``--motion_dir``). Only valid for whole-body motion commands
+            that expose a ``motion_files`` field; each env samples one motion
+            from the bank per reset. ``scene_config`` is still built from a
+            single representative sequence for scene/robot/timing setup.
     """
-    apply_scene_objects(env_cfg, scene_config)
-    apply_scene_virtual_object_controls(env_cfg, scene_config)
+    if motion_files:
+        is_whole_body_motion = hasattr(env_cfg, "commands") and hasattr(
+            env_cfg.commands, "motion"
+        )
+        if not is_whole_body_motion or not hasattr(
+            env_cfg.commands.motion, "motion_files"
+        ):
+            raise ValueError(
+                "A motion bank (--motion_dir) was provided, but this env's "
+                "command does not support multi-motion sampling. Use a "
+                "motion-bank whole-body env (e.g. VegaSharpa-WholeBody-v0) or "
+                "pass a single --motion_file."
+            )
 
     is_dual_hands = hasattr(env_cfg, "commands") and hasattr(
         env_cfg.commands, "dual_hands_object_tracking_command"
     )
     is_whole_body = hasattr(env_cfg, "commands") and hasattr(env_cfg.commands, "motion")
+
+    # Reference-only whole-body commands deliberately ignore objects carried
+    # solely to satisfy older motion schemas.  Spawning those placeholders
+    # would also inject virtual-object actions that the command cannot serve.
+    uses_scene_objects = not is_whole_body or getattr(
+        env_cfg.commands.motion, "uses_scene_objects", True
+    )
+    if uses_scene_objects:
+        apply_scene_objects(env_cfg, scene_config)
+        apply_scene_virtual_object_controls(env_cfg, scene_config)
 
     # V2D dual-hands: spawn robot + configure commands/contacts
     if is_dual_hands:
@@ -436,29 +530,59 @@ def apply_scene_config(
             / env_cfg.commands.dual_hands_object_tracking_command.motion_speed
         )
 
-    # Whole-body: robot + actions/obs configured by env cfg, just set motion file
+    # Whole-body: robot + actions/obs configured by env cfg; pass through one
+    # motion or a bank of motions.
     elif is_whole_body:
-        env_cfg.commands.motion.motion_file = scene_config.motion_file
-        object_attr_names = [obj.name for obj in scene_config.scene_objects]
-        if object_attr_names:
-            env_cfg.commands.motion.object_name = object_attr_names[0]
-            env_cfg.commands.motion.object_body_names = object_attr_names
-        whole_body_step_dt = float(env_cfg.sim.dt) * int(env_cfg.decimation)
-        reset_freeze_steps = int(
-            getattr(env_cfg.commands.motion, "reset_freeze_steps", 0)
+        motion_cfg = env_cfg.commands.motion
+        uses_motion_bank = bool(motion_files)
+        if not hasattr(motion_cfg, "motion_file"):
+            raise ValueError(
+                "Whole-body motion command config must expose `motion_file`."
+            )
+        motion_cfg.motion_file = scene_config.motion_file
+        if motion_files:
+            motion_cfg.motion_files = list(motion_files)
+
+        object_attr_names = (
+            [obj.name for obj in scene_config.scene_objects]
+            if uses_scene_objects
+            else []
         )
-        whole_body_episode_length_s = (
-            scene_config.episode_length_s + reset_freeze_steps * whole_body_step_dt
-        )
-        env_cfg.episode_length_s = min(
-            env_cfg.episode_length_s, whole_body_episode_length_s
-        )
+        if hasattr(motion_cfg, "object_body_names"):
+            motion_cfg.object_body_names = object_attr_names
+            if object_attr_names and hasattr(motion_cfg, "object_name"):
+                motion_cfg.object_name = object_attr_names[0]
+        elif object_attr_names:
+            raise ValueError(
+                "Scene contains tracked objects, but the selected whole-body "
+                "command config does not support object references."
+            )
+
+        # Single-motion commands use SceneConfig's duration. A motion bank owns
+        # per-environment motion lengths and exact trajectory termination;
+        # env_cfg.episode_length_s remains its safety ceiling.
+        if not uses_motion_bank:
+            whole_body_step_dt = float(env_cfg.sim.dt) * int(env_cfg.decimation)
+            reset_freeze_steps = int(getattr(motion_cfg, "reset_freeze_steps", 0))
+            motion_speed = float(getattr(motion_cfg, "motion_speed", 1.0))
+            resolve_playback_timing(
+                float(motion_cfg.dt), whole_body_step_dt, motion_speed
+            )
+            whole_body_episode_length_s = (
+                scene_config.episode_length_s / motion_speed
+                + reset_freeze_steps * whole_body_step_dt
+            )
+            env_cfg.episode_length_s = min(
+                env_cfg.episode_length_s, whole_body_episode_length_s
+            )
 
         # Contact sensors for whole-body
-        hand_contact_bodies = getattr(
-            env_cfg.commands.motion, "hand_contact_bodies", []
-        )
+        hand_contact_bodies = getattr(motion_cfg, "hand_contact_bodies", [])
         if hand_contact_bodies:
+            if not scene_config.scene_objects:
+                raise ValueError(
+                    "hand_contact_bodies requires at least one tracked scene object."
+                )
             contact_sensor_names = []
             for obj in scene_config.scene_objects:
                 obj_name = obj.name
@@ -470,8 +594,10 @@ def apply_scene_config(
                 for body_name in body_names:
                     for side in ["right", "left"]:
                         filter_prims = [
-                            f"{{ENV_REGEX_NS}}/Robot/{b.replace('.*', side)}"
-                            for b in hand_contact_bodies
+                            f"{{ENV_REGEX_NS}}/Robot/{b}"
+                            for b in _contact_bodies_for_side(
+                                scene_config, hand_contact_bodies, side
+                            )
                         ]
                         sensor_name = f"{obj_name}_{body_name}_to_{side}_contact_sensor"
                         setattr(
@@ -490,11 +616,15 @@ def apply_scene_config(
                             ),
                         )
                         contact_sensor_names.append(sensor_name)
-            env_cfg.commands.motion.object_contact_sensor_names = contact_sensor_names
+            motion_cfg.object_contact_sensor_names = contact_sensor_names
 
         # FrameTransformers for hand-object observations
-        hand_targets = getattr(env_cfg.commands.motion, "hand_frame_target_bodies", [])
+        hand_targets = getattr(motion_cfg, "hand_frame_target_bodies", [])
         if hand_targets:
+            if not scene_config.scene_objects:
+                raise ValueError(
+                    "hand_frame_target_bodies requires at least one tracked scene object."
+                )
             obj = scene_config.scene_objects[0]
             obj_name = obj.name
             body_name = (
@@ -517,5 +647,12 @@ def apply_scene_config(
                         ],
                     ),
                 )
+
+    # Visual-DR configs inject texture terms for scene-derived prims here, once object and
+    # support-surface names are known -- they come from the motion file and cannot be
+    # declared statically. A neutral getattr so every non-DR env cfg is unaffected.
+    register_visual_dr = getattr(env_cfg, "register_scene_visual_dr_events", None)
+    if register_visual_dr is not None:
+        register_visual_dr()
 
     return env_cfg

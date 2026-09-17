@@ -40,19 +40,19 @@ By the end of this guide you will have processed a video through the full pipeli
      vector.db: outputs/vector.db
      Report: file:///home/user/runs/20260217_143022/report.html
 
-   $ python scripts/run_retrieval.py "Find all pick up mug actions" \
+   $ python scripts/run_retrieval.py "Show me segments where someone is stirring a bowl" \
        -d outputs/
 
    ANSWER:
-   Found 3 clips of picking up a mug:
-     1. [12.5s - 16.2s] Person picks up white mug from counter
-     2. [45.0s - 48.8s] Person picks up white mug from table
-     3. [102.3s - 106.1s] Person picks up red mug from drying rack
+   Found 3 clips of someone stirring a bowl:
+     1. [12.5s - 16.2s] Person stirs batter in a mixing bowl with a whisk
+     2. [45.0s - 48.8s] Person stirs the bowl with a wooden spoon
+     3. [102.3s - 106.1s] Person stirs the bowl while adding flour
 
    EXTRACTED CLIPS:
-     - outputs/clips/task_1_pick_up_mug_1.mp4
-     - outputs/clips/task_1_pick_up_mug_2.mp4
-     - outputs/clips/task_1_pick_up_mug_3.mp4
+     - outputs/clips/demo_stirring_bowl_12s-16s.mp4
+     - outputs/clips/demo_stirring_bowl_45s-49s.mp4
+     - outputs/clips/demo_stirring_bowl_102s-106s.mp4
 
 Prerequisites
 -------------
@@ -135,6 +135,18 @@ in editable mode — the same flow used by the Dockerfile and CI.
 
          # Visualization (matplotlib, plotly)
          uv sync --extra viz
+
+.. note::
+
+   On hosts with ``git-lfs`` installed, prefix any sync that includes the
+   ``server`` extra (``--extra server`` or ``--all-extras``) with
+   ``GIT_LFS_SKIP_SMUDGE=1``::
+
+      GIT_LFS_SKIP_SMUDGE=1 uv sync --extra server
+
+   The ``vllm-cosmos3`` git dependency lives in a repository that carries LFS
+   pointers whose objects are not all retrievable; with git-lfs active the
+   checkout aborts in the smudge filter and the sync fails.
 
 .. tip::
 
@@ -275,9 +287,18 @@ After ingestion, use natural language to find and extract clips:
 
 .. code-block:: bash
 
-   python scripts/run_retrieval.py "Find all pick up mug actions" \
+   python scripts/run_retrieval.py "Show me segments where someone is stirring a bowl" \
      -d outputs/ \
      --output-dir outputs/clips/
+
+.. note::
+
+   Phrase the action the way the ingested vocabulary does — as a gerund
+   (*stirring*, *pouring*), ideally a single verb. The task decomposer currently
+   normalises multi-word actions such as *pick up* to ``pick_up``, which never
+   matches the free-form action phrases ingestion stores, so a query such as
+   ``"Find all pick up mug actions"`` returns no results at any relaxation level.
+   Tracked as NVBug 6203220.
 
 ``-d`` points at the **database directory** containing both ``graph.db``
 and ``vector.db`` — the same directory written by ``run_ingestion.py``

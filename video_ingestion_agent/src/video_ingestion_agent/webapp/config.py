@@ -33,7 +33,7 @@ class AppConfig:
     # Paths
     data_dir: str = "outputs/webapp"
     default_output_dir: str = "outputs/"
-    default_db_dir: str = "outputs/database"
+    default_db_dir: str = "/mnt/amlfs-02/shared/liuw/v2p/database"
     default_videos_dir: str = ""
     default_clips_dir: str = "outputs/clips"
     config_dir: str = "configs"
@@ -460,7 +460,7 @@ class AppConfig:
         return config
 
     # Directories to scan for databases (relative or absolute)
-    db_scan_dirs: tuple = ("outputs/database",)
+    db_scan_dirs: tuple = ("/mnt/amlfs-02/shared/liuw/v2p/database",)
 
     def ensure_dirs(self):
         """Create necessary directories."""

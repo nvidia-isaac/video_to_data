@@ -75,7 +75,7 @@ def create_ingestion_tab(services: dict[str, Any], config: AppConfig) -> dict[st
                     videos_dir_input = gr.Textbox(
                         label="Batch directory path",
                         value=config.default_videos_dir,
-                        placeholder="/path/to/videos",
+                        placeholder="/mnt/amlfs/home/.../videos",
                         interactive=True,
                     )
 

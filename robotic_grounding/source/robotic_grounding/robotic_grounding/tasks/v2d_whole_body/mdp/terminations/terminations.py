@@ -13,6 +13,42 @@ from robotic_grounding.tasks.v2d.mdp.terminations import (
 )
 
 
+def robot_state_diverged(
+    env: ManagerBasedRLEnv,
+    asset_cfg: Any = None,
+    max_joint_vel: float = 100.0,
+) -> torch.Tensor:
+    """Terminate envs whose robot state has gone non-finite or implausibly fast.
+
+    Without it a rare PhysX blow-up in ONE env produces NaN/inf joint state, which flows
+    into the observations and then into the PPO update, where it surfaces as
+    ``RuntimeError: normal expects all elements of std >= 0.0`` and kills the whole run --
+    observed on the vega manip baselines at ~5.6-6.3k iterations. Resetting only the
+    offending env keeps its corrupted state out of the observations, rewards and value
+    target.
+
+    Root state is checked as well as joint state: a diverged base pose reaches the
+    tracking observations even when joint velocities are still finite.
+
+    Args:
+        env: The environment instance.
+        asset_cfg: Scene entity for the robot articulation (defaults to "robot").
+        max_joint_vel: Joint-velocity magnitude above which the state is divergent.
+            Set well above any legitimate motion so this only fires on real divergence.
+
+    Returns:
+        Boolean tensor of shape (num_envs,) indicating whether to terminate.
+    """
+    name = getattr(asset_cfg, "name", None) or "robot"
+    data = env.scene[name].data
+    joint_vel = data.joint_vel
+    diverged = ~torch.isfinite(joint_vel).all(dim=1)
+    diverged |= (joint_vel.abs() > max_joint_vel).any(dim=1)
+    diverged |= ~torch.isfinite(data.joint_pos).all(dim=1)
+    diverged |= ~torch.isfinite(data.root_state_w).all(dim=1)
+    return diverged
+
+
 def _mask_freeze(command: Any, terminated: torch.Tensor) -> torch.Tensor:
     """Suppress termination during the post-reset freeze period."""
     freeze_steps = getattr(command.cfg, "reset_freeze_steps", 0)

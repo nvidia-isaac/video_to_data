@@ -16,7 +16,7 @@ import numpy as np
 from tqdm import tqdm
 
 from v2d.common.video import FrameSource, FrameWriter
-from v2d.mv.rig import CameraParam, RigConfig
+from v2d.mv.rig import CameraParam, RigConfig, apply_focal_correction
 
 from v2d.mv.preprocess.lib.image_proc import (
     ImagePipeline,
@@ -45,15 +45,6 @@ def _rectify_frame(
     img1 = left_pipeline(left_source[left_idx])
     img2 = right_pipeline(right_source[right_idx])
     return order, img1, img2
-
-
-def _scale_focal(param: CameraParam, scale: float) -> CameraParam:
-    """Scale focal length and projection matrix by a factor."""
-    param.K[:2, :2] *= scale
-    if param.P is not None:
-        param.P[:2, :2] *= scale
-        param.P[:2, 3] *= scale
-    return param
 
 
 def preprocess_stereo(
@@ -131,10 +122,10 @@ def preprocess_stereo(
 
     if left_cam_id is not None and left_cam_id in correction_focal:
         logger.warning(f"Applying focal correction {correction_focal[left_cam_id]} to camera {left_cam_id}")
-        left_param = _scale_focal(left_param, correction_focal[left_cam_id])
+        left_param = apply_focal_correction(left_param, correction_focal[left_cam_id])
     if right_cam_id is not None and right_cam_id in correction_focal:
         logger.warning(f"Applying focal correction {correction_focal[right_cam_id]} to camera {right_cam_id}")
-        right_param = _scale_focal(right_param, correction_focal[right_cam_id])
+        right_param = apply_focal_correction(right_param, correction_focal[right_cam_id])
 
     # Stem-matching: match left/right frames by stem name
     if left_source.n_frames != right_source.n_frames:
@@ -158,8 +149,18 @@ def preprocess_stereo(
     frame_queue: queue.Queue = queue.Queue(maxsize=num_workers * 2)
     writer_error: list[BaseException] = []
 
-    left_writer = FrameWriter.from_path(left_output_image_dir)
-    right_writer = FrameWriter.from_path(right_output_image_dir)
+    def _image_writer(path: Path) -> FrameWriter:
+        if path.suffix.lower() in (".h5", ".hdf5"):
+            return FrameWriter.from_path(
+                path,
+                compression="gzip",
+                compression_opts=6,
+                shuffle=False,
+            )
+        return FrameWriter.from_path(path)
+
+    left_writer = _image_writer(left_output_image_dir)
+    right_writer = _image_writer(right_output_image_dir)
     left_vid_writer = FrameWriter.from_path(left_output_video_path) if left_output_video_path else None
     right_vid_writer = FrameWriter.from_path(right_output_video_path) if right_output_video_path else None
 

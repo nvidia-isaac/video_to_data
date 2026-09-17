@@ -39,6 +39,7 @@ from scipy.spatial.transform import Rotation
 from v2d.common.datatypes import CameraIntrinsics, Mask, Transform3d
 from v2d.mesh.lib.mesh import Mesh
 from v2d.foundation_pose.lib.foundation_pose_tracker import FoundationPoseTracker
+from v2d.foundation_pose.lib.backends import DEFAULT_BACKEND, SUPPORTED_BACKENDS
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -217,6 +218,7 @@ def run_ekf_smoothing(
     intrinsics_path: str,
     weights_dir: str,
     output_dir: str,
+    backend: str = DEFAULT_BACKEND,
     masks_folder: str = None,
     process_noise_xy: float = 0.005,
     process_noise_z: float = 0.005,
@@ -258,7 +260,7 @@ def run_ekf_smoothing(
     logger.info(f"Loaded {len(poses)} poses from {poses_dir}")
 
     mesh = Mesh.load(mesh_path)
-    tracker = FoundationPoseTracker(mesh, weights_dir)
+    tracker = FoundationPoseTracker(mesh, weights_dir, backend=backend)
     intrinsics = CameraIntrinsics.load(intrinsics_path)
 
     iou_scores = _compute_iou_scores(tracker, poses, intrinsics, masks_folder, indices)
@@ -296,6 +298,7 @@ if __name__ == "__main__":
     parser.add_argument("--mesh_path",            required=True)
     parser.add_argument("--intrinsics_path",      required=True)
     parser.add_argument("--weights_dir",          required=True)
+    parser.add_argument("--backend", choices=SUPPORTED_BACKENDS, default=DEFAULT_BACKEND)
     parser.add_argument("--output_dir",           required=True)
     parser.add_argument("--masks_folder",          default=None)
     parser.add_argument("--process_noise_xy",      type=float, default=0.005)
@@ -313,6 +316,7 @@ if __name__ == "__main__":
         args.intrinsics_path,
         args.weights_dir,
         args.output_dir,
+        backend=args.backend,
         masks_folder=args.masks_folder,
         process_noise_xy=args.process_noise_xy,
         process_noise_z=args.process_noise_z,

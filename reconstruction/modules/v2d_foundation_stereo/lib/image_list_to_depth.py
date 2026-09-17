@@ -120,7 +120,15 @@ def image_list_to_depth(
     left_stems = left_source.stems[start_idx:end_idx]
 
     is_png_output = Path(depth_folder).suffix.lower() not in (".h5", ".hdf5")
-    depth_writer = FrameWriter.from_path(depth_folder)
+    if is_png_output:
+        depth_writer = FrameWriter.from_path(depth_folder)
+    else:
+        depth_writer = FrameWriter.from_path(
+            depth_folder,
+            compression="gzip",
+            compression_opts=6,
+            shuffle=True,
+        )
     processed = 0
     skipped = 0
 

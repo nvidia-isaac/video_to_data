@@ -4,7 +4,7 @@
 
 The selector ranks per-frame SRT results using projection loss as the primary
 signal, with small sanity penalties for suspicious scale, anisotropy, missing
-debug artifacts, and source frames outside Stage 1.
+debug artifacts, and (for two-stage captures) source frames outside Stage 1.
 """
 
 from __future__ import annotations
@@ -71,6 +71,18 @@ def _read_stage1_end(job_dir: Path) -> Optional[int]:
         return None
 
 
+def _read_capture_mode(job_dir: Path) -> str:
+    """Return the recorded capture contract, defaulting legacy jobs to two-stage."""
+    contract_path = job_dir / "sam3d" / "capture_contract.json"
+    if not contract_path.exists():
+        return "two_stage"
+    try:
+        capture_mode = json.loads(contract_path.read_text()).get("capture_mode")
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return "two_stage"
+    return capture_mode if capture_mode in {"two_stage", "stationary"} else "two_stage"
+
+
 def _relative(job_dir: Path, path: Path) -> str:
     try:
         return str(path.relative_to(job_dir))
@@ -86,7 +98,12 @@ def _copy_if_exists(src: Path, dst: Path) -> Optional[str]:
     return dst.name
 
 
-def _load_candidate(job_dir: Path, frame_id: str, stage1_end_frame: Optional[int]) -> dict[str, Any]:
+def _load_candidate(
+    job_dir: Path,
+    frame_id: str,
+    stage1_end_frame: Optional[int],
+    capture_mode: str,
+) -> dict[str, Any]:
     frame_dir = job_dir / "sam3d" / frame_id
     srt_dir = frame_dir / "srt"
     srt_result_path = srt_dir / "srt_result.json"
@@ -119,6 +136,9 @@ def _load_candidate(job_dir: Path, frame_id: str, stage1_end_frame: Optional[int
             result = json.load(f)
     except json.JSONDecodeError:
         candidate["warnings"].append("invalid_srt_result_json")
+        return candidate
+    if result.get("capture_mode", "two_stage") != capture_mode:
+        candidate["warnings"].append("capture_mode_mismatch")
         return candidate
 
     loss = _finite_float(result.get("total_loss"))
@@ -246,8 +266,14 @@ def select_best_sam3d_frame(job_dir: Path, output_dir: Optional[Path] = None) ->
     output_dir.mkdir(parents=True, exist_ok=True)
 
     frames = _read_selected_frames(sam3d_dir)
-    stage1_end_frame = _read_stage1_end(job_dir)
-    candidates = [_load_candidate(job_dir, frame_id, stage1_end_frame) for frame_id in frames]
+    capture_mode = _read_capture_mode(job_dir)
+    stage1_end_frame = (
+        _read_stage1_end(job_dir) if capture_mode == "two_stage" else None
+    )
+    candidates = [
+        _load_candidate(job_dir, frame_id, stage1_end_frame, capture_mode)
+        for frame_id in frames
+    ]
     _score_candidates(candidates)
     ranked = sorted(
         candidates,
@@ -257,6 +283,7 @@ def select_best_sam3d_frame(job_dir: Path, output_dir: Optional[Path] = None) ->
     if not valid_ranked:
         summary = {
             "best_frame": None,
+            "capture_mode": capture_mode,
             "stage1_end_frame": stage1_end_frame,
             "selection_method": "srt_total_loss_with_sanity_penalties",
             "ranked_frames": ranked,
@@ -281,6 +308,7 @@ def select_best_sam3d_frame(job_dir: Path, output_dir: Optional[Path] = None) ->
 
     summary = {
         "best_frame": frame_id,
+        "capture_mode": capture_mode,
         "stage1_end_frame": stage1_end_frame,
         "selection_method": "lowest SRT total_loss plus small sanity penalties; suggested only, inspect render_video",
         "score_lower_is_better": True,

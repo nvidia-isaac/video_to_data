@@ -256,15 +256,25 @@ Usage
 .. code-block:: bash
 
    # Basic query
-   python scripts/run_retrieval.py "Find all pick up mug actions" \
+   python scripts/run_retrieval.py "Show me segments where someone is stirring a bowl" \
      -d outputs/my_video/ \
      --output-dir outputs/clips/
 
-   # The agent outputs extracted clips:
+   # The agent outputs extracted clips, named
+   # <video>_<action>_<object>_<start>s-<end>s.mp4:
    # outputs/clips/
-   #   ├── task_1_pick_up_mug_1.mp4
-   #   ├── task_1_pick_up_mug_2.mp4
-   #   └── task_1_pick_up_mug_3.mp4
+   #   ├── my_video_stirring_bowl_12s-16s.mp4
+   #   ├── my_video_stirring_bowl_45s-49s.mp4
+   #   └── my_video_stirring_bowl_102s-106s.mp4
+
+.. note::
+
+   Phrase the action the way the ingested vocabulary does — as a gerund
+   (*stirring*, *pouring*), ideally a single verb. The task decomposer currently
+   normalises multi-word actions such as *pick up* to ``pick_up``, which never
+   matches the free-form action phrases ingestion stores, so a query such as
+   ``"Find all pick up mug actions"`` returns no results at any relaxation level.
+   Tracked as NVBug 6203220.
 
 How the Agent Reasons
 ---------------------
@@ -276,8 +286,9 @@ results, and decisions. This allows it to:
 - Build on partial results
 - Make informed decisions about when to relax constraints vs. move on
 
-Agent reasoning traces can be saved for debugging by setting ``save_traces: true``
-in the configuration.
+``save_traces`` and ``traces_dir`` are accepted by the config schema but are not yet
+wired to a writer; no trace files are produced regardless of the setting. Tracked as
+NVBug 6571288.
 
 See Also
 --------

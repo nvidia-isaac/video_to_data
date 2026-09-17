@@ -69,7 +69,9 @@ def image_proc_build_rectify(
     size = left_param.resolution
 
     Rot = R[1].T @ R[0]
-    Trans = P[1][:3, 3] / np.diag(P[1])
+    # OpenCV 5 requires the translation vector to be an explicit column
+    # matrix; a flat (3,) vector fails inside stereoRectify's GEMM path.
+    Trans = (P[1][:3, 3] / np.diag(P[1])).reshape(3, 1)
 
     R1, R2, P1, P2, Q, roi1, roi2 = cv2.stereoRectify(K[0], D[0], K[1], D[1], size, Rot, Trans, alpha=0)
     R, P = [R1, R2], [P1, P2]

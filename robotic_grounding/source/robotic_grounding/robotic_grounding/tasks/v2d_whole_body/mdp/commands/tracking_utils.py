@@ -18,6 +18,7 @@ from robotic_grounding.motion_schema import (
     SINGLE_ROBOT,
     MotionData,
     load_motion_data_parquet,
+    resolve_playback_timing,
 )
 
 if TYPE_CHECKING:
@@ -34,6 +35,8 @@ def load_motion_data(
     cfg: TrackingCommandCfg,
     robot: Articulation,
     device: torch.device,
+    step_dt: float,
+    motion_file: str | None = None,
 ) -> MotionData:
     """Load motion data from a `motion_v1` parquet and resolve robot body IDs.
 
@@ -41,6 +44,8 @@ def load_motion_data(
         cfg: The tracking command configuration (uses `cfg.motion_file`).
         robot: The live robot articulation, used to resolve EE body IDs.
         device: Target torch device for tensors.
+        step_dt: Environment command step used to derive the playback FPS.
+        motion_file: Optional path override used when loading a motion bank.
 
     Returns:
         A populated `MotionData` with `ee_link_ids` resolved against the robot.
@@ -51,18 +56,21 @@ def load_motion_data(
             cannot consume `dual_hand` files; those should be loaded through
             the dual-hand command term or `replay_data.load_replay_trajectory`.
     """
-    md = load_motion_data_parquet(cfg.motion_file, device=str(device))
+    motion_file = cfg.motion_file if motion_file is None else motion_file
+    md = load_motion_data_parquet(motion_file, device=str(device))
 
     if md.motion_kind != SINGLE_ROBOT:
         raise ValueError(
             f"TrackingCommand requires motion_kind={SINGLE_ROBOT!r} but the "
-            f"file at {cfg.motion_file!r} has motion_kind={md.motion_kind!r}. "
+            f"file at {motion_file!r} has motion_kind={md.motion_kind!r}. "
             f"Dual-hand motions belong to `dual_hands_object_tracking_command` "
             f"or `replay_data.load_replay_trajectory`."
         )
 
     end_frame = None if cfg.motion_end_frame < 0 else cfg.motion_end_frame
     md = md.trim(cfg.motion_start_frame, end_frame)
+    _, target_fps = resolve_playback_timing(cfg.dt, step_dt, cfg.motion_speed)
+    md = md.resample(target_fps)
 
     if md.ee_link_names:
         ee_link_ids, _ = robot.find_bodies(list(md.ee_link_names))

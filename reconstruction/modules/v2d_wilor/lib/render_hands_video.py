@@ -106,7 +106,7 @@ def _build_mesh_for_record(rec: dict, mano: ManoLayer) -> Tuple[np.ndarray, np.n
     verts_local = out.verts[0].detach().numpy()
     if not rec["is_right"]:
         verts_local[:, 0] *= -1
-    cam_t = np.array(rec["camera"]["pred_cam_t_full"], dtype=np.float64)
+    cam_t = np.array(rec["camera"]["cam_t"], dtype=np.float64)
     verts_cam = verts_local + cam_t[None, :]
     faces = mano.th_faces.numpy()
     if not rec["is_right"]:
@@ -137,8 +137,8 @@ def render_hands_video(
 
     W, H = Image.open(frame_files[0]).size
     first_rec = next(iter(records.values()))[0]
-    focal = first_rec["camera"]["scaled_focal_length"]
-    z_max = max(rec["camera"]["pred_cam_t_full"][2]
+    focal = first_rec["camera"]["focal_length"]
+    z_max = max(rec["camera"]["cam_t"][2]
                 for recs in records.values() for rec in recs)
     zfar = max(50.0, float(z_max) * 1.5)
     cam = pyrender.IntrinsicsCamera(fx=focal, fy=focal, cx=W / 2, cy=H / 2,

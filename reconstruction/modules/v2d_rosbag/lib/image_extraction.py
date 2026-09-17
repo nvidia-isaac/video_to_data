@@ -253,7 +253,14 @@ def image_extract_from_rosbag(
         with ProcessPoolExecutor(max_workers=pack_workers) as executor:
             futures = {
                 executor.submit(
-                    pack_directory_to_h5, cam_dir, h5_path, remove_pngs, False,
+                    pack_directory_to_h5,
+                    cam_dir,
+                    h5_path,
+                    remove_pngs,
+                    False,
+                    compression="gzip",
+                    compression_opts=6,
+                    shuffle=False,
                 ): cam_dir.name
                 for cam_dir, h5_path, remove_pngs in pack_args
             }

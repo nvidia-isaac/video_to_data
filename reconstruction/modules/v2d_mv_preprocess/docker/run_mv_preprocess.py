@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from pathlib import Path
+import warnings
 
 from v2d.docker.container import run_in_container
 from v2d.mv.preprocess.docker._config import IMAGE_NAME, MODULES_DIR
@@ -8,24 +9,58 @@ from v2d.mv.preprocess.docker._config import IMAGE_NAME, MODULES_DIR
 _DEFAULT_CONFIG = Path(__file__).parent.parent / "lib" / "mv_preprocess.yaml"
 
 
+def resolve_calibration_camera_params_path(
+    calibration_camera_params_path: str | None = None,
+    extrinsics_camera_params_path: str | None = None,
+) -> str | None:
+    """Resolve the canonical path and deprecated host-wrapper alias."""
+    if extrinsics_camera_params_path is not None:
+        warnings.warn(
+            "extrinsics_camera_params_path is deprecated; use "
+            "calibration_camera_params_path instead",
+            FutureWarning,
+            stacklevel=2,
+        )
+    if calibration_camera_params_path is None:
+        return extrinsics_camera_params_path
+    if extrinsics_camera_params_path is None:
+        return calibration_camera_params_path
+    if (
+        Path(calibration_camera_params_path).expanduser().resolve(strict=False)
+        != Path(extrinsics_camera_params_path).expanduser().resolve(strict=False)
+    ):
+        raise ValueError(
+            "Conflicting calibration camera params paths: "
+            f"calibration_camera_params_path={calibration_camera_params_path}, "
+            f"extrinsics_camera_params_path={extrinsics_camera_params_path}"
+        )
+    return calibration_camera_params_path
+
+
 def run_mv_preprocess(
     rgb_dir: str,
     output_dir: str,
     config_path: str = str(_DEFAULT_CONFIG),
     camera_params_path: str | None = None,
-    extrinsics_camera_params_path: str | None = None,
+    calibration_camera_params_path: str | None = None,
     hoi_metadata_path: str | None = None,
     mesh_path: str | None = None,
     dev: bool = False,
+    extrinsics_camera_params_path: str | None = None,
 ) -> None:
+    calibration_camera_params_path = resolve_calibration_camera_params_path(
+        calibration_camera_params_path,
+        extrinsics_camera_params_path,
+    )
+
     inputs = {
         "rgb_dir": rgb_dir,
         "config_path": config_path,
     }
     if camera_params_path is not None:
         inputs["camera_params_path"] = camera_params_path
-    if extrinsics_camera_params_path is not None:
-        inputs["extrinsics_camera_params_path"] = extrinsics_camera_params_path
+    if calibration_camera_params_path is not None:
+        inputs["calibration_camera_params_path"] = calibration_camera_params_path
     if hoi_metadata_path is not None:
         inputs["hoi_metadata_path"] = hoi_metadata_path
     if mesh_path is not None:
@@ -54,7 +89,13 @@ if __name__ == "__main__":
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--config_path", type=str, default=str(_DEFAULT_CONFIG))
     parser.add_argument("--camera_params_path", type=str, default=None)
-    parser.add_argument("--extrinsics_camera_params_path", type=str, default=None)
+    parser.add_argument("--calibration_camera_params_path", type=str, default=None)
+    parser.add_argument(
+        "--extrinsics_camera_params_path",
+        type=str,
+        default=None,
+        help="Deprecated alias for --calibration_camera_params_path",
+    )
     parser.add_argument("--hoi_metadata_path", type=str, default=None)
     parser.add_argument("--mesh_path", type=str, default=None)
     parser.add_argument("--dev", action="store_true")
@@ -65,6 +106,7 @@ if __name__ == "__main__":
         output_dir=args.output_dir,
         config_path=args.config_path,
         camera_params_path=args.camera_params_path,
+        calibration_camera_params_path=args.calibration_camera_params_path,
         extrinsics_camera_params_path=args.extrinsics_camera_params_path,
         hoi_metadata_path=args.hoi_metadata_path,
         mesh_path=args.mesh_path,

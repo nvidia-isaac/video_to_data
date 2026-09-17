@@ -1,0 +1,15 @@
+{
+  "evaluator": {
+    "hold_threshold_m": 0.05,
+    "id": "lift_hold",
+    "lift_threshold_m": 0.1,
+    "min_hold_steps": 20
+  },
+  "instruction": "lift the box and hold it",
+  "object_prompt": "a tissue box",
+  "schema_version": 1,
+  "target_object": {
+    "selector": "primary"
+  },
+  "task_id": "tissue_box_lift_hold"
+}

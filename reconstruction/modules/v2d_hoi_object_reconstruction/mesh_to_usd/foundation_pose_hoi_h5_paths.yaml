@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Adapt the exported HOI sequence layout to v2d_foundation_pose's general
+# camera-parameter and per-modality root inputs.
+
+rgb_path_template: "${rgb_dir}/{cam_name}.h5"
+depth_path_template: "${depth_dir}/{cam_name}.h5"
+mask_path_template: "${mask_dir}/{cam_name}.h5"
+
+# Cross-mesh support calibration requires an uninterrupted observed prefix.
+# It retries a later registration frame instead of holding or repairing poses.
+recovery:
+  enabled: false
+repair:
+  enabled: false

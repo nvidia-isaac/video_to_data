@@ -20,6 +20,7 @@ from .schema import (
     KNOWN_MOTION_KINDS,
     METADATA_FIELDS,
     OBJECT_FIELDS,
+    OBJECT_REFERENCE_REQUIRED_FIELDS,
     REQUIRED_TRAINING_FIELDS,
     ROBOT_FIELDS,
     SCHEMA_VERSION,
@@ -33,6 +34,7 @@ from .schema import (
     required_fields_for,
     resolve_motion_kind,
 )
+from .timing import resolve_playback_timing
 from .writer import DEFAULT_PARTITION_COLS, save_motion_parquet
 
 __all__ = [
@@ -51,6 +53,7 @@ __all__ = [
     "MissingRequiredField",
     "MotionData",
     "OBJECT_FIELDS",
+    "OBJECT_REFERENCE_REQUIRED_FIELDS",
     "REQUIRED_TRAINING_FIELDS",
     "ROBOT_FIELDS",
     "SCHEMA_VERSION",
@@ -61,6 +64,7 @@ __all__ = [
     "build_schema",
     "load_motion_data_parquet",
     "required_fields_for",
+    "resolve_playback_timing",
     "resolve_motion_kind",
     "save_motion_parquet",
 ]

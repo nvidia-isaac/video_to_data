@@ -20,6 +20,7 @@ from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.utils import configclass
+from scipy.spatial.transform import Rotation as R
 
 from robotic_grounding.tasks.scene_utils import (
     SceneConfig,
@@ -27,6 +28,7 @@ from robotic_grounding.tasks.scene_utils import (
     apply_scene_robot,
 )
 from robotic_grounding.tasks.scene_utils.replay_data import (
+    DualHandTrajectory,
     SingleRobotTrajectory,
     load_replay_trajectory,
 )
@@ -46,7 +48,7 @@ def _never_done(env: object) -> torch.Tensor:
 
 
 def _seed_robot_init_state_from_motion(env_cfg: object, motion_file: str) -> None:
-    """Seed `env_cfg.scene.robot.init_state` from the saved frame-0 robot pose.
+    """Seed robot articulation init states from frame 0 of a replay motion.
 
     Without this, the viewer spawns the URDF at the asset default pose
     (e.g. world origin facing +X) and lets gravity drop it. The retargeted
@@ -59,25 +61,67 @@ def _seed_robot_init_state_from_motion(env_cfg: object, motion_file: str) -> Non
         replay = load_replay_trajectory(motion_file)
     except Exception:  # noqa: BLE001 -- viewer-only path, missing fields are non-fatal
         return
-    if not isinstance(replay, SingleRobotTrajectory):
-        return
-    if not hasattr(env_cfg.scene, "robot") or env_cfg.scene.robot is None:  # type: ignore[attr-defined]
+
+    scene = env_cfg.scene  # type: ignore[attr-defined]
+    if isinstance(replay, SingleRobotTrajectory):
+        robot_cfg = getattr(scene, "robot", None)
+        if robot_cfg is None or replay.num_frames == 0:
+            return
+
+        pos = tuple(float(value) for value in replay.robot_root_position[0].tolist())
+        rot = tuple(float(value) for value in replay.robot_root_wxyz[0].tolist())
+        joint_pos = {
+            name: float(value)
+            for name, value in zip(
+                replay.robot_joint_names,
+                replay.robot_joint_positions[0],
+                strict=True,
+            )
+        }
+        scene.robot = robot_cfg.replace(
+            init_state=ArticulationCfg.InitialStateCfg(
+                pos=pos,
+                rot=rot,
+                joint_pos=joint_pos,
+                joint_vel={".*": 0.0},
+            ),
+        )
         return
 
-    pos = tuple(float(v) for v in replay.robot_root_position[0].tolist())
-    rot = tuple(float(v) for v in replay.robot_root_wxyz[0].tolist())
-    joint_names = list(replay.robot_joint_names)
-    joint_pos_arr = replay.robot_joint_positions[0].tolist()
-    joint_pos = {
-        name: float(value)
-        for name, value in zip(joint_names, joint_pos_arr, strict=True)
-    }
-    robot_cfg: ArticulationCfg = env_cfg.scene.robot  # type: ignore[attr-defined]
-    env_cfg.scene.robot = robot_cfg.replace(  # type: ignore[attr-defined]
+    if not isinstance(replay, DualHandTrajectory) or replay.num_frames == 0:
+        return
+
+    right_robot_cfg = getattr(scene, "right_robot", None)
+    left_robot_cfg = getattr(scene, "left_robot", None)
+    if right_robot_cfg is None or left_robot_cfg is None:
+        return
+
+    right_pos = tuple(float(value) for value in replay.right_wrist_position[0].tolist())
+    left_pos = tuple(float(value) for value in replay.left_wrist_position[0].tolist())
+    if replay.wrist_orientation_format == "wxyz":
+        right_rot_values = replay.right_wrist_orientation[0].tolist()
+        left_rot_values = replay.left_wrist_orientation[0].tolist()
+    else:
+        right_rot_values = R.from_euler(
+            "XYZ", replay.right_wrist_orientation[0], degrees=False
+        ).as_quat(scalar_first=True)
+        left_rot_values = R.from_euler(
+            "XYZ", replay.left_wrist_orientation[0], degrees=False
+        ).as_quat(scalar_first=True)
+    right_rot = tuple(float(value) for value in right_rot_values)
+    left_rot = tuple(float(value) for value in left_rot_values)
+
+    scene.right_robot = right_robot_cfg.replace(
         init_state=ArticulationCfg.InitialStateCfg(
-            pos=pos,
-            rot=rot,
-            joint_pos=joint_pos,
+            pos=right_pos,
+            rot=right_rot,
+            joint_vel={".*": 0.0},
+        ),
+    )
+    scene.left_robot = left_robot_cfg.replace(
+        init_state=ArticulationCfg.InitialStateCfg(
+            pos=left_pos,
+            rot=left_rot,
             joint_vel={".*": 0.0},
         ),
     )

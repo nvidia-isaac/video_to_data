@@ -16,6 +16,7 @@ from v2d.common.datatypes import CameraIntrinsics, DepthImage, Mask, Transform3d
 from v2d.common.datatypes import Image as V2dImage
 from v2d.mesh.lib.mesh import Mesh
 from v2d.foundation_pose.lib.foundation_pose_tracker import FoundationPoseTracker
+from v2d.foundation_pose.lib.backends import DEFAULT_BACKEND, SUPPORTED_BACKENDS
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -29,6 +30,7 @@ def run_video_to_poses(
     mesh_path: str,
     poses_dir: str,
     weights_dir: str,
+    backend: str = DEFAULT_BACKEND,
     reference_frame: int = 0,
     target_width: int = None,
     target_height: int = None,
@@ -57,7 +59,7 @@ def run_video_to_poses(
     the object region. Default False.
     """
     mesh = Mesh.load(mesh_path, force_mesh=Path(mesh_path).suffix.lower() == ".glb")
-    tracker = FoundationPoseTracker(mesh, weights_dir)
+    tracker = FoundationPoseTracker(mesh, weights_dir, backend=backend)
 
     camera_intrinsics = CameraIntrinsics.load(camera_intrinsics_path)
     K = camera_intrinsics.to_matrix()
@@ -192,6 +194,7 @@ if __name__ == "__main__":
     parser.add_argument("--mesh_path", required=True)
     parser.add_argument("--poses_dir", required=True)
     parser.add_argument("--weights_dir", required=True)
+    parser.add_argument("--backend", choices=SUPPORTED_BACKENDS, default=DEFAULT_BACKEND)
     parser.add_argument("--reference_frame", type=int, default=0)
     parser.add_argument("--target_width", type=int, default=None)
     parser.add_argument("--target_height", type=int, default=None)
@@ -214,6 +217,7 @@ if __name__ == "__main__":
         args.mesh_path,
         args.poses_dir,
         args.weights_dir,
+        backend=args.backend,
         reference_frame=args.reference_frame,
         target_width=args.target_width,
         target_height=args.target_height,

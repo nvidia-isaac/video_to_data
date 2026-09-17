@@ -2,5 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Commands for robotic grounding tasks."""
 
+from .motion_tracking_command import *  # noqa: F403
 from .tracking_command import *  # noqa: F403
 from .tracking_command_cfg import *  # noqa: F403

@@ -53,7 +53,18 @@ ROBOT_KINEMATICS_SETUP = {
     "dex3": setup_dex3_kinematics,
 }
 
-DEFAULT_HTML_DIR = HUMAN_MOTION_DATA_DIR / "html"
+# Generated QA artifacts live outside the asset tree: HUMAN_MOTION_DATA_DIR is the
+# committed asset directory for ego_recon, so writing recordings under it puts
+# regenerable output next to shipped meshes and parquets.
+RG_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_HTML_DIR = RG_ROOT / "out" / "html"
+# --save_mp4 renders through OfflineVideoRenderer and needs none of the viser HTML
+# machinery, so it gets its own flat output dir: one `<seq>.mp4`, matching the
+# whole-body driver rather than dragging along a viser client bundle.
+DEFAULT_MP4_DIR = RG_ROOT / "out"
+# The viser index page is a committed template, not generated output; it stays in
+# the asset tree and is copied into the output directory.
+HTML_INDEX_TEMPLATE = HUMAN_MOTION_DATA_DIR / "html" / "index.html"
 
 FINGER_NAMES = ["thumb", "index", "middle", "ring", "pinky"]
 
@@ -73,16 +84,23 @@ def resolve_object_mesh_path(path: str | None) -> str | None:
     """Resolve an object-mesh path, tolerating paths baked by another container.
 
     The LOAD stage records loader-container-absolute paths in object_mesh_paths
-    (e.g. ``/data/object_assets/meshes/<ds>/NNN_cm.obj``). Those don't exist in
-    the visualization container, so fall back to the in-repo ``MESHES_DIR`` using
-    the sub-path after ``meshes/``, then a basename search. Returns None if the
-    mesh can't be found anywhere.
+    (e.g. ``/data/object_assets/meshes/<ds>/NNN_cm.obj`` or
+    ``/data/human_motion_data/<dataset>/processed/<object>.obj``). Those don't
+    exist in the visualization container, so re-root mounted run data through
+    ``HUMAN_MOTION_DATA_DIR`` before falling back to the in-repo ``MESHES_DIR``.
+    Returns None if the mesh can't be found anywhere.
     """
     if not path:
         return None
     if Path(path).exists():
         return path
     parts = Path(path).parts
+    if "human_motion_data" in parts:
+        cand = HUMAN_MOTION_DATA_DIR.joinpath(
+            *parts[parts.index("human_motion_data") + 1 :]
+        )
+        if cand.exists():
+            return str(cand)
     if "meshes" in parts:
         cand = MESHES_DIR.joinpath(*parts[parts.index("meshes") + 1 :])
         if cand.exists():
@@ -179,7 +197,7 @@ def load_support_surfaces_from_usd(
 def _dataset_processed_dir(name: str) -> str:
     """Resolve ``{name}/{name}_processed`` using the dataset registry."""
     cfg = get_dataset_config(name)
-    return f"{cfg.name}/{cfg.name}{cfg.processed_suffix}"
+    return f"{cfg.name}/{cfg.processed_dirname}"
 
 
 DATASET_DIRS: dict[str, str] = {
@@ -261,6 +279,13 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--mp4_dir",
+        type=Path,
+        default=None,
+        help=f"Output directory for --save_mp4 (default: {DEFAULT_MP4_DIR}). Independent "
+        "of --html_dir; --save_mp4 does not require --save_html.",
+    )
+    parser.add_argument(
         "--html_dir",
         type=Path,
         default=None,
@@ -276,6 +301,21 @@ def parse_args() -> argparse.Namespace:
             "Isaac Sim needed — uses the pinocchio/visual meshes."
         ),
     )
+    parser.add_argument(
+        "--start_paused",
+        action="store_true",
+        default=False,
+        help=(
+            "Live viewer only: open the Frame slider paused at frame 0 so you can "
+            "scrub before playing. Ignored with --save_html / --save_mp4."
+        ),
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8080,
+        help="Viser HTTP port (default 8080). Use another to run two viewers at once.",
+    )
     return parser.parse_args()
 
 
@@ -288,6 +328,94 @@ def find_support_usd(input_dir: Path, sequence_id: str) -> Path | None:
     if candidate.exists():
         return candidate
     return None
+
+
+def _run_frame_slider(
+    viser_server: viser.ViserServer,
+    num_frames: int,
+    fps: float,
+    render_frame: Any,
+    start_paused: bool = False,
+) -> None:
+    """Build a GUI Frame slider + transport and block on a real-time tick loop.
+
+    Gives the live viewer a ``Frame`` slider to scrub to any frame, ``Play`` to
+    auto-advance at the chosen ``FPS`` (wrapping when ``Loop`` is set), and
+    ``Step -1/+1`` / ``Reset`` for frame-by-frame inspection.
+
+    Frame indices map 1:1 onto ``DualHandsObjectTrackingCommand``'s
+    ``motion_start_frame`` / ``motion_end_frame``: both index the raw parquet frames
+    before FPS interpolation. ``motion_end_frame`` is **exclusive**, so pass the last
+    frame you want plus one.
+
+    Args:
+        viser_server: the viser server to attach the GUI folder to.
+        num_frames: number of frames in the trajectory.
+        fps: nominal playback rate, used as the initial FPS slider value.
+        render_frame: callable taking a frame index and redrawing the scene.
+        start_paused: open paused at frame 0 instead of playing immediately.
+
+    Blocks until interrupted (Ctrl-C).
+    """
+    if num_frames <= 0:
+        return
+    with viser_server.gui.add_folder("Playback"):
+        gui_frame = viser_server.gui.add_slider(
+            "Frame", min=0, max=max(num_frames - 1, 0), step=1, initial_value=0
+        )
+        gui_play = viser_server.gui.add_checkbox("Play", initial_value=not start_paused)
+        fps_max = max(int(round(fps)), 120)
+        gui_fps = viser_server.gui.add_slider(
+            "FPS",
+            min=1,
+            max=fps_max,
+            step=1,
+            initial_value=int(np.clip(round(fps), 1, fps_max)),
+        )
+        gui_loop = viser_server.gui.add_checkbox("Loop", initial_value=True)
+        step_back = viser_server.gui.add_button("Step -1")
+        step_fwd = viser_server.gui.add_button("Step +1")
+        reset = viser_server.gui.add_button("Reset")
+
+    @gui_frame.on_update
+    def _(_event: Any) -> None:
+        # Slider scrub (or programmatic advance from the tick loop): redraw.
+        render_frame(int(gui_frame.value))
+
+    @step_back.on_click
+    def _(_event: Any) -> None:
+        gui_frame.value = max(int(gui_frame.value) - 1, 0)
+
+    @step_fwd.on_click
+    def _(_event: Any) -> None:
+        gui_frame.value = min(int(gui_frame.value) + 1, num_frames - 1)
+
+    @reset.on_click
+    def _(_event: Any) -> None:
+        gui_frame.value = 0
+
+    render_frame(int(gui_frame.value))
+    last_wall = time.time()
+    try:
+        while True:
+            time.sleep(1.0 / 120.0)
+            if not gui_play.value:
+                last_wall = time.time()
+                continue
+            now = time.time()
+            dt = max(now - last_wall, 0.0)
+            last_wall = now
+            new_val = float(gui_frame.value) + dt * float(gui_fps.value)
+            if new_val >= num_frames:
+                if gui_loop.value:
+                    new_val = new_val % num_frames
+                else:
+                    new_val = float(num_frames - 1)
+                    gui_play.value = False
+            # Assigning to the slider fires its on_update -> render_frame.
+            gui_frame.value = int(new_val)
+    except KeyboardInterrupt:
+        print("[vis_retargeted] exiting on Ctrl+C")
 
 
 def visualize_one_trajectory(
@@ -305,6 +433,8 @@ def visualize_one_trajectory(
     support_usd: Path | None = None,
     serializer: Any = None,
     mp4_out_path: Path | None = None,
+    interactive: bool = False,
+    start_paused: bool = False,
 ) -> dict[str, Any]:
     """Load one sequence and visualize playback (hands + objects from object_mesh_paths)."""
     for _, handle in viser_object_handles.items():
@@ -417,7 +547,7 @@ def visualize_one_trajectory(
             inliers = all_pts[np.linalg.norm(all_pts - median, axis=1) < 5.0]
             video_renderer.fit_camera(inliers if len(inliers) > 0 else all_pts)
 
-    for frame_id in range(H):
+    def render_frame(frame_id: int) -> None:
         # Right hand
         right_qpos = right_kinematics.robot.q0.copy()
         right_qpos[:3] = np.array(logger_data.robot_right_wrist_position[frame_id])
@@ -550,15 +680,29 @@ def visualize_one_trajectory(
                 video_renderer.update_object(object_body_name, T)
             video_renderer.capture()
 
-        dt = 1.0 / logger_data.fps
-        if serializer is not None:
-            serializer.insert_sleep(dt)
-        else:
-            time.sleep(dt)
-
-    if video_renderer is not None:
-        video_renderer.save(mp4_out_path)
-        video_renderer.close()
+    if interactive:
+        # Live viewer: hand control to the GUI transport (Frame/Play/FPS/Loop/Step).
+        # Blocks until Ctrl-C.
+        _run_frame_slider(
+            viser_server,
+            H,
+            float(logger_data.fps),
+            render_frame,
+            start_paused=start_paused,
+        )
+    else:
+        # Recording: draw every frame in order so the serializer (.viser) and the
+        # offline MP4 capture see the full trajectory.
+        for frame_id in range(H):
+            render_frame(frame_id)
+            dt = 1.0 / logger_data.fps
+            if serializer is not None:
+                serializer.insert_sleep(dt)
+            else:
+                time.sleep(dt)
+        if video_renderer is not None:
+            video_renderer.save(mp4_out_path)
+            video_renderer.close()
 
     return viser_object_handles
 
@@ -627,20 +771,37 @@ def main(args: argparse.Namespace) -> None:
     else:
         print(f"Filter selected {len(sequence_ids)}/{len(available)} sequences.")
 
+    # --save_mp4 stands alone; only --save_html builds the viser client tree.
+    mp4_dir: Path | None = None
+    if args.save_mp4:
+        mp4_dir = args.mp4_dir or DEFAULT_MP4_DIR
+        mp4_dir.mkdir(parents=True, exist_ok=True)
+
     # Resolve HTML output directory and build the viser client (once)
     html_dir: Path | None = None
     if args.save_html:
         _html_dir: Path = args.html_dir or DEFAULT_HTML_DIR
         (_html_dir / "recordings").mkdir(parents=True, exist_ok=True)
         _build_viser_client(_html_dir)
-        index_src = DEFAULT_HTML_DIR / "index.html"
+        index_src = HTML_INDEX_TEMPLATE
         index_dst = _html_dir / "index.html"
         if index_src.exists() and not index_dst.exists():
             shutil.copy2(index_src, index_dst)
         html_dir = _html_dir
 
-    viser_server = viser.ViserServer()
+    viser_server = viser.ViserServer(port=args.port)
     viser_object_handles: dict[str, Any] = {}
+
+    # Live viewer (no --save_html / --save_mp4) gets the interactive frame slider.
+    # Its tick loop blocks, so only one sequence is shown; narrow the selection with
+    # --sequence_id / --sequence_pattern. Recording modes still iterate every sequence.
+    interactive = not args.save_html and not args.save_mp4
+    if interactive and len(sequence_ids) > 1:
+        print(
+            f"[interactive] frame-slider mode shows one sequence; visualizing "
+            f"'{sequence_ids[0]}'. Narrow --sequence_id/--sequence_pattern to pick another."
+        )
+        sequence_ids = sequence_ids[:1]
 
     support_usd = args.support_usd
     if support_usd is not None and not support_usd.exists():
@@ -660,11 +821,7 @@ def main(args: argparse.Namespace) -> None:
             f"[{seq_idx + 1}/{len(sequence_ids)}] Visualizing sequence: {sequence_id}"
         )
         serializer = viser_server.get_scene_serializer() if args.save_html else None
-        mp4_out_path = (
-            html_dir / "recordings" / f"{sequence_id}.mp4"
-            if args.save_mp4 and html_dir is not None
-            else None
-        )
+        mp4_out_path = mp4_dir / f"{sequence_id}.mp4" if mp4_dir is not None else None
         visualize_one_trajectory(
             viser_server,
             right_kinematics,
@@ -680,6 +837,8 @@ def main(args: argparse.Namespace) -> None:
             support_usd=support_usd,
             serializer=serializer,
             mp4_out_path=mp4_out_path,
+            interactive=interactive,
+            start_paused=args.start_paused,
         )
         if serializer is not None and html_dir is not None:
             out_path = html_dir / "recordings" / f"{sequence_id}.viser"

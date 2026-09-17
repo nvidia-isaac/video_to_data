@@ -4,12 +4,13 @@
 
 import json
 import logging
+import re
 from pathlib import Path
 
 import numpy as np
 import pyceres
 
-from v2d.mv.rig import CameraParam, RigConfig
+from v2d.mv.rig import CameraParam, RigConfig, apply_focal_correction
 from v2d.common.video import FrameSource
 
 from v2d.mv.calibration.lib.chessboard import chessboard_extract_correspondences
@@ -22,6 +23,116 @@ from v2d.mv.calibration.lib.solve import (
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+_DEFAULT_CONFIG_PATH = Path(__file__).parent / "calibrate_extrinsics.yaml"
+_CALIBRATION_SETUP_DIR = Path(__file__).parent / "calibration_setups"
+_CALIBRATION_SETUP_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+
+
+def _load_calibration_setup(setup_name: str):
+    """Load a packaged calibration setup by safe identifier."""
+    from omegaconf import OmegaConf
+
+    if not isinstance(setup_name, str) or not _CALIBRATION_SETUP_PATTERN.fullmatch(
+        setup_name
+    ):
+        raise ValueError(
+            "Invalid calibration setup identifier "
+            f"{setup_name!r}; use only letters, numbers, underscores, and hyphens"
+        )
+
+    setup_path = _CALIBRATION_SETUP_DIR / f"{setup_name}.yaml"
+    if not setup_path.is_file():
+        raise ValueError(f"Unknown calibration setup: {setup_name!r}")
+    return OmegaConf.load(setup_path)
+
+
+def load_calibration_config(
+    config_path: str | Path | None = None,
+    calibration_setup: str | None = None,
+    overrides: dict | None = None,
+):
+    """Load defaults, an optional packaged setup, and per-run overrides.
+
+    Merge precedence is module defaults, selected setup, override config, then
+    explicit overrides. An explicit ``calibration_setup`` takes precedence over
+    a selector in the override config.
+    """
+    from omegaconf import OmegaConf
+
+    default_cfg = OmegaConf.load(_DEFAULT_CONFIG_PATH)
+    override_cfg = (
+        OmegaConf.load(config_path) if config_path is not None else OmegaConf.create()
+    )
+
+    setup_name = calibration_setup
+    if setup_name is None:
+        setup_name = override_cfg.get(
+            "calibration_setup",
+            default_cfg.get("calibration_setup"),
+        )
+
+    setup_cfg = (
+        _load_calibration_setup(setup_name)
+        if setup_name is not None
+        else OmegaConf.create()
+    )
+    explicit_overrides = dict(overrides or {})
+    if calibration_setup is not None:
+        explicit_overrides["calibration_setup"] = calibration_setup
+
+    cfg = OmegaConf.merge(
+        default_cfg,
+        setup_cfg,
+        override_cfg,
+        explicit_overrides,
+    )
+    logger.info(
+        "Resolved calibration configuration"
+        "\n\t- Setup: %s"
+        "\n\t- Rig: %s"
+        "\n\t- Calibration order: %s"
+        "\n\t- Board size: %s"
+        "\n\t- Square size: %sm"
+        "\n\t- Focal corrections: %s"
+        "\n\t- Chessboard detector: %s",
+        cfg.get("calibration_setup") or "legacy defaults",
+        cfg.rig_name,
+        list(cfg.calibration_order),
+        tuple(cfg.board_size),
+        cfg.square_size,
+        dict(cfg.get("correction_focal", {})),
+        "marker_sb" if cfg.get("use_marker_chessboard", False) else "legacy",
+    )
+    return cfg
+
+
+def _apply_focal_corrections(
+    rig: RigConfig,
+    correction_focal: dict[int, float] | None,
+) -> dict[int, float]:
+    """Validate and apply per-camera focal correction factors to a rig."""
+    corrections = {
+        int(cam_id): float(factor)
+        for cam_id, factor in (correction_focal or {}).items()
+    }
+
+    for cam_id, factor in corrections.items():
+        if cam_id not in rig.cameras:
+            raise ValueError(f"Focal correction references unknown camera ID {cam_id}")
+        if not np.isfinite(factor) or factor <= 0:
+            raise ValueError(
+                f"Focal correction for camera {cam_id} must be finite and positive: "
+                f"{factor}"
+            )
+        if rig.get_camera(cam_id).param is None:
+            raise ValueError(f"Camera {cam_id} has no parameters for focal correction")
+
+    for cam_id, factor in corrections.items():
+        logger.warning("Applying focal correction %s to camera %d", factor, cam_id)
+        apply_focal_correction(rig.get_camera(cam_id).param, factor)
+
+    return corrections
 
 
 def calibrate_extrinsics(
@@ -36,6 +147,8 @@ def calibrate_extrinsics(
     num_workers: int = 8,
     frames_slice: slice | None = None,
     debug: int = 0,
+    use_marker_chessboard: bool = False,
+    correction_focal: dict[int, float] | None = None,
 ) -> list[CameraParam]:
     """Run extrinsic calibration on a multi-camera dataset.
 
@@ -56,15 +169,25 @@ def calibrate_extrinsics(
         num_workers: Workers for chessboard detection.
         frames_slice: Optional slice to limit frame range.
         debug: Debug level. >0: save rerun visualization; >1: save reprojected points.
+        use_marker_chessboard: Use OpenCV's marker-aware SB detector for a
+            three-dot asymmetric checkerboard. Defaults to the legacy detector.
+        correction_focal: Optional focal correction factor keyed by camera ID.
+            Corrections are applied before PnP and bundle adjustment and are
+            persisted in the output camera parameters.
 
     Returns:
         Optimized list of CameraParam (one per camera).
     """
+    correction_focal = _apply_focal_corrections(rig, correction_focal)
+
     logger.info(
         f"Starting extrinsics calibration"
         f"\n\t- Calibration order: {calibration_order}"
         f"\n\t- Board size: {board_size}"
         f"\n\t- Square size: {square_size}m"
+        f"\n\t- Chessboard detector: "
+        f"{'marker_sb' if use_marker_chessboard else 'legacy'}"
+        f"\n\t- Focal corrections: {correction_focal}"
         f"\n\t- Cameras: {len(rgb_paths)}"
     )
 
@@ -74,6 +197,7 @@ def calibrate_extrinsics(
         frames_slice=frames_slice,
         board_size=board_size,
         num_workers=num_workers,
+        use_marker_chessboard=use_marker_chessboard,
     )
 
     # Define target 3D points
@@ -175,6 +299,10 @@ def calibrate_extrinsics(
     accuracy_report = {
         "board_size": [int(board_size[0]), int(board_size[1])],
         "square_size_m": float(square_size),
+        "correction_focal": {
+            str(cam_id): factor
+            for cam_id, factor in sorted(correction_focal.items())
+        },
         "num_calibration_frames": len(correspondences),
         "after_pnp_initialization": reprojection_error_stats(
             correspondences,
@@ -227,6 +355,11 @@ def calibrate_extrinsics_from_config(cfg):
     frames_slice = slice(cfg.get("start", 0), cfg.get("stop"), cfg.get("step", 1))
 
     input_suffix = cfg.get("input_suffix", "")
+    correction_focal_raw = cfg.get("correction_focal", {})
+    correction_focal = {
+        int(cam_id): float(factor)
+        for cam_id, factor in correction_focal_raw.items()
+    }
     rgb_paths: list[Path] = []
     for cam in rig.get_all_cameras():
         rgb_paths.append(Path(str(Path(cfg.rgb_dir) / cam.image_path) + input_suffix))
@@ -243,13 +376,13 @@ def calibrate_extrinsics_from_config(cfg):
         num_workers=cfg.get("num_workers", 8),
         frames_slice=frames_slice,
         debug=cfg.get("debug", 0),
+        use_marker_chessboard=cfg.get("use_marker_chessboard", False),
+        correction_focal=correction_focal,
     )
 
 
-if __name__ == "__main__":
+def _main(argv: list[str] | None = None) -> None:
     import argparse
-
-    from omegaconf import OmegaConf
 
     parser = argparse.ArgumentParser(description="Extrinsic camera calibration")
     parser.add_argument("--camera_params_path", type=str, required=True,
@@ -259,15 +392,23 @@ if __name__ == "__main__":
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--config_path", type=str, default=None,
                         help="Optional override config (merged on top of defaults)")
+    parser.add_argument(
+        "--calibration_setup",
+        type=str,
+        default=None,
+        help="Packaged calibration setup identifier (without .yaml)",
+    )
     parser.add_argument("--start", type=int, default=None)
     parser.add_argument("--stop", type=int, default=None)
     parser.add_argument("--step", type=int, default=None)
     parser.add_argument("--num_workers", type=int, default=None)
-    args = parser.parse_args()
+    parser.add_argument(
+        "--use_marker_chessboard",
+        action="store_true",
+        help="Use marker-aware SB detection for a three-dot asymmetric checkerboard",
+    )
+    args = parser.parse_args(argv)
 
-    cfg = OmegaConf.load(Path(__file__).parent / "calibrate_extrinsics.yaml")
-    if args.config_path:
-        cfg = OmegaConf.merge(cfg, OmegaConf.load(args.config_path))
     overrides: dict = {
         "camera_params_path": args.camera_params_path,
         "rgb_dir": args.rgb_dir,
@@ -281,6 +422,16 @@ if __name__ == "__main__":
         overrides["step"] = args.step
     if args.num_workers is not None:
         overrides["num_workers"] = args.num_workers
+    if args.use_marker_chessboard:
+        overrides["use_marker_chessboard"] = True
 
-    cfg = OmegaConf.merge(cfg, overrides)
+    cfg = load_calibration_config(
+        config_path=args.config_path,
+        calibration_setup=args.calibration_setup,
+        overrides=overrides,
+    )
     calibrate_extrinsics_from_config(cfg)
+
+
+if __name__ == "__main__":
+    _main()

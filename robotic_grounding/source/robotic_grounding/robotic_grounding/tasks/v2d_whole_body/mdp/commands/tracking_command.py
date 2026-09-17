@@ -130,7 +130,10 @@ class TrackingCommand(CommandTerm):
 
     def _load_and_process_motion(self, cfg: TrackingCommandCfg) -> None:
         """Load motion data from parquet and set up body tracking tensors."""
-        motion_data = load_motion_data(cfg, self.robot, self.device)
+        self.playback_dt = float(self._env.step_dt)
+        motion_data = load_motion_data(
+            cfg, self.robot, self.device, step_dt=self.playback_dt
+        )
 
         # Body motion (already split on-disk and in-memory).
         self.root_pos_w = motion_data.robot_root_position.float() + torch.tensor(
@@ -171,16 +174,16 @@ class TrackingCommand(CommandTerm):
         self._joint_vel_file = torch.zeros_like(self._joint_pos_file)
         self._joint_vel_file[:-1] = (
             self._joint_pos_file[1:] - self._joint_pos_file[:-1]
-        ) / cfg.dt
+        ) / self.playback_dt
 
         # Future frame config
         self.num_future_frames = cfg.num_future_frames
-        self.frame_step = int(cfg.dt_future_frames / cfg.dt)
+        self.frame_step = max(1, round(cfg.dt_future_frames / self.playback_dt))
         self._future_frame_offsets = torch.arange(
             0,
             self.num_future_frames * self.frame_step,
             self.frame_step,
-            dtype=torch.int32,
+            dtype=torch.long,
             device=self.device,
         )
 
@@ -210,33 +213,56 @@ class TrackingCommand(CommandTerm):
 
         # Hand data flag
         # Resolve wrist body IDs now that ee_link_names is known from parquet
+        # Prefer the explicit per-side names from the cfg. The name-token fallback below
+        # cannot tell the sides apart on a robot whose arm links use `L_`/`R_` prefixes
+        # (Vega's `L_arm_l7`) even though its finger links use `left_`/`right_`, and a
+        # wrist that never resolves reports zero tracking error forever -- constant max
+        # reward on the wrist keypoint term, with no signal to track it.
+        for side in ("left", "right"):
+            name = getattr(cfg, f"{side}_wrist_body_name", "") or ""
+            if not name:
+                continue
+            body_ids, _ = self.robot.find_bodies([name])
+            if not body_ids:
+                raise ValueError(
+                    f"{side}_wrist_body_name={name!r} matched no robot body. "
+                    f"Available: {self.robot.body_names}"
+                )
+            setattr(self, f"_{side}_wrist_body_id", body_ids[0])
+
         ee_names = getattr(self, "ee_link_names", None) or []
-        if ee_names:
+        if ee_names and (
+            self._left_wrist_body_id is None or self._right_wrist_body_id is None
+        ):
             all_body_ids, all_body_names = self.robot.find_bodies(ee_names)
             for bid, bname in zip(all_body_ids, all_body_names, strict=False):
                 if "left" in bname.lower():
                     self._left_wrist_body_id = bid
                 elif "right" in bname.lower():
                     self._right_wrist_body_id = bid
+            if self._left_wrist_body_id is None or self._right_wrist_body_id is None:
+                raise ValueError(
+                    f"Could not infer wrist sides from ee_link_names={ee_names}: no "
+                    "`left`/`right` token in the body names. Set "
+                    "`left_wrist_body_name` / `right_wrist_body_name` on the command cfg."
+                )
 
         self._motion_data = motion_data
 
     def _init_buffers(self, cfg: TrackingCommandCfg) -> None:
         """Allocate per-env counters, VOC scale, and encoder mode."""
-        self.timestep = torch.zeros(
-            self.num_envs, dtype=torch.int32, device=self.device
-        )
+        self.timestep = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self.reset_timestep = torch.zeros(
-            self.num_envs, dtype=torch.int32, device=self.device
+            self.num_envs, dtype=torch.long, device=self.device
         )
         self.trajectory_end_timestep = torch.full(
             (self.num_envs,),
             self.num_timesteps - 1,
-            dtype=torch.int32,
+            dtype=torch.long,
             device=self.device,
         )
         self.steps_since_last_reset = torch.zeros(
-            self.num_envs, dtype=torch.int32, device=self.device
+            self.num_envs, dtype=torch.long, device=self.device
         )
         self._encoder_mode = torch.zeros(self.num_envs, 4, device=self.device)
 
@@ -254,7 +280,7 @@ class TrackingCommand(CommandTerm):
         self.tracking_lengths = torch.full(
             (self.num_envs,),
             min(self.num_timesteps, max_ep_steps),
-            dtype=torch.int32,
+            dtype=torch.long,
             device=self.device,
         )
 
@@ -397,6 +423,36 @@ class TrackingCommand(CommandTerm):
                 )
             else:
                 setattr(self, f"retargeted_{side}_finger_joints", parquet_vals)
+
+        # Whole-body retargeters write the finger angles into the full-body
+        # `robot_joint_positions` trajectory and leave the per-hand `hand_finger_joints`
+        # column empty, so the loop above leaves the side empty. Slice the finger columns
+        # back out of the whole-body trajectory by name; without this the *_command
+        # properties return (E, 0) and every consumer -- the finger-tracking metric and
+        # `motion_finger_joint_pos_gaussian_exp` -- raises on the shape mismatch against
+        # the measured per-hand positions.
+        file_joint_names = md.file_joint_names or cfg.file_joint_names
+        for side in ("left", "right"):
+            existing = getattr(self, f"retargeted_{side}_finger_joints")
+            if existing is not None and existing.shape[-1] > 0:
+                continue
+            sim_names = getattr(self, f"_{side}_finger_joint_names")
+            if not sim_names or not file_joint_names:
+                continue
+            if not all(n in file_joint_names for n in sim_names):
+                warnings.warn(
+                    f"TrackingCommand: no finger-joint reference for the {side} hand -- "
+                    f"neither `{side}_finger_joints` nor the whole-body joint trajectory "
+                    f"covers {sim_names}. Finger tracking will be skipped for this side.",
+                    stacklevel=2,
+                )
+                continue
+            reorder = [file_joint_names.index(n) for n in sim_names]
+            setattr(
+                self,
+                f"retargeted_{side}_finger_joints",
+                self._joint_pos_file[:, reorder],
+            )
 
         # Binary per-frame contact labels.
         # If a side is absent on disk, we substitute an all-zero mask of length
@@ -1455,14 +1511,17 @@ class TrackingCommand(CommandTerm):
             else:
                 self.metrics[f"{side}_hand_wrist_wxyz_error"].zero_()
 
-        self.metrics["left_hand_finger_joints_error"] = torch.norm(
-            self.left_hand_finger_joint_pos - self.left_hand_finger_joint_pos_command,
-            dim=-1,
-        )
-        self.metrics["right_hand_finger_joints_error"] = torch.norm(
-            self.right_hand_finger_joint_pos - self.right_hand_finger_joint_pos_command,
-            dim=-1,
-        )
+        # A side with no finger reference on disk yields an (E, 0) command, which does not
+        # broadcast against the (E, J) measured positions. Report 0 rather than raising.
+        for side in ("left", "right"):
+            measured = getattr(self, f"{side}_hand_finger_joint_pos")
+            target = getattr(self, f"{side}_hand_finger_joint_pos_command")
+            if measured.shape[-1] == target.shape[-1]:
+                self.metrics[f"{side}_hand_finger_joints_error"] = torch.norm(
+                    measured - target, dim=-1
+                )
+            else:
+                self.metrics[f"{side}_hand_finger_joints_error"].zero_()
         self.metrics["virtual_object_controller_scale_factor"] = (
             self.virtual_object_controller_scale_factor_per_env.squeeze(-1)
         )

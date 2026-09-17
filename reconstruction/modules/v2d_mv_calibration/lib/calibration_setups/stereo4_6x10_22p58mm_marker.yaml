@@ -1,0 +1,6 @@
+rig_name: stereo-4
+calibration_order: [0, 4, 2, 6]
+board_size: [6, 10]
+square_size: 0.02258
+use_marker_chessboard: true
+correction_focal: {}

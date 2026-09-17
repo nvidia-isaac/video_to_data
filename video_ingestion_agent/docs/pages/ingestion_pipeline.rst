@@ -239,6 +239,18 @@ For processing large video datasets (1000+ videos):
      --output-dir runs/batch \
      --num-shards 8 --resume
 
+.. note::
+
+   ``configs/batch_ingestion.yaml`` sets ``vllm_tp_size: 8`` for an 8-GPU node.
+   The batch script does not start a vLLM server; it connects to whatever is
+   already serving on ``vllm_url``. On a node with fewer GPUs, start the server
+   yourself with a matching tensor-parallel size before launching the batch::
+
+      python scripts/serve.py -c configs/batch_ingestion.yaml --tp 1
+
+   ``--tp`` overrides the config's ``vllm_tp_size`` and serves the same model the
+   batch config expects.
+
 **Key features:**
 
 - **Video discovery** — Recursively finds ``.mp4``, ``.mov``, ``.mkv`` files

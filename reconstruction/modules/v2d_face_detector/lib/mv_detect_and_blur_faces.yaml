@@ -1,0 +1,31 @@
+rgb_dir: ???
+model_dir: ???
+output_dir: ???
+model_sha256: "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4"
+
+rig_config: stereo-4
+rgb_path_template: "${rgb_dir}/{cam_name}"
+output_image_path_template: "${output_dir}/images/{cam_name}"
+output_video_path_template: "${output_dir}/videos/{cam_name}.mp4"
+detection_path_template: "${output_dir}/detections/{cam_name}.json"
+
+score_threshold: 0.6
+nms_threshold: 0.3
+top_k: 5000
+detection_scales: [1.0, 0.5]
+
+max_gap_frames: 5
+edge_fill_frames: 2
+track_min_iou: 0.2
+track_max_center_distance: 0.75
+median_window: 3
+ema_alpha: 0.6
+
+ellipse_scale: 1.0
+feather_fraction: 0.12
+blur_sigma_fraction: 0.18
+
+fps: 30
+video_crf: 17
+camera_workers: 8
+opencv_threads: 1

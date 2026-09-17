@@ -23,7 +23,7 @@ RUN pip install pytorch-lightning pyrender opencv-python yacs scikit-image einop
 RUN FORCE_CUDA=1 TORCH_CUDA_ARCH_LIST="8.0 8.6 8.9 9.0" \
     pip install "git+https://github.com/facebookresearch/pytorch3d.git@v0.7.9"
 
-RUN pip install py-soma-x
+RUN pip install py-soma-x==0.2.1
 
 # Install v2d packages (cached unless pyproject.toml or v2d/ source changes)
 COPY v2d_common /workspace/v2d_common

@@ -4,15 +4,16 @@
 # Usage:
 #   ./run.sh build [version]              - Build x86_64 image (default version: latest)
 #   ./run.sh build-aarch64 [version]      - Build aarch64 image (default version: latest)
-#   ./run.sh push [version]               - Push x86_64 image to configured registry
-#   ./run.sh push-aarch64 [version]       - Push aarch64 image to configured registry
-#   ./run.sh pull [version]               - Pull x86_64 image from configured registry
-#   ./run.sh pull-aarch64 [version]       - Pull aarch64 image from configured registry
+#   ./run.sh push [version]               - Push x86_64 image to NVIDIA registry
+#   ./run.sh push-aarch64 [version]       - Push aarch64 image to NVIDIA registry
+#   ./run.sh pull [version]               - Pull x86_64 image from NVIDIA registry
+#   ./run.sh pull-aarch64 [version]       - Pull aarch64 image from NVIDIA registry
 #   ./run.sh start [version] [gpu]        - Start x86_64 container (default version: latest, gpu: 0)
 #   ./run.sh start-aarch64 [version] [gpu] - Start aarch64 container
 #   ./run.sh shell [version] [gpu]        - Enter shell of a running container
 #   ./run.sh shell-aarch64 [version] [gpu] - Enter shell of a running aarch64 container
 #   ./run.sh exec [version] [gpu] -- <cmd>  - Run a command in a running container
+#   ./run.sh e2e-run [version] [gpu] [mounts] -- <cmd> - Internal noninteractive E2E operation
 #   ./run.sh stop [version] [gpu]         - Stop the running container
 #   ./run.sh stop-aarch64 [version] [gpu] - Stop the running aarch64 container
 
@@ -29,15 +30,87 @@ fi
 
 VERSION=${2:-latest}
 GPU_DEVICE=${3:-0}
+E2E_MODE="0"
+E2E_RUN_DATA=""
+E2E_MANO_DIR=""
+E2E_CHECKPOINT=""
+E2E_WORKDIR="/workspace/video_to_data/robotic_grounding"
+E2E_RECREATE_ON_MOUNT_CHANGE="0"
+E2E_COMMAND=()
+
+if [ "$CMD" = "e2e-run" ]; then
+    E2E_MODE="1"
+    shift 3 2>/dev/null || true
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --run-data)
+                [ $# -ge 2 ] || { echo "Error: --run-data requires a path." >&2; exit 2; }
+                E2E_RUN_DATA="$2"
+                shift 2
+                ;;
+            --mano-dir)
+                [ $# -ge 2 ] || { echo "Error: --mano-dir requires a path." >&2; exit 2; }
+                E2E_MANO_DIR="$2"
+                shift 2
+                ;;
+            --checkpoint)
+                [ $# -ge 2 ] || { echo "Error: --checkpoint requires a path." >&2; exit 2; }
+                E2E_CHECKPOINT="$2"
+                shift 2
+                ;;
+            --workdir)
+                [ $# -ge 2 ] || { echo "Error: --workdir requires a path." >&2; exit 2; }
+                E2E_WORKDIR="$2"
+                shift 2
+                ;;
+            --recreate-on-mount-change)
+                E2E_RECREATE_ON_MOUNT_CHANGE="1"
+                shift
+                ;;
+            --)
+                shift
+                E2E_COMMAND=("$@")
+                break
+                ;;
+            *)
+                echo "Error: unknown e2e-run option: $1" >&2
+                exit 2
+                ;;
+        esac
+    done
+    [ -d "$E2E_RUN_DATA" ] || { echo "Error: E2E run-data directory does not exist: $E2E_RUN_DATA" >&2; exit 2; }
+    if [ -n "$E2E_MANO_DIR" ]; then
+        [ -d "$E2E_MANO_DIR" ] || { echo "Error: MANO directory does not exist: $E2E_MANO_DIR" >&2; exit 2; }
+    fi
+    if [ -n "$E2E_CHECKPOINT" ]; then
+        [ -f "$E2E_CHECKPOINT" ] || { echo "Error: checkpoint does not exist: $E2E_CHECKPOINT" >&2; exit 2; }
+    fi
+    [ ${#E2E_COMMAND[@]} -gt 0 ] || { echo "Error: e2e-run requires a command after --." >&2; exit 2; }
+    E2E_RUN_DATA="$(cd "$E2E_RUN_DATA" && pwd -P)"
+    if [ -n "$E2E_MANO_DIR" ]; then
+        E2E_MANO_DIR="$(cd "$E2E_MANO_DIR" && pwd -P)"
+    fi
+    if [ -n "$E2E_CHECKPOINT" ]; then
+        E2E_CHECKPOINT_DIR="$(cd "$(dirname "$E2E_CHECKPOINT")" && pwd -P)"
+        E2E_CHECKPOINT="${E2E_CHECKPOINT_DIR}/$(basename "$E2E_CHECKPOINT")"
+    fi
+    CMD="start"
+fi
+
 IMAGE_NAME="robotic-grounding${ARCH_SUFFIX}:${VERSION}"
 CONTAINER_NAME="robotic-grounding${ARCH_SUFFIX}-${VERSION}-gpu${GPU_DEVICE}"
-IMAGE_REGISTRY="${V2D_IMAGE_REGISTRY:-}"
+NGC_LOCATION="nvcr.io/nvstaging/isaac-amr"
 
-require_registry() {
-    if [ -z "${IMAGE_REGISTRY}" ]; then
-        echo "ERROR: Set V2D_IMAGE_REGISTRY to your container registry namespace before push or pull."
-        exit 1
-    fi
+wait_for_container_removal() {
+    local wait_index
+    for wait_index in {1..100}; do
+        if ! docker container inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 0.1
+    done
+    echo "Error: timed out waiting for container removal: ${CONTAINER_NAME}" >&2
+    return 1
 }
 
 case "$CMD" in
@@ -90,22 +163,18 @@ case "$CMD" in
         ;;
 
     push)
-        require_registry
-        REMOTE_IMAGE="${IMAGE_REGISTRY}/${IMAGE_NAME}"
-        echo "Pushing ${IMAGE_NAME} to ${IMAGE_REGISTRY}..."
-        docker tag ${IMAGE_NAME} ${REMOTE_IMAGE}
-        docker push ${REMOTE_IMAGE}
+        echo "Pushing ${IMAGE_NAME} to NVIDIA registry..."
+        docker tag ${IMAGE_NAME} ${NGC_LOCATION}/${IMAGE_NAME}
+        docker push ${NGC_LOCATION}/${IMAGE_NAME}
         echo "Push complete!"
         echo "Removing local images to free disk space..."
-        docker rmi ${REMOTE_IMAGE} ${IMAGE_NAME} || true
+        docker rmi ${NGC_LOCATION}/${IMAGE_NAME} ${IMAGE_NAME} || true
         ;;
 
     pull)
-        require_registry
-        REMOTE_IMAGE="${IMAGE_REGISTRY}/${IMAGE_NAME}"
-        echo "Pulling ${REMOTE_IMAGE}..."
-        docker pull ${REMOTE_IMAGE}
-        docker tag ${REMOTE_IMAGE} ${IMAGE_NAME}
+        echo "Pulling ${NGC_LOCATION}/${IMAGE_NAME}..."
+        docker pull ${NGC_LOCATION}/${IMAGE_NAME}
+        docker tag ${NGC_LOCATION}/${IMAGE_NAME} ${IMAGE_NAME}
         echo "Pull complete: ${IMAGE_NAME}"
         ;;
 
@@ -113,8 +182,51 @@ case "$CMD" in
         echo "Starting container: ${CONTAINER_NAME} (image: ${IMAGE_NAME})"
 
         if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
-            echo "Container is already running. Entering shell..."
-        else
+            echo "Container is already running."
+            if [ "$E2E_MODE" = "1" ]; then
+                REPO_MOUNT_SOURCE="$(cd "$(dirname "$0")/../.." && pwd -P)"
+                MOUNT_TABLE="$(docker inspect -f '{{range .Mounts}}{{printf "%s|%s\n" .Source .Destination}}{{end}}' "${CONTAINER_NAME}")"
+                EXPECTED_MOUNTS=(
+                    "${REPO_MOUNT_SOURCE}|/workspace/video_to_data"
+                    "${E2E_RUN_DATA}|/workspace/e2e"
+                )
+                if [ -n "$E2E_MANO_DIR" ]; then
+                    EXPECTED_MOUNTS+=("${E2E_MANO_DIR}|/workspace/mano")
+                fi
+                if [ -n "$E2E_CHECKPOINT" ]; then
+                    EXPECTED_MOUNTS+=("${E2E_CHECKPOINT}|/workspace/checkpoints/$(basename "$E2E_CHECKPOINT")")
+                fi
+                MISSING_MOUNT=""
+                for EXPECTED_MOUNT in "${EXPECTED_MOUNTS[@]}"; do
+                    if ! grep -Fxq "$EXPECTED_MOUNT" <<<"$MOUNT_TABLE"; then
+                        MISSING_MOUNT="$EXPECTED_MOUNT"
+                        break
+                    fi
+                done
+                if [ -n "$MISSING_MOUNT" ]; then
+                    if [ "$E2E_RECREATE_ON_MOUNT_CHANGE" = "1" ]; then
+                        echo "Recreating ${CONTAINER_NAME}; required mount changed: ${MISSING_MOUNT}"
+                        docker stop "$CONTAINER_NAME"
+                        docker rm "$CONTAINER_NAME" 2>/dev/null || true
+                        wait_for_container_removal
+                    else
+                        echo "Error: refusing to reuse ${CONTAINER_NAME}; missing mount ${MISSING_MOUNT}" >&2
+                        echo "Stop it with './workflow/run.sh stop ${VERSION} ${GPU_DEVICE}' and retry." >&2
+                        exit 2
+                    fi
+                fi
+            fi
+        fi
+
+        if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+            # A previous startup may have left a stopped named container (for example,
+            # if Docker exited between ``stop`` and the replacement ``run``). Remove only
+            # that exact stopped lifecycle container before reusing its deterministic name.
+            if docker ps -a --filter "name=^/${CONTAINER_NAME}$" --format '{{.Names}}' \
+                | grep -q "^${CONTAINER_NAME}$"; then
+                docker rm "$CONTAINER_NAME" 2>/dev/null || true
+                wait_for_container_removal
+            fi
             echo "Creating and starting new container..."
             cd "$(dirname "$0")/.."
             xhost +local:docker > /dev/null 2>&1 || true
@@ -138,20 +250,19 @@ case "$CMD" in
                 WANDB_API_KEY_ENV="-e WANDB_API_KEY=${WANDB_API_KEY_VALUE}"
             fi
 
-            # Optional: overlay an external human_motion_data directory (e.g. from another repo).
+            # Optional: mount external human_motion_data datasets (e.g. from another repo).
             # Set HUMAN_MOTION_DATA_DIR on the host to an absolute path before calling run.sh:
             #   HUMAN_MOTION_DATA_DIR=/path/to/human_motion_data ./workflow/run.sh start
-            # Each dataset subdirectory is mounted individually — mounting the root
-            # would hide data committed in the repo (e.g. whole_body/) that the
-            # external directory doesn't provide.
-            DATA_MOUNT=""
+            # Mount each dataset separately so an external root does not hide datasets
+            # committed in the image or repository mount (for example, whole_body/).
+            DATA_MOUNTS=()
             CONTAINER_DATA_DIR="/workspace/video_to_data/robotic_grounding/source/robotic_grounding/robotic_grounding/assets/human_motion_data"
             if [ -n "${HUMAN_MOTION_DATA_DIR}" ]; then
                 for DATASET_DIR in "${HUMAN_MOTION_DATA_DIR}"/*/; do
                     DATASET_DIR="${DATASET_DIR%/}"
                     [ -d "${DATASET_DIR}" ] || continue
                     DATASET_NAME="$(basename "${DATASET_DIR}")"
-                    DATA_MOUNT="${DATA_MOUNT} -v ${DATASET_DIR}:${CONTAINER_DATA_DIR}/${DATASET_NAME}"
+                    DATA_MOUNTS+=(-v "${DATASET_DIR}:${CONTAINER_DATA_DIR}/${DATASET_NAME}")
                     echo "Mounting external data: ${DATASET_DIR} → ${CONTAINER_DATA_DIR}/${DATASET_NAME}"
                 done
             fi
@@ -205,14 +316,33 @@ EOF
             KIT_LOGS_DIR="${CONTAINER_PASSWD_DIR}/kit-logs"
             mkdir -p "${KIT_DATA_DIR}" "${KIT_CACHE_DIR}" "${KIT_LOGS_DIR}"
 
-            docker run --rm -it \
+            E2E_MOUNTS=()
+            DOCKER_TTY_ARGS=(-it)
+            CONTAINER_COMMAND=()
+            if [ "$E2E_MODE" = "1" ]; then
+                DOCKER_TTY_ARGS=()
+                CONTAINER_COMMAND=(-lc "exec sleep infinity")
+                E2E_MOUNTS=(-v "${E2E_RUN_DATA}:/workspace/e2e")
+                echo "Mounting E2E run data: ${E2E_RUN_DATA} → /workspace/e2e"
+                if [ -n "$E2E_MANO_DIR" ]; then
+                    E2E_MOUNTS+=(-v "${E2E_MANO_DIR}:/workspace/mano:ro")
+                    echo "Mounting MANO models: ${E2E_MANO_DIR} → /workspace/mano (read-only)"
+                fi
+                if [ -n "$E2E_CHECKPOINT" ]; then
+                    E2E_MOUNTS+=(-v "${E2E_CHECKPOINT}:/workspace/checkpoints/$(basename "$E2E_CHECKPOINT"):ro")
+                    echo "Mounting checkpoint: ${E2E_CHECKPOINT} → /workspace/checkpoints/$(basename "$E2E_CHECKPOINT") (read-only)"
+                fi
+            fi
+
+            docker run --rm "${DOCKER_TTY_ARGS[@]}" \
                 --runtime=nvidia \
                 --gpus device=${GPU_DEVICE} \
                 --network host \
                 --name ${CONTAINER_NAME} \
                 --user "${HOST_UID}:${HOST_GID}" \
                 -v "$(pwd)/..:/workspace/video_to_data" \
-                ${DATA_MOUNT} \
+                "${DATA_MOUNTS[@]}" \
+                "${E2E_MOUNTS[@]}" \
                 --group-add 1234 \
                 -v "${HOME}/.ssh:/tmp/.ssh:ro" \
                 -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
@@ -230,10 +360,15 @@ EOF
                 -e "ACCEPT_EULA=Y" \
                 -d \
                 --entrypoint /bin/bash \
-                ${IMAGE_NAME}
+                ${IMAGE_NAME} \
+                "${CONTAINER_COMMAND[@]}"
         fi
 
-        docker exec -it ${CONTAINER_NAME} /bin/bash
+        if [ "$E2E_MODE" = "1" ]; then
+            docker exec --workdir "$E2E_WORKDIR" "$CONTAINER_NAME" "${E2E_COMMAND[@]}"
+        else
+            docker exec -it ${CONTAINER_NAME} /bin/bash
+        fi
         ;;
 
     shell)
@@ -279,6 +414,7 @@ EOF
 
     *)
         echo "Usage: $0 {build|push|pull|start|shell|exec|stop}[-aarch64] [version] [gpu]"
+        echo "       $0 e2e-run [version] [gpu] --run-data PATH [--mano-dir PATH] [--checkpoint FILE] [--workdir PATH] [--recreate-on-mount-change] -- <command>"
         echo ""
         echo "  build [version]               - Build x86_64 image (default: latest)"
         echo "  build-aarch64 [version]        - Build aarch64 image (default: latest-aarch64)"
@@ -291,6 +427,7 @@ EOF
         echo "  shell [version] [gpu]         - Enter shell of a running container"
         echo "  shell-aarch64 [version] [gpu]  - Enter shell of a running aarch64 container"
         echo "  exec [version] [gpu] -- <cmd> - Run a command in a running container"
+        echo "  e2e-run [version] [gpu] ...   - Internal noninteractive start/reuse + exec"
         echo "  stop [version] [gpu]          - Stop the running container"
         echo "  stop-aarch64 [version] [gpu]   - Stop the running aarch64 container"
         exit 1

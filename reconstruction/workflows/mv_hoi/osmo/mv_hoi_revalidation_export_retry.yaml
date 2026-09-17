@@ -1,0 +1,125 @@
+# Export-only retry for a revalidation whose computational gates succeeded.
+# Inputs reference the immutable task outputs of the prior revalidation run.
+
+workflow:
+  name: {{workflow_name}}
+  resources:
+    cpu_small:
+      cpu: 8
+      gpu: 0
+      memory: 32Gi
+      storage: 150Gi
+    cpu_export:
+      cpu: 16
+      gpu: 0
+      memory: 32Gi
+      storage: 150Gi
+
+  tasks:
+  - name: validate_retry_source
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    resource: cpu_small
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - url: {{inventory_url}}
+    - url: {{configuration_url}}
+    outputs:
+    - url: {{work_output_url}}/validate_retry_source/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        INVENTORY=$(find {{input:0}} -type f -name '*.json' -print -quit 2>/dev/null || true)
+        [ -n "$INVENTORY" ] || INVENTORY={{input:0}}
+        CONFIG=$(find {{input:1}} -type f -name '*.json' -print -quit 2>/dev/null || true)
+        [ -n "$CONFIG" ] || CONFIG={{input:1}}
+        test "$(sha256sum "$CONFIG" | cut -d' ' -f1)" = "{{configuration_sha256}}"
+        python -m v2d.mv.postprocess.lib.verify_revalidation_source \
+          --inventory-path "$INVENTORY" \
+          --sequence "{{sequence_name}}" \
+          --expected-manifest-sha256 "{{source_manifest_sha256}}" \
+          --output-path {{output}}/verification.json
+
+  - name: export_revalidated
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    resource: cpu_export
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - url: {{source_url}}
+    - url: {{retry_work_output_url}}/foundation_pose/
+    - url: {{retry_work_output_url}}/face_detector/
+    - url: {{retry_work_output_url}}/render_hoi_overlay/
+    - url: {{retry_work_output_url}}/compare_foundation_pose/
+    - url: {{retry_work_output_url}}/check_accuracy/
+    - url: {{retry_work_output_url}}/eval_silhouette_mask_object/
+    - url: {{retry_work_output_url}}/eval_chamfer_object/
+    - url: {{weights_base_url}}/foundation_pose/nvidia_tensorrt/deployable_v1.0/
+    - url: {{configuration_url}}
+    - task: validate_retry_source
+    - url: {{legacy_export_url}}/failure_segments.json
+    outputs:
+    - url: {{destination_url}}/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        test -f {{input:10}}/verification.json
+        CONFIG=$(find {{input:9}} -type f -name '*.json' -print -quit 2>/dev/null || true)
+        [ -n "$CONFIG" ] || CONFIG={{input:9}}
+        FAILURE_SEGMENTS=$(find {{input:11}} -type f -name 'failure_segments.json' -print -quit 2>/dev/null || true)
+        [ -n "$FAILURE_SEGMENTS" ] || FAILURE_SEGMENTS={{input:11}}
+        test -f "$FAILURE_SEGMENTS"
+        test "$(sha256sum "$CONFIG" | cut -d' ' -f1)" = "{{configuration_sha256}}"
+        read -r TRIM_ENABLED TRIM_DISTANCE TRIM_PRE_PADDING TRIM_POST_PADDING TRIM_WINDOW TRIM_REQUIRED <<< "$(python -c 'import json,sys; c=json.load(open(sys.argv[1])).get("interaction_trim", {}); print(str(bool(c.get("enabled", True))).lower(), c.get("distance_threshold_m", 0.10), c.get("pre_contact_padding_seconds", 3.0), c.get("post_contact_padding_seconds", 3.0), c.get("window_frames", 7), c.get("required_under_threshold_frames", 5))' "$CONFIG")"
+        TRIM_ENABLED_ARG=""
+        [ "$TRIM_ENABLED" = true ] || TRIM_ENABLED_ARG="--disable-interaction-trim"
+        python -m v2d.mv.postprocess.lib.finalize_revalidation_export \
+          --source-dir {{input:0}} \
+          --commercial-foundation-pose-dir {{input:1}} \
+          --anonymized-rgb-dir {{input:2}} \
+          --overlay-dir {{input:3}} \
+          --pose-comparison-path {{input:4}}/foundation_pose_comparison.json \
+          --check-accuracy-path {{input:5}}/check_accuracy.json \
+          --object-silhouette-path {{input:6}}/silhouette_mask_metrics.json \
+          --object-chamfer-path {{input:7}}/chamfer_metrics.json \
+          --checkpoint-manifest-path {{input:8}}/manifest.json \
+          --failure-segments-path "$FAILURE_SEGMENTS" \
+          --output-dir {{output}} \
+          --request-id {{request_id}} \
+          --campaign-name "{{campaign_name}}" \
+          --sequence-name "{{sequence_name}}" \
+          --pipeline-version "{{image_tag}}" \
+          --source-manifest-sha256 "{{source_manifest_sha256}}" \
+          --configuration-sha256 "{{configuration_sha256}}" \
+          $TRIM_ENABLED_ARG \
+          --interaction-distance-threshold-m "$TRIM_DISTANCE" \
+          --interaction-pre-contact-padding-seconds "$TRIM_PRE_PADDING" \
+          --interaction-post-contact-padding-seconds "$TRIM_POST_PADDING" \
+          --interaction-window-frames "$TRIM_WINDOW" \
+          --interaction-required-under-threshold-frames "$TRIM_REQUIRED" \
+          --max-failure-annotations {{max_failure_annotations}} \
+          --max-failure-coverage {{max_failure_coverage}} \
+          --max-silhouette-failure-coverage {{max_post_trim_silhouette_failure_coverage}} \
+          --rebuild-incomplete
+
+default-values:
+  workflow_name: v2d_mv_hoi_revalidation_export_retry
+  image_tag: latest
+  sequence_name: ???
+  request_id: ???
+  campaign_name: ???
+  source_url: ???
+  legacy_export_url: ???
+  inventory_url: ???
+  configuration_url: ???
+  source_manifest_sha256: ???
+  configuration_sha256: ???
+  weights_base_url: ???
+  work_output_url: ???
+  retry_work_output_url: ???
+  destination_url: ???
+  max_failure_annotations: 10
+  max_failure_coverage: 0.5
+  max_post_trim_silhouette_failure_coverage: 0.5

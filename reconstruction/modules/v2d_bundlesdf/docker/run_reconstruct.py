@@ -45,6 +45,7 @@ def run_reconstruct(
     masks_dir: str = None,
     poses_file: str = None,
     intrinsics_file: str = None,
+    allow_default_hawk_intrinsics: bool = False,
 ) -> None:
     inputs = {"weights_dir": weights_dir}
     if config:
@@ -73,6 +74,8 @@ def run_reconstruct(
         extra["skip-glb-export"] = True
     if skip_sdf:
         extra["skip-sdf"] = True
+    if allow_default_hawk_intrinsics:
+        extra["allow-default-hawk-intrinsics"] = True
 
     env = {}
     if gpu_id is not None:
@@ -110,6 +113,11 @@ if __name__ == "__main__":
     parser.add_argument("--masks_dir",        default=None, help="Object masks directory (default: <output_path>/masks/)")
     parser.add_argument("--poses_file",       default=None, help="Camera poses YAML file (default: <output_path>/keyframes.yml)")
     parser.add_argument("--intrinsics_file",  default=None, help="Camera intrinsics JSON file (default: <output_path>/calibration.json)")
+    parser.add_argument(
+        "--allow-default-hawk-intrinsics",
+        action="store_true",
+        help="Explicitly use embedded 1920x1200 Hawk intrinsics when calibration is absent",
+    )
     args = parser.parse_args()
     run_reconstruct(
         output_path=args.output_path,
@@ -128,4 +136,5 @@ if __name__ == "__main__":
         masks_dir=args.masks_dir,
         poses_file=args.poses_file,
         intrinsics_file=args.intrinsics_file,
+        allow_default_hawk_intrinsics=args.allow_default_hawk_intrinsics,
     )

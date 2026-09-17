@@ -21,7 +21,10 @@ Usage::
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
+
+from robotic_grounding.retarget import HUMAN_MOTION_DATA_DIR, INTERMEDIATE_DATA_DIR
 
 BASE_CSS_PREFIX = "v2d/human_motion_data"
 
@@ -48,9 +51,19 @@ class DatasetConfig:
             link-to-site transform used during IK retargeting. None if
             no transform is needed.
         loaded_suffix: Suffix for the loaded data directory name
-            (e.g. "_loaded" -> "{name}_loaded").
+            (e.g. "_loaded" -> "{name}_loaded"). Ignored if loaded_dir is set.
         processed_suffix: Suffix for the processed data directory name
-            (e.g. "_processed" -> "{name}_processed").
+            (e.g. "_processed" -> "{name}_processed"). Ignored if processed_dir
+            is set.
+        loaded_dir: Explicit loaded directory name, overriding the
+            "{name}{loaded_suffix}" convention. Use when repeating the dataset
+            name inside its own directory would be redundant.
+        loaded_in_intermediate: Put the loaded Parquet under
+            INTERMEDIATE_DATA_DIR instead of HUMAN_MOTION_DATA_DIR. Set for
+            datasets whose assets are committed in-repo, so a regenerable
+            intermediate never lands in the committed tree.
+        processed_dir: Explicit processed directory name, overriding the
+            "{name}{processed_suffix}" convention.
         css_raw_prefix: Subdirectory under the dataset's CSS path for raw
             data. Empty string means "dataset/" (the default).
             TACO overrides this to "dataset/Hand_Poses/".
@@ -83,6 +96,9 @@ class DatasetConfig:
     # Storage path conventions (relative to HUMAN_MOTION_DATA_DIR/{name}/)
     loaded_suffix: str = "_loaded"
     processed_suffix: str = "_processed"
+    loaded_dir: str | None = None
+    processed_dir: str | None = None
+    loaded_in_intermediate: bool = False
 
     # CSS storage
     css_raw_prefix: str = ""
@@ -93,6 +109,40 @@ class DatasetConfig:
     # back-compat. retarget_scripts (Stage-2 IK) stay in robotic_grounding.
     loader_script: str = ""
     retarget_scripts: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def loaded_dirname(self) -> str:
+        """Directory name holding loaded data, relative to the dataset root."""
+        return self.loaded_dir or f"{self.name}{self.loaded_suffix}"
+
+    @property
+    def processed_dirname(self) -> str:
+        """Directory name holding processed data, relative to the dataset root."""
+        return self.processed_dir or f"{self.name}{self.processed_suffix}"
+
+    @property
+    def loaded_data_dir(self) -> Path:
+        """Local directory holding this dataset's loaded Parquet.
+
+        The single source of truth for where the loaded stage writes and the
+        retarget / support-surface stages read.
+        """
+        root = (
+            INTERMEDIATE_DATA_DIR
+            if self.loaded_in_intermediate
+            else HUMAN_MOTION_DATA_DIR
+        )
+        return root / self.name / self.loaded_dirname
+
+    @property
+    def reconstructed_stage_dir(self) -> Path:
+        """Directory holding reconstructed support-surface USDAs.
+
+        Support surfaces are a committed artifact discovered by SceneConfig
+        relative to the *processed* motion path, so they always live in the
+        asset tree even when the loaded input does not.
+        """
+        return HUMAN_MOTION_DATA_DIR / self.name / "reconstructed_stage"
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +247,25 @@ DATASET_CONFIGS: dict[str, DatasetConfig] = {
         has_contact_data=True,
         retarget_scripts={"sharpa_wave": "scripts/retarget/dexycb_to_sharpa.py"},
     ),
+    "ego_recon": DatasetConfig(
+        name="ego_recon",
+        fps=30.0,
+        # Matches the MANO layers that produced result.npz finger poses
+        # (use_pca=False, center_idx=None; manotorch default flat_hand_mean=True).
+        mano_kwargs={"flat_hand_mean": True, "center_idx": None},
+        mesh_vertex_scale=1.0,  # ego mesh is already metric (object_scale baked in loader)
+        mesh_format="obj",
+        has_articulated_objects=False,
+        has_contact_data=True,
+        # The dataset root is already named ego_recon, so repeating it in the child
+        # directory adds nothing: ego_recon/processed, not ego_recon/ego_recon_processed.
+        loaded_dir="loaded",
+        processed_dir="processed",
+        # ego_recon assets are committed in-repo, so the regenerable loaded
+        # Parquet is kept out of the asset tree entirely.
+        loaded_in_intermediate=True,
+        retarget_scripts={"sharpa_wave": "scripts/retarget/ego_recon_to_sharpa.py"},
+    ),
 }
 
 
@@ -233,6 +302,6 @@ def get_css_stage_prefixes(name: str) -> dict[str, str]:
     raw_prefix = config.css_raw_prefix or "dataset/"
     return {
         "raw": f"{base}/{raw_prefix}",
-        "loaded": f"{base}/{name}{config.loaded_suffix}/",
-        "processed": f"{base}/{name}{config.processed_suffix}/",
+        "loaded": f"{base}/{config.loaded_dirname}/",
+        "processed": f"{base}/{config.processed_dirname}/",
     }

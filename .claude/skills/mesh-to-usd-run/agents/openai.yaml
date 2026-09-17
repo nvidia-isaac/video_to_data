@@ -1,0 +1,4 @@
+interface:
+  display_name: "Run Mesh-to-USD"
+  short_description: "Generate, validate, and drop-test rigid USD assets"
+  default_prompt: "Use $mesh-to-usd-run with my target mesh and HOI support sequence to generate and validate a rigid USD, infer its recorded support orientation, and run the drop test."

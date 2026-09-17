@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+calibration_setup: null            # Optional packaged setup identifier
 rig_name: stereo-4
 
 camera_params_path: ???
@@ -12,6 +13,8 @@ input_suffix: ""                  # e.g. ".h5" for HDF5 inputs
 calibration_order: [0, 4, 2, 6]   # Left camera IDs for pairwise PnP chain
 board_size: [6, 10]               # Inner corners (width, height)
 square_size: 0.1                  # Square size in meters
+use_marker_chessboard: false      # Use SB detector with three-dot marker metadata
+correction_focal: {}              # Optional per-camera focal correction factors
 max_iterations: 50                # Bundle adjustment iterations
 start: 0
 stop: null

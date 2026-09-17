@@ -11,6 +11,7 @@ def run_ekf_smoothing(
     intrinsics_path: str,
     weights_dir: str,
     output_dir: str,
+    backend: str = "nvidia_tensorrt",
     masks_folder: str = None,
     process_noise_xy: float = 0.005,
     process_noise_z: float = 0.005,
@@ -37,6 +38,7 @@ def run_ekf_smoothing(
         inputs=inputs,
         outputs={"output_dir": output_dir},
         extra_args={
+            "backend":              backend,
             "process_noise_xy":     process_noise_xy,
             "process_noise_z":      process_noise_z,
             "process_noise_r":      process_noise_r,
@@ -61,6 +63,7 @@ if __name__ == "__main__":
     parser.add_argument("--mesh_path",             required=True)
     parser.add_argument("--intrinsics_path",       required=True)
     parser.add_argument("--weights_dir",           required=True)
+    parser.add_argument("--backend", choices=("nvidia_tensorrt", "nvlabs_pytorch"), default="nvidia_tensorrt")
     parser.add_argument("--output_dir",            required=True)
     parser.add_argument("--masks_folder",          default=None)
     parser.add_argument("--process_noise_xy",      type=float, default=0.005)
@@ -78,6 +81,7 @@ if __name__ == "__main__":
         args.intrinsics_path,
         args.weights_dir,
         args.output_dir,
+        backend=args.backend,
         masks_folder=args.masks_folder,
         process_noise_xy=args.process_noise_xy,
         process_noise_z=args.process_noise_z,

@@ -1,0 +1,66 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+# Vega whole-body object manipulation. `train.yaml` is pinned to an arctic
+# floating-hand sanity check, so this task gets its own workflow rather than
+# editing that one out from under it.
+#
+# The motion data is BAKED INTO THE IMAGE (the Dockerfile COPYs `source/`), so a
+# changed clip, retarget or support surface needs a rebuild+push -- otherwise the
+# job silently trains the previous asset. Submit with:
+#   python scripts/run_osmo.py --experiment-name <tag> --build-image \
+#     --workflow-yaml workflow/train_vega_manip.yaml --pool <pool>
+
+workflow:
+  name: {{workflow_name}}
+  resources:
+    default:
+      cpu: 8
+      gpu: 1
+      memory: 100Gi
+      storage: 200Gi
+      platform: ovx-l40
+
+  tasks:
+  - name: train
+    image: {{image}}
+    command:
+    - /bin/bash
+    args:
+    - /tmp/entry.sh
+    environment:
+      ACCEPT_EULA: Y
+      OMNI_SERVER: omniverse://isaac-dev.ov.nvidia.com
+      WANDB_ENTITY: nvidia-isaac
+    credentials:
+      wandb:
+        WANDB_API_KEY: wandb_pass
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+
+        # A zero actor starts by replaying the reference-centered residual action.
+        python scripts/rsl_rl/train.py --task VegaSharpa-WholeBody-Manip-v0 --headless \
+          --motion_file ego_recon/processed/tissue_box_simple/vega_sharpa \
+          --num_envs 4096 --zero-actor \
+          --run_name vega_manip_tissue_box_simple \
+          --logger wandb --video \
+          agent.wandb_project=v2d_vega_manip
+
+default-values:
+  workflow_name: robotic_grounding_vega_manip
+  image: nvcr.io/nvstaging/isaac-amr/robotic-grounding:latest

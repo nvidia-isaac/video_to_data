@@ -215,6 +215,10 @@ __marimo__/
 # logs
 logs/
 outputs/
+
+# Generated QA artifacts (verification videos, IK sidecars, reports, viser HTML).
+# Regenerable, and must NOT land in the committed asset tree.
+/out/
 wandb/
 .devcontainer/
 
@@ -285,3 +289,14 @@ source/robotic_grounding/robotic_grounding/assets/meshes/arctic/
 source/robotic_grounding/robotic_grounding/assets/meshes/taco/
 source/robotic_grounding/robotic_grounding/assets/meshes/oakink2/
 source/robotic_grounding/robotic_grounding/assets/meshes/hot3d/
+
+# V2D recorded datasets (large HDF5 rollouts; not for git)
+datasets/
+*.hdf5
+
+# Session tracker / working notes (not for the repo)
+claude_datagen.md
+
+# Regenerable pipeline intermediates (loaded Parquet); see
+# DatasetConfig.loaded_in_intermediate.
+.cache/

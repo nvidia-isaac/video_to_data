@@ -32,6 +32,7 @@ def run_sfm_quality_check(
     output_dir: Path,
     config: dict[str, Any],
     fail_on_error: bool,
+    capture_mode: str = "two_stage",
 ) -> Path:
     """Run the CuSFM quality gate in ``image`` and return its result path."""
     output_dir = Path(output_dir)
@@ -41,6 +42,7 @@ def run_sfm_quality_check(
         name: config.get(name, default)
         for name, default in _QUALITY_DEFAULTS.items()
     }
+    extra_args["capture_mode"] = capture_mode
     extra_args["warn_only"] = not fail_on_error
 
     try:

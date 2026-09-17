@@ -1,0 +1,14 @@
+{
+  "id": "V2D_HOI_USD_BASE",
+  "version": "1.0.0",
+  "display_name": "V2D HOI USD Base",
+  "path": "",
+  "requirements": [
+    "AA.002",
+    "UN.003",
+    "UN.006",
+    "UN.007",
+    "VG.001",
+    "HI.004"
+  ]
+}

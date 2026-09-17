@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""
-Generate a spinning turntable video of a GLB/OBJ mesh using trimesh + pyrender (EGL offscreen).
+"""Generate an appearance-faithful spinning video of a mesh.
 
-Usage:
+The renderer supports textured meshes and SAM3D-style GLBs that store their
+appearance in the glTF ``COLOR_0`` vertex attribute.  Vertex-colored meshes are
+rendered with flat, opaque shading by default so bright PBR lights do not wash
+their colors toward white.
+
+Examples:
   python spin_mesh_video.py mesh.glb output.mp4
-  python spin_mesh_video.py mesh.obj output.mp4 --frames 120 --fps 30 --width 800 --height 600
+  python spin_mesh_video.py mesh.obj output.mp4 --frames 120 --fps 30
+  python spin_mesh_video.py mesh.glb output.mp4 --shading lit
 """
+
+from __future__ import annotations
 
 import argparse
 import math
@@ -16,145 +23,359 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import Sequence
 
-import numpy as np
-import trimesh
-import pyrender
-import cv2
-
-# Force EGL headless backend
+# Select the headless backend before importing pyrender/OpenGL.
 os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
 
+import cv2
+import numpy as np
+import pyrender
+import trimesh
 
-def look_at(eye, target, up=np.array([0., 0., 1.])):
+
+DEFAULT_BACKGROUND_RGBA = np.array([194, 196, 196, 255], dtype=float) / 255.0
+
+
+def look_at(
+    eye: Sequence[float],
+    target: Sequence[float],
+    up: np.ndarray = np.array([0.0, 0.0, 1.0]),
+) -> np.ndarray:
     """Build a camera-to-world 4x4 pose matrix (OpenGL convention)."""
-    forward = np.array(target, dtype=float) - np.array(eye, dtype=float)
-    forward = forward / np.linalg.norm(forward)
+
+    forward = np.asarray(target, dtype=float) - np.asarray(eye, dtype=float)
+    forward_norm = float(np.linalg.norm(forward))
+    if forward_norm < 1e-12:
+        raise ValueError("Camera position and target must be different")
+    forward /= forward_norm
+
     right = np.cross(forward, up)
     if np.linalg.norm(right) < 1e-6:
-        up = np.array([0., 1., 0.])
-        right = np.cross(forward, up)
+        right = np.cross(forward, np.array([0.0, 1.0, 0.0]))
     right /= np.linalg.norm(right)
-    up_vec = np.cross(right, forward)
-    # OpenGL: camera looks down -Z
-    T = np.eye(4)
-    T[:3, 0] = right
-    T[:3, 1] = up_vec
-    T[:3, 2] = -forward
-    T[:3, 3] = eye
-    return T
+    up_vector = np.cross(right, forward)
+
+    pose = np.eye(4)
+    pose[:3, 0] = right
+    pose[:3, 1] = up_vector
+    pose[:3, 2] = -forward  # OpenGL cameras look down -Z.
+    pose[:3, 3] = eye
+    return pose
 
 
-def spin_video(mesh_path: str, output_path: str,
-               n_frames: int = 120, fps: int = 30,
-               width: int = 800, height: int = 600,
-               elevation_deg: float = 20.0):
+def load_meshes(mesh_path: str | Path) -> list[trimesh.Trimesh]:
+    """Load meshes and apply every node transform from a scene graph.
 
-    print(f"Loading mesh: {mesh_path}")
-    loaded = trimesh.load(mesh_path)
+    Accessing ``Scene.geometry`` directly loses per-node transforms.  Applying
+    them here makes the turntable match how a GLB viewer places its geometry.
+    ``process=False`` also avoids merging vertices that carry distinct colors.
+    """
 
-    # Flatten scene to list of meshes
-    if isinstance(loaded, trimesh.Scene):
-        meshes = list(loaded.geometry.values())
-    elif isinstance(loaded, trimesh.Trimesh):
-        meshes = [loaded]
+    loaded = trimesh.load(mesh_path, process=False)
+    if isinstance(loaded, trimesh.Trimesh):
+        meshes = [loaded.copy()]
+    elif isinstance(loaded, trimesh.Scene):
+        meshes = []
+        for node_name in loaded.graph.nodes_geometry:
+            transform, geometry_name = loaded.graph[node_name]
+            geometry = loaded.geometry[geometry_name]
+            if not isinstance(geometry, trimesh.Trimesh):
+                continue
+            mesh = geometry.copy()
+            mesh.apply_transform(transform)
+            meshes.append(mesh)
     else:
         raise ValueError(f"Unsupported mesh type: {type(loaded)}")
 
-    # Compute combined bounds for centering
-    all_verts = np.vstack([np.asarray(m.vertices) for m in meshes])
-    centre = (all_verts.max(axis=0) + all_verts.min(axis=0)) / 2.0
-    extent = all_verts.max(axis=0) - all_verts.min(axis=0)
-    print(f"Mesh extents: {extent.round(4)} m")
+    if not meshes:
+        raise ValueError(f"No triangle meshes found in {mesh_path}")
+    if not any(len(mesh.vertices) and len(mesh.faces) for mesh in meshes):
+        raise ValueError(f"No renderable triangles found in {mesh_path}")
+    return meshes
 
-    # Build pyrender scene
-    pr_scene = pyrender.Scene(bg_color=[1.0, 1.0, 1.0, 1.0],
-                              ambient_light=[0.3, 0.3, 0.3])
-    for m in meshes:
-        m.vertices -= centre
-        pr_mesh = pyrender.Mesh.from_trimesh(m, smooth=False)
-        pr_scene.add(pr_mesh)
 
-    # Camera
-    diag = float(np.linalg.norm(extent))
-    radius = diag * 1.6
-    fov_y = math.radians(60)
-    camera = pyrender.PerspectiveCamera(yfov=fov_y, aspectRatio=width / height)
-    cam_node = pr_scene.add(camera, pose=np.eye(4))
+def uses_vertex_colors(mesh: trimesh.Trimesh) -> bool:
+    """Return whether ``mesh`` carries one RGB/RGBA color per vertex."""
 
-    # Lights
-    dl = pyrender.DirectionalLight(color=np.ones(3), intensity=4.0)
-    pr_scene.add(dl, pose=look_at([1, -1, 2], [0, 0, 0]))
-    dl2 = pyrender.DirectionalLight(color=np.ones(3), intensity=2.0)
-    pr_scene.add(dl2, pose=look_at([-1, 1, 1], [0, 0, 0]))
+    if getattr(mesh.visual, "kind", None) != "vertex":
+        return False
+    colors = np.asarray(mesh.visual.vertex_colors)
+    return (
+        colors.ndim == 2
+        and len(colors) == len(mesh.vertices)
+        and colors.shape[1] >= 3
+    )
 
-    renderer = pyrender.OffscreenRenderer(width, height)
-    elevation = math.radians(elevation_deg)
 
-    frames_out = os.environ.get("SPIN_FRAMES_DIR")
-    if frames_out:
-        frame_dir = Path(frames_out)
+def repair_inverted_winding(mesh: trimesh.Trimesh) -> int:
+    """Orient a globally inverted closed mesh without guessing for open surfaces.
+
+    A closed mesh may contain negative-volume inner cavity shells. Inverting
+    the complete mesh preserves that valid relationship between its outer and
+    inner boundaries. Open meshes are left unchanged because their outside
+    cannot be inferred robustly from volume.
+    """
+
+    if not len(mesh.faces) or not mesh.is_watertight:
+        return 0
+    mesh_scale = float(mesh.scale)
+    volume_tolerance = np.finfo(float).eps
+    if math.isfinite(mesh_scale):
+        volume_tolerance = max(mesh_scale**3 * 1e-12, volume_tolerance)
+    total_volume = float(mesh.volume)
+    if not math.isfinite(total_volume) or total_volume >= -volume_tolerance:
+        return 0
+
+    mesh.invert()
+    return 1
+
+
+def build_render_mesh(
+    mesh: trimesh.Trimesh,
+    *,
+    force_opaque_vertex_colors: bool,
+) -> pyrender.Mesh:
+    """Convert a trimesh mesh while preserving opaque vertex-color display."""
+
+    render_mesh = pyrender.Mesh.from_trimesh(mesh, smooth=False)
+    if force_opaque_vertex_colors and uses_vertex_colors(mesh):
+        for primitive in render_mesh.primitives:
+            if primitive.color_0 is None:
+                continue
+            # Trimesh's default vertex-color material uses alphaMode=BLEND.
+            # Make opacity and a neutral base factor explicit in the renderer;
+            # this does not rewrite or remove the source GLB's COLOR_0 data.
+            primitive.material.alphaMode = "OPAQUE"
+            primitive.material.baseColorFactor = np.ones(4)
+            primitive.material.metallicFactor = 0.0
+            primitive.material.roughnessFactor = 0.9
+    return render_mesh
+
+
+def should_use_flat_shading(
+    meshes: Sequence[trimesh.Trimesh], shading: str
+) -> bool:
+    """Resolve ``auto`` shading from mesh appearance data."""
+
+    if shading == "flat":
+        return True
+    if shading == "lit":
+        return False
+    if shading != "auto":
+        raise ValueError(f"Unsupported shading mode: {shading}")
+    return any(uses_vertex_colors(mesh) for mesh in meshes)
+
+
+def spin_video(
+    mesh_path: str | Path,
+    output_path: str | Path,
+    n_frames: int = 120,
+    fps: int = 30,
+    width: int = 800,
+    height: int = 600,
+    elevation_deg: float = 20.0,
+    fit_margin: float = 1.08,
+    fov_deg: float = 45.0,
+    shading: str = "auto",
+    frames_dir: str | Path | None = None,
+) -> None:
+    """Render a turntable video and encode it as H.264/yuv420p."""
+
+    if n_frames <= 0 or fps <= 0 or width <= 0 or height <= 0:
+        raise ValueError("frames, fps, width, and height must all be positive")
+    if fit_margin < 1.0 or not 1.0 < fov_deg < 179.0:
+        raise ValueError("fit_margin must be at least 1 and fov must be 1..179")
+
+    print(f"Loading mesh: {mesh_path}")
+    meshes = load_meshes(mesh_path)
+    # The observed inversion defect is specific to SAM3D-style vertex-colored
+    # exports. Avoid an expensive connected-component scan for conventional
+    # scanner/textured meshes whose appearance path is otherwise unchanged.
+    repaired = sum(
+        repair_inverted_winding(mesh)
+        for mesh in meshes
+        if uses_vertex_colors(mesh)
+    )
+    if repaired:
+        print(f"Reoriented {repaired} globally inverted closed mesh(es) for rendering")
+
+    all_vertices = np.vstack(
+        [np.asarray(mesh.vertices) for mesh in meshes if len(mesh.vertices)]
+    )
+    center = (all_vertices.max(axis=0) + all_vertices.min(axis=0)) * 0.5
+    extent = all_vertices.max(axis=0) - all_vertices.min(axis=0)
+    diagonal = float(np.linalg.norm(extent))
+    if not math.isfinite(diagonal) or diagonal <= 0.0:
+        raise ValueError(f"Mesh has invalid or zero-size bounds: {extent}")
+    print(f"Mesh extents: {extent.round(4)}")
+
+    flat_shading = should_use_flat_shading(meshes, shading)
+    appearance = "flat opaque vertex color" if flat_shading else "lit material"
+    print(f"Appearance mode: {appearance}")
+
+    scene = pyrender.Scene(
+        bg_color=DEFAULT_BACKGROUND_RGBA,
+        ambient_light=[0.3, 0.3, 0.3],
+    )
+    for mesh in meshes:
+        mesh.apply_translation(-center)
+        scene.add(
+            build_render_mesh(
+                mesh,
+                force_opaque_vertex_colors=flat_shading,
+            )
+        )
+
+    centered_vertices = all_vertices - center
+    object_radius = float(np.linalg.norm(centered_vertices, axis=1).max())
+    vertical_fov = math.radians(fov_deg)
+    horizontal_fov = 2.0 * math.atan(
+        math.tan(vertical_fov * 0.5) * (width / height)
+    )
+    fit_fov = min(vertical_fov, horizontal_fov)
+    radius = object_radius * fit_margin / math.sin(fit_fov * 0.5)
+    camera = pyrender.PerspectiveCamera(
+        yfov=vertical_fov, aspectRatio=width / height
+    )
+    camera_node = scene.add(camera, pose=np.eye(4))
+
+    if not flat_shading:
+        scene.add(
+            pyrender.DirectionalLight(color=np.ones(3), intensity=4.0),
+            pose=look_at([1.0, -1.0, 2.0], [0.0, 0.0, 0.0]),
+        )
+        scene.add(
+            pyrender.DirectionalLight(color=np.ones(3), intensity=2.0),
+            pose=look_at([-1.0, 1.0, 1.0], [0.0, 0.0, 0.0]),
+        )
+
+    explicit_frames_dir = frames_dir or os.environ.get("SPIN_FRAMES_DIR")
+    keep_frames = explicit_frames_dir is not None
+    if explicit_frames_dir is not None:
+        frame_dir = Path(explicit_frames_dir)
         frame_dir.mkdir(parents=True, exist_ok=True)
     else:
         frame_dir = Path(tempfile.mkdtemp(prefix="spin_frames_"))
+
     print(f"Rendering {n_frames} frames ...")
+    renderer = pyrender.OffscreenRenderer(width, height)
+    elevation = math.radians(elevation_deg)
+    render_flags = (
+        pyrender.RenderFlags.FLAT if flat_shading else pyrender.RenderFlags.NONE
+    )
+    try:
+        for index in range(n_frames):
+            angle = 2.0 * math.pi * index / n_frames
+            eye = np.array(
+                [
+                    radius * math.cos(angle) * math.cos(elevation),
+                    radius * math.sin(angle) * math.cos(elevation),
+                    radius * math.sin(elevation),
+                ]
+            )
+            scene.set_pose(camera_node, look_at(eye, [0.0, 0.0, 0.0]))
+            color, _ = renderer.render(scene, flags=render_flags)
+            cv2.imwrite(
+                str(frame_dir / f"frame_{index:04d}.png"),
+                cv2.cvtColor(color, cv2.COLOR_RGB2BGR),
+            )
+            if (index + 1) % 20 == 0 or index == n_frames - 1:
+                print(f"  {index + 1}/{n_frames}")
+    finally:
+        renderer.delete()
 
-    for i in range(n_frames):
-        angle = 2 * math.pi * i / n_frames
-        eye = np.array([
-            radius * math.cos(angle) * math.cos(elevation),
-            radius * math.sin(angle) * math.cos(elevation),
-            radius * math.sin(elevation),
-        ])
-        cam_pose = look_at(eye, [0, 0, 0])
-        pr_scene.set_pose(cam_node, cam_pose)
-
-        color, _ = renderer.render(pr_scene)
-        bgr = cv2.cvtColor(color, cv2.COLOR_RGB2BGR)
-        cv2.imwrite(str(frame_dir / f"frame_{i:04d}.png"), bgr)
-
-        if (i + 1) % 20 == 0 or i == n_frames - 1:
-            print(f"  {i+1}/{n_frames}")
-
-    renderer.delete()
-
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
     print("Encoding video with ffmpeg ...")
-    cmd = [
-        "ffmpeg", "-y",
-        "-framerate", str(fps),
-        "-i", str(frame_dir / "frame_%04d.png"),
-        "-c:v", "libx264",
-        "-preset", "slow",
-        "-crf", "18",
-        "-pix_fmt", "yuv420p",
-        output_path,
+    command = [
+        "ffmpeg",
+        "-y",
+        "-framerate",
+        str(fps),
+        "-i",
+        str(frame_dir / "frame_%04d.png"),
+        "-c:v",
+        "libx264",
+        "-preset",
+        "slow",
+        "-crf",
+        "18",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        str(output),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if not os.environ.get("SPIN_FRAMES_DIR"):
-        shutil.rmtree(frame_dir)
-    if result.returncode != 0:
-        print("ffmpeg error:", result.stderr)
-        print(f"Frames left in: {frame_dir}")
+    try:
+        subprocess.run(command, check=True, capture_output=True, text=True)
+    except (OSError, subprocess.CalledProcessError) as error:
+        print(f"Video encoding failed; frames remain in: {frame_dir}")
+        if isinstance(error, subprocess.CalledProcessError) and error.stderr:
+            print(error.stderr)
+        raise
     else:
-        print(f"Saved {n_frames} frames @ {fps} fps → {output_path}")
+        if not keep_frames:
+            shutil.rmtree(frame_dir)
+        print(f"Saved {n_frames} frames @ {fps} fps -> {output}")
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Spinning turntable video of a mesh")
-    parser.add_argument("mesh", help="Input mesh file (GLB, OBJ, PLY, …)")
-    parser.add_argument("output", help="Output video path (e.g. spin.mp4)")
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Render an appearance-faithful spinning video of a mesh"
+    )
+    parser.add_argument("mesh", help="Input mesh file (GLB, OBJ, PLY, ...)")
+    parser.add_argument("output", help="Output video path (for example spin.mp4)")
     parser.add_argument("--frames", type=int, default=120)
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--width", type=int, default=800)
     parser.add_argument("--height", type=int, default=600)
-    parser.add_argument("--elevation", type=float, default=20.0,
-                        help="Camera elevation angle in degrees (default: 20)")
+    parser.add_argument(
+        "--elevation",
+        type=float,
+        default=20.0,
+        help="Camera elevation angle in degrees (default: 20)",
+    )
+    parser.add_argument(
+        "--fit-margin",
+        type=float,
+        default=1.08,
+        help="Framing margin around the mesh bounding sphere (default: 1.08)",
+    )
+    parser.add_argument(
+        "--fov",
+        type=float,
+        default=45.0,
+        help="Vertical camera field of view in degrees (default: 45)",
+    )
+    parser.add_argument(
+        "--shading",
+        choices=("auto", "flat", "lit"),
+        default="auto",
+        help=(
+            "auto uses flat opaque shading for vertex colors and lit PBR for "
+            "materials/textures (default: auto)"
+        ),
+    )
+    parser.add_argument(
+        "--frames-dir",
+        help="Optional directory in which to retain rendered PNG frames",
+    )
     args = parser.parse_args()
 
-    spin_video(args.mesh, args.output,
-               n_frames=args.frames, fps=args.fps,
-               width=args.width, height=args.height,
-               elevation_deg=args.elevation)
+    spin_video(
+        args.mesh,
+        args.output,
+        n_frames=args.frames,
+        fps=args.fps,
+        width=args.width,
+        height=args.height,
+        elevation_deg=args.elevation,
+        fit_margin=args.fit_margin,
+        fov_deg=args.fov,
+        shading=args.shading,
+        frames_dir=args.frames_dir,
+    )
 
 
 if __name__ == "__main__":

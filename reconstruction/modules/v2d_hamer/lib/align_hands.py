@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Per-frame depth alignment of HaMeR predictions.
 
-Takes raw HaMeR JSONs (virtual-pinhole, scaled_focal_length ≈ 25000) plus a
+Takes raw hand-track JSONs (virtual-pinhole, camera.focal_length ≈ 25000) plus a
 real depth source (depth PNG + intrinsics JSON) and writes per-frame JSONs
 in real-camera units, with cam_t shifted to match the depth image along the
 centroid ray.
@@ -10,8 +10,8 @@ centroid ray.
 For each (track, frame):
   1. Reconstruct MANO mesh from saved axis-angle (global_orient, hand_pose,
      betas) via manotorch. Mirror x for left hand.
-  2. Rescale HaMeR's pred_cam_t_full to real intrinsics:
-        cam_t_real = pred_cam_t_full · (fx_real / scaled_focal_length)
+  2. Rescale camera.cam_t to real intrinsics:
+        cam_t_real = camera.cam_t · (fx_real / camera.focal_length)
   3. Render mesh depth under real intrinsics with pyrender.
   4. Take mask = (rendered_depth > 0)
                   ∧ sam2_hand_mask  (if --hand_masks_dir provided)
@@ -29,13 +29,16 @@ Output schema (per file, single detection):
       "is_right":   bool,
       "frame_idx":  int,
       "image_size": [W, H],
-      "intrinsics": {"fx":..., "fy":..., "cx":..., "cy":...},
       "mano": {
         "betas":         [10 floats],
         "global_orient": [3 floats],
         "hand_pose":     [45 floats]
       },
-      "cam_t":      [tx, ty, tz],   # aligned, in real intrinsics
+      "bbox":       {"x0": ..., "y0": ..., "x1": ..., "y1": ...},
+      "camera": {
+        "cam_t":      [tx, ty, tz],   # aligned, in real intrinsics
+        "intrinsics": {"fx":..., "fy":..., "cx":..., "cy":...}
+      },
       "diagnostics": {
         "dz":            float,    # depth shift applied
         "n_pixels":      int,      # hand-mask area used
@@ -313,8 +316,8 @@ def _align_loop(
 
             with open(src) as f:
                 rec = json.load(f)
-            scaled_focal = float(rec["camera"]["scaled_focal_length"])
-            pred_cam_t_full = np.array(rec["camera"]["pred_cam_t_full"], dtype=np.float64)
+            scaled_focal = float(rec["camera"]["focal_length"])
+            pred_cam_t_full = np.array(rec["camera"]["cam_t"], dtype=np.float64)
 
             # (2) Rescale to real intrinsics — preserve the centroid pixel.
             #
@@ -383,9 +386,12 @@ def _align_loop(
                 "is_right":   rec["is_right"],
                 "frame_idx":  frame_idx,
                 "image_size": [int(W), int(H)],
-                "intrinsics": {"fx": fx, "fy": fy, "cx": cx, "cy": cy},
+                "bbox":       rec["bbox"],
                 "mano":       rec["mano"],
-                "cam_t":      cam_t_aligned.tolist(),
+                "camera": {
+                    "cam_t":      cam_t_aligned.tolist(),
+                    "intrinsics": {"fx": fx, "fy": fy, "cx": cx, "cy": cy},
+                },
                 "diagnostics": {
                     "dz":           dz,
                     "n_pixels":     n_pixels,

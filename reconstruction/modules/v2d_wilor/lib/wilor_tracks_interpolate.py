@@ -6,7 +6,7 @@ Consumes the camera-frame wilor schema written by ``tracks_from_wilor_masks``:
   wilor_dir/<track_id>/<frame:06d>.json
 with fields:
   is_right, score, bbox, mano: {betas, global_orient, hand_pose},
-  camera: {pred_cam_t_full, scaled_focal_length}, image_size,
+  camera: {cam_t, focal_length}, image_size,
   match_iou, track_id, frame_idx.
 
 Why pre-align?
@@ -38,9 +38,9 @@ Algorithm per track:
   4. For each missing candidate frame, find bracketing real neighbours.
      Skip if the bracket gap exceeds ``--max_gap_frames``. Otherwise:
        * SLERP global_orient + each of 15 hand_pose joints,
-       * linearly interpolate ``camera.pred_cam_t_full``,
+       * linearly interpolate ``camera.cam_t``,
        * linearly interpolate ``bbox``,
-       * carry ``camera.scaled_focal_length`` from a neighbour
+       * carry ``camera.focal_length`` from a neighbour
          (sequence-constant in WiLoR), and
        * mark ``match_iou=0.0`` (no real match available at this frame).
   5. No extrapolation outside [first_real, last_real].
@@ -96,12 +96,12 @@ def _interp_wilor_record(
         b1 = np.array(nxt ["mano"]["betas"], dtype=np.float64)
         betas = ((1 - t) * b0 + t * b1).tolist()
 
-    c0 = np.array(prev["camera"]["pred_cam_t_full"], dtype=np.float64)
-    c1 = np.array(nxt ["camera"]["pred_cam_t_full"], dtype=np.float64)
-    pred_cam_t_full = ((1 - t) * c0 + t * c1).tolist()
-    f0 = float(prev["camera"]["scaled_focal_length"])
-    f1 = float(nxt ["camera"]["scaled_focal_length"])
-    scaled_focal = (1 - t) * f0 + t * f1
+    c0 = np.array(prev["camera"]["cam_t"], dtype=np.float64)
+    c1 = np.array(nxt ["camera"]["cam_t"], dtype=np.float64)
+    cam_t = ((1 - t) * c0 + t * c1).tolist()
+    f0 = float(prev["camera"]["focal_length"])
+    f1 = float(nxt ["camera"]["focal_length"])
+    focal_length = (1 - t) * f0 + t * f1
 
     bb0 = prev.get("bbox") or {}
     bb1 = nxt .get("bbox") or {}
@@ -121,8 +121,8 @@ def _interp_wilor_record(
             "hand_pose":     hand_pose,
         },
         "camera": {
-            "pred_cam_t_full":     pred_cam_t_full,
-            "scaled_focal_length": float(scaled_focal),
+            "cam_t":        cam_t,
+            "focal_length": float(focal_length),
         },
         "image_size": prev.get("image_size") or nxt.get("image_size"),
         "match_iou":  0.0,

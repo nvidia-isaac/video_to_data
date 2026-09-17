@@ -99,6 +99,7 @@ Run from reconstruction/.
 import argparse
 import glob
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -152,6 +153,7 @@ from v2d.geocalib.docker.run_video_to_calibration import (
     run_video_to_calibration as run_geocalib_video_to_calibration,
 )
 from v2d.grounding_dino.docker.run_image_to_object_bboxes import run_image_to_object_bboxes
+from v2d.hawor.docker.run_hawor import run_hawor
 from v2d.gsplat_refinement.docker.run_refine import run_refine
 from v2d.gsplat_refinement.docker.run_refine_simple import run_refine_simple
 from v2d.hamer.docker.run_align_hands import run_align_hands
@@ -277,6 +279,39 @@ def _step(label: str, done: bool) -> bool:
     return False
 
 
+def _contains_nonfinite_json_value(value) -> bool:
+    if isinstance(value, float):
+        return not math.isfinite(value)
+    if isinstance(value, list):
+        return any(_contains_nonfinite_json_value(v) for v in value)
+    if isinstance(value, dict):
+        return any(_contains_nonfinite_json_value(v) for v in value.values())
+    return False
+
+
+def _json_path_invalid_or_nonfinite(path: str) -> bool:
+    try:
+        with open(path) as f:
+            return _contains_nonfinite_json_value(json.load(f))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return True
+
+
+def _json_tree_invalid_or_nonfinite(*paths: str | None) -> bool:
+    for path in paths:
+        if path is None or not os.path.exists(path):
+            continue
+        if os.path.isdir(path):
+            candidates = glob.glob(os.path.join(path, "**", "*.json"), recursive=True)
+        else:
+            candidates = [path] if path.endswith(".json") else []
+        for json_path in candidates:
+            if _json_path_invalid_or_nonfinite(json_path):
+                print(f"  Invalidating cached JSON output: {json_path}")
+                return True
+    return False
+
+
 def _reconcile_hand_tracks_from_handedness(
     hand_tracks_path: str,
     handedness_path: str,
@@ -368,6 +403,59 @@ def _load_scale_json(path: str, default: float = 1.0) -> float:
         return float(json.load(f).get("scale", default))
 
 
+def _load_intrinsics_focal(path: str) -> float:
+    with open(path) as f:
+        intr = json.load(f)
+    fx = float(intr["fx"])
+    fy = float(intr.get("fy", fx))
+    return 0.5 * (fx + fy)
+
+
+def _same_focal(a: float, b: float, tol: float = 1e-3) -> bool:
+    return abs(float(a) - float(b)) <= tol
+
+
+def _remove_generated_path(path: str) -> None:
+    if os.path.isdir(path):
+        shutil.rmtree(path)
+    elif os.path.exists(path):
+        os.remove(path)
+
+
+def _path_older_than(path: str, reference_path: str) -> bool:
+    if not os.path.exists(path) or not os.path.exists(reference_path):
+        return False
+    return os.path.getmtime(path) < os.path.getmtime(reference_path)
+
+
+def _hawor_outputs_current(
+    hawor_dir: str,
+    focal_length: float,
+    left_id: int,
+    right_id: int,
+) -> bool:
+    meta_path = os.path.join(hawor_dir, "_metadata.json")
+    try:
+        with open(meta_path) as f:
+            meta = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return False
+
+    if int(meta.get("export_version", -1)) < 2:
+        return False
+    if meta.get("left_conversion") != "mirror_conjugate_axis_angle_yz":
+        return False
+    if not _same_focal(float(meta.get("focal_length", -1.0)), focal_length):
+        return False
+    if int(meta.get("left_id", -1)) != int(left_id):
+        return False
+    if int(meta.get("right_id", -1)) != int(right_id):
+        return False
+
+    expected_ids = {int(left_id), int(right_id)}
+    return all(_has_files(os.path.join(hawor_dir, str(track_id))) for track_id in expected_ids)
+
+
 def _first_populated_dir(directories: list[str | None]) -> str | None:
     for directory in directories:
         if directory and _has_files(directory):
@@ -438,26 +526,6 @@ def _pad_bbox(
     }
 
 
-def _ensure_wilor_mano_assets_root(wilor_weights: str) -> str:
-    """Return a manotorch-compatible WiLoR MANO root, repairing old caches."""
-    mano_assets_root = os.path.join(wilor_weights, "pretrained_models")
-    flat_mano = os.path.join(mano_assets_root, "MANO_RIGHT.pkl")
-    models_dir = os.path.join(mano_assets_root, "models")
-    manotorch_mano = os.path.join(models_dir, "MANO_RIGHT.pkl")
-    if os.path.isfile(manotorch_mano):
-        return mano_assets_root
-    if not os.path.isfile(flat_mano):
-        raise FileNotFoundError(
-            "WiLoR MANO asset is missing. Expected either "
-            f"{manotorch_mano} or {flat_mano}. Run "
-            "./scripts/download_ego_reconstruction_weights.sh --mode hamer_prompt "
-            "or re-run WiLoR so the cache is populated."
-        )
-    os.makedirs(models_dir, exist_ok=True)
-    shutil.copy2(flat_mano, manotorch_mano)
-    return mano_assets_root
-
-
 def run_ego_wilor(
     video_path: str,
     output_dir: str,
@@ -484,6 +552,7 @@ def run_ego_wilor(
     interp_max_gap_frames: int = 15,
     object_prompt: str | None = None,
     object_mesh_path: str | None = None,
+    skip_object_scale_estimation: bool = False,
     grounding_dino_weights: str = "data/weights/grounding_dino",
     sam3d_weights: str = "data/weights/sam3d",
     foundation_pose_weights: str = "data/weights/foundation_pose",
@@ -525,6 +594,9 @@ def run_ego_wilor(
     hamer_weights: str = "data/weights/hamer",
     hamer_bbox_expansion: float = 1.7,
     hamer_mask_min_pixels: int | None = None,
+    hawor_weights: str = "data/weights/hawor",
+    hawor_focal_length: float = -1.0,
+    hawor_max_num: int = 1000,
     run_refinement: bool = False,
     run_refinement_simple: bool = False,
     simple_refinement_epochs: int = 20,
@@ -549,6 +621,9 @@ def run_ego_wilor(
     simple_refinement_w_smooth_hand_object_relative_trans: float = 0.0,
     simple_refinement_w_smooth_camera_rot: float = 0.1,
     simple_refinement_w_smooth_camera_trans: float = 0.1,
+    simple_refinement_w_vertex_smoothness: float = 0.0,
+    simple_refinement_vertex_smoothness_scale: float = 0.01,
+    simple_refinement_vertex_smoothness_max_vertices: int = 1024,
     simple_refinement_w_mask: float = 1.0,
     simple_refinement_w_relative_depth: float = 0.0,
     simple_refinement_w_perceptual: float = 0.0,
@@ -610,14 +685,14 @@ def run_ego_wilor(
             "sam2_hand_prompt_source must be 'box' or 'wilor_mask', "
             f"got {sam2_hand_prompt_source!r}"
         )
-    if hand_pose_source not in {"wilor", "hamer"}:
+    if hand_pose_source not in {"wilor", "hamer", "hawor"}:
         raise ValueError(
-            f"hand_pose_source must be 'wilor' or 'hamer', got {hand_pose_source!r}"
+            f"hand_pose_source must be 'wilor', 'hamer', or 'hawor', got {hand_pose_source!r}"
         )
-    if hand_pose_source == "hamer" and refine_masks_with_silhouette:
+    if hand_pose_source != "wilor" and refine_masks_with_silhouette:
         raise ValueError(
             "--refine_masks_with_silhouette requires --hand_pose_source wilor; "
-            "the HaMeR source mode uses SAM2 masks directly."
+            "the HaMeR/HaWoR source modes do not use WiLoR silhouettes downstream."
         )
     if geocalib_camera_model != "pinhole" and geocalib_weights != "distorted":
         print("  WARNING: GeoCalib distortion camera models are intended to use "
@@ -626,6 +701,7 @@ def run_ego_wilor(
     os.makedirs(output_dir, exist_ok=True)
     using_provided_object_mesh = object_mesh_path is not None
     use_hamer_primary = hand_pose_source == "hamer"
+    use_hawor_primary = hand_pose_source == "hawor"
     run_hamer_outputs = run_hamer_pass or use_hamer_primary
     if hamer_mask_min_pixels is None:
         # Primary HaMeR mode is intended to produce a pose for every non-empty
@@ -670,6 +746,8 @@ def run_ego_wilor(
     mesh_pretransformed= f"{output_dir}/mesh_pretransformed.obj"
     mesh_scaled        = f"{output_dir}/mesh_scaled.obj"
     scale_path         = f"{output_dir}/scale.json"
+    provided_mesh_scaled = f"{output_dir}/provided_mesh_scaled.obj"
+    provided_scale_path  = f"{output_dir}/provided_mesh_scale.json"
     object_mesh_for_pipeline: str | None = None
     poses_dir          = f"{output_dir}/poses"
     poses_smooth_dir   = f"{output_dir}/poses_smoothed"
@@ -690,11 +768,17 @@ def run_ego_wilor(
     hamer_aligned_overlay     = f"{output_dir}/hamer_aligned_overlay.mp4"
     hamer_aligned_filled_dir  = f"{output_dir}/hamer_aligned_filled"
     hamer_aligned_filled_overlay = f"{output_dir}/hamer_aligned_filled_overlay.mp4"
+    # HaWoR primary hand source. Native HaWoR outputs are kept separately.
+    hawor_dir                 = f"{output_dir}/hawor"
+    hawor_native_dir          = f"{output_dir}/hawor_native"
+    hawor_overlay             = f"{output_dir}/hawor_overlay.mp4"
+    hawor_aligned_dir         = f"{output_dir}/hawor_aligned"
+    hawor_aligned_overlay     = f"{output_dir}/hawor_aligned_overlay.mp4"
+    hawor_aligned_filled_dir  = f"{output_dir}/hawor_aligned_filled"
+    hawor_aligned_filled_overlay = f"{output_dir}/hawor_aligned_filled_overlay.mp4"
     ref_rgb            = f"{frames_dir}/{reference_frame:06d}.png"
     ref_depth          = f"{depth_dir}/{reference_frame:06d}.png"
     mano_assets_root   = os.path.join(wilor_weights, "pretrained_models")
-    from v2d.pipelines.mano_assets import prepare_wilor_manotorch_mano
-    prepare_wilor_manotorch_mano(wilor_weights)
 
     print(f"\n{'='*60}")
     print(f"  video           : {os.path.basename(video_path)}")
@@ -803,10 +887,6 @@ def run_ego_wilor(
             weights_dir = wilor_weights,
             dev         = dev,
         )
-    if (sam2_hand_prompt_source == "wilor_mask"
-            or hand_pose_source == "wilor"
-            or refine_masks_with_silhouette):
-        mano_assets_root = _ensure_wilor_mano_assets_root(wilor_weights)
 
     # Slice out the ref-frame detections for SAM2 seeding + overlay legend.
     ref_wilor = os.path.join(wilor_raw_dir, f"{reference_frame:06d}.json")
@@ -988,9 +1068,31 @@ def run_ego_wilor(
     if object_prompt is not None:
         ref_obj_mask = f"{masks_dir}/{object_track_id}/{reference_frame:06d}.png"
         if object_mesh_path is not None:
-            object_mesh_for_pipeline = object_mesh_path
             print("  [skip] SAM3D mesh generation (using provided OBJ)")
-            print("  [skip] FoundationPose scale estimation (using provided OBJ scale)")
+            if skip_object_scale_estimation:
+                object_mesh_for_pipeline = object_mesh_path
+                print("  [skip] FoundationPose scale estimation (using provided OBJ scale)")
+            else:
+                if not _step("FoundationPose scale estimation (provided OBJ)", os.path.exists(provided_mesh_scaled)):
+                    run_estimate_mesh_scale(
+                        mesh_path               = object_mesh_path,
+                        rgb_path                = ref_rgb,
+                        depth_path              = ref_depth,
+                        mask_path               = ref_obj_mask,
+                        intrinsics_path         = intrinsics_stable,
+                        weights_dir             = foundation_pose_weights,
+                        scale_path              = provided_scale_path,
+                        rescaled_mesh_path      = provided_mesh_scaled,
+                        lo                      = 0.5,
+                        hi                      = 2.0,
+                        n_samples               = 9,
+                        n_levels                = 4,
+                        iou_weight              = 1.0,
+                        depth_weight            = 1.0,
+                        registration_iterations = 5,
+                        dev                     = dev,
+                    )
+                object_mesh_for_pipeline = provided_mesh_scaled
         else:
             os.makedirs(mesh_dir, exist_ok=True)
             if not _step("SAM3D mesh generation", os.path.exists(mesh_path)):
@@ -1074,7 +1176,7 @@ def run_ego_wilor(
     object_poses_arg = poses_smooth_dir          if (object_prompt is not None) else None
 
     # 9. IoU-match wilor detections to SAM2 hand tracks ----------------------
-    if not use_hamer_primary:
+    if hand_pose_source == "wilor":
         matching_done = any(
             _has_files(os.path.join(wilor_tracks_dir, d))
             for d in (os.listdir(wilor_tracks_dir) if os.path.isdir(wilor_tracks_dir) else [])
@@ -1092,7 +1194,7 @@ def run_ego_wilor(
                 dev              = dev,
             )
     else:
-        print("  [skip] Match wilor detections -> SAM2 tracks (using HaMeR from SAM2 masks)")
+        print(f"  [skip] Match wilor detections -> SAM2 tracks (using {hand_pose_source} hand source)")
 
     # 9b. (When refining masks) Fill wilor track gaps BEFORE alignment so
     # mask refinement gets a record for every visible frame (SAM2 mask
@@ -1154,7 +1256,7 @@ def run_ego_wilor(
     # always come from `masks_dir`.
     hand_masks_dir = masks_refined_dir if refine_masks_with_silhouette else masks_dir
 
-    if not use_hamer_primary:
+    if hand_pose_source == "wilor":
         # 10. Render virtual-cam verification overlay (raw, real detections only)
         if not _step("Render wilor mesh overlay (raw)", os.path.exists(wilor_overlay)):
             run_wilor_render(
@@ -1202,7 +1304,7 @@ def run_ego_wilor(
     # within --interp_max_gap_frames get SLERP/linear-filled (interpolated=
     # true), gated on SAM2 mask presence (only fill where the hand is
     # actually visible). `betas` policy per --interp_betas.
-    if not use_hamer_primary:
+    if hand_pose_source == "wilor":
         aligned_filled_done = any(
             _has_files(os.path.join(wilor_aligned_filled_dir, d))
             for d in (os.listdir(wilor_aligned_filled_dir)
@@ -1328,15 +1430,140 @@ def run_ego_wilor(
                 dev                = dev,
             )
 
+    # 14h. Optional/primary HaWoR pass. HaWoR runs from video and exports
+    # canonical raw hand-track folders, which then reuse the same alignment /
+    # interpolation / rendering path as HaMeR.
+    if use_hawor_primary:
+        with open(hand_tracks) as f:
+            htm_hawor = json.load(f).get("tracks", [])
+        left_candidates = [int(t["object_id"]) for t in htm_hawor
+                           if t.get("role", "hand") == "hand" and not bool(t.get("is_right"))]
+        right_candidates = [int(t["object_id"]) for t in htm_hawor
+                            if t.get("role", "hand") == "hand" and bool(t.get("is_right"))]
+        hawor_left_id = left_candidates[0] if left_candidates else 2
+        hawor_right_id = right_candidates[0] if right_candidates else 3
+
+        if float(hawor_focal_length) > 0.0:
+            hawor_focal_eff = float(hawor_focal_length)
+        else:
+            hawor_focal_eff = _load_intrinsics_focal(intrinsics_stable)
+            print(f"  HaWoR focal: using stabilized intrinsics focal {hawor_focal_eff:.3f}")
+
+        hawor_done = _hawor_outputs_current(
+            hawor_dir, hawor_focal_eff, hawor_left_id, hawor_right_id
+        )
+        hawor_ran = False
+        if not _step("HaWoR hand tracking", hawor_done):
+            run_hawor(
+                video            = video_path,
+                hand_tracks_dir  = hawor_dir,
+                weights          = hawor_weights,
+                native_dir       = hawor_native_dir,
+                focal_length     = hawor_focal_eff,
+                left_id          = hawor_left_id,
+                right_id         = hawor_right_id,
+                max_num          = hawor_max_num,
+                dev              = dev,
+            )
+            hawor_ran = True
+
+        hawor_meta_path = os.path.join(hawor_dir, "_metadata.json")
+        hawor_dependent_outputs = (
+            hawor_overlay,
+            hawor_aligned_dir,
+            hawor_aligned_overlay,
+            hawor_aligned_filled_dir,
+            hawor_aligned_filled_overlay,
+        )
+        if hawor_ran or any(
+            _path_older_than(stale_path, hawor_meta_path)
+            for stale_path in hawor_dependent_outputs
+        ):
+            for stale_path in hawor_dependent_outputs:
+                _remove_generated_path(stale_path)
+
+        if not _step("Render HaWoR mesh overlay", os.path.exists(hawor_overlay)):
+            run_hamer_render(
+                frames_dir       = frames_dir,
+                hamer_dir        = hawor_dir,
+                mano_assets_root = hamer_mano_assets_root,
+                output_path      = hawor_overlay,
+                dev              = dev,
+            )
+
+        if not _step("Align HaWoR hands to depth", False):
+            run_align_hands(
+                hamer_dir         = hawor_dir,
+                depth_dir         = depth_dir,
+                intrinsics_path   = intrinsics_stable,
+                mano_assets_root  = hamer_mano_assets_root,
+                output_dir        = hawor_aligned_dir,
+                hand_masks_dir    = hand_masks_dir,
+                object_masks_dir  = object_masks_dir,
+                mask_min_pixels   = mask_min_pixels,
+                dev               = dev,
+            )
+
+        if not _step("Render aligned HaWoR overlay", os.path.exists(hawor_aligned_overlay)):
+            run_render_hands_aligned_video(
+                frames_dir         = frames_dir,
+                aligned_dir        = hawor_aligned_dir,
+                mano_assets_root   = hamer_mano_assets_root,
+                output_path        = hawor_aligned_overlay,
+                object_mesh_path   = object_mesh_arg,
+                object_poses_dir   = object_poses_arg,
+                dev                = dev,
+            )
+
+        hawor_filled_done = any(
+            _has_files(os.path.join(hawor_aligned_filled_dir, d))
+            for d in (os.listdir(hawor_aligned_filled_dir)
+                      if os.path.isdir(hawor_aligned_filled_dir) else [])
+        )
+        if not _step("Interpolate HaWoR aligned frames", hawor_filled_done):
+            run_tracks_interpolate(
+                aligned_dir    = hawor_aligned_dir,
+                masks_dir      = hand_masks_dir,
+                output_dir     = hawor_aligned_filled_dir,
+                betas          = interp_betas,
+                max_gap_frames = interp_max_gap_frames,
+                dev            = dev,
+            )
+        _reconcile_hand_tracks_from_handedness(
+            hand_tracks,
+            f"{hawor_aligned_filled_dir}/handedness.json",
+        )
+
+        if not _step("Render filled aligned HaWoR overlay",
+                     os.path.exists(hawor_aligned_filled_overlay)):
+            run_render_hands_aligned_video(
+                frames_dir         = frames_dir,
+                aligned_dir        = hawor_aligned_filled_dir,
+                mano_assets_root   = hamer_mano_assets_root,
+                output_path        = hawor_aligned_filled_overlay,
+                object_mesh_path   = object_mesh_arg,
+                object_poses_dir   = object_poses_arg,
+                dev                = dev,
+            )
+
     # 15. Optional joint hand+object refinement via Gaussian splatting -----
     # Mirrors run_hand_masks.py's refinement block. The selected primary hand
     # source supplies aligned+filled records, with one pose per visible mask
     # frame after interpolation.
-    refine_source              = "hamer" if run_hamer_outputs else "wilor"
-    refine_hand_pose_dir       = hamer_aligned_filled_dir if run_hamer_outputs else wilor_aligned_filled_dir
+    if use_hawor_primary:
+        refine_source = "hawor"
+        refine_hand_pose_dir = hawor_aligned_filled_dir
+        refine_mano_assets = hamer_mano_assets_root
+    elif run_hamer_outputs:
+        refine_source = "hamer"
+        refine_hand_pose_dir = hamer_aligned_filled_dir
+        refine_mano_assets = hamer_mano_assets_root
+    else:
+        refine_source = "wilor"
+        refine_hand_pose_dir = wilor_aligned_filled_dir
+        refine_mano_assets = mano_assets_root
     refine_hand_masks_dir      = hand_masks_dir
     refine_object_mask_dir     = object_masks_dir
-    refine_mano_assets         = hamer_mano_assets_root if run_hamer_outputs else mano_assets_root
 
     refined_poses_dir          = f"{output_dir}/poses_refined"
     refined_hand_dir           = f"{output_dir}/{refine_source}_refined"
@@ -1650,7 +1877,29 @@ def run_ego_wilor(
               f"hand masks: {refine_hand_masks_dir}, "
               f"object mask: {refine_object_mask_dir})")
 
-        if not _step("Simple 2DGS refinement", os.path.exists(refined_simple_overlay)):
+        simple_refinement_json_roots = [
+            refined_simple_poses_dir,
+            refined_simple_hand_dir,
+        ]
+        if not simple_refinement_mask_background:
+            simple_refinement_json_roots.append(refined_simple_camera_dir)
+        if not using_provided_object_mesh:
+            simple_refinement_json_roots.append(refined_object_scale_json)
+        simple_refinement_done = (
+            os.path.exists(refined_simple_overlay)
+            and _has_files(refined_simple_poses_dir)
+            and _has_files(refined_simple_hand_dir)
+            and (
+                simple_refinement_mask_background
+                or _has_files(refined_simple_camera_dir)
+            )
+            and (
+                using_provided_object_mesh
+                or os.path.exists(refined_object_scale_json)
+            )
+            and not _json_tree_invalid_or_nonfinite(*simple_refinement_json_roots)
+        )
+        if not _step("Simple 2DGS refinement", simple_refinement_done):
             run_refine_simple(
                 frames_dir                  = frames_dir,
                 depth_dir                   = depth_dir,
@@ -1660,6 +1909,7 @@ def run_ego_wilor(
                 object_mask_dir             = refine_object_mask_dir,
                 refined_object_poses_dir    = refined_simple_poses_dir,
                 overlay_path                = refined_simple_overlay,
+                refined_object_scale_path   = None if using_provided_object_mesh else refined_object_scale_json,
                 left_hand_pose_dir          = _maybe_simple(left_pose_in),
                 left_hand_mask_dir          = _maybe_simple(left_mask_in),
                 right_hand_pose_dir         = _maybe_simple(right_pose_in),
@@ -1691,6 +1941,9 @@ def run_ego_wilor(
                 w_smooth_hand_object_relative_trans = simple_refinement_w_smooth_hand_object_relative_trans,
                 w_smooth_camera_rot         = simple_refinement_w_smooth_camera_rot,
                 w_smooth_camera_trans       = simple_refinement_w_smooth_camera_trans,
+                w_vertex_smoothness         = simple_refinement_w_vertex_smoothness,
+                vertex_smoothness_scale     = simple_refinement_vertex_smoothness_scale,
+                vertex_smoothness_max_vertices = simple_refinement_vertex_smoothness_max_vertices,
                 w_mask                      = simple_refinement_w_mask,
                 w_relative_depth            = simple_refinement_w_relative_depth,
                 w_perceptual                = simple_refinement_w_perceptual,
@@ -1723,8 +1976,12 @@ def run_ego_wilor(
 
         # Render the refined simple-stage MANO/object poses through the same
         # 2x2 aligned overlay used by hamer_aligned_filled_overlay.mp4. The
-        # simple optimizer folds learned object scale into the per-frame pose
-        # JSONs before saving, so no extra object_scale multiplier is needed.
+        # The simple optimizer writes learned object scale separately; pose
+        # JSONs are rigid transforms, and result export bakes scale into mesh.obj.
+        learned_simple_object_scale = 1.0
+        if (not using_provided_object_mesh) and os.path.exists(refined_object_scale_json):
+            learned_simple_object_scale = _load_scale_json(refined_object_scale_json, 1.0)
+            print(f"  Loaded simple-refined object scale: {learned_simple_object_scale:.4f}")
         if not _step(f"Render refined-simple {refine_source} overlay",
                      os.path.exists(refined_simple_hand_overlay)):
             if not _has_files(refined_simple_poses_dir):
@@ -1742,6 +1999,7 @@ def run_ego_wilor(
                 output_path        = refined_simple_hand_overlay,
                 object_mesh_path   = object_mesh_for_pipeline,
                 object_poses_dir   = refined_simple_poses_dir,
+                object_scale       = learned_simple_object_scale,
                 dev                = dev,
             )
 
@@ -1760,7 +2018,21 @@ def run_ego_wilor(
         ])
 
         primary_hand_roots = []
-        if use_hamer_primary:
+        if use_hawor_primary:
+            primary_hand_roots.extend([
+                hawor_aligned_filled_dir,
+                hawor_aligned_dir,
+                hawor_dir,
+            ])
+            primary_hand_roots.extend([
+                hamer_aligned_filled_dir,
+                hamer_aligned_dir,
+                hamer_dir,
+                wilor_aligned_filled_dir,
+                wilor_aligned_dir,
+                wilor_tracks_dir,
+            ])
+        elif use_hamer_primary:
             primary_hand_roots.extend([
                 hamer_aligned_filled_dir,
                 hamer_aligned_dir,
@@ -1793,6 +2065,7 @@ def run_ego_wilor(
             hand_tracks,
         )
 
+
         final_camera_dir = None
         final_camera_convention = "camera_to_world"
         if _has_files(refined_simple_camera_dir):
@@ -1802,7 +2075,7 @@ def run_ego_wilor(
             final_camera_dir = slam_poses_dir
 
         final_object_scale = 1.0
-        if (final_object_poses_dir == refined_poses_dir
+        if (final_object_poses_dir in {refined_poses_dir, refined_simple_poses_dir}
                 and not using_provided_object_mesh):
             final_object_scale = _load_scale_json(refined_object_scale_json, 1.0)
 
@@ -1865,7 +2138,7 @@ def run_ego_wilor(
         print(f"  masks_refined_overlay : {masks_refined_overlay}")
     print(f"  prompts_overlay : {prompts_overlay}")
     print(f"  masks_overlay   : {masks_overlay}")
-    if not use_hamer_primary:
+    if hand_pose_source == "wilor":
         print(f"  wilor (raw tracks)           : {wilor_tracks_dir}/")
         print(f"  wilor_overlay                : {wilor_overlay}")
         print(f"  wilor_aligned                : {wilor_aligned_dir}/  (real only)")
@@ -1873,6 +2146,14 @@ def run_ego_wilor(
         print(f"  wilor_aligned_overlay        : {wilor_aligned_overlay}")
         print(f"  wilor_aligned_filled         : {wilor_aligned_filled_dir}/  (real + interpolated)")
         print(f"  wilor_aligned_filled_overlay : {wilor_aligned_filled_overlay}")
+    if use_hawor_primary:
+        print(f"  hawor (canonical tracks)     : {hawor_dir}/")
+        print(f"  hawor_native                 : {hawor_native_dir}/")
+        print(f"  hawor_overlay                : {hawor_overlay}")
+        print(f"  hawor_aligned                : {hawor_aligned_dir}/")
+        print(f"  hawor_aligned_overlay        : {hawor_aligned_overlay}")
+        print(f"  hawor_aligned_filled         : {hawor_aligned_filled_dir}/")
+        print(f"  hawor_aligned_filled_overlay : {hawor_aligned_filled_overlay}")
     if run_hamer_outputs:
         print(f"  hamer (per-track HaMeR)      : {hamer_dir}/")
         print(f"  hamer_overlay                : {hamer_overlay}")
@@ -1974,9 +2255,12 @@ def parse_args() -> argparse.Namespace:
                         "(e.g. 'blue cup'). When set, runs the object "
                         "branch: DINO → SAM2 → mesh source → FoundationPose.")
     p.add_argument("--object_mesh_path", default=None,
-                   help="Existing metric OBJ to use for the object branch. "
-                        "Skips SAM3D mesh generation and FoundationPose scale "
-                        "estimation, then tracks this mesh directly.")
+                   help="Existing OBJ to use for the object branch. Skips SAM3D "
+                        "mesh generation. By default, the OBJ is still scale-estimated "
+                        "against MoGe/FoundationPose before tracking.")
+    p.add_argument("--skip_object_scale_estimation", action="store_true",
+                   help="With --object_mesh_path, trust the provided mesh scale "
+                        "and skip FoundationPose/MoGe scale estimation.")
     p.add_argument("--grounding_dino_weights",  default="data/weights/grounding_dino")
     p.add_argument("--sam3d_weights",           default="data/weights/sam3d")
     p.add_argument("--foundation_pose_weights", default="data/weights/foundation_pose")
@@ -2064,11 +2348,12 @@ def parse_args() -> argparse.Namespace:
                    help="Pixel radius of the dilation kernel applied to the "
                         "rendered MANO silhouette before intersecting with the "
                         "SAM2 mask (only used with --refine_masks_with_silhouette).")
-    p.add_argument("--hand_pose_source", default="wilor", choices=("wilor", "hamer"),
+    p.add_argument("--hand_pose_source", default="wilor", choices=("wilor", "hamer", "hawor"),
                    help="Primary hand pose source after SAM2 propagation. "
                         "'wilor' keeps the original WiLoR detection-to-mask "
                         "matching path; 'hamer' uses WiLoR only to seed SAM2, "
-                        "then runs HaMeR from each SAM2 mask bbox.")
+                        "then runs HaMeR from each SAM2 mask bbox; 'hawor' "
+                        "runs HaWoR from the video and exports canonical hand tracks.")
     p.add_argument("--run_hamer_pass", action="store_true",
                    help="Also run HaMeR from the SAM2 hand masks and write "
                         "hamer*/ outputs. With --hand_pose_source hamer this "
@@ -2082,6 +2367,12 @@ def parse_args() -> argparse.Namespace:
                    help="Min SAM2-mask area for HaMeR alignment / regression. "
                         "Defaults to 1 with --hand_pose_source hamer, or 256 "
                         "when HaMeR is only an optional sidecar pass.")
+    p.add_argument("--hawor_weights", default="data/weights/hawor",
+                   help="HaWoR weights dir (used with --hand_pose_source hawor).")
+    p.add_argument("--hawor_focal_length", type=float, default=-1.0,
+                   help="Optional focal length passed to HaWoR. Negative uses stabilized pipeline intrinsics.")
+    p.add_argument("--hawor_max_num", type=int, default=1000,
+                   help="Maximum HaWoR frames/chunks to process; passed through to upstream HaWoR.")
     p.add_argument("--run_refinement", action="store_true",
                    help="After alignment, jointly refine hand+object poses via "
                         "Gaussian splatting. Requires --object_prompt.")
@@ -2124,6 +2415,12 @@ def parse_args() -> argparse.Namespace:
                         "object frame. 0 disables.")
     p.add_argument("--simple_refinement_w_smooth_camera_rot", type=float, default=15.0)
     p.add_argument("--simple_refinement_w_smooth_camera_trans", type=float, default=15.0)
+    p.add_argument("--simple_refinement_w_vertex_smoothness", type=float, default=0.0,
+                   help="Weight for simple-refinement world-space vertex acceleration smoothness. 0 disables.")
+    p.add_argument("--simple_refinement_vertex_smoothness_scale", type=float, default=0.01,
+                   help="Metric tolerance in meters used to normalize simple-refinement vertex acceleration.")
+    p.add_argument("--simple_refinement_vertex_smoothness_max_vertices", type=int, default=1024,
+                   help="Max vertices sampled per object/hand for simple-refinement vertex smoothness. <=0 uses all.")
     p.add_argument("--simple_refinement_w_mask", type=float, default=0.0,
                    help="Weight for simple-refinement L1 segmentation mask loss. 0 disables.")
     p.add_argument("--simple_refinement_w_relative_depth", type=float, default=0.0,
@@ -2238,6 +2535,7 @@ def run_from_args(args: argparse.Namespace) -> None:
         interp_max_gap_frames   = args.interp_max_gap_frames,
         object_prompt           = args.object_prompt,
         object_mesh_path        = args.object_mesh_path,
+        skip_object_scale_estimation = args.skip_object_scale_estimation,
         grounding_dino_weights  = args.grounding_dino_weights,
         sam3d_weights           = args.sam3d_weights,
         foundation_pose_weights = args.foundation_pose_weights,
@@ -2266,6 +2564,9 @@ def run_from_args(args: argparse.Namespace) -> None:
         hamer_weights                     = args.hamer_weights,
         hamer_bbox_expansion              = args.hamer_bbox_expansion,
         hamer_mask_min_pixels             = args.hamer_mask_min_pixels,
+        hawor_weights                     = args.hawor_weights,
+        hawor_focal_length                = args.hawor_focal_length,
+        hawor_max_num                     = args.hawor_max_num,
         run_refinement                    = args.run_refinement,
         run_refinement_simple             = args.run_refinement_simple,
         simple_refinement_epochs          = args.simple_refinement_epochs,
@@ -2290,6 +2591,9 @@ def run_from_args(args: argparse.Namespace) -> None:
         simple_refinement_w_smooth_hand_object_relative_trans = args.simple_refinement_w_smooth_hand_object_relative_trans,
         simple_refinement_w_smooth_camera_rot = args.simple_refinement_w_smooth_camera_rot,
         simple_refinement_w_smooth_camera_trans = args.simple_refinement_w_smooth_camera_trans,
+        simple_refinement_w_vertex_smoothness = args.simple_refinement_w_vertex_smoothness,
+        simple_refinement_vertex_smoothness_scale = args.simple_refinement_vertex_smoothness_scale,
+        simple_refinement_vertex_smoothness_max_vertices = args.simple_refinement_vertex_smoothness_max_vertices,
         simple_refinement_w_mask          = args.simple_refinement_w_mask,
         simple_refinement_w_relative_depth = args.simple_refinement_w_relative_depth,
         simple_refinement_w_perceptual    = args.simple_refinement_w_perceptual,

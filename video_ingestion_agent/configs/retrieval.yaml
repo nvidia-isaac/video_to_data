@@ -41,6 +41,7 @@ output:
 
 logging:
   level: "INFO"
-  # Save agent reasoning traces
+  # Accepted by the schema but not yet wired to a writer: no trace files are
+  # produced regardless of this setting (NVBug 6571288).
   save_traces: true
   traces_dir: "outputs/traces"

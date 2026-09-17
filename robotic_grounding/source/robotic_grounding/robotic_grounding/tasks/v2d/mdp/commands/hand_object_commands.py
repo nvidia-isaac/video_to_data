@@ -1554,6 +1554,30 @@ class DualHandsObjectTrackingCommand(CommandTerm):
         self.refresh_tensors()
         return self.left_contact_wrench_supports
 
+    @property
+    def right_hand_contact_active_command(self) -> torch.Tensor:
+        """Per-env binary "contact expected" label at the current step. Shape ``(num_envs,)``.
+
+        Derived from the reference contact part IDs (via
+        ``retargeted_right_object_has_contact``), NOT from the contact wrench geometry,
+        so it stays usable when the reconstruction's contact positions/normals are noisy.
+        """
+        t = self.timestep_counter.clamp(
+            max=self.retargeted_right_object_has_contact.shape[0] - 1
+        )
+        return self.retargeted_right_object_has_contact[t].float()
+
+    @property
+    def left_hand_contact_active_command(self) -> torch.Tensor:
+        """Per-env binary "contact expected" label at the current step. Shape ``(num_envs,)``.
+
+        See :meth:`right_hand_contact_active_command`.
+        """
+        t = self.timestep_counter.clamp(
+            max=self.retargeted_left_object_has_contact.shape[0] - 1
+        )
+        return self.retargeted_left_object_has_contact[t].float()
+
     ######################################################################
     # Cached refresh accessors (populated by refresh_tensors).
     ######################################################################

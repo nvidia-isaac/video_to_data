@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Validate CuSFM poses before using them for automatic two-loop stage splitting."""
+"""Validate CuSFM poses for two-stage or stationary-object captures."""
 
 import argparse
 import json
@@ -234,6 +234,7 @@ def check_quality(args):
         result = {
             "passed": False,
             "method": "sfm_scan_quality",
+            "capture_mode": args.capture_mode,
             "failure_reasons": failures or ["Need at least two matched CuSFM keyframes"],
             "checks": checks,
             "metrics": {"num_keyframes": len(frames), "unmatched_keyframes": unmatched},
@@ -310,36 +311,37 @@ def check_quality(args):
         ),
         {"max_rotation_step_deg": max_rotation_delta},
     )
-    _add_check(
-        checks,
-        failures,
-        "two_loop_angle_span",
-        angle_span >= args.min_angle_span_deg,
-        (
-            f"Projected trajectory angle span is {angle_span:.1f} deg; "
-            f"two-loop scan requires >= {args.min_angle_span_deg:.1f} deg"
-        ),
-        {
-            "angle_span_deg": angle_span,
-            "signed_total_angle_deg": signed_total_angle,
-            "total_abs_angle_deg": total_abs_angle,
-        },
-    )
-    _add_check(
-        checks,
-        failures,
-        "backtracking_fraction",
-        backtrack_fraction <= args.max_backtracking_fraction,
-        (
-            f"Projected-angle backtracking fraction is {backtrack_fraction:.3f}; "
-            f"allowed <= {args.max_backtracking_fraction:.3f}"
-        ),
-        {
-            "backtracking_fraction": backtrack_fraction,
-            "forward_angle_deg": forward_angle,
-            "backward_angle_deg": backward_angle,
-        },
-    )
+    if args.capture_mode == "two_stage":
+        _add_check(
+            checks,
+            failures,
+            "two_loop_angle_span",
+            angle_span >= args.min_angle_span_deg,
+            (
+                f"Projected trajectory angle span is {angle_span:.1f} deg; "
+                f"two-loop scan requires >= {args.min_angle_span_deg:.1f} deg"
+            ),
+            {
+                "angle_span_deg": angle_span,
+                "signed_total_angle_deg": signed_total_angle,
+                "total_abs_angle_deg": total_abs_angle,
+            },
+        )
+        _add_check(
+            checks,
+            failures,
+            "backtracking_fraction",
+            backtrack_fraction <= args.max_backtracking_fraction,
+            (
+                f"Projected-angle backtracking fraction is {backtrack_fraction:.3f}; "
+                f"allowed <= {args.max_backtracking_fraction:.3f}"
+            ),
+            {
+                "backtracking_fraction": backtrack_fraction,
+                "forward_angle_deg": forward_angle,
+                "backward_angle_deg": backward_angle,
+            },
+        )
 
     metrics = {
         "num_keyframes": int(len(frames)),
@@ -365,6 +367,7 @@ def check_quality(args):
     result = {
         "passed": not failures,
         "method": "sfm_scan_quality",
+        "capture_mode": args.capture_mode,
         "failure_reasons": failures,
         "checks": checks,
         "metrics": metrics,
@@ -387,11 +390,20 @@ def check_quality(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Check whether CuSFM poses satisfy the expected two-loop scan pattern"
+        description="Check CuSFM pose quality for the selected capture contract"
     )
     parser.add_argument("--sfm_keyframes", required=True)
     parser.add_argument("--frames_meta", required=True)
     parser.add_argument("--output_dir", default="/tmp/sfm_scan_quality")
+    parser.add_argument(
+        "--capture_mode",
+        choices=["two_stage", "stationary"],
+        default="two_stage",
+        help=(
+            "two_stage also enforces two-loop orbit coverage; stationary only "
+            "enforces generic pose-count and continuity checks"
+        ),
+    )
     parser.add_argument("--min_keyframes", type=int, default=30)
     parser.add_argument("--min_angle_span_deg", type=float, default=600.0)
     parser.add_argument("--max_backtracking_fraction", type=float, default=0.25)
@@ -407,6 +419,7 @@ def main():
     result = check_quality(args)
     print(json.dumps({
         "passed": result["passed"],
+        "capture_mode": result["capture_mode"],
         "failure_reasons": result["failure_reasons"],
         "metrics": {
             "num_keyframes": result["metrics"]["num_keyframes"],

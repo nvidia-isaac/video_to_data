@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """One-time downloader for SOMA-X body-model assets.
 
-Calls ``soma.assets.get_assets_dir()`` so SOMA-X downloads the asset
-bundle into its built-in HuggingFace cache, then copies the specific
-files that ``robotic_grounding.retarget.read_soma`` requires into the
+Calls ``soma.assets.get_assets_dir(revision=...)`` so SOMA-X downloads a
+pinned legacy asset bundle into its built-in HuggingFace cache, then copies the
+specific files that ``robotic_grounding.retarget.read_soma`` requires into the
 canonical repo path (``assets/body_models/soma/`` by default).
 
 The HF cache path is ephemeral inside the retarget Docker container
@@ -14,7 +14,10 @@ location that survives container restarts.
 The required asset list is the source of truth in
 ``robotic_grounding.retarget.read_soma._SOMA_REQUIRED_ASSETS`` /
 ``_SOMA_REQUIRED_BY_IDENTITY``; this script imports those constants via
-``_missing_assets`` so it stays in sync when the manifest changes.
+``_missing_assets`` so it stays in sync when the manifest changes. That check
+inspects ``SOMA_neutral.npz`` content, not just presence: a *slim* npz staged
+from a newer SOMA-X bundle (by an earlier run of this script, by hand, or by a
+bumped ``SOMA_ASSET_REVISION``) is refreshed or rejected rather than accepted.
 
 Usage:
     python scripts/setup_soma_assets.py
@@ -36,6 +39,12 @@ from robotic_grounding.retarget.read_soma import (
 )
 
 DEFAULT_ROOT = BODY_MODELS_DIR / "soma"
+
+# Last SOMA-X asset commit whose SOMA_neutral.npz embeds the public 78-joint
+# rig. Newer snapshots split that rig across procedural JSON and USD assets,
+# while read_soma intentionally constructs SOMALayer with procedural transforms
+# disabled to preserve the exported motion contract.
+SOMA_ASSET_REVISION = "466879a83d57eabf3d875ded2d869f2075f90348"
 
 
 def parse_args() -> argparse.Namespace:
@@ -145,16 +154,31 @@ def main() -> int:
         raise SystemExit(1) from exc
 
     # Call the downloader directly rather than constructing a ``SOMALayer``
-    # to trigger it: staging files needs the bundle, not a built model. Going
-    # through ``SOMALayer`` also fails outright on py-soma-x >= 0.2, whose
-    # default ``enable_procedural_transforms=True`` demands assets the public
-    # ``nvidia/SOMA-X`` bundle does not publish.
+    # to trigger it: staging files needs the bundle, not a built model. Pin the
+    # pre-slim asset revision because newer SOMA_neutral.npz snapshots omit the
+    # public rig arrays that read_soma's non-procedural joint contract uses.
     print(
         "[setup_soma_assets] downloading the SOMA-X bundle from HuggingFace "
-        f"(identity_model_type={args.identity_model_type})."
+        f"(revision={SOMA_ASSET_REVISION}, "
+        f"identity_model_type={args.identity_model_type})."
     )
-    src_root = get_assets_dir().resolve()
+    src_root = get_assets_dir(revision=SOMA_ASSET_REVISION).resolve()
     print(f"[setup_soma_assets] SOMA-X downloaded to: {src_root}")
+
+    # Validate the snapshot *before* copying so a bad revision can never
+    # overwrite a working destination with an asset set read_soma rejects.
+    src_missing = _missing_assets(src_root, args.identity_model_type)
+    if src_missing:
+        print(
+            f"ERROR: the SOMA-X snapshot at {src_root} (revision "
+            f"{SOMA_ASSET_REVISION}) cannot back read_soma; missing or "
+            f"unusable: {src_missing}. Nothing was copied to {dst_root}. "
+            "If SOMA_ASSET_REVISION was bumped, pick a revision whose "
+            "SOMA_neutral.npz still embeds the public rig, or extend the "
+            "manifest in read_soma.py to match the new bundle layout.",
+            file=sys.stderr,
+        )
+        return 1
 
     if src_root == dst_root:
         # Unlikely (HF cache lives under HOME, not the repo) but handled

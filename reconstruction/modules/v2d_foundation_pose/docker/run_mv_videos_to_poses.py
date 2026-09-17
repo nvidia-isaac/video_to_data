@@ -16,10 +16,14 @@ def run_mv_videos_to_poses(
     mesh_path: str,
     weights_dir: str,
     output_dir: str,
+    backend: str = "nvidia_tensorrt",
     symmetry_path: str | None = None,
     config_path: str = str(_LIB_CONFIG),
     debug: int = -1,
     dev: bool = False,
+    frame_end_exclusive: int | None = None,
+    clamp_frame_end_exclusive: bool = False,
+    frame_start: int = 0,
 ) -> None:
     inputs = {
         "camera_params_path": camera_params_path,
@@ -41,7 +45,13 @@ def run_mv_videos_to_poses(
         module="v2d.foundation_pose.lib.mv_videos_to_poses",
         inputs=inputs,
         outputs=outputs,
-        extra_args={"debug": debug if debug >= 0 else None},
+        extra_args={
+            "frame_start": frame_start,
+            "frame_end_exclusive": frame_end_exclusive,
+            "clamp_frame_end_exclusive": clamp_frame_end_exclusive,
+            "backend": backend,
+            "debug": debug if debug >= 0 else None,
+        },
         dev=dev,
         modules_dir=MODULES_DIR,
         gpus=True,
@@ -65,9 +75,31 @@ if __name__ == "__main__":
     parser.add_argument("--symmetry_path", type=str, default=None,
                         help="Optional BOP-style symmetry JSON; defaults to <mesh_dir>/output_symmetry.json if present")
     parser.add_argument("--weights_dir", type=str, required=True, help="Directory containing FoundationPose weights")
+    parser.add_argument(
+        "--backend", choices=("nvidia_tensorrt", "nvlabs_pytorch"),
+        default="nvidia_tensorrt",
+    )
     parser.add_argument("--output_dir", type=str, required=True, help="Directory for output poses")
     parser.add_argument("--config_path", type=str, default=str(_LIB_CONFIG), help="Path to config YAML")
     parser.add_argument("--debug", type=int, default=-1, help="Debug level")
+    parser.add_argument(
+        "--frame_start",
+        type=int,
+        default=0,
+        help="Inclusive source-frame index at which registration starts",
+    )
+    parser.add_argument(
+        "--frame_end_exclusive",
+        type=int,
+        default=None,
+        help="Exclusive source-frame index at which processing stops",
+    )
+    parser.add_argument(
+        "--clamp_frame_end_exclusive",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Clamp an out-of-range end index to the available source length",
+    )
     parser.add_argument("--dev", action="store_true")
     args = parser.parse_args()
 
@@ -80,7 +112,11 @@ if __name__ == "__main__":
         symmetry_path=args.symmetry_path,
         weights_dir=args.weights_dir,
         output_dir=args.output_dir,
+        backend=args.backend,
         config_path=args.config_path,
         debug=args.debug,
         dev=args.dev,
+        frame_start=args.frame_start,
+        frame_end_exclusive=args.frame_end_exclusive,
+        clamp_frame_end_exclusive=args.clamp_frame_end_exclusive,
     )

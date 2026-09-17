@@ -1,9 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Render a Stage-1 overlay video: textured SRT mesh projected via pyrender.
+"""Render a textured SRT mesh overlay video using CuSFM camera poses.
 
-For each Stage-1 SfM keyframe the mesh is rendered offscreen and alpha-
-composited onto the source image. Uses pyrender's PyOpenGL EGL backend
+For each eligible SfM keyframe the mesh is rendered offscreen and alpha-
+composited onto the source image. A frame-end bound supports two-stage scans;
+without a bound, all keyframes are rendered for a stationary-object capture.
+Uses pyrender's PyOpenGL EGL backend
 (EGL_EXT_platform_device), which works with NVIDIA GPU containers that do not
 expose a DRM render device.
 
@@ -17,7 +19,7 @@ Usage (inside container):
         --job_dir  /data/job \
         --glb_path /data/job/sam3d/000651/srt/output_scaled.glb \
         --output_dir /data/job/sam3d/000651/render_video_frames \
-        --stage1_end_frame 319
+        --frame_end 319
 """
 
 from __future__ import annotations
@@ -115,10 +117,14 @@ def render_textured_video(
     job_dir: Path,
     glb_path: Path,
     output_dir: Path,
-    stage1_end_frame: int,
+    frame_end: int | None = None,
     alpha: float = 0.6,
 ) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
+    # Prevent stale frames from a previous capture mode or shorter rerun from
+    # being included when the directory is stitched into a video.
+    for old_frame in output_dir.glob("*.jpg"):
+        old_frame.unlink()
 
     # Intrinsics
     intr_files = sorted((job_dir / "intrinsics").glob("*.json"))
@@ -130,15 +136,17 @@ def render_textured_video(
     cx, cy = float(intr["cx"]), float(intr["cy"])
     width, height = int(intr["width"]), int(intr["height"])
 
-    # SfM poses filtered to Stage-1
+    # A two-stage caller supplies the Stage-1 end; a stationary capture uses all.
     poses = _load_sfm_poses(job_dir)
-    stage1_frames = sorted(
-        [n for n in poses if int(n) <= stage1_end_frame],
+    frame_ids = sorted(
+        [n for n in poses if frame_end is None or int(n) <= frame_end],
         key=lambda n: int(n),
     )
-    if not stage1_frames:
-        raise ValueError(f"No SfM keyframes ≤ stage1_end_frame={stage1_end_frame}")
-    print(f"[render_textured] {len(stage1_frames)} Stage-1 keyframes (≤ {stage1_end_frame})")
+    if not frame_ids:
+        suffix = "" if frame_end is None else f" <= frame_end={frame_end}"
+        raise ValueError(f"No eligible SfM keyframes{suffix}")
+    frame_scope = "all keyframes" if frame_end is None else f"keyframes <= {frame_end}"
+    print(f"[render_textured] {len(frame_ids)} {frame_scope}")
 
     # Mesh
     print(f"[render_textured] loading mesh: {glb_path}")
@@ -171,9 +179,9 @@ def render_textured_video(
 
     images_dir = job_dir / "left"
     n_written  = 0
-    n_total    = len(stage1_frames)
+    n_total    = len(frame_ids)
     try:
-        for frame_id in stage1_frames:
+        for frame_id in frame_ids:
             img_path = images_dir / f"{frame_id}.jpg"
             if not img_path.exists():
                 continue
@@ -217,7 +225,19 @@ if __name__ == "__main__":
     parser.add_argument("--job_dir",          required=True)
     parser.add_argument("--glb_path",         required=True)
     parser.add_argument("--output_dir",       required=True)
-    parser.add_argument("--stage1_end_frame", type=int, required=True)
+    frame_group = parser.add_mutually_exclusive_group()
+    frame_group.add_argument(
+        "--frame_end",
+        type=int,
+        default=None,
+        help="Inclusive last frame to render; omit to render all keyframes",
+    )
+    frame_group.add_argument(
+        "--stage1_end_frame",
+        dest="frame_end",
+        type=int,
+        help="Deprecated alias for --frame_end",
+    )
     parser.add_argument("--alpha",            type=float, default=0.6)
     args = parser.parse_args()
 
@@ -225,6 +245,6 @@ if __name__ == "__main__":
         job_dir=Path(args.job_dir),
         glb_path=Path(args.glb_path),
         output_dir=Path(args.output_dir),
-        stage1_end_frame=args.stage1_end_frame,
+        frame_end=args.frame_end,
         alpha=args.alpha,
     )

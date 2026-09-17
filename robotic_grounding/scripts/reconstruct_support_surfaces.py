@@ -65,6 +65,15 @@ def _parse_args() -> argparse.Namespace:
         help="Only list sequence IDs and exit.",
     )
     parser.add_argument(
+        "--robot_name",
+        type=str,
+        default=None,
+        help="Which robot_name= partition to build the surface from. Required once a "
+        "sequence has been retargeted to more than one embodiment: their placement "
+        "worlds differ, so a surface built from the wrong one seats the object at the "
+        "wrong height.",
+    )
+    parser.add_argument(
         "--output",
         type=str,
         default=None,
@@ -85,15 +94,19 @@ def _parse_args() -> argparse.Namespace:
 def main() -> None:
     """Parse CLI args and reconstruct support surfaces for the dataset."""
     args = _parse_args()
+    # Support USDAs default to <input_dir.parent>/reconstructed_stage/. That is
+    # wrong when the loaded input lives outside the asset tree, so those datasets
+    # get an explicit per-sequence output path below.
+    stage_dir: Path | None = None
     if args.input_dir:
         input_dir = args.input_dir
     elif args.dataset in PROCESSED_DATASET_NAMES:
         input_dir = DEFAULT_INPUT_DIR_G1
     else:
         config = get_dataset_config(args.dataset)
-        input_dir = (
-            HUMAN_MOTION_DATA_DIR / config.name / f"{config.name}{config.loaded_suffix}"
-        )
+        input_dir = config.loaded_data_dir
+        if config.loaded_in_intermediate:
+            stage_dir = config.reconstructed_stage_dir
     if not input_dir.is_dir():
         print(
             f"Input dir not found: {input_dir}. Run the loader first "
@@ -128,9 +141,6 @@ def main() -> None:
     ids_to_process = filter_sequence_ids(sequence_ids, args)
     print(f"Processing {len(ids_to_process)} of {len(sequence_ids)} sequence(s).")
 
-    schema = _detect_parquet_schema(input_dir)
-    print(f"Detected schema: {schema}")
-
     # H2O takes are single continuous interactions where the object is often
     # held steady mid-manipulation; pure stillness then mistakes a held pause
     # for a resting surface. Gate H2O on hand-release so only frames where the
@@ -140,13 +150,19 @@ def main() -> None:
         print("H2O detected: enabling hand-release gate for support surfaces")
 
     for sequence_id in ids_to_process:
+        schema = _detect_parquet_schema(input_dir, sequence_id, args.robot_name)
+        print(f"Detected schema for {sequence_id}: {schema}")
+        output = args.output
+        if output is None and stage_dir is not None:
+            output = str(stage_dir / f"{sequence_id}_support.usda")
         reconstruct_support_for_sequence(
             input_dir,
             sequence_id,
-            args.output,
+            output,
             schema=schema,
             ground_z_threshold=args.ground_threshold,
             require_hand_release=require_hand_release,
+            robot_name=args.robot_name,
         )
 
 

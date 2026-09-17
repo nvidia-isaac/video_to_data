@@ -42,7 +42,11 @@ _WORKER_ENV = {
 }
 
 
-def _completed_result(job_dir: Path, frame_id: str) -> dict[str, Any] | None:
+def _completed_result(
+    job_dir: Path,
+    frame_id: str,
+    capture_mode: str = "two_stage",
+) -> dict[str, Any] | None:
     """Return a valid completed result, or ``None`` when SRT must run."""
     srt_dir = job_dir / "sam3d" / frame_id / "srt"
     result_path = srt_dir / "srt_result.json"
@@ -59,6 +63,10 @@ def _completed_result(job_dir: Path, frame_id: str) -> dict[str, Any] | None:
         return None
     if not isinstance(result, dict) or "scale" not in result:
         return None
+    # Results written before capture-mode provenance existed used two-stage
+    # behavior. They remain resumable only for that default contract.
+    if result.get("capture_mode", "two_stage") != capture_mode:
+        return None
     return result
 
 
@@ -67,6 +75,7 @@ def _run_candidate(
     frame_id: str,
     use_depth: bool,
     stage1_end_frame: int | None,
+    capture_mode: str,
     config: SRTConfig,
 ) -> SRTOutcome:
     """Run one candidate in an isolated process with bounded native threads."""
@@ -81,6 +90,7 @@ def _run_candidate(
         output_dir=frame_dir / "srt",
         use_depth=use_depth,
         stage1_end_frame=stage1_end_frame,
+        capture_mode=capture_mode,
         max_views=config.max_views,
         maxiter=config.maxiter,
         top_k=config.top_k,
@@ -94,6 +104,7 @@ def run_srt_candidates(
     *,
     use_depth: bool,
     stage1_end_frame: int | None,
+    capture_mode: str = "two_stage",
     config: SRTConfig,
     force: bool = False,
 ) -> list[SRTOutcome]:
@@ -107,7 +118,7 @@ def run_srt_candidates(
         if not mesh_path.is_file():
             print(f"[warning] SAM3D output not found for frame {frame_id}: {mesh_path}")
             continue
-        result = None if force else _completed_result(job_dir, frame_id)
+        result = None if force else _completed_result(job_dir, frame_id, capture_mode)
         if result is None:
             pending.append(frame_id)
         else:
@@ -139,6 +150,7 @@ def run_srt_candidates(
                         frame_id,
                         use_depth,
                         stage1_end_frame,
+                        capture_mode,
                         config,
                     ): frame_id
                     for frame_id in pending
@@ -186,6 +198,11 @@ def main() -> int:
     parser.add_argument("--summary_path", type=Path, required=True)
     parser.add_argument("--use_depth", action="store_true")
     parser.add_argument("--stage1_end_frame", type=int, default=None)
+    parser.add_argument(
+        "--capture_mode",
+        choices=["two_stage", "stationary"],
+        default="two_stage",
+    )
     parser.add_argument("--max_views", type=int, default=25)
     parser.add_argument("--maxiter", type=int, default=60)
     parser.add_argument("--top_k", type=int, default=1)
@@ -203,6 +220,7 @@ def main() -> int:
         selected_frames,
         use_depth=args.use_depth,
         stage1_end_frame=args.stage1_end_frame,
+        capture_mode=args.capture_mode,
         config=SRTConfig(
             max_views=args.max_views,
             maxiter=args.maxiter,
@@ -212,6 +230,13 @@ def main() -> int:
         force=args.force,
     )
     summary = {
+        "capture_mode": args.capture_mode,
+        "alignment_frame_policy": (
+            "all_frames_uniformly_sampled"
+            if args.capture_mode == "stationary"
+            else "stage1_only"
+        ),
+        "stage1_end_frame": args.stage1_end_frame,
         "requested_frames": selected_frames,
         "outcomes": [
             {

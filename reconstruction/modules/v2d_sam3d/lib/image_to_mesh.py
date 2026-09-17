@@ -17,6 +17,7 @@ from PIL import Image
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
 from scipy.spatial.transform import Rotation
+from v2d.sam3d.lib.glb_export import export_mesh as _export_mesh
 
 _pipeline = None
 
@@ -140,31 +141,6 @@ def _to_opencv_transform(rotation_wxyz: list, translation: list, scale: list) ->
         translation=t_net.tolist(),
         scale=scale,
     )
-
-
-def _export_mesh(mesh_scene, mesh_path: str) -> None:
-    """Export a trimesh Scene to the given path.
-
-    For .glb: writes binary GLB bytes directly.
-    For .obj (and any other format): trimesh.Scene.export(file_type='obj')
-    returns a dict of {filename: content} — write the main OBJ under the
-    requested name and all companion files (MTL, textures) beside it so that
-    relative references inside the OBJ/MTL resolve correctly.
-    """
-    ext = os.path.splitext(mesh_path)[1].lower()
-    out_dir = os.path.dirname(os.path.abspath(mesh_path))
-    os.makedirs(out_dir, exist_ok=True)
-
-    if ext == '.glb':
-        with open(mesh_path, "wb") as f:
-            f.write(mesh_scene.export(file_type='glb'))
-        return
-
-    # For OBJ (and other non-GLB formats) pass the file path directly.
-    # trimesh writes the main file AND all companion files (MTL, textures)
-    # into the same directory when given a path string.  Passing file_type='obj'
-    # instead only returns the OBJ text and silently drops the texture images.
-    mesh_scene.export(mesh_path)
 
 
 def _depth_to_pointmap(depth: np.ndarray, intrinsics: CameraIntrinsics, mask: np.ndarray = None, device: str = "cuda") -> torch.Tensor:

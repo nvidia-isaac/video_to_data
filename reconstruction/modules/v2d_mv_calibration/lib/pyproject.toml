@@ -30,4 +30,4 @@ packages = ["v2d.mv.calibration.lib"]
 "v2d.mv.calibration.lib" = "."
 
 [tool.setuptools.package-data]
-"v2d.mv.calibration.lib" = ["*.yaml"]
+"v2d.mv.calibration.lib" = ["*.yaml", "calibration_setups/*.yaml"]

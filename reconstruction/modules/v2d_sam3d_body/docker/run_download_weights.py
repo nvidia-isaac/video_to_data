@@ -23,8 +23,12 @@ def run_download(output_dir: str, dev: bool = False) -> None:
         if os.path.isfile(token_path):
             with open(token_path) as f:
                 hf_token = f.read().strip()
+    run_env = os.environ.copy()
     if hf_token:
-        cmd += ["-e", f"HF_TOKEN={hf_token}"]
+        # Pass the variable through Docker without embedding the secret in the
+        # command line, where errors and process listings could expose it.
+        run_env["HF_TOKEN"] = hf_token
+        cmd += ["-e", "HF_TOKEN"]
     if dev:
         cmd += ["-v", f"{MODULES_DIR}:/workspace"]
     cmd += [
@@ -32,7 +36,7 @@ def run_download(output_dir: str, dev: bool = False) -> None:
         "python", "-m", "v2d.sam3d_body.lib.download_weights",
         "--output_dir", "/data/weights",
     ]
-    subprocess.run(cmd, check=True)
+    subprocess.run(cmd, check=True, env=run_env)
 
 
 if __name__ == "__main__":

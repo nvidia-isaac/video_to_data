@@ -52,10 +52,33 @@ def test_sfm_quality_check_runs_in_cpu_only_hoi_container(tmp_path, monkeypatch)
             "robust_step_sigma": 6.0,
             "large_step_floor_m": 0.25,
             "max_large_step_fraction": 0.25,
+            "capture_mode": "two_stage",
             "warn_only": False,
         },
         "gpus": False,
     }]
+
+
+def test_sfm_quality_check_passes_stationary_capture_contract(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_run_in_container(**kwargs):
+        calls.append(kwargs)
+        _write_result(kwargs, {"passed": True, "capture_mode": "stationary"})
+
+    monkeypatch.setattr(_trajectory_tools, "run_in_container", fake_run_in_container)
+
+    _trajectory_tools.run_sfm_quality_check(
+        image="v2d_hoi_object_reconstruction",
+        sfm_keyframes="/input/sfm.json",
+        frames_meta="/input/frames.json",
+        output_dir=tmp_path / "quality",
+        config={},
+        fail_on_error=True,
+        capture_mode="stationary",
+    )
+
+    assert calls[0]["extra_args"]["capture_mode"] == "stationary"
 
 
 def test_sfm_quality_check_preserves_quality_failure(tmp_path, monkeypatch):

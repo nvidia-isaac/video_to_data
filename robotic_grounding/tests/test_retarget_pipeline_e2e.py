@@ -259,9 +259,17 @@ class TestRetargetPipelineE2E(unittest.TestCase):
                 f"stderr tail:\n{_tail(e.stderr)}"
             )
         if result.returncode != 0:
+            stderr = result.stderr or ""
+            if len(stderr) > 12000:
+                stderr = (
+                    f"{stderr[:6000]}\n"
+                    "... stderr truncated ...\n"
+                    f"{stderr[-6000:]}"
+                )
             self.fail(
                 f"[{stage}] exit code {result.returncode}\n"
-                f"stderr tail:\n{result.stderr[-2000:] if result.stderr else ''}"
+                f"stdout tail:\n{result.stdout[-4000:] if result.stdout else ''}\n"
+                f"stderr:\n{stderr}"
             )
         return result
 
@@ -411,8 +419,14 @@ class TestRetargetPipelineE2E(unittest.TestCase):
         sequence_id: str,
         processed_dir: Path,
         html_dir: Path,
+        mp4_dir: Path,
     ) -> None:
-        """Stage 4: viser recording + pyrender MP4; assert both artifacts land."""
+        """Stage 4: viser recording + pyrender MP4; assert both artifacts land.
+
+        ``--save_mp4`` writes a flat ``<seq>.mp4`` to its own directory,
+        independent of the viser ``--html_dir`` tree; pin it to the scratch
+        workspace so the run stays hermetic (its default is the repo's ``out/``).
+        """
         self._run(
             [
                 str(self.scripts_dir / "retarget/vis_retargeted.py"),
@@ -422,6 +436,8 @@ class TestRetargetPipelineE2E(unittest.TestCase):
                 "--save_mp4",
                 "--html_dir",
                 str(html_dir),
+                "--mp4_dir",
+                str(mp4_dir),
                 "--sequence_id",
                 sequence_id,
             ],
@@ -434,8 +450,8 @@ class TestRetargetPipelineE2E(unittest.TestCase):
             f"No .viser for {sequence_id} in {recordings}",
         )
         self.assertTrue(
-            (recordings / f"{sequence_id}.mp4").exists(),
-            f"No .mp4 for {sequence_id} in {recordings}",
+            (mp4_dir / f"{sequence_id}.mp4").exists(),
+            f"No .mp4 for {sequence_id} in {mp4_dir}",
         )
 
     def _stage_video(
@@ -526,12 +542,13 @@ class TestRetargetPipelineE2E(unittest.TestCase):
 
             processed_dir = workdir / f"{dataset}_processed"
             html_dir = workdir / f"{dataset}_html"
+            mp4_dir = workdir / f"{dataset}_mp4"
             video_dir = workdir / f"{dataset}_video"
 
             self._stage_urdfs(dataset)
             self._stage_process(dataset, sequence_id, loaded_dir, processed_dir)
             self._stage_reconstruct(dataset, sequence_id, loaded_dir)
-            self._stage_visualize(sequence_id, processed_dir, html_dir)
+            self._stage_visualize(sequence_id, processed_dir, html_dir, mp4_dir)
             self._stage_video(sequence_id, processed_dir, video_dir)
 
     def test_synthbox_pipeline(self) -> None:

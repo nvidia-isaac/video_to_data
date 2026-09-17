@@ -18,16 +18,13 @@ JSON schema (per file, single detection per track per frame):
       "is_right":   bool,
       "frame_idx":  int,
       "image_size": [W, H],
-      "crop":       {"cx": ..., "cy": ..., "size": ...},
+      "bbox":       {"x0": ..., "y0": ..., "x1": ..., "y1": ...},
       "mano":       {
          "betas":         [10 floats],
          "global_orient": [3 floats],     # axis-angle, converted from rotmat
          "hand_pose":     [45 floats]     # axis-angle, 15×3, converted
       },
-      "camera":     {
-         "pred_cam_t_full":     [tx, ty, tz],
-         "scaled_focal_length": float
-      }
+      "camera":     {"cam_t": [tx, ty, tz], "focal_length": float}
     }
 
 Frames where the mask is below ``mask_min_pixels`` (or absent) get no
@@ -128,20 +125,26 @@ def masks_to_hands(
 
             out = run_hamer(model, cfg, image, cx, cy, size, is_right=is_right)
 
+            half = float(size) * 0.5
             record = {
                 "track_id":   oid,
                 "is_right":   is_right,
                 "frame_idx":  frame_idx,
                 "image_size": [int(W), int(H)],
-                "crop":       {"cx": cx, "cy": cy, "size": float(size)},
+                "bbox": {
+                    "x0": float(cx - half),
+                    "y0": float(cy - half),
+                    "x1": float(cx + half),
+                    "y1": float(cy + half),
+                },
                 "mano": {
                     "betas":         out["betas"].tolist(),
                     "global_orient": rotmat_to_axis_angle(out["global_orient"]).reshape(-1).tolist(),
                     "hand_pose":     rotmat_to_axis_angle(out["hand_pose"]).reshape(-1).tolist(),
                 },
                 "camera": {
-                    "pred_cam_t_full":     out["pred_cam_t_full"].tolist(),
-                    "scaled_focal_length": out["scaled_focal_length"],
+                    "cam_t":        out["pred_cam_t_full"].tolist(),
+                    "focal_length": out["scaled_focal_length"],
                 },
             }
             with open(out_path, "w") as f:

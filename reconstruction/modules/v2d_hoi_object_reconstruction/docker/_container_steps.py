@@ -106,19 +106,25 @@ def select_sam3d_frames(
     image: str,
     job_dir: str | Path,
     bin_deg: float,
+    capture_mode: str = "two_stage",
+    stationary_count: int = 6,
     fallback_count: int = 6,
 ) -> list[str]:
     """Select SAM3D source frames inside ``image``."""
     job_dir = Path(job_dir).resolve()
     output_path = job_dir / "sam3d" / "selected_frames.json"
+    report_path = output_path.parent / "selection_report.json"
     output_path.unlink(missing_ok=True)
+    report_path.unlink(missing_ok=True)
     run_in_container(
         image=image,
         module="v2d_hoi_object_reconstruction.lib.select_sam3d_frames",
         inputs={"job_dir": str(job_dir)},
         outputs={"output_path": str(output_path)},
         extra_args={
+            "capture_mode": capture_mode,
             "bin_deg": bin_deg,
+            "stationary_count": stationary_count,
             "fallback_count": fallback_count,
         },
         gpus=False,
@@ -133,6 +139,18 @@ def select_sam3d_frames(
         isinstance(frame_id, str) for frame_id in selected
     ):
         raise RuntimeError(f"Invalid SAM3D selected-frame list in {output_path}.")
+    try:
+        report = json.loads(report_path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            f"SAM3D frame selection did not produce valid provenance at {report_path}."
+        ) from exc
+    if (
+        not isinstance(report, dict)
+        or report.get("capture_mode") != capture_mode
+        or report.get("selected_frames") != selected
+    ):
+        raise RuntimeError(f"Invalid SAM3D frame-selection provenance in {report_path}.")
     return selected
 
 
@@ -142,6 +160,7 @@ def run_sam3d_srt(
     job_dir: str | Path,
     use_depth: bool,
     stage1_end_frame: int | None,
+    capture_mode: str = "two_stage",
     max_views: int,
     maxiter: int,
     top_k: int,
@@ -164,6 +183,7 @@ def run_sam3d_srt(
         extra_args={
             "use_depth": use_depth,
             "stage1_end_frame": stage1_end_frame,
+            "capture_mode": capture_mode,
             "max_views": max_views,
             "maxiter": maxiter,
             "top_k": top_k,

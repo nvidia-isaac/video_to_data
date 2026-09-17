@@ -58,7 +58,7 @@ def _minimal_motion_data(
     t: int = 4,
     j: int = 5,
     e: int = 2,
-    num_bodies: int = 1,
+    num_bodies: int = 0,
 ) -> MotionData:
     """Construct a single-robot MotionData with only the REQUIRED fields populated."""
     return MotionData(
@@ -76,12 +76,16 @@ def _minimal_motion_data(
         ee_link_names=[f"ee_{i}" for i in range(e)],
         ee_pose_w=_pose7_series(t, e),
         object_body_names=[f"body_{i}" for i in range(num_bodies)],
-        object_body_position=[
-            [[0.3, 0.0, 0.4] for _ in range(num_bodies)] for _ in range(t)
-        ],
-        object_body_wxyz=[
-            [[1.0, 0.0, 0.0, 0.0] for _ in range(num_bodies)] for _ in range(t)
-        ],
+        object_body_position=(
+            [[[0.3, 0.0, 0.4] for _ in range(num_bodies)] for _ in range(t)]
+            if num_bodies
+            else None
+        ),
+        object_body_wxyz=(
+            [[[1.0, 0.0, 0.0, 0.0] for _ in range(num_bodies)] for _ in range(t)]
+            if num_bodies
+            else None
+        ),
     )
 
 
@@ -280,6 +284,11 @@ def test_u2_minimal_file_loads(tmp_path: Path) -> None:
     assert loaded.robot_root_position is not None
     assert loaded.robot_joint_positions is not None
     assert loaded.ee_pose_w is not None
+    assert loaded.object_body_names == []
+    assert loaded.object_body_position is None
+    assert loaded.object_body_wxyz is None
+    assert loaded.object_pos_w is None
+    assert loaded.object_quat_w is None
 
     # Optional groups must all be None / empty on the flattened view.
     for attr in (
@@ -498,6 +507,19 @@ def test_missing_required_field_raises_on_read(tmp_path: Path) -> None:
     raise AssertionError("expected MissingRequiredField")
 
 
+def test_partial_object_reference_group_raises(tmp_path: Path) -> None:
+    """Single-robot motions may omit objects but may not provide a partial group."""
+    md = _minimal_motion_data()
+    md.object_body_names = ["object"]
+    try:
+        save_motion_parquet(md, root_path=str(tmp_path))
+    except ValueError as exc:
+        assert "partial object reference group" in str(exc)
+        assert "object_body_position" in str(exc)
+        return
+    raise AssertionError("expected ValueError for a partial object reference group")
+
+
 # ---------------------------------------------------------------------------
 # K1-K5. motion_kind validation
 # ---------------------------------------------------------------------------
@@ -630,6 +652,7 @@ TESTS: list[tuple[str, Any]] = [
     ("U6 variable num ee", test_u6_variable_num_ee),
     ("missing required raises on write", test_missing_required_field_raises_on_write),
     ("missing required raises on read", test_missing_required_field_raises_on_read),
+    ("partial object group raises", test_partial_object_reference_group_raises),
     ("K1 dual-hand round-trip", test_dual_hand_round_trip),
     ("K2 single_robot missing joints raises", test_single_robot_missing_joints_raises),
     (

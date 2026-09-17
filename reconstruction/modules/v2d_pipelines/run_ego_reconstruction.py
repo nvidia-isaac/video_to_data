@@ -10,6 +10,8 @@ CLI onto the existing runners:
 - ``--hand_tracking hamer`` runs the WiLoR/SAM2/HaMeR path, with optional
   DROID-SLAM, GeoCalib gravity alignment, and refine_simple.py gsplat
   refinement.
+- ``--hand_tracking hawor`` runs the same object/SAM2 path but uses HaWoR as
+  the canonical hand-track producer.
 
 Run from ``reconstruction/``.
 """
@@ -21,7 +23,6 @@ import os
 import shutil
 from collections.abc import Callable
 from pathlib import Path
-
 
 GSPLAT_DEFAULTS = {
     "epochs": 10,
@@ -43,29 +44,31 @@ GSPLAT_DEFAULTS = {
     "w_hand_object_penetration": 0.0,
     "hand_object_penetration_margin": 0.003,
     "object_sdf_resolution": 96,
-    "hand_object_penetration_max_verts": 0,
+    "hand_object_penetration_max_verts": 256,
     "perceptual_resize": 224,
     "lr_schedule": "cosine",
     "lr_cosine_min_factor": 0.1,
-    "w_smooth_object_rot": 1000.0,
-    "w_smooth_object_trans": 1000.0,
-    "w_smooth_hand_rot": 1000.0,
-    "w_smooth_hand_articulation": 1000.0,
-    "w_smooth_hand_trans": 1000.0,
-    "w_smooth_camera_rot": 1000.0,
-    "w_smooth_camera_trans": 1000.0,
+    "w_smooth_object_rot": 0.0,
+    "w_smooth_object_trans": 0.0,
+    "w_smooth_hand_rot": 0.0,
+    "w_smooth_hand_articulation": 0.0,
+    "w_smooth_hand_trans": 0.0,
+    "w_smooth_camera_rot": 100.0,
+    "w_smooth_camera_trans": 100.0,
+    "w_vertex_smoothness": 100.0,
+    "vertex_smoothness_scale": 0.01,
+    "vertex_smoothness_max_vertices": 1024,
     "w_mask": 1.0,
     "w_relative_depth": 1.0,
     "render_every": 25,
-    "w_smooth_hand_object_relative_rot": 1000.0,
-    "w_smooth_hand_object_relative_trans": 1000.0,
+    "w_smooth_hand_object_relative_rot": 0.0,
+    "w_smooth_hand_object_relative_trans": 0.0,
 }
-
 
 
 def _import_run_ego_wilor() -> Callable[..., None]:
     try:
-        from v2d.pipelines.run_ego_wilor import run_ego_wilor
+        from v2d.pipelines.run_ego_wilor import run_ego_wilor  # noqa: PLC0415
     except ModuleNotFoundError as exc:  # Direct execution before editable install.
         if exc.name not in {
             "v2d",
@@ -73,13 +76,13 @@ def _import_run_ego_wilor() -> Callable[..., None]:
             "v2d.pipelines.run_ego_wilor",
         }:
             raise
-        from run_ego_wilor import run_ego_wilor
+        from run_ego_wilor import run_ego_wilor  # noqa: PLC0415
     return run_ego_wilor
 
 
 def _import_run_v2d_ego_e2e() -> Callable[..., None]:
     try:
-        from v2d.pipelines.run_v2d_ego_e2e import run_v2d_ego_e2e
+        from v2d.pipelines.run_v2d_ego_e2e import run_v2d_ego_e2e  # noqa: PLC0415
     except ModuleNotFoundError as exc:  # Direct execution before editable install.
         if exc.name not in {
             "v2d",
@@ -87,32 +90,47 @@ def _import_run_v2d_ego_e2e() -> Callable[..., None]:
             "v2d.pipelines.run_v2d_ego_e2e",
         }:
             raise
-        from run_v2d_ego_e2e import run_v2d_ego_e2e
+        from run_v2d_ego_e2e import run_v2d_ego_e2e  # noqa: PLC0415
     return run_v2d_ego_e2e
 
 
-def _import_result_bundle_tools() -> tuple[Callable[..., str], Callable[..., str], Callable[..., bool]]:
-    from v2d.common.result_bundle import (
+def _import_result_bundle_tools() -> (
+    tuple[Callable[..., str], Callable[..., str], Callable[..., bool]]
+):
+    from v2d.common.result_bundle import (  # noqa: PLC0415
         gravity_align_result_bundle,
         result_bundle_has_gravity_alignment,
         write_result_bundle,
     )
-    return write_result_bundle, gravity_align_result_bundle, result_bundle_has_gravity_alignment
+
+    return (
+        write_result_bundle,
+        gravity_align_result_bundle,
+        result_bundle_has_gravity_alignment,
+    )
 
 
 def _import_droid_slam() -> Callable[..., None]:
-    from v2d.droid_slam.docker.run_video_to_slam import run_video_to_slam
+    from v2d.droid_slam.docker.run_video_to_slam import (  # noqa: PLC0415
+        run_video_to_slam,
+    )
+
     return run_video_to_slam
 
 
 def _import_geocalib() -> Callable[..., None]:
-    from v2d.geocalib.docker.run_video_to_calibration import run_video_to_calibration
+    from v2d.geocalib.docker.run_video_to_calibration import (  # noqa: PLC0415
+        run_video_to_calibration,
+    )
+
     return run_video_to_calibration
 
 
 def _import_threejs_exporter() -> Callable[..., dict]:
     try:
-        from v2d.pipelines.export_result_threejs_scene import export_scene
+        from v2d.pipelines.export_result_threejs_scene import (  # noqa: PLC0415
+            export_scene,
+        )
     except ModuleNotFoundError as exc:  # Direct execution before editable install.
         if exc.name not in {
             "v2d",
@@ -120,7 +138,7 @@ def _import_threejs_exporter() -> Callable[..., dict]:
             "v2d.pipelines.export_result_threejs_scene",
         }:
             raise
-        from export_result_threejs_scene import export_scene
+        from export_result_threejs_scene import export_scene  # noqa: PLC0415
     return export_scene
 
 
@@ -179,7 +197,10 @@ def _run_geocalib_postprocess(args: argparse.Namespace) -> Path:
     distortion_path = geocalib_dir / "distortion.json"
     gravity_path = geocalib_dir / "gravity.json"
     calibration_path = geocalib_dir / "calibration.json"
-    done = all(p.exists() for p in (intrinsics_path, distortion_path, gravity_path, calibration_path))
+    done = all(
+        p.exists()
+        for p in (intrinsics_path, distortion_path, gravity_path, calibration_path)
+    )
     if not _step("GeoCalib intrinsics + gravity", done):
         geocalib_dir.mkdir(parents=True, exist_ok=True)
         run_video_to_calibration = _import_geocalib()
@@ -198,7 +219,9 @@ def _run_geocalib_postprocess(args: argparse.Namespace) -> Path:
     return calibration_path
 
 
-def _write_dynhamr_slam_result(args: argparse.Namespace, camera_to_world_dir: Path) -> Path:
+def _write_dynhamr_slam_result(
+    args: argparse.Namespace, camera_to_world_dir: Path
+) -> Path:
     output_dir = Path(args.output_dir).resolve()
     result_dir = output_dir / "result_slam"
     if not _step("Package result_slam/", _result_bundle_done(result_dir)):
@@ -226,7 +249,9 @@ def _write_dynhamr_slam_result(args: argparse.Namespace, camera_to_world_dir: Pa
     return result_dir
 
 
-def _copy_stage_result(args: argparse.Namespace, src_result_dir: Path, suffix: str) -> Path:
+def _copy_stage_result(
+    args: argparse.Namespace, src_result_dir: Path, suffix: str
+) -> Path:
     output_dir = Path(args.output_dir).resolve()
     dst = output_dir / suffix
     if not _step(f"Copy {suffix}/", _result_bundle_done(dst)):
@@ -234,13 +259,22 @@ def _copy_stage_result(args: argparse.Namespace, src_result_dir: Path, suffix: s
     return dst
 
 
-def _gravity_align_stage_result(args: argparse.Namespace, src_result_dir: Path, suffix: str) -> Path:
+def _gravity_align_stage_result(
+    args: argparse.Namespace, src_result_dir: Path, suffix: str
+) -> Path:
     output_dir = Path(args.output_dir).resolve()
     dst = output_dir / suffix
-    _, gravity_align_result_bundle, result_bundle_has_gravity_alignment = _import_result_bundle_tools()
-    if not result_bundle_has_gravity_alignment(str(dst), target=args.gravity_align_target):
+    _, gravity_align_result_bundle, result_bundle_has_gravity_alignment = (
+        _import_result_bundle_tools()
+    )
+    if not result_bundle_has_gravity_alignment(
+        str(dst), target=args.gravity_align_target
+    ):
         _copy_result_bundle(src_result_dir, dst)
-    if not _step(f"Gravity-align {suffix}/", result_bundle_has_gravity_alignment(str(dst), target=args.gravity_align_target)):
+    if not _step(
+        f"Gravity-align {suffix}/",
+        result_bundle_has_gravity_alignment(str(dst), target=args.gravity_align_target),
+    ):
         calibration_path = _run_geocalib_postprocess(args)
         gravity_align_result_bundle(
             result_dir=str(dst),
@@ -250,7 +284,9 @@ def _gravity_align_stage_result(args: argparse.Namespace, src_result_dir: Path, 
     return dst
 
 
-def _finalize_result_bundle(args: argparse.Namespace, base_result_dir: Path, *, dynhamr: bool) -> Path:
+def _finalize_result_bundle(
+    args: argparse.Namespace, base_result_dir: Path, *, dynhamr: bool
+) -> Path:
     final_result_dir = base_result_dir
     if args.run_droid_slam:
         if dynhamr:
@@ -262,7 +298,11 @@ def _finalize_result_bundle(args: argparse.Namespace, base_result_dir: Path, *, 
             final_result_dir = _copy_stage_result(args, base_result_dir, "result_slam")
 
     if args.run_gravity_alignment:
-        suffix = "result_slam_gravity_aligned" if args.run_droid_slam else "result_gravity_aligned"
+        suffix = (
+            "result_slam_gravity_aligned"
+            if args.run_droid_slam
+            else "result_gravity_aligned"
+        )
         final_result_dir = _gravity_align_stage_result(args, final_result_dir, suffix)
 
     return final_result_dir
@@ -271,20 +311,27 @@ def _finalize_result_bundle(args: argparse.Namespace, base_result_dir: Path, *, 
 def _default_threejs_mano_assets_root(args: argparse.Namespace) -> Path:
     if args.threejs_mano_assets_root is not None:
         return Path(args.threejs_mano_assets_root)
-    if args.hand_tracking == "hamer":
+    if args.hand_tracking in {"hamer", "hawor"}:
         return Path(args.hamer_weights) / "_DATA" / "data"
     return Path(args.mano_weights or args.hand_reconstruction_weights)
 
 
 def _threejs_scene_done(output_dir: Path) -> bool:
     required = ("index.html", "scene_data.js", "three.module.js", "OrbitControls.js")
-    return all((output_dir / name).exists() and (output_dir / name).stat().st_size > 0 for name in required)
+    return all(
+        (output_dir / name).exists() and (output_dir / name).stat().st_size > 0
+        for name in required
+    )
 
 
 def _export_threejs_result(args: argparse.Namespace, result_dir: Path) -> None:
     if not args.export_threejs_result:
         return
-    output_dir = Path(args.threejs_output_dir) if args.threejs_output_dir else result_dir / "threejs_scene"
+    output_dir = (
+        Path(args.threejs_output_dir)
+        if args.threejs_output_dir
+        else result_dir / "threejs_scene"
+    )
     if not _step("Export Three.js result scene", _threejs_scene_done(output_dir)):
         export_scene = _import_threejs_exporter()
         data = export_scene(
@@ -317,40 +364,89 @@ def _add_weight_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--hamer_weights", default="data/weights/hamer")
     p.add_argument("--droid_slam_weights", default="data/weights/droid_slam")
     p.add_argument("--geocalib_weights_path", default="data/weights/geocalib")
+    p.add_argument("--hawor_weights", default="data/weights/hawor")
     p.add_argument("--hand_reconstruction_weights", default="data/weights/hand")
     p.add_argument("--mano_weights", default=None)
 
 
 def _add_gsplat_args(p: argparse.ArgumentParser) -> None:
     g = p.add_argument_group("gsplat refinement")
-    g.add_argument("--gsplat_refine_epochs", type=int, default=GSPLAT_DEFAULTS["epochs"])
-    g.add_argument("--gsplat_refine_batch_size", type=int, default=GSPLAT_DEFAULTS["batch_size"])
+    g.add_argument(
+        "--gsplat_refine_epochs", type=int, default=GSPLAT_DEFAULTS["epochs"]
+    )
+    g.add_argument(
+        "--gsplat_refine_batch_size", type=int, default=GSPLAT_DEFAULTS["batch_size"]
+    )
     g.add_argument(
         "--gsplat_refine_train_resolution_scale",
         type=float,
         default=GSPLAT_DEFAULTS["train_resolution_scale"],
     )
-    g.add_argument("--gsplat_refine_lr_gaussians", type=float, default=GSPLAT_DEFAULTS["lr_gaussians"])
-    g.add_argument("--gsplat_refine_lr_object_pose", type=float, default=GSPLAT_DEFAULTS["lr_object_pose"])
-    g.add_argument("--gsplat_refine_lr_object_scale", type=float, default=GSPLAT_DEFAULTS["lr_object_scale"])
-    g.add_argument("--gsplat_refine_lr_hand_pose", type=float, default=GSPLAT_DEFAULTS["lr_hand_pose"])
+    g.add_argument(
+        "--gsplat_refine_lr_gaussians",
+        type=float,
+        default=GSPLAT_DEFAULTS["lr_gaussians"],
+    )
+    g.add_argument(
+        "--gsplat_refine_lr_object_pose",
+        type=float,
+        default=GSPLAT_DEFAULTS["lr_object_pose"],
+    )
+    g.add_argument(
+        "--gsplat_refine_lr_object_scale",
+        type=float,
+        default=GSPLAT_DEFAULTS["lr_object_scale"],
+    )
+    g.add_argument(
+        "--gsplat_refine_lr_hand_pose",
+        type=float,
+        default=GSPLAT_DEFAULTS["lr_hand_pose"],
+    )
     g.add_argument(
         "--gsplat_refine_lr_hand_articulation",
         type=float,
         default=GSPLAT_DEFAULTS["lr_hand_articulation"],
     )
-    g.add_argument("--gsplat_refine_lr_hand_shape", type=float, default=GSPLAT_DEFAULTS["lr_hand_shape"])
-    g.add_argument("--gsplat_refine_lr_hand_scale", type=float, default=GSPLAT_DEFAULTS["lr_hand_scale"])
-    g.add_argument("--gsplat_refine_lr_camera_pose", type=float, default=GSPLAT_DEFAULTS["lr_camera_pose"])
-    g.add_argument("--gsplat_refine_init_opacity_obj", type=float, default=GSPLAT_DEFAULTS["init_opacity_obj"])
-    g.add_argument("--gsplat_refine_init_opacity_hand", type=float, default=GSPLAT_DEFAULTS["init_opacity_hand"])
-    g.add_argument("--gsplat_refine_init_opacity_bg", type=float, default=GSPLAT_DEFAULTS["init_opacity_bg"])
+    g.add_argument(
+        "--gsplat_refine_lr_hand_shape",
+        type=float,
+        default=GSPLAT_DEFAULTS["lr_hand_shape"],
+    )
+    g.add_argument(
+        "--gsplat_refine_lr_hand_scale",
+        type=float,
+        default=GSPLAT_DEFAULTS["lr_hand_scale"],
+    )
+    g.add_argument(
+        "--gsplat_refine_lr_camera_pose",
+        type=float,
+        default=GSPLAT_DEFAULTS["lr_camera_pose"],
+    )
+    g.add_argument(
+        "--gsplat_refine_init_opacity_obj",
+        type=float,
+        default=GSPLAT_DEFAULTS["init_opacity_obj"],
+    )
+    g.add_argument(
+        "--gsplat_refine_init_opacity_hand",
+        type=float,
+        default=GSPLAT_DEFAULTS["init_opacity_hand"],
+    )
+    g.add_argument(
+        "--gsplat_refine_init_opacity_bg",
+        type=float,
+        default=GSPLAT_DEFAULTS["init_opacity_bg"],
+    )
     g.add_argument(
         "--gsplat_refine_init_gaussian_scale_factor",
         type=float,
         default=GSPLAT_DEFAULTS["init_gaussian_scale_factor"],
     )
-    g.add_argument("--gsplat_refine_w_perceptual", type=float, default=GSPLAT_DEFAULTS["w_perceptual"])
+    g.add_argument(
+        "--gsplat_refine_w_perceptual",
+        type=float,
+        default=GSPLAT_DEFAULTS["w_perceptual"],
+    )
     g.add_argument(
         "--gsplat_refine_w_hand_object_penetration",
         type=float,
@@ -421,13 +517,37 @@ def _add_gsplat_args(p: argparse.ArgumentParser) -> None:
         type=float,
         default=GSPLAT_DEFAULTS["w_smooth_camera_trans"],
     )
-    g.add_argument("--gsplat_refine_w_mask", type=float, default=GSPLAT_DEFAULTS["w_mask"])
+    g.add_argument(
+        "--gsplat_refine_w_vertex_smoothness",
+        type=float,
+        default=GSPLAT_DEFAULTS["w_vertex_smoothness"],
+        help="Weight for world-space vertex acceleration smoothness. 0 disables.",
+    )
+    g.add_argument(
+        "--gsplat_refine_vertex_smoothness_scale",
+        type=float,
+        default=GSPLAT_DEFAULTS["vertex_smoothness_scale"],
+        help="Metric tolerance in meters used to normalize vertex acceleration.",
+    )
+    g.add_argument(
+        "--gsplat_refine_vertex_smoothness_max_vertices",
+        type=int,
+        default=GSPLAT_DEFAULTS["vertex_smoothness_max_vertices"],
+        help="Max vertices sampled per object/hand for vertex smoothness. <=0 uses all.",
+    )
+    g.add_argument(
+        "--gsplat_refine_w_mask", type=float, default=GSPLAT_DEFAULTS["w_mask"]
+    )
     g.add_argument(
         "--gsplat_refine_w_relative_depth",
         type=float,
         default=GSPLAT_DEFAULTS["w_relative_depth"],
     )
-    g.add_argument("--gsplat_refine_render_every", type=int, default=GSPLAT_DEFAULTS["render_every"])
+    g.add_argument(
+        "--gsplat_refine_render_every",
+        type=int,
+        default=GSPLAT_DEFAULTS["render_every"],
+    )
     g.add_argument(
         "--gsplat_refine_w_smooth_hand_object_relative_rot",
         type=float,
@@ -440,45 +560,77 @@ def _add_gsplat_args(p: argparse.ArgumentParser) -> None:
     )
     g.add_argument("--gsplat_refine_mask_background", action="store_true")
     g.add_argument("--gsplat_refine_debug_frame", type=int, default=None)
-    g.add_argument("--gsplat_refine_vgg_weights_path", default=None)
+    g.add_argument(
+        "--gsplat_refine_vgg_weights_path",
+        default="data/weights/gsplat_refinement/vgg16-397923af.pth",
+        help="Local VGG16 ImageNet checkpoint provisioned by reconstruction setup.",
+    )
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for the reconstruction pipeline."""
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--video", "--video_path", dest="video", required=True, help="Input MP4 video.")
+    p.add_argument(
+        "--video", "--video_path", dest="video", required=True, help="Input MP4 video."
+    )
     p.add_argument("--object_prompt", "--prompt", dest="object_prompt", required=True)
     p.add_argument("--output_dir", required=True)
-    p.add_argument("--object_mesh", "--object_mesh_path", dest="object_mesh", default=None)
+    p.add_argument(
+        "--object_mesh", "--object_mesh_path", dest="object_mesh", default=None
+    )
     p.add_argument(
         "--skip_object_scale_estimation",
         action="store_true",
-        help="For --object_mesh, trust the provided mesh scale and track it directly.",
+        help="For --object_mesh, trust the provided mesh scale and skip MoGe/FoundationPose scale estimation.",
     )
-    p.add_argument("--hand_tracking", choices=("dynhamr", "hamer"), required=True)
+    p.add_argument(
+        "--hand_tracking", choices=("dynhamr", "hamer", "hawor"), required=True
+    )
     p.add_argument("--reference_frame", type=int, default=0)
     p.add_argument("--undistort", action="store_true")
     p.add_argument("--run_droid_slam", action="store_true")
     p.add_argument("--run_gravity_alignment", action="store_true")
     p.add_argument("--run_gsplat_refinement", action="store_true")
     p.add_argument("--export_threejs_result", action="store_true")
-    p.add_argument("--depth_source", choices=("moge", "vipe"), default=None, help=argparse.SUPPRESS)
+    p.add_argument(
+        "--depth_source", choices=("moge", "vipe"), default=None, help=argparse.SUPPRESS
+    )
     p.add_argument("--reregister_iou_thresh", type=float, default=0.3)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--dev", action="store_true")
 
     p.add_argument("--sam2_bbox_pad", type=float, default=0.05)
     p.set_defaults(sam2_square_wilor_bboxes=False)
-    p.add_argument("--sam2_square_wilor_bboxes", dest="sam2_square_wilor_bboxes", action="store_true")
-    p.add_argument("--no_sam2_square_wilor_bboxes", dest="sam2_square_wilor_bboxes", action="store_false")
-    p.add_argument("--sam2_hand_prompt_source", choices=("box", "wilor_mask"), default="wilor_mask")
+    p.add_argument(
+        "--sam2_square_wilor_bboxes",
+        dest="sam2_square_wilor_bboxes",
+        action="store_true",
+    )
+    p.add_argument(
+        "--no_sam2_square_wilor_bboxes",
+        dest="sam2_square_wilor_bboxes",
+        action="store_false",
+    )
+    p.add_argument(
+        "--sam2_hand_prompt_source", choices=("box", "wilor_mask"), default="wilor_mask"
+    )
     p.add_argument("--hamer_bbox_expansion", type=float, default=1.7)
     p.add_argument("--hamer_mask_min_pixels", type=int, default=None)
+    p.add_argument(
+        "--hawor_focal_length",
+        type=float,
+        default=-1.0,
+        help="Optional focal length passed to HaWoR. Negative uses stabilized pipeline intrinsics.",
+    )
+    p.add_argument("--hawor_max_num", type=int, default=1000)
     p.add_argument("--min_iou", type=float, default=0.1)
     p.add_argument("--mask_min_pixels", type=int, default=256)
     p.add_argument("--interp_betas", choices=("fixed", "interp"), default="fixed")
     p.add_argument("--interp_max_gap_frames", type=int, default=15)
 
-    p.add_argument("--geocalib_weights", choices=("pinhole", "distorted"), default="pinhole")
+    p.add_argument(
+        "--geocalib_weights", choices=("pinhole", "distorted"), default="pinhole"
+    )
     p.add_argument(
         "--geocalib_camera_model",
         choices=("pinhole", "simple_radial", "radial", "simple_divisional"),
@@ -512,7 +664,9 @@ def parse_args() -> argparse.Namespace:
 
 def _validate_args(args: argparse.Namespace) -> None:
     if args.depth_source is not None and args.depth_source != "moge":
-        print("WARNING: --depth_source is deprecated and ignored; this pipeline always uses MoGe.")
+        print(
+            "WARNING: --depth_source is deprecated and ignored; this pipeline always uses MoGe."
+        )
     elif args.depth_source is not None:
         print("WARNING: --depth_source is deprecated and ignored; MoGe is always used.")
 
@@ -520,13 +674,18 @@ def _validate_args(args: argparse.Namespace) -> None:
         args.object_mesh = os.path.abspath(args.object_mesh)
         if not os.path.isfile(args.object_mesh):
             raise FileNotFoundError(f"Object mesh not found: {args.object_mesh}")
-        if not args.skip_object_scale_estimation:
+        if args.skip_object_scale_estimation:
+            print("INFO: --object_mesh will use the provided mesh scale directly.")
+        else:
             print(
-                "WARNING: --object_mesh uses the provided mesh scale directly. "
-                "Pass --skip_object_scale_estimation to make this explicit."
+                "INFO: --object_mesh will skip SAM3D generation but still run "
+                "MoGe/FoundationPose object scale estimation. Pass "
+                "--skip_object_scale_estimation to trust the provided scale directly."
             )
     elif args.skip_object_scale_estimation:
-        print("WARNING: --skip_object_scale_estimation has no effect without --object_mesh.")
+        print(
+            "WARNING: --skip_object_scale_estimation has no effect without --object_mesh."
+        )
 
     if args.hand_tracking == "dynhamr":
         unsupported = []
@@ -537,7 +696,7 @@ def _validate_args(args: argparse.Namespace) -> None:
         if unsupported:
             joined = ", ".join(unsupported)
             raise ValueError(
-                f"{joined} are only supported with --hand_tracking hamer in this first consolidated entrypoint."
+                f"{joined} are only supported with --hand_tracking hamer or hawor in this consolidated entrypoint."
             )
 
 
@@ -570,12 +729,6 @@ def _run_dynhamr(args: argparse.Namespace) -> Path:
 
 
 def _run_hamer(args: argparse.Namespace) -> Path:
-    from v2d.pipelines.mano_assets import prepare_hamer_mano_assets
-
-    source_root = Path(args.mano_weights or args.hand_reconstruction_weights)
-    source_mano = source_root / "models" / "MANO_RIGHT.pkl"
-    staged_mano = prepare_hamer_mano_assets(args.hamer_weights, source_mano)
-    print(f"  HaMeR MANO asset: {staged_mano}")
     run_ego_wilor = _import_run_ego_wilor()
     run_ego_wilor(
         video_path=args.video,
@@ -603,6 +756,7 @@ def _run_hamer(args: argparse.Namespace) -> Path:
         interp_max_gap_frames=args.interp_max_gap_frames,
         object_prompt=args.object_prompt,
         object_mesh_path=args.object_mesh,
+        skip_object_scale_estimation=args.skip_object_scale_estimation,
         grounding_dino_weights=args.grounding_dino_weights,
         sam3d_weights=args.sam3d_weights,
         foundation_pose_weights=args.foundation_pose_weights,
@@ -612,11 +766,14 @@ def _run_hamer(args: argparse.Namespace) -> Path:
         bg_init_stride=args.bg_init_stride,
         bg_voxel_size=args.bg_voxel_size,
         bg_max_points=args.bg_max_points,
-        hand_pose_source="hamer",
-        run_hamer_pass=True,
+        hand_pose_source=args.hand_tracking,
+        run_hamer_pass=(args.hand_tracking == "hamer"),
         hamer_weights=args.hamer_weights,
         hamer_bbox_expansion=args.hamer_bbox_expansion,
         hamer_mask_min_pixels=args.hamer_mask_min_pixels,
+        hawor_weights=args.hawor_weights,
+        hawor_focal_length=args.hawor_focal_length,
+        hawor_max_num=args.hawor_max_num,
         run_refinement=False,
         run_refinement_simple=args.run_gsplat_refinement,
         simple_refinement_epochs=args.gsplat_refine_epochs,
@@ -641,6 +798,9 @@ def _run_hamer(args: argparse.Namespace) -> Path:
         simple_refinement_w_smooth_hand_object_relative_trans=args.gsplat_refine_w_smooth_hand_object_relative_trans,
         simple_refinement_w_smooth_camera_rot=args.gsplat_refine_w_smooth_camera_rot,
         simple_refinement_w_smooth_camera_trans=args.gsplat_refine_w_smooth_camera_trans,
+        simple_refinement_w_vertex_smoothness=args.gsplat_refine_w_vertex_smoothness,
+        simple_refinement_vertex_smoothness_scale=args.gsplat_refine_vertex_smoothness_scale,
+        simple_refinement_vertex_smoothness_max_vertices=args.gsplat_refine_vertex_smoothness_max_vertices,
         simple_refinement_w_mask=args.gsplat_refine_w_mask,
         simple_refinement_w_relative_depth=args.gsplat_refine_w_relative_depth,
         simple_refinement_w_perceptual=args.gsplat_refine_w_perceptual,
@@ -667,10 +827,11 @@ def _run_hamer(args: argparse.Namespace) -> Path:
 
 
 def run_from_args(args: argparse.Namespace) -> None:
+    """Run the selected reconstruction pipeline from parsed arguments."""
     _validate_args(args)
     if args.hand_tracking == "dynhamr":
         final_result_dir = _run_dynhamr(args)
-    elif args.hand_tracking == "hamer":
+    elif args.hand_tracking in {"hamer", "hawor"}:
         final_result_dir = _run_hamer(args)
     else:  # pragma: no cover - argparse prevents this.
         raise ValueError(f"Unsupported hand tracking mode: {args.hand_tracking}")
@@ -679,6 +840,7 @@ def run_from_args(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    """Run the reconstruction command-line entrypoint."""
     run_from_args(parse_args())
 
 

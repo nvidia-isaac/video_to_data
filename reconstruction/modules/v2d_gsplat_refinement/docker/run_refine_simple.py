@@ -14,6 +14,7 @@ def run_refine_simple(
     object_mask_dir: str,
     refined_object_poses_dir: str,
     overlay_path: str,
+    refined_object_scale_path: str | None = None,
     left_hand_pose_dir: str | None = None,
     left_hand_mask_dir: str | None = None,
     right_hand_pose_dir: str | None = None,
@@ -45,6 +46,9 @@ def run_refine_simple(
     w_smooth_hand_object_relative_trans: float = 0.0,
     w_smooth_camera_rot: float = 0.1,
     w_smooth_camera_trans: float = 0.1,
+    w_vertex_smoothness: float = 0.0,
+    vertex_smoothness_scale: float = 0.01,
+    vertex_smoothness_max_vertices: int = 1024,
     w_mask: float = 1.0,
     w_relative_depth: float = 0.0,
     w_perceptual: float = 0.0,
@@ -109,6 +113,8 @@ def run_refine_simple(
         "refined_object_poses_dir": refined_object_poses_dir,
         "overlay_path":             overlay_path,
     }
+    if refined_object_scale_path is not None:
+        outputs["refined_object_scale_path"] = refined_object_scale_path
     for k, v in {
         "refined_left_hand_pose_dir":  refined_left_hand_pose_dir,
         "refined_right_hand_pose_dir": refined_right_hand_pose_dir,
@@ -141,6 +147,9 @@ def run_refine_simple(
         "w_smooth_hand_object_relative_trans": w_smooth_hand_object_relative_trans,
         "w_smooth_camera_rot":   w_smooth_camera_rot,
         "w_smooth_camera_trans": w_smooth_camera_trans,
+        "w_vertex_smoothness":   w_vertex_smoothness,
+        "vertex_smoothness_scale": vertex_smoothness_scale,
+        "vertex_smoothness_max_vertices": vertex_smoothness_max_vertices,
         "w_mask":                w_mask,
         "w_relative_depth":      w_relative_depth,
         "w_perceptual":          w_perceptual,
@@ -193,6 +202,7 @@ if __name__ == "__main__":
     p.add_argument("--object_mask_dir", required=True)
     p.add_argument("--refined_object_poses_dir", required=True)
     p.add_argument("--overlay_path", required=True)
+    p.add_argument("--refined_object_scale_path", default=None)
     p.add_argument("--left_hand_pose_dir", default=None)
     p.add_argument("--left_hand_mask_dir", default=None)
     p.add_argument("--right_hand_pose_dir", default=None)
@@ -235,6 +245,12 @@ if __name__ == "__main__":
                         "0 disables.")
     p.add_argument("--w_smooth_camera_rot", type=float, default=0.1)
     p.add_argument("--w_smooth_camera_trans", type=float, default=0.1)
+    p.add_argument("--w_vertex_smoothness", type=float, default=0.0,
+                   help="Weight for world-space vertex acceleration smoothness. 0 disables.")
+    p.add_argument("--vertex_smoothness_scale", type=float, default=0.01,
+                   help="Metric tolerance in meters used to normalize vertex acceleration.")
+    p.add_argument("--vertex_smoothness_max_vertices", type=int, default=1024,
+                   help="Max vertices sampled per object/hand for vertex smoothness. <=0 uses all.")
     p.add_argument("--w_mask", type=float, default=1.0,
                    help="Weight for L1 segmentation mask loss. 0 disables.")
     p.add_argument("--w_relative_depth", type=float, default=0.0,

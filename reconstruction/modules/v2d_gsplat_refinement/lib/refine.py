@@ -461,10 +461,9 @@ def refine(
     object_mask_dir: str,
     refined_object_poses_dir: str,
     overlay_path: str,
-    # Learned global object scale: when provided, written as a JSON file
-    # ``{"scale": float}``. Per-frame Transform3d scales are then left
-    # untouched (passthrough of input). When None, falls back to baking
-    # the learned scale into each frame's Transform3d.scale (legacy).
+    # Learned global object scale is written as ``{"scale": float}`` when
+    # a path is available. Object pose JSONs are always exported as rigid
+    # transforms with unit scale.
     refined_object_scale_path: str | None = None,
     left_hand_pose_dir: str | None = None,
     left_hand_mask_dir: str | None = None,
@@ -2016,22 +2015,25 @@ def refine(
     s_obj_learned = float(obj_gaussians.object_scale().detach())
     print(f"Learned object scale: {s_obj_learned:.4f}")
     refined_obj_track = obj_pose_field.export_track()
-    if refined_object_scale_path is None:
-        # Legacy path: bake the learned global scale into the per-frame
-        # Transform3d.scale so downstream renderers that read pd["scale"]
-        # see the correct size without needing to know about s_obj.
-        refined_obj_track.scales = refined_obj_track.scales * s_obj_learned
-    else:
-        # Clean path: keep per-frame scales as input, save the learned
-        # scale to its own JSON for explicit consumption by the renderer.
+    scale_output_path = refined_object_scale_path
+    if scale_output_path is None and (
+        float(lr_mul_obj_global_scale) > 0.0 or abs(s_obj_learned - 1.0) > 1e-6
+    ):
+        scale_output_path = os.path.join(
+            os.path.dirname(os.path.abspath(refined_object_poses_dir)),
+            "refined_object_scale.json",
+        )
+    if scale_output_path is not None:
+        # Keep object poses rigid and publish learned object scale separately.
         os.makedirs(
-            os.path.dirname(os.path.abspath(refined_object_scale_path)) or ".",
+            os.path.dirname(os.path.abspath(scale_output_path)) or ".",
             exist_ok=True,
         )
         import json as _json
-        with open(refined_object_scale_path, "w") as f:
+        with open(scale_output_path, "w") as f:
             _json.dump({"scale": s_obj_learned}, f, indent=2)
-        print(f"Wrote learned object scale → {refined_object_scale_path}")
+        print(f"Wrote learned object scale → {scale_output_path}")
+    refined_obj_track.scales = torch.ones_like(refined_obj_track.scales)
     save_object_poses(refined_obj_track, refined_object_poses_dir)
     print(f"Wrote refined object poses → {refined_object_poses_dir}")
     for slot in hand_slots:
@@ -2753,9 +2755,8 @@ def main() -> None:
     p.add_argument("--overlay_path",                required=True)
     p.add_argument("--refined_object_scale_path",   default=None,
                    help="Optional path to write the learned global object "
-                        "scale as a JSON file ``{\"scale\": float}``. When "
-                        "set, per-frame Transform3d.scale is left as input "
-                        "(scale is exported separately for the renderer).")
+                        "scale as a JSON file ``{\"scale\": float}``. "
+                        "Object pose JSONs are always written with unit scale.")
     p.add_argument("--left_hand_pose_dir",          default=None)
     p.add_argument("--left_hand_mask_dir",          default=None)
     p.add_argument("--right_hand_pose_dir",         default=None)

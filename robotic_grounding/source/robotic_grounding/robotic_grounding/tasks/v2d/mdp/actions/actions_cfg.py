@@ -7,6 +7,9 @@
 from isaaclab.managers.action_manager import ActionTerm, ActionTermCfg
 from isaaclab.utils import configclass
 
+from robotic_grounding.tasks.v2d.mdp.actions.action_absolute_pose import (
+    JointAbsolutePoseAction,
+)
 from robotic_grounding.tasks.v2d.mdp.actions.action_track_residual import (
     JointResidualWithTrackingAction,
 )
@@ -142,3 +145,18 @@ class VirtualArticulatedObjectControlCfg(ActionTermCfg):
 
     max_torque: float = 60.0
     """Maximum torque for the tracking controller."""
+
+
+@configclass
+class JointAbsolutePoseActionCfg(JointResidualWithTrackingActionCfg):
+    """Configuration for the absolute wrist-pose + finger-target action term.
+
+    Applies an absolute per-hand target (wrist position + wrist quaternion + finger joint
+    positions) from a VLA, reusing the residual term's Cartesian-impedance wrench + finger
+    PD controller. The residual-specific fields (scales, clips, ``ema_factor``) are
+    inherited but unused. ``command_name`` is still required: the term resolves the robot,
+    wrist body, finger joints, and the current measured wrist pose from the command term
+    (only the command's reference *target* is bypassed). See :class:`JointAbsolutePoseAction`.
+    """
+
+    class_type: type[ActionTerm] = JointAbsolutePoseAction

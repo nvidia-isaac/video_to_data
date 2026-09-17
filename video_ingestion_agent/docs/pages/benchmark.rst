@@ -180,10 +180,7 @@ For running the benchmark on an OSMO cluster:
 .. code-block:: bash
 
    python scripts/run_osmo.py benchmark \
-     --experiment-name epic_kitchens_v1 \
-     --image <registry>/v2p_video_agent:<tag> \
-     --pool <your-pool> \
-     --nfs-videos-path /mnt/nfs/epic_kitchens
+     --experiment-name epic_kitchens_v1
 
 See :doc:`/pages/deployment` for OSMO workflow details.
 

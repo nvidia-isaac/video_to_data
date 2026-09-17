@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mesh-to-USD Setup"
+  short_description: "Prepare mesh-to-USD images and dependencies"
+  default_prompt: "Use $mesh-to-usd-setup to prepare this checkout for mesh-to-USD generation and drop testing."

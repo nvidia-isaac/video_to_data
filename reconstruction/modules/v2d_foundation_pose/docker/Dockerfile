@@ -75,7 +75,17 @@ RUN pip install \
     openpyxl \
     wandb
 
-RUN pip install h5py fast_simplification gdown
+RUN apt-get update && apt-get install -y \
+    libnvinfer-bin=10.7.0.23-1+cuda12.6 \
+    libnvinfer10=10.7.0.23-1+cuda12.6 \
+    libnvinfer-lean10=10.7.0.23-1+cuda12.6 \
+    libnvinfer-plugin10=10.7.0.23-1+cuda12.6 \
+    libnvinfer-vc-plugin10=10.7.0.23-1+cuda12.6 \
+    libnvinfer-dispatch10=10.7.0.23-1+cuda12.6 \
+    libnvonnxparsers10=10.7.0.23-1+cuda12.6 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install h5py fast_simplification gdown "tensorrt-cu12==10.7.0.post1"
 
 COPY v2d_foundation_pose/lib/FoundationPose/mycpp /workspace/v2d_foundation_pose/lib/FoundationPose/mycpp
 COPY v2d_foundation_pose/lib/FoundationPose/bundlesdf/mycuda /workspace/v2d_foundation_pose/lib/FoundationPose/bundlesdf/mycuda
@@ -86,7 +96,10 @@ RUN cd /workspace/v2d_foundation_pose/lib/FoundationPose/mycpp \
 RUN cd /workspace/v2d_foundation_pose/lib/FoundationPose/bundlesdf/mycuda && \
     TORCH_CUDA_ARCH_LIST="8.0 8.6 8.9 9.0" pip install -e .
 
-COPY . /workspace
+COPY v2d_common /workspace/v2d_common
+COPY v2d_mv /workspace/v2d_mv
+COPY v2d_mesh/lib /workspace/v2d_mesh/lib
+COPY v2d_foundation_pose/lib /workspace/v2d_foundation_pose/lib
 
 RUN pip install -e "/workspace/v2d_common[io]" \
     -e "/workspace/v2d_mv[math]" \

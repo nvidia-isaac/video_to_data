@@ -4,7 +4,7 @@
 
 Consumes the output of hamer's ``align_hands`` (real-only, post-alignment):
   aligned_dir/<track_id>/<frame:06d>.json
-with fields ``mano``, ``cam_t``, ``intrinsics``, ``image_size``, ``diagnostics``.
+with fields ``mano``, ``bbox``, ``camera.cam_t``, ``camera.intrinsics``, ``image_size``, ``diagnostics``.
 
 Why post-align (and not pre-align)?
   Interpolated frames are guesses — their MANO mesh may not match the image
@@ -130,9 +130,14 @@ def _interp_aligned_record(
         b1 = np.array(nxt ["mano"]["betas"], dtype=np.float64)
         betas = ((1 - t) * b0 + t * b1).tolist()
 
-    c0 = np.array(prev["cam_t"], dtype=np.float64)
-    c1 = np.array(nxt ["cam_t"], dtype=np.float64)
+    c0 = np.array(prev["camera"]["cam_t"], dtype=np.float64)
+    c1 = np.array(nxt ["camera"]["cam_t"], dtype=np.float64)
     cam_t = ((1 - t) * c0 + t * c1).tolist()
+
+    bb0 = prev["bbox"]
+    bb1 = nxt["bbox"]
+    bbox = {k: (1 - t) * float(bb0[k]) + t * float(bb1[k])
+            for k in ("x0", "y0", "x1", "y1")}
 
     # intrinsics + image_size are sequence-constant; pick either neighbour.
     # hand_scale is per-track (constant across frames within a track), so we
@@ -140,13 +145,16 @@ def _interp_aligned_record(
     out = {
         "is_right":   prev["is_right"],
         "image_size": prev.get("image_size") or nxt.get("image_size"),
-        "intrinsics": prev["intrinsics"],
+        "bbox":       bbox,
         "mano": {
             "betas":         betas,
             "global_orient": global_orient,
             "hand_pose":     hand_pose,
         },
-        "cam_t":      cam_t,
+        "camera": {
+            "cam_t":      cam_t,
+            "intrinsics": prev["camera"]["intrinsics"],
+        },
         # Marker diagnostics so the schema stays uniform with align_hands
         # output. Downstream code should look at `interpolated` to know.
         "diagnostics": {
@@ -196,8 +204,9 @@ def _wrist_u(rec: dict) -> float | None:
     in the left half of the image is more likely a left hand and vice versa.
     Returns None when intrinsics or cam_t is missing or malformed.
     """
-    intr  = rec.get("intrinsics")
-    cam_t = rec.get("cam_t")
+    camera = rec.get("camera", {})
+    intr  = camera.get("intrinsics")
+    cam_t = camera.get("cam_t")
     if intr is None or cam_t is None:
         return None
     try:

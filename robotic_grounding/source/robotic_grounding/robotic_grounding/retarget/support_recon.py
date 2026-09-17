@@ -25,6 +25,7 @@ from scipy.spatial.transform import Rotation
 
 from robotic_grounding.assets import ASSET_DIR
 from robotic_grounding.motion_schema import load_motion_data_parquet
+from robotic_grounding.retarget import HUMAN_MOTION_DATA_DIR
 from robotic_grounding.retarget.data_logger import ManoSharpaData
 
 # ---------------------------------------------------------------------------
@@ -63,7 +64,9 @@ def _resolve_local_mesh_path(
        ``object_assets`` segment under it. Matching on the path *component*
        (not a substring) keeps this correct whether the stored path is
        absolute or later becomes relative.
-    2. Otherwise re-root the ``assets/meshes/`` suffix under the repo's
+    2. Re-root paths from a loader's ``/data/human_motion_data`` mount under
+       this process's ``HUMAN_MOTION_DATA_DIR``.
+    3. Otherwise re-root the ``assets/meshes/`` suffix under the repo's
        ``ASSET_DIR/meshes/`` (for meshes bundled in the checkout).
     """
     if not path:
@@ -77,6 +80,12 @@ def _resolve_local_mesh_path(
             candidate = Path(object_assets_root).joinpath(*parts[idx:])
             if candidate.exists():
                 return str(candidate)
+    parts = Path(path).parts
+    if "human_motion_data" in parts:
+        idx = parts.index("human_motion_data")
+        candidate = HUMAN_MOTION_DATA_DIR.joinpath(*parts[idx + 1 :])
+        if candidate.exists():
+            return str(candidate)
     if "assets/meshes/" not in path:
         return None
     suffix = path.rsplit("assets/meshes/", maxsplit=1)[-1]
@@ -114,27 +123,68 @@ def _load_object_meshes_from_paths(
     return meshes
 
 
-def _detect_parquet_schema(input_dir: Path) -> str:
-    """Return ``"motion_v1"`` or ``"mano_sharpa"`` for a parquet dataset."""
-    first = next(Path(input_dir).rglob("*.parquet"), None)
+def _resolve_parquet_partition(
+    input_dir: Path, sequence_id: str, robot_name: str | None
+) -> Path:
+    """Resolve one sequence/embodiment partition without selecting a sibling."""
+    sequence_dir = Path(input_dir) / f"sequence_id={sequence_id}"
+    if robot_name is not None:
+        partition = sequence_dir / f"robot_name={robot_name}"
+        if partition.is_dir():
+            return partition
+        available = sorted(p.name for p in sequence_dir.glob("robot_name=*"))
+        raise FileNotFoundError(
+            f"No robot_name={robot_name} partition under {sequence_dir}; "
+            f"available: {available or 'none'}"
+        )
+
+    partitions = sorted(sequence_dir.glob("robot_name=*"))
+    if not partitions:
+        raise FileNotFoundError(f"No robot_name=* partition under {sequence_dir}")
+    if len(partitions) > 1:
+        raise ValueError(
+            f"{sequence_id} has {len(partitions)} embodiments "
+            f"({', '.join(p.name for p in partitions)}); pass robot_name to "
+            "choose one. Their placement worlds differ, so the support surface "
+            "must be built from the embodiment it will be loaded with."
+        )
+    return partitions[0]
+
+
+def _detect_parquet_schema(
+    input_dir: Path,
+    sequence_id: str | None = None,
+    robot_name: str | None = None,
+) -> str:
+    """Return the schema for the requested partition, or the dataset if unspecified."""
+    search_root = (
+        _resolve_parquet_partition(input_dir, sequence_id, robot_name)
+        if sequence_id is not None
+        else Path(input_dir)
+    )
+    first = next(search_root.rglob("*.parquet"), None)
     if first is None:
-        raise FileNotFoundError(f"No parquet files under {input_dir}")
+        raise FileNotFoundError(f"No parquet files under {search_root}")
     columns = set(pq.ParquetFile(str(first)).schema.names)
     if "schema_version" in columns:
         return "motion_v1"
     return "mano_sharpa"
 
 
-def _load_parquet_data(input_dir: Path, sequence_id: str, schema: str) -> Any:
-    """Load one sequence from Parquet using the appropriate data logger class."""
-    filters = [("sequence_id", "=", sequence_id)]
+def _load_parquet_data(
+    input_dir: Path, sequence_id: str, schema: str, robot_name: str | None = None
+) -> Any:
+    """Load one sequence from Parquet using the appropriate data logger class.
+
+    A sequence may be retargeted to several embodiments, whose placement worlds differ,
+    so ``robot_name`` selects the partition. It may be omitted only while the sequence
+    has exactly one — picking arbitrarily would silently build a support surface from
+    the wrong embodiment's trajectory.
+    """
+    partition = _resolve_parquet_partition(input_dir, sequence_id, robot_name)
     if schema == "motion_v1":
-        partition_dir = Path(input_dir) / f"sequence_id={sequence_id}"
-        inner = next(partition_dir.glob("robot_name=*"), None)
-        if inner is None:
-            raise FileNotFoundError(f"No robot_name=* partition under {partition_dir}")
-        return load_motion_data_parquet(str(inner))
-    return ManoSharpaData.from_parquet(str(input_dir), filters=filters)
+        return load_motion_data_parquet(str(partition))
+    return ManoSharpaData.from_parquet(str(partition))
 
 
 def load_object_mesh_and_poses(
@@ -142,6 +192,7 @@ def load_object_mesh_and_poses(
     sequence_id: str,
     schema: str | None = None,
     object_assets_root: Path | None = None,
+    robot_name: str | None = None,
 ) -> tuple[Any, dict[str, trimesh.Trimesh]]:
     """Load one sequence and its object meshes.
 
@@ -154,8 +205,8 @@ def load_object_mesh_and_poses(
         a ``trimesh.Trimesh``.
     """
     if schema is None:
-        schema = _detect_parquet_schema(input_dir)
-    data = _load_parquet_data(input_dir, sequence_id, schema)
+        schema = _detect_parquet_schema(input_dir, sequence_id, robot_name)
+    data = _load_parquet_data(input_dir, sequence_id, schema, robot_name)
     object_mesh_paths = getattr(data, "object_mesh_paths", None) or []
     object_body_names = getattr(data, "object_body_names", None) or []
     if object_mesh_paths and len(object_mesh_paths) == len(object_body_names):
@@ -560,6 +611,7 @@ def reconstruct_support_for_sequence(
     require_hand_release: bool = False,
     hand_release_contact_threshold_m: float = HAND_RELEASE_CONTACT_THRESHOLD_M,
     object_assets_root: Path | None = None,
+    robot_name: str | None = None,
 ) -> None:
     """Detect still frames, compute support disks, and write a USD file.
 
@@ -583,11 +635,17 @@ def reconstruct_support_for_sequence(
         object_assets_root: When given, re-roots baked object mesh paths (e.g.
             the loader's ``/data/object_assets/...``) against the workspace
             dataset; otherwise the baked paths are used as-is.
+        robot_name: Which ``robot_name=`` partition to read. Required once a sequence
+            has more than one embodiment, whose placement worlds differ.
     """
     if schema is None:
-        schema = _detect_parquet_schema(input_dir)
+        schema = _detect_parquet_schema(input_dir, sequence_id, robot_name)
     data, object_meshes = load_object_mesh_and_poses(
-        input_dir, sequence_id, schema=schema, object_assets_root=object_assets_root
+        input_dir,
+        sequence_id,
+        schema=schema,
+        object_assets_root=object_assets_root,
+        robot_name=robot_name,
     )
 
     height_offset = _compute_height_offset(data, schema)
@@ -721,21 +779,26 @@ def reconstruct_support_for_sequence(
             )
             all_disks = {"support": consolidated}
 
+    default_output_dir = input_dir.parent / "reconstructed_stage"
+    default_output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_override or str(
+        default_output_dir / f"{sequence_id}_support.usda"
+    )
+
     if not all_disks:
         if not object_meshes:
             print(
                 "No support surface written: object meshes did not load "
                 "(object_mesh_paths did not resolve against the workspace)."
             )
-        else:
-            print("No support disks needed (object on ground or always held).")
+            return
+        write_support_surfaces_usd({}, output_path)
+        print(
+            "No support disks needed (object on ground or always held); "
+            f"wrote an empty support stage to {output_path}"
+        )
         return
 
     total = sum(len(v) for v in all_disks.values())
-    default_output_dir = input_dir.parent / "reconstructed_stage"
-    default_output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_override or str(
-        default_output_dir / f"{sequence_id}_support.usda"
-    )
     write_support_surfaces_usd(all_disks, output_path)
     print(f"Wrote {total} support surface(s) to {output_path}")

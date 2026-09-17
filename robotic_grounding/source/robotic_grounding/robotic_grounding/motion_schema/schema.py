@@ -23,10 +23,13 @@ Design notes:
 
 from __future__ import annotations
 
+import math
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
 
 import pyarrow as pa
+import torch
 
 SCHEMA_VERSION: str = "motion_v1"
 """Current schema version. Bumped on breaking changes."""
@@ -153,6 +156,13 @@ COMMON_REQUIRED_FIELDS: tuple[str, ...] = (
     "fps",
     "ee_link_names",
     "ee_pose_w",
+)
+
+
+# Core fields that make an object reference usable. They remain mandatory for
+# dual-hand motions, while single-robot motions may omit the entire group for
+# robot-only reference tracking.
+OBJECT_REFERENCE_REQUIRED_FIELDS: tuple[str, ...] = (
     "object_body_names",
     "object_body_position",
     "object_body_wxyz",
@@ -198,6 +208,7 @@ REQUIRED_TRAINING_FIELDS: tuple[str, ...] = tuple(
         COMMON_REQUIRED_FIELDS
         + SINGLE_ROBOT_REQUIRED_FIELDS
         + DUAL_HAND_REQUIRED_FIELDS
+        + OBJECT_REFERENCE_REQUIRED_FIELDS
     )
 )
 
@@ -236,7 +247,11 @@ def required_fields_for(motion_kind: str) -> tuple[str, ...]:
     if motion_kind == SINGLE_ROBOT:
         return COMMON_REQUIRED_FIELDS + SINGLE_ROBOT_REQUIRED_FIELDS
     if motion_kind == DUAL_HAND:
-        return COMMON_REQUIRED_FIELDS + DUAL_HAND_REQUIRED_FIELDS
+        return (
+            COMMON_REQUIRED_FIELDS
+            + DUAL_HAND_REQUIRED_FIELDS
+            + OBJECT_REFERENCE_REQUIRED_FIELDS
+        )
     raise ValueError(
         f"Unknown motion_kind={motion_kind!r}. Expected one of {sorted(KNOWN_MOTION_KINDS)}."
     )
@@ -434,6 +449,61 @@ class MotionData:
         "hand_contact_active",
     )
 
+    _LINEAR_TENSOR_FIELDS = (
+        "robot_root_position",
+        "robot_joint_positions",
+        "ee_pos_w",
+        "object_articulation",
+        "object_root_axis_angle",
+        "object_root_position",
+        "object_body_position",
+        "object_pos_w",
+        "left_wrist_position",
+        "right_wrist_position",
+        "left_finger_joints",
+        "right_finger_joints",
+        "frame_task_errors",
+        "ik_error_per_frame",
+    )
+    _QUATERNION_TENSOR_FIELDS = (
+        "robot_root_wxyz",
+        "ee_quat_w",
+        "object_body_wxyz",
+        "object_quat_w",
+        "left_wrist_wxyz",
+        "right_wrist_wxyz",
+    )
+    _POSE_TENSOR_FIELDS = ("ee_pose_w", "left_hand_frames", "right_hand_frames")
+    _CONTACT_TENSOR_FIELDS = (
+        "left_link_contact_positions",
+        "left_object_contact_positions",
+        "right_link_contact_positions",
+        "right_object_contact_positions",
+        "left_link_contact_normals",
+        "left_object_contact_normals",
+        "right_link_contact_normals",
+        "right_object_contact_normals",
+    )
+    _NEAREST_TENSOR_FIELDS = (
+        "left_object_contact_part_ids",
+        "right_object_contact_part_ids",
+        "left_hand_contact_active",
+        "right_hand_contact_active",
+        "ik_num_iterations",
+    )
+    _LINEAR_TENSOR_LIST_FIELDS = ("hand_finger_joints",)
+    _POSE_TENSOR_LIST_FIELDS = ("hand_frames_w",)
+    _CONTACT_TENSOR_LIST_FIELDS = (
+        "hand_link_contact_positions",
+        "hand_link_contact_normals",
+        "hand_object_contact_positions",
+        "hand_object_contact_normals",
+    )
+    _NEAREST_TENSOR_LIST_FIELDS = (
+        "hand_object_contact_part_ids",
+        "hand_contact_active",
+    )
+
     def num_frames(self) -> int:
         """Return motion length T inferred from a required time-axis field."""
         ref = self.robot_root_position
@@ -491,6 +561,188 @@ class MotionData:
             if not value:
                 continue
             updates[name] = [None if v is None else v[start_frame:end] for v in value]
+        return replace(self, **updates)
+
+    def resample(self, target_fps: float) -> "MotionData":
+        """Return a uniformly resampled copy at ``target_fps``.
+
+        Continuous positions and joint values use linear interpolation,
+        quaternions use shortest-path spherical interpolation, and pose-7
+        tensors apply those rules to their position and quaternion components.
+        Contact positions and normals are interpolated only while both
+        bracketing samples contain a non-zero contact vector. Discrete contact
+        activity, part IDs, and iteration counts use nearest-neighbor sampling.
+
+        The output grid has an exact period of ``1 / target_fps`` and never
+        extends past the last source sample. It may therefore omit a final
+        source-time remainder shorter than one output period.
+
+        Args:
+            target_fps: Sampling rate for the returned motion. Must be positive.
+
+        Returns:
+            A copy with every populated time-axis field resampled consistently
+            and :attr:`fps` set to ``target_fps``.
+
+        Raises:
+            ValueError: If either FPS is invalid or a populated time-axis field
+                is not aligned with the motion's frame count.
+        """
+        if not math.isfinite(target_fps) or target_fps <= 0.0:
+            raise ValueError(
+                f"target_fps must be positive and finite, got {target_fps}."
+            )
+        if not math.isfinite(self.fps) or self.fps <= 0.0:
+            raise ValueError(
+                f"MotionData.fps must be positive and finite, got {self.fps}."
+            )
+        if math.isclose(self.fps, target_fps, rel_tol=1e-6, abs_tol=1e-6):
+            return self
+
+        source_frames = self.num_frames()
+        if source_frames == 0:
+            raise ValueError("Cannot resample MotionData with no time-axis tensors.")
+        if source_frames == 1:
+            return replace(self, fps=float(target_fps))
+
+        duration_s = (source_frames - 1) / self.fps
+        target_frames = max(1, math.floor(duration_s * target_fps + 1e-9) + 1)
+
+        reference = self.robot_root_position
+        if not isinstance(reference, torch.Tensor):
+            reference = torch.as_tensor(reference)
+        source_positions = (
+            torch.arange(target_frames, device=reference.device, dtype=torch.float64)
+            * (self.fps / target_fps)
+        ).clamp(max=source_frames - 1)
+        lower = source_positions.floor().to(dtype=torch.long)
+        upper = (lower + 1).clamp(max=source_frames - 1)
+        alpha = source_positions - lower
+
+        def aligned_tensor(value: Any, name: str) -> torch.Tensor:
+            tensor = (
+                value if isinstance(value, torch.Tensor) else torch.as_tensor(value)
+            )
+            if tensor.shape[0] != source_frames:
+                raise ValueError(
+                    f"MotionData.{name} has {tensor.shape[0]} frames; expected "
+                    f"{source_frames} from robot_root_position."
+                )
+            return tensor
+
+        def broadcast_alpha(tensor: torch.Tensor) -> torch.Tensor:
+            return alpha.to(device=tensor.device, dtype=tensor.dtype).reshape(
+                target_frames, *([1] * (tensor.ndim - 1))
+            )
+
+        def linear(value: Any, name: str) -> torch.Tensor:
+            tensor = aligned_tensor(value, name)
+            lo = lower.to(tensor.device)
+            hi = upper.to(tensor.device)
+            weight = broadcast_alpha(tensor)
+            return torch.lerp(tensor[lo], tensor[hi], weight)
+
+        def nearest(value: Any, name: str) -> torch.Tensor:
+            tensor = aligned_tensor(value, name)
+            indices = torch.floor(source_positions + 0.5).to(dtype=torch.long)
+            return tensor[indices.clamp(max=source_frames - 1).to(tensor.device)]
+
+        def quaternion(value: Any, name: str) -> torch.Tensor:
+            tensor = aligned_tensor(value, name)
+            if tensor.shape[-1] != 4:
+                raise ValueError(
+                    f"MotionData.{name} must end in quaternion dimension 4, got "
+                    f"shape {tuple(tensor.shape)}."
+                )
+            lo = lower.to(tensor.device)
+            hi = upper.to(tensor.device)
+            q0 = torch.nn.functional.normalize(tensor[lo], dim=-1)
+            q1 = torch.nn.functional.normalize(tensor[hi], dim=-1)
+            dot = (q0 * q1).sum(dim=-1, keepdim=True)
+            q1 = torch.where(dot < 0.0, -q1, q1)
+            dot = dot.abs().clamp(max=1.0)
+            weight = broadcast_alpha(tensor)
+
+            theta = torch.acos(dot)
+            sin_theta = torch.sin(theta)
+            spherical = (
+                torch.sin((1.0 - weight) * theta) / sin_theta.clamp_min(1e-8) * q0
+                + torch.sin(weight * theta) / sin_theta.clamp_min(1e-8) * q1
+            )
+            lerped = torch.lerp(q0, q1, weight)
+            result = torch.where(dot > 0.9995, lerped, spherical)
+            return torch.nn.functional.normalize(result, dim=-1)
+
+        def pose(value: Any, name: str) -> torch.Tensor:
+            tensor = aligned_tensor(value, name)
+            if tensor.shape[-1] != 7:
+                raise ValueError(
+                    f"MotionData.{name} must end in pose dimension 7, got "
+                    f"shape {tuple(tensor.shape)}."
+                )
+            return torch.cat(
+                [
+                    linear(tensor[..., :3], f"{name}[..., :3]"),
+                    quaternion(tensor[..., 3:], f"{name}[..., 3:]"),
+                ],
+                dim=-1,
+            )
+
+        def contact(value: Any, name: str) -> torch.Tensor:
+            tensor = aligned_tensor(value, name)
+            if tensor.shape[-1] != 3:
+                raise ValueError(
+                    f"MotionData.{name} must end in contact-vector dimension 3, got "
+                    f"shape {tuple(tensor.shape)}."
+                )
+            lo = lower.to(tensor.device)
+            hi = upper.to(tensor.device)
+            interpolated = linear(tensor, name)
+            both_valid = (torch.linalg.vector_norm(tensor[lo], dim=-1) > 1e-8) & (
+                torch.linalg.vector_norm(tensor[hi], dim=-1) > 1e-8
+            )
+            exact_source = alpha.to(tensor.device) <= 1e-8
+            exact_source = exact_source.reshape(
+                target_frames, *([1] * (both_valid.ndim - 1))
+            )
+            keep = both_valid | exact_source
+            return torch.where(
+                keep.unsqueeze(-1), interpolated, torch.zeros_like(interpolated)
+            )
+
+        updates: dict[str, Any] = {"fps": float(target_fps)}
+        strategies: tuple[
+            tuple[tuple[str, ...], Callable[[Any, str], torch.Tensor]], ...
+        ] = (
+            (self._LINEAR_TENSOR_FIELDS, linear),
+            (self._QUATERNION_TENSOR_FIELDS, quaternion),
+            (self._POSE_TENSOR_FIELDS, pose),
+            (self._CONTACT_TENSOR_FIELDS, contact),
+            (self._NEAREST_TENSOR_FIELDS, nearest),
+        )
+        for names, strategy in strategies:
+            for name in names:
+                value = getattr(self, name)
+                if value is not None:
+                    updates[name] = strategy(value, name)
+
+        list_strategies: tuple[
+            tuple[tuple[str, ...], Callable[[Any, str], torch.Tensor]], ...
+        ] = (
+            (self._LINEAR_TENSOR_LIST_FIELDS, linear),
+            (self._POSE_TENSOR_LIST_FIELDS, pose),
+            (self._CONTACT_TENSOR_LIST_FIELDS, contact),
+            (self._NEAREST_TENSOR_LIST_FIELDS, nearest),
+        )
+        for names, strategy in list_strategies:
+            for name in names:
+                values = getattr(self, name)
+                if values:
+                    updates[name] = [
+                        None if value is None else strategy(value, f"{name}[{index}]")
+                        for index, value in enumerate(values)
+                    ]
+
         return replace(self, **updates)
 
 

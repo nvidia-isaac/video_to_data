@@ -1,0 +1,161 @@
+# MV HOI Preprocess OSMO Workflow with required calibration and mesh inputs.
+#
+# Usage:
+#   osmo workflow submit reconstruction/workflows/mv_hoi/osmo/mv_preprocess.yaml \
+#     --set rosbag_url=swift://... \
+#     --set calibration_url=swift://.../calibrate_extrinsics \
+#     --set mesh_url=swift://.../<object>/<method> \
+#     --set weights_base_url=swift://.../multiview_weights/releases/<release> \
+#     --set swift_output_base=swift://.../<dataset>/data_output/<seq> \
+#     --pool <pool>
+
+workflow:
+  name: {{workflow_name}}
+  resources:
+    cpu_large:
+      cpu: 32
+      gpu: 0
+      memory: 64Gi
+      storage: 100Gi
+
+  tasks:
+
+  - name: rosbag_to_edex
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_rosbag:{{image_tag}}
+    resource: cpu_large
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - url: {{rosbag_url}}
+    outputs:
+    - url: {{swift_output_base}}/rosbag_to_edex/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        python -m v2d.rosbag.lib.rosbag_to_edex \
+          --config_path /tmp/rosbag_config.yaml \
+          --rosbag_path {{input:0}} \
+          --output_path {{output}} \
+          --no_extrinsics
+        if [ -f "{{input:0}}/hoi_metadata.yaml" ]; then
+          cp "{{input:0}}/hoi_metadata.yaml" "{{output}}/hoi_metadata.yaml"
+        fi
+    - path: /tmp/rosbag_config.yaml
+      contents: |-
+        camera_info_topics:
+          - /front_stereo_camera/left/camera_info
+          - /front_stereo_camera/right/camera_info
+          - /back_stereo_camera/left/camera_info
+          - /back_stereo_camera/right/camera_info
+          - /left_stereo_camera/left/camera_info
+          - /left_stereo_camera/right/camera_info
+          - /right_stereo_camera/left/camera_info
+          - /right_stereo_camera/right/camera_info
+        image_topics:
+          - /front_stereo_camera/left/image_compressed
+          - /front_stereo_camera/right/image_compressed
+          - /back_stereo_camera/left/image_compressed
+          - /back_stereo_camera/right/image_compressed
+          - /left_stereo_camera/left/image_compressed
+          - /left_stereo_camera/right/image_compressed
+          - /right_stereo_camera/left/image_compressed
+          - /right_stereo_camera/right/image_compressed
+        rig_frame: base_link
+        imu_frame: front_stereo_camera_imu
+        output_width: 1920
+        output_height: 1200
+        pack_h5: true
+        remove_pngs_after_pack: true
+
+  - name: mv_preprocess
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_preprocess:{{image_tag}}
+    resource: cpu_large
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: rosbag_to_edex
+    - url: {{calibration_url}}
+    - url: {{mesh_url}}
+    outputs:
+    - url: {{swift_output_base}}/mv_preprocess/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+
+        EXTRA_ARGS=()
+        if [ -f "{{input:0}}/hoi_metadata.yaml" ]; then
+          EXTRA_ARGS+=(--hoi_metadata_path "{{input:0}}/hoi_metadata.yaml")
+        else
+          echo "No hoi_metadata.yaml found; skipping metadata/prompt forwarding"
+        fi
+
+        CALIBRATION_PARAMS={{input:1}}/edex
+        if [ ! -f "$CALIBRATION_PARAMS" ]; then
+          echo "ERROR: calibration_url was provided but $CALIBRATION_PARAMS was not found"
+          ls -laR {{input:1}} || true
+          exit 1
+        fi
+        echo "Using calibration parameters: $CALIBRATION_PARAMS"
+        EXTRA_ARGS+=(--calibration_camera_params_path "$CALIBRATION_PARAMS")
+
+        MESH={{input:2}}/output_aligned.glb
+        if [ ! -f "$MESH" ]; then
+          echo "ERROR: mesh_url was provided but $MESH was not found"
+          ls -laR {{input:2}} || true
+          exit 1
+        fi
+        echo "Using mesh: $MESH"
+        EXTRA_ARGS+=(--mesh_path "$MESH")
+
+        python -m v2d.mv.preprocess.lib.mv_preprocess \
+          --rgb_dir {{input:0}}/images \
+          --output_dir {{output}} \
+          --camera_params_path {{input:0}}/edex \
+          --config_path /tmp/preprocess_config.yaml \
+          "${EXTRA_ARGS[@]}"
+    - path: /tmp/preprocess_config.yaml
+      contents: |-
+        input_suffix: ".h5"
+        output_image_path_template: "${output_dir}/images/{cam_name}.h5"
+
+  - name: face_detector
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_face_detector:{{image_tag}}
+    resource: cpu_large
+    command: [/bin/bash]
+    args: [/tmp/entry.sh]
+    inputs:
+    - task: mv_preprocess
+    - url: {{weights_base_url}}/face_detector/
+    outputs:
+    - url: {{swift_output_base}}/face_detector/
+    files:
+    - path: /tmp/entry.sh
+      contents: |-
+        set -ex
+        MODEL_DIR={{input:1}}
+        if [ ! -f "$MODEL_DIR/face_detection_yunet_2023mar.onnx" ]; then
+          echo "ERROR: YuNet model not found under: $MODEL_DIR"
+          exit 1
+        fi
+        python -m v2d.face_detector.lib.mv_detect_and_blur_faces \
+          --rgb_dir {{input:0}}/images \
+          --model_dir "$MODEL_DIR" \
+          --output_dir {{output}} \
+          --config_path /tmp/face_detector_config.yaml
+    - path: /tmp/face_detector_config.yaml
+      contents: |-
+        camera_workers: 8
+        opencv_threads: 1
+        rgb_path_template: "${rgb_dir}/{cam_name}.h5"
+        output_image_path_template: "${output_dir}/images/{cam_name}.h5"
+
+default-values:
+  workflow_name: v2d_mv_preprocess
+  image_tag: latest
+  rosbag_url: ???
+  calibration_url: ???
+  mesh_url: ???
+  weights_base_url: ???
+  swift_output_base: ???

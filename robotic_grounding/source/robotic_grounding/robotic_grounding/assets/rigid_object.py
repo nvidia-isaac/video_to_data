@@ -16,6 +16,10 @@ RIGID_OBJECT_CFG = RigidObjectCfg(
         asset_path=f"{ASSET_DIR}/urdfs/{object_name}.urdf",
         activate_contact_sensors=True,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+            # Match the robot and articulated-object configs; faster than PhysX's
+            # default with no loss of grasp stability.
+            solver_position_iteration_count=8,
+            solver_velocity_iteration_count=0,
             disable_gravity=False,
             retain_accelerations=False,
             enable_gyroscopic_forces=False,
@@ -49,6 +53,10 @@ RIGID_OBJECT_NO_COLLISION_CFG = RigidObjectCfg(
         asset_path=f"{ASSET_DIR}/urdfs/{object_no_collision_name}.urdf",
         activate_contact_sensors=True,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+            # Match the robot and articulated-object configs; faster than PhysX's
+            # default with no loss of grasp stability.
+            solver_position_iteration_count=8,
+            solver_velocity_iteration_count=0,
             disable_gravity=False,
             retain_accelerations=False,
             enable_gyroscopic_forces=False,

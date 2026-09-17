@@ -40,7 +40,7 @@ All commands below run from `reconstruction/`.
 ## 4. Download Model Weights
 
 ```bash
-./scripts/download_ego_reconstruction_weights.sh
+./scripts/download_ego_reconstruction_weights.sh --accept-nvidia-model-eula
 ```
 
 The downloader supports narrower modes if you do not want every optional model:
@@ -55,8 +55,7 @@ SAM3D requires a Hugging Face token for gated model access. Either set `HF_TOKEN
 in your environment or log in with `huggingface-cli login` before downloading or
 running SAM3D.
 
-MANO assets are licensed separately and still manual. Download
-`MANO_RIGHT.pkl` from https://mano.is.tue.mpg.de/ and place it here:
+DynHaMR/MANO assets are still manual. Place them here:
 
 ```text
 data/weights/hand/
@@ -66,10 +65,7 @@ data/weights/hand/
     └── *.npy
 ```
 
-This is the canonical source for both hand-tracking paths. The HaMeR pipeline
-automatically copies it into its container-visible `models/` layout before the
-run; do not manually place files under `data/weights/hamer/_DATA/data/mano/`.
-DynHaMR additionally requires its `BMC/*.npy` files.
+The same MANO layout is used by DynHaMR hand reconstruction and hand alignment.
 
 ## 5. Get The Sample Video
 

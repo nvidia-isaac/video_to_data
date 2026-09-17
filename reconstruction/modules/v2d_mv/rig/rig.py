@@ -140,6 +140,48 @@ class RigConfig:
                     ext_param = edex_camera_to_param(edex.header.cameras[cam_id])
                     entry.param.T = ext_param.T
 
+    def merge_intrinsics(self, calibration_path: str | Path) -> None:
+        """Merge ``K`` and ``P`` from another camera params file.
+
+        Other intrinsic fields (including distortion, resolution, and
+        rectification) and all extrinsic transforms remain unchanged.
+        """
+        path = Path(calibration_path)
+        fmt = self._detect_format(path)
+
+        if fmt == "edex":
+            edex = EDEXMetadata.read(path)
+            missing_params = [
+                cam_id for cam_id, entry in self.cameras.items()
+                if entry.param is None
+            ]
+            missing_cameras = [
+                cam_id for cam_id in self.cameras
+                if cam_id >= len(edex.header.cameras)
+            ]
+            if missing_params or missing_cameras:
+                details = []
+                if missing_params:
+                    details.append(
+                        f"rig cameras without loaded params: {missing_params}"
+                    )
+                if missing_cameras:
+                    details.append(
+                        f"camera IDs missing from calibration EDEX: {missing_cameras}"
+                    )
+                raise ValueError(
+                    "Cannot merge calibration intrinsics: " + "; ".join(details)
+                )
+
+            for cam_id, entry in self.cameras.items():
+                calibration_param = edex_camera_to_param(edex.header.cameras[cam_id])
+                entry.param.K = calibration_param.K.copy()
+                entry.param.P = (
+                    None
+                    if calibration_param.P is None
+                    else calibration_param.P.copy()
+                )
+
     def save_camera_params(
         self,
         source_path: str | Path,

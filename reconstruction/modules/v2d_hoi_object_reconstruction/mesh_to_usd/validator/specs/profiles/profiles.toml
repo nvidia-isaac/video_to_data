@@ -1,0 +1,5 @@
+[V2D-HOI-Rigid-Object]
+"1.0.0" = {features = [
+  {V2D_HOI_USD_BASE = {version = "1.0.0"}},
+  {V2D_HOI_RIGID_BODY = {version = "1.0.0"}},
+]}

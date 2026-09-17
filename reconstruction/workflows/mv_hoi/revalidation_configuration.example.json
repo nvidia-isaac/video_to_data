@@ -1,0 +1,55 @@
+{
+  "schema": "v2d.mv_hoi.revalidation_configuration.v1",
+  "foundation_pose": {
+    "backend": "nvidia_tensorrt",
+    "checkpoint_registry": "nvidia/tao/foundationpose",
+    "checkpoint_release": "deployable_v1.0",
+    "checkpoint_manifest_sha256": "c7296e93bf9ab2fa9717f6581a89413604d71c94805d111890b304ea97568d0e",
+    "continuous_symmetry_step_deg": 10.0
+  },
+  "accuracy_segments": {
+    "min_silhouette_mask_pixels": 10,
+    "min_silhouette_bbox_component_pixels": 3,
+    "min_silhouette_bbox_component_fraction_of_largest": 0.001,
+    "silhouette_render_bbox_padding_pixels": 8,
+    "silhouette_render_bbox_padding_fraction": 0.1,
+    "min_silhouette_bbox_containment": 0.8,
+    "max_chamfer_object_mm": 40.0,
+    "max_chamfer_human_mm": 40.0,
+    "max_chamfer_segment_object_mm": 50.0,
+    "max_chamfer_segment_human_mm": 50.0,
+    "min_failure_run_frames": 5,
+    "max_silhouette_failure_coverage": 0.5
+  },
+  "interaction_trim": {
+    "enabled": true,
+    "distance_threshold_m": 0.1,
+    "pre_contact_padding_seconds": 3.0,
+    "post_contact_padding_seconds": 3.0,
+    "window_frames": 7,
+    "required_under_threshold_frames": 5,
+    "no_contact_policy": "keep_full"
+  },
+  "pose_comparison_tolerances": {
+    "translation_m": {
+      "median_max": 0.035,
+      "p95_max": 0.08
+    },
+    "rotation_deg": {
+      "median_max": 15.0,
+      "p95_max": 45.0
+    },
+    "normalized_adds": {
+      "median_max": 0.1,
+      "p95_max": 0.25
+    },
+    "valid_coverage_min": 0.95,
+    "newly_invalid_fraction_max": 0.02,
+    "divergent_frame_fraction": {
+      "max": 0.05,
+      "translation_m": 0.08,
+      "rotation_deg": 45.0,
+      "normalized_adds": 0.25
+    }
+  }
+}

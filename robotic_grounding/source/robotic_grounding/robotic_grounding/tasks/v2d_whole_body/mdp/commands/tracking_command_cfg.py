@@ -7,6 +7,7 @@ from isaaclab.markers import VisualizationMarkersCfg
 from isaaclab.markers.config import FRAME_MARKER_CFG
 from isaaclab.utils import configclass
 
+from .motion_tracking_command import MotionTrackingCommand
 from .tracking_command import TrackingCommand
 
 
@@ -55,7 +56,18 @@ class TrackingCommandCfg(CommandTermCfg):
 
     # Timing
     dt: float = 0.02
-    """Time step of the motion data (50 Hz = 0.02s)."""
+    """Command playback step.
+
+    This must equal the environment step (``sim.dt * decimation``). Source
+    motions are resampled to the corresponding playback rate.
+    """
+
+    motion_speed: float = 1.0
+    """Reference playback speed relative to real time.
+
+    ``1.0`` preserves the recorded duration, while values below one slow the
+    motion down (for example, ``0.5`` plays it at half speed).
+    """
 
     # Body tracking
     anchor_body_name: str = "pelvis"
@@ -79,6 +91,18 @@ class TrackingCommandCfg(CommandTermCfg):
     """Time step between future frames."""
 
     # Hand skeleton configuration
+    left_wrist_body_name: str = ""
+    """Left wrist/palm body name on the robot (e.g. 'L_arm_l7' for Vega).
+
+    Declare it when the robot's arm links do not carry a ``left``/``right`` token; the
+    fallback infers the side from the body name, which silently resolves to nothing on a
+    robot whose arms use ``L_``/``R_`` prefixes while its fingers use ``left_``/``right_``.
+    An unresolved wrist makes the wrist tracking error read a constant zero -- max reward,
+    no learning signal -- rather than raising."""
+
+    right_wrist_body_name: str = ""
+    """Right wrist/palm body name on the robot (e.g. 'R_arm_l7' for Vega)."""
+
     fingertip_body_name: str = ""
     """Regex for fingertip body names on the robot (e.g. '.*_DP' for Sharpa)."""
 
@@ -128,9 +152,6 @@ class TrackingCommandCfg(CommandTermCfg):
     reset_yaw_only: bool = False
     """Zero roll/pitch from root quaternion on reset, keeping only yaw."""
 
-    target_fps: float | None = None
-    """Resample V2D data to this FPS. If None, uses data as-is."""
-
     # Wrench computation
     num_wrench_space_basis_samples: int = 512
     """Number of basis samples for wrench space support function."""
@@ -164,4 +185,27 @@ class TrackingCommandCfg(CommandTermCfg):
     ``time_left = 1e6`` (≈ 11 days of sim time), so the time-based path
     cannot re-fire during any realistic ``episode_length_s``. Do not lower
     this without also overriding ``compute()``.
+    """
+
+
+@configclass
+class MotionTrackingCommandCfg(TrackingCommandCfg):
+    """Configuration for reference-only tracking over one or more motions."""
+
+    class_type: type = MotionTrackingCommand
+
+    uses_scene_objects: bool = False
+    """Whether scene application should spawn/control objects from motion metadata.
+
+    Free-space parquet files may still carry schema-compatibility placeholder
+    objects.  They are metadata only and must not add object assets or virtual
+    object-control actions to the environment.
+    """
+
+    motion_files: list[str] = []
+    """Motion parquet paths sampled uniformly per environment on every reset.
+
+    When empty, :attr:`motion_file` is used as a single-motion fallback.
+    All motions must describe the same robot joints, end effectors, and hand
+    frames, but they may have different trajectory lengths.
     """

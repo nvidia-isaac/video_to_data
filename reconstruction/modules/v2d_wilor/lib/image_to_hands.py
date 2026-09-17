@@ -13,7 +13,7 @@ JSON schema (list, possibly empty):
        "score":    float,
        "bbox":     {"x0":..,"y0":..,"x1":..,"y1":..},
        "mano":     {"betas":[10], "global_orient":[3], "hand_pose":[45]},
-       "camera":   {"pred_cam_t_full":[3], "scaled_focal_length": float},
+       "camera":   {"cam_t":[3], "focal_length": float},
        "image_size": [W, H]
     }]
 

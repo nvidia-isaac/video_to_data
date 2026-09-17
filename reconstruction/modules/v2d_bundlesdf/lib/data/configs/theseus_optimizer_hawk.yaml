@@ -3,7 +3,8 @@
 #
 # NOTE: camera_config.intrinsic, foundation_stereo.intrinsic, and foundation_stereo.baseline
 # are overridden at runtime from calibration.json (written by the prepare step).
-# The values here are fallback defaults used only when calibration.json is absent.
+# These defaults require the explicit --allow-default-hawk-intrinsics opt-in when
+# calibration.json is absent.
 
 data_path: ???
 workdir: ???

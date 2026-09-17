@@ -4,7 +4,7 @@
 
 Takes the per-frame per-track JSONs written by ``masks_to_hands`` and
 reconstructs the MANO mesh from the saved axis-angle params, projects it
-through the virtual pinhole at the saved ``scaled_focal_length`` (principal
+through the virtual pinhole at the saved ``camera.focal_length`` (principal
 point at image center), and alpha-blends the rendered silhouette onto
 the original frame.
 
@@ -92,7 +92,7 @@ def _build_mesh_for_record(rec: dict, mano: ManoLayer) -> Tuple[np.ndarray, np.n
     verts_local = out.verts[0].detach().numpy()  # (778, 3)
     if not rec["is_right"]:
         verts_local[:, 0] *= -1   # mirror left hand
-    cam_t = np.array(rec["camera"]["pred_cam_t_full"], dtype=np.float64)
+    cam_t = np.array(rec["camera"]["cam_t"], dtype=np.float64)
     verts_cam = verts_local + cam_t[None, :]
     faces = mano.th_faces.numpy()
     if not rec["is_right"]:
@@ -122,15 +122,15 @@ def render_hands_video(
     mano = _mano_layer(mano_assets_root)
 
     W, H = Image.open(frame_files[0]).size
-    # Use the first record's scaled_focal_length as the projection focal.
-    # All frames in a video share the same scaled_focal_length since it
+    # Use the first record's camera.focal_length as the projection focal.
+    # All frames in a video share the same camera.focal_length since it
     # depends only on (cfg.EXTRA.FOCAL_LENGTH, cfg.MODEL.IMAGE_SIZE, max(W,H)).
     first_rec = next(iter(records.values()))[0]
-    focal = first_rec["camera"]["scaled_focal_length"]
-    # HaMeR's virtual pinhole has scaled_focal_length ≈ 5000/256 * max(W,H),
+    focal = first_rec["camera"]["focal_length"]
+    # HaMeR's virtual pinhole has camera.focal_length ≈ 5000/256 * max(W,H),
     # which puts hands at metric "depth" of tens of meters. Use a far plane
     # that covers the actual range plus margin instead of the usual ~10 m.
-    z_max = max(rec["camera"]["pred_cam_t_full"][2]
+    z_max = max(rec["camera"]["cam_t"][2]
                 for recs in records.values() for rec in recs)
     zfar = max(50.0, float(z_max) * 1.5)
     cam = pyrender.IntrinsicsCamera(fx=focal, fy=focal, cx=W / 2, cy=H / 2,

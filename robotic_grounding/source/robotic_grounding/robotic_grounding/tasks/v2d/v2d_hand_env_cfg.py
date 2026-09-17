@@ -274,6 +274,19 @@ class RewardsCfg:
         },
     )
 
+    # Off by default: an alternative to contact_wrench_support_reward for references whose
+    # contact positions/normals are noisy (e.g. monocular ego reconstructions). Enable it
+    # and zero the three contact terms above -- including their fixed_timestep_curriculum
+    # rewards_* params, which otherwise overwrite the weights on schedule.
+    force_closure = RewTerm(
+        func=mdp.force_closure_reward,
+        weight=0.0,
+        params={
+            "command_name": "dual_hands_object_tracking_command",
+            "min_support": 0.01,
+        },
+    )
+
 
 @configclass
 class TerminationsCfg:

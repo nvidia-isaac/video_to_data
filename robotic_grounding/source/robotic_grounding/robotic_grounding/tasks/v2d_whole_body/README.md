@@ -53,13 +53,6 @@ The parquet uses the unified `motion_v1` schema (see `robotic_grounding.motion_s
 
 ## Running
 
-The example motion data under `assets/human_motion_data/whole_body/` ships with the repo via
-git-LFS. If the commands below fail with "git-LFS pointer" or a parquet read error, run
-`git lfs install && git lfs pull` in your checkout. If they fail with "Motion file not found",
-make sure the container was not started with `HUMAN_MOTION_DATA_DIR` pointing at a directory
-that lacks `whole_body/`, and that the container mounts the checkout you think it does
-(`docker inspect <container>` shows the mount source).
-
 ```bash
 # Training
 python scripts/rsl_rl/train.py --headless \
@@ -82,7 +75,7 @@ python scripts/rsl_rl/eval.py --headless \
 > checkpoint: train one or download the example checkpoints — see
 > [SETUP.md §10](../../../../../docs/SETUP.md#10-pretrained-rl-checkpoints-optional-eval-without-training).
 
-For the full ReconHand retarget → plan → two-stage training pipeline on the
+For the full ReconHand retarget → plan → three-stage training pipeline on the
 example sequences, see [`EXAMPLE_SEQUENCES.md`](EXAMPLE_SEQUENCES.md).
 
 ## Acknowledgement

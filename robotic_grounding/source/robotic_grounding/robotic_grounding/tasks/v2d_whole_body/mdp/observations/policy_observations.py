@@ -169,7 +169,12 @@ def command_trajectory_progress(
         Normalized trajectory progress (num_envs, 1)
     """
     command: TrackingCommand = env.command_manager.get_term(command_name)
-    trajectory_progress = command.timestep.float() / max(command.num_timesteps - 1, 1)
+    end_timestep = getattr(
+        command,
+        "trajectory_end_timestep",
+        torch.full_like(command.timestep, command.num_timesteps - 1),
+    )
+    trajectory_progress = command.timestep.float() / end_timestep.clamp(min=1).float()
     return trajectory_progress.unsqueeze(-1)
 
 

@@ -34,6 +34,19 @@ class CameraParam:
         return new_param
 
 
+def apply_focal_correction(param: CameraParam, factor: float) -> CameraParam:
+    """Apply a fixed focal correction to a camera parameter in place."""
+    factor = float(factor)
+    if not np.isfinite(factor) or factor <= 0:
+        raise ValueError(f"Focal correction factor must be finite and positive: {factor}")
+
+    param.K[:2, :2] *= factor
+    if param.P is not None:
+        param.P[:2, :2] *= factor
+        param.P[:2, 3] *= factor
+    return param
+
+
 def edex_camera_to_param(camera: Camera) -> CameraParam:
     """Convert an EDEX Camera to a CameraParam."""
     intrinsics = camera.intrinsics

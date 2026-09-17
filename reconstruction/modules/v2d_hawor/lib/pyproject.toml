@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "v2d-hawor-lib"
+version = "0.1.0"
+description = "HaWoR hand-track conversion for v2d"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "Pillow",
+    "opencv-python",
+    "torch",
+    "joblib",
+]
+
+[tool.setuptools]
+packages = ["v2d.hawor.lib"]
+
+[tool.setuptools.package-dir]
+"v2d.hawor.lib" = "."

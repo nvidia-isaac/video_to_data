@@ -18,6 +18,8 @@ def run_calibrate_extrinsics(
     step: int | None = None,
     num_workers: int | None = None,
     dev: bool = False,
+    use_marker_chessboard: bool = False,
+    calibration_setup: str | None = None,
 ) -> None:
     inputs = {
         "camera_params_path": camera_params_path,
@@ -38,6 +40,10 @@ def run_calibrate_extrinsics(
         extra_args["step"] = step
     if num_workers is not None:
         extra_args["num_workers"] = num_workers
+    if use_marker_chessboard:
+        extra_args["use_marker_chessboard"] = True
+    if calibration_setup is not None:
+        extra_args["calibration_setup"] = calibration_setup
 
     run_in_container(
         image=IMAGE_NAME,
@@ -47,7 +53,7 @@ def run_calibrate_extrinsics(
         extra_args=extra_args,
         dev=dev,
         modules_dir=MODULES_DIR,
-        gpus=True,
+        gpus=False,
     )
 
 
@@ -63,6 +69,8 @@ if __name__ == "__main__":
     parser.add_argument("--stop", type=int, default=None)
     parser.add_argument("--step", type=int, default=None)
     parser.add_argument("--num_workers", type=int, default=None)
+    parser.add_argument("--use_marker_chessboard", action="store_true")
+    parser.add_argument("--calibration_setup", type=str, default=None)
     parser.add_argument("--dev", action="store_true")
     args = parser.parse_args()
 
@@ -75,5 +83,7 @@ if __name__ == "__main__":
         stop=args.stop,
         step=args.step,
         num_workers=args.num_workers,
+        use_marker_chessboard=args.use_marker_chessboard,
+        calibration_setup=args.calibration_setup,
         dev=args.dev,
     )

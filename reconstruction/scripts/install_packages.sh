@@ -26,6 +26,7 @@ python -m pip install -e modules/v2d_common \
   -e modules/v2d_anycalib/docker \
   -e modules/v2d_geocalib/docker \
   -e modules/v2d_bundlesdf/docker \
+  -e modules/v2d_cari4d/docker \
   -e modules/v2d_cusfm/docker \
   -e modules/v2d_depth_anything/docker \
   -e modules/v2d_detectron2/docker \
@@ -33,6 +34,7 @@ python -m pip install -e modules/v2d_common \
   -e modules/v2d_ego_hand_reconstruction/docker \
   -e modules/v2d_foundation_pose/docker \
   -e modules/v2d_foundation_stereo/docker \
+  -e modules/v2d_face_detector/docker \
   -e modules/v2d_grounding_dino/docker \
   -e modules/v2d_gsplat_refinement/docker \
   -e modules/v2d_hamer/docker \

@@ -34,7 +34,6 @@ Usage:
 """
 
 import argparse
-import json
 import logging
 import sys
 import os
@@ -49,6 +48,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from nvidia.objectreconstruction.networks import NVBundleSDF
 from nvidia.objectreconstruction.dataloader import ReconstructionDataLoader
 
+from v2d_bundlesdf.lib.calibration import intrinsic_matrix, load_required_calibration
 from v2d_bundlesdf.lib.config_resolver import dump_resolved_config, resolve_bundlesdf_config
 from v2d_bundlesdf.lib.export_glb import export_textured_obj_to_glb
 
@@ -246,6 +246,14 @@ def main():
                         help="Camera poses YAML file (default: <output_path>/keyframes.yml)")
     parser.add_argument("--intrinsics_file", default=None,
                         help="Camera intrinsics JSON file (default: <output_path>/calibration.json)")
+    parser.add_argument(
+        "--allow-default-hawk-intrinsics",
+        action="store_true",
+        help=(
+            "Explicitly use the embedded 1920x1200 Hawk calibration when no "
+            "dataset calibration exists"
+        ),
+    )
     parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args()
 
@@ -299,17 +307,22 @@ def main():
             auto_tune_cfg.setdefault('mesh_resolution', {})['enabled'] = False
             logger.info("Manual override: nerf.mesh_resolution=%.4fm", args.mesh_resolution)
 
-        calibration_path = output_path / "calibration.json"
-        if not calibration_path.exists():
-            calibration_path = output_path.parent / "calibration.json"
-        if calibration_path.exists():
-            with open(calibration_path) as f:
-                cal = json.load(f)
-            intrinsic_flat = [cal['fx'], 0, cal['cx'], 0, cal['fy'], cal['cy'], 0, 0, 1]
+        calibration_result = load_required_calibration(
+            output_path,
+            allow_default_hawk_intrinsics=args.allow_default_hawk_intrinsics,
+        )
+        if calibration_result is not None:
+            calibration_path, cal = calibration_result
+            intrinsic_flat = intrinsic_matrix(cal)
             config['camera_config']['intrinsic']     = intrinsic_flat
             config['foundation_stereo']['intrinsic'] = intrinsic_flat
             config['foundation_stereo']['baseline']  = cal['baseline']
             logger.info(f"Loaded intrinsics from {calibration_path}")
+        else:
+            logger.warning(
+                "No dataset calibration found; explicitly using embedded "
+                "1920x1200 Hawk intrinsics"
+            )
 
         config['workdir'] = output_path
         config['bundletrack']['debug_dir'] = output_path / "bundletrack"

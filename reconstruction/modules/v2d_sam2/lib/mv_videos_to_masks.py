@@ -10,8 +10,10 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from PIL import Image, ImageDraw
 
 from v2d.common.datatypes import BoundingBox
+from v2d.common.video import FrameSource
 from v2d.mv.rig import RigConfig
 
 from .datatypes import Sam2Prompt, Sam2Prompts
@@ -98,6 +100,85 @@ def load_bbox_prompts(bbox_path: str | Path) -> Sam2Prompts:
         raise ValueError(f"Unsupported bbox format: {bbox_path.suffix} (expected .pt or .json)")
 
 
+def load_bbox_prompt_label(bbox_path: str | Path) -> str:
+    """Return the label associated with the bbox selected as the SAM2 prompt."""
+    bbox_path = Path(bbox_path)
+    if bbox_path.suffix == ".pt":
+        data = torch.load(bbox_path, weights_only=False)
+        category_id = int(data.get("det_cat_id", 0))
+        return "person" if category_id == 0 else f"class {category_id}"
+    if bbox_path.suffix == ".json":
+        with open(bbox_path) as f:
+            results: dict[str, list[dict]] = json.load(f)
+        detections = [det for frame_detections in results.values() for det in frame_detections]
+        if not detections:
+            raise ValueError(f"No detections found in {bbox_path}")
+        best_detection = max(detections, key=lambda det: det.get("confidence", 0.0))
+        return str(best_detection.get("label", "object"))
+    raise ValueError(
+        f"Unsupported bbox format: {bbox_path.suffix} (expected .pt or .json)"
+    )
+
+
+def save_bbox_prompt_visualization(
+    source_path: str | Path,
+    prompt: Sam2Prompt,
+    output_path: str | Path,
+    label: str,
+) -> None:
+    """Draw a labeled SAM2 bbox prompt on its corresponding RGB frame."""
+    if prompt.box is None:
+        raise ValueError("Cannot visualize a SAM2 prompt without a bounding box")
+
+    source = FrameSource.from_path(source_path)
+    try:
+        if prompt.frame_index < 0 or prompt.frame_index >= source.n_frames:
+            raise IndexError(
+                f"Prompt frame {prompt.frame_index} is out of range for "
+                f"{source_path} ({source.n_frames} frames)"
+            )
+
+        try:
+            frame = source[prompt.frame_index]
+        except RuntimeError as exc:
+            if "Random access is not supported" not in str(exc):
+                raise
+            frame = next(
+                frame
+                for frame_idx, frame in enumerate(source.iter_frames())
+                if frame_idx == prompt.frame_index
+            )
+    finally:
+        source.close()
+
+    image = Image.fromarray(np.asarray(frame)).convert("RGB")
+    draw = ImageDraw.Draw(image)
+    box = prompt.box
+    line_width = max(2, round(min(image.size) / 300))
+    green = (0, 255, 0)
+    draw.rectangle(
+        (box.x0, box.y0, box.x1, box.y1),
+        outline=green,
+        width=line_width,
+    )
+
+    text_bbox = draw.textbbox((0, 0), label, stroke_width=1)
+    text_height = text_bbox[3] - text_bbox[1]
+    label_x = max(0, round(box.x0))
+    label_y = max(0, round(box.y0) - text_height - 3)
+    draw.text(
+        (label_x, label_y),
+        label,
+        fill=green,
+        stroke_width=1,
+        stroke_fill=(0, 0, 0),
+    )
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    image.save(output_path)
+
+
 def mv_videos_to_masks_from_config(cfg):
     """Run video_to_masks for each camera defined by the rig config."""
     rig = RigConfig(cfg.rig_config)
@@ -112,10 +193,20 @@ def mv_videos_to_masks_from_config(cfg):
         masks_dir = cfg.mask_path_template.format(cam_name=cam.name)
 
         prompts = load_bbox_prompts(bbox_path)
+        prompt_label = load_bbox_prompt_label(bbox_path)
         best_frame = prompts.prompts[0].frame_index
         best_box = prompts.prompts[0].box
         print(f"  Bbox prompt: frame={best_frame}, "
               f"box=({best_box.x0:.0f}, {best_box.y0:.0f}, {best_box.x1:.0f}, {best_box.y1:.0f})")
+
+        prompt_vis_path = Path(cfg.output_dir) / "prompts" / f"{cam.name}_bbox.png"
+        save_bbox_prompt_visualization(
+            source_path,
+            prompts.prompts[0],
+            prompt_vis_path,
+            prompt_label,
+        )
+        print(f"  Bbox visualization: {prompt_vis_path}")
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(prompts.to_dict(), f)

@@ -183,7 +183,7 @@ def load_hand_poses(track_dir: str, device: str) -> HandPoseTrack:
         go.append(r["mano"]["global_orient"])
         hp.append(r["mano"]["hand_pose"])
         be.append(r["mano"]["betas"])
-        ct.append(r["cam_t"])
+        ct.append(r["camera"]["cam_t"])
         idxs.append(_frame_idx(f))
         recs.append(r)
     return HandPoseTrack(
@@ -212,7 +212,7 @@ def save_hand_poses(track: HandPoseTrack, track_dir: str) -> None:
             "hand_pose":     hp[i],
             "betas":         be[i],
         }
-        rec["cam_t"] = ct[i]
+        rec["camera"] = {**rec.get("camera", {}), "cam_t": ct[i]}
         rec["hand_scale"] = hand_scale
         with open(os.path.join(track_dir, f"{fidx:06d}.json"), "w") as fh:
             json.dump(rec, fh, indent=2)

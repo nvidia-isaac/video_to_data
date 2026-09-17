@@ -8,17 +8,13 @@
 
 - Install [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
 
-- Build the workflow image locally or push it to a container registry you control. Set `V2D_IMAGE_REGISTRY` before using `workflow/run.sh push` or `pull`.
+- Make sure you have access to `nvcr.io/nvstaging/isaac-amr`. You can request it by asking in the `#swngc-help` Slack channel.
 
 - Install Git LFS and `pre-commit` dependencies.
     ```bash
     bash workflow/setup_deps.sh
     ```
     This script installs `git-lfs` and `pre-commit` and ensures `workflow/run.sh` is executable. You may need to restart your shell for pipx PATH changes.
-
-    > ⚠️ Sample motion data (e.g. `assets/human_motion_data/whole_body/`) is stored in git-LFS.
-    > If you cloned **before** installing git-LFS, those files are small pointer stubs — run
-    > `git lfs install && git lfs pull` in the repo to fetch the real data.
 
 - A host Python environment for the pipeline orchestrator (`scripts/run_pipeline_docker.py`).
     ```bash
@@ -115,15 +111,11 @@ in-container `assets/human_motion_data/`, so start the container with your datas
 HUMAN_MOTION_DATA_DIR=<HMD> ./workflow/run.sh start latest 0
 ```
 
-This overlays `<HMD>` onto `assets/human_motion_data/`, so `arctic/arctic_processed/…`
-resolves; without it the agent raises `FileNotFoundError`. (Alternatively copy/symlink a
-single partition under `assets/human_motion_data/<dataset>/`, or pass an absolute path to
-`--motion_file`.)
-
-> **Note:** this mount *shadows* the committed
-> `whole_body/soma/2026-03-06_10-24-18_snack_box_pick_and_place_01` sample the ReconBody
-> example uses — to run both in one container, also place your soma data under
-> `<HMD>/whole_body/soma/`.
+Each direct dataset subdirectory under `<HMD>` is mounted separately under
+`assets/human_motion_data/`, so external data such as `arctic/arctic_processed/…` resolves
+without hiding repository datasets such as `whole_body/`. If `<HMD>` contains a directory
+with the same dataset name as a repository dataset, the external directory takes precedence
+for that dataset. Alternatively, pass an absolute path to `--motion_file`.
 
 Stages that load real object geometry — retargeting, kinematic replay, support-surface
 reconstruction, scene view, and training — need the object assets present. The pipeline's
@@ -216,6 +208,69 @@ instead (Pattern B: `run_load_local.sh` + `run_retarget_local.sh`), or to retarg
 dataset script (`scripts/retarget/<dataset>_to_sharpa.py`, `scripts/retarget/vis_retargeted.py`),
 see [docs/SETUP.md §4](docs/SETUP.md).
 
+### Ego video → Sharpa
+
+The `ego_recon` dataset retargets a **monocular egocentric video reconstruction** to the
+dual-hand Sharpa robot. Unlike the multi-view datasets above, its source is a `result.npz`
+bundle produced by the upstream ego reconstruction pipeline, which lives outside this repo.
+That bundle is converted to the standard loaded Parquet by the loader image, and this repo
+picks it up from there.
+
+Its storage layout differs from the other datasets in two ways. It drops the redundant dataset
+prefix — `ego_recon/processed/`, not `ego_recon/ego_recon_processed/` — via the
+`processed_dir` override on `DatasetConfig`. And it keeps **every per-sequence artifact in that
+one directory**: the motion Parquet, the object mesh and material, the generated collision STL
+and the rigid URDF, with no separate `meshes/` or `urdfs/` tree. A clip is therefore
+self-contained and moves as a unit.
+
+Its loaded Parquet is the exception, and deliberately so. For the other datasets
+`HUMAN_MOTION_DATA_DIR` is an external mount, so intermediates never touch the repo; ego_recon's
+assets are committed, so a regenerable intermediate written there would be repo noise. It goes to
+`robotic_grounding/.cache/ego_recon/loaded/` instead (gitignored), via
+`DatasetConfig.loaded_in_intermediate`. Override the root with `ROBOTIC_GROUNDING_INTERMEDIATE_DIR`.
+Support surfaces are *not* affected — they are a committed artifact that `SceneConfig` discovers
+relative to the processed motion path, so they stay in the asset tree.
+
+One worked sequence (`tissue_box_simple`) ships **retargeted**, so training is reproducible
+from repo contents alone. The loaded Parquet is not committed, so re-running the retarget or
+support-surface steps below requires generating it first via the reconstruction load workflow.
+
+```bash
+# Inside the container, from robotic_grounding/. Writes
+# <HMD>/ego_recon/processed/sequence_id=<seq>/robot_name=sharpa_wave/.
+# Needs <HMD>/ego_recon/loaded/ — see the note above.
+# Drop --save for a dry run; add --visualize to inspect the IK in viser.
+python scripts/retarget/ego_recon_to_sharpa.py --sequence_id <seq> --save
+
+# Generate the rigid object URDF and reconstruct the support surface:
+python scripts/generate_rigid_urdfs.py --dataset ego_recon
+python scripts/reconstruct_support_surfaces.py --dataset ego_recon --sequence_id <seq>
+
+# Inspect a retargeted result on http://localhost:8080. --start_paused opens the Frame
+# slider paused so you can scrub; the frame indices feed motion_start_frame /
+# motion_end_frame (end is exclusive). Reads the shipped Parquet, so it works out of the box:
+python scripts/retarget/vis_retargeted.py \
+    --dataset ego_recon --sequence_id tissue_box_simple --start_paused
+```
+
+Three properties of monocular reconstruction shape this path and are worth knowing before you
+retarget your own clip:
+
+- **Fingers routinely start inside the object.** Per-frame IK alone cannot resolve this, so
+  penetrating MANO keypoints are first projected onto the object's oriented bounding box
+  (`retarget/object_collision.py`), which preserves finger and hand rigidity.
+- **Contact positions and normals are noisy**, which makes the default
+  `contact_wrench_support_reward` a poor training signal. The `force_closure` reward exists
+  for this case — see [RL training](#rl-training).
+- **Gravity alignment can carry a residual tilt**, leaving the object resting on an edge
+  rather than a face. Check it with the *contact footprint*: take the object's mesh vertices
+  within 5 mm of its lowest world z at a rest frame. A face-down box gives a broad planar
+  patch; a thin strip means the world is tilted. Neither loader flag reliably fixes this —
+  `--no_ground_align` keeps the tilt, and the loader's OBB path picks "up" by smallest PCA
+  extent, which is arbitrary when a box's two smaller extents are close. Level the bundle
+  once instead, with `v2d.task_library_loader.lib.level_result_bundle`, then load it with
+  `--no_ground_align`. The shipped `tissue_box_simple` needed an 8.4 degree correction.
+
 ### Hand-to-Dex3 (ReconHand)
 
 Retarget a hand-object clip to the Dex3 hands for the whole-body planner. Consumes the
@@ -242,7 +297,8 @@ Next: [Whole-body planning](#whole-body-planning) turns this into a G1 trajector
 ### Whole-body (SOMA → G1)
 ```bash
 # Inside the container
-# Retarget and save Parquet (data_folder must contain soma_params.npz, object/textured_mesh.obj)
+# Retarget and save Parquet (data_folder must contain soma_params.npz, poses.npy, and
+# reconstructed_mesh/output_aligned.glb; object/textured_mesh.obj is generated on first run)
 python scripts/retarget/soma_to_g1.py <data_folder> --save
 
 # Visualize retargeting in Viser (port 8080)
@@ -314,7 +370,7 @@ python -m robotic_grounding.planner.g1_planner --robot dex3 \
 Writes `arctic/planner_processed/sequence_id=<seq>/robot_name=g1_dex3/` and
 `arctic/reconstructed_stage/<seq>_support.usda`. Planner flags are tuned per sequence; see
 [`v2d_whole_body/EXAMPLE_SEQUENCES.md`](source/robotic_grounding/robotic_grounding/tasks/v2d_whole_body/EXAMPLE_SEQUENCES.md)
-for all three example sequences and the two-stage training recipe.
+for all three example sequences and the three-stage training recipe.
 
 ## RL training
 
@@ -423,11 +479,181 @@ Whole-body ReconHand — the three-stage retarget → plan → train recipe
 (warm-up → contact grounding → finetune), documented per sequence in
 [`v2d_whole_body/EXAMPLE_SEQUENCES.md`](source/robotic_grounding/robotic_grounding/tasks/v2d_whole_body/EXAMPLE_SEQUENCES.md).
 
-> The current release uses Isaac Lab and PPO for simulation and RL and may require longer training to converge. The accelerated implementation reported in the paper, which achieves approximately two-hour training times, is currently under internal review and targeted for release in September 2026.
+#### Ego-video (monocular) sequences — the force-closure recipe
+
+Reconstructions from a single egocentric camera carry noisy contact positions and normals, so
+`contact_wrench_support_reward` — which matches the *live* contact geometry against the
+*reference* geometry — trains against noise. The `force_closure` reward replaces it: it gates
+on the reference "contact expected" label and rewards the fraction of live wrench-basis
+directions the hand actually supports, so it never reads the noisy reference geometry.
+
+```bash
+python scripts/rsl_rl/train.py \
+  --headless --task Sharpa-V2D-v0 \
+  --motion_file ego_recon/processed/tissue_box_simple/sharpa_wave \
+  --num_envs 4096 --logger tensorboard --video --run_name tissue_box_simple \
+  env.rewards.force_closure.weight=5.0 \
+  env.rewards.contact_wrench_support_reward.weight=0.0 \
+  env.rewards.unintended_contact_penalty.weight=0.0 \
+  env.rewards.missed_contact_penalty.weight=0.0 \
+  env.curriculum.fixed_timestep_curriculum.params.rewards_contact_wrench_support_reward=0.0 \
+  env.curriculum.fixed_timestep_curriculum.params.rewards_unintended_contact_penalty=0.0 \
+  env.curriculum.fixed_timestep_curriculum.params.rewards_missed_contact_penalty=0.0
+```
+
+> **Each contact term must be zeroed in BOTH places.** A reward weight has two independent
+> sources, and overriding only one leaves the term live for part of training:
+>
+> - `env.rewards.<name>.weight` is the value in force **from step 0** until the curriculum
+>   first writes.
+> - `env.curriculum.fixed_timestep_curriculum.params.rewards_<name>` is what
+>   `FixedTimestepCurriculum` writes **on schedule**, overwriting whatever is there.
+>
+> With main's schedule the first curriculum step lands at 2000 × `num_steps_per_env` (24) =
+> **48,000 sim steps**, so zeroing only the curriculum params leaves the contact terms at full
+> strength (10.0 / −10.0 / −1.0) for the whole early phase — exactly where grasp behaviour is
+> established. `force_closure` has no `rewards_*` param, so its weight override alone is stable.
+
+Virtual object control needs no override: the curriculum's existing
+`virtual_object_control_scale_factor` schedule already decays 1.0 → 0.0 across training.
+
+To confirm the weights are what you intended, check the **Active Reward Terms** table Isaac
+prints at startup — it shows the `env.rewards.*` values in force at step 0. A silent overwrite is
+otherwise invisible until the policy fails to grasp.
+
+To run the same recipe on OSMO, pass these overrides through the training command in
+`workflow/train.yaml` and submit with `scripts/run_osmo.py --build-image`. The image build is
+required: the motion parquet, mesh, collision STL and URDF are committed under
+`assets/human_motion_data/ego_recon/processed/` and are read from the image at runtime.
+
+## Data Generation
+
+Roll out trained per-sequence Sharpa policies in the `Sharpa-V2D-Record-v0` env (front +
+egocentric `TiledCamera`s, cubicle walls, `RecorderManager`) and export a **LeRobot v3**
+dataset of camera + state/action observations. Runs inside the container from
+`/workspace/video_to_data/robotic_grounding`.
+
+```bash
+# One sequence -> LeRobot dir datasets/<run>/<seq>/
+python scripts/rsl_rl/record_dataset.py --headless \
+  --task Sharpa-V2D-Record-v0 \
+  --checkpoint ../Datagen_Checkpoints/floating_sharpa_checkpoints/taco/<seq>/model_<iter>.pt \
+  --motion_file taco/taco_processed/<seq>/sharpa_wave \
+  --num_envs 64 --num_episodes 100 \
+  --voc_scale 0.0 --voc_decay_steps 20 \
+  --use_primitive_urdfs \            # REQUIRED: taco checkpoints are trained on primitive URDFs
+  --domain_randomization \           # optional: per-episode visual DR (materials/lighting)
+  --output_file datasets/<run>/<seq>.hdf5
+```
+
+- **`--use_primitive_urdfs` is required** for the taco checkpoints (trained with primitive
+  capsule/cylinder hand collision); recording on the full mesh URDF makes grasps slip and
+  completion collapse.
+- **VOC:** `--voc_scale` is the value virtual-object-control decays *to* after
+  `--voc_decay_steps` steps (`0.0` = assist then release — usual for a behaviour dataset).
+- **Output** is LeRobot v3 by default (`--output_format hdf5` for raw HDF5).
+- **`--domain_randomization`** randomizes rendered pixels only (materials/lighting/support),
+  not the policy's state observations — no effect on completion, adds image diversity.
+
+**All checkpoints (batch):** `scripts/batch_taco_datagen.py` (env-overridable `NUM_ENVS`,
+`NUM_EPISODES`, `USE_PRIMITIVE_URDFS=1`, `DOMAIN_RANDOMIZATION`, `RUN_TIMEOUT`) runs every
+sequence and writes `SUMMARY.md` (per-task + total completion vs checkpoint metadata).
+`scripts/launch_sharded_datagen.sh N` runs N containers in parallel for ~N× speedup.
+
+**Inspect:** `scripts/visualize_dataset.py --dataset <lerobot_dir> --output_dir <dir>` tiles
+per-episode camera videos; `scripts/test_lerobot_format.py <dir>` validates the export.
+
+See `.claude/skills/sharpa-datagen/` for the full guide (data requirements, env sizing,
+troubleshooting).
+
+## Visual domain randomization
+
+| Four re-rendered demos of the *same* trajectory |
+| :---: |
+| ![Visual DR: one trajectory, four visual conditions](../docs/chord/assets/videos/visual_dr_rerender.webp) |
+| *`rerender_demo_visuals.py --num_demos 4`. Hand and box move in lockstep — the state/action arrays are bit-identical — while ground, walls, table, object and lighting differ per demo.* |
+
+`Sharpa-V2D-DR-v0` and `Sharpa-V2D-DR-Record-v0` add visual DR as IsaacLab `EventTerm`s:
+HDRI dome light, distant key light, and textures on the ground, object, support surface,
+cubicle walls and both hands. Because the terms run inside the manager loop, they work
+with `eval.py` and with recording — unlike `--domain_randomization` (below), which is
+driven from the rollout loop and is invisible to `eval.py`.
+
+The randomization *mechanism* lives in `robotic_grounding.rendering.dr` (shared);
+the parameter pools and term builders live in `tasks/scene_utils/visual_dr.py`, which is
+embodiment-agnostic — a whole-body env passes `robot_entities=("robot",)`.
+
+**Not enabled for training.** The texture terms allocate one OmniPBR material per matched
+prim at env-build time, expanded across every env.
+
+**Requires a reachable Nucleus root.** Every texture and HDRI is `NVIDIA_NUCLEUS_DIR`-relative,
+so `OMNI_SERVER` must resolve from inside the container.
+
+### Two recording paths, two dataset shapes
+
+|  | live (`record_dataset.py`) | re-render (`rerender_demo_visuals.py`) |
+|---|---|---|
+| trajectory | differs per episode (policy) or fixed (`--replay_motion`) | **one** trajectory, bit-identical across demos |
+| visuals | change **mid-episode**, every 4–6 s | one condition per demo |
+| HDF5 | `RecorderManager`: flat `obs` + `camera/<sensor>/<type>` | `data/demo_i/obs/<term>` + `actions` |
+
+The re-render path isolates visual variation from trajectory variation, which is the
+stronger augmentation signal for a VLA. It is also the only path that writes the named
+`obs/<term>` groups `groot_finetune/convert_to_gr00t.py` consumes.
+
+```bash
+# live, policy-driven
+python scripts/rsl_rl/record_dataset.py --headless \
+    --task Sharpa-V2D-DR-Record-v0 \
+    --checkpoint <path>/model_12600.pt \
+    --motion_file ego_recon/processed/tissue_box_simple/sharpa_wave \
+    --num_envs 16 --num_episodes 100 --output_file datasets/dr_live.hdf5
+
+# live, playback-driven (teleports the hands from the motion file)
+python scripts/rsl_rl/record_dataset.py --headless \
+    --task Sharpa-V2D-DR-Record-v0 --replay_motion --voc_scale 1.0 \
+    --motion_file ego_recon/processed/tissue_box_simple/sharpa_wave \
+    --num_envs 16 --num_episodes 100 --output_file datasets/dr_replay.hdf5
+
+# re-render: 1 trajectory -> N visually-distinct copies
+python scripts/rsl_rl/rerender_demo_visuals.py --headless \
+    --task Sharpa-V2D-Gr00t-Record-v0 \
+    --contract sharpa_dual_hand_three_camera \
+    --task_profile <path>/task_profile.json \
+    --checkpoint <path>/model.pt \
+    --motion_file ego_recon/processed/sequence_id=<sequence>/robot_name=sharpa_wave \
+    --num_demos 100 --record_output out/dr_rerender
+
+# no cameras on the non-record task -- use eval's viewport video
+python scripts/rsl_rl/eval.py --headless --video --task Sharpa-V2D-DR-v0 \
+    --checkpoint <path>/model_12600.pt \
+    --motion_file ego_recon/processed/tissue_box_simple/sharpa_wave
+```
+
+> **`--domain_randomization` and a DR task are mutually exclusive.** Both bind OmniPBR
+> materials to overlapping prims via `rep.functional.create_batch.material()`; whichever
+> binds last wins the USD binding and the loser's attribute writes land on unbound
+> materials with no error. `record_dataset.py` refuses the combination before Isaac starts.
+
+To disable DR without switching task ids, use
+`robotic_grounding.rendering.dr.controller.disable_visual_event_terms(env_cfg.events)`.
+Scene-derived terms are injected after Hydra override application, so they cannot be nulled
+from the command line.
+
+**Re-render tuning:** `--settle_render_steps` (default 32) covers the renderer's
+auto-exposure adaptation after a dome swap; raise it if early frames look bright or
+smeared. `--visual_dr_include dome_light,ground_texture` restricts which terms vary, for
+background-only ablations.
+
+**Scope:** native semantic re-rendering is the floating-hand Sharpa route. Vega collection uses
+camera-free `export_parallel_rollouts.py` followed by calibrated `replay_record.py` rendering.
 
 ## RL Tasks
 - `Sharpa-V2D-v0-Play`
 - `Sharpa-V2D-v0`
+- `Sharpa-V2D-Record-v0` — data-generation env (front + ego cameras, recorder); see **Data Generation**.
+- `Sharpa-V2D-DR-v0` — visual DR, no cameras; see **Visual domain randomization**.
+- `Sharpa-V2D-DR-Record-v0` — visual DR + cameras + `record` obs group.
 - `SonicG1-ReconBody-v0`
 - `SonicG1-ReconHand-v0`
 - `SonicG1-ReconHand-EpisodeTimeout-v0`
@@ -435,10 +661,26 @@ Whole-body ReconHand — the three-stage retarget → plan → train recipe
 - `SonicG1-ReconHand-Stage2-v0` — contact grounding
 - `SonicG1-ReconHand-Stage3-v0` — full-sequence finetune
 
+## GR00T VLA post-training
+
+[`groot_finetune/`](groot_finetune/README.md) converts a recorded rollout HDF5 into an
+[Isaac-GR00T](https://github.com/NVIDIA/Isaac-GR00T) **N1.7** LeRobot dataset and documents the
+finetune/eval workflow. It also ships the closed-loop inference client
+([`groot_finetune/closed_loop/`](groot_finetune/closed_loop/README.md)) that drives a finetuned
+policy over ZMQ.
+
+GR00T needs Python 3.10 and its own dependencies, which conflict with this repo's Python 3.11 +
+IsaacLab container, so the split is deliberate: conversion runs here, training and serving run in
+the external Isaac-GR00T repo. Nothing in `groot_finetune/` imports IsaacLab or `gr00t`.
+
+`groot_finetune/convert_to_gr00t.py` accepts only contract-tagged semantic HDF5 with named
+observation terms. Flat `RecorderManager` recordings are a separate data product and are rejected.
+See [`groot_finetune/README.md`](groot_finetune/README.md) for collection, replay, conversion,
+fine-tuning, and evaluation commands.
+
 ## Visualizer
 
-Browse retargeted sequences as 3D animations in a local gallery server at
-**http://\<server-ip\>:8080/**.
+Browse retargeted sequences as 3D animations at **http://10.111.83.14:8080/**
 
 To run the server yourself or generate new recordings:
 

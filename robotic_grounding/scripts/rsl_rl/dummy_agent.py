@@ -45,6 +45,17 @@ parser.add_argument(
     help="Motion file to load (e.g. arctic/arctic_processed/dataset_s01_mixer_use_01/sharpa_wave).",
 )
 parser.add_argument(
+    "--motion_dir",
+    type=str,
+    default=None,
+    help=(
+        "Directory of motion sequences to sample from (a <dataset>_processed "
+        "folder of sequence_id=*/robot_name=* partitions). Each env samples one "
+        "sequence per reset. Only for free-space whole-body envs. Mutually "
+        "exclusive with --motion_file."
+    ),
+)
+parser.add_argument(
     "--initial_virtual_object_control_curriculum_scale",
     type=float,
     default=1.0,
@@ -91,6 +102,12 @@ parser.add_argument(
     type=int,
     default=300,
     help="Number of simulation steps to record (default: 300).",
+)
+parser.add_argument(
+    "--max_steps",
+    type=int,
+    default=None,
+    help="Exit after this many simulation steps; by default run interactively.",
 )
 parser.add_argument(
     "--success_marker",
@@ -141,7 +158,11 @@ import isaaclab.utils.math as math_utils
 import isaaclab_tasks  # noqa: F401
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from robotic_grounding.tasks import *
-from robotic_grounding.tasks.scene_utils import SceneConfig, apply_scene_config
+from robotic_grounding.tasks.scene_utils import (
+    SceneConfig,
+    apply_scene_config,
+    discover_motion_files,
+)
 from isaaclab_tasks.utils import parse_env_cfg
 from viewer_utils import autoframe_viewer
 
@@ -156,13 +177,22 @@ def main():
         use_fabric=not args_cli.disable_fabric,
     )
 
-    # Apply scene config from --motion_file
-    if args_cli.motion_file is not None:
+    # Apply scene config from --motion_file (single) or --motion_dir (bank).
+    if args_cli.motion_file is not None and args_cli.motion_dir is not None:
+        raise ValueError("Pass only one of --motion_file / --motion_dir.")
+    motion_files = None
+    if args_cli.motion_dir is not None:
+        motion_files = discover_motion_files(args_cli.motion_dir)
+        env_cfg.motion_file = motion_files[0]
+    elif args_cli.motion_file is not None:
         env_cfg.motion_file = args_cli.motion_file
-    if hasattr(env_cfg, "motion_file") and env_cfg.motion_file is not None:
+    if getattr(env_cfg, "motion_file", None) is not None:
         scene_config = SceneConfig.from_motion_file(env_cfg.motion_file)
         apply_scene_config(
-            env_cfg, scene_config, use_primitive_urdfs=args_cli.use_primitive_urdfs
+            env_cfg,
+            scene_config,
+            use_primitive_urdfs=args_cli.use_primitive_urdfs,
+            motion_files=motion_files,
         )
         # Auto-frame the viewer on the actual motion bounding box.  The default
         # eye/lookat in v2d_hand_env_cfg targets standing-human scenes (lookat
@@ -228,6 +258,13 @@ def main():
             if (step + 1) % 100 == 0:
                 print(f"[INFO] Step: {step + 1}/{args_cli.video_length}")
         print(f"[INFO] Recording loop done; closing env to flush MP4")
+    elif args_cli.max_steps is not None:
+        if args_cli.max_steps < 1:
+            raise ValueError("--max_steps must be at least 1")
+        print(f"[INFO] Running {args_cli.max_steps} simulation steps")
+        for _ in range(args_cli.max_steps):
+            with torch.inference_mode():
+                env.step(actions)
     else:
         while simulation_app.is_running():
             with torch.inference_mode():

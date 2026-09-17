@@ -3,16 +3,17 @@
 # MV Calibration OSMO Workflow: extract images from rosbag, calibrate extrinsics.
 #
 # Usage:
-#   osmo workflow submit reconstruction/workflows/mv_hoi/mv_calibration.yaml \
-#     --set image_registry=<registry>/<namespace> \
-#     --set rosbag_url=<object-storage-url> \
-#     --set swift_output_base=<object-storage-url>/calibration_output/<seq> \
+#   osmo workflow submit reconstruction/workflows/mv_hoi/osmo/mv_calibration.yaml \
+#     --set \
+#       rosbag_url=swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/... \
+#       swift_output_base=swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/.../calibration_output/<seq> \
+#       calibration_setup=stereo4_6x10_100mm_marker \
 #     --pool <pool>
 
 workflow:
   name: {{workflow_name}}
   resources:
-    default:
+    cpu_large:
       cpu: 32
       gpu: 0
       memory: 64Gi
@@ -20,7 +21,8 @@ workflow:
 
   tasks:
   - name: rosbag_to_edex
-    image: "{{image_registry}}/mv_hoi_rosbag:{{image_tag}}"
+    resource: cpu_large
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_rosbag:{{image_tag}}
     command:
     - /bin/bash
     args:
@@ -66,7 +68,8 @@ workflow:
         remove_pngs_after_pack: true
 
   - name: calibrate_extrinsics
-    image: "{{image_registry}}/mv_hoi_mv_calibration:{{image_tag}}"
+    resource: cpu_large
+    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_calibration:{{image_tag}}
     command:
     - /bin/bash
     args:
@@ -86,11 +89,12 @@ workflow:
           --config_path /tmp/calibration_config.yaml
     - path: /tmp/calibration_config.yaml
       contents: |-
+        calibration_setup: "{{calibration_setup}}"
         input_suffix: ".h5"
 
 default-values:
   workflow_name: v2d_mv_calibration
-  image_registry: image-registry-not-configured-see-readme.invalid
   image_tag: latest
+  calibration_setup: stereo4_6x10_100mm_marker
   rosbag_url: ???
   swift_output_base: ???

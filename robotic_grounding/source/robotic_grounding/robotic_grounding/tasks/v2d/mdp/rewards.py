@@ -622,3 +622,55 @@ def object_meshvert_tracking_fine(
     )
     add_per_env = torch.norm(verts_current - verts_target, dim=-1).mean(dim=(-2, -1))
     return torch.exp(-(add_per_env**2) / var)
+
+
+def force_closure_reward(
+    env: ManagerBasedRLEnv,
+    command_name: str = "dual_hands_object_tracking_command",
+    min_support: float = 0.01,
+) -> torch.Tensor:
+    """Force-closure reward gated by the binary reference contact-present label.
+
+    When contact is expected (a true binary gate from the reference contact part IDs,
+    NOT the contact wrench geometry), rewards the fraction of live wrench-basis
+    directions with sim support above ``min_support``; averaged over active hands.
+    Because the gate uses only the reference "has contact" label and the live (sim)
+    wrench supports, it is independent of the noisy reconstruction contact
+    positions/normals that ``contact_wrench_support_reward`` matches against -- which
+    is what makes it usable on monocular ego reconstructions.
+
+    Note: collapses bodies with ``amax`` -- a per-hand proxy lower bound. This is exact
+    for single-body objects; multi-object/multi-body motions would want a per-body
+    formulation.
+
+    Args:
+        env: the RL environment instance.
+        command_name: name of the dual-hand object tracking command term.
+        min_support: wrench support above which a basis direction counts as supported.
+
+    Returns:
+        A continuous value in ``[0, 1]`` per env.
+    """
+    command = env.command_manager.get_term(command_name)
+
+    def _hand_closure(
+        contact_active: torch.Tensor, cur_supports: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return ``(reward (E,), is_active (E,))`` for one hand."""
+        # cur_supports: (E, B, M) live wrench support per body per basis direction.
+        cur_max = cur_supports.amax(dim=1)  # (E, M) best support per direction
+        fraction = (cur_max > min_support).float().mean(dim=-1)  # (E,) in [0, 1]
+        is_active = contact_active > 0.5  # (E,) binary contact-present gate
+        return fraction * is_active.float(), is_active
+
+    left_reward, left_active = _hand_closure(
+        command.left_hand_contact_active_command,
+        command.left_hand_contact_wrench_supports,
+    )
+    right_reward, right_active = _hand_closure(
+        command.right_hand_contact_active_command,
+        command.right_hand_contact_wrench_supports,
+    )
+
+    n_hands = (left_active.float() + right_active.float()).clamp(min=1)
+    return (left_reward + right_reward) / n_hands

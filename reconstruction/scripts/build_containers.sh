@@ -19,7 +19,7 @@ else
   python modules/v2d_cusfm/docker/gpu_compatibility.py
 fi
 
-MODULES=(geocalib unidepth moge anycalib sam2 sam3d grounding_dino mediapipe hamer wilor droid_slam foundation_stereo foundation_pose gsplat_refinement)
+MODULES=(geocalib unidepth moge anycalib sam2 sam3d grounding_dino mediapipe hamer wilor droid_slam foundation_stereo foundation_pose gsplat_refinement cari4d)
 
 for module in "${MODULES[@]}"; do
   echo "Building v2d_${module}..."

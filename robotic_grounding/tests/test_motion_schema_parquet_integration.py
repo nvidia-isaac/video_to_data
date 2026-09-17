@@ -164,22 +164,107 @@ def test_motion_v1_parquet_roundtrip_scene_config_and_loader(tmp_path: Path) -> 
     )
 
 
+def test_objectless_motion_builds_robot_only_scene(tmp_path: Path) -> None:
+    """An objectless single-robot motion produces a valid empty tracked scene."""
+    sequence_id = "seq_robot_only"
+    robot_name = "vega_sharpa"
+    t = 6
+    fps = 20.0
+    md = MotionData(
+        sequence_id=sequence_id,
+        robot_name=robot_name,
+        motion_kind="single_robot",
+        source_dataset="vega_freespace",
+        raw_motion_file="generated:test",
+        fps=fps,
+        coord_frame="robot_base_z_up",
+        robot_joint_names=["joint_a", "joint_b"],
+        robot_root_position=[[0.0, 0.0, 0.0] for _ in range(t)],
+        robot_root_wxyz=[[1.0, 0.0, 0.0, 0.0] for _ in range(t)],
+        robot_joint_positions=[[0.1, -0.1] for _ in range(t)],
+        ee_link_names=["left_ee", "right_ee"],
+        ee_pose_w=[
+            [
+                [0.0, 0.2, 0.8, 1.0, 0.0, 0.0, 0.0],
+                [0.0, -0.2, 0.8, 1.0, 0.0, 0.0, 0.0],
+            ]
+            for _ in range(t)
+        ],
+    )
+
+    output_dir = tmp_path / "robot_only_library"
+    partition_dir = save_motion_parquet(md, root_path=str(output_dir))
+
+    loaded = load_motion_data_parquet(str(partition_dir))
+    assert loaded.object_body_names == []
+    assert loaded.object_body_position is None
+    assert loaded.object_body_wxyz is None
+
+    scene_cfg = SceneConfig.from_motion_file(str(partition_dir))
+    assert scene_cfg.object_body_names is None
+    assert scene_cfg.scene_objects == []
+    assert scene_cfg.episode_length_s == t / fps
+
+
+def test_relative_motion_resolves_from_configured_data_root(
+    tmp_path: Path, monkeypatch
+) -> None:
+    data_root = tmp_path / "human_motion_data"
+    relative = Path("ego_recon/processed/sequence_id=example/robot_name=vega_sharpa")
+    partition = data_root / relative
+    partition.mkdir(parents=True)
+    scene_config_module = sys.modules[SceneConfig.__module__]
+    monkeypatch.setattr(scene_config_module, "HUMAN_MOTION_DATA_DIR", str(data_root))
+    assert SceneConfig._resolve_motion_file(str(relative)) == str(partition)
+
+
+def test_scene_config_reroots_ego_recon_assets_by_filename(tmp_path: Path) -> None:
+    """Resolve loader-baked paths to generated assets beside processed motion."""
+    processed = tmp_path / "human_motion_data" / "ego_recon" / "processed"
+    partition = processed / "sequence_id=tissue_box" / "robot_name=sharpa_wave"
+    partition.mkdir(parents=True)
+    motion_file = partition / "data.parquet"
+
+    mesh_path = processed / "tissue_box.obj"
+    urdf_path = processed / "tissue_box_rigid.urdf"
+    _write_test_mesh(mesh_path)
+    _write_test_urdf(urdf_path, mesh_path)
+
+    baked_root = Path("/data/human_motion_data/ego_recon/processed")
+    data = {
+        "object_name": ["tissue_box"],
+        "object_body_names": [["tissue_box"]],
+        "object_mesh_paths": [[str(baked_root / mesh_path.name)]],
+        "object_urdf_paths": [[str(baked_root / urdf_path.name)]],
+    }
+
+    SceneConfig._validate_assets(data, str(motion_file))
+    objects = SceneConfig._build_scene_objects(data, "rigid", str(motion_file))
+
+    assert len(objects) == 1
+    assert objects[0].usd_path == str(urdf_path)
+
+
 def _run_as_script() -> int:
     """Run this test file directly without pytest."""
-    test_name = "test_motion_v1_parquet_roundtrip_scene_config_and_loader"
+    tests = (
+        test_motion_v1_parquet_roundtrip_scene_config_and_loader,
+        test_objectless_motion_builds_robot_only_scene,
+    )
     print("=" * 72, flush=True)
     print("Running motion_v1 parquet integration test", flush=True)
-    print(f"Test: {test_name}", flush=True)
+    print(f"Tests: {len(tests)}", flush=True)
     print("=" * 72, flush=True)
     try:
         with tempfile.TemporaryDirectory(prefix="motion_v1_test_") as tmp_dir:
             tmp_path = Path(tmp_dir)
             print(f"[SETUP] Temporary directory: {tmp_path}", flush=True)
-            test_motion_v1_parquet_roundtrip_scene_config_and_loader(tmp_path)
-        print(f"[PASS] {test_name}", flush=True)
+            for test in tests:
+                test(tmp_path / test.__name__)
+        print(f"[PASS] {len(tests)} integration tests", flush=True)
         return 0
     except Exception:
-        print(f"[FAIL] {test_name}", flush=True)
+        print("[FAIL] motion_v1 integration tests", flush=True)
         print("-" * 72, flush=True)
         traceback.print_exc()
         print("-" * 72, flush=True)

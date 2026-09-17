@@ -56,6 +56,49 @@ jobs:
           pre-commit run --show-diff-on-failure --files $(git ls-files .)
 
   ## ------------------------------------------
+  ## Unit tests that need neither a GPU nor IsaacLab
+  ## ------------------------------------------
+  unit:
+    name: unit tests (CPU)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Materialize released E2E expert
+        run: |
+          git lfs install --local
+          git lfs pull --include="robotic_grounding/source/robotic_grounding/robotic_grounding/assets/policies/e2e_example/tissue_box/vega_sharpa_policy.onnx" --exclude=""
+          policy_path="robotic_grounding/source/robotic_grounding/robotic_grounding/assets/policies/e2e_example/tissue_box/vega_sharpa_policy.onnx"
+          test -s "$policy_path"
+          if head -n 1 "$policy_path" | grep -q '^version https://git-lfs.github.com/spec/v1'; then
+            echo "Released E2E expert is still a Git LFS pointer: $policy_path" >&2
+            exit 1
+          fi
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Ensure ffprobe is available
+        run: |
+          if ! command -v ffprobe >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends ffmpeg
+          fi
+      - name: Install groot_finetune dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest
+          pip install "torch>=2.7.0" --index-url https://download.pytorch.org/whl/cpu
+          pip install onnxruntime==1.24.4
+          pip install -r robotic_grounding/groot_finetune/requirements.txt
+          pip install -r robotic_grounding/groot_finetune/closed_loop/requirements.txt
+      - name: Run groot_finetune tests
+        run: |
+          cd robotic_grounding
+          python -m pytest groot_finetune/ -q
+
+  ## ------------------------------------------
   ## Build & Test (GPU required)
   ## ------------------------------------------
   build_and_test:

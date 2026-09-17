@@ -1,0 +1,250 @@
+# Full Daniel HOI MHR training with the adapted 79-sequence BEHAVE validation set.
+# The trainer selects FP16 through enable_amp; no Accelerate CLI precision override is needed.
+# Override exp_name and run_id for each new run.
+
+# Run identity and logging
+exp_name: mhr-daniel-commercial-moge2-behave79-val-fp16
+save_dir: /lustre/fs12/portfolios/nvr/projects/nvr_lpr_dataefficientml/bw/mhr-daniel-hoi-train/experiments
+wandb_project: cari4d-mhr
+no_wandb: false
+job: train
+run_id: null
+seed: 0
+
+# Daniel HOI training data
+body_model: mhr
+mhr_input_augmentation_mode: smplh_rgb_depth_keep50_v2
+data_name: video-data
+split_file: splits/daniel-hoi-train-commercial-moge2-2126.json
+expected_train_sequence_count: 2126
+render_root: /lustre/fs12/portfolios/nvr/projects/nvr_lpr_dataefficientml/bw/v2d_hoi_dataset_moge2_data_export3/render
+packed_root: /lustre/fs12/portfolios/nvr/projects/nvr_lpr_dataefficientml/bw/v2d_hoi_dataset_moge2_data_export3/packed
+packed_format: h5
+mhr_gt_root: /lustre/fs12/portfolios/nvr/projects/nvr_lpr_dataefficientml/bw/v2d_hoi_dataset_moge2_data_export3/packed
+mhr_init_root: /lustre/fs12/portfolios/nvr/projects/nvr_lpr_dataefficientml/bw/v2d_hoi_dataset_moge2_data_export3/packed
+mhr_dataset_index_path: /lustre/fs12/portfolios/nvr/projects/nvr_lpr_dataefficientml/bw/v2d_hoi_dataset_moge2_data_export3/indexes/mhr-daniel-commercial-moge2-behave79-val-fp16/train.pkl
+mhr_interaction_trim_root: /lustre/fs12/portfolios/nvr/projects/nvr_lpr_dataefficientml/bw/v2d_hoi_dataset/data_export_3
+mhr_effective_mask_root: /lustre/fs12/portfolios/nvr/projects/nvr_lpr_dataefficientml/bw/v2d_hoi_dataset_moge2_data_export3/effective_masks
+mhr_min_canonical_object_nonempty_frame_fraction: 0.10
+mhr_required_contact_revision: mhr-hand-surface-contact-v1
+mhr_pseudogt_root: null
+mhr_sample_kids: null
+require_mhr_geometry: false
+rgb_root: null
+nlf_root: null
+exclude_frames: null
+fp_root: /lustre/fs12/portfolios/nvr/projects/nvr_lpr_dataefficientml/xianghuix/behave/fp-unidepth-jump-all-aligned-refine
+contacts_root: /lustre/fs12/portfolios/nvr/projects/nvr_lpr_dataefficientml/xianghuix/behave/contact-jts
+
+# BEHAVE validation data. Each sequence uses its selected rendered camera.
+val_split_file: splits/behave-date03-79.json
+expected_val_sequence_count: 79
+val_packed_root: /lustre/fs12/portfolios/nvr/projects/nvr_lpr_dataefficientml/bw/behave-mhr-validation/packed_h5
+val_packed_format: h5
+val_render_root: /lustre/fs12/portfolios/nvr/projects/nvr_lpr_dataefficientml/bw/behave-mhr-validation/render
+val_mhr_gt_root: /lustre/fs12/portfolios/nvr/projects/nvr_lpr_dataefficientml/bw/behave-mhr-validation/packed_h5
+val_mhr_init_root: /lustre/fs12/portfolios/nvr/projects/nvr_lpr_dataefficientml/bw/behave-mhr-validation/packed_h5
+val_mhr_dataset_index_path: /lustre/fs12/portfolios/nvr/projects/nvr_lpr_dataefficientml/bw/v2d_hoi_dataset_moge2_data_export3/indexes/mhr-daniel-commercial-moge2-behave79-val-fp16/val.pkl
+val_mhr_interaction_trim_root: null
+val_mhr_effective_mask_root: null
+val_mhr_pseudogt_root: null
+val_mhr_sample_kids: null
+val_clip_len: 96
+val_window: 96
+
+# Training and validation schedule
+max_steps: 200000
+batch_size: 5
+num_workers: 1
+val_batch_size: 17
+val_num_workers: 1
+clip_len: 96
+window: 1
+mhr_window_sampling_mode: strides_1_10_max_sampled_overlap_v1
+mhr_window_temporal_strides: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+mhr_window_max_overlap_frames: 10
+min_valid_frame_fraction: 0.6
+mhr_h5_handle_cache_size: 32
+mhr_minimal_batch_fields: true
+mhr_rank_local_preprocess: true
+mhr_foundationpose_tier_sampling: true
+mhr_foundationpose_tier_sampling_revision: cari4d.mhr_tier_sampling.stateless.v1
+mhr_require_foundationpose_training_tier_schema: true
+val_mhr_require_foundationpose_training_tier_schema: false
+mhr_rank_local_preprocess_workers: 8
+mhr_rank_local_preprocess_slots: 3
+mhr_rank_local_preprocess_prefetch_factor: 2
+mhr_rank_local_materialization_mode: gpu_compact_v1
+val_mhr_rank_local_materialization_mode: cpu_float32_v1
+mhr_rank_local_preprocess_backend: process
+mhr_rank_local_worker_torch_threads: 1
+mhr_rank_local_profile_samples_per_worker: 2
+val_mhr_rank_local_preprocess_workers: 1
+val_at_start: false
+val_step_interval: 10000
+ckpt_interval: 2000
+checkpoint_keep_last: 1
+vis_every_n_steps: 1000
+mhr_input_viz_interval: 1000
+mhr_input_viz_num_frames: 10
+train_timing_log_interval: 200
+train_timing_slow_seconds: 30.0
+cuda_profile_segment_start_offset: 20
+cuda_profile_segment_steps: 3
+wandb_log_interval: 100
+val_epoch_interval: 10
+enable_amp: true
+
+lr: 0.000125
+optimizer: adam
+weight_decay: 0
+warmup_step: -1
+clip_grad_norm: 'Infinity'
+lr_scheduler:
+  type: none
+  kwargs:
+    num_training_steps: ${max_steps}
+    end_lr_ratio: 0.01
+
+# CoCoNet architecture used by the validated native MHR FP16 run.
+model_name: HORefine
+c_in: 6
+n_view: 1
+zfar: 'Infinity'
+use_BN: true
+BN_momentum: 0.1
+rot_rep: 6d
+rot_rep_hum: 6d
+trans_rep: tracknet
+use_fp_pretrained: false
+use_fp_head: false
+dino_model: dinov2_vitb14
+frozen_dino_chunk_size: 960
+encoder_xyzm: dinov2_vits14
+dino_bnorm: false
+embed_dim_spatial_temporal: 512
+posi_len: 256
+time_posi_len: 400
+mixed_spatial_temporal: true
+num_attn_layers: 2
+feat_dim_6dpose: 1024
+obj_pose_dim_input: 6
+pred_head_attn: false
+hum_cond_dim: 75
+hum_cond_embed_dim: 128
+abspose_layers: 3
+abspose_posi_encode: true
+feat_dim_mask: 16
+bnorm_mask: true
+mask_dino_type: dinov2_vits14
+no_hum_mask: false
+dropout: 0.05
+dropout_1st: 0
+attn_activation: gelu
+pred_head_dims:
+  - 512
+  - 256
+  - 128
+pred_head_hum_pose:
+  - 512
+  - 256
+  - 256
+pred_head_hum_trans:
+  - 512
+  - 256
+  - 128
+pred_head_contact:
+  - 512
+  - 256
+  - 128
+merge_strategy: learned
+merge_factor: 0.0
+d_ff_2nd: 512
+nhead_2nd: 4
+fp_err_dim: -1
+visibility_dim: -1
+pred_uncertainty: false
+pred_shape: true
+pred_mhr_shape: true
+pred_mhr_scale: false
+pred_mhr_face: false
+mhr_cond_key: mhr_coco17_init
+mhr_cond_dim: 51
+cont_out_dim: 2
+cont_out_type: binary
+cont_mask_thres: 0.015
+
+# Input and render tensor contract
+input_resize:
+  - 224
+  - 224
+max_num_key: null
+use_normal: false
+use_mask: false
+normal_uint8: false
+normalize_xyz: true
+subtract_transl: true
+crop_xyz_3d: false
+add_ho_mask: true
+mask_encode_type: hum-obj-fullobj
+mask_rgb_bkg: true
+pose_init_type: random-keyframes
+mhr_object_pose_frame: centered_axis_aligned
+random_flip: false
+trans_ref_type: frame
+mhr_xyz_anchor_type: root_joint_1
+mhr_spatial_normalization_type: human_height_2m
+mhr_spatial_target_height: 2.0
+trans_normalizer:
+  - 0.5
+  - 0.5
+  - 0.5
+rot_normalizer: 0.3490658503988659
+
+# Native MHR, object-pose, and contact losses
+loss_type: l1-delta-mhr
+train_stage: train
+train_smpl_only: false
+symm_loss: true
+w_rot: 1.0
+w_transl: 1.0
+mhr_object_pose_loss_mode: geodesic_radian_vector_mean_equal_weight_v2
+w_abs_rot: 0.1
+w_abs_trans: 0.1
+w_hum_j: 2.0
+w_hum_t: 1.0
+w_hum_rot: 1.0
+w_hum_b: 0.1
+w_contact: 0.1
+w_mhr_root_rot: 1.0
+w_mhr_trans: 1.0
+w_mhr_body_pose: 1.0
+w_mhr_hand: 0.0
+w_mhr_shape: 0.1
+w_mhr_scale: 0.0
+w_mhr_face: 0.0
+w_mhr_v2v: 0.0
+w_mhr_joints: 2.0
+mhr_joint_supervision_mode: body12_freeze_hand_face_all_losses
+w_velo: 0.0
+w_velo_obj: 0.0
+w_diff_l2: 10.0
+w_heatmap: 0.0
+lw_acc: 0.0
+
+# Miscellaneous behavior retained from the validated native MHR setup.
+debug: 2
+vis_interval: 1000
+log_errors: false
+occ_drop_thres: 2.0
+data_filter_type: none
+mask_out_thres_1st: 50000.0
+input_gtpose_2nd: false
+input_fp_2nd: false
+pose_pred_dir: null
+align_poses: false
+fp_error_thres: 500.0
+mask_out_contact_in: false
+fp_vis_thres: 2.0
+body_vis_thres: 2.0
+contact_dist_thres: 10.0

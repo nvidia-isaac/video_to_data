@@ -69,6 +69,17 @@ parser.add_argument(
     help="Motion file to load.",
 )
 parser.add_argument(
+    "--motion_dir",
+    type=str,
+    default=None,
+    help=(
+        "Directory of motion sequences to sample from (a <dataset>_processed "
+        "folder of sequence_id=*/robot_name=* partitions). Each env samples one "
+        "sequence per reset. Only for free-space whole-body envs. Mutually "
+        "exclusive with --motion_file."
+    ),
+)
+parser.add_argument(
     "--wandb_id",
     type=str,
     default=None,
@@ -141,7 +152,11 @@ except ImportError:
 import isaaclab_tasks  # noqa: F401
 import robotic_grounding.tasks  # noqa: F401
 import robotic_grounding.tasks.v2d.mdp as mdp
-from robotic_grounding.tasks.scene_utils import SceneConfig, apply_scene_config
+from robotic_grounding.tasks.scene_utils import (
+    SceneConfig,
+    apply_scene_config,
+    discover_motion_files,
+)
 from viewer_utils import autoframe_viewer
 
 from isaaclab_tasks.utils import get_checkpoint_path
@@ -164,13 +179,23 @@ def main(
         args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
     )
 
-    # Apply scene config: motion_file (from Hydra override) takes priority,
-    # then --scene_config YAML, then the env_cfg default.
-    env_cfg.motion_file = args_cli.motion_file
-    if hasattr(env_cfg, "motion_file") and env_cfg.motion_file is not None:
+    # Apply scene config: --motion_file (single) or --motion_dir (bank) takes
+    # priority, then --scene_config YAML, then the env_cfg default.
+    if args_cli.motion_file is not None and args_cli.motion_dir is not None:
+        raise ValueError("Pass only one of --motion_file / --motion_dir.")
+    motion_files = None
+    if args_cli.motion_dir is not None:
+        motion_files = discover_motion_files(args_cli.motion_dir)
+        env_cfg.motion_file = motion_files[0]
+    else:
+        env_cfg.motion_file = args_cli.motion_file
+    if getattr(env_cfg, "motion_file", None) is not None:
         scene_config = SceneConfig.from_motion_file(env_cfg.motion_file)
         apply_scene_config(
-            env_cfg, scene_config, use_primitive_urdfs=args_cli.use_primitive_urdfs
+            env_cfg,
+            scene_config,
+            use_primitive_urdfs=args_cli.use_primitive_urdfs,
+            motion_files=motion_files,
         )
         autoframe_viewer(env_cfg, scene_config.motion_file)
     elif args_cli.scene_config is not None:
@@ -192,6 +217,10 @@ def main(
     if cmd is not None:
         cmd.always_reset_to_first_frame = True
         cmd.initial_virtual_object_control_curriculum_scale = 0.0
+        if hasattr(cmd, "voc_reset_scale"):
+            cmd.voc_reset_scale = 0.0
+        if hasattr(cmd, "voc_decay_steps"):
+            cmd.voc_decay_steps = 0
     if hasattr(env_cfg, "curriculum"):
         env_cfg.curriculum = None
 

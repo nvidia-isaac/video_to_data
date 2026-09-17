@@ -45,12 +45,12 @@ RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
 # v2d_task_library_loader. robotic_grounding consumes the loaded Parquet only.
 
 # Install py-soma-x for SOMA body model used by `scripts/retarget/soma_to_g1.py`.
-# Assets are auto-downloaded from HuggingFace on first SOMALayer use; the
-# robotic_grounding code instantiates SOMALayer with
-# `data_root=BODY_MODELS_DIR / "soma"` so per-run assets land at a known path
-# inside the bind-mounted repo. Pin via PyPI release.
+# Assets are staged by `scripts/setup_soma_assets.py` (pinned SOMA-X revision) into
+# `data_root=BODY_MODELS_DIR / "soma"` inside the bind-mounted repo. Pin the package
+# to the same release as reconstruction (v2d_sam3d_body, v2d_cari4d Dockerfiles) so
+# the exporter and read_soma share one joint contract; bump both sides together.
 RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
-    py-soma-x
+    py-soma-x==0.2.1
 
 # Install Retargeting dependencies.
 # Pin the FULL pinocchio native closure to the last known-good versions.
@@ -94,7 +94,9 @@ RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
     pyrender \
     pytorch-ignite \
     pytest \
-    boto3
+    boto3 \
+    pyzmq \
+    msgpack-numpy
 
 # Install numpy < 2.0.0 to avoid compatibility issues in Isaac Lab
 RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
@@ -116,7 +118,7 @@ COPY scripts/ ./scripts/
 # object is articulated, so there is no rigid-URDF generation step to run.
 
 # Install the project in editable mode
-RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir \
+RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install --no-cache-dir --no-build-isolation \
     -e ./source/robotic_grounding
 
 # Create wrapper script for python (for convenience in container shell)

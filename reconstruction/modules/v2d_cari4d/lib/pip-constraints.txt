@@ -1,0 +1,4 @@
+numpy==1.26.3
+torch==2.5.1
+torchvision==0.20.1
+wis3d==1.0.1

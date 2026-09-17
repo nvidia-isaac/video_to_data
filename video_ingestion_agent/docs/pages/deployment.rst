@@ -61,14 +61,6 @@ OSMO Cluster
 
 OSMO workflows are defined in ``osmo_workflows/`` and submitted via ``scripts/run_osmo.py``.
 
-.. note::
-
-   The workflow templates deliberately use
-   ``image-registry-not-configured-see-readme.invalid`` until you configure an
-   image you own with ``--image <registry>/<image>:<tag>`` or
-   ``V2D_IMAGE_REPOSITORY=<registry>/<namespace>``. Export ``HF_TOKEN`` before
-   submitting; the wrapper passes it to the workflow for model downloads.
-
 Available Workflows
 ^^^^^^^^^^^^^^^^^^^^
 
@@ -98,9 +90,6 @@ Process a large video dataset across multiple GPUs:
 
    python scripts/run_osmo.py batch_ingestion \
      --experiment-name epic_kitchens_v1 \
-     --image <registry>/v2p_video_agent:<tag> \
-     --pool <your-pool> \
-     --nfs-videos-path /mnt/nfs/videos \
      --output-base-dir /mnt/nfs/outputs \
      --num-shards 8
 
@@ -123,10 +112,7 @@ Run the EPIC-KITCHENS benchmark:
 .. code-block:: bash
 
    python scripts/run_osmo.py benchmark \
-     --experiment-name epic_kitchens_eval \
-     --image <registry>/v2p_video_agent:<tag> \
-     --pool <your-pool> \
-     --nfs-videos-path /mnt/nfs/epic_kitchens
+     --experiment-name epic_kitchens_eval
 
 **What this does:**
 
@@ -145,8 +131,6 @@ Deploy the web interface on the cluster:
 
    python scripts/run_osmo.py webapp \
      --experiment-name my_demo \
-     --image <registry>/v2p_video_agent:<tag> \
-     --pool <your-pool> \
      --nfs-db-dir /mnt/nfs/database
 
 **What this does:**

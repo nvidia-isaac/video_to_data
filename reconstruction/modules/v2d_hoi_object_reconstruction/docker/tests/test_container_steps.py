@@ -262,6 +262,10 @@ def test_sam3d_frame_selection_runs_in_hoi_container(tmp_path, monkeypatch):
         output_path = job_dir / "sam3d" / "selected_frames.json"
         output_path.parent.mkdir()
         output_path.write_text(json.dumps(["000010", "000020"]))
+        (output_path.parent / "selection_report.json").write_text(json.dumps({
+            "capture_mode": "two_stage",
+            "selected_frames": ["000010", "000020"],
+        }))
 
     monkeypatch.setattr(_container_steps, "run_in_container", fake_run_in_container)
 
@@ -279,7 +283,12 @@ def test_sam3d_frame_selection_runs_in_hoi_container(tmp_path, monkeypatch):
         "outputs": {
             "output_path": str(job_dir / "sam3d" / "selected_frames.json")
         },
-        "extra_args": {"bin_deg": 60.0, "fallback_count": 6},
+        "extra_args": {
+            "capture_mode": "two_stage",
+            "bin_deg": 60.0,
+            "stationary_count": 6,
+            "fallback_count": 6,
+        },
         "gpus": False,
     }]
 
@@ -326,6 +335,7 @@ def test_sam3d_srt_runs_in_hoi_container(tmp_path, monkeypatch):
         "extra_args": {
             "use_depth": True,
             "stage1_end_frame": 925,
+            "capture_mode": "two_stage",
             "max_views": 25,
             "maxiter": 60,
             "top_k": 1,
@@ -334,6 +344,55 @@ def test_sam3d_srt_runs_in_hoi_container(tmp_path, monkeypatch):
         },
         "gpus": False,
     }]
+
+
+def test_stationary_sam3d_wrappers_propagate_capture_mode(tmp_path, monkeypatch):
+    calls = []
+    job_dir = tmp_path / "job"
+    sam3d_dir = job_dir / "sam3d"
+    sam3d_dir.mkdir(parents=True)
+
+    def fake_run_in_container(**kwargs):
+        calls.append(kwargs)
+        module = kwargs["module"]
+        if module.endswith("select_sam3d_frames"):
+            Path(kwargs["outputs"]["output_path"]).write_text('["000010"]')
+            (sam3d_dir / "selection_report.json").write_text(json.dumps({
+                "capture_mode": "stationary",
+                "selected_frames": ["000010"],
+            }))
+        else:
+            Path(kwargs["outputs"]["summary_path"]).write_text(
+                json.dumps({"outcomes": []})
+            )
+
+    monkeypatch.setattr(_container_steps, "run_in_container", fake_run_in_container)
+
+    _container_steps.select_sam3d_frames(
+        image="v2d_hoi_object_reconstruction",
+        job_dir=job_dir,
+        bin_deg=60.0,
+        capture_mode="stationary",
+        stationary_count=8,
+    )
+    (sam3d_dir / "selected_frames.json").write_text('["000010"]')
+    _container_steps.run_sam3d_srt(
+        image="v2d_hoi_object_reconstruction",
+        job_dir=job_dir,
+        use_depth=False,
+        stage1_end_frame=None,
+        capture_mode="stationary",
+        max_views=25,
+        maxiter=60,
+        top_k=1,
+        parallel=8,
+        force=False,
+    )
+
+    assert calls[0]["extra_args"]["capture_mode"] == "stationary"
+    assert calls[0]["extra_args"]["stationary_count"] == 8
+    assert calls[1]["extra_args"]["capture_mode"] == "stationary"
+    assert calls[1]["extra_args"]["stage1_end_frame"] is None
 
 
 def test_best_sam3d_selection_runs_in_hoi_container(tmp_path, monkeypatch):

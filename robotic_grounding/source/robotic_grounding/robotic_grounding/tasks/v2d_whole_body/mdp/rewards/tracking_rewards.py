@@ -272,7 +272,12 @@ def motion_progress(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
     command = env.command_manager.get_term(command_name)
     # Compute progress relative to reset point
     steps_taken = (command.timestep - command.reset_timestep).float()
-    steps_remaining = (command.num_timesteps - 1 - command.reset_timestep).float()
+    end_timestep = getattr(
+        command,
+        "trajectory_end_timestep",
+        torch.full_like(command.timestep, command.num_timesteps - 1),
+    )
+    steps_remaining = (end_timestep - command.reset_timestep).float()
     return steps_taken / steps_remaining.clamp(min=1.0)
 
 

@@ -21,6 +21,7 @@ Use explicit user values first. Fill missing values as follows:
 | GPU | `0` |
 | output | a fresh directory under `data/outputs/hoi_recon/` using the input stem, mode, and current timestamp |
 | SAM3D depth scale | off unless explicitly requested |
+| SAM3D capture mode | `two_stage`; use `stationary` only when the user says the object remains fixed throughout a non-loop or arbitrary-path scan |
 
 Never ask about optional tuning flags before the default run. Ask at most one
 blocking question, and only when the user supplied no usable input and the
@@ -73,6 +74,19 @@ python modules/v2d_hoi_object_reconstruction/docker/run_reconstruction.py \
 Add `--sam3d_use_depth` only when requested. Do not block a normal SAM3D run by
 asking whether depth assistance is desired.
 
+The default command preserves the expected two-loop/two-stage capture. For an
+explicit stationary-object capture, add:
+
+```bash
+--sam3d_capture_mode stationary
+```
+
+Do not infer stationary mode merely because two-stage scan validation fails.
+Stationary mode is a different input contract: the object must remain fixed,
+while the camera may follow a smooth non-planar or unordered path with enough
+overlap for CuSFM. The pipeline records but does not independently verify the
+object-motion assumption.
+
 ## Prove that the run started
 
 Record the revision, exact command, input, output, mode, GPU, and start time.
@@ -92,7 +106,8 @@ the `hoi-object-reconstruction-doctor` skill.
 Inspect the first incomplete stage and skip only stages whose required outputs
 are complete and readable. SAM3D reuses candidates when both
 `srt_result.json` and `output_scaled.glb` are valid. Use `--sam3d_force_srt`
-only when the user explicitly requests recomputation.
+only when the user explicitly requests recomputation. Preserve the original
+SAM3D capture mode on resume; if it changes, rerun frame selection and SRT.
 
 ## Verify completion
 
@@ -105,6 +120,8 @@ BundleSDF requires:
 
 SAM3D requires:
 
+- matching capture provenance in `sam3d/capture_contract.json` and
+  `sam3d/selection_report.json`;
 - valid `<job_dir>/sam3d/best/best_frame.json`;
 - nonempty `<job_dir>/sam3d/best/output_scaled.glb`; and
 - the chosen `render_debug.jpg` and `render_video.mp4` to show plausible

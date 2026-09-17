@@ -1,6 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-import os
 from v2d.docker.container import run_in_container
 from v2d.foundation_pose.docker._config import DEV_PRESERVE_VOLUMES, IMAGE_NAME, MODULES_DIR
 

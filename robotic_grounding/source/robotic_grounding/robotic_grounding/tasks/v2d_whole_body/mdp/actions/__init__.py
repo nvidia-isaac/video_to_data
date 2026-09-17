@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Actions for robotic grounding environment."""
 
+from .reference_residual_action import *  # noqa: F403
+from .reference_residual_action_cfg import *  # noqa: F403
 from .sonic_action_cfg import *  # noqa: F403
 from .sonic_actions import *  # noqa: F403
 from .sonic_hierarchical_action import *  # noqa: F403

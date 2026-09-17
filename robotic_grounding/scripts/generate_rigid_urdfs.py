@@ -54,11 +54,14 @@ def _stl_output_dir(dataset: str, safe_object_name: str, source_mesh_dir: Path) 
     """Where the generated visual STL should land.
 
     Committed datasets (source mesh already under ASSET_DIR) keep the STL
-    next to the source. Runtime-only datasets (dexycb, grab — meshes live
-    under HUMAN_MOTION_DATA_DIR which is outside ASSET_DIR on OSMO) get a
-    stable home under ASSET_DIR/meshes/{dataset}/{safe_name}/ so the URDF's
-    meshdir resolves inside the asset tree.
+    next to the source. Ego reconstruction also keeps every generated asset
+    together in its run-local processed directory. Other runtime-only datasets
+    (dexycb, grab) get a stable home under
+    ASSET_DIR/meshes/{dataset}/{safe_name}/ so the URDF's meshdir resolves
+    inside the asset tree.
     """
+    if dataset == "ego_recon":
+        return source_mesh_dir
     try:
         source_mesh_dir.relative_to(ASSET_DIR)
         return source_mesh_dir
@@ -301,6 +304,29 @@ def _discover_hot3d_objects() -> dict[str, tuple[Path, Path]]:
     return objects
 
 
+def _discover_ego_recon_objects() -> dict[str, tuple[Path, Path]]:
+    """Discover ego reconstruction objects from committed OBJ meshes.
+
+    Unlike the other datasets, ego_recon keeps every per-sequence artifact in ONE
+    directory — the motion Parquet, the object mesh, the generated collision STL and
+    the rigid URDF all live under ``human_motion_data/ego_recon/processed/``. A clip's
+    assets are therefore self-contained and move as a unit. The object/body name
+    matches the loader's ``make_usd_safe(object_name)`` so the URDF path stored in the
+    Parquet (``{name}_rigid.urdf``) resolves. Meshes are already metric — object_scale
+    is baked in by the loader.
+    """
+    meshes_dir = HUMAN_MOTION_DATA_DIR / "ego_recon" / "processed"
+    urdf_out_dir = meshes_dir
+    if not meshes_dir.is_dir():
+        print(f"No ego_recon processed directory at {meshes_dir}")
+        return {}
+    objects: dict[str, tuple[Path, Path]] = {}
+    for obj_path in sorted(meshes_dir.glob("*.obj")):
+        name = obj_path.stem
+        objects[name] = (obj_path, urdf_out_dir / f"{name}_rigid.urdf")
+    return objects
+
+
 def _discover_objects(dataset: str) -> dict[str, tuple[Path, Path]]:
     """Discover unique (object_id -> mesh_path) from committed/raw mesh files.
 
@@ -315,6 +341,7 @@ def _discover_objects(dataset: str) -> dict[str, tuple[Path, Path]]:
         "h2o": _discover_h2o_objects,
         "grab": _discover_grab_objects,
         "dexycb": _discover_dexycb_objects,
+        "ego_recon": _discover_ego_recon_objects,
     }
     if dataset not in discovery:
         raise ValueError(
@@ -335,8 +362,13 @@ def generate_for_dataset(dataset: str, dry_run: bool = False) -> None:
         print("No objects found.")
         return
 
-    out_dir = URDF_DIR / dataset
-    out_dir.mkdir(parents=True, exist_ok=True)
+    # Derive the output directory from the discovered URDF paths rather than assuming
+    # URDF_DIR/{dataset}: ego_recon keeps its URDFs beside the motion data, and a
+    # hardcoded path would recreate an empty urdfs/{dataset}/ for it.
+    out_dirs = {urdf_path.parent for _, urdf_path in objects.values()}
+    for d in out_dirs:
+        d.mkdir(parents=True, exist_ok=True)
+    out_dir = URDF_DIR / dataset if len(out_dirs) != 1 else next(iter(out_dirs))
 
     # All generated meshes (visual STL + collision OBJ) go next to source meshes
     config = get_dataset_config(dataset)

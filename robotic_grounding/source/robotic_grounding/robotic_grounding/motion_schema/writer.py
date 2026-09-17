@@ -22,6 +22,7 @@ from .schema import (
     ALL_FIELDS,
     DUAL_HAND,
     DUAL_HAND_PER_SIDE_FIELDS,
+    OBJECT_REFERENCE_REQUIRED_FIELDS,
     SCHEMA_VERSION,
     MotionData,
     build_schema,
@@ -198,6 +199,26 @@ def _validate_required(md: MotionData) -> None:
             f"Cannot write motion parquet (motion_kind={motion_kind!r}): "
             f"required fields are empty: {missing}. Producer must populate at "
             f"least: {list(required)}."
+        )
+
+    # Object references are optional for single-robot motions, but partial
+    # groups are never valid: consumers need names, positions, and rotations
+    # together to resolve and index tracked bodies safely.
+    object_group_present = {
+        name: (
+            (value := getattr(md, name, None)) is not None
+            and (not hasattr(value, "__len__") or len(value) > 0)
+        )
+        for name in OBJECT_REFERENCE_REQUIRED_FIELDS
+    }
+    if any(object_group_present.values()) and not all(object_group_present.values()):
+        missing_object_fields = [
+            name for name, present in object_group_present.items() if not present
+        ]
+        raise ValueError(
+            "Cannot write a partial object reference group. Either omit all object "
+            "reference fields for robot-only tracking or populate: "
+            f"{list(OBJECT_REFERENCE_REQUIRED_FIELDS)}. Missing: {missing_object_fields}."
         )
 
     if motion_kind == DUAL_HAND:

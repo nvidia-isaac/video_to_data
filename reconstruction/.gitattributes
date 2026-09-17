@@ -3,3 +3,4 @@
 
 # Demo / test media
 assets/airplane.mp4 filter=lfs diff=lfs merge=lfs -text
+assets/tissue_box.mp4 filter=lfs diff=lfs merge=lfs -text

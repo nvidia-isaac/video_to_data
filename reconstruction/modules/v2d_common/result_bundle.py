@@ -35,6 +35,55 @@ _TEXTURE_KEYS = {
 }
 
 
+def _rotation_matrix_from_wxyz(quat_wxyz: list[float]) -> np.ndarray:
+    q = np.asarray(quat_wxyz, dtype=np.float64).reshape(4)
+    n = float(np.linalg.norm(q))
+    if n < 1e-12:
+        raise ValueError("Cannot build rotation from near-zero quaternion")
+    q = q / n
+    return Rotation.from_quat([q[1], q[2], q[3], q[0]]).as_matrix()
+
+
+def _transform3d_pose_matrix(transform: Transform3d) -> np.ndarray:
+    """Convert ``Transform3d`` to a rigid 4x4 pose, ignoring scale."""
+    M = np.eye(4, dtype=np.float64)
+    M[:3, :3] = _rotation_matrix_from_wxyz(transform.rotation)
+    M[:3, 3] = np.asarray(transform.translation, dtype=np.float64).reshape(3)
+    return M
+
+
+def _coerce_scale_vector(scale: float | np.ndarray | list[float]) -> np.ndarray:
+    arr = np.asarray(scale, dtype=np.float64)
+    if arr.ndim == 0:
+        vec = np.full((3,), float(arr), dtype=np.float64)
+    else:
+        vec = arr.reshape(3)
+    if not np.all(np.isfinite(vec)):
+        raise ValueError(f"Object scale must be finite, got {vec.tolist()}")
+    if np.any(vec <= 0.0):
+        raise ValueError(f"Object scale must be positive, got {vec.tolist()}")
+    return vec
+
+
+def _constant_object_pose_scale(
+    pose_scales: list[np.ndarray],
+    poses_dir: str | None,
+) -> np.ndarray:
+    if not pose_scales:
+        return np.ones((3,), dtype=np.float64)
+
+    scales = np.stack([_coerce_scale_vector(s) for s in pose_scales], axis=0)
+    ref = scales[0]
+    if not np.allclose(scales, ref[None, :], rtol=1e-4, atol=1e-6):
+        raise ValueError(
+            "Object pose JSONs contain varying per-frame scale. A result bundle "
+            "stores a single mesh, so dynamic object scale cannot be baked into "
+            f"mesh.obj safely. poses_dir={poses_dir!r}, "
+            f"min={scales.min(axis=0).tolist()}, max={scales.max(axis=0).tolist()}"
+        )
+    return ref
+
+
 def _iter_frame_jsons(directory: str | None) -> list[tuple[int, str]]:
     if not directory or not os.path.isdir(directory):
         return []
@@ -97,8 +146,25 @@ def _load_transform_matrices(
 def _load_object_to_camera(
     poses_dir: str | None,
     n_frames: int,
-) -> tuple[np.ndarray, np.ndarray]:
-    return _load_transform_matrices(poses_dir, n_frames, pose_convention="as_is")
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Load object-to-camera poses as rigid transforms plus mesh-baked scale.
+
+    Some upstream refinement stages use ``Transform3d.scale`` as a convenient
+    carrier for learned global object scale. The portable result bundle keeps
+    poses as poses: this loader strips that scale from the matrix and returns
+    the constant scale vector so it can be baked into ``mesh.obj`` instead.
+    """
+    matrices = np.tile(np.eye(4, dtype=np.float32), (n_frames, 1, 1))
+    valid = np.zeros((n_frames,), dtype=bool)
+    pose_scales: list[np.ndarray] = []
+    for fidx, path in _iter_frame_jsons(poses_dir):
+        if not (0 <= fidx < n_frames):
+            continue
+        transform = Transform3d.load(path)
+        matrices[fidx] = _transform3d_pose_matrix(transform).astype(np.float32)
+        valid[fidx] = True
+        pose_scales.append(np.asarray(transform.scale, dtype=np.float64))
+    return matrices, valid, _constant_object_pose_scale(pose_scales, poses_dir)
 
 
 def _axis_angle_to_matrix(axis_angle: np.ndarray) -> np.ndarray:
@@ -129,7 +195,7 @@ def _load_hand_track(track_dir: str | None, n_frames: int) -> dict[str, np.ndarr
                             dtype=np.float32).reshape(3)
         hand_pose = np.asarray(mano.get("hand_pose", np.zeros((15, 3))),
                                dtype=np.float32).reshape(15, 3)
-        cam_t = np.asarray(rec.get("cam_t", [0.0, 0.0, 0.0]),
+        cam_t = np.asarray(rec.get("camera", {}).get("cam_t", [0.0, 0.0, 0.0]),
                            dtype=np.float32).reshape(3)
 
         wrist_orient[fidx] = orient
@@ -534,16 +600,29 @@ def _rewrite_mtl_to_result(mtl_src: str, result_dir: str) -> list[str]:
     return copied_textures
 
 
-def _copy_mesh_assets(mesh_path: str, result_dir: str, dest_name: str = "mesh.obj") -> dict:
+def _format_obj_float(x: float) -> str:
+    return f"{float(x):.9g}"
+
+
+def _copy_mesh_assets(
+    mesh_path: str,
+    result_dir: str,
+    dest_name: str = "mesh.obj",
+    *,
+    vertex_scale: float | np.ndarray | list[float] = 1.0,
+) -> dict:
     """Copy OBJ, MTL, and texture files into ``result_dir``.
 
     OBJ ``mtllib`` entries and MTL texture entries are rewritten to local
     basenames so the bundle is portable even when source assets lived in a
-    nested directory.
+    nested directory. Any object scale is applied directly to vertex positions
+    here so exported object transforms remain rigid poses.
     """
     os.makedirs(result_dir, exist_ok=True)
     mesh_src_dir = os.path.dirname(os.path.abspath(mesh_path))
     mesh_dst = os.path.join(result_dir, dest_name)
+    mesh_scale = _coerce_scale_vector(vertex_scale)
+    apply_vertex_scale = not np.allclose(mesh_scale, np.ones(3), rtol=0.0, atol=1e-12)
     mtl_files: list[str] = []
     obj_lines: list[str] = []
 
@@ -558,6 +637,19 @@ def _copy_mesh_assets(mesh_path: str, result_dir: str, dest_name: str = "mesh.ob
                 obj_lines.append(
                     "mtllib " + " ".join(os.path.basename(p) for p in raw_names) + "\n"
                 )
+            elif apply_vertex_scale and line.startswith("v "):
+                parts = line.strip().split()
+                if len(parts) >= 4:
+                    xyz = np.asarray(parts[1:4], dtype=np.float64) * mesh_scale
+                    rest = parts[4:]
+                    obj_lines.append(
+                        "v "
+                        + " ".join(_format_obj_float(v) for v in xyz)
+                        + ((" " + " ".join(rest)) if rest else "")
+                        + "\n"
+                    )
+                else:
+                    obj_lines.append(line)
             else:
                 obj_lines.append(line)
 
@@ -574,6 +666,7 @@ def _copy_mesh_assets(mesh_path: str, result_dir: str, dest_name: str = "mesh.ob
         "mesh": dest_name,
         "materials": sorted(set(copied_mtls)),
         "textures": sorted(set(copied_textures)),
+        "vertex_scale_applied": mesh_scale.tolist(),
     }
 
 
@@ -614,12 +707,14 @@ def write_result_bundle(
         )
         camera_is_valid = np.ones((n_frames,), dtype=bool)
 
-    object_to_camera_transform, object_is_valid = _load_object_to_camera(
+    object_to_camera_transform, object_is_valid, object_pose_mesh_scale = _load_object_to_camera(
         object_poses_dir, n_frames,
     )
     object_to_world_transform = _compose_batched(
         camera_to_world_transform, object_to_camera_transform,
     )
+    object_scale_vec = _coerce_scale_vector(object_scale)
+    object_mesh_vertex_scale = object_pose_mesh_scale * object_scale_vec
 
     left = _load_hand_track(left_hand_dir, n_frames)
     right = _load_hand_track(right_hand_dir, n_frames)
@@ -631,7 +726,12 @@ def write_result_bundle(
     )
 
     os.makedirs(result_dir, exist_ok=True)
-    mesh_manifest = _copy_mesh_assets(mesh_path, result_dir, dest_name="mesh.obj")
+    mesh_manifest = _copy_mesh_assets(
+        mesh_path,
+        result_dir,
+        dest_name="mesh.obj",
+        vertex_scale=object_mesh_vertex_scale,
+    )
     result_npz = os.path.join(result_dir, "result.npz")
     np.savez(
         result_npz,
@@ -640,7 +740,7 @@ def write_result_bundle(
         camera_intrinsics=camera_intrinsics,
         object_to_camera_transform=object_to_camera_transform,
         object_to_world_transform=object_to_world_transform,
-        object_scale=np.float32(object_scale),
+        object_scale=np.float32(1.0),
         object_is_valid=object_is_valid,
         hand_left_betas=left["betas"],
         hand_left_wrist_orient_in_camera=left["wrist_orient"],
@@ -674,7 +774,11 @@ def write_result_bundle(
             "intrinsics_path": intrinsics_path,
             "mesh_path": mesh_path,
             "object_poses_dir": object_poses_dir,
-            "object_scale": object_scale,
+            "object_scale": 1.0,
+            "input_object_scale_baked_into_mesh": object_scale,
+            "object_pose_scale_baked_into_mesh": object_pose_mesh_scale.tolist(),
+            "object_mesh_vertex_scale_applied": object_mesh_vertex_scale.tolist(),
+            "object_transform_convention": "rigid_pose_no_scale",
             "camera_to_world_dir": camera_to_world_dir,
             "input_camera_pose_convention": camera_pose_convention,
             "left_hand_dir": left_hand_dir,

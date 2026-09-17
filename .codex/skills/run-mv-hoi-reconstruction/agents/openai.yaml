@@ -1,0 +1,4 @@
+interface:
+  display_name: "Run MV Calibration and HOI Reconstruction"
+  short_description: "Run local MV calibration and HOI reconstruction"
+  default_prompt: "Use $run-mv-hoi-reconstruction to calibrate my camera rig and run the local MV-HOI pipeline."

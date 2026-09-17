@@ -18,6 +18,7 @@ IMAGES=(
     v2d_rosbag
     v2d_mv_calibration
     v2d_mv_preprocess
+    v2d_face_detector
     v2d_foundation_stereo
     v2d_grounding_dino
     v2d_sam2
