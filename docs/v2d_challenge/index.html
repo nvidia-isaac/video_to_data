@@ -64,6 +64,7 @@
       <a href="#motivation">Why This, Why Now</a>
       <a href="#tracks">Tracks</a>
       <a href="#awards">Awards</a>
+      <a href="rules.html">Rules</a>
       <a href="#judges">Judges</a>
       <a href="#timeline">Timeline</a>
       <a href="#leaderboard">Leaderboard</a>
@@ -96,12 +97,13 @@
     <h1 style="position: relative; font-size: 80px; line-height: 0.95; letter-spacing: -0.035em; font-weight: 500; margin: 0 0 28px">Video to Data (V2D) Challenge</h1>
     <p style="position: relative; font-size: 30px; line-height: 1.25; letter-spacing: -0.015em; font-weight: 400; color: var(--text-color-primary); white-space: nowrap; margin: 0 0 44px;">From Human Video to Grounded Data</p>
     <p style="position: relative; font-size: 19px; line-height: 1.6; color: var(--text-color-primary); max-width: 62ch; margin: 0 0 48px; width: 788px; height: 94px">Where does the pipeline from human video to grounded data break? Three coupled tracks answer this with shared task suites: 4D reconstruction, robotic grounding, and end-to-end egocentric transfer.</p>
-    <div style="position: relative; display: flex; align-items: center; gap: 20px;">
+    <div style="position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 20px;">
       <a href="https://docs.google.com/forms/d/e/1FAIpQLSdZJYNsEPPGDeIRH2yb_Dui-lWcIxWRF2CON7UOIijzCw8zyA/viewform?usp=publish-editor" target="_blank" rel="noopener" style="display: inline-flex;">
         <x-import component-from-global-scope="KuiFoundationsReact.Button" kind="primary" color="brand" size="large" hint-size="auto,44px">Register Now</x-import>
       </a>
       <a href="#tracks" style="font-size: 16px; font-weight: 500; color: var(--text-color-primary); border-bottom: 1px solid var(--text-color-primary); padding-bottom: 2px;">Tracks</a>
       <a href="#awards" style="font-size: 16px; font-weight: 500; color: var(--text-color-primary); border-bottom: 1px solid var(--text-color-primary); padding-bottom: 2px;">Awards</a>
+      <a href="rules.html" style="font-size: 16px; font-weight: 500; color: var(--text-color-primary); border-bottom: 1px solid var(--text-color-primary); padding-bottom: 2px;">Rules</a>
       <a href="#judges" style="font-size: 16px; font-weight: 500; color: var(--text-color-primary); border-bottom: 1px solid var(--text-color-primary); padding-bottom: 2px;">Judges</a>
       <a href="#timeline" style="font-size: 16px; font-weight: 500; color: var(--text-color-primary); border-bottom: 1px solid var(--text-color-primary); padding-bottom: 2px;">Timeline</a>
       <a href="#leaderboard" style="font-size: 16px; font-weight: 500; color: var(--text-color-primary); border-bottom: 1px solid var(--text-color-primary); padding-bottom: 2px;">Leaderboard</a>
@@ -326,7 +328,7 @@
             <li style="font-size: 19px; line-height: 1.65;"><strong style="font-weight: 600;">Track Runner-Up:</strong> second by the same metric.<br><span style="display: inline-block; margin-top: 6px; padding: 4px 12px; border-radius: var(--radius-sm); background: #ffffff; border: 1px solid var(--border-color-base); font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.04em; color: var(--text-color-primary);"><span style="letter-spacing: 0.52px;">Prize: To be announced at launch</span></span></li>
             <li style="font-size: 19px; line-height: 1.65;"><strong style="font-weight: 600;">Industry Innovation Award</strong> — selected by an invited industry panel, independent of leaderboard rank, judged on the final submission and report against criteria published at launch: [deployability, data and compute efficiency, novelty, reproducibility].<br><span style="display: inline-block; margin-top: 6px; padding: 4px 12px; border-radius: var(--radius-sm); background: #ffffff; border: 1px solid var(--border-color-base); font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.04em; color: var(--text-color-primary);"><span style="letter-spacing: 0.52px;">Prize: To be announced at launch</span></span></li>
           </ul>
-          <p style="font-size: 19px; line-height: 1.65; margin: 0; color: var(--text-color-secondary);">Eligibility for all awards: a valid final submission, agreed code release (research license), and the short technical report. Organizer entries are non-competing.</p>
+          <p style="font-size: 19px; line-height: 1.65; margin: 0; color: var(--text-color-secondary);">Eligibility for all awards: a valid final submission, agreed code release (research license), and the short technical report. Organizer entries are non-competing. See the <a href="rules.html#awards" style="text-decoration: underline;">draft award rules</a> for the presentation requirement, winner-materials deadline, and proposed late-materials policy awaiting confirmation.</p>
           <p style="font-size: 19px; line-height: 1.65; margin: 0; color: var(--text-color-secondary);">Top teams will be invited to present at our CoRL 2026 tutorial, with remote participation available, and selected solutions will receive large-scale evaluation and upstream integration. Awardees will serve as core authors of the post-challenge technical report, while all teams with valid final submissions will be invited to contribute as co-authors.</p>
         </div>
       </div>
@@ -393,8 +395,8 @@
           <div style="font-size: 18px;">Challenge data release and official launch<br><a href="https://github.com/nvidia-isaac/video_to_data/tree/release/0.2.0/" target="_blank" rel="noopener" style="font-family: var(--font-mono); font-size: 13px; color: var(--text-color-secondary); text-decoration: none; border-bottom: 1px solid var(--border-color-base); display: inline-block; margin-top: 8px;" style-hover="color: var(--text-color-primary); border-bottom-color: var(--color-brand, #76b900);">nvidia-isaac/video_to_data ↗</a></div>
         </div>
         <div style="display: grid; grid-template-columns: 220px 1fr; gap: 32px; padding: 26px 0; border-top: 1px solid var(--border-color-base);">
-          <div style="font-family: var(--font-mono); font-size: 14px; color: var(--text-color-secondary);">November 5</div>
-          <div style="font-size: 18px;">Leaderboard freeze</div>
+          <div style="font-family: var(--font-mono); font-size: 14px; color: var(--text-color-secondary);">Cutoff to be confirmed</div>
+          <div style="font-size: 18px;">Leaderboard freeze — the exact date, time, timezone, and UTC offset are awaiting confirmation in the <a href="rules.html#deadlines" style="text-decoration: underline;">rules and deadlines</a>.</div>
         </div>
         <div style="display: grid; grid-template-columns: 220px 1fr; gap: 32px; padding: 26px 0; border-top: 1px solid var(--border-color-base);">
           <div style="font-family: var(--font-mono); font-size: 14px; color: var(--text-color-secondary);">November 12</div>
@@ -402,7 +404,7 @@
         </div>
         <div style="display: grid; grid-template-columns: 220px 1fr; gap: 32px; padding: 26px 0; border-top: 1px solid var(--border-color-base); border-bottom: 1px solid var(--border-color-base);">
           <div style="font-family: var(--font-mono); font-size: 14px; color: var(--text-color-secondary);">After November 12</div>
-          <div style="font-size: 18px;">Winner solution eval and tech report preparation</div>
+          <div style="font-size: 18px;">Broader evaluation of winner solutions and technical report preparation. The evaluation period, required materials, and delivery deadline are awaiting confirmation in the <a href="rules.html#awards" style="text-decoration: underline;">award rules</a>.</div>
         </div>
         <div style="margin-top: 40px; display: flex; align-items: center; gap: 20px;">
           <a href="https://docs.google.com/forms/d/e/1FAIpQLSdZJYNsEPPGDeIRH2yb_Dui-lWcIxWRF2CON7UOIijzCw8zyA/viewform?usp=publish-editor" target="_blank" rel="noopener" style="display: inline-flex;">
@@ -423,8 +425,9 @@
       <div style="border: 1px solid var(--border-color-base); padding: 88px 40px; display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center;">
         <div style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-color-secondary);">Not yet open</div>
         <div style="font-size: 24px; font-weight: 500;">Leaderboards open September 21</div>
-        <div style="font-size: 16px; color: var(--text-color-secondary); max-width: 52ch;">One leaderboard per track, live from the data release until the freeze on November 10.</div>
-        <div style="font-size: 16px; color: var(--text-color-secondary); max-width: 52ch;">Each team may submit up to five times per week, with unlimited submissions during the final three days.</div>
+        <div style="font-size: 16px; color: var(--text-color-secondary); max-width: 52ch;">One public leaderboard per track. The final freeze date and exact cutoff are awaiting confirmation in the <a href="rules.html#deadlines" style="text-decoration: underline;">draft rules and deadlines</a>.</div>
+        <div style="font-size: 16px; color: var(--text-color-secondary); max-width: 52ch;">Each team may submit up to five times per week, with unlimited submissions during the final three days. The <a href="rules.html#deadlines" style="text-decoration: underline;">draft submission schedule</a> identifies the exact window and quota-reset details still to be confirmed.</div>
+        <div style="font-size: 16px; color: var(--text-color-secondary); max-width: 52ch;">Proposed evaluation policy: public scores are provisional and use a subset of the evaluation data; final rankings use a separate private holdout. The split and final scoring procedure are awaiting confirmation in the <a href="rules.html#evaluation" style="text-decoration: underline;">evaluation rules</a>.</div>
       </div>
       </div>
     </div>

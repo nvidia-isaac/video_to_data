@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Challenge Rules | Video to Data (V2D)</title>
+  <meta name="description" content="Draft participation rules, submission deadlines, evaluation policy, and award requirements for the Video to Data Challenge.">
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+  <link rel="stylesheet" href="_ds/kaizen-ui-foundations-5919e993-0c25-47fe-9d3b-b24c0049b4d8/fonts/fonts.css">
+  <link rel="stylesheet" href="_ds/kaizen-ui-foundations-5919e993-0c25-47fe-9d3b-b24c0049b4d8/_ds_bundle.css">
+  <link rel="stylesheet" href="_ds/kaizen-ui-foundations-5919e993-0c25-47fe-9d3b-b24c0049b4d8/styles.css">
+  <style>
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; background: #faf9f5; color: #17171c; font-family: var(--font-sans, Arial, sans-serif); line-height: 1.65; }
+    a { color: inherit; text-underline-offset: 4px; }
+    a:hover { color: #477000; }
+    a:focus-visible { outline: 3px solid #76b900; outline-offset: 5px; }
+    .site-header { padding: 22px 48px; border-bottom: 1px solid #d5d5d5; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
+    .brand { text-decoration: none; font-size: 17px; font-weight: 600; }
+    .site-header nav { display: flex; flex-wrap: wrap; gap: 12px 24px; font-size: 14px; }
+    .intro { max-width: 1180px; margin: 0 auto; padding: 72px 0 48px; }
+    .eyebrow { font-family: var(--font-mono, monospace); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: #477000; }
+    h1 { font-size: clamp(38px, 5vw, 64px); font-weight: 400; line-height: 1.05; letter-spacing: -.03em; margin: 16px 0 24px; }
+    .intro > p { font-size: 20px; max-width: 65ch; }
+    .draft-note { background: #f0eee6; border-left: 4px solid #76b900; padding: 22px 28px; margin-top: 28px; }
+    .draft-note p { margin: 8px 0 0; }
+    .version { font-size: 13px; color: #626262; }
+    main { padding: 0 48px; }
+    .layout { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 48px; padding-bottom: 80px; }
+    .contents { position: sticky; top: 24px; align-self: start; font-size: 14px; }
+    .contents p { font-weight: 600; margin-top: 0; }
+    .contents ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+    .content { min-width: 0; }
+    section { border-top: 1px solid #d5d5d5; padding: 32px 0; scroll-margin-top: 24px; }
+    section:first-child { padding-top: 0; border-top: 0; }
+    h2 { font-size: 28px; line-height: 1.2; font-weight: 400; letter-spacing: -.02em; margin: 0 0 18px; }
+    h3 { font-size: 17px; font-weight: 600; margin: 24px 0 8px; }
+    p { margin: 0 0 16px; }
+    ul { padding-left: 22px; }
+    li + li { margin-top: 8px; }
+    .pending { border: 1px solid #d5d5d5; background: white; padding: 20px 24px; margin-top: 20px; }
+    .pending strong { display: block; margin-bottom: 8px; }
+    .pending p:last-child, .pending ul:last-child { margin-bottom: 0; }
+    .schedule { margin: 22px 0; }
+    .schedule > div { display: grid; grid-template-columns: minmax(160px, .8fr) minmax(0, 1.2fr); gap: 24px; padding: 16px 0; border-bottom: 1px solid #d5d5d5; }
+    dt { font-weight: 600; }
+    dd { margin: 0; }
+    blockquote { border-left: 3px solid #76b900; padding: 12px 20px; margin: 20px 0; background: #f0eee6; }
+    .button { display: inline-block; background: #76b900; color: #111; text-decoration: none; padding: 12px 22px; font-weight: 600; margin-top: 12px; }
+    .button:hover { background: #8bca20; color: #111; }
+    footer { padding: 28px 48px; border-top: 1px solid #d5d5d5; font-size: 14px; }
+    @media (max-width: 860px) {
+      .site-header, footer { padding-left: 20px; padding-right: 20px; }
+      main { padding: 0 20px; }
+      .intro { padding-top: 48px; }
+      .intro > p { font-size: 18px; }
+      .layout { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+      .contents { position: static; }
+      .contents ul { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      h2 { font-size: 25px; }
+      .schedule > div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+      .draft-note, .pending { padding: 18px; }
+    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  </style>
+</head>
+<body class="nv-light">
+  <header class="site-header">
+    <a class="brand" href="./">Video to Data (V2D) Challenge</a>
+    <nav aria-label="Page navigation"><a href="./">Challenge overview</a><a href="#registration">Registration</a></nav>
+  </header>
+  <main>
+    <div class="intro">
+      <div class="eyebrow">Participation · Submissions · Awards</div>
+      <h1>Challenge rules</h1>
+      <p>Review the participation requirements, submission schedule, evaluation policy, and conditions for awards.</p>
+      <div class="draft-note" role="note" aria-label="Draft rules status">
+        <strong>Draft — awaiting organizer confirmation</strong>
+        <p>These rules are not final. Items marked below need confirmation before the official rules are published. Proposed policies are labeled explicitly.</p>
+        <p class="version">Draft version: 2026-09-16</p>
+      </div>
+    </div>
+    <div class="layout">
+      <nav class="contents" aria-label="Rules contents">
+        <p>On this page</p>
+        <ul>
+          <li><a href="#participation">Teams &amp; participation</a></li>
+          <li><a href="#licensing">IP &amp; licenses</a></li>
+          <li><a href="#deadlines">Dates &amp; deadlines</a></li>
+          <li><a href="#evaluation">Leaderboard &amp; evaluation</a></li>
+          <li><a href="#awards">Awards &amp; winner materials</a></li>
+          <li><a href="#registration">Registration acknowledgment</a></li>
+        </ul>
+      </nav>
+      <div class="content">
+        <section id="participation" aria-labelledby="participation-heading">
+          <h2 id="participation-heading">Teams &amp; participation</h2>
+          <p>Submit one registration form per team and list all team members and their affiliations. A team may enter any subset of the three challenge tracks. Organizer entries are non-competing.</p>
+          <div class="pending"><strong>Awaiting confirmation</strong><p>Team-size limit, participant eligibility, and rules for changing team membership or merging teams.</p></div>
+        </section>
+        <section id="licensing" aria-labelledby="licensing-heading">
+          <h2 id="licensing-heading">Intellectual property &amp; licenses</h2>
+          <p>The current award requirements include an agreed code release under a research license and a short technical report.</p>
+          <div class="pending"><strong>Awaiting confirmation</strong><ul><li>The specific license for released solution code and any model artifacts.</li><li>Dataset access, permitted use, redistribution, and third-party material requirements.</li><li>Ownership of submissions and any rights granted to the organizers.</li></ul></div>
+        </section>
+        <section id="deadlines" aria-labelledby="deadlines-heading">
+          <h2 id="deadlines-heading">Dates &amp; deadlines</h2>
+          <p>Final cutoffs will include the calendar date, exact time, timezone, and UTC offset. Submission limits and award deadlines are not final until the pending entries below are confirmed.</p>
+          <dl class="schedule">
+            <div><dt>Official launch &amp; data release</dt><dd><time datetime="2026-09-21">September 21, 2026</time></dd></div>
+            <div><dt>Standard submission quota</dt><dd>Up to five submissions per team per week. The quota period and reset time are awaiting confirmation.</dd></div>
+            <div><dt>Final unlimited-submission window</dt><dd>The published allowance is the final three days. Exact start and end timestamps, timezone, and UTC offset are awaiting confirmation.</dd></div>
+            <div><dt>Leaderboard freeze</dt><dd>Date, time, timezone, and UTC offset awaiting confirmation.</dd></div>
+            <div><dt>Winner announcement</dt><dd><time datetime="2026-11-12">November 12, 2026</time>, at the CoRL tutorial.</dd></div>
+            <div><dt>Broader post-challenge evaluation &amp; report preparation</dt><dd>After November 12. The broader evaluation period, materials deadline, and report deadline are awaiting confirmation.</dd></div>
+          </dl>
+          <p>Questions about an unconfirmed deadline can be sent to <a href="mailto:v2d_challenge@nvidia.com">v2d_challenge@nvidia.com</a>.</p>
+        </section>
+        <section id="evaluation" aria-labelledby="evaluation-heading">
+          <h2 id="evaluation-heading">Leaderboard &amp; evaluation</h2>
+          <p>Track metrics are described in the <a href="./#tracks">challenge tracks</a>. The challenge uses held-out ground truth; selected top solutions also receive broader evaluation after the challenge.</p>
+          <h3>Proposed public/private evaluation policy</h3>
+          <p>Public leaderboard scores would use only a subset of the evaluation data and remain provisional. A separate private holdout would determine final rankings; its scores and rankings would remain hidden during the challenge.</p>
+          <p>This proposed final-ranking evaluation is separate from the broader post-challenge evaluation of selected top solutions.</p>
+          <div class="pending"><strong>Awaiting confirmation</strong><p>The public/private split, final scoring procedure, tie-breaks, which final submission is evaluated, and the timing of final scoring and ranking verification relative to the winner announcement. These details must be published with the final rules and reflected in the evaluation service.</p></div>
+        </section>
+        <section id="awards" aria-labelledby="awards-heading">
+          <h2 id="awards-heading">Awards &amp; winner materials</h2>
+          <p>Current eligibility requirements are a valid final submission, agreed code release under a research license, and the short technical report. Organizer entries do not compete for awards.</p>
+          <h3>CoRL presentation</h3>
+          <p>Top teams are invited to present at the CoRL 2026 tutorial, with remote participation available. Whether a presentation is required to claim a prize is awaiting confirmation.</p>
+          <h3>Materials &amp; award verification</h3>
+          <p>The final rules will specify the required winner materials, delivery instructions, evaluation period, and exact submission deadline.</p>
+          <p><strong>Proposed late-materials policy:</strong> a team that misses the confirmed materials deadline would lose award eligibility, and the next eligible team would be considered after verification.</p>
+          <div class="pending"><strong>Awaiting confirmation</strong><p>The presentation requirement, materials and report deadlines, extension policy, and award-reassignment procedure. No new deadline or forfeiture condition is established by this draft.</p></div>
+        </section>
+        <section id="registration" aria-labelledby="registration-heading">
+          <h2 id="registration-heading">Registration acknowledgment</h2>
+          <p>The final rules will be linked from the team registration form. The following required acknowledgment is proposed for that form:</p>
+          <blockquote>I have read and agree to the V2D Challenge Rules (version &lt;FINAL_RULES_VERSION&gt;).</blockquote>
+          <p>The form acknowledgment is awaiting setup. Opening the form below does not record acceptance of these draft rules.</p>
+          <a class="button" href="https://docs.google.com/forms/d/e/1FAIpQLSdZJYNsEPPGDeIRH2yb_Dui-lWcIxWRF2CON7UOIijzCw8zyA/viewform?usp=publish-editor" target="_blank" rel="noopener noreferrer">Open team registration ↗</a>
+        </section>
+      </div>
+    </div>
+  </main>
+  <footer><a href="./">Back to the V2D Challenge</a> · <a href="mailto:v2d_challenge@nvidia.com">Contact the organizers</a></footer>
+</body>
+</html>
