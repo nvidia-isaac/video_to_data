@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import json
 import math
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -14,14 +15,8 @@ from typing import Callable, Iterable
 import yaml
 
 
-DEFAULT_POOL = "isaac-apps-l40-05"
-DEFAULT_POOLS = (
-    DEFAULT_POOL,
-    "isaac-dev-l40s-04",
-    "isaac-dev-h100-01",
-    "isaac-lab-l40s-03",
-)
-HIGH_PRIORITY_POOL = "isaac-apps-l40-05"
+# Optional priority routing is deployment-specific.
+HIGH_PRIORITY_POOL = os.environ.get("MV_HOI_HIGH_PRIORITY_POOL", "")
 _TEMPLATE_VALUE = re.compile(r"\{\{[^{}\n]+\}\}")
 
 
@@ -103,7 +98,9 @@ def configured_pools(dataset_cfg: dict) -> tuple[str, ...]:
         normalized = tuple(dict.fromkeys(str(pool) for pool in pools if str(pool)))
         if normalized:
             return normalized
-    return (str(dataset_cfg.get("osmo_pool") or DEFAULT_POOL),)
+    if dataset_cfg.get("osmo_pool"):
+        return (str(dataset_cfg["osmo_pool"]),)
+    raise ValueError("Configure osmo_pools or osmo_pool for your OSMO deployment")
 
 
 def fallback_pool(dataset_cfg: dict) -> str:
@@ -116,7 +113,7 @@ def fallback_pool(dataset_cfg: dict) -> str:
 
 def osmo_submission_priority(pool: str | None) -> str | None:
     """Return the requested OSMO priority for the selected pool."""
-    if str(pool or "") == HIGH_PRIORITY_POOL:
+    if HIGH_PRIORITY_POOL and str(pool or "") == HIGH_PRIORITY_POOL:
         return "HIGH"
     return None
 

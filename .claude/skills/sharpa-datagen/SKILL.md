@@ -1,6 +1,6 @@
 ---
 name: sharpa-datagen
-description: Guide for generating robot-behaviour datasets from trained Sharpa (floating-hand) V2D policies — rolling out checkpoints in Isaac Lab with cameras and exporting to LeRobot. Use this skill whenever the user wants to generate/record a dataset from a trained policy, run `record_dataset.py` / the `Sharpa-V2D-Record-v0` task, batch-generate data across a dataset's checkpoints, visualize recorded rollouts, pull retargeted motion + support surfaces from CSS for a record run, or debug why recorded episodes fail (objects dropping, immediate divergence, 0% completion, missing assets, file locks). Also trigger on "data generation", "datagen", "record rollouts", "LeRobot export", "policy rollout dataset", or mentions of front_cam/ego_cam/VOC/completion_ratio.
+description: Guide for generating robot-behaviour datasets from trained Sharpa (floating-hand) V2D policies — rolling out checkpoints in Isaac Lab with cameras and exporting to LeRobot. Use this skill whenever the user wants to generate/record a dataset from a trained policy, run `record_dataset.py` / the `Sharpa-V2D-Record-v0` task, batch-generate data across a dataset's checkpoints, visualize recorded rollouts, prepare local retargeted motion + support surfaces for a record run, or debug why recorded episodes fail (objects dropping, immediate divergence, 0% completion, missing assets, file locks). Also trigger on "data generation", "datagen", "record rollouts", "LeRobot export", "policy rollout dataset", or mentions of front_cam/ego_cam/VOC/completion_ratio.
 ---
 
 # Sharpa V2D Data Generation
@@ -35,11 +35,15 @@ For all checkpoints of a dataset, use the batch driver (section 7).
   `docker exec -w /workspace/video_to_data/robotic_grounding robotic-grounding-latest-gpu0 bash -lc '...'`.
   `python` in the container = `isaaclab.sh -p`. **Avoid heredocs** through it — write a
   script file to the mounted repo and run that instead.
-- **CSS credentials** for pulling motion data: `~/.config/osmo/css_credential.yaml`
-  (a DATA credential: `access_key_id`, `access_key`, `endpoint: https://pdx.s8k.io`,
-  `region: us-west-2`). Local scripts read env vars `CSS_ACCESS_KEY` (=access_key_id),
-  `CSS_SECRET_KEY` (=access_key), `CSS_ENDPOINT_URL`, `CSS_REGION` — pass them via
-  `docker exec -e ...`.
+- **Motion and object assets:** prepare them locally using
+  `robotic_grounding/docs/SETUP.md` and the per-dataset setup guide. Build the local
+  container with `./workflow/run.sh build`; a shared registry is optional. For remote
+  images set `V2D_IMAGE_REGISTRY` and follow `robotic_grounding/workflow/README.md`.
+- **Optional storage downloads:** use your storage provider's client and credentials.
+  The batch driver can use an S3-compatible endpoint configured with `CSS_ENDPOINT_URL`,
+  `CSS_ACCESS_KEY`, `CSS_SECRET_KEY`, and optional `CSS_REGION`. These are legacy variable
+  names, not access to a repository-provided service. No hosted bucket or credentials
+  are supplied. Pass the variables explicitly to the container only if downloads are needed.
 - **Checkpoints** (per-sequence policies):
   `Datagen_Checkpoints/floating_sharpa_checkpoints/<ds>/<seq>/{metadata.json, model_<iter>.pt}`.
   `metadata.json` has the reference eval metrics (see section 6). One policy per sequence.
@@ -50,30 +54,32 @@ A record run needs THREE things present locally for the sequence. Missing any �
 
 1. **Processed motion parquet** — 62 columns, **must include `mano_{left,right}_link_contact_normals`**.
    `source/.../assets/human_motion_data/<ds>/<ds>_processed/sequence_id=<seq>/robot_name=sharpa_wave/*.parquet`
-   - Pull: `python scripts/sync_css_data.py --dataset <ds> --component processed --pattern '<seq>'`
-     (the `--pattern` is a regex `re.search` over `sequence_id=<seq>`; use the bare seq id).
-   - ⚠️ **Older CSS exports are 60-col and MISSING `link_contact_normals`** → crash
+   - Generate the processed partition with the retarget pipeline in
+     `robotic_grounding/docs/SETUP.md`, or copy it from storage you control.
+   - ⚠️ **Older exports may be MISSING `link_contact_normals`** → crash
      `must be real number, not NoneType` in `hand_object_commands.py:_init_contact_data`.
      Verify with `pyarrow.parquet.read_schema(...).names`.
 
 2. **Support surface** — `reconstructed_stage/<seq>_support.usda`.
    `source/.../assets/human_motion_data/<ds>/reconstructed_stage/<seq>_support.usda`
-   - ⚠️ **NOT** the `support_surfaces/` CSS prefix (empty for taco). It lives under the CSS
-     `reconstructed_stage/` prefix. Pull with boto3 (see gotcha below).
+   - Generate it with `python scripts/reconstruct_support_surfaces.py --dataset <ds>
+     --sequence_id <seq>`, or copy the matching file from your `reconstructed_stage/` output.
    - ⚠️ **Missing support surface → the object free-falls → `object_away_from_trajectory`
      terminates at ~step 5 → 0% completion.** This looks like a policy failure but isn't.
 
 3. **Object meshes + URDFs** — `assets/{meshes,urdfs}/<ds>/`.
-   - `scripts/fetch_object_assets.py` shells out to the **`aws` CLI which is absent in the
-     container** → pull meshes via boto3 instead, then **`python scripts/generate_rigid_urdfs.py
-     --dataset <ds>`** to build ALL URDFs (the CSS `object_assets/urdfs/` set is incomplete;
-     a missing `NNN_rigid.urdf` → `FileNotFoundError: Missing assets`).
+   - Download meshes from the dataset's original source following its setup guide,
+     then run `python scripts/generate_rigid_urdfs.py --dataset <ds>`.
+     A missing `NNN_rigid.urdf` causes `FileNotFoundError: Missing assets`.
 
-### CSS pull gotcha (boto3)
-The swift gateway **400s on `download_file`'s HEAD**. Use `signature_version="s3v4"`,
-`addressing_style="path"`, and **`get_object`** (not `download_file`). Bucket `datasets`,
-prefixes under `v2d/human_motion_data/<ds>/`:
-`{ds}_processed/`, `reconstructed_stage/`, `object_assets/{meshes,urdfs}/{ds}/`.
+### Optional batch storage layout
+
+`batch_taco_datagen.py` reads the existing local processed motion and support surfaces
+first. If either is missing, it downloads from the configured S3-compatible endpoint.
+Its bucket (`datasets`) and prefixes (`v2d/human_motion_data/taco/taco_processed` and
+`v2d/human_motion_data/taco/reconstructed_stage`) are constants in the script; adapt
+these to your storage before using remote downloads. The client uses S3 v4 signatures,
+path-style addressing, and `get_object`.
 
 ## 3. Running a record (`record_dataset.py`)
 
@@ -107,7 +113,7 @@ completion craters. Verified: flipping this took the taco batch from **53% → ~
 
 ## 3c. Env count & the recorder (sizing a run)
 
-- Per-task wall-clock is **startup-bound** (~3–4 min Isaac boot + CSS pull, fixed regardless of
+- Per-task wall-clock is **startup-bound** (~3–4 min Isaac boot + data preparation, fixed regardless of
   env count). Env count only sets rollout waves = `ceil(num_episodes / num_envs)`, so **more
   envs = fewer waves = faster, up to the RAM limit** — there is no interior sweet spot.
 - **64 envs is the single-container RAM-safe max** (~29–33 GB host RAM). **256 envs thrashes**
@@ -174,8 +180,9 @@ trajectories/cameras are intact independent of the policy:
 
 ## 7. Batch generation
 
-`scripts/batch_taco_datagen.py` runs every checkpoint of a dataset: pulls CSS data per
-sequence, runs `record_dataset` **serially**, kills zombie kit procs between runs, scores
+`scripts/batch_taco_datagen.py` runs taco checkpoints from its configured checkpoint
+root: checks local data (optionally downloads missing files from your configured storage),
+runs `record_dataset` **serially**, kills zombie kit procs between runs, scores
 from the LeRobot episodes parquet, and writes `SUMMARY.md` (per-task + total
 full_completion_pct vs metadata). Env-overridable constants: `NUM_ENVS`, `NUM_EPISODES`,
 `VOC_SCALE`, `VOC_DECAY_STEPS`, **`USE_PRIMITIVE_URDFS` (default 1)**,
@@ -226,7 +233,7 @@ ego videos are **not** frame-synced to the sim rollouts — they're linked at th
 | Symptom | Cause / fix |
 |---|---|
 | RTX segfault at startup | Host driver not 580.x (595 too new). Swap to `nvidia-driver-580-open`. |
-| `must be real number, not NoneType` @ `_init_contact_data` | Parquet missing `link_contact_normals` (stale 60-col CSS export). Re-pull the updated processed parquet. |
+| `must be real number, not NoneType` @ `_init_contact_data` | Parquet missing `link_contact_normals` (stale processed export). Regenerate or obtain the updated processed parquet. |
 | Objects drop, episodes die ~step 5, 0% completion | Missing `reconstructed_stage/<seq>_support.usda`. Pull it. |
 | Low completion / grasp slips / object drifts off path (esp. batch-wide) | Recorded on **full** URDF but the ckpt was trained **primitive**. Add `--use_primitive_urdfs` (section 3b). |
 | Stuck at "recorded 1/N" for a long time (long-horizon seq) | Recorder saturating at too many envs. Drop `--num_envs` to ~16 (section 3c). |
@@ -234,6 +241,5 @@ ego videos are **not** frame-synced to the sim rollouts — they're linked at th
 | `FileNotFoundError: Missing assets ... NNN_rigid.urdf` | Run `generate_rigid_urdfs.py --dataset <ds>`. |
 | `BlockingIOError: unable to lock file` | Zombie kit process holding the lock. `pkill` (section 9). |
 | Hands drift away but objects stable; 0% | Hand-divergence policy failure (per-sequence). VOC can't help hands; not a data bug. |
-| `download_file` 400 from CSS | Use `get_object` + `signature_version=s3v4` + `addressing_style=path`. |
-| `403 access denied` from `osmo` | Missing DL roles `access-osmo` + `access-osmo-isaac-dev` (DLRequest / #osmo-support). |
-| nvcr `Access Denied` on `nvstaging/isaac-amr` | Regenerate the NGC API key with the isaac-amr org active, then `docker login nvcr.io -u '$oauthtoken' -p <key>`. |
+| `403 access denied` from `osmo` | Verify authentication and pool/storage permissions with your OSMO deployment administrator; see `robotic_grounding/workflow/README.md`. |
+| Workflow image pull denied | Build locally, or configure `V2D_IMAGE_REGISTRY` and log in to a registry your OSMO workers can access. For the public Isaac Lab base image, follow the NGC login guidance in `robotic_grounding/docs/SETUP.md`. |

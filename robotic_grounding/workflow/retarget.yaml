@@ -38,19 +38,20 @@
 # Usage:
 #   # Full pipeline
 #   python scripts/run_osmo.py --experiment-name retarget-taco \
-#     --image nvcr.io/nvstaging/isaac-amr/robotic-grounding:datasets \
-#     --workflow-yaml workflow/retarget.yaml --set dataset=taco
+#     --image <your-registry>/robotic-grounding:datasets --pool <your-pool> \
+#     --workflow-yaml workflow/retarget.yaml --set input_url=<url> --set output_url=<url> --set dataset=taco
 #
 #   # (Load runs separately — see reconstruction/workflows/task_library_load/.)
 #
 #   # Process only (IK retargeting)
 #   python scripts/run_osmo.py --experiment-name retarget-taco-process \
-#     --workflow-yaml workflow/retarget.yaml --set dataset=taco --set stages=process
+#     --image <your-registry>/robotic-grounding:datasets --pool <your-pool> \
+#     --workflow-yaml workflow/retarget.yaml --set input_url=<url> --set output_url=<url> --set dataset=taco --set stages=process
 #
 #   # With filtering:
 #   python scripts/run_osmo.py --experiment-name retarget-taco-screw \
-#     --image nvcr.io/nvstaging/isaac-amr/robotic-grounding:datasets \
-#     --workflow-yaml workflow/retarget.yaml --set dataset=taco \
+#     --image <your-registry>/robotic-grounding:datasets --pool <your-pool> \
+#     --workflow-yaml workflow/retarget.yaml --set input_url=<url> --set output_url=<url> --set dataset=taco \
 #     --set 'sequence_pattern=.*(screw|stir).*'
 
 workflow:
@@ -398,15 +399,13 @@ workflow:
 
 default-values:
   workflow_name: robotic_grounding_retarget
-  # TODO(public-release): internal image registry (nvcr.io/nvstaging) — replace before open-sourcing.
-  image: nvcr.io/nvstaging/isaac-amr/robotic-grounding:datasets
+  # Set image explicitly to a registry image your OSMO workers can pull.
+  image: image-registry-not-configured-see-readme.invalid/robotic-grounding:datasets
   stages: all
   dataset: arctic
-  # TODO(public-release): input_url/output_url point to internal NVIDIA storage
-  # (pdx.s8k.io / AUTH_team-isaac). Replace the swift host + bucket (or override
-  # via --set) before open-sourcing.
-  input_url: swift://pdx.s8k.io/AUTH_team-isaac/datasets/v2d/human_motion_data/{{dataset}}/
-  output_url: swift://pdx.s8k.io/AUTH_team-isaac/datasets/v2d/human_motion_data/{{dataset}}/
+  # Required: pass --set input_url=<url> --set output_url=<url> for your storage.
+  input_url: ""
+  output_url: ""
   sequence_pattern: ".*"
   sequence_id: ""
   max_sequences: ""

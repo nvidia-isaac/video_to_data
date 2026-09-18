@@ -7,7 +7,7 @@ description: Diagnostic checklist for the Video Ingestion Agent environment — 
 
 Run through these checks in order when something's wrong, or before a first run as a sanity sweep. Each step has a command, what a pass looks like, and what to do on a fail. Stop at the first failing check and apply its fix before continuing — most failures cascade.
 
-All commands assume the user is in `/home/liuw/Projects/video_to_data/video_ingestion_agent/` (substitute your clone path) and has activated the project's `.venv`.
+All commands assume the user is in `<repo>/video_ingestion_agent/` (substitute your clone path) and has activated the project's `.venv`.
 
 ## Before You Start
 
@@ -22,7 +22,7 @@ For the full first-time setup, use the `ingestion_agent_onboard` skill instead �
 
 ## 1. vLLM Server Health
 
-The pipeline needs a running vLLM server at `vllm_url` (default `http://localhost:8000/v1`) for the default `vllm` backend. If the user is on the `local` or `api` backend, skip to Section 2.
+The pipeline needs a running vLLM server at `vllm_url` (default `http://localhost:8000/v1`) for the default `vllm` backend. If the user is on the `local` backend, skip to Section 2. For `api`, check the provider settings below first.
 
 ```bash
 python scripts/serve.py --status
@@ -57,6 +57,16 @@ lsof -i :8000
 ```
 
 If something other than the vLLM server holds the port (look at the COMMAND column), either stop it or set `vllm_url` to a different port in your config and restart the server.
+
+### API backend configuration
+
+The `api` backend requires an explicit `models.api_url` containing the provider's
+full OpenAI-compatible `chat/completions` URL. Also set `models.vlm_model` and/or
+`models.llm_model` to identifiers that provider supports. There is no default endpoint.
+Use `models.api_key` or export `NIM_API_KEY` in the same shell; check presence without
+printing credentials. An explicit-url error means the endpoint is missing. A 401/403
+means the key, endpoint, or model access needs checking; these errors fail immediately
+without retries. See `docs/pages/model_backends.rst` for the configuration contract.
 
 ## 2. GPU + Driver
 

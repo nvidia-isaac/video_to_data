@@ -9,7 +9,8 @@ WORKFLOW_DIR = Path(__file__).resolve().parents[1]
 
 def _load_osmo_workflow(name: str):
     raw = (WORKFLOW_DIR / "osmo" / name).read_text()
-    parsed = yaml.safe_load(re.sub(r"\{\{[^}]+\}\}", "placeholder", raw))
+    rendered = raw.replace("{{image_registry}}", "registry.example.com/team")
+    parsed = yaml.safe_load(re.sub(r"\{\{[^}]+\}\}", "placeholder", rendered))
     return raw, parsed
 
 
@@ -21,7 +22,7 @@ def test_face_detector_follows_preprocess_in_normal_and_oneoff_workflows():
         assert task_names.index("face_detector") > task_names.index("mv_preprocess")
         face_task = next(task for task in tasks if task["name"] == "face_detector")
         assert face_task["image"] == (
-            "nvcr.io/nvstaging/isaac-amr/mv_hoi_face_detector:placeholder"
+            "registry.example.com/team/mv_hoi_face_detector:placeholder"
         )
         assert face_task["inputs"] == [
             {"task": "mv_preprocess"},

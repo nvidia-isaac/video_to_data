@@ -11,7 +11,7 @@ local copy is used; otherwise it's treated as a remote S3 path.
 
 Usage (remote):
     python -m v2d.mv.postprocess.lib.export_sequence \
-        --swift_output_base swift://pdx.s8k.io/AUTH_.../data_output/<seq> \
+        --swift_output_base swift://storage.example.com/AUTH_.../data_output/<seq> \
         --output_dir /local/path/to/sequence
 
 Usage (local):
@@ -27,7 +27,6 @@ import fnmatch
 import json
 import os
 import shutil
-import sys
 import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -37,6 +36,7 @@ import boto3
 import h5py
 from botocore.config import Config
 from tqdm import tqdm
+from v2d.common.object_storage import parse_storage_url, s3_client_kwargs
 
 from v2d.common.hdf5_transcode import (
     has_hdf5_filters,
@@ -54,10 +54,6 @@ from v2d.common.video import pack_directory_to_h5
 DEFAULT_DOWNLOAD_WORKERS = os.cpu_count() or 8
 DEFAULT_CAMERA_WORKERS = min(4, os.cpu_count() or 4)
 
-ENDPOINT_URL = os.environ.get("CSS_ENDPOINT_URL", "https://pdx.s8k.io")
-ACCESS_KEY = os.environ.get("CSS_ACCESS_KEY", "")
-SECRET_KEY = os.environ.get("CSS_SECRET_KEY", "")
-REGION = os.environ.get("CSS_REGION", "us-east-1")
 
 LEFT_CAMERAS = [
     "front_stereo_camera_left",
@@ -107,43 +103,16 @@ def _run_camera_jobs(items, worker, max_camera_workers: int):
         return list(pool.map(worker, items))
 
 
-def _get_s3_client():
-    if not ACCESS_KEY or not SECRET_KEY:
-        print(
-            "Error: Set CSS_ACCESS_KEY and CSS_SECRET_KEY environment variables.\n"
-            "  source reconstruction/scripts/setup_css_env.sh",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+def _get_s3_client(remote_url: str | None = None, *, endpoint_url: str | None = None):
+    endpoint = parse_storage_url(remote_url)[0] if remote_url else endpoint_url
     return boto3.client(
-        "s3",
-        endpoint_url=ENDPOINT_URL,
-        aws_access_key_id=ACCESS_KEY,
-        aws_secret_access_key=SECRET_KEY,
-        region_name=REGION,
-        config=Config(connect_timeout=10),
+        "s3", **s3_client_kwargs(endpoint), config=Config(connect_timeout=10),
     )
 
 
 def _parse_swift_url(url: str) -> tuple[str, str]:
-    """Return (bucket, prefix) from a swift:// URL or a bare bucket/path."""
-    if url.startswith("swift://"):
-        stripped = url.replace("swift://", "").rstrip("/")
-        parts = stripped.split("/", 3)
-        bucket = parts[2] if len(parts) > 2 else ""
-        prefix = parts[3] if len(parts) > 3 else ""
-        if not bucket:
-            print("Error: swift:// URL must include a container/bucket.", file=sys.stderr)
-            sys.exit(1)
-        return bucket, prefix
-
-    stripped = url.strip("/")
-    parts = stripped.split("/", 1)
-    bucket = parts[0]
-    prefix = parts[1] if len(parts) > 1 else ""
-    if not bucket:
-        print("Error: remote path must not be empty.", file=sys.stderr)
-        sys.exit(1)
+    """Compatibility alias accepting s3://, swift:// and bare bucket paths."""
+    _, bucket, prefix = parse_storage_url(url)
     return bucket, prefix
 
 
@@ -261,7 +230,7 @@ def _download_prefix(
 
     def _get_thread_client():
         if not hasattr(_local, "client"):
-            _local.client = _get_s3_client()
+            _local.client = _get_s3_client(endpoint_url=client.meta.endpoint_url)
         return _local.client
 
     def _do_download(item: tuple[str, Path]) -> None:
@@ -1211,7 +1180,7 @@ def _export_remote(
     source_end_frame: int | None,
 ) -> None:
     """Download from CSS via boto3."""
-    client = _get_s3_client()
+    client = _get_s3_client(swift_output_base)
     bucket, base_prefix = _parse_swift_url(swift_output_base)
 
     for css_sub, out_sub, entry_type, filter_fn, remap_fn, h5_layout in data_map:
@@ -1337,7 +1306,7 @@ def _build_parser() -> argparse.ArgumentParser:
     source.add_argument(
         "--swift_output_base", type=str,
         help="Swift URL for remote download "
-             "(e.g. swift://pdx.s8k.io/AUTH_.../data_output/<seq>)",
+             "(e.g. swift://storage.example.com/AUTH_.../data_output/<seq>)",
     )
     source.add_argument(
         "--source_dir", type=str,

@@ -12,6 +12,11 @@ sys.path.insert(0, str(WORKFLOW_DIR))
 from orchestration import db, registry_versions
 
 
+@pytest.fixture(autouse=True)
+def configured_ngc_registry(monkeypatch):
+    monkeypatch.setenv("V2D_IMAGE_REGISTRY", "nvcr.io/example-team/pipeline")
+
+
 def _completed(stdout: str = "", stderr: str = "", returncode: int = 0):
     return subprocess.CompletedProcess(
         args=["ngc"], returncode=returncode, stdout=stdout, stderr=stderr,
@@ -22,7 +27,7 @@ def test_list_repository_versions_parses_and_sorts_strict_semvers(monkeypatch):
     payload = [
         {"tag": "latest"},
         {"tag": "1.10.0"},
-        {"image": "nvstaging/isaac-amr/example:1.9.0"},
+        {"image": "example-team/pipeline/example:1.9.0"},
         {"tag": "1.10"},
         {"tag": "v2.0.0"},
     ]
@@ -47,7 +52,7 @@ def test_list_repository_versions_parses_and_sorts_strict_semvers(monkeypatch):
                 "list",
                 "--format_type",
                 "json",
-                "nvstaging/isaac-amr/example:*",
+                "example-team/pipeline/example:*",
             ],
             {"capture_output": True, "text": True},
         )
@@ -99,7 +104,7 @@ def test_resolve_submission_version_uses_latest_numeric_semver(monkeypatch):
     monkeypatch.setattr(
         registry_versions,
         "list_repository_versions",
-        lambda repository: versions[repository],
+        lambda repository, **_kwargs: versions[repository],
     )
 
     assert registry_versions.resolve_submission_version() == "1.10.0"
@@ -114,7 +119,7 @@ def test_resolve_submission_version_rejects_incomplete_release(monkeypatch):
     monkeypatch.setattr(
         registry_versions,
         "list_repository_versions",
-        lambda repository: versions[repository],
+        lambda repository, **_kwargs: versions[repository],
     )
 
     with pytest.raises(
@@ -133,7 +138,7 @@ def test_requested_submission_version_must_exist_on_every_image(monkeypatch):
     monkeypatch.setattr(
         registry_versions,
         "list_repository_versions",
-        lambda repository: versions[repository],
+        lambda repository, **_kwargs: versions[repository],
     )
 
     with pytest.raises(
@@ -144,14 +149,14 @@ def test_requested_submission_version_must_exist_on_every_image(monkeypatch):
 
 
 def test_resolve_push_version_starts_at_initial_version(monkeypatch):
-    monkeypatch.setattr(registry_versions, "latest_registry_version", lambda: None)
+    monkeypatch.setattr(registry_versions, "latest_registry_version", lambda **_kwargs: None)
 
     assert registry_versions.resolve_push_version() == (None, "0.1.0")
 
 
 def test_resolve_push_version_increments_remote_patch(monkeypatch):
     monkeypatch.setattr(
-        registry_versions, "latest_registry_version", lambda: "1.10.9",
+        registry_versions, "latest_registry_version", lambda **_kwargs: "1.10.9",
     )
 
     assert registry_versions.resolve_push_version() == ("1.10.9", "1.10.10")
@@ -188,3 +193,34 @@ def test_ensure_version_cached_is_idempotent_and_allows_remote_history(tmp_path)
         ("1.9.0", "older remote release"),
         ("2.0.0", "first"),
     ]
+
+
+@pytest.mark.parametrize("error", [
+    '{"errors":[{"code":"NAME_UNKNOWN","message":"repository name not known to registry"}]}',
+    'time="2026-09-17" level=fatal msg="Error listing repository tags: name unknown: repository not found"',
+    'Error listing repository tags: name unknown: repository name not known to registry',
+])
+def test_initial_generic_registry_publish_accepts_a_missing_repository(monkeypatch, error):
+    monkeypatch.setattr(registry_versions.subprocess, "run", lambda *a, **kw:
+        _completed(stderr=error, returncode=1))
+    registry = "registry.example.com/new-team"
+    assert registry_versions.resolve_push_version("0.1.0", registry=registry) == (None, "0.1.0")
+    assert registry_versions.resolve_push_version(registry=registry) == (None, "0.1.0")
+    with pytest.raises(registry_versions.RegistryVersionError, match="incomplete"):
+        registry_versions.resolve_submission_version("0.1.0", registry=registry)
+
+
+@pytest.mark.parametrize("error", [
+    "unauthorized: authentication required",
+    "repository does not exist or may require authorization",
+    "dial tcp: connection refused",
+    "invalid status code from registry 404 (Not Found)",
+    "NAME_UNKNOWN: authentication required",
+])
+def test_generic_registry_publish_does_not_treat_auth_or_transport_failure_as_empty(
+    monkeypatch, error,
+):
+    monkeypatch.setattr(registry_versions.subprocess, "run", lambda *a, **kw:
+        _completed(stderr=error, returncode=1))
+    with pytest.raises(registry_versions.RegistryVersionError, match="skopeo query failed"):
+        registry_versions.resolve_push_version("0.1.0", registry="registry.example.com/team")

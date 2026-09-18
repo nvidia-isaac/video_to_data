@@ -24,7 +24,7 @@ SHARDS="${1:-4}"
 IMAGE="robotic-grounding:latest"
 GPU="${GPU:-0}"
 OUT_ROOT="${OUT_ROOT:-datasets/Taco_Datagen_Sharded}"
-REPO_PARENT="$(cd "$(dirname "$0")/../.." && pwd)"   # .../video_to_data_internal
+REPO_PARENT="$(cd "$(dirname "$0")/../.." && pwd)"   # repository checkout
 CACHE_ROOT="${HOME}/.cache/robotic-grounding"
 
 CRED="${HOME}/.config/osmo/css_credential.yaml"

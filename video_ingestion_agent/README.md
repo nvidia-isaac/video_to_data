@@ -55,7 +55,7 @@ typed state, easy to extend or swap.
   multiple GPUs into a shared `graph.db` / `vector.db` using SQLite WAL.
 - **Pluggable model backends** — vLLM (production), local HuggingFace
   (development), or remote API (NVIDIA NIM / OpenAI-compatible; set
-  `NIM_API_KEY` and, for non-default gateways, `models.api_url` — see
+  `NIM_API_KEY`, `models.api_url`, and a model identifier supported by your provider — see
   `docs/pages/model_backends.rst`).
 
 ## Requirements

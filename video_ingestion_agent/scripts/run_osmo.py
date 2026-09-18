@@ -44,7 +44,7 @@ def _build_benchmark_sets(args, image_name: str, hf_token: str, nim_api_key: str
     """Build --set key=value pairs for the benchmark workflow."""
     wandb_api_key = args.wandb_api_key or os.environ.get("WANDB_API_KEY", "")
     workflow_name = f"benchmark_{args.experiment_name}"
-    return [
+    sets = [
         f'workflow_name="{workflow_name}"',
         f'image="{image_name}"',
         f'hf_token="{hf_token}"',
@@ -53,6 +53,9 @@ def _build_benchmark_sets(args, image_name: str, hf_token: str, nim_api_key: str
         f'wandb_run_name="{args.experiment_name}"',
         f'wandb_api_key="{wandb_api_key}"',
     ]
+    if args.nfs_videos_path:
+        sets.append(f'nfs_videos_path="{args.nfs_videos_path}"')
+    return sets
 
 
 def _build_batch_ingestion_sets(
@@ -73,6 +76,8 @@ def _build_batch_ingestion_sets(
         sets.append(f'num_shards="{args.num_shards}"')
     if args.input_dir:
         sets.append(f'input_dir="{args.input_dir}"')
+    if args.nfs_videos_path:
+        sets.append(f'nfs_videos_path="{args.nfs_videos_path}"')
     return sets
 
 
@@ -86,7 +91,7 @@ def _build_webapp_sets(args, image_name: str, hf_token: str, nim_api_key: str) -
         f'nim_api_key="{nim_api_key}"',
     ]
     if args.nfs_db_dir:
-        sets.append(f'nfs_db_dir="{args.nfs_db_dir}"')
+        sets.append(f'default_db_dir="{args.nfs_db_dir}"')
     if args.webapp_port:
         sets.append(f'webapp_port="{args.webapp_port}"')
     return sets
@@ -129,8 +134,17 @@ def main():
     )
     parser.add_argument(
         "--pool",
-        default="isaac-dev-h100-01",
-        help="OSMO pool to use for workflow execution (default: isaac-dev-h100-01)",
+        default=None,
+        help="OSMO pool to use for workflow execution",
+    )
+    parser.add_argument(
+        "--image-repository",
+        default=os.environ.get("V2D_IMAGE_REPOSITORY"),
+        help=(
+            "Registry/repository for images built by this command, for example "
+            "ghcr.io/<organization>. Required when --image is not supplied; "
+            "defaults to V2D_IMAGE_REPOSITORY."
+        ),
     )
     parser.add_argument("--dry-run", action="store_true", help="Print commands without executing")
     parser.add_argument(
@@ -159,9 +173,14 @@ def main():
     # Batch-ingestion-specific options
     batch_group = parser.add_argument_group("batch ingestion options")
     batch_group.add_argument(
+        "--nfs-videos-path",
+        default=None,
+        help="Absolute path to videos visible to the OSMO task (required for benchmark and batch ingestion)",
+    )
+    batch_group.add_argument(
         "--output-base-dir",
         default=None,
-        help="NFS base directory for DB outputs (default from workflow YAML)",
+        help="Absolute base directory for DB outputs (required for batch ingestion)",
     )
     batch_group.add_argument(
         "--num-shards",
@@ -189,8 +208,36 @@ def main():
 
     args = parser.parse_args()
 
+    if args.workflow_type in {"benchmark", "batch_ingestion"} and not args.nfs_videos_path:
+        parser.error("--nfs-videos-path is required for benchmark and batch_ingestion workflows")
+    if args.workflow_type == "batch_ingestion" and not args.output_base_dir:
+        parser.error("--output-base-dir is required for batch_ingestion workflows")
+    for option in ("nfs_videos_path", "output_base_dir", "nfs_db_dir"):
+        value = getattr(args, option)
+        if value and not Path(value).is_absolute():
+            parser.error(
+                f"--{option.replace('_', '-')} must be an absolute path on the OSMO cluster"
+            )
+
     # Resolve workflow YAML
     workflow_yaml = args.workflow_yaml or WORKFLOW_DEFAULTS[args.workflow_type]
+    if not Path(workflow_yaml).is_file():
+        parser.error(f"Workflow file not found: {workflow_yaml}")
+
+    if not args.image and not args.image_repository:
+        parser.error(
+            "image registry is not configured; pass --image <registry>/<image>:<tag>, "
+            "or set --image-repository / V2D_IMAGE_REPOSITORY before building"
+        )
+    image_config = args.image or args.image_repository
+    if (
+        not image_config.strip("/")
+        or ".invalid" in image_config
+        or any(c.isspace() or c in "<>" for c in image_config)
+    ):
+        parser.error("configure --image or --image-repository with a real container image location")
+    if not args.image and not Path(args.dockerfile).is_file():
+        parser.error(f"Dockerfile not found: {args.dockerfile}")
 
     # Get HF token from args or environment
     hf_token = args.hf_token or os.environ.get("HF_TOKEN")
@@ -208,10 +255,7 @@ def main():
         image_name = args.image
         print(f"Using existing Docker image: {image_name}")
     else:
-        # Generate image name with latest tag
-        image_name = (
-            f"nvcr.io/nvstaging/isaac-amr/v2p_{args.workflow_type}_{args.experiment_name}:latest"
-        )
+        image_name = f"{args.image_repository.rstrip('/')}/v2p_{args.workflow_type}_{args.experiment_name}:latest"
 
         print(f"\nBuilding Docker image: {image_name}")
         build_cmd = f"docker build --network=host -t {image_name} -f {args.dockerfile} ."
@@ -224,7 +268,7 @@ def main():
                 print("Error: Docker build failed")
                 sys.exit(1)
 
-        print(f"\nPushing Docker image to NGC: {image_name}")
+        print(f"\nPushing Docker image to configured registry: {image_name}")
         push_cmd = f"docker push {image_name}"
 
         if args.dry_run:
@@ -236,12 +280,6 @@ def main():
                 sys.exit(1)
 
     print(f"\nUsing Docker image: {image_name}")
-
-    # Check if workflow YAML exists
-    workflow_path = Path(workflow_yaml)
-    if not workflow_path.exists():
-        print(f"Error: Workflow file not found: {workflow_yaml}")
-        sys.exit(1)
 
     # Build --set pairs for the selected workflow type
     if args.workflow_type == "benchmark":
@@ -255,7 +293,8 @@ def main():
     print(f"\nSubmitting OSMO workflow: {workflow_yaml}")
 
     sets_str = " ".join(set_pairs)
-    osmo_cmd = f"osmo workflow submit {workflow_yaml} --set {sets_str} --pool {args.pool}"
+    pool_arg = f" --pool {args.pool}" if args.pool else ""
+    osmo_cmd = f"osmo workflow submit {workflow_yaml} --set {sets_str}{pool_arg}"
 
     print(f"\n{osmo_cmd}\n")
 

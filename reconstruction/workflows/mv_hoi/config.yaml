@@ -2,9 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 datasets:
   sc_office_4exo_1:
-    swift_base: swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/multiview/sc_office_4exo_1
-    mesh_base: swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/mesh
-    weights_base_url: swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/multiview_weights/releases/20260722
+    # Copy this template and set MV_HOI_CONFIG_PATH to your private deployment file.
+    image_registry: ""  # Or export V2D_IMAGE_REGISTRY=registry.example.com/your-team
+    swift_base: ""
+    mesh_base: ""
+    weights_base_url: ""
     pipelines:
       mv_calibration:
         input_path: calibration
@@ -54,7 +56,7 @@ datasets:
               silhouette_render_bbox_padding_fraction: 0.1
               min_accuracy_failure_run_frames: 5
               max_silhouette_failure_coverage: 0.5
-            hitl_s3_base: s3://hitl-intake-testing/production-folder/isaac-v2d-multiview/data-factory-production/video-to-data-v2d-multiview-data-collection
+            hitl_s3_base: ""
             hitl_batch_name_template: "batch_{date}"
       mv_hoi_export:
         input_path: data_output
@@ -66,11 +68,9 @@ datasets:
           workers: 4
         # Enable campaign-by-campaign only after its manual cleanup canary.
         cleanup_intermediates_after_export:
-          enabled: true
-          campaign_allowlist:
-            - 20260728_backlog_reprocessing_v1628_canonical_preprocess
-            - 20260804_backlog_reprocessing_v1645_segment_accuracy_end_trim_r2
-          automatic_export_cutoff: "2026-08-02T22:46:43Z"
+          enabled: false
+          campaign_allowlist: []
+          automatic_export_cutoff: ""
           mode: asynchronous
           max_per_cycle: 40
           workers: 8
@@ -78,9 +78,9 @@ datasets:
           export:
             workflow_yaml: osmo/mv_hoi_export.yaml
             batch_size: 40
-            kratos_table: llmdf_admin.project_285164_annotations
-            kratos_status_table: llmdf_admin.item_status_transition_metrics
-            kratos_project_id: 285164
+            kratos_table: ""  # Optional integration: your provider's annotations table
+            kratos_status_table: ""
+            kratos_project_id: null
             max_failure_annotations: 10
             max_failure_coverage: 0.5
             max_silhouette_failure_coverage: 0.5
@@ -130,9 +130,5 @@ datasets:
               no_contact_policy: keep_full
           export_retry:
             workflow_yaml: osmo/mv_hoi_revalidation_export_retry.yaml
-    osmo_pools:
-      - isaac-apps-l40-05
-      - isaac-dev-l40s-04
-      - isaac-dev-h100-01
-      - isaac-lab-l40s-03
-    osmo_pool_fallback: isaac-apps-l40-05
+    osmo_pools: []  # Required: pools available to your OSMO deployment
+    osmo_pool_fallback: ""

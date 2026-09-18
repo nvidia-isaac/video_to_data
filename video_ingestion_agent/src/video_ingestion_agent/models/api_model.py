@@ -3,10 +3,8 @@
 """API-based model wrapper.
 
 This module provides the API model wrapper for external LLM services
-like ChatGPT, Gemini, Claude, etc. via NVIDIA Inference API.
-
-The NVIDIA Inference API supports multiple model providers through the
-model name (e.g., "openai/gpt-4o", "google/gemini-1.5-pro", "anthropic/claude-3").
+through an explicitly configured OpenAI-compatible chat/completions endpoint.
+Choose the model identifier supported by your provider.
 """
 
 import logging
@@ -24,29 +22,27 @@ logger = logging.getLogger(__name__)
 
 
 class APIModel:
-    """API-based model backend using NVIDIA Inference API.
+    """API-based model backend using a configured OpenAI-compatible endpoint.
 
     This class provides a unified interface for making API calls to various
-    LLM models via NVIDIA's Inference API, with support for both text and
+    LLM models via a provider endpoint, with support for both text and
     video (via frame extraction) inputs.
 
     Args:
         model_name: Model identifier (e.g., "openai/gpt-4o", "google/gemini-1.5-pro")
         api_key: API key. If None, reads from NIM_API_KEY environment variable.
-        api_url: API endpoint URL. If None, uses NVIDIA default.
+        api_url: Required OpenAI-compatible chat/completions endpoint URL.
         fps: Frames per second for video extraction
 
     Example:
-        model = APIModel("openai/gpt-4o")
+        model = APIModel("provider-model-id",
+                         api_url="https://provider.example/v1/chat/completions")
         response = model.generate_text([
             {"role": "user", "content": "Hello!"}
         ])
 
         response = model.generate_from_video("video.mp4", "Describe this video")
     """
-
-    # NVIDIA Inference API endpoint
-    DEFAULT_API_URL = "https://inference-api.nvidia.com/v1/chat/completions"
 
     def __init__(
         self,
@@ -55,6 +51,12 @@ class APIModel:
         api_url: str | None = None,
         fps: int = 4,
     ):
+        if not api_url or not api_url.strip():
+            raise ValueError(
+                "The API backend requires an explicit api_url. Set models.api_url to your "
+                "provider's OpenAI-compatible chat/completions URL and configure "
+                "models.vlm_model/models.llm_model with a model supported by that provider."
+            )
         self.model_name = model_name
         self.fps = fps
 
@@ -67,7 +69,7 @@ class APIModel:
                 )
 
         self.api_key = api_key
-        self.api_url = api_url or self.DEFAULT_API_URL
+        self.api_url = api_url
 
         logger.info(f"[APIModel] Initialized: {model_name}")
         # Log initialization info (mask API key for security)

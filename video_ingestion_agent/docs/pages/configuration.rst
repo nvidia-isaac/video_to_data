@@ -50,9 +50,8 @@ Models
      # API key for API backends (or set NIM_API_KEY env var)
      api_key: null
 
-     # 'api' backend endpoint override (OpenAI-compatible chat/completions
-     # URL). null = the built-in NVIDIA Inference API endpoint. Set this if
-     # your key belongs to a different gateway.
+     # Required when using the 'api' backend: your provider's OpenAI-compatible
+     # chat/completions URL. Set the model identifier for the same provider.
      api_url: null
 
      # vLLM server settings
@@ -383,7 +382,7 @@ Environment Variables
      - HuggingFace token for downloading gated models
    * - ``NIM_API_KEY``
      - API key for the ``api`` backend. Must be valid for the endpoint in use
-       (``models.api_url``, default: NVIDIA Inference API)
+       (``models.api_url``, required; no default endpoint)
 
 Optional integrations
 ---------------------

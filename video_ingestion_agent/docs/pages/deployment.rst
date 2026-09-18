@@ -61,6 +61,22 @@ OSMO Cluster
 
 OSMO workflows are defined in ``osmo_workflows/`` and submitted via ``scripts/run_osmo.py``.
 
+.. note::
+
+   The workflow templates deliberately use
+   ``image-registry-not-configured-see-readme.invalid`` until you configure an
+   image you own with ``--image <registry>/<image>:<tag>``. To build and push an
+   image, use ``--image-repository <registry>/<namespace>`` or export
+   ``V2D_IMAGE_REPOSITORY=<registry>/<namespace>``. Export ``HF_TOKEN`` before
+   submitting; the wrapper passes it to the workflow for model downloads.
+
+   Benchmark and batch ingestion require ``--nfs-videos-path``. Batch ingestion
+   also requires ``--output-base-dir``. These paths must be absolute and visible
+   to the cluster tasks. Select your cluster pool with ``--pool``; if omitted,
+   the OSMO client's configured pool is used. When submitting YAML directly,
+   supply the corresponding ``image``, ``nfs_videos_path``, and
+   ``output_base_dir`` template values with ``--set`` as needed.
+
 Available Workflows
 ^^^^^^^^^^^^^^^^^^^^
 
@@ -90,6 +106,9 @@ Process a large video dataset across multiple GPUs:
 
    python scripts/run_osmo.py batch_ingestion \
      --experiment-name epic_kitchens_v1 \
+     --image <registry>/v2p_video_agent:<tag> \
+     --pool <your-pool> \
+     --nfs-videos-path /mnt/nfs/videos \
      --output-base-dir /mnt/nfs/outputs \
      --num-shards 8
 
@@ -112,7 +131,10 @@ Run the EPIC-KITCHENS benchmark:
 .. code-block:: bash
 
    python scripts/run_osmo.py benchmark \
-     --experiment-name epic_kitchens_eval
+     --experiment-name epic_kitchens_eval \
+     --image <registry>/v2p_video_agent:<tag> \
+     --pool <your-pool> \
+     --nfs-videos-path /mnt/nfs/epic_kitchens
 
 **What this does:**
 
@@ -131,6 +153,8 @@ Deploy the web interface on the cluster:
 
    python scripts/run_osmo.py webapp \
      --experiment-name my_demo \
+     --image <registry>/v2p_video_agent:<tag> \
+     --pool <your-pool> \
      --nfs-db-dir /mnt/nfs/database
 
 **What this does:**

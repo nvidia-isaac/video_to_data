@@ -1,147 +1,71 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Download or upload files/folders to CSS (NVIDIA PDX storage).
+"""Download or upload files/folders to S3-compatible object storage.
 
-Operates on swift:// URLs or bucket-relative paths used by the reconstruction
+Operates on s3://, swift:// URLs or bucket-relative paths used by the reconstruction
 pipelines.  Skips files that already exist at the destination with the same
 size.
 
 Prerequisites:
   - boto3: pip install boto3
-  - CSS credentials configured via environment variables:
+  - S3 credentials configured via environment variables:
       source ~/secrets/setup_css_env.sh
 
 Usage:
   # Download a folder
   python reconstruction/scripts/sync_css.py download \
-      swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/multiview/sc_office_4exo_1/data/seq_001 \
+      swift://storage.example.com/AUTH_example/recordings/v2d/multiview/sc_office_4exo_1/data/seq_001 \
       /tmp/seq_001
 
   # Upload a folder
   python reconstruction/scripts/sync_css.py upload \
       /tmp/seq_001 \
-      swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/multiview/sc_office_4exo_1/data_output/seq_001
+      swift://storage.example.com/AUTH_example/recordings/v2d/multiview/sc_office_4exo_1/data_output/seq_001
 
   # Download a single file
   python reconstruction/scripts/sync_css.py download \
-      swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/mesh/tall_bar_stool/einstar/mesh.obj \
+      swift://storage.example.com/AUTH_example/recordings/v2d/mesh/tall_bar_stool/einstar/mesh.obj \
       /tmp/mesh.obj
 
   # List remote directory contents
   python reconstruction/scripts/sync_css.py ls \
-      swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/multiview/sc_office_4exo_1/data/seq_001
+      swift://storage.example.com/AUTH_example/recordings/v2d/multiview/sc_office_4exo_1/data/seq_001
 
   # Dry-run to see what would be transferred
   python reconstruction/scripts/sync_css.py download \
-      swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/multiview/sc_office_4exo_1/data/seq_001 \
+      swift://storage.example.com/AUTH_example/recordings/v2d/multiview/sc_office_4exo_1/data/seq_001 \
       /tmp/seq_001 --dry-run
 """
 
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
 import boto3
 from botocore.config import Config
 
-ENDPOINT_URL = os.environ.get("CSS_ENDPOINT_URL", "https://pdx.s8k.io")
-ACCESS_KEY = os.environ.get("CSS_ACCESS_KEY", "")
-SECRET_KEY = os.environ.get("CSS_SECRET_KEY", "")
-REGION = os.environ.get("CSS_REGION", "us-east-1")  # Ignored by CSS, location is inferred from the endpoint URL
+_COMMON_DIR = Path(__file__).resolve().parents[1] / "modules" / "v2d_common"
+sys.path.insert(0, str(_COMMON_DIR))
+from object_storage import parse_storage_url, s3_client_kwargs
+
 
 
 # ── S3 helpers ─────────────────────────────────────────────────────────
 
 
-def _get_s3_client():
-    if not ACCESS_KEY or not SECRET_KEY:
-        print(
-            "Error: Set CSS_ACCESS_KEY and CSS_SECRET_KEY environment variables.\n"
-            "  source ~/secrets/setup_css_env.sh",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+def _get_s3_client(remote_url: str | None = None, *, endpoint_url: str | None = None):
+    endpoint = parse_storage_url(remote_url)[0] if remote_url else endpoint_url
     return boto3.client(
-        "s3",
-        endpoint_url=ENDPOINT_URL,
-        aws_access_key_id=ACCESS_KEY,
-        aws_secret_access_key=SECRET_KEY,
-        region_name=REGION,
-        config=Config(connect_timeout=10),
+        "s3", **s3_client_kwargs(endpoint), config=Config(connect_timeout=10),
     )
 
 
-def _env_host() -> str:
-    """Derive the host from CSS_ENDPOINT_URL (e.g. 'pdx.s8k.io')."""
-    return ENDPOINT_URL.replace("https://", "").replace("http://", "").rstrip("/")
-
-
-def _env_account() -> str:
-    """Derive the Swift account from CSS_ACCESS_KEY.
-
-    e.g. 'v2p:AUTH_team-isaac' -> 'AUTH_team-isaac'
-    """
-    if ":" in ACCESS_KEY:
-        return ACCESS_KEY.split(":", 1)[1]
-    return ""
-
-
 def _parse_swift_url(url: str) -> tuple[str, str]:
-    """Return (bucket, prefix) from a swift:// URL or a bare bucket/path.
-
-    Swift URLs have the form:
-        swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/mesh/...
-                ^host       ^account       ^bucket    ^prefix...
-
-    The account is handled by credentials and is skipped.  The S3 bucket
-    is the Swift container (``recordings`` above), and everything after it
-    is the object key prefix.
-
-    Bare paths are also accepted:
-        recordings/v2d/mesh/...   ->  bucket='recordings', prefix='v2d/mesh/...'
-
-    Validates that the host and account match the env vars when present.
-    """
-    if url.startswith("swift://"):
-        stripped = url.replace("swift://", "").rstrip("/")
-        # host / account / bucket / prefix...
-        parts = stripped.split("/", 3)
-        host = parts[0]
-        account = parts[1] if len(parts) > 1 else ""
-        bucket = parts[2] if len(parts) > 2 else ""
-        prefix = parts[3] if len(parts) > 3 else ""
-
-        expected_host = _env_host()
-        expected_account = _env_account()
-        if expected_host and host != expected_host:
-            print(
-                f"Warning: URL host '{host}' does not match "
-                f"CSS_ENDPOINT_URL '{expected_host}'",
-                file=sys.stderr,
-            )
-        if expected_account and account != expected_account:
-            print(
-                f"Warning: URL account '{account}' does not match "
-                f"CSS_ACCESS_KEY account '{expected_account}'",
-                file=sys.stderr,
-            )
-        if not bucket:
-            print("Error: swift:// URL must include a container/bucket.", file=sys.stderr)
-            sys.exit(1)
-        return bucket, prefix
-
-    # Bare path — first component is the bucket (container)
-    stripped = url.strip("/")
-    parts = stripped.split("/", 1)
-    bucket = parts[0]
-    prefix = parts[1] if len(parts) > 1 else ""
-    if not bucket:
-        print("Error: remote path must not be empty.", file=sys.stderr)
-        sys.exit(1)
+    """Compatibility alias accepting s3://, swift:// and bare bucket paths."""
+    _, bucket, prefix = parse_storage_url(url)
     return bucket, prefix
 
 
@@ -389,43 +313,43 @@ def delete(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Download or upload files/folders to CSS (PDX storage).",
+        description="Transfer files and folders to S3-compatible object storage.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    dl = sub.add_parser("download", help="Download from CSS to local path")
+    dl = sub.add_parser("download", help="Download from object storage to a local path")
     dl.add_argument("remote",
-                    help="swift:// URL or bare path (e.g. recordings/v2d/...)")
+                    help="s3://, swift:// URL or bare path (e.g. recordings/v2d/...)")
     dl.add_argument("local", help="Local destination path")
     dl.add_argument("--dry-run", action="store_true",
                     help="Show what would be transferred without doing it")
 
     ls_p = sub.add_parser("ls", help="List contents of a remote directory")
     ls_p.add_argument("remote",
-                      help="swift:// URL or bare path (e.g. recordings/v2d/...)")
+                      help="s3://, swift:// URL or bare path (e.g. recordings/v2d/...)")
     ls_p.add_argument("-r", "--recursive", action="store_true",
                       help="List all objects recursively instead of just immediate children")
     ls_p.add_argument("-n", "--limit", type=int, default=None,
                       help="Max number of entries to display")
 
-    rm = sub.add_parser("delete", help="Delete a file or directory recursively from CSS")
+    rm = sub.add_parser("delete", help="Delete a file or directory recursively from object storage")
     rm.add_argument("remote",
-                    help="swift:// URL or bare path (e.g. recordings/v2d/...)")
+                    help="s3://, swift:// URL or bare path (e.g. recordings/v2d/...)")
     rm.add_argument("--dry-run", action="store_true",
                     help="Show what would be deleted without doing it")
 
-    ul = sub.add_parser("upload", help="Upload from local path to CSS")
+    ul = sub.add_parser("upload", help="Upload from a local path to object storage")
     ul.add_argument("local", help="Local file or directory to upload")
     ul.add_argument("remote",
-                    help="swift:// URL or bare path (e.g. recordings/v2d/...)")
+                    help="s3://, swift:// URL or bare path (e.g. recordings/v2d/...)")
     ul.add_argument("--dry-run", action="store_true",
                     help="Show what would be transferred without doing it")
 
     args = parser.parse_args()
-    client = _get_s3_client()
+    client = _get_s3_client(args.remote)
     bucket, prefix = _parse_swift_url(args.remote)
 
-    display_url = f"swift://{_env_host()}/{_env_account()}/{bucket}/{prefix}"
+    display_url = args.remote
     if args.command == "ls":
         print(f"Listing {display_url}")
         ls(client, bucket, prefix, recursive=args.recursive, limit=args.limit)

@@ -11,7 +11,7 @@ models:
 
   # API key for API backends (or set NIM_API_KEY env var)
   api_key: null
-  api_url: null  # "api" backend endpoint override; null = built-in NVIDIA Inference API URL
+  api_url: null  # Required for "api": your provider's chat/completions URL and matching model
 
   # Device for local models
   device: "cuda"

@@ -8,6 +8,10 @@
 # Local direnv overrides (only meaningful at repo root)
 .envrc.local
 
+.planning/
+.superpowers/
+.DS_Store
+
 # Real training checkpoints for data generation (large, external)
 Datagen_Checkpoints/
 

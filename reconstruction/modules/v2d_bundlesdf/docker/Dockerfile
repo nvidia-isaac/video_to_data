@@ -152,11 +152,6 @@ RUN cd / && \
 # Clone a tested, Apache-2.0-licensed 3d-object-reconstruction revision from
 # the public GitHub repo (V1). Keep this pinned so release builds do not change
 # when upstream main advances.
-# To upgrade to V2 (internal dev branch) when released, replace with:
-#   ARG GITLAB_TOKEN
-#   RUN git clone --branch dev/bundlefusion-replacement-and-texture-refinement --depth 1 \
-#       https://oauth2:${GITLAB_TOKEN}@gitlab-master.nvidia.com/metropolis-perf/3d-reconstruction/3d-object-reconstruction-github.git \
-#       /workspace/3d-object-reconstruction
 ARG OBJECT_RECONSTRUCTION_COMMIT=e7aa98dc2dcc92de9cebb6f2a991fa6d2aa6f284
 RUN git init /workspace/3d-object-reconstruction && \
     git -C /workspace/3d-object-reconstruction remote add origin \

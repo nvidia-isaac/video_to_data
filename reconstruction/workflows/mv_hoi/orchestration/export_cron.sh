@@ -18,7 +18,7 @@ LOGDIR="$STATE_DIR/logs"
 LOCKFILE="$STATE_DIR/locks/mv_hoi_export.lock"
 VENV="${MV_HOI_VENV:-$STATE_DIR/venv}"
 DATASET="${1:-${DATASET:-sc_office_4exo_1}}"
-CSS_ENV="${CSS_ENV:-$HOME/secrets/setup_css_env.sh}"
+CSS_ENV="${S3_ENV:-${CSS_ENV:-}}"
 KRATOS_DRS_ENV="${KRATOS_DRS_ENV:-$HOME/secrets/setup_kratos_drs_env.sh}"
 
 clear_kratos_drs_env() {
@@ -35,7 +35,7 @@ if ! flock -n 9; then
   exit 0
 fi
 
-source "$CSS_ENV"
+if [ -n "$CSS_ENV" ]; then source "$CSS_ENV"; fi
 if [ "${MV_HOI_QC_QUERY_ENABLED:-1}" = "0" ]; then
   echo "WARNING: QC query disabled; exports will remain WAITING_QC"
   clear_kratos_drs_env

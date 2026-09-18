@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+try:
+    from .storage import parse_storage_url, s3_client_kwargs
+except ImportError:  # Direct script execution.
+    from storage import parse_storage_url, s3_client_kwargs
+
 import json
 import hashlib
-import os
 
 import boto3
 from botocore.config import Config
@@ -26,23 +30,15 @@ class CandidateCleanupError(RuntimeError):
 
 
 def _parse(url: str) -> tuple[object, str, str]:
-    stripped = url.rstrip("/").removeprefix("swift://")
-    host, account, bucket, *rest = stripped.split("/")
-    if not host or not account or not bucket:
-        raise ValueError(f"Invalid Swift URL: {url}")
+    endpoint, bucket, prefix = parse_storage_url(url)
     client = boto3.client(
-        "s3", endpoint_url=f"https://{host}",
-        aws_access_key_id=os.environ.get("CSS_ACCESS_KEY"),
-        aws_secret_access_key=os.environ.get("CSS_SECRET_KEY"),
+        "s3", **s3_client_kwargs(endpoint),
         config=Config(
             signature_version="s3v4",
             retries={"mode": "adaptive", "max_attempts": 6},
         ),
     )
-    # The Swift account is part of the URL namespace, but the S3-compatible
-    # API expects the container itself as ``Bucket`` (matching every other CSS
-    # client in this workflow package).
-    return client, bucket, "/".join(rest)
+    return client, bucket, prefix
 
 
 def verify_remote_export_commit(url: str) -> dict:

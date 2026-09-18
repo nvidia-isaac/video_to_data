@@ -48,7 +48,7 @@ Architecture
        Config["YAML Config\n(vlm_model, vlm_backend)"] --> ModelManager
        ModelManager -->|backend=local| Local["LocalModelWrapper\n(CosmosReasonModel)"]
        ModelManager -->|backend=vllm| VLLM["VLLMModelWrapper\n(OpenAI client)"]
-       ModelManager -->|backend=api| API["APIModelWrapper\n(NVIDIA Inference API)"]
+       ModelManager -->|backend=api| API["APIModelWrapper\n(configured API endpoint)"]
 
        Local -->|generate_from_video| HF["HuggingFace Transformers\n+ torch (GPU)"]
        VLLM -->|OpenAI chat/completions| Server["vLLM Server\n(PagedAttention, TP)"]
@@ -299,8 +299,8 @@ data --async-scheduling``), so only the Reasoner tower is loaded.
 - A drop-in alternative to Qwen3-VL via the ``vllm`` backend (no code changes)
 
 
-api — NVIDIA Inference API
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
+api — OpenAI-compatible endpoint
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 **Module:** :code_link:`<src/video_ingestion_agent/models/api_model.py>`
 
@@ -310,17 +310,16 @@ No local GPU is required.
 .. code-block:: yaml
 
    models:
-     vlm_model: "openai/openai/gpt-5.2"
+     vlm_model: "provider-model-id"
      vlm_backend: "api"
      api_key: null     # reads from NIM_API_KEY env var
-     api_url: null     # endpoint override; null = NVIDIA Inference API
+     api_url: "https://provider.example/v1/chat/completions"  # required
 
 **How it works:**
 
 1. ``APIModel`` sends a ``POST`` request to an OpenAI-compatible
-   ``chat/completions`` endpoint. By default this is NVIDIA's internal
-   Inference API gateway (``https://inference-api.nvidia.com/v1/chat/completions``);
-   set ``models.api_url`` to target a different gateway.
+   ``chat/completions`` endpoint supplied in ``models.api_url``. There is no
+   default endpoint; set the model identifier to one supported by your provider.
 2. For video input, the client extracts frames at ``vlm_fps``, encodes each as a base64 JPEG,
    and includes them as ``image_url`` content items alongside a text prompt that provides
    frame-to-timestamp mapping context.
@@ -336,19 +335,10 @@ No local GPU is required.
 
 .. note::
 
-   Key/endpoint pairing matters. The default endpoint is NVIDIA's internal
-   Inference API gateway; keys issued for other OpenAI-compatible gateways
-   authenticate only against their own endpoint. If you have such a key, point
-   ``models.api_url`` at that gateway's ``chat/completions`` URL and use the
-   model identifiers that gateway expects (model naming differs between
-   gateways — ``openai/openai/gpt-5.2`` is the internal gateway's naming).
-
-**Supported model providers** (via NVIDIA NIM):
-
-- ``openai/openai/gpt-5.2`` — OpenAI GPT-5.2
-- ``google/gemini-1.5-pro`` — Google Gemini 1.5 Pro
-- ``anthropic/claude-3`` — Anthropic Claude 3
-- Any model available through the NVIDIA Inference API
+   Configure the endpoint, model identifier, and key for the same provider.
+   Missing ``models.api_url`` raises a configuration error before any request.
+   Model names and video/image support vary by provider; select a model that
+   supports the inputs used by your pipeline.
 
 **When to use:**
 
@@ -500,8 +490,9 @@ Switching backends requires only a YAML config change — no code modifications.
       .. code-block:: yaml
 
          models:
-           vlm_model: "openai/openai/gpt-5.2"
+           vlm_model: "provider-model-id"
            vlm_backend: "api"
+           api_url: "https://provider.example/v1/chat/completions"
 
       .. code-block:: bash
 
@@ -524,8 +515,9 @@ for entity extraction:
      vlm_backend: "vllm"
 
      # LLM: API model for entity extraction (text-only, so API latency is acceptable)
-     llm_model: "openai/openai/gpt-5.2"
+     llm_model: "provider-model-id"
      llm_backend: "api"
+     api_url: "https://provider.example/v1/chat/completions"
 
 When ``llm_model`` is ``null`` (the default), entity extraction reuses the VLM model and its
 backend. Setting it explicitly enables this split-backend configuration.
@@ -552,11 +544,11 @@ For interactive or notebook use:
        api_url="http://localhost:8000/v1",
    )
 
-   # API model (api_url optional; defaults to the NVIDIA Inference API)
+   # API model (supply your provider endpoint and model identifier)
    api = manager.get_model(
-       "openai/openai/gpt-5.2",
+       "provider-model-id",
        backend="api",
-       api_url=None,  # or another OpenAI-compatible chat/completions URL
+       api_url="https://provider.example/v1/chat/completions",
    )
 
    # All share the same interface
@@ -570,7 +562,9 @@ For interactive or notebook use:
    from video_ingestion_agent.models import get_local_model, get_api_model
 
    model = get_local_model("Qwen/Qwen3-VL-8B-Instruct")
-   model = get_api_model("openai/openai/gpt-5.2")
+   model = get_api_model(
+       "provider-model-id", api_url="https://provider.example/v1/chat/completions"
+   )
 
 
 Troubleshooting
@@ -588,10 +582,11 @@ Troubleshooting
    * - ``NIM_API_KEY environment variable not set``
      - Export the key: ``export NIM_API_KEY="nvapi-..."``
    * - ``Authentication failed (401)`` from the api backend
-     - The key does not match the endpoint. The default endpoint is NVIDIA's
-       internal Inference API gateway; if your key belongs to a different
-       OpenAI-compatible gateway, set ``models.api_url`` to that gateway's
-       ``chat/completions`` URL (and use its model naming).
+     - Check that the key is valid for ``models.api_url`` and the configured
+       model is available from that provider.
+   * - ``The API backend requires an explicit api_url``
+     - Set ``models.api_url`` to your provider's ``chat/completions`` URL and
+       ``models.vlm_model`` / ``models.llm_model`` to a supported model identifier.
    * - ``CUDA out of memory`` (local backend)
      - Use the ``vllm`` backend instead (more memory-efficient), or reduce
        ``vlm_fps``.

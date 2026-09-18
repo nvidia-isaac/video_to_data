@@ -5,7 +5,7 @@ Model Manager - Unified interface for local, API, and vLLM-based models.
 
 Supports:
 - Local models (COSMOS Reason via transformers, LLMs via transformers)
-- API models (ChatGPT, Gemini, Claude via NVIDIA Inference API or direct APIs)
+- API models (an explicitly configured OpenAI-compatible endpoint)
 - vLLM models (local vLLM server with OpenAI-compatible API for fast inference)
 
 Usage:
@@ -13,8 +13,9 @@ Usage:
     manager = ModelManager()
     model = manager.get_model("nvidia/Cosmos-Reason2-8B", backend="local")
 
-    # API model (ChatGPT via NVIDIA Inference API)
-    model = manager.get_model("openai/gpt-4o", backend="api")
+    # API model (configure your provider endpoint and model)
+    model = manager.get_model("provider-model-id", backend="api",
+                              api_url="https://provider.example/v1/chat/completions")
 
     # vLLM model (requires running vLLM server)
     model = manager.get_model("nvidia/Cosmos-Reason2-8B", backend="vllm",
@@ -180,13 +181,12 @@ LocalModel = LocalModelWrapper
 class APIModelWrapper(BaseModel):
     """API model backend wrapping the APIModel implementation.
 
-    Wraps APIModel (from api_model.py) for API-based inference via NVIDIA
-    Inference API, providing the same BaseModel interface as LocalModelWrapper.
+    Wraps APIModel (from api_model.py) for OpenAI-compatible API inference, providing the same BaseModel interface as LocalModelWrapper.
 
     Args:
         model_name: Model identifier (e.g., "openai/gpt-4o")
         api_key: API key. If None, reads from NIM_API_KEY environment variable.
-        api_url: API endpoint URL. If None, uses NVIDIA default.
+        api_url: Required OpenAI-compatible chat/completions endpoint URL.
         fps: Frames per second for video extraction
     """
 
@@ -347,8 +347,8 @@ def resolve_api_url(
     Args:
         backend: "local", "api", or "vllm"
         vllm_url: vLLM server URL from config
-        api_url: 'api'-backend endpoint override from config (None means
-            APIModel's built-in NVIDIA Inference API endpoint)
+        api_url: Required 'api'-backend endpoint from config. APIModel raises
+            an actionable configuration error if it is missing.
 
     Returns:
         The URL to pass as ``api_url`` to ``get_model``, or None.
@@ -374,7 +374,8 @@ class ModelManager:
         local_model = manager.get_model("nvidia/Cosmos-Reason2-8B")
 
         # API model
-        api_model = manager.get_model("openai/gpt-4o", backend="api")
+        api_model = manager.get_model("provider-model-id", backend="api",
+                              api_url="https://provider.example/v1/chat/completions")
 
         # Both have same interface
         result = model.generate_from_video(video_path, prompt)
@@ -444,7 +445,7 @@ class ModelManager:
             logger.info(f"[ModelManager] vLLM URL: {api_url or 'http://localhost:8000/v1'}")
             logger.info(f"[ModelManager] Local media: {use_local_media}")
         elif backend == "api":
-            logger.info(f"[ModelManager] API URL: {api_url or 'default NVIDIA Inference API'}")
+            logger.info(f"[ModelManager] API URL: {api_url}")
         logger.info(f"[ModelManager] FPS: {fps}")
 
         if backend == "local":
@@ -551,8 +552,7 @@ def get_api_model(
     Args:
         model_name: Model identifier (e.g., "openai/openai/gpt-5.2")
         api_key: API key (or set via NIM_API_KEY environment variable)
-        api_url: Endpoint override (None means APIModel's built-in
-            NVIDIA Inference API endpoint)
+        api_url: Required OpenAI-compatible chat/completions endpoint URL.
 
     Returns:
         APIModelWrapper instance (implements BaseModel interface)

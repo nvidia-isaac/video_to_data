@@ -1,12 +1,11 @@
 # Host-side dependencies for reconstruction/workflows/mv_hoi scripts.
 # Install in the local environment that runs submit.py/query.py/export.py.
+# Optional Kratos QC client: install separately from your provider; see README.md.
 
---extra-index-url https://artifactory.pdx.nvidia.com/artifactory/api/pypi/sw-kratos-pypi-local/simple
 
 boto3==1.34.162
 google-api-python-client==2.196.0
 google-auth==2.53.0
-kratos-cli==4.0.158
 PyYAML==6.0.3
 SQLAlchemy==2.0.51
 alembic==1.18.5

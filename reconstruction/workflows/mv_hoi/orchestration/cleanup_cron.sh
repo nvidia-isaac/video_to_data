@@ -13,7 +13,7 @@ HOST_ENV="${MV_HOI_ENV_FILE:-$STATE_DIR/host.env}"
 LOGDIR="$STATE_DIR/logs"
 LOCKFILE="$STATE_DIR/locks/mv_hoi_cleanup.lock"
 VENV="${MV_HOI_VENV:-$STATE_DIR/venv}"
-CSS_ENV="${CSS_ENV:-$HOME/secrets/setup_css_env.sh}"
+CSS_ENV="${S3_ENV:-${CSS_ENV:-}}"
 
 mkdir -p "$LOGDIR" "$(dirname "$LOCKFILE")"
 exec 9>"$LOCKFILE"
@@ -22,7 +22,7 @@ if ! flock -n 9; then
   exit 0
 fi
 
-source "$CSS_ENV"
+if [ -n "$CSS_ENV" ]; then source "$CSS_ENV"; fi
 cd "$WORKDIR"
 source "$VENV/bin/activate"
 

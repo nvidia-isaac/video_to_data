@@ -146,6 +146,8 @@ To deploy the web app on an OSMO cluster with a vLLM server and NFS-mounted data
 
    python scripts/run_osmo.py webapp \
      --experiment-name my_demo \
+     --image <registry>/v2p_video_agent:<tag> \
+     --pool <your-pool> \
      --nfs-db-dir /path/to/database
 
 This workflow:

@@ -31,7 +31,7 @@ The right shape of your first turn:
 > 3. Which inference backend do you want for the VLM (and LLM — typically the same)?
 >    - **vllm** *(default, recommended)* — fast local server, needs a GPU with ≥16 GB free VRAM for the default 8B model. I'll only start `scripts/serve.py` if you pick this.
 >    - **local** — in-process HuggingFace inference, no server to manage, but slower and shares GPU memory with SigLIP-2 embeddings.
->    - **api** — cloud (NVIDIA NIM or OpenAI-compatible). No GPU needed for the VLM/LLM but you'll need an API key. *Note: SigLIP-2 embeddings are always loaded locally regardless of backend — for a fully GPU-free setup, you'd skip the entity-graph stage at ingest.*
+>    - **api** — cloud (NVIDIA NIM or OpenAI-compatible). No GPU needed for the VLM/LLM but you'll need a provider endpoint, a supported model identifier, and an API key. *Note: SigLIP-2 embeddings are always loaded locally regardless of backend — for a fully GPU-free setup, you'd skip the entity-graph stage at ingest.*
 > 4. If we're ingesting, what video file should we use?
 >
 > *(If you pick **vllm**, I'll also ask about your GPU model + VRAM in a moment to pick the right `--tp` / `--gpu-mem` flags.)*
@@ -50,7 +50,7 @@ Concrete rules:
 4. **Inline troubleshooting on failure.** Each step has its own "If this fails" table. Jump there immediately rather than continuing past a broken state. If the failure isn't in that table, hand off to the `ingestion_agent_doctor` skill.
 5. **Adapt to the user.** If they answer Step 0 with "I already installed" or "I just want retrieval", skip past the irrelevant steps. The walkthrough is a guide rail, not a rigid script.
 
-All commands assume the user is in `/home/liuw/Projects/video_to_data/video_ingestion_agent/` with the project's `.venv` activated. Substitute their clone path if different.
+All commands assume the user is in `<repo>/video_ingestion_agent/` with the project's `.venv` activated. Substitute their clone path if different.
 
 ## Step 0: Triage (mandatory entry point)
 
@@ -63,7 +63,7 @@ You should already have sent the introduction + four questions above. Once the u
 | "Just want to see the webapp" | Skip to **Step 5: Webapp** (it can run against an empty DB; ingest comes later) |
 | "Full setup from scratch" | Continue with **Step 1: Install** |
 | "I've already installed" | Skip to **Step 2: Backend setup**. Quick sanity check first: `python -c "import video_ingestion_agent; print('ok')"` |
-| "Backend is already configured / server is up" | Skip to **Step 3: First Ingest**. Sanity-check the backend first (vllm: `serve.py --status`; api: `echo $NIM_API_KEY`; local: confirm config has `vlm_backend: local`) |
+| "Backend is already configured / server is up" | Skip to **Step 3: First Ingest**. Sanity-check the backend first (vllm: `serve.py --status`; api: confirm `models.api_url`, model identifier, and that `NIM_API_KEY` is set without printing it; local: confirm config has `vlm_backend: local`) |
 
 If they picked the `vllm` backend and we're going to start the server, ask one more question before Step 2: **"What GPU do you have? (model + VRAM, e.g., 'one H100 80GB' or 'two A100 40GB')"**. The shipped `configs/ingestion.yaml` defaults `vllm_tp_size: 8` for the OSMO multi-GPU setup, which fails on a single-GPU machine — you need this answer to pick the right `--tp` and `--gpu-mem` flags.
 
@@ -106,7 +106,7 @@ Pass: prints `install ok`.
 | Symptom | Fix |
 |---------|-----|
 | `ModuleNotFoundError: No module named 'gradio'` on `import video_ingestion_agent` | The package's `webapp/__init__.py` eagerly imports `app`, so `[webapp]` is required even for non-UI usage. Run `uv sync --extra webapp` |
-| `error: failed to read uv.lock` | The user is in the wrong directory. `cd /home/liuw/Projects/video_to_data/video_ingestion_agent/` and retry |
+| `error: failed to read uv.lock` | The user is in the wrong directory. `cd /path/to/video_to_data/video_ingestion_agent/` and retry |
 | Lockfile drift complaints | `uv lock` to regenerate, or `git checkout pyproject.toml uv.lock` to revert local edits |
 | Long pause on torch download | First-time install — torch is ~2 GB. Wait |
 
@@ -254,22 +254,22 @@ No verification command here proves the backend is wired correctly — the next 
 
 > "The API backend offloads the VLM and LLM to a cloud service — no local GPU needed for inference, just an API key. Note: SigLIP-2 embeddings are *always* loaded locally regardless of backend, so if you don't have a GPU at all, you'll need to skip the entity-graph stage at ingest (`--no-entity-graph` in Step 3). Otherwise SigLIP runs on CPU and is slow but works."
 
-#### Get an API key from the user
+#### Configure the provider endpoint and credentials
 
-Surface this exactly to the user:
-
-> "Do you have a NVIDIA NIM API key? If so, get one from <https://build.nvidia.com> and export it in your shell:
->
-> ```
-> export NIM_API_KEY=nvapi-...
-> ```
->
-> If you're using a different OpenAI-compatible endpoint (vLLM elsewhere, OpenAI proper, a private gateway), let me know the base URL and I'll wire that into config instead. Tell me when the key is set."
-
-Wait for the user to confirm. Then verify:
+Use the provider chosen by the user. Get its full OpenAI-compatible
+`chat/completions` URL and a model identifier that supports the needed inputs.
+There is no default API endpoint. Never infer the endpoint or model from the
+`NIM_API_KEY` variable name, and never ask the user to paste their key into chat.
+Have them export the key in the shell that will run ingestion:
 
 ```bash
-[ -n "$NIM_API_KEY" ] && echo "NIM_API_KEY is set (${NIM_API_KEY:0:8}...)" || echo "NIM_API_KEY is NOT set"
+export NIM_API_KEY="your-provider-key"
+```
+
+Check presence without printing the value:
+
+```bash
+[ -n "$NIM_API_KEY" ] && echo "NIM_API_KEY is set" || echo "NIM_API_KEY is NOT set"
 ```
 
 #### HF_TOKEN — only if they want the entity graph
@@ -281,38 +281,31 @@ Ask: "Do you want the entity graph + visual search at ingest (recommended), or s
 
 #### Switch the config to api backend
 
-Edit `configs/ingestion.yaml` (or a copy). **Three things must change**, not just the backends — the shipped `vlm_model: "Qwen/Qwen3-VL-8B-Instruct"` is a vLLM model name and is *not* served by NIM Inference API under that name. If you only flip the backends and leave the model name, every VLM/LLM call returns **401 Unauthorized** (the gateway surfaces unknown-model as 401, not 404, which is misleading). Update all three:
+Edit `configs/ingestion.yaml` (or a copy) with the user's provider settings.
+Set the backends, the model identifier, and `models.api_url` together:
 
 ```yaml
 models:
-  vlm_model: "openai/openai/gpt-5.2"   # ← also update; default Qwen name 401s on NIM
+  vlm_model: "provider-model-id"  # replace with a model supported by the provider
   vlm_backend: api
   llm_backend: api
-  # llm_model: null  # null falls back to vlm_model, so updating vlm_model is enough
-  # If using a non-NIM endpoint:
-  # api_base_url: https://your-endpoint/v1
-  # If you'd rather put the key in YAML than env (env is preferred):
-  # api_key: nvapi-...
+  llm_model: null  # reuse vlm_model, or set another model from the same provider
+  api_url: "https://provider.example/v1/chat/completions"  # replace with the actual endpoint
+  api_key: null  # read NIM_API_KEY from the environment
 ```
 
-Known-good NIM Inference API model identifiers (as of 2026-05): `openai/openai/gpt-5.2` (used in this walkthrough), `openai/gpt-4o`, `google/gemini-1.5-pro`. If unsure what the user's endpoint serves, ask them to do a quick `curl` test against `https://inference-api.nvidia.com/v1/chat/completions` with a candidate model name before committing.
-
-Make the edit (or guide them to), then verify:
-
-```bash
-grep -E "vlm_model|vlm_backend|llm_backend|api_base_url" configs/ingestion.yaml
-```
-
-Should show the new model name plus `api`, `api`.
+Use `api_url`, which expects the full `chat/completions` URL. Apply the same
+provider/model settings to `configs/retrieval.yaml` if retrieval uses `api`.
+Confirm these settings without printing credentials.
 
 #### If this fails
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `NIM_API_KEY environment variable not set` at ingest | Env var not exported in the same shell that runs ingest | Re-export in the right shell |
-| `401 Unauthorized` from the API on every retry | Most common cause: wrong **model name** (NIM gateway returns 401, not 404, for unknown models). Less common: wrong key, expired, or model access not granted | First, sanity-check with `curl` (see Step 2c above) using a candidate model name. If `curl` works, the key is fine — fix `models.vlm_model` in the YAML. Only if `curl` also 401s, treat it as an auth issue |
-| Slow per-call latency | API roundtrip is inherent | For fast iteration, vllm is faster. For one-off batch runs, API is fine and avoids GPU provisioning |
-| `models.api_base_url` defaulting to NIM but user is on OpenAI | Need to set `api_base_url` explicitly | Add `api_base_url: https://api.openai.com/v1` (or wherever) |
+| `The API backend requires an explicit api_url` | Endpoint is missing | Set `models.api_url` and the provider's model identifier |
+| `NIM_API_KEY environment variable not set` | Key is absent from the ingest shell | Export it in that shell |
+| `Authentication failed (401)` or `(403)` | Key, endpoint, or model access does not match | Confirm all three against the chosen provider; authentication failures are not retried |
+| Slow per-call latency | Requests upload video frames | Reduce sampled frames or use a local backend |
 
 No verification command here either — the next ingest will be the proof. **Confirm: "API backend configured. Ready to ingest your first video?"**
 

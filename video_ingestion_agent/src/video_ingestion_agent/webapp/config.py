@@ -33,7 +33,7 @@ class AppConfig:
     # Paths
     data_dir: str = "outputs/webapp"
     default_output_dir: str = "outputs/"
-    default_db_dir: str = "/mnt/amlfs-02/shared/liuw/v2p/database"
+    default_db_dir: str = "outputs/database"
     default_videos_dir: str = ""
     default_clips_dir: str = "outputs/clips"
     config_dir: str = "configs"
@@ -62,8 +62,8 @@ class AppConfig:
     llm_backend: str = "api"
     embedding_model: str = "google/siglip2-base-patch16-256"
     api_key: str | None = None
-    # Endpoint override for the 'api' backend; None -> APIModel's built-in
-    # NVIDIA Inference API endpoint.
+    # Required endpoint for the 'api' backend; configure your provider's
+    # chat/completions URL and matching model identifier.
     api_url: str | None = None
 
     # vLLM backend settings (only used when llm_backend == "vllm")
@@ -460,7 +460,7 @@ class AppConfig:
         return config
 
     # Directories to scan for databases (relative or absolute)
-    db_scan_dirs: tuple = ("/mnt/amlfs-02/shared/liuw/v2p/database",)
+    db_scan_dirs: tuple = ("outputs/database",)
 
     def ensure_dirs(self):
         """Create necessary directories."""

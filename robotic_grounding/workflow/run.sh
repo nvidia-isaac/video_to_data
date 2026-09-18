@@ -4,10 +4,10 @@
 # Usage:
 #   ./run.sh build [version]              - Build x86_64 image (default version: latest)
 #   ./run.sh build-aarch64 [version]      - Build aarch64 image (default version: latest)
-#   ./run.sh push [version]               - Push x86_64 image to NVIDIA registry
-#   ./run.sh push-aarch64 [version]       - Push aarch64 image to NVIDIA registry
-#   ./run.sh pull [version]               - Pull x86_64 image from NVIDIA registry
-#   ./run.sh pull-aarch64 [version]       - Pull aarch64 image from NVIDIA registry
+#   ./run.sh push [version]               - Push x86_64 image to configured registry
+#   ./run.sh push-aarch64 [version]       - Push aarch64 image to configured registry
+#   ./run.sh pull [version]               - Pull x86_64 image from configured registry
+#   ./run.sh pull-aarch64 [version]       - Pull aarch64 image from configured registry
 #   ./run.sh start [version] [gpu]        - Start x86_64 container (default version: latest, gpu: 0)
 #   ./run.sh start-aarch64 [version] [gpu] - Start aarch64 container
 #   ./run.sh shell [version] [gpu]        - Enter shell of a running container
@@ -99,7 +99,15 @@ fi
 
 IMAGE_NAME="robotic-grounding${ARCH_SUFFIX}:${VERSION}"
 CONTAINER_NAME="robotic-grounding${ARCH_SUFFIX}-${VERSION}-gpu${GPU_DEVICE}"
-NGC_LOCATION="nvcr.io/nvstaging/isaac-amr"
+IMAGE_REGISTRY="${V2D_IMAGE_REGISTRY:-}"
+IMAGE_REGISTRY="${IMAGE_REGISTRY%/}"
+
+require_registry() {
+    if [ -z "${IMAGE_REGISTRY}" ]; then
+        echo "ERROR: Set V2D_IMAGE_REGISTRY to your container registry namespace before push or pull." >&2
+        exit 1
+    fi
+}
 
 wait_for_container_removal() {
     local wait_index
@@ -163,18 +171,22 @@ case "$CMD" in
         ;;
 
     push)
-        echo "Pushing ${IMAGE_NAME} to NVIDIA registry..."
-        docker tag ${IMAGE_NAME} ${NGC_LOCATION}/${IMAGE_NAME}
-        docker push ${NGC_LOCATION}/${IMAGE_NAME}
+        require_registry
+        REMOTE_IMAGE="${IMAGE_REGISTRY}/${IMAGE_NAME}"
+        echo "Pushing ${IMAGE_NAME} to ${IMAGE_REGISTRY}..."
+        docker tag "${IMAGE_NAME}" "${REMOTE_IMAGE}"
+        docker push "${REMOTE_IMAGE}"
         echo "Push complete!"
         echo "Removing local images to free disk space..."
-        docker rmi ${NGC_LOCATION}/${IMAGE_NAME} ${IMAGE_NAME} || true
+        docker rmi "${REMOTE_IMAGE}" "${IMAGE_NAME}" || true
         ;;
 
     pull)
-        echo "Pulling ${NGC_LOCATION}/${IMAGE_NAME}..."
-        docker pull ${NGC_LOCATION}/${IMAGE_NAME}
-        docker tag ${NGC_LOCATION}/${IMAGE_NAME} ${IMAGE_NAME}
+        require_registry
+        REMOTE_IMAGE="${IMAGE_REGISTRY}/${IMAGE_NAME}"
+        echo "Pulling ${REMOTE_IMAGE}..."
+        docker pull "${REMOTE_IMAGE}"
+        docker tag "${REMOTE_IMAGE}" "${IMAGE_NAME}"
         echo "Pull complete: ${IMAGE_NAME}"
         ;;
 

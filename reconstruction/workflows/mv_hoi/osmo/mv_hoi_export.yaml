@@ -16,5 +16,6 @@ workflow:
 __TASKS__
 
 default-values:
+  image_registry: ???
   workflow_name: v2d_mv_hoi_export
   image_tag: latest

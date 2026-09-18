@@ -13,7 +13,7 @@ workflow:
   tasks:
   - name: foundation_stereo_engine
     resource: gpu
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_foundation_stereo:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_foundation_stereo:{{image_tag}}"
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
@@ -35,7 +35,7 @@ workflow:
 
   - name: foundation_pose_engines
     resource: gpu
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_foundation_pose:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_foundation_pose:{{image_tag}}"
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
@@ -57,6 +57,7 @@ workflow:
         sha256sum {{output}}/*.engine
 
 default-values:
+  image_registry: ???
   workflow_name: v2d_mv_hoi_build_engines
   image_tag: latest
   weights_base_url: ???

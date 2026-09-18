@@ -32,7 +32,6 @@ workflow:
     - /tmp/entry.sh
     environment:
       ACCEPT_EULA: Y
-      OMNI_SERVER: omniverse://isaac-dev.ov.nvidia.com
     credentials:
       wandb:
         WANDB_API_KEY: wandb_api_key
@@ -49,4 +48,4 @@ workflow:
 
 default-values:
   workflow_name: robotic_grounding_train
-  image: nvcr.io/nvstaging/isaac-amr/robotic-grounding:latest
+  image: image-registry-not-configured-see-readme.invalid/robotic-grounding:latest

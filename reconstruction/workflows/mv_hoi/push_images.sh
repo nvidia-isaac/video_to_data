@@ -4,15 +4,17 @@
 # Tag and push all MV HOI Docker images to the registry.
 #
 # Usage:
-#   ./push_images.sh                             # auto-bump patch from latest NGC version
+#   ./push_images.sh                             # auto-bump patch from latest registry version
 #   ./push_images.sh -m "fix OOM"                # auto-bump with message
 #   ./push_images.sh 1.2.0                       # explicit version
 #   ./push_images.sh 1.2.0 -m "initial release"  # explicit version with message
 #
-# The version must be a valid semver (X.Y.Z) greater than the latest in NGC.
+# The version must be a valid semver (X.Y.Z) greater than the latest in the configured registry.
 # After all pushes succeed, the version is cached in the local DB.
 
 set -euo pipefail
+
+: "${V2D_IMAGE_REGISTRY:?Set V2D_IMAGE_REGISTRY to your registry/namespace before publishing}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -48,6 +50,7 @@ echo "=== Pushing as ${VERSION} ==="
 echo "    Message: ${MESSAGE}"
 echo ""
 
+MANAGED_IMAGES=$(python3 "$SCRIPT_DIR/orchestration/registry_versions.py" managed-images)
 while read -r LOCAL REMOTE; do
     echo "--- ${LOCAL} → ${REMOTE} ---"
     docker tag "${LOCAL}" "${REMOTE}:latest"
@@ -55,7 +58,7 @@ while read -r LOCAL REMOTE; do
     docker push "${REMOTE}:latest"
     docker push "${REMOTE}:${VERSION}"
     echo ""
-done < <(python3 "$SCRIPT_DIR/orchestration/registry_versions.py" managed-images)
+done <<< "$MANAGED_IMAGES"
 
 # All pushes succeeded — cache the remote version locally.
 export SCRIPT_DIR

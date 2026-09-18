@@ -597,8 +597,8 @@ def test_revalidation_workflow_defines_commit_gate():
     assert "cpu_export:\n      cpu: 16" in workflow
     assert (
         "- name: export_revalidated\n"
-        "    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:"
-        "{{image_tag}}\n"
+        "    image: \"{{image_registry}}/mv_hoi_mv_postprocess:"
+        "{{image_tag}}\"\n"
         "    resource: cpu_export"
     ) in workflow
     assert "upload_hitl" not in workflow
@@ -615,8 +615,8 @@ def test_revalidation_workflow_defines_commit_gate():
     assert "--interaction-post-contact-padding-seconds \"$TRIM_POST_PADDING\"" in retry_workflow
     assert (
         "- name: export_revalidated\n"
-        "    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:"
-        "{{image_tag}}\n"
+        "    image: \"{{image_registry}}/mv_hoi_mv_postprocess:"
+        "{{image_tag}}\"\n"
         "    resource: cpu_export"
     ) in retry_workflow
 
@@ -1044,6 +1044,7 @@ def test_backlog_dry_run_source_failure_does_not_mutate_request(tmp_path, monkey
         lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("source changed")),
     )
     config = {"datasets": {"dataset": {
+        "osmo_pool": "example-pool",
         "pipelines": {
             "mv_preprocess": {"max_concurrent": 40},
             "mv_hoi_reconstruction": {"max_concurrent": 40},
@@ -1317,6 +1318,7 @@ def test_frozen_backlog_membership_bypasses_blacklist_without_removing_it(
 
     monkeypatch.setattr(controller.submit, "submit_sequence", _submit)
     config = {"datasets": {"dataset": {
+        "osmo_pool": "example-pool",
         "pipelines": {
             "mv_preprocess": {"max_concurrent": 40},
             "mv_hoi_reconstruction": {"max_concurrent": 40},
@@ -1378,6 +1380,7 @@ def test_backlog_concurrency_is_independent_across_stages(tmp_path, monkeypatch)
         lambda sequence, *_args, **_kwargs: submitted.append(sequence),
     )
     config = {"datasets": {"dataset": {
+        "osmo_pool": "example-pool",
         "pipelines": {
             "mv_preprocess": {
                 "max_concurrent": 60, "campaign_max_concurrent": 30,
@@ -1439,7 +1442,7 @@ def test_backlog_stage_capacity_counts_campaignless_active_work(
         lambda _sequence, _dataset, _cfg, pipeline, **_kwargs:
             submitted.append(pipeline),
     )
-    config = {"datasets": {"dataset": {"pipelines": {
+    config = {"datasets": {"dataset": {"osmo_pool": "example-pool", "pipelines": {
         "mv_preprocess": {"max_concurrent": 30},
         "mv_hoi_reconstruction": {"max_concurrent": 30},
     }}}}
@@ -1481,6 +1484,7 @@ def test_backlog_stage_filter_dispatches_only_reconstruction(tmp_path, monkeypat
         lambda _sequence, _dataset, _cfg, pipeline, **_kwargs: called.append(pipeline),
     )
     config = {"datasets": {"dataset": {
+        "osmo_pool": "example-pool",
         "pipelines": {
             "mv_preprocess": {"max_concurrent": 40},
             "mv_hoi_reconstruction": {"max_concurrent": 40},
@@ -1513,7 +1517,7 @@ def test_backlog_sequence_filter_scopes_canary_dispatch(tmp_path, monkeypatch):
         controller.submit, "submit_sequence",
         lambda sequence, *_args, **_kwargs: submitted.append(sequence),
     )
-    config = {"datasets": {"dataset": {"pipelines": {
+    config = {"datasets": {"dataset": {"osmo_pool": "example-pool", "pipelines": {
         "mv_preprocess": {"max_concurrent": 30},
         "mv_hoi_reconstruction": {"max_concurrent": 30},
     }}}}
@@ -2388,7 +2392,7 @@ def test_campaign_cycle_owns_refresh_dispatch_and_filtered_export(monkeypatch):
 
     controller.run_campaign_cycle(
         revalidation_campaign="legacy", backlog_campaign="backlog",
-        db_path="db.sqlite", config={"datasets": {"dataset": {}}},
+        db_path="db.sqlite", config={"datasets": {"dataset": {"osmo_pool": "example-pool", }}},
     )
 
     assert calls[:3] == [
@@ -2444,7 +2448,7 @@ def test_campaign_cycle_cleanup_is_explicitly_config_gated(monkeypatch):
         controller.db, "enqueue_intermediate_cleanup",
         lambda export_run_id, **_k: enqueued.append(export_run_id) or {},
     )
-    config = {"datasets": {"dataset": {"pipelines": {
+    config = {"datasets": {"dataset": {"osmo_pool": "example-pool", "pipelines": {
         "mv_hoi_export": {"cleanup_intermediates_after_export": False},
     }}}}
     controller.run_campaign_cycle(

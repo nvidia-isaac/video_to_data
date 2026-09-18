@@ -11,7 +11,7 @@ title = "robotic_grounding"
 author = "Xinghao Zhu"
 maintainer = "Xinghao Zhu"
 description="Training code for Video to Policy."
-repository = "https://github.com/nvidia-isaac/video_to_policy"
+repository = "https://github.com/nvidia-isaac/video_to_data"
 keywords = ["Video to Policy", "RL", "isaaclab"]
 
 [dependencies]

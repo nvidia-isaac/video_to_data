@@ -35,9 +35,8 @@ class RetrievalModelConfig(BaseModel):
     api_url: str | None = Field(
         default=None,
         description=(
-            "Endpoint override for the 'api' backend (OpenAI-compatible "
-            "chat/completions URL). When null, APIModel's built-in NVIDIA "
-            "Inference API endpoint is used."
+            "Required endpoint for the 'api' backend (OpenAI-compatible "
+            "chat/completions URL). Configure the model identifier for your provider."
         ),
     )
     device: str = Field(default="cuda", description="Device for local models")

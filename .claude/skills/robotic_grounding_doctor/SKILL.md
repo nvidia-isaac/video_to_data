@@ -28,7 +28,7 @@ docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi   # GP
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | `permission denied` on `docker ...` | User not in the `docker` group | Docker post-install steps (README prereqs); re-login |
-| `nvcr.io/nvstaging/isaac-amr` pull denied / unauthorized | No access to the NGC staging registry | Request access in the `#swngc-help` Slack channel; `docker login nvcr.io` |
+| Workflow image pull denied / unauthorized | Registry access is not configured | Build locally, or set `V2D_IMAGE_REGISTRY` to a registry you can access and run `docker login <registry>` |
 | `no space left on device` during build | Docker disk full | `docker system df` then `docker system prune` (careful); free host disk |
 | Container name not found on `run.sh exec` | Container isn't running | `./workflow/run.sh start latest 0` first; name is `robotic-grounding-<version>-gpu<gpu>` |
 | "I have no name!" bash prompt inside container | Cosmetic UID-mapping quirk | Harmless; `run.sh start` writes a per-container passwd entry |
@@ -66,6 +66,8 @@ docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi   # GP
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | `motion_file not found` | Shorthand doesn't resolve, or partition not visible to the container | Shorthand `<dataset>/<dataset>_processed/<sequence_id>/<robot>` resolves under `assets/human_motion_data/`; copy/symlink the partition there, or pass an absolute path |
+| `motion_file not found` for data committed in the repo (e.g. `whole_body/`) | An external subdirectory with the same dataset name shadows the repository dataset; a legacy container mounts the whole data root; or the container mounts a different checkout | `docker inspect <container>` and check the `/workspace/video_to_data` mount source is the tree you're testing; restart the container from the right checkout, without the overlay if it lacks the dataset |
+| "is a git-LFS pointer" error, or parquet read crash on a fresh clone | Clone made without `git lfs install` (or `GIT_LFS_SKIP_SMUDGE=1`) left pointer stubs | `git lfs install && git lfs pull` in the checkout the container mounts |
 | Task not registered / unknown task | Wrong task id | Floating-hand tasks: `Sharpa-V2D-v0` (train), `Sharpa-V2D-v0-Play` (eval/dummy). Whole-body is a different skill |
 | `eval.py` can't find a checkpoint | No `--checkpoint` and no local run | Point `--checkpoint` at `logs/rsl_rl/<run>/model_*.pt`, or use `--use_pretrained_checkpoint` |
 | Dummy agent loads but sim doesn't advance | Motion Parquet is empty/corrupt | Re-run the pipeline for that sequence; try a known-good example (`dataset_s01_box_grab_01`) |

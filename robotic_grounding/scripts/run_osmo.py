@@ -3,9 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """OSMO workflow submission script.
 
-SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-SPDX-License-Identifier: Apache-2.0
-
 Script to submit OSMO workflow for robotic grounding development environment.
 """
 
@@ -43,7 +40,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--image",
-        help="Docker image to use for the workflow (if not provided, will build new one)",
+        help="Docker image to use for the workflow (required unless --build-image is used)",
     )
     parser.add_argument(
         "--workflow-yaml",
@@ -53,7 +50,7 @@ def main() -> None:
     parser.add_argument(
         "--pool",
         default=None,
-        help="OSMO pool to use for workflow execution (default: internal experiment_config.yaml)",
+        help="OSMO pool to use for workflow execution",
     )
     parser.add_argument(
         "--build-image",
@@ -82,21 +79,25 @@ def main() -> None:
     os.chdir(REPO_ROOT)
     pool = args.pool
     if pool is None:
-        raise SystemExit(
-            "OSMO pool is required. Pass --pool or provide osmo.runner_default_pool "
-            "in experiments/experiment_config.yaml."
-        )
+        raise SystemExit("OSMO pool is required. Pass --pool <your-pool>.")
 
     # Determine image to use
     if args.build_image:
-        # If --image is also specified, build to that exact tag; otherwise tag with experiment name.
         if args.image:
-            image_name = args.image
-            image_version = image_name.split(":")[-1]
-        else:
-            image_version = args.experiment_name
-            image_repo = "robotic-grounding"
-            image_name = f"{image_repo}:{image_version}"
+            raise SystemExit(
+                "ERROR: --image cannot be combined with --build-image. Use --image to submit "
+                "an existing image, or set V2D_IMAGE_REGISTRY and use --build-image. See "
+                "robotic_grounding/workflow/README.md."
+            )
+        image_registry = os.environ.get("V2D_IMAGE_REGISTRY", "").rstrip("/")
+        if not image_registry:
+            raise SystemExit(
+                "ERROR: image registry is not configured. Set "
+                "V2D_IMAGE_REGISTRY=<registry>/<namespace> before using --build-image. See "
+                "robotic_grounding/workflow/README.md."
+            )
+        image_version = args.experiment_name
+        image_name = f"{image_registry}/robotic-grounding:{image_version}"
 
         print(f"\nBuilding Docker image: {image_name} ...")
         build_cmd = f"./workflow/run.sh build {image_version}"
@@ -123,8 +124,11 @@ def main() -> None:
         image_name = args.image
         print(f"Using existing Docker image: {image_name}")
     else:
-        image_name = "latest"
-        print(f"Using default Docker image: {image_name}")
+        raise SystemExit(
+            "ERROR: image registry is not configured. Pass --image "
+            "<registry>/robotic-grounding:<tag> or set V2D_IMAGE_REGISTRY and use "
+            "--build-image. See robotic_grounding/workflow/README.md."
+        )
 
     # Use provided image
     print(f"\nUsing Docker image: {image_name}")

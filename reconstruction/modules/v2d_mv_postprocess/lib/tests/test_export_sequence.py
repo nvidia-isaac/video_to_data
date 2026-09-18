@@ -670,3 +670,50 @@ def test_export_rewrites_depth_filters_losslessly(monkeypatch, tmp_path):
             assert dataset.compression_opts == 6
             assert dataset.shuffle is True
             assert np.array_equal(dataset[:], frames)
+
+
+@pytest.mark.parametrize("remote_url,endpoint_override,expected_endpoint", [
+    ("swift://storage.example.com/AUTH_example/bucket/prefix", None,
+     "https://storage.example.com"),
+    ("s3://bucket/prefix", None, "https://s3.amazonaws.com"),
+    ("swift://storage.example.com/AUTH_example/bucket/prefix",
+     "https://custom.example.com", "https://custom.example.com"),
+])
+def test_remote_download_workers_use_the_selected_storage_endpoint(
+    tmp_path, monkeypatch, remote_url, endpoint_override, expected_endpoint,
+):
+    from types import SimpleNamespace
+
+    for prefix in ("S3", "CSS"):
+        for key in ("ACCESS_KEY", "SECRET_KEY", "ENDPOINT_URL", "REGION"):
+            monkeypatch.delenv(f"{prefix}_{key}", raising=False)
+    if endpoint_override:
+        monkeypatch.setenv("S3_ENDPOINT_URL", endpoint_override)
+    clients = []
+    downloads = []
+
+    def new_client(_service, **kwargs):
+        endpoint = kwargs["endpoint_url"] or "https://s3.amazonaws.com"
+        clients.append(endpoint)
+        assert "aws_access_key_id" not in kwargs  # Retain the standard AWS chain.
+
+        def download_file(bucket, key, destination):
+            downloads.append((endpoint, bucket, key))
+            Path(destination).write_bytes(b"data")
+
+        return SimpleNamespace(
+            meta=SimpleNamespace(endpoint_url=endpoint), download_file=download_file,
+            get_paginator=lambda _: SimpleNamespace(paginate=lambda **kw: [{
+                "Contents": [{"Key": "prefix/sample.bin", "Size": 4}],
+            }]),
+        )
+
+    monkeypatch.setattr(export_sequence.boto3, "client", new_client)
+    client = export_sequence._get_s3_client(remote_url)
+    bucket, prefix = export_sequence._parse_swift_url(remote_url)
+    assert export_sequence._download_prefix(
+        client, bucket, prefix, tmp_path, max_workers=2,
+    ) == (1, 0, ["sample.bin"])
+    assert clients == [expected_endpoint, expected_endpoint]
+    assert downloads == [(expected_endpoint, "bucket", "prefix/sample.bin")]
+    assert (tmp_path / "sample.bin").read_bytes() == b"data"

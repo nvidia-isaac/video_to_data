@@ -144,12 +144,10 @@ All runnable entry points live under `scripts/`. They are grouped by function be
 
 **Asset generation**
 - `generate_rigid_urdfs.py` — generates per-object rigid URDFs from mesh assets.
-- `fetch_object_assets.py`, `upload_object_assets.py` — download / upload object asset archives to/from remote storage.
 - `reconstruct_support_surfaces.py` — reconstructs support-surface meshes (`.usda`) from processed motion data.
 - `setup_soma_assets.py` — prepares SOMA body model assets required for whole-body retargeting.
 
 **Download / replay / view**
-- `download_sources/dexycb.sh`, `download_sources/grab.sh` — dataset download helpers for DexYCB and GRAB.
 - `replay_motion.py`, `replay_motion_viser.py` — replay a `motion_v1` Parquet sequence (headless and viser-based, respectively).
 - `view_scene.py` — inspect a reconstructed scene (support surfaces + object URDFs) in a viser window.
 
@@ -176,7 +174,6 @@ For multi-GPU or scheduled cloud execution, OSMO job manifests are provided:
 |----------|----------------|
 | [`../workflow/README.md`](../workflow/README.md) | OSMO and NGC setup, image registry, how to launch jobs. |
 | [`../workflow/data_pipeline.md`](../workflow/data_pipeline.md) | End-to-end pipeline walk-through: stage order, inputs/outputs, and how to run each stage. |
-| [`../workflow/data_storage.md`](../workflow/data_storage.md) | Storage layout, data versioning, and how to download or publish dataset artifacts. |
 
 ---
 

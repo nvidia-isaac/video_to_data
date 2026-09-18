@@ -42,7 +42,9 @@ def _default_env_text() -> str:
         "# export MV_HOI_DATABASE_URL=$MV_HOI_POSTGRES_TEST_URL",
         "# Enable only on the single authorized host:",
         "# export MV_HOI_ALLOW_SUBMIT=1",
-        "# export CSS_ENV=$HOME/secrets/setup_css_env.sh",
+        "# export S3_ENV=$HOME/secrets/setup_s3_env.sh",
+        "# CSS_ENV remains a supported legacy alias for S3_ENV.",
+        "# export V2D_IMAGE_REGISTRY=registry.example.com/your-team",
         "# export KRATOS_DRS_ENV=$HOME/secrets/setup_kratos_drs_env.sh",
         "# Set to 0 while the external QC query service is unavailable; campaign work continues.",
         "# export MV_HOI_QC_QUERY_ENABLED=0",
@@ -98,30 +100,34 @@ def doctor(*, pipeline_version: str | None = None) -> int:
     checks.append(("environment", env_file().is_file(), str(env_file())))
     checks.append(("submit authority", os.environ.get("MV_HOI_ALLOW_SUBMIT") == "1",
                    "MV_HOI_ALLOW_SUBMIT=1"))
-    for command in ("osmo", "aws", "ngc"):
+    for command in ("osmo", "aws"):
         found = shutil.which(command)
         checks.append((command, bool(found), found or "not found in PATH"))
-    for variable in ("CSS_ACCESS_KEY", "CSS_SECRET_KEY"):
-        checks.append((variable, bool(os.environ.get(variable)), "set" if os.environ.get(variable) else "unset"))
+    # Actual per-dataset reads below validate credentials, including AWS profiles
+    # and instance roles; do not require static access keys here.
 
     loaded_config = None
     try:
-        from .config_utils import load_config
+        from .config_utils import load_config, validate_deployment_config
         from .database import (
             ALEMBIC_HEAD, backend_name, connect_read_only,
             current_database_revision, database_target,
         )
     except ImportError:
-        from config_utils import load_config
+        from config_utils import load_config, validate_deployment_config
         from database import (
             ALEMBIC_HEAD, backend_name, connect_read_only,
             current_database_revision, database_target,
         )
     try:
         loaded_config = load_config(MV_HOI_DIR)
+        for dataset, dataset_cfg in loaded_config.get("datasets", {}).items():
+            for pipeline in dataset_cfg.get("pipelines", {}):
+                validate_deployment_config(dataset_cfg, pipeline)
         checks.append(("dataset config", bool(loaded_config.get("datasets")), "loaded"))
     except Exception as exc:
         checks.append(("dataset config", False, str(exc)))
+        loaded_config = None
     try:
         revision = current_database_revision(database_target())
         checks.append((
@@ -161,16 +167,22 @@ def doctor(*, pipeline_version: str | None = None) -> int:
             try:
                 client, bucket, prefix = _client(dataset_cfg["swift_base"])
                 client.list_objects_v2(Bucket=bucket, Prefix=prefix, MaxKeys=1)
-                checks.append((f"CSS {dataset}", True, dataset_cfg["swift_base"]))
+                checks.append((f"storage {dataset}", True, dataset_cfg["swift_base"]))
             except Exception as exc:
-                checks.append((f"CSS {dataset}", False, str(exc)))
+                checks.append((f"storage {dataset}", False, str(exc)))
     if pipeline_version:
         try:
             from .registry_versions import validate_release
         except ImportError:
             from registry_versions import validate_release
         try:
-            validate_release(pipeline_version)
+            if loaded_config:
+                for dataset_cfg in loaded_config.get("datasets", {}).values():
+                    validate_release(
+                        pipeline_version, registry=dataset_cfg.get("image_registry"),
+                    )
+            else:
+                validate_release(pipeline_version)
             checks.append(("immutable images", True, pipeline_version))
         except Exception as exc:
             checks.append(("immutable images", False, str(exc)))

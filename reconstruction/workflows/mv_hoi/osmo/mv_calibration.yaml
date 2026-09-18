@@ -4,9 +4,10 @@
 #
 # Usage:
 #   osmo workflow submit reconstruction/workflows/mv_hoi/osmo/mv_calibration.yaml \
+#     --set image_registry="$V2D_IMAGE_REGISTRY" \
 #     --set \
-#       rosbag_url=swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/... \
-#       swift_output_base=swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/.../calibration_output/<seq> \
+#       rosbag_url=swift://storage.example.com/AUTH_example/recordings/v2d/... \
+#       swift_output_base=swift://storage.example.com/AUTH_example/recordings/v2d/.../calibration_output/<seq> \
 #       calibration_setup=stereo4_6x10_100mm_marker \
 #     --pool <pool>
 
@@ -22,7 +23,7 @@ workflow:
   tasks:
   - name: rosbag_to_edex
     resource: cpu_large
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_rosbag:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_rosbag:{{image_tag}}"
     command:
     - /bin/bash
     args:
@@ -69,7 +70,7 @@ workflow:
 
   - name: calibrate_extrinsics
     resource: cpu_large
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_calibration:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_mv_calibration:{{image_tag}}"
     command:
     - /bin/bash
     args:
@@ -93,6 +94,7 @@ workflow:
         input_suffix: ".h5"
 
 default-values:
+  image_registry: ???
   workflow_name: v2d_mv_calibration
   image_tag: latest
   calibration_setup: stereo4_6x10_100mm_marker

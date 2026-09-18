@@ -8,13 +8,17 @@
 
 - Install [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
 
-- Make sure you have access to `nvcr.io/nvstaging/isaac-amr`. You can request it by asking in the `#swngc-help` Slack channel.
+- Build the workflow image locally or push it to a container registry you control. Set `V2D_IMAGE_REGISTRY` before using `workflow/run.sh push` or `pull`; see [workflow/README.md](workflow/README.md). Local builds use the public Isaac Lab base image; see [docs/SETUP.md](docs/SETUP.md) for NGC login prerequisites.
 
 - Install Git LFS and `pre-commit` dependencies.
     ```bash
     bash workflow/setup_deps.sh
     ```
     This script installs `git-lfs` and `pre-commit` and ensures `workflow/run.sh` is executable. You may need to restart your shell for pipx PATH changes.
+
+    > Sample motion data (e.g. `assets/human_motion_data/whole_body/`) is stored in Git LFS.
+    > If you cloned before installing Git LFS, run `git lfs install && git lfs pull`
+    > in the checkout to replace pointer stubs with the data.
 
 - A host Python environment for the pipeline orchestrator (`scripts/run_pipeline_docker.py`).
     ```bash
@@ -451,6 +455,10 @@ See the `Agent Smoke Tests` section above for the required asset layout and dumm
 
 ### Full training
 
+> **Training time:** The public Isaac Lab/PPO workflows may take longer to converge than
+> the training times reported in the paper. Convergence and wall-clock time depend on
+> the task, training configuration, and available hardware.
+
 Full training uses the real object assets (the pipeline's `urdf` stage). Drop
 the smoke overrides (`--num_envs 1`,
 `--max_iterations 1`, `--use_primitive_urdfs`, `agent.num_steps_per_env`,
@@ -586,8 +594,10 @@ embodiment-agnostic — a whole-body env passes `robot_entities=("robot",)`.
 **Not enabled for training.** The texture terms allocate one OmniPBR material per matched
 prim at env-build time, expanded across every env.
 
-**Requires a reachable Nucleus root.** Every texture and HDRI is `NVIDIA_NUCLEUS_DIR`-relative,
-so `OMNI_SERVER` must resolve from inside the container.
+**Requires reachable visual assets.** Textures and HDRIs are relative to Isaac Lab's
+`NVIDIA_NUCLEUS_DIR` asset root. Ensure that root is reachable from the container, or
+configure the texture pools in `tasks/scene_utils/visual_dr.py` to use your local assets.
+The workflow templates do not configure a private Nucleus server.
 
 ### Two recording paths, two dataset shapes
 
@@ -680,9 +690,10 @@ fine-tuning, and evaluation commands.
 
 ## Visualizer
 
-Browse retargeted sequences as 3D animations at **http://10.111.83.14:8080/**
+Browse retargeted sequences as 3D animations by starting the gallery locally at
+**http://localhost:8080/** (or `http://<server-ip>:8080/` for a remote host).
 
-To run the server yourself or generate new recordings:
+To run the server or generate new recordings:
 
 ```bash
 # From the host (stdlib-only; sync additionally needs `rich` and the `osmo` CLI)

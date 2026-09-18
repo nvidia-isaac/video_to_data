@@ -307,6 +307,7 @@ def test_query_completed_kratos_annotations_uses_status_metrics_source_of_truth(
     result = mv_export.query_completed_kratos_annotations(
         "catalog.schema.annotations",
         ["wf_qc.json", "wf_done.json"],
+    kratos_status_table="catalog.schema.status_events", kratos_project_id=42,
     )
 
     assert "wf_qc.json" not in result
@@ -315,9 +316,9 @@ def test_query_completed_kratos_annotations_uses_status_metrics_source_of_truth(
     assert result.statuses["wf_done.json"] == "Completed"
     status_query = submissions[0]["query"]
     annotations_query = submissions[1]["query"]
-    assert "llmdf_admin.item_status_transition_metrics" in status_query
+    assert "catalog.schema.status_events" in status_query
     assert "SELECT MAX(date_partition)" in status_query
-    assert "project_id = 285164" in status_query
+    assert "project_id = 42" in status_query
     assert "PARTITION BY item_name" in status_query
     assert "ORDER BY event_datetime DESC" in status_query
     assert "WHERE status_rank = 1" in status_query
@@ -457,9 +458,15 @@ def test_query_completed_kratos_annotations_defers_when_credentials_missing(
     ):
         monkeypatch.delenv(name, raising=False)
 
+    _install_kratos_drs_module(
+        monkeypatch,
+        execute=lambda **_kwargs: pytest.fail("missing credentials must prevent query"),
+        get=lambda **_kwargs: pytest.fail("missing credentials must prevent polling"),
+    )
     with pytest.raises(mv_export.QCQueryUnavailableError, match="KRATOS_NAMESPACE"):
         mv_export.query_completed_kratos_annotations(
             "catalog.schema.annotations", ["wf.json"],
+            kratos_status_table="catalog.schema.status_events", kratos_project_id=42,
         )
 
 
@@ -479,6 +486,7 @@ def test_query_completed_kratos_annotations_defers_invalid_token(monkeypatch):
     ):
         mv_export.query_completed_kratos_annotations(
             "catalog.schema.annotations", ["wf.json"],
+            kratos_status_table="catalog.schema.status_events", kratos_project_id=42,
         )
 
 
@@ -496,6 +504,7 @@ def test_query_completed_kratos_annotations_does_not_hide_query_defect(monkeypat
     with pytest.raises(RuntimeError, match="TABLE_OR_VIEW_NOT_FOUND"):
         mv_export.query_completed_kratos_annotations(
             "catalog.schema.annotations", ["wf.json"],
+            kratos_status_table="catalog.schema.status_events", kratos_project_id=42,
         )
 
 
@@ -517,6 +526,7 @@ def test_query_completed_kratos_annotations_does_not_hide_permission_defect(
     with pytest.raises(RuntimeError, match="INSUFFICIENT_PERMISSIONS"):
         mv_export.query_completed_kratos_annotations(
             "catalog.schema.annotations", ["wf.json"],
+            kratos_status_table="catalog.schema.status_events", kratos_project_id=42,
         )
 
 
@@ -531,6 +541,7 @@ def test_query_completed_kratos_annotations_refuses_null_annotation(monkeypatch)
 
     result = mv_export.query_completed_kratos_annotations(
         "catalog.schema.annotations", ["wf.json"],
+    kratos_status_table="catalog.schema.status_events", kratos_project_id=42,
     )
 
     assert result == {}
@@ -553,6 +564,7 @@ def test_query_completed_kratos_annotations_keeps_first_duplicate_row(monkeypatc
 
     result = mv_export.query_completed_kratos_annotations(
         "catalog.schema.annotations", ["wf.json"],
+    kratos_status_table="catalog.schema.status_events", kratos_project_id=42,
     )
 
     assert result["wf.json"] == [{"id": "first"}]
@@ -570,6 +582,7 @@ def test_query_completed_kratos_annotations_rejects_malformed_annotation(monkeyp
     with pytest.raises(RuntimeError, match="expected an object"):
         mv_export.query_completed_kratos_annotations(
             "catalog.schema.annotations", ["wf.json"],
+            kratos_status_table="catalog.schema.status_events", kratos_project_id=42,
         )
 
 
@@ -582,6 +595,7 @@ def test_query_completed_kratos_annotations_empty_input_needs_no_client(monkeypa
 
     assert mv_export.query_completed_kratos_annotations(
         "catalog.schema.annotations", [],
+    kratos_status_table="catalog.schema.status_events", kratos_project_id=42,
     ) == {}
 
 
@@ -1184,6 +1198,7 @@ def test_submit_batch_uses_unsuffixed_name_and_stores_osmo_id(monkeypatch, tmp_p
         {
             "workflow_name": "v2d_mv_hoi_export_20260513_163035",
             "image_tag": "1.0.0",
+            "image_registry": "registry.example.com/test-pipelines",
         }
     ]
     assert export_id == "v2d_mv_hoi_export_20260513_163035-1"

@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+try:
+    from .registry_versions import image_registry
+except ImportError:
+    from registry_versions import image_registry
+
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -695,6 +700,7 @@ def _revalidation_values(
     values = {
         "workflow_name": _workflow_name(request["pipeline_version"], request["id"]),
         "image_tag": request["pipeline_version"],
+        "image_registry": image_registry(dataset_cfg.get("image_registry")),
         "sequence_name": sequence,
         "request_id": str(request["id"]),
         "campaign_name": campaign["name"],

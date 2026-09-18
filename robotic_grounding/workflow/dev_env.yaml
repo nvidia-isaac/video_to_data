@@ -74,4 +74,4 @@ workflow:
 
 default-values:
   workflow_name: robotic_grounding_dev_env
-  image: nvcr.io/nvstaging/isaac-amr/robotic-grounding:latest
+  image: image-registry-not-configured-see-readme.invalid/robotic-grounding:latest

@@ -4,7 +4,7 @@
 
 Export from CSS (remote):
     python -m v2d.mv.postprocess.docker.run_export_sequence \\
-        --swift_output_base swift://pdx.s8k.io/AUTH_.../data_output/<seq> \\
+        --swift_output_base swift://storage.example.com/AUTH_.../data_output/<seq> \\
         --output_dir /local/path/to/sequence \\
         --dev
 
@@ -14,11 +14,10 @@ Export from local directory:
         --output_dir /local/path/to/sequence \\
         --dev
 
-Requires CSS_ACCESS_KEY and CSS_SECRET_KEY env vars for remote mode.
+Remote mode accepts S3_* settings, legacy CSS_* aliases, and AWS credentials.
 """
 
 import os
-from pathlib import Path
 
 from v2d.docker.container import run_in_container
 from v2d.mv.postprocess.docker._config import IMAGE_NAME, MODULES_DIR
@@ -41,11 +40,14 @@ def run_export_sequence(
 
     if swift_output_base is not None:
         extra_args["swift_output_base"] = swift_output_base
-        env = {
-            "CSS_ACCESS_KEY": os.environ.get("CSS_ACCESS_KEY", ""),
-            "CSS_SECRET_KEY": os.environ.get("CSS_SECRET_KEY", ""),
-            "CSS_ENDPOINT_URL": os.environ.get("CSS_ENDPOINT_URL", "https://pdx.s8k.io"),
-        }
+        # Forward only configured values; preserve the SDK's credential chain.
+        names = (
+            "S3_ACCESS_KEY", "S3_SECRET_KEY", "S3_ENDPOINT_URL", "S3_REGION",
+            "CSS_ACCESS_KEY", "CSS_SECRET_KEY", "CSS_ENDPOINT_URL", "CSS_REGION",
+            "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
+            "AWS_DEFAULT_REGION", "AWS_REGION",
+        )
+        env = {name: os.environ[name] for name in names if name in os.environ}
     elif source_dir is not None:
         inputs["source_dir"] = source_dir
 

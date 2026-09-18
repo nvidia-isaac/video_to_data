@@ -74,7 +74,7 @@ class VisualExtractor:
             vlm_backend: "local" or "api" for VLM
             api_key: API key if using API backend
             api_url: Endpoint matching the backend (resolve via
-                ``models.model_manager.resolve_api_url``); None = backend default
+                ``models.model_manager.resolve_api_url``); required for api; None uses the vLLM default
             vlm_prompt: Custom prompt for VLM captioning (uses default if None)
         """
         self.device = device

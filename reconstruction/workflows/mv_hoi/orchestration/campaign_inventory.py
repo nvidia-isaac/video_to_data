@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+try:
+    from .storage import parse_storage_url, s3_client_kwargs
+except ImportError:  # Direct script execution.
+    from storage import parse_storage_url, s3_client_kwargs
+
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 import hashlib
 import json
-import os
 from pathlib import Path
 import random
 import sys
@@ -149,23 +153,14 @@ def _is_selected_data_output_path(path: str) -> bool:
     return False
 
 
-def _parse_swift_url(url: str) -> tuple[str, str, str]:
-    stripped = url.rstrip("/").removeprefix("swift://")
-    parts = stripped.split("/", 3)
-    if len(parts) < 3:
-        raise ValueError("Swift URL must be swift://host/account/container/prefix")
-    return f"https://{parts[0]}", parts[2], parts[3] if len(parts) == 4 else ""
+def _parse_swift_url(url: str) -> tuple[str | None, str, str]:
+    return parse_storage_url(url)
 
 
 def _client(swift_base: str, max_pool_connections: int = 64):
     endpoint, bucket, prefix = _parse_swift_url(swift_base)
-    access = os.environ.get("CSS_ACCESS_KEY")
-    secret = os.environ.get("CSS_SECRET_KEY")
-    if not access or not secret:
-        raise RuntimeError("Set CSS_ACCESS_KEY and CSS_SECRET_KEY")
     return boto3.client(
-        "s3", endpoint_url=endpoint, aws_access_key_id=access,
-        aws_secret_access_key=secret,
+        "s3", **s3_client_kwargs(endpoint),
         config=Config(
             max_pool_connections=max(10, max_pool_connections),
             retries={"mode": "adaptive", "max_attempts": 6},

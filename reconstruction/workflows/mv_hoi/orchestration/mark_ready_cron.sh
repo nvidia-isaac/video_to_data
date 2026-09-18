@@ -20,7 +20,7 @@ VENV="${MV_HOI_VENV:-$STATE_DIR/venv}"
 DATASET="${1:-${DATASET:-sc_office_4exo_1}}"
 LOCAL_TZ="${LOCAL_TZ:-America/Los_Angeles}"
 BATCH_DATE="${BATCH_DATE:-$(TZ="$LOCAL_TZ" date -d yesterday +%Y%m%d)}"
-CSS_ENV="${CSS_ENV:-$HOME/secrets/setup_css_env.sh}"
+CSS_ENV="${S3_ENV:-${CSS_ENV:-}}"
 HITL_AWS_ENV="${HITL_AWS_ENV:-$HOME/secrets/setup_hitl_aws_env.sh}"
 
 mkdir -p "$LOGDIR" "$(dirname "$LOCKFILE")"
@@ -31,7 +31,7 @@ if ! flock -n 9; then
   exit 0
 fi
 
-source "$CSS_ENV"
+if [ -n "$CSS_ENV" ]; then source "$CSS_ENV"; fi
 
 cd "$WORKDIR"
 source "$VENV/bin/activate"

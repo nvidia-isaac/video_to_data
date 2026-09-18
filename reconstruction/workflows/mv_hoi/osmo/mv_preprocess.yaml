@@ -2,6 +2,7 @@
 #
 # Usage:
 #   osmo workflow submit reconstruction/workflows/mv_hoi/osmo/mv_preprocess.yaml \
+#     --set image_registry="$V2D_IMAGE_REGISTRY" \
 #     --set rosbag_url=swift://... \
 #     --set calibration_url=swift://.../calibrate_extrinsics \
 #     --set mesh_url=swift://.../<object>/<method> \
@@ -21,7 +22,7 @@ workflow:
   tasks:
 
   - name: rosbag_to_edex
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_rosbag:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_rosbag:{{image_tag}}"
     resource: cpu_large
     command: [/bin/bash]
     args: [/tmp/entry.sh]
@@ -69,7 +70,7 @@ workflow:
         remove_pngs_after_pack: true
 
   - name: mv_preprocess
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_preprocess:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_mv_preprocess:{{image_tag}}"
     resource: cpu_large
     command: [/bin/bash]
     args: [/tmp/entry.sh]
@@ -121,7 +122,7 @@ workflow:
         output_image_path_template: "${output_dir}/images/{cam_name}.h5"
 
   - name: face_detector
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_face_detector:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_face_detector:{{image_tag}}"
     resource: cpu_large
     command: [/bin/bash]
     args: [/tmp/entry.sh]
@@ -152,6 +153,7 @@ workflow:
         output_image_path_template: "${output_dir}/images/{cam_name}.h5"
 
 default-values:
+  image_registry: ???
   workflow_name: v2d_mv_preprocess
   image_tag: latest
   rosbag_url: ???

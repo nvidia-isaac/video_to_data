@@ -23,7 +23,7 @@ models:
   # Device and authentication
   device: "cuda"
   api_key: null  # Or set NIM_API_KEY env var
-  api_url: null  # "api" backend endpoint override; null = built-in NVIDIA Inference API URL
+  api_url: null  # Required for "api": your provider's chat/completions URL and matching model
 
   # vLLM backend settings (only used when vlm_backend: "vllm")
   # Start server with: python scripts/serve.py -c configs/ingestion.yaml

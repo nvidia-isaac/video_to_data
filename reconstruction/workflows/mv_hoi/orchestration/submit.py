@@ -11,6 +11,11 @@ Manual mode — submit a single named sequence:
 
 from __future__ import annotations
 
+try:
+    from .storage import parse_storage_url, s3_client_kwargs
+except ImportError:  # Direct script execution.
+    from storage import parse_storage_url, s3_client_kwargs
+
 import argparse
 import base64
 from dataclasses import dataclass
@@ -23,7 +28,6 @@ import sys
 import shlex
 from datetime import datetime
 
-import boto3
 import yaml
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -80,7 +84,7 @@ try:
         update_stage_request,
         update_workflow,
     )
-    from .registry_versions import RegistryVersionError, resolve_submission_version
+    from .registry_versions import RegistryVersionError, image_registry, resolve_submission_version
     from .config_utils import (
         CALIBRATION_PIPELINE,
         CALIBRATION_WORKFLOW,
@@ -130,7 +134,7 @@ except ImportError:  # Direct script execution.
         update_stage_request,
         update_workflow,
     )
-    from registry_versions import RegistryVersionError, resolve_submission_version
+    from registry_versions import RegistryVersionError, image_registry, resolve_submission_version
     from config_utils import (
         CALIBRATION_PIPELINE,
         CALIBRATION_WORKFLOW,
@@ -332,39 +336,16 @@ def _matches_adopted_preprocess_lineage(
 
 # Swift / S3 helpers
 
-def _parse_swift_url(url: str) -> tuple[str, str, str]:
-    """Return (endpoint, bucket, prefix) from a swift:// URL.
-
-    Swift URLs: swift://host/account/container/prefix...
-    The account (AUTH_*) is handled by credentials. The S3 bucket is the
-    Swift container, and everything after it is the key prefix.
-    """
-    stripped = url.rstrip("/").replace("swift://", "")
-    parts = stripped.split("/", 3)
-    endpoint = f"https://{parts[0]}"
-    # parts[1] is the account (e.g. AUTH_team-isaac) — skip it
-    bucket = parts[2] if len(parts) > 2 else ""
-    prefix = parts[3] if len(parts) > 3 else ""
-    return endpoint, bucket, prefix
+def _parse_swift_url(url: str) -> tuple[str | None, str, str]:
+    """Compatibility alias accepting S3, Swift and bare bucket paths."""
+    return parse_storage_url(url)
 
 
 def get_s3_client(swift_url: str):
+    import boto3
+
     endpoint, bucket, prefix = _parse_swift_url(swift_url)
-    access_key = os.environ.get("CSS_ACCESS_KEY", "")
-    secret_key = os.environ.get("CSS_SECRET_KEY", "")
-    if not access_key or not secret_key:
-        print(
-            "Error: Set CSS_ACCESS_KEY and CSS_SECRET_KEY environment variables.\n"
-            "  source ~/secrets/setup_css_env.sh",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    client = boto3.client(
-        "s3",
-        endpoint_url=endpoint,
-        aws_access_key_id=access_key,
-        aws_secret_access_key=secret_key,
-    )
+    client = boto3.client("s3", **s3_client_kwargs(endpoint))
     return client, bucket, prefix
 
 
@@ -679,7 +660,9 @@ def submit_sequence(
             )
         print(f"  {sequence_name}: cancelled previous run, resubmitting")
 
-    version = pipeline_version or resolve_submission_version()
+    version = pipeline_version or resolve_submission_version(
+        registry=dataset_cfg.get("image_registry"),
+    )
     if not dry_run:
         ensure_version_cached(version, db_path=DB_PATH)
         request_stage = EXECUTION_STAGE_NAMES[pipeline_type]
@@ -732,6 +715,7 @@ def submit_sequence(
     set_vars: dict[str, str] = {
         "workflow_name": workflow_name,
         "image_tag": version,
+        "image_registry": image_registry(dataset_cfg.get("image_registry")),
         "continuous_symmetry_step_deg": str(
             workflow_cfg.get("continuous_symmetry_step_deg", 10.0)
         ),
@@ -1347,7 +1331,9 @@ def auto_submit(
     pool: str | None = None,
 ) -> None:
     """Discover sequences from Swift and submit workflows up to concurrency limit."""
-    version = pipeline_version or resolve_submission_version()
+    version = pipeline_version or resolve_submission_version(
+        registry=dataset_cfg.get("image_registry"),
+    )
     if not dry_run:
         ensure_version_cached(version, db_path=DB_PATH)
 
@@ -1474,8 +1460,9 @@ def main() -> None:
     parser.add_argument("--sequence", help="Single sequence (manual mode)")
     parser.add_argument(
         "--version",
-        help="Immutable pipeline image semver (default: latest complete NGC release)",
+        help="Immutable pipeline image semver (default: latest complete registry release)",
     )
+    parser.add_argument("--image-registry", help="Container registry/namespace (or V2D_IMAGE_REGISTRY)")
     parser.add_argument("--force", action="store_true",
                         help="Force resubmit even if blacklisted, WAITING_WF, WAITING_QC, "
                              "WAITING_EXPORT, or PASS; blacklist entries remain active")
@@ -1533,13 +1520,26 @@ def main() -> None:
         print(f"Available: {sorted(submit_pipelines)}")
         sys.exit(1)
 
+    try:
+        from .config_utils import validate_deployment_config
+    except ImportError:
+        from config_utils import validate_deployment_config
+    if args.image_registry:
+        dataset_cfg["image_registry"] = args.image_registry
+    try:
+        validate_deployment_config(dataset_cfg, args.pipeline)
+    except ValueError as exc:
+        parser.error(str(exc))
+
     if args.test:
         _apply_test_mode(dataset_cfg)
 
     init_db(DB_PATH)
 
     try:
-        version = resolve_submission_version(args.version)
+        version = resolve_submission_version(
+            args.version, registry=dataset_cfg.get("image_registry"),
+        )
     except RegistryVersionError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(1)

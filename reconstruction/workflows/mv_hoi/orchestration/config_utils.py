@@ -153,3 +153,38 @@ def apply_test_mode(dataset_cfg: dict) -> None:
         export_cfg["input_path"] = append_test_suffix(export_cfg["input_path"])
     export_cfg["output_path"] = append_test_suffix(export_cfg["output_path"])
     dataset_cfg["mesh_base"] = append_test_suffix(dataset_cfg["mesh_base"])
+
+
+def validate_deployment_config(dataset_cfg: dict, pipeline_type: str) -> None:
+    """Reject unconfigured public templates before storage or submission calls."""
+    try:
+        from .registry_versions import RegistryVersionError, image_registry
+    except ImportError:
+        from registry_versions import RegistryVersionError, image_registry
+
+    def configured(value):
+        return isinstance(value, str) and bool(value.strip()) and value.strip() != "???"
+
+    required = ["swift_base"]
+    if pipeline_type in (PREPROCESS_PIPELINE, RECON_PIPELINE, REVALIDATION_PIPELINE):
+        required.extend(["mesh_base", "weights_base_url"])
+    missing = [key for key in required if not configured(dataset_cfg.get(key))]
+    if not (dataset_cfg.get("image_registry") or os.environ.get("V2D_IMAGE_REGISTRY")):
+        missing.append("image_registry (or V2D_IMAGE_REGISTRY)")
+    pools = dataset_cfg.get("osmo_pools") or [dataset_cfg.get("osmo_pool")]
+    if not isinstance(pools, (list, tuple)) or not all(configured(pool) for pool in pools):
+        missing.append("osmo_pools (or osmo_pool)")
+    if pipeline_type == RECON_PIPELINE:
+        workflow = get_workflow_cfg(dataset_cfg, RECON_PIPELINE, RECONSTRUCTION_WORKFLOW)
+        if not configured(workflow.get("hitl_s3_base")):
+            missing.append("pipelines.mv_hoi_reconstruction.workflows.reconstruction.hitl_s3_base")
+    if missing:
+        raise ValueError(
+            "Missing deployment settings: " + ", ".join(missing)
+            + ". Copy config.yaml, configure your destinations, and set MV_HOI_CONFIG_PATH."
+        )
+
+    try:
+        image_registry(dataset_cfg.get("image_registry"))
+    except RegistryVersionError as exc:
+        raise ValueError(str(exc)) from exc

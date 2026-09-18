@@ -27,7 +27,7 @@ workflow:
 
   tasks:
   - name: validate_source
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_mv_postprocess:{{image_tag}}"
     resource: cpu_small
     command: [/bin/bash]
     args: [/tmp/entry.sh]
@@ -52,7 +52,7 @@ workflow:
           --output-path {{output}}/verification.json
 
   - name: face_detector
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_face_detector:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_face_detector:{{image_tag}}"
     resource: cpu_large
     command: [/bin/bash]
     args: [/tmp/entry.sh]
@@ -81,7 +81,7 @@ workflow:
 
   - name: foundation_pose
     resource: gpu
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_foundation_pose:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_foundation_pose:{{image_tag}}"
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
@@ -135,7 +135,7 @@ workflow:
         mask_path_template: "${mask_dir}/{cam_name}/${mask_obj_id}.h5"
 
   - name: compare_foundation_pose
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_mv_postprocess:{{image_tag}}"
     resource: cpu_small
     command: [/bin/bash]
     args: [/tmp/entry.sh]
@@ -172,7 +172,7 @@ workflow:
 
   - name: eval_chamfer_object
     resource: gpu
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_mv_postprocess:{{image_tag}}"
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
@@ -203,7 +203,7 @@ workflow:
 
   - name: eval_silhouette_mask_object
     resource: gpu
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_mv_postprocess:{{image_tag}}"
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
@@ -238,7 +238,7 @@ workflow:
 
   - name: eval_chamfer_human
     resource: gpu
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_mv_postprocess:{{image_tag}}"
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
@@ -266,7 +266,7 @@ workflow:
 
   - name: eval_silhouette_mask_human
     resource: gpu
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_mv_postprocess:{{image_tag}}"
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
@@ -297,7 +297,7 @@ workflow:
 
   - name: render_hoi_overlay
     resource: gpu
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_mv_postprocess:{{image_tag}}"
     command: [/bin/bash]
     args: [/tmp/entry.sh]
     inputs:
@@ -326,7 +326,7 @@ workflow:
         render_workers: 4
 
   - name: check_accuracy
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_mv_postprocess:{{image_tag}}"
     resource: cpu_small
     command: [/bin/bash]
     args: [/tmp/entry.sh]
@@ -358,7 +358,7 @@ workflow:
           --max_silhouette_failure_coverage {{max_silhouette_failure_coverage}}
 
   - name: revalidate_source
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_mv_postprocess:{{image_tag}}"
     resource: cpu_small
     command: [/bin/bash]
     args: [/tmp/entry.sh]
@@ -383,7 +383,7 @@ workflow:
           --output-path {{output}}/verification.json
 
   - name: export_revalidated
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    image: "{{image_registry}}/mv_hoi_mv_postprocess:{{image_tag}}"
     resource: cpu_export
     command: [/bin/bash]
     args: [/tmp/entry.sh]
@@ -450,6 +450,7 @@ workflow:
           --rebuild-incomplete
 
 default-values:
+  image_registry: ???
   workflow_name: v2d_mv_hoi_revalidation
   image_tag: latest
   sequence_name: ???

@@ -1,6 +1,8 @@
 # OSMO Workflows
 
-Workflow definitions for running training, retargeting, and development environments on OSMO. See the [OSMO user guide](https://isaac-infrastructure.gitlab-master-pages.nvidia.com/osmo/release-6.0.x/user_guide/index.html) for platform details.
+Workflow definitions for running training, retargeting, and development environments on
+an OSMO deployment you can access. Local Docker builds and runs do not require OSMO or
+a private container registry; follow [the local setup guide](../docs/SETUP.md).
 
 ## Repository-local E2E container operation
 
@@ -18,50 +20,73 @@ primitive they use.
   -- true
 ~~~
 
-**See also:** [data_pipeline.md](data_pipeline.md) for the end-to-end data flow (raw → retargeted → trained), [data_storage.md](data_storage.md) for storage layout and output-download commands.
+**See also:** [data_pipeline.md](data_pipeline.md) for the end-to-end data flow
+(raw → retargeted → trained), artifact layout, and downloading remote results.
 
 ## Prerequisites
 
-### 1. Access
+### 1. Build locally or configure a registry
 
-- `isaac-amr` NGC group — open a ticket in `#swngc-help`.
-- OSMO DLs `access-osmo` and `access-osmo-isaac-dev` via [DLRequest](https://dlrequest/) (ping `#osmo-support` to get approved).
-
-### 2. Configure NGC
-
-1. Install the [NGC CLI](https://docs.ngc.nvidia.com/cli/cmd.html) and [sign in](https://ngc.nvidia.com/signin).
-2. Select `nvstaging` > `isaac-amr`, then **Setup** > **Create API Key**.
-3. Configure and verify:
-   ```bash
-   ngc config set              # use the API key
-   docker login nvcr.io        # user: $oauthtoken, pass: <api_key>
-   ngc user who                # confirm read+write
-   ```
-
-### 3. Configure OSMO
-
-Install the [OSMO CLI](https://isaac-infrastructure.gitlab-master-pages.nvidia.com/osmo/release-6.0.x/user_guide/getting_started/install/index.html) and set up [credentials](https://isaac-infrastructure.gitlab-master-pages.nvidia.com/osmo/release-6.0.x/user_guide/getting_started/credentials.html), including the [CSS setup](https://isaac-infrastructure.gitlab-master-pages.nvidia.com/osmo/release-6.0.x/user_guide/appendix/css/index.html#data-credentials-css) for storage access.
-
-Omni-auth credentials are generally not needed; if a workflow complains about them, remove the credentials block from the yaml or follow the [token guide](https://docs.omniverse.nvidia.com/nucleus/latest/config-and-info/api_tokens.html#token-generation).
-
-### 4. Configure W&B for training jobs
-
-OSMO training workflows log to W&B by default. Set `WANDB_API_KEY` in the shell that submits the workflow:
+Build the local image from `robotic_grounding/`:
 
 ```bash
-export WANDB_API_KEY=<your-key>
+./workflow/run.sh build latest
 ```
 
-If W&B is not available, do not submit a cloud training run. Use local smoke tests with `--logger tensorboard` from the top-level README.
+The base image and NGC login prerequisites are documented in [SETUP.md](../docs/SETUP.md).
+For remote jobs, choose a container registry namespace you can push to and your OSMO
+workers can pull from:
+
+```bash
+export V2D_IMAGE_REGISTRY=registry.example.com/your-namespace
+docker login registry.example.com
+./workflow/run.sh push latest
+```
+
+`V2D_IMAGE_REGISTRY` is required only for `push`, `pull`, and `run_osmo.py --build-image`.
+Workflow YAML image defaults deliberately use an invalid placeholder; supply an image
+when submitting directly with the OSMO CLI.
+
+### 2. Configure your OSMO deployment and storage
+
+Install and authenticate the OSMO CLI using your deployment's setup instructions.
+Select a pool available to your account and provide it with `--pool`.
+Configure image-pull credentials and storage credentials for your chosen registry and
+input/output URLs in that deployment. The repository does not provide a hosted OSMO
+service, pool, or shared dataset bucket.
+
+For retargeting, upload the loaded dataset and object assets from the
+[local setup](../docs/SETUP.md) to your own storage. Pass `input_url` and `output_url`
+explicitly; their template defaults are empty.
+
+### 3. Configure W&B for training jobs
+
+Training templates reference an OSMO credential named `wandb`. Configure the key named
+in the selected YAML (`wandb_api_key` in `train.yaml`, `wandb_pass` in
+`train_vega_manip.yaml`), or edit its credential mapping to match your deployment.
+OSMO injects it as `WANDB_API_KEY` in the task. Set any W&B entity/project to your own
+workspace; no organization access is implied by these examples.
+
+For local training without W&B, use `--logger tensorboard` as shown in the
+[package README](../README.md#rl-training).
 
 ## Submitting a Job
 
-`run_osmo.py` builds + pushes + submits in one command. Add `--image <tag>` to skip rebuilding with an existing image, or `--dry-run` to preview.
+Choose one image mode:
+
+- `--image <registry>/<namespace>/robotic-grounding:<tag>` submits an existing image.
+- `--build-image` builds locally, pushes to `V2D_IMAGE_REGISTRY`, and submits that exact
+  remote image using the experiment name as its tag.
+
+These options are mutually exclusive. Every submission requires `--pool`; `--dry-run`
+previews the commands without building, pushing, or submitting.
 
 ### Remote development
 
 ```bash
-python scripts/run_osmo.py --experiment-name <your-name> --workflow-yaml workflow/dev_env.yaml
+python scripts/run_osmo.py --experiment-name <your-name> \
+  --image <registry>/<namespace>/robotic-grounding:<tag> --pool <your-pool> \
+  --workflow-yaml workflow/dev_env.yaml
 
 # Once running:
 osmo workflow port-forward <workflow-name> dev-env --port 6000:22
@@ -71,36 +96,43 @@ ssh root@localhost -p 6000
 ### Training
 
 ```bash
-python scripts/run_osmo.py --experiment-name <name> --workflow-yaml workflow/train.yaml
+# V2D_IMAGE_REGISTRY must already be exported.
+python scripts/run_osmo.py --experiment-name <name> --build-image \
+  --pool <your-pool> --workflow-yaml workflow/train.yaml
 ```
 
 ### Retargeting
 
-See [data_pipeline.md](data_pipeline.md) for what each stage does. Stages (`load`, `process`, `reconstruct`, `visualize`, `video`) can run together or individually. Outputs from one run are published as a single new version of the `v2d_{dataset}_retarget_exp_200` OSMO dataset — see [data_storage.md](data_storage.md) to pull them locally.
+See [data_pipeline.md](data_pipeline.md) for each stage's inputs and outputs. Load runs
+separately in the reconstruction loader image. This workflow runs object URDF generation,
+processing, support reconstruction, visualization, and video generation; select a subset
+with `--set stages=<stage>`. Artifacts are written beneath your `output_url`, including
+`<dataset>_processed/`, `<dataset>_urdfs/`, and `reconstructed_stage/`.
 
 ```bash
-# Full pipeline (works for any registered dataset: taco, arctic, oakink2, hot3d, h2o, grab, dexycb)
+# Full pipeline
 python scripts/run_osmo.py --experiment-name retarget-<dataset> \
-  --image nvcr.io/nvstaging/isaac-amr/robotic-grounding:<your-tag> \
-  --workflow-yaml workflow/retarget.yaml \
-  --set dataset=<dataset>
+  --image <registry>/<namespace>/robotic-grounding:<tag> --pool <your-pool> \
+  --workflow-yaml workflow/retarget.yaml --set dataset=<dataset> \
+  --set input_url=<object-storage-url> --set output_url=<object-storage-url>
 
-# Run only one stage
-python scripts/run_osmo.py --experiment-name retarget-<dataset>-<stage> \
-  --image nvcr.io/nvstaging/isaac-amr/robotic-grounding:<your-tag> \
-  --workflow-yaml workflow/retarget.yaml \
-  --set dataset=<dataset> --set stages=<stage>
+# Process only
+python scripts/run_osmo.py --experiment-name retarget-<dataset>-process \
+  --image <registry>/<namespace>/robotic-grounding:<tag> --pool <your-pool> \
+  --workflow-yaml workflow/retarget.yaml --set dataset=<dataset> --set stages=process \
+  --set input_url=<object-storage-url> --set output_url=<object-storage-url>
 ```
 
 #### Filtering sequences
 
-Use `sequence_pattern` (regex), `sequence_id` (exact), or `max_sequences` to pick a subset. `sequence_pattern` is applied as both an OSMO-input download regex and a Python-level filter.
+Use `sequence_pattern` (regex), `sequence_id` (exact), or `max_sequences` to pick a subset.
+`sequence_pattern` is applied as both an OSMO-input download regex and a Python-level filter.
 
 ```bash
 python scripts/run_osmo.py --experiment-name retarget-taco-screw \
-  --image nvcr.io/nvstaging/isaac-amr/robotic-grounding:<your-tag> \
-  --workflow-yaml workflow/retarget.yaml \
-  --set dataset=taco \
+  --image <registry>/<namespace>/robotic-grounding:<tag> --pool <your-pool> \
+  --workflow-yaml workflow/retarget.yaml --set dataset=taco \
+  --set input_url=<object-storage-url> --set output_url=<object-storage-url> \
   --set 'sequence_pattern=.*(screw|skim_off|smear|stir).*'
 
 # Equivalent alternatives:

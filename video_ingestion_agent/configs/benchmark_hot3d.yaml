@@ -25,7 +25,7 @@ models:
 
   device: "cuda"
   api_key: null
-  api_url: null  # "api" backend endpoint override; null = built-in NVIDIA Inference API URL
+  api_url: null  # Required for "api": your provider's chat/completions URL and matching model
 
   vllm_url: "http://localhost:8000/v1"
   vllm_tp_size: 8

@@ -20,7 +20,8 @@
 #
 # The motion data is BAKED INTO THE IMAGE (the Dockerfile COPYs `source/`), so a
 # changed clip, retarget or support surface needs a rebuild+push -- otherwise the
-# job silently trains the previous asset. Submit with:
+# job silently trains the previous asset. Set V2D_IMAGE_REGISTRY to your registry
+# namespace and configure your OSMO W&B credential before submitting:
 #   python scripts/run_osmo.py --experiment-name <tag> --build-image \
 #     --workflow-yaml workflow/train_vega_manip.yaml --pool <pool>
 
@@ -43,8 +44,6 @@ workflow:
     - /tmp/entry.sh
     environment:
       ACCEPT_EULA: Y
-      OMNI_SERVER: omniverse://isaac-dev.ov.nvidia.com
-      WANDB_ENTITY: nvidia-isaac
     credentials:
       wandb:
         WANDB_API_KEY: wandb_pass
@@ -63,4 +62,4 @@ workflow:
 
 default-values:
   workflow_name: robotic_grounding_vega_manip
-  image: nvcr.io/nvstaging/isaac-amr/robotic-grounding:latest
+  image: image-registry-not-configured-see-readme.invalid/robotic-grounding:latest

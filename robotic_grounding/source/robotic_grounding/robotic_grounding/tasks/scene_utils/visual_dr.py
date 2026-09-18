@@ -68,8 +68,8 @@ __all__ = [
 #################################################
 # Randomization parameter pools (editable)
 #################################################
-# All assets are referenced relative to NVIDIA_NUCLEUS_DIR (the asset root configured via
-# OMNI_SERVER). The container must be able to reach that root; repoint these to locally
+# All assets are referenced relative to Isaac Lab's NVIDIA_NUCLEUS_DIR asset root.
+# The container must be able to reach that root; repoint these to locally
 # baked assets for offline runs. An unreachable root makes the terms no-op silently, so
 # validate reachability explicitly rather than inferring it from rendered output.
 

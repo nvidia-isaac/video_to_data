@@ -52,8 +52,8 @@ class EntityExtractor:
             backend: "local", "api", or "vllm" for LLM inference
             api_key: API key if using API backend
             api_url: Endpoint matching the backend — the vLLM server URL
-                for backend="vllm", or an 'api'-backend endpoint override
-                (None = built-in default). Callers should resolve it via
+                for backend="vllm", or an 'api'-backend endpoint
+                (required for the api backend). Callers should resolve it via
                 ``models.model_manager.resolve_api_url``.
             save_responses: Whether to save LLM responses for debugging
             response_dir: Directory to save responses

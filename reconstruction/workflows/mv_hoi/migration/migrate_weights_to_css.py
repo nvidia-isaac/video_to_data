@@ -12,7 +12,6 @@ from dataclasses import asdict, dataclass
 import gzip
 import hashlib
 import json
-import os
 from pathlib import Path, PurePosixPath
 import tarfile
 import tempfile
@@ -22,17 +21,16 @@ import boto3
 
 try:
     from ..orchestration.runtime import require_submit_authority
+    from ..orchestration.storage import parse_storage_url, s3_client_kwargs
 except ImportError:
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from orchestration.runtime import require_submit_authority
+    from orchestration.storage import parse_storage_url, s3_client_kwargs
 
 
 DEFAULT_RELEASE = "20260722"
-DEFAULT_RELEASE_URL = (
-    "swift://pdx.s8k.io/AUTH_team-isaac/recordings/"
-    "v2d/multiview_weights/releases/20260722"
-)
+DEFAULT_RELEASE_URL = None
 MANIFEST_SCHEMA = "v2d.mv_hoi_weights_release.v1"
 READ_CHUNK_SIZE = 8 * 1024 * 1024
 
@@ -234,14 +232,8 @@ def prepare_release(
     return prepared, manifest, manifest_bytes
 
 
-def parse_swift_url(url: str) -> tuple[str, str, str]:
-    stripped = url.rstrip("/").removeprefix("swift://")
-    parts = stripped.split("/", 3)
-    if len(parts) != 4 or not parts[1].startswith("AUTH_"):
-        raise ValueError(
-            "Expected swift://host/AUTH_account/container/prefix release URL"
-        )
-    return f"https://{parts[0]}", parts[2], parts[3].strip("/")
+def parse_swift_url(url: str) -> tuple[str | None, str, str]:
+    return parse_storage_url(url)
 
 
 def _is_missing_object(error: Exception) -> bool:
@@ -344,23 +336,7 @@ def publish_release(
 
 def build_client(release_url: str):
     endpoint, bucket, prefix = parse_swift_url(release_url)
-    access_key = os.environ.get("CSS_ACCESS_KEY")
-    secret_key = os.environ.get("CSS_SECRET_KEY")
-    if not access_key or not secret_key:
-        raise RuntimeError(
-            "CSS_ACCESS_KEY and CSS_SECRET_KEY are required; "
-            "source ~/secrets/setup_css_env.sh"
-        )
-    return (
-        boto3.client(
-            "s3",
-            endpoint_url=endpoint,
-            aws_access_key_id=access_key,
-            aws_secret_access_key=secret_key,
-        ),
-        bucket,
-        prefix,
-    )
+    return boto3.client("s3", **s3_client_kwargs(endpoint)), bucket, prefix
 
 
 def parse_args() -> argparse.Namespace:
@@ -372,7 +348,7 @@ def parse_args() -> argparse.Namespace:
         default=reconstruction_root / "data" / "weights",
     )
     parser.add_argument("--release", default=DEFAULT_RELEASE)
-    parser.add_argument("--release-url", default=DEFAULT_RELEASE_URL)
+    parser.add_argument("--release-url", required=True, help="User-owned S3 or Swift weights destination")
     parser.add_argument(
         "--apply",
         action="store_true",

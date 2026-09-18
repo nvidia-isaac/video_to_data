@@ -206,16 +206,16 @@ Required for the ``api`` backend:
 ``Authentication failed (401)`` from the api backend
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Your key does not match the endpoint. The ``api`` backend defaults to
-NVIDIA's internal Inference API gateway; a key issued for a different
-OpenAI-compatible gateway is rejected there with ``401 Unauthorized``
-(and vice versa). Point the pipeline at the gateway your key belongs to:
+Check that your key is valid for the explicitly configured endpoint and
+that your account can access the selected model. Point the pipeline at
+the gateway your key belongs to:
 
 .. code-block:: yaml
 
    models:
      api_url: "https://your-gateway.example.com/v1/chat/completions"
 
+The ``api`` backend requires ``models.api_url``; there is no default endpoint.
 Model identifiers also differ between gateways — use the naming your
 gateway expects. The pipeline aborts immediately on 401/403 rather than
 retrying, so a misconfigured key surfaces on the first VLM call.

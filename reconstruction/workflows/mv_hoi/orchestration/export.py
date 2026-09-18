@@ -8,6 +8,13 @@ workflow containing up to the configured export batch size.
 
 from __future__ import annotations
 
+try:
+    from .registry_versions import image_registry
+    from .storage import parse_storage_url, s3_client_kwargs
+except ImportError:  # Direct script execution.
+    from registry_versions import image_registry
+    from storage import parse_storage_url, s3_client_kwargs
+
 import argparse
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -135,9 +142,9 @@ MAX_FAILURE_ANNOTATIONS = 5
 MAX_FAILURE_COVERAGE = 0.30
 DEFAULT_BATCH_SIZE = 30
 GENERATED_DIR = generated_dir()
-EXPORT_IMAGE = "nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}"
-DEFAULT_KRATOS_STATUS_TABLE = "llmdf_admin.item_status_transition_metrics"
-DEFAULT_KRATOS_PROJECT_ID = 285164
+EXPORT_IMAGE = "{{image_registry}}/mv_hoi_mv_postprocess:{{image_tag}}"
+DEFAULT_KRATOS_STATUS_TABLE = None
+DEFAULT_KRATOS_PROJECT_ID = None
 
 _VALID_TABLE_RE = re.compile(r"^[A-Za-z0-9_.]+$")
 _AMBIGUOUS_SUBMIT_MARKERS = (
@@ -287,34 +294,16 @@ def _apply_test_mode(dataset_cfg: dict) -> None:
     apply_test_mode(dataset_cfg)
 
 
-def _parse_swift_url(url: str) -> tuple[str, str, str]:
-    stripped = url.rstrip("/").replace("swift://", "")
-    parts = stripped.split("/", 3)
-    endpoint = f"https://{parts[0]}"
-    bucket = parts[2] if len(parts) > 2 else ""
-    prefix = parts[3] if len(parts) > 3 else ""
-    return endpoint, bucket, prefix
+def _parse_swift_url(url: str) -> tuple[str | None, str, str]:
+    """Compatibility alias accepting S3, Swift and bare bucket paths."""
+    return parse_storage_url(url)
 
 
 def get_s3_client(swift_url: str):
     import boto3
 
     endpoint, bucket, prefix = _parse_swift_url(swift_url)
-    access_key = os.environ.get("CSS_ACCESS_KEY", "")
-    secret_key = os.environ.get("CSS_SECRET_KEY", "")
-    if not access_key or not secret_key:
-        print(
-            "Error: Set CSS_ACCESS_KEY and CSS_SECRET_KEY environment variables.\n"
-            "  source ~/secrets/setup_css_env.sh",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    client = boto3.client(
-        "s3",
-        endpoint_url=endpoint,
-        aws_access_key_id=access_key,
-        aws_secret_access_key=secret_key,
-    )
+    client = boto3.client("s3", **s3_client_kwargs(endpoint))
     return client, bucket, prefix
 
 
@@ -598,8 +587,9 @@ def _execute_kratos_drs_json_query(query: str) -> list[dict[str, Any]]:
         from kratos.drs_jobs import execute_drs_adhoc_job, get_drs_job
     except ModuleNotFoundError as exc:
         raise QCQueryUnavailableError(
-            "kratos-cli is required for Kratos QC queries. Install "
-            "workflows/mv_hoi/requirements.txt."
+            "The optional kratos-cli integration is required for Kratos QC queries. "
+            "Install the compatible client from your Kratos provider and configure "
+            "its credentials; see workflows/mv_hoi/README.md. Exports remain waiting for QC."
         ) from exc
 
     profile, namespace, warehouse_id = _kratos_drs_settings()
@@ -714,12 +704,24 @@ class KratosAnnotations(dict):
 def query_completed_kratos_annotations(
     kratos_table: str,
     item_names: list[str],
-    kratos_status_table: str = DEFAULT_KRATOS_STATUS_TABLE,
-    kratos_project_id: int = DEFAULT_KRATOS_PROJECT_ID,
+    kratos_status_table: str | None = DEFAULT_KRATOS_STATUS_TABLE,
+    kratos_project_id: int | None = DEFAULT_KRATOS_PROJECT_ID,
 ) -> dict[str, list[dict]]:
     """Return annotation rows for items whose latest Kratos status is Completed."""
     if not item_names:
         return KratosAnnotations()
+    missing = [name for name, value in (
+        ("kratos_table", kratos_table),
+        ("kratos_status_table", kratos_status_table),
+        ("kratos_project_id", kratos_project_id),
+    ) if not value]
+    if missing:
+        raise QCQueryUnavailableError(
+            "Configure the optional Kratos integration before querying human QC; missing: "
+            + ", ".join(missing) + ". Exports remain waiting for QC."
+        )
+    if isinstance(kratos_project_id, bool) or int(kratos_project_id) < 1:
+        raise ValueError("kratos_project_id must be a positive integer")
     if not _VALID_TABLE_RE.match(kratos_table):
         raise ValueError(f"Invalid Kratos table name: {kratos_table!r}")
     if not _VALID_TABLE_RE.match(kratos_status_table):
@@ -990,7 +992,7 @@ def _render_tasks(items: list[PreparedExport]) -> str:
             )
         parts.append(
             f"""  - name: {export_task}
-    image: {EXPORT_IMAGE}
+    image: "{EXPORT_IMAGE}"
     resource: cpu_export
     command: [/bin/bash]
     args: [/tmp/entry.sh]
@@ -1350,6 +1352,7 @@ def submit_batch(
     if not items:
         return None
 
+    registry = image_registry(dataset_cfg.get("image_registry"))
     export_name = generate_export_id()
     export_id = osmo_export_workflow_id(export_name)
     export_pipeline = dataset_cfg["pipelines"][EXPORT_CONFIG_PIPELINE]
@@ -1387,7 +1390,8 @@ def submit_batch(
         )
         osmo_submit(
             generated_yaml, pool_decision.pool,
-            {"workflow_name": export_name}, dry_run=True,
+            {"workflow_name": export_name, "image_registry": registry,
+             "image_tag": items[0].workflow["pipeline_version"]}, dry_run=True,
         )
         print(f"  [dry-run] would create {len(items)} export stage run(s) for {export_id}")
         return export_id
@@ -1540,6 +1544,7 @@ def submit_batch(
             {
                 "workflow_name": export_name,
                 "image_tag": items[0].workflow["pipeline_version"],
+                "image_registry": registry,
             }, dry_run=False,
         )
     except subprocess.CalledProcessError as exc:
@@ -2010,7 +2015,7 @@ def run_export(
             "no export workflow"
         )
         return
-    kratos_table = export_cfg["kratos_table"]
+    kratos_table = export_cfg.get("kratos_table", "")
     kratos_status_kwargs = {}
     if "kratos_status_table" in export_cfg:
         kratos_status_kwargs["kratos_status_table"] = export_cfg["kratos_status_table"]
@@ -2143,6 +2148,7 @@ def main() -> None:
         "--pool",
         help="Explicit configured OSMO pool override (otherwise select by capacity)",
     )
+    parser.add_argument("--image-registry", help="Container registry/namespace (or V2D_IMAGE_REGISTRY)")
     args = parser.parse_args()
 
     global DB_PATH, TABLE
@@ -2169,6 +2175,16 @@ def main() -> None:
         sys.exit(1)
 
     dataset_cfg = config["datasets"][args.dataset]
+    if args.image_registry:
+        dataset_cfg["image_registry"] = args.image_registry
+    try:
+        from .config_utils import validate_deployment_config
+    except ImportError:
+        from config_utils import validate_deployment_config
+    try:
+        validate_deployment_config(dataset_cfg, EXPORT_CONFIG_PIPELINE)
+    except ValueError as exc:
+        parser.error(str(exc))
     try:
         get_workflow_cfg(dataset_cfg, EXPORT_CONFIG_PIPELINE, EXPORT_WORKFLOW)
     except KeyError:

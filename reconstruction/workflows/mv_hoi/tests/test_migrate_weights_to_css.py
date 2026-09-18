@@ -167,5 +167,42 @@ def test_publish_refuses_conflicting_committed_manifest(tmp_path):
 
 def test_parse_swift_url():
     assert migration.parse_swift_url(
-        "swift://pdx.s8k.io/AUTH_team-isaac/recordings/path/to/release"
-    ) == ("https://pdx.s8k.io", "recordings", "path/to/release")
+        "swift://storage.example.com/AUTH_example/recordings/path/to/release"
+    ) == ("https://storage.example.com", "recordings", "path/to/release")
+
+
+def test_package_import_supports_storage_helpers_without_workflow_on_sys_path():
+    import os
+    import subprocess
+    import textwrap
+
+    env = dict(os.environ)
+    env.pop("PYTHONPATH", None)
+    for prefix in ("S3", "CSS"):
+        for suffix in ("ENDPOINT_URL", "ACCESS_KEY", "SECRET_KEY", "REGION"):
+            env.pop(f"{prefix}_{suffix}", None)
+    script = textwrap.dedent("""
+        import sys
+        from pathlib import Path
+
+        workflow = Path.cwd() / "reconstruction/workflows/mv_hoi"
+        assert str(workflow) not in sys.path
+        assert "orchestration" not in sys.modules
+        import reconstruction.workflows.mv_hoi.migration.migrate_weights_to_css as migration
+        assert migration.parse_swift_url("s3://example-bucket/releases/0.1.0") == (
+            None, "example-bucket", "releases/0.1.0",
+        )
+        client = object()
+        calls = []
+        migration.boto3.client = lambda *args, **kwargs: calls.append((args, kwargs)) or client
+        assert migration.build_client("s3://example-bucket/releases/0.1.0") == (
+            client, "example-bucket", "releases/0.1.0",
+        )
+        assert calls == [(('s3',), {'endpoint_url': None})]
+        assert str(workflow) not in sys.path
+    """)
+    result = subprocess.run(
+        [sys.executable, "-c", script], cwd=WORKFLOW_DIR.parents[2],
+        env=env, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
