@@ -1,0 +1,14 @@
+_target_: flash_chord.runtime.sim.SimConfig
+fps: 50.0
+substeps: 4
+solver: newton
+integrator: implicitfast
+cone: pyramidal
+# A 32-world full-sequence probe peaked at 114 constraints and 28 contacts per
+# world, so these limits retain at least 8x headroom.
+njmax: 1024
+nconmax: 512
+impratio: 1.0
+iterations: 100
+ls_iterations: 50
+use_mujoco_contacts: true

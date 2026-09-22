@@ -1,0 +1,6 @@
+_target_: flash_chord.embodiments.g1_dex3.G1Dex3
+config:
+  _target_: flash_chord.embodiments.g1_dex3.G1Dex3Config
+  asset_id: g1_dex3_upstream_main
+  asset_sha256: 8c7f768dc8da6c969d8a4b4efb3dcbe3d9d2b05fca5104df12205a69879d19e9
+  replace_cylinders_with_capsules: true

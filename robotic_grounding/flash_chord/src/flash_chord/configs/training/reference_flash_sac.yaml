@@ -1,0 +1,90 @@
+_target_: flash_chord.training.flash_sac.config.TrainingConfig
+
+seed: ${reset.seed}
+world_count: ${scene.world_count}
+total_environment_steps: 50000896
+updates_per_collection: 2.0
+discount: 0.99
+mixed_precision: true
+compute_dtype: float16
+device: cuda:0
+resume: false
+checkpoint_path: null
+wandb_entity: ${logging.entity}
+wandb_project: ${logging.project}
+experiment_name: ${logging.experiment}
+run_name: ${logging.run_name}
+curriculum: ${curriculum}
+
+network:
+  _target_: flash_chord.training.flash_sac.config.NetworkConfig
+  actor_blocks: 2
+  actor_hidden_dim: 128
+  actor_head_mode: residual
+  residual_mean_head: unit_gain
+  initial_normalized_std: 0.02
+  critic_blocks: 2
+  critic_hidden_dim: 256
+  expansion: 4
+  critic_count: 2
+  atom_count: 101
+  log_std_min: -10.0
+  log_std_max: 2.0
+  batch_norm_update_rate: 0.01
+  batch_norm_epsilon: 0.00001
+  rms_norm_epsilon: 0.000001
+  projection_epsilon: 0.00000001
+
+optimization:
+  _target_: flash_chord.training.flash_sac.config.OptimizationConfig
+  learning_rate_initial: 0.0003
+  learning_rate_peak: 0.0003
+  learning_rate_end: 0.00015
+  learning_rate_schedule_updates: null
+  warmup_fraction: 0.000001
+  decay_fraction: 1.0
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  adam_epsilon: 0.00000001
+  loss_scale_initial: 65536.0
+  loss_scale_growth_factor: 2.0
+  loss_scale_backoff_factor: 0.5
+  loss_scale_growth_interval: 2000
+  actor_update_period: 2
+  actor_learning_rate_multiplier: 1.0
+  residual_mean_learning_rate_multiplier: 1.0
+  behavior_cloning_coefficient: 0.0
+  target_tau: 0.01
+
+replay:
+  _target_: flash_chord.training.flash_sac.config.ReplayConfig
+  capacity: 1000000
+  minimum_size: 100000
+  batch_size: 2048
+  n_step: 3
+  sampling: uniform
+  clear_on_stage_change: false
+  observation_storage_dtype: float32
+
+exploration:
+  _target_: flash_chord.training.flash_sac.config.ExplorationConfig
+  target_sigma: 0.07
+  initial_temperature: 0.01
+  zeta_exponent: 2.0
+  maximum_noise_repeat: 16
+  warmup_action: policy
+
+reward_normalization:
+  _target_: flash_chord.training.flash_sac.config.RewardNormalizationConfig
+  enabled: true
+  normalized_return_bound: 5.0
+  epsilon: 0.00000001
+  running_moments_epsilon: 0.0001
+
+checkpoint:
+  _target_: flash_chord.training.flash_sac.config.CheckpointConfig
+  save_interval_environment_steps: 5000000
+  save_replay: false
+  load_replay_path: null
+  load_optimizer: true
+  load_reward_normalizer: true

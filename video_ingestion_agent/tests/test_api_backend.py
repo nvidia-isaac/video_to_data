@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
+from PIL import Image
 
 from video_ingestion_agent.models.api_model import APIModel
 from video_ingestion_agent.models.model_manager import ModelManager, resolve_api_url
@@ -57,6 +58,28 @@ class TestAPIModelEndpoint:
         monkeypatch.setenv("NIM_API_KEY", "env-key")
         model = APIModel()
         assert model.api_key == "env-key"
+
+
+class TestAPIModelFrames:
+    """Decoded images use the same public API as local and vLLM models."""
+
+    def test_frames_are_sent_as_lossless_image_items(self):
+        model = APIModel(api_key="test-key")
+        with patch.object(model, "_make_request", return_value="ok") as request:
+            result = model.generate_from_frames(
+                [Image.new("RGB", (4, 3), "red")],
+                "inspect",
+                system_prompt="be precise",
+                max_new_tokens=42,
+                temperature=0.0,
+            )
+
+        assert result == "ok"
+        messages = request.call_args.kwargs["messages"]
+        assert messages[0] == {"role": "system", "content": "be precise"}
+        assert messages[1]["content"][0]["image_url"]["url"].startswith("data:image/png;base64,")
+        assert messages[1]["content"][1] == {"type": "text", "text": "inspect"}
+        assert request.call_args.kwargs["max_tokens"] == 42
 
 
 class TestAuthFailFast:
@@ -119,4 +142,19 @@ class TestModelManagerCacheKey:
             manager.get_model("m", backend="api", api_key="k", api_url="https://a/v1")
             manager.get_model("m", backend="api", api_key="k", api_url="https://a/v1")
             assert wrapper.call_count == 1
+        manager._models.clear()
+
+    def test_distinct_local_pixel_limits_create_distinct_models(self):
+        manager = ModelManager()
+        manager._models.clear()
+        with patch("video_ingestion_agent.models.model_manager.LocalModelWrapper") as wrapper:
+            wrapper.side_effect = lambda **kw: MagicMock(fps=kw.get("fps", 4))
+            manager.get_model("m", backend="local", mm_max_pixels=4_000_000)
+            manager.get_model("m", backend="local", mm_max_pixels=16_000_000)
+            assert wrapper.call_count == 2
+            assert manager.is_loaded(
+                "m",
+                backend="local",
+                mm_max_pixels=16_000_000,
+            )
         manager._models.clear()

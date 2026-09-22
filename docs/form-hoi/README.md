@@ -27,4 +27,7 @@ before release.
 
 ## Availability
 
-The FORM-HOI dataset is coming soon to Hugging Face.
+[FORM-HOI v0.1.0 is now available on Hugging Face](https://huggingface.co/datasets/nvidia/form-hoi),
+providing multi-view recordings paired with reconstructed human and object
+trajectories. A full technical report describing the dataset and reconstruction
+pipeline is coming later.

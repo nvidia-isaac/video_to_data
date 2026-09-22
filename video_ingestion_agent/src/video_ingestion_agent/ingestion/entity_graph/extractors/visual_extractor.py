@@ -36,7 +36,7 @@ class VisualExtractor:
     2. Extract frame embeddings using SigLIP-2
     3. Detect scene locations from captions
 
-    Uses ModelManager for VLM (supports local and API backends).
+    Uses ModelManager for VLM (supports local, API, and vLLM backends).
     """
 
     # Default VLM prompt for video captioning
@@ -71,7 +71,7 @@ class VisualExtractor:
             device: Device to run models on
             chunk_size: Size of video chunks for captioning (seconds)
             chunk_overlap: Overlap between chunks (seconds)
-            vlm_backend: "local" or "api" for VLM
+            vlm_backend: "local", "api", or "vllm" for VLM
             api_key: API key if using API backend
             api_url: Endpoint matching the backend (resolve via
                 ``models.model_manager.resolve_api_url``); None = backend default
@@ -209,32 +209,13 @@ class VisualExtractor:
             # Use ModelManager to get the model
             vlm_model = self._get_vlm_model()
 
-            # Use generate_from_frames if available (local model)
-            if hasattr(vlm_model, "_model") and hasattr(vlm_model._model, "generate_from_frames"):
-                caption = vlm_model._model.generate_from_frames(
-                    frames=images,
-                    prompt=self.vlm_prompt,
-                    # Headroom for a <think> trace before the caption (reasoning models).
-                    max_new_tokens=2048,
-                    temperature=0.0,
-                )
-            else:
-                # Fallback: Use generate_text with image content
-                conversation = [
-                    {
-                        "role": "user",
-                        "content": [
-                            *[{"type": "image", "image": img} for img in images],
-                            {"type": "text", "text": self.vlm_prompt},
-                        ],
-                    }
-                ]
-                caption = vlm_model.generate_text(
-                    conversation=conversation,
-                    # Headroom for a <think> trace before the caption (reasoning models).
-                    max_new_tokens=2048,
-                    temperature=0.0,
-                )
+            caption = vlm_model.generate_from_frames(
+                frames=images,
+                prompt=self.vlm_prompt,
+                # Headroom for a <think> trace before the caption (reasoning models).
+                max_new_tokens=2048,
+                temperature=0.0,
+            )
 
             return caption
 

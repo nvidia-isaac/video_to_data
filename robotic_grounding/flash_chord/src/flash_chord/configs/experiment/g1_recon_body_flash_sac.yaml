@@ -1,0 +1,88 @@
+# @package _global_
+
+# Canonical G1+Dex3/SONIC ReconBody FlashSAC recipe.
+defaults:
+  - override /sim: recon_body
+  - override /collision: physical
+  - override /embodiment: g1_dex3
+  - override /action: sonic_joint_residual
+  - override /observation: recon_body
+  - override /objective: recon_body
+  - override /termination: recon_body
+  - override /reset: recon_body
+  - override /curriculum: recon_body_flash_sac
+
+task:
+  motion_speed: 1.0
+  source_frame_playback: true
+  motion_start_frame: 0
+  motion_end_frame: -1
+
+scene:
+  world_count: 2048
+  contact_friction: 1.0
+  object_free_joint_damping: 0.01
+
+action:
+  input_mode: raw
+  normalized_mapping: linear
+
+env:
+  voc:
+    _target_: flash_chord.runtime.object_control.VOCParams
+    k_lin: 50.0
+    d_lin: 10.0
+    k_ang: 10.0
+    d_ang: 0.1
+    max_force: 60.0
+    max_torque: 60.0
+    gravity: 9.81
+    mass_normalized_gains: false
+  contact:
+    _target_: flash_chord.runtime.contact.ContactTrackerConfig
+    sides: [left, right]
+  capture_terminal_state: true
+  enforce_joint_velocity_limits: true
+  critic_context:
+    _target_: flash_chord.envs.rl.CriticContextConfig
+    reference_phase: true
+    object_body_velocity: true
+
+training:
+  total_environment_steps: 349999104
+  updates_per_collection: 4.0
+  resume: false
+  checkpoint_path: null
+  network:
+    actor_hidden_dim: 256
+    critic_hidden_dim: 512
+    actor_head_mode: residual
+    residual_mean_head: zero_dense
+    # A bounded residual retains the raw policy's 0.5-rad initial physical
+    # sigma and exp([-10, 2]) physical standard-deviation envelope.
+    initial_normalized_std: 0.05
+    action_transform: tanh
+    action_scale: 10.0
+    log_std_min: -12.302585092994047
+    log_std_max: -0.3025850929940459
+  optimization:
+    actor_learning_rate_multiplier: 1.0
+    residual_mean_learning_rate_multiplier: 1.0
+  replay:
+    capacity: 10000000
+    minimum_size: 409600
+    n_step: 7
+    clear_on_stage_change: false
+    observation_storage_dtype: float16
+  exploration:
+    # Normalized sigma 0.07 is physical sigma 0.7 after the 10x transform.
+    target_sigma: 0.07
+    warmup_action: policy
+  checkpoint:
+    save_interval_environment_steps: 10000384
+    load_replay_path: null
+
+logging:
+  experiment: g1_sonic_recon_body
+  run_name: g1_recon_body_flash_sac
+  log_interval: 25

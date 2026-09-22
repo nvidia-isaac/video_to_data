@@ -146,6 +146,10 @@ ENV/
 env.bak/
 venv.bak/
 
+# FlashCHORD uses `env` as a Hydra config group, not a virtual environment.
+!flash_chord/src/flash_chord/configs/env/
+!flash_chord/src/flash_chord/configs/env/**
+
 # Spyder project settings
 .spyderproject
 .spyproject

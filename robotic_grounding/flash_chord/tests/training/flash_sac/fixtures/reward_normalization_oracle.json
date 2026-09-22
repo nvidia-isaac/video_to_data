@@ -1,0 +1,147 @@
+{
+  "bound": 5.0,
+  "discount": 0.99,
+  "probe": [
+    2.0,
+    -3.0,
+    1.0,
+    8.0
+  ],
+  "states": [
+    {
+      "count": 4.0,
+      "discounted_return": [
+        1.0,
+        -2.0,
+        0.5,
+        4.0
+      ],
+      "maximum_absolute_return": [
+        4.0
+      ],
+      "mean": [
+        0.875
+      ],
+      "normalized_probe": [
+        0.9379340410232544,
+        -1.4069010019302368,
+        0.4689670205116272,
+        3.7517361640930176
+      ],
+      "variance": [
+        4.546899795532227
+      ]
+    },
+    {
+      "count": 8.0,
+      "discounted_return": [
+        -0.009999990463256836,
+        1.0199999809265137,
+        2.0,
+        -4.0
+      ],
+      "maximum_absolute_return": [
+        4.0
+      ],
+      "mean": [
+        0.3137500286102295
+      ],
+      "normalized_probe": [
+        0.8780766725540161,
+        -1.3171149492263794,
+        0.43903833627700806,
+        3.5123066902160645
+      ],
+      "variance": [
+        5.1879425048828125
+      ]
+    },
+    {
+      "count": 12.0,
+      "discounted_return": [
+        0.24010001122951508,
+        1.2597999572753906,
+        2.2300000190734863,
+        -3.7100000381469727
+      ],
+      "maximum_absolute_return": [
+        4.0
+      ],
+      "mean": [
+        0.21082499623298645
+      ],
+      "normalized_probe": [
+        0.8788912892341614,
+        -1.3183369636535645,
+        0.4394456446170807,
+        3.5155651569366455
+      ],
+      "variance": [
+        5.178328990936279
+      ]
+    }
+  ],
+  "transitions": [
+    {
+      "reward": [
+        1.0,
+        -2.0,
+        0.5,
+        4.0
+      ],
+      "terminated": [
+        false,
+        false,
+        true,
+        false
+      ],
+      "truncated": [
+        false,
+        true,
+        false,
+        false
+      ]
+    },
+    {
+      "reward": [
+        -1.0,
+        3.0,
+        2.0,
+        -4.0
+      ],
+      "terminated": [
+        false,
+        false,
+        false,
+        true
+      ],
+      "truncated": [
+        false,
+        false,
+        true,
+        false
+      ]
+    },
+    {
+      "reward": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "terminated": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "truncated": [
+        false,
+        false,
+        false,
+        false
+      ]
+    }
+  ],
+  "upstream_commit": "87edc9061150ae9e962dd84e6544e27a1554b3ab"
+}

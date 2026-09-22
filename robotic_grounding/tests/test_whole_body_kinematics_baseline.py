@@ -97,6 +97,52 @@ def test_whole_body_kinematics_matches_baseline() -> None:
         q = result["q"].copy()
 
 
+def test_foot_task_grounding_moves_only_feet_and_preserves_relative_height() -> None:
+    """Grounding uses one common foot-target shift and leaves every other task intact."""
+    if not FIXTURE_PATH.is_file():
+        pytest.skip(f"Baseline fixture not found at {FIXTURE_PATH}.")
+
+    fixture = np.load(FIXTURE_PATH, allow_pickle=False)
+    config = load_robot_config("g1")
+    kin = WholeBodyKinematics(config=config)
+    kin.set_frame_tasks_target(
+        source_joints=fixture["positions"][0],
+        source_joints_wxyz=fixture["wxyz"][0],
+        source_to_robot_scale=float(fixture["scale"]),
+    )
+
+    before = {
+        name: task.transform_target_to_world.translation.copy()
+        for name, task in kin.frame_tasks.items()
+    }
+    relative_foot_height_before = (
+        before[config.foot_frames[1]][2] - before[config.foot_frames[0]][2]
+    )
+
+    offset_z = kin.align_foot_task_targets_to_ground(ground_z=0.0)
+    after = {
+        name: task.transform_target_to_world.translation.copy()
+        for name, task in kin.frame_tasks.items()
+    }
+
+    for name in config.foot_frames:
+        np.testing.assert_allclose(after[name][:2], before[name][:2], atol=0.0)
+        assert after[name][2] == pytest.approx(before[name][2] + offset_z)
+    for name in set(kin.frame_tasks) - set(config.foot_frames):
+        np.testing.assert_allclose(after[name], before[name], atol=0.0)
+
+    lowest_sole_z = min(
+        after[name][2] - config.ankle_roll_offset for name in config.foot_frames
+    )
+    relative_foot_height_after = (
+        after[config.foot_frames[1]][2] - after[config.foot_frames[0]][2]
+    )
+    assert lowest_sole_z == pytest.approx(0.0, abs=1e-12)
+    assert relative_foot_height_after == pytest.approx(
+        relative_foot_height_before, abs=1e-12
+    )
+
+
 if __name__ == "__main__":
     test_whole_body_kinematics_matches_baseline()
     print("OK: WholeBodyKinematics matches V0 baseline within tolerance.")

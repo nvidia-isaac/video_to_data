@@ -477,6 +477,34 @@ class ConfigTests(Fixture):
             run_many.call_args.args[0][0].commands[2].argv,
         )
 
+    def test_evaluate_non_headless_is_persisted(self) -> None:
+        config = self.make_ready_config("evaluate-visible")
+        args = [
+            "evaluate",
+            "--config",
+            str(config.path),
+            "--checkpoint",
+            str(self.checkpoint),
+            "--episodes",
+            "1",
+            "--num-envs",
+            "1",
+        ]
+        with mock.patch.object(cli.Runner, "run_many", return_value=[]) as run_many:
+            result = cli.main([*args, "--non-headless"])
+        self.assertEqual(result, 0)
+        self.assertTrue(load_config(config.path).stage("evaluate")["non_headless"])
+        self.assertIn(
+            "--non-headless", run_many.call_args.args[0][-1].commands[0].argv
+        )
+
+        with mock.patch.object(cli.Runner, "run_many", return_value=[]) as run_many:
+            result = cli.main(args)
+        self.assertEqual(result, 0)
+        self.assertIn(
+            "--non-headless", run_many.call_args.args[0][-1].commands[0].argv
+        )
+
     def test_doctor_requires_the_loader_image(self) -> None:
         config = self.make_ready_config("doctor-loader")
         commands = doctor_stages(config)[0].commands
@@ -1110,6 +1138,23 @@ Path(args.save_plot_path).write_bytes(b'plot')
             "robot_name=vega_sharpa",
             stage.inputs,
         )
+
+    def test_evaluate_non_headless_is_opt_in(self) -> None:
+        config = self.make_ready_config()
+        checkpoint_dir = config.host_path("finetune") / "checkpoint-1"
+        default_command = evaluate_stages(
+            config, checkpoint=checkpoint_dir, episodes=1, num_envs=1
+        )[-1].commands[0].argv
+        visible_command = evaluate_stages(
+            config,
+            checkpoint=checkpoint_dir,
+            episodes=1,
+            num_envs=1,
+            non_headless=True,
+        )[-1].commands[0].argv
+
+        self.assertNotIn("--non-headless", default_command)
+        self.assertIn("--non-headless", visible_command)
 
     def test_dataset_statistics_precede_the_container_dataset_audit(self) -> None:
         config = self.make_ready_config()

@@ -1,0 +1,15 @@
+defaults:
+  - logging: wandb
+  - evaluation: flash_sac
+  - _self_
+
+# The environment, task, embodiment, and strategy selections are rebuilt from the checkpoint's
+# own resolved config, so this root composes only the evaluation and logging surfaces.
+logging:
+  mode: disabled
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/evaluate_policy/${now:%Y-%m-%d_%H-%M-%S}

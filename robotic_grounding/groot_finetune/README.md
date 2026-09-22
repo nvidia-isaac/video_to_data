@@ -54,7 +54,9 @@ python -m groot_finetune.convert_to_gr00t \
 - Artifact validity: exact structural and provenance checks performed by replay, conversion, and
   audit tools.
 - Closed-loop task success: the evaluator in the task profile. The provided `lift_hold`
-  evaluator measures maximum rise and consecutive samples above the hold threshold.
+  evaluator requires the configured maximum rise and consecutive samples above the hold
+  threshold, and requires the final object height to remain within the configured floor relative
+  to its initial height.
 
 The closed-loop evaluator samples pre-action observations. It does not install reset hooks or
 use post-action observations that have already been replaced by an automatic reset.

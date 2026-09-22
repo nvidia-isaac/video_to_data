@@ -114,9 +114,15 @@ def test_container_dependency_revisions_are_pinned():
     dockerfile = (MODULE / "docker/Dockerfile").read_text()
     constraints = (MODULE / "lib/pip-constraints.txt").read_text().splitlines()
     moge_project = (MODULE.parent / "v2d_moge/lib/pyproject.toml").read_text()
+    mv_project = (MODULE.parent / "v2d_mv/pyproject.toml").read_text()
+    postprocess_project = (MODULE.parent / "v2d_mv_postprocess/lib/pyproject.toml").read_text()
+    vis_dependencies = mv_project.split("vis = [", 1)[1].split("]", 1)[0]
     assert "ENV PIP_CONSTRAINT=/workspace/v2d_cari4d/lib/pip-constraints.txt" in dockerfile
-    assert constraints == ["numpy==1.26.3", "torch==2.5.1", "torchvision==0.20.1", "wis3d==1.0.1"]
+    assert constraints == ["numpy==1.26.3", "torch==2.5.1", "torchvision==0.20.1"]
     assert '"moge @ git+https://github.com/microsoft/MoGe.git@925b8ed835a7a9cdb7578ba15c658a0afc969030"' in moge_project
+    assert '"wis3d"' not in vis_dependencies
+    assert 'wis3d = [\n    "wis3d==1.0.1",\n]' in mv_project
+    assert '"v2d-mv[io,vis,wis3d]"' in postprocess_project
 
 
 def test_full_suite_runs_inside_the_cari4d_container():

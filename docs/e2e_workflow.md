@@ -160,11 +160,10 @@ review that scene before retargeting.
 `doctor` must finish successfully. It checks Git LFS, the GPU, Docker, the loader image, the
 external Isaac-GR00T environment, the mounted worktree, and the Isaac Lab messaging dependencies.
 
-## Retarget and validate the simulator task
+## Retarget the task to an embodiment
 
 ```bash
 ./run_e2e.sh retarget --embodiment vega
-./run_e2e.sh simulate --embodiment vega
 ```
 
 Retargeting must produce all of the following beneath the run root:
@@ -178,9 +177,6 @@ Retargeting must produce all of the following beneath the run root:
 The report, Parquet motion, and video must have consistent robot/object frame counts, finite
 values, the released 58-joint order, and no unresolved QA warnings. Inspect the beginning,
 interaction, and final frames of the video.
-
-`simulate` is a finite two-step registration and environment-advance smoke. It does not replay
-the complete motion; the retarget QA artifacts are the full-motion visual gate.
 
 ![Side-by-side reconstructed human and Vega Sharpa motion retargeting](figures/e2e_workflow/vega_retargeting.webp)
 

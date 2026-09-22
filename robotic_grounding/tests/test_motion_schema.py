@@ -7,7 +7,7 @@ Covers:
     U2. Minimal single-robot file (only required groups) is loadable.
     U3. `schema_version` mismatch raises `SchemaVersionMismatch`.
     U4. `hand_sides`-indexed alignment for single/bimanual.
-    U5. Quaternion convention guard (wxyz vs xyzw).
+    U5. Quaternion numerical-validity guard.
     U6. `ee_pose_w` shape invariant for E in {1, 2, 3}.
     K1-K5. `motion_kind` validation: dual-hand round-trip, missing/empty/
            unknown kind, single-robot/dual-hand required-field enforcement,
@@ -27,6 +27,7 @@ import traceback
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 from robotic_grounding.motion_schema import (
@@ -415,27 +416,53 @@ def test_u4_single_hand_right_only(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# U5. Quaternion convention guard
+# U5. Quaternion numerical-validity guard
 # ---------------------------------------------------------------------------
 
 
-def test_u5_writer_rejects_xyzw(tmp_path: Path) -> None:
-    """Writer raises when quaternions look like xyzw instead of wxyz."""
-    md = _minimal_motion_data()
-    # Build an xyzw-like series (real part last). This should fail the guard.
-    md.robot_root_wxyz = [[0.0, 0.0, 0.0, 1.0] for _ in range(4)]
-    try:
-        save_motion_parquet(md, root_path=str(tmp_path))
-    except ValueError as exc:
-        assert "wxyz" in str(exc)
-        return
-    raise AssertionError("expected ValueError when writing xyzw-ordered quaternions")
+def test_u5_writer_accepts_near_pi_wxyz(tmp_path: Path) -> None:
+    """A valid near-180-degree wxyz trajectory must not look "swapped"."""
+    # Include exactly pi about Z and the two reported failing scalar values.
+    # q and -q represent the same rotation and must both round-trip unchanged.
+    for w in (0.0, 0.135, 0.140):
+        for sign in (-1.0, 1.0):
+            md = _minimal_motion_data()
+            q = [sign * w, 0.0, 0.0, sign * float(np.sqrt(1.0 - w * w))]
+            md.robot_root_wxyz = [q[:] for _ in range(4)]
+            loaded = _round_trip(md, tmp_path / f"w_{w}_sign_{sign}")
+            np.testing.assert_allclose(loaded.robot_root_wxyz, md.robot_root_wxyz)
+
+
+def test_u5_writer_rejects_non_finite(tmp_path: Path) -> None:
+    """Writer rejects NaN/Inf quaternion components."""
+    for value in (float("nan"), float("inf"), float("-inf")):
+        md = _minimal_motion_data()
+        md.robot_root_wxyz[2][1] = value
+        try:
+            save_motion_parquet(md, root_path=str(tmp_path))
+        except ValueError as exc:
+            assert "non-finite" in str(exc)
+            continue
+        raise AssertionError("expected ValueError for a non-finite quaternion")
+
+
+def test_u5_writer_rejects_non_unit(tmp_path: Path) -> None:
+    """Writer rejects quaternion rows whose norm is not approximately one."""
+    for q in ([0.0, 0.0, 0.0, 0.0], [0.5, 0.0, 0.0, 0.0], [0.0, 2.0, 0.0, 0.0]):
+        md = _minimal_motion_data()
+        md.robot_root_wxyz[1] = q
+        try:
+            save_motion_parquet(md, root_path=str(tmp_path))
+        except ValueError as exc:
+            assert "unit-normalized" in str(exc)
+            continue
+        raise AssertionError("expected ValueError for a non-unit quaternion")
 
 
 def test_u5_writer_accepts_plausible_rotations(tmp_path: Path) -> None:
-    """Writer accepts quaternions with moderate rotations (w still dominant enough)."""
+    """Writer accepts unit quaternions rounded to three decimal places."""
     md = _minimal_motion_data()
-    # 45deg about z axis: w=cos(22.5deg)~=0.924, z=sin(22.5deg)~=0.383. Still wxyz-ish.
+    # 45deg about z axis: w=cos(22.5deg)~=0.924, z=sin(22.5deg)~=0.383.
     w, z = 0.924, 0.383
     md.robot_root_wxyz = [[w, 0.0, 0.0, z] for _ in range(4)]
     save_motion_parquet(md, root_path=str(tmp_path))  # should not raise
@@ -647,7 +674,9 @@ TESTS: list[tuple[str, Any]] = [
     ("U3 version mismatch raises", test_u3_version_mismatch_raises),
     ("U3 missing version raises", test_u3_missing_version_raises),
     ("U4 single-hand right only", test_u4_single_hand_right_only),
-    ("U5 writer rejects xyzw", test_u5_writer_rejects_xyzw),
+    ("U5 writer accepts near-pi wxyz", test_u5_writer_accepts_near_pi_wxyz),
+    ("U5 writer rejects non-finite", test_u5_writer_rejects_non_finite),
+    ("U5 writer rejects non-unit", test_u5_writer_rejects_non_unit),
     ("U5 writer accepts rotations", test_u5_writer_accepts_plausible_rotations),
     ("U6 variable num ee", test_u6_variable_num_ee),
     ("missing required raises on write", test_missing_required_field_raises_on_write),

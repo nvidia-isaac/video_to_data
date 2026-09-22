@@ -152,3 +152,47 @@ jobs:
         run: |
           docker rm robotic-grounding-e2e-${{ github.run_id }} 2>/dev/null || true
           docker rmi $DOCKER_IMAGE 2>/dev/null || true
+
+  ## ------------------------------------------
+  ## FlashCHORD native image & tests (GPU required)
+  ## ------------------------------------------
+  flash_chord_build_and_test:
+    name: FlashCHORD Build & Test
+    needs: [lint]
+    runs-on: [self-hosted, gpu]
+    timeout-minutes: 180
+    env:
+      DOCKER_IMAGE: flash-chord-ci-${{ github.run_id }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Materialize FlashCHORD assets
+        run: |
+          git lfs install --local
+          git lfs pull --include="robotic_grounding/flash_chord/**" --exclude=""
+          mapfile -t lfs_paths < <(git lfs ls-files -n | grep '^robotic_grounding/flash_chord/')
+          # Validate the current tracked set, including any documentation media.
+          test "${#lfs_paths[@]}" -gt 0
+          for path in "${lfs_paths[@]}"; do
+            test -s "$path"
+            if head -c 64 "$path" | grep -a -q '^version https://git-lfs.github.com/spec/v1'; then
+              echo "FlashCHORD asset is still a Git LFS pointer: $path" >&2
+              exit 1
+            fi
+          done
+      - name: Build FlashCHORD image
+        run: |
+          docker build \
+            -f robotic_grounding/flash_chord/docker/Dockerfile \
+            -t "$DOCKER_IMAGE" \
+            robotic_grounding/flash_chord
+      - name: Run FlashCHORD tests
+        run: |
+          docker run --rm \
+            --runtime=nvidia --gpus all \
+            -e WANDB_MODE=disabled \
+            "$DOCKER_IMAGE" \
+            python -m pytest -q --disable-warnings -ra
+      - name: Cleanup
+        if: always()
+        run: docker rmi "$DOCKER_IMAGE" 2>/dev/null || true

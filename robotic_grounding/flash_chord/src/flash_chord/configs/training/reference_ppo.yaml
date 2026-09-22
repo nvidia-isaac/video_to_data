@@ -1,0 +1,44 @@
+_target_: flash_chord.training.ppo.config.TrainingConfig
+seed: ${reset.seed}
+world_count: ${scene.world_count}
+rollout_steps: 24
+max_iterations: 20000
+save_interval: 200
+observation_normalization: true
+observation_normalization_epsilon: 0.01
+reward_normalization: false
+device: cuda:0
+resume: false
+checkpoint: null
+wandb_entity: ${logging.entity}
+wandb_project: ${logging.project}
+experiment_name: ${logging.experiment}
+run_name: ${logging.run_name}
+curriculum: ${curriculum}
+network:
+  _target_: flash_chord.configuration.make_network_config
+  actor_hidden_dims: [1024, 512, 256, 128]
+  critic_hidden_dims: [1024, 512, 256, 128]
+  activation: elu
+  initial_noise_std: 0.1
+  noise_std_type: scalar
+  actor_output_gain: 0.0
+ppo:
+  _target_: flash_chord.training.ppo.config.PPOConfig
+  value_loss_coefficient: 1.0
+  use_clipped_value_loss: true
+  clip_parameter: 0.1
+  entropy_coefficient: 0.001
+  learning_epochs: 5
+  mini_batches: 4
+  learning_rate: 0.001
+  schedule: adaptive
+  minimum_learning_rate: 0.00001
+  maximum_learning_rate: 0.01
+  adaptive_schedule_factor: 1.5
+  discount: 0.99
+  gae_lambda: 0.95
+  desired_kl: 0.005
+  max_grad_norm: 1.0
+  normalize_advantage_per_mini_batch: false
+  log_ratio_clip: null

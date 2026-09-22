@@ -12,11 +12,15 @@ on:
     branches: [main]
     paths:
       - 'video_ingestion_agent/**'
+      - 'reconstruction/modules/v2d_hoi_object_reconstruction/README.md'
+      - 'reconstruction/modules/v2d_hoi_object_reconstruction/tools/**'
       - '.github/workflows/video_ingestion_agent_ci.yml'
   pull_request:
     branches: [main]
     paths:
       - 'video_ingestion_agent/**'
+      - 'reconstruction/modules/v2d_hoi_object_reconstruction/README.md'
+      - 'reconstruction/modules/v2d_hoi_object_reconstruction/tools/**'
       - '.github/workflows/video_ingestion_agent_ci.yml'
   workflow_dispatch:
 
@@ -112,9 +116,11 @@ jobs:
 
       - name: Install package + extras
         run: |
-          # Reuse a cache-restored venv when present; `uv venv` errors out on
-          # an existing directory and `--clear` would defeat the cache.
-          [ -f .venv/bin/activate ] || uv venv .venv
+          # Reuse a valid cache-restored venv. Recreate it when the cached
+          # interpreter symlink points to a Python version no longer present.
+          if [ ! -x .venv/bin/python ]; then
+            uv venv --clear .venv
+          fi
           source .venv/bin/activate
           # [local] for torch/transformers/timm needed by visual-extractor tests;
           # [dev] for pytest + ruff; [benchmark] for sentence-transformers/wandb
@@ -123,6 +129,8 @@ jobs:
           # webapp/__init__.py. [server] (vLLM) is intentionally omitted —
           # vLLM is GPU-only and not exercised by unit tests.
           uv pip install -e ".[local,dev,benchmark,webapp]"
+          # Dependencies used only by the reconstruction logo-redaction tool.
+          uv pip install trimesh==4.6.1 usd-core==26.5
 
       - name: Show installed package versions
         run: |
@@ -136,6 +144,22 @@ jobs:
           # `-o addopts=""` overrides pyproject.toml's default --cov flags;
           # coverage is computed locally, not enforced in CI today.
           pytest tests/ -o addopts="" -v
+
+      - name: Check logo-redaction tools
+        run: |
+          source .venv/bin/activate
+          LOGO_TOOL_DIR=../reconstruction/modules/v2d_hoi_object_reconstruction/tools
+          ruff check \
+            "$LOGO_TOOL_DIR/locate_logo_regions.py" \
+            "$LOGO_TOOL_DIR/redact_texture_regions.py" \
+            "$LOGO_TOOL_DIR/tests/test_locate_logo_regions.py" \
+            "$LOGO_TOOL_DIR/tests/test_redact_texture_regions.py"
+          ruff format --check \
+            "$LOGO_TOOL_DIR/locate_logo_regions.py" \
+            "$LOGO_TOOL_DIR/redact_texture_regions.py" \
+            "$LOGO_TOOL_DIR/tests/test_locate_logo_regions.py" \
+            "$LOGO_TOOL_DIR/tests/test_redact_texture_regions.py"
+          PYTHONPATH=.. pytest "$LOGO_TOOL_DIR/tests" -o addopts="" -v
 
       - name: Upload pytest log on failure
         if: failure()

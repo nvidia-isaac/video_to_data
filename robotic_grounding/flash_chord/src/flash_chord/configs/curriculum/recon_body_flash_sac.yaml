@@ -1,0 +1,50 @@
+_target_: flash_chord.configuration.make_fixed_curriculum
+
+# Environment transitions for the 2,048-world, 350M-step FlashSAC budget.
+# The stage fractions exactly match the stable 20,000-iteration PPO recipe:
+# zero VOC begins at 60%, deployment-exact starts enter at 82.5%, and the
+# terminal mixture remains 50% immediate / 50% uniform recovery starts.
+thresholds: [35000320, 70000640, 104998912, 139999232, 174999552, 209999872, 288749568, 306249728, 349999104]
+
+stages:
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 1.0
+    objective_weights: &recon_body_weights
+      termination: -300.0
+      action_rate_l2: -0.0001
+      action_l2: -0.000001
+      soft_joint_limit: -0.001
+      pelvis_position: 1.0
+      pelvis_orientation: 1.0
+      body_joint_position: 5.0
+      object_position: 1.0
+      progress: 1.0
+      palm_position: 1.0
+      palm_orientation: 1.0
+      force_closure: 5.0
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 0.75
+    objective_weights: *recon_body_weights
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 0.5
+    objective_weights: *recon_body_weights
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 0.25
+    objective_weights: *recon_body_weights
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 0.1
+    objective_weights: *recon_body_weights
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 0.05
+    objective_weights: *recon_body_weights
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 0.0
+    objective_weights: *recon_body_weights
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 0.0
+    objective_weights: *recon_body_weights
+    immediate_first_frame_probability: 0.25
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 0.0
+    objective_weights: *recon_body_weights
+    immediate_first_frame_probability: 0.50

@@ -1,5 +1,8 @@
 # Hand → Robot retargeting: setup & run
 
+> **Looking for FlashCHORD?** Use its [setup and example workflow](../flash_chord/README.md#setup)
+> for accelerated Newton/Warp/JAX training. The guide below covers retargeting and the Isaac Lab stack.
+
 This guide reproduces the hand-object → robot retargeting pipeline on a clean machine,
 **downloading every dataset from its original public source** (the academic dataset
 portals). You end up with, per dataset: retargeted robot motion (Parquet), reconstructed

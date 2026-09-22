@@ -1,0 +1,107 @@
+# Current Dexmate/Vega Sharpa embodiment. The asset identifier retains the v2
+# provenance used to derive the released controller.
+_target_: flash_chord.embodiments.vega_sharpa.VegaSharpa
+config:
+  _target_: flash_chord.embodiments.vega_sharpa.VegaSharpaConfig
+  urdf_path:
+    _target_: pathlib.Path
+    _args_: [src/flash_chord/assets/urdfs/vega_sharpa/v2/vega_sharpa_58dof.urdf]
+  asset_id: vega_sharpa_v2
+  asset_sha256: 88c2c061ad7ce13428e17c50e69ffdff08cbd5e8041654df33bbe7a7fb5e5bf2
+  arm_feedback_scale: 1.0
+  semantic_frame_names:
+    - zed_depth_frame
+    - zed_left_camera
+    - zed_right_camera
+  gravity_compensation: true
+  joint_overrides:
+    '(?:^|/)(?:L|R)_arm_j1$':
+      kp: 48.68459466964289
+      kd: 41.15447085114586
+      mode: position_velocity
+      default_pos: 0.0
+      armature: 0.551
+      effort_limit: 100.0
+      velocity_limit: 2.4
+      friction: null
+    '(?:^|/)(?:L|R)_arm_j2$':
+      kp: 27.43237011630257
+      kd: 23.159532675972144
+      mode: position_velocity
+      default_pos: 0.0
+      armature: 0.551
+      effort_limit: 100.0
+      velocity_limit: 2.4
+      friction: null
+    '(?:^|/)(?:L|R)_arm_j3$':
+      kp: 29.62593291473207
+      kd: 24.986205930444992
+      mode: position_velocity
+      default_pos: 0.0
+      armature: 0.19072
+      effort_limit: 80.0
+      velocity_limit: 2.4
+      friction: null
+    '(?:^|/)(?:L|R)_arm_j4$':
+      kp: 23.134317278891867
+      kd: 19.532232049454098
+      mode: position_velocity
+      default_pos: 0.0
+      armature: 0.19072
+      effort_limit: 80.0
+      velocity_limit: 2.4
+      friction: null
+    '(?:^|/)(?:L|R)_arm_j5$':
+      kp: 2.5463846202007985
+      kd: 2.148072759799482
+      mode: position_velocity
+      default_pos: 0.0
+      armature: 0.07232
+      effort_limit: 25.0
+      velocity_limit: 2.4
+      friction: null
+    '(?:^|/)(?:L|R)_arm_j6$':
+      kp: 4.227251607475805
+      kd: 3.5765041461700604
+      mode: position_velocity
+      default_pos: 0.0
+      armature: 0.07232
+      effort_limit: 25.0
+      velocity_limit: 2.4
+      friction: null
+    '(?:^|/)(?:L|R)_arm_j7$':
+      kp: 3.4862647411242134
+      kd: 2.9439891209118327
+      mode: position_velocity
+      default_pos: 0.0
+      armature: 0.07232
+      effort_limit: 25.0
+      velocity_limit: 2.4
+      friction: null
+    '_(?:thumb_)?IP$':
+      armature: 0.0006
+      effort_limit: 0.638
+      friction: 0.01276
+    '_CMC_(?:FE|AA)$':
+      armature: 0.0032
+      effort_limit: 3.3
+      friction: 0.132
+    '_DIP$':
+      armature: 0.00042
+      effort_limit: 0.18937
+      friction: 0.00378738
+    '_MCP_(?:FE|AA)$':
+      armature: 0.00265
+      effort_limit: 1.864
+      friction: 0.07456
+    '_PIP$':
+      armature: 0.0006
+      effort_limit: 0.638
+      friction: 0.01276
+    '_pinky_CMC$':
+      armature: 0.00012
+      effort_limit: 0.5285
+      friction: 0.012
+  preserve_palm_bodies: true
+  joint_limit_tolerance: 1.0e-5
+  frame_position_tolerance: 5.0e-4

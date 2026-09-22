@@ -16,8 +16,10 @@ class LiftHoldResult:
     """Completed-episode lift-and-hold measurements."""
 
     success: bool
+    lift_hold_success: bool
     max_lift_m: float
     max_hold_steps: int
+    final_lift_m: float
     sample_count: int
 
 
@@ -55,6 +57,7 @@ class LiftHoldTracker:
         self._max_lift_m = np.zeros_like(initial)
         self._consecutive_hold_steps = np.zeros(initial.shape, dtype=np.int64)
         self._max_hold_steps = np.zeros(initial.shape, dtype=np.int64)
+        self._latest_lift_m = np.zeros_like(initial)
         self._sample_count = np.zeros(initial.shape, dtype=np.int64)
 
     @property
@@ -81,6 +84,7 @@ class LiftHoldTracker:
         self._max_hold_steps = np.maximum(
             self._max_hold_steps, self._consecutive_hold_steps
         )
+        self._latest_lift_m = lift_m.copy()
         self._sample_count += 1
 
     def complete(self, env_index: int, *, next_initial_z: float) -> LiftHoldResult:
@@ -93,18 +97,23 @@ class LiftHoldTracker:
             raise ValueError("next_initial_z must be finite")
         max_lift = float(self._max_lift_m[env_index])
         max_hold = int(self._max_hold_steps[env_index])
+        final_lift = float(self._latest_lift_m[env_index])
+        lift_hold_success = (
+            max_lift >= self.config.lift_threshold_m
+            and max_hold >= self.config.min_hold_steps
+        )
         result = LiftHoldResult(
-            success=(
-                max_lift >= self.config.lift_threshold_m
-                and max_hold >= self.config.min_hold_steps
-            ),
+            success=(lift_hold_success and final_lift >= self.config.final_min_lift_m),
+            lift_hold_success=lift_hold_success,
             max_lift_m=max_lift,
             max_hold_steps=max_hold,
+            final_lift_m=final_lift,
             sample_count=int(self._sample_count[env_index]),
         )
         self._initial_z[env_index] = float(next_initial_z)
         self._max_lift_m[env_index] = 0.0
         self._consecutive_hold_steps[env_index] = 0
         self._max_hold_steps[env_index] = 0
+        self._latest_lift_m[env_index] = 0.0
         self._sample_count[env_index] = 0
         return result

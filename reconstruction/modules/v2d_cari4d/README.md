@@ -47,6 +47,8 @@ python -m v2d.sam3d.docker.run_image_to_mesh \
 
 The outputs are a generated GLB mesh and separate estimated transform/intrinsics JSON files. Inspect the geometry and establish the object's physical scale in the mesh before supplying it as `--object_mesh_path`: a single-image estimate is not a calibrated scan. CARI4D recenters/reorients the supplied geometry but preserves its scale; it does not consume these SAM3D JSON files or automatically apply their scale. Generated-mesh results are therefore not the same provided-mesh release test condition.
 
+> **Known issue:** After generating a mesh with SAM3D image-to-mesh, users must run mesh autoscaling before supplying it to CARI4D as `--object_mesh_path`. The released CARI4D pipeline does not automatically rescale the generated mesh.
+
 #### Optional: reconstruct from a separate stereo scan
 
 If a calibrated stereo scan of the object is available, follow the [HOI object-reconstruction input and run instructions](../v2d_hoi_object_reconstruction/README.md). This requires a separate synchronized stereo capture and its calibration, not the monocular interaction video. Use `merged_recon/output.glb` from BundleSDF or `sam3d/best/output_scaled.glb` from SAM3D as `--object_mesh_path`. Skip mesh reconstruction when using the mesh already supplied with the test data.

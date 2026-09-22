@@ -1,0 +1,12 @@
+_target_: flash_chord.embodiments.sharpa_hands.SharpaHands
+config:
+  _target_: flash_chord.embodiments.sharpa_hands.SharpaHandsConfig
+  left_urdf_path:
+    _target_: pathlib.Path
+    _args_: [src/flash_chord/assets/urdfs/sharpawave/left_sharpawave_primitive.urdf]
+  right_urdf_path:
+    _target_: pathlib.Path
+    _args_: [src/flash_chord/assets/urdfs/sharpawave/right_sharpawave_primitive.urdf]
+  joint_overrides:
+    'wrist_[xyz]$': {kp: 25.0, kd: 14.0, effort_limit: 50.0}  # prismatic base
+    'wrist_rotvec$': {mode: effort, kp: 25.0, kd: 14.0, effort_limit: 50.0}

@@ -1,0 +1,10 @@
+defaults:
+  - policy
+  - _self_
+
+arm_joint_position:
+  enabled: true
+arm_joint_velocity:
+  enabled: true
+arm_joint_reference_delta:
+  enabled: true

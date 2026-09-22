@@ -3,6 +3,10 @@ run.py
 wandb/
 outputs/
 
+# FlashCHORD is a separate Newton/JAX package with its own Docker context and
+# image. Keep it out of the Isaac Lab manager image build context.
+flash_chord/
+
 # Heavy, runtime-only raw dataset downloads — mounted from CSS into
 # /tmp/human_motion_data/<ds>/dataset/ at OSMO workflow runtime, so
 # there's no reason to bake the multi-GB raw dumps into the image.

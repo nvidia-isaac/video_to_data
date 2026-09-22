@@ -1,0 +1,421 @@
+{
+  "gifs": [
+    {
+      "argv": [
+        "scripts/debug/view_robot.py",
+        "--embodiment",
+        "sharpa_hands",
+        "--viewer",
+        "viser"
+      ],
+      "body_bounds": [
+        [
+          0.0,
+          -0.3537816107273102,
+          0.5
+        ],
+        [
+          0.015392263419926167,
+          0.3537816107273102,
+          0.6773999929428101
+        ]
+      ],
+      "bytes": 395059,
+      "camera_position": [
+        0.7163056251533152,
+        -0.9841798520046557,
+        1.1398407135940123
+      ],
+      "camera_target": [
+        0.007696131709963083,
+        0.0,
+        0.588699996471405
+      ],
+      "crop": [
+        134,
+        125,
+        332,
+        250
+      ],
+      "dimensions": [
+        400,
+        300
+      ],
+      "file": "sharpa_robot.gif",
+      "fps": 10,
+      "mode": "static",
+      "render_frames": 42,
+      "sha256": "e93a136c0937f09633389e1dd93777ab7fe4d82558b835c7ea83702b89f3f425"
+    },
+    {
+      "argv": [
+        "scripts/debug/view_robot.py",
+        "--embodiment",
+        "g1_dex3",
+        "--viewer",
+        "viser"
+      ],
+      "body_bounds": [
+        [
+          -0.026255201548337936,
+          -0.2480824887752533,
+          0.01353632565587759
+        ],
+        [
+          0.23266801238059998,
+          0.24809247255325317,
+          1.218999981880188
+        ]
+      ],
+      "bytes": 443981,
+      "camera_position": [
+        1.470226591332228,
+        -1.8986341578036976,
+        1.679506081786895
+      ],
+      "camera_target": [
+        0.10320640355348587,
+        4.991888999938965e-06,
+        0.6162681579589844
+      ],
+      "crop": [
+        96,
+        56,
+        454,
+        342
+      ],
+      "dimensions": [
+        400,
+        300
+      ],
+      "file": "g1_robot.gif",
+      "fps": 10,
+      "mode": "static",
+      "render_frames": 42,
+      "sha256": "74a90aac40f014534904bbaf5e0dc10c6bfa7567cf2dc71113846b51b60bd590"
+    },
+    {
+      "argv": [
+        "scripts/debug/view_scene.py",
+        "--parquet",
+        "/v2d/assets/human_motion_data/ego_recon/processed/sequence_id=tissue_box_simple/robot_name=sharpa_wave",
+        "--embodiment",
+        "sharpa_hands",
+        "--frame",
+        "0",
+        "--viewer",
+        "viser"
+      ],
+      "body_bounds": [
+        [
+          -0.21741442382335663,
+          -0.10929594188928604,
+          0.9949999451637268
+        ],
+        [
+          0.22364100813865662,
+          0.06096619367599487,
+          1.2471437454223633
+        ]
+      ],
+      "bytes": 612888,
+      "camera_position": [
+        0.9,
+        -1.2,
+        1.9
+      ],
+      "camera_target": [
+        0.0,
+        0.0,
+        1.25
+      ],
+      "crop": [
+        195,
+        194,
+        240,
+        180
+      ],
+      "dimensions": [
+        400,
+        300
+      ],
+      "file": "sharpa_scene.gif",
+      "fps": 10,
+      "mode": "static",
+      "render_frames": 42,
+      "sha256": "cae018a76ce829268b8249c9bac66cd407b7008f338800faea225b1b0fe3661d"
+    },
+    {
+      "argv": [
+        "scripts/debug/replay.py",
+        "--config-name=sonic_replay",
+        "task.parquet='/v2d/assets/human_motion_data/whole_body/soma/sequence_id=2026-03-06_10-24-18_snack_box_pick_and_place_01/robot_name=g1/data.parquet'",
+        "viewer.backend=viser",
+        "start_paused=true",
+        "markers.enabled=false",
+        "hydra.run.dir=/evidence/docs_media/g1_scene_clean/hydra"
+      ],
+      "body_bounds": [
+        [
+          -0.272268146276474,
+          -0.16692779958248138,
+          0.01572517678141594
+        ],
+        [
+          1.8050336837768555,
+          0.1796138733625412,
+          1.253081202507019
+        ]
+      ],
+      "bytes": 360588,
+      "camera_position": [
+        2.9681946127700876,
+        -3.0517289893892174,
+        2.3469235038714995
+      ],
+      "camera_target": [
+        0.7663827538490295,
+        0.006343036890029907,
+        0.6344031691551208
+      ],
+      "crop": [
+        146,
+        74,
+        384,
+        288
+      ],
+      "dimensions": [
+        400,
+        300
+      ],
+      "file": "g1_scene.gif",
+      "fps": 10,
+      "markers_enabled": false,
+      "mode": "static",
+      "render_frames": 42,
+      "sha256": "8f77ffcd87e1d01461b126428cb7de0d777bea4601a517493be7cf13a6938d8b"
+    },
+    {
+      "argv": [
+        "scripts/debug/replay.py",
+        "task.parquet='/v2d/assets/human_motion_data/ego_recon/processed/sequence_id=tissue_box_simple/robot_name=sharpa_wave'",
+        "viewer.backend=viser",
+        "+start_paused=true",
+        "markers.enabled=false",
+        "hydra.run.dir=/evidence/docs_media/sharpa_reference/hydra"
+      ],
+      "body_bounds": [
+        [
+          -0.21741442382335663,
+          -0.10929594188928604,
+          0.9949999451637268
+        ],
+        [
+          0.22364100813865662,
+          0.06096619367599487,
+          1.2471437454223633
+        ]
+      ],
+      "bytes": 2501977,
+      "camera_position": [
+        0.9,
+        -1.2,
+        1.9
+      ],
+      "camera_target": [
+        0.0,
+        0.0,
+        1.25
+      ],
+      "crop": [
+        189,
+        186,
+        250,
+        188
+      ],
+      "dimensions": [
+        400,
+        300
+      ],
+      "file": "sharpa_reference.gif",
+      "fps": 10,
+      "markers_enabled": false,
+      "mode": "reference",
+      "physics_during_playback": false,
+      "playback_button": "Show kinematic reference",
+      "playback_frames": 1296,
+      "playback_seconds": 25.92,
+      "render_frames": 261,
+      "sha256": "270a56e1043bbd98a29ec00648aa71dd8f0ca9f01df5df658018150a2bd0b06a"
+    },
+    {
+      "argv": [
+        "scripts/debug/replay.py",
+        "--config-name=sonic_replay",
+        "task.parquet='/v2d/assets/human_motion_data/whole_body/soma/sequence_id=2026-03-06_10-24-18_snack_box_pick_and_place_01/robot_name=g1/data.parquet'",
+        "viewer.backend=viser",
+        "start_paused=true",
+        "markers.enabled=false",
+        "hydra.run.dir=/evidence/docs_media/g1_reference/hydra"
+      ],
+      "body_bounds": [
+        [
+          -0.272268146276474,
+          -0.16692779958248138,
+          0.01572517678141594
+        ],
+        [
+          1.8050336837768555,
+          0.1796138733625412,
+          1.253081202507019
+        ]
+      ],
+      "bytes": 870436,
+      "camera_position": [
+        2.9681946127700876,
+        -3.0517289893892174,
+        2.3469235038714995
+      ],
+      "camera_target": [
+        0.7663827538490295,
+        0.006343036890029907,
+        0.6344031691551208
+      ],
+      "crop": [
+        117,
+        86,
+        412,
+        310
+      ],
+      "dimensions": [
+        400,
+        300
+      ],
+      "file": "g1_reference.gif",
+      "fps": 10,
+      "markers_enabled": false,
+      "mode": "reference",
+      "physics_during_playback": false,
+      "playback_button": "Show kinematic reference",
+      "playback_frames": 800,
+      "playback_seconds": 16.0,
+      "render_frames": 162,
+      "sha256": "5f4c0622bcd9fc16e23e2aee82a9d4b43863b5cb3813fb1b9679f2b6f3d7ca7b"
+    },
+    {
+      "argv": [
+        "scripts/view_policy.py",
+        "evaluation.checkpoint=/evidence/docs_media/sharpa_policy.safetensors",
+        "viewer.backend=viser",
+        "markers.enabled=false",
+        "hydra.run.dir=/evidence/docs_media/sharpa_policy_clean/hydra"
+      ],
+      "body_bounds": [
+        [
+          -0.21741442382335663,
+          -0.10929594188928604,
+          0.9949999451637268
+        ],
+        [
+          0.22364100813865662,
+          0.06096619367599487,
+          1.2471437454223633
+        ]
+      ],
+      "bytes": 1530849,
+      "camera_position": [
+        0.9,
+        -1.2,
+        1.9
+      ],
+      "camera_target": [
+        0.0,
+        0.0,
+        1.25
+      ],
+      "checkpoint_sha256": "8d27a10de356e40ff4912439d6ddf5ecb265f567fbee438b481c73a7549ba04c",
+      "clip": {
+        "end_seconds": 23,
+        "note": "Ends after placement, before retreat. Simulation and reset metadata describe the complete source rollout.",
+        "start_seconds": 0
+      },
+      "crop": [
+        166,
+        169,
+        322,
+        242
+      ],
+      "dimensions": [
+        400,
+        300
+      ],
+      "file": "sharpa_policy.gif",
+      "final_frame": 0,
+      "final_reset_pose_max_difference": 0.0,
+      "fps": 10,
+      "markers_enabled": false,
+      "mode": "policy",
+      "render_frames": 261,
+      "sha256": "18f926572d3d08a9fc890e3f8bee0f7a02c42189468e5a148bc7699d2d80e146",
+      "simulation_seconds": 25.900000000000002,
+      "simulation_steps": 518
+    },
+    {
+      "argv": [
+        "scripts/view_policy.py",
+        "evaluation.checkpoint=/checkpoints/policy_349999104.safetensors",
+        "viewer.backend=viser",
+        "markers.enabled=false",
+        "hydra.run.dir=/evidence/docs_media/g1_policy_clean/hydra"
+      ],
+      "body_bounds": [
+        [
+          -0.272268146276474,
+          -0.16692779958248138,
+          0.01572517678141594
+        ],
+        [
+          1.8050336837768555,
+          0.1796138733625412,
+          1.253081202507019
+        ]
+      ],
+      "bytes": 1029926,
+      "camera_position": [
+        2.9681946127700876,
+        -3.0517289893892174,
+        2.3469235038714995
+      ],
+      "camera_target": [
+        0.7663827538490295,
+        0.006343036890029907,
+        0.6344031691551208
+      ],
+      "checkpoint_sha256": "37d0af55b8310bbdaa55176b8defe63d486eff40d2c28fa041aa0ecee5ae815f",
+      "crop": [
+        118,
+        89,
+        406,
+        304
+      ],
+      "dimensions": [
+        400,
+        300
+      ],
+      "file": "g1_policy.gif",
+      "final_frame": 0,
+      "final_reset_pose_max_difference": 0.0,
+      "fps": 10,
+      "markers_enabled": false,
+      "mode": "policy",
+      "render_frames": 162,
+      "sha256": "6951f5f5bbbf2361bc70ca6c4d9c9399c5b985debadbccd501a689af490102c7",
+      "simulation_seconds": 16.0,
+      "simulation_steps": 800
+    }
+  ],
+  "renderer": "Viser 1.0.30 / Newton 1.2.0",
+  "seed": 42,
+  "source_release": "0979067be74e24678c8b8ba47f4d9e030f3f6644",
+  "viewer_reset_fix": "e204866950c0e78bfabf2db15c80c2e25a7b620e"
+}

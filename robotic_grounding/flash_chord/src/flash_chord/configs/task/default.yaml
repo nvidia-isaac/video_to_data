@@ -1,0 +1,7 @@
+# Reference trajectories are data inputs, not package assets. Pass an absolute
+# path or a path relative to the invocation directory.
+parquet: ???
+motion_speed: 0.5
+source_frame_playback: false
+motion_start_frame: 0
+motion_end_frame: -1

@@ -1,0 +1,6 @@
+enabled: true
+axes: true
+keypoints: true
+keypoint_frame: dp
+contacts: true
+raw_contacts: false

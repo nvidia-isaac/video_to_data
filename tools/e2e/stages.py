@@ -1188,6 +1188,7 @@ def evaluate_stages(
     num_envs: int,
     motion_source: str = "run",
     model_seed: int = 0,
+    non_headless: bool = False,
     execution_length: int = 4,
     evaluation_horizon: int | None = None,
 ) -> list[Stage]:
@@ -1260,6 +1261,7 @@ def evaluate_stages(
             str(execution_length),
             "--model-seed",
             str(model_seed),
+            *(("--non-headless",) if non_headless else ()),
             "--success-video-dir",
             videos_container,
             "--success-video-camera",

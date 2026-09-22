@@ -318,6 +318,46 @@ class WholeBodyKinematics:
                 target_rot.copy()
             )
 
+    def align_foot_task_targets_to_ground(self, ground_z: float = 0.0) -> float:
+        """Translate the configured foot targets so the lowest sole is grounded.
+
+        SOMA's ``LeftFoot``/``RightFoot`` joints and the robot ankle frames sit
+        at different anatomical heights above a physical floor.  Mapping those
+        joint origins directly therefore leaves the G1 soles hovering even
+        when the source scene has already been rigidly aligned to its fitted
+        ground plane.  Apply one common vertical translation to both foot
+        targets so their relative swing height is unchanged and the lower
+        target's sole lies on ``ground_z``.
+
+        This changes only the foot task targets.  Pelvis, wrist, torso, knee,
+        source-body, and object targets remain in the fitted-plane coordinate
+        frame, allowing the IK solve to satisfy ground contact without moving
+        the object or sacrificing wrist targets through a scene-wide shift.
+
+        Returns:
+            The Z translation applied to every configured foot target.
+        """
+        foot_tasks = []
+        for frame_name in self._config.foot_frames:
+            task = self.frame_tasks.get(frame_name)
+            if task is None:
+                raise ValueError(
+                    f"Configured foot frame {frame_name!r} has no IK frame task."
+                )
+            foot_tasks.append(task)
+        if not foot_tasks:
+            return 0.0
+
+        lowest_target_sole_z = min(
+            float(task.transform_target_to_world.translation[2])
+            - float(self._config.ankle_roll_offset)
+            for task in foot_tasks
+        )
+        offset_z = float(ground_z) - lowest_target_sole_z
+        for task in foot_tasks:
+            task.transform_target_to_world.translation[2] += offset_z
+        return offset_z
+
     def _rebuild_configuration(self) -> None:
         """Rebuild ``self.configuration`` and ``self.configuration_limits``.
 
@@ -402,6 +442,7 @@ class WholeBodyKinematics:
         source_joints_wxyz: torch.Tensor | np.ndarray,
         source_to_robot_scale: float = 1.0,
         qpos: Optional[np.ndarray] = None,
+        foot_target_ground_z: float | None = None,
     ) -> dict[str, Any]:
         """Compute whole body IK.
 
@@ -410,6 +451,10 @@ class WholeBodyKinematics:
             source_joints_wxyz: Joint orientations as wxyz quaternions, shape (num_joints, 4).
             source_to_robot_scale: Scale factor for positions relative to ground anchor.
             qpos: Initial joint configuration. Uses q0 if None.
+            foot_target_ground_z: When set, vertically translate both foot
+                task targets by the same amount so the lower target sole lies
+                on this world Z. This is applied before the IK solve and does
+                not translate any non-foot target.
 
         Returns:
             Dictionary with keys: q, frame_pose, frame_task_errors, num_optimization_iterations.
@@ -424,6 +469,11 @@ class WholeBodyKinematics:
             source_joints_wxyz=source_joints_wxyz,
             source_to_robot_scale=source_to_robot_scale,
         )
+        foot_target_grounding_offset_z = 0.0
+        if foot_target_ground_z is not None:
+            foot_target_grounding_offset_z = self.align_foot_task_targets_to_ground(
+                foot_target_ground_z
+            )
         # Resolve config-driven extras (e.g. posture regularization)
         # BEFORE seeding ``self.configuration.q`` from ``qpos`` so they
         # can refresh per-frame targets using the caller's warm-start
@@ -548,4 +598,5 @@ class WholeBodyKinematics:
             "frame_pose": frame_pose,
             "frame_task_errors": [frame_tasks_pos_error[k] for k in self.frame_tasks],
             "num_optimization_iterations": num_optimization_iterations,
+            "foot_target_grounding_offset_z": foot_target_grounding_offset_z,
         }

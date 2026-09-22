@@ -1,0 +1,53 @@
+_target_: flash_chord.configuration.make_fixed_curriculum
+
+# Preserve the validated 10x VOC schedule. During the final approximately 50M
+# transitions, half of new episodes start at frame zero and half retain ordinary
+# reference-frame sampling.
+thresholds: [19660800, 34406400, 49152000, 63897600, 78643200, 93388800, 108134400, 122880000, 137625600, 200007680, 250003456]
+
+stages:
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 1.0
+    objective_weights: &tracking_weights
+      object_keypoints: 20.0
+      hand_keypoints: 0.25
+      hand_joint_pos: 0.25
+      contact_wrench_support: ${objective.contact_wrench_support.weight}
+      missed_contact: -1.0
+      unintended_contact: -10.0
+      termination: -100.0
+      action_rate_l2: ${objective.action_rate_l2.weight}
+      action_l2: ${objective.action_l2.weight}
+      contact_force_l2: ${objective.contact_force_l2.weight}
+      force_closure: ${objective.force_closure.weight}
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 0.75
+    objective_weights: *tracking_weights
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 0.5
+    objective_weights: *tracking_weights
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 0.25
+    objective_weights: *tracking_weights
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 0.1
+    objective_weights: *tracking_weights
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 0.05
+    objective_weights: *tracking_weights
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 0.025
+    objective_weights: *tracking_weights
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 0.01
+    objective_weights: *tracking_weights
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 0.0
+    objective_weights: *tracking_weights
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 0.0
+    objective_weights: *tracking_weights
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 0.0
+    objective_weights: *tracking_weights
+    reset_to_first_frame_probability: 0.5

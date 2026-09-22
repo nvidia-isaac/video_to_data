@@ -1,0 +1,7 @@
+defaults:
+  - tracking_250m_mixed_reset
+  - _self_
+
+# The 2,048-world Dexmate collection cadence ends on its own exact terminal
+# checkpoint while sharing the same 200M mixed-reset transition boundary.
+thresholds: [19660800, 34406400, 49152000, 63897600, 78643200, 93388800, 108134400, 122880000, 137625600, 200007680, 250009600]

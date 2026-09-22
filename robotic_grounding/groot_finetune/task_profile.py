@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -53,6 +54,7 @@ class LiftHoldEvaluator:
     lift_threshold_m: float
     hold_threshold_m: float
     min_hold_steps: int
+    final_min_lift_m: float = -0.01
     evaluator_id: str = LIFT_HOLD_EVALUATOR
 
     def __post_init__(self) -> None:
@@ -67,6 +69,8 @@ class LiftHoldEvaluator:
             )
         if self.min_hold_steps <= 0:
             raise ValueError("min_hold_steps must be positive")
+        if not math.isfinite(self.final_min_lift_m):
+            raise ValueError("final_min_lift_m must be finite")
 
     def as_dict(self) -> dict[str, Any]:
         """Return the canonical JSON-compatible evaluator representation."""
@@ -75,6 +79,7 @@ class LiftHoldEvaluator:
             "lift_threshold_m": self.lift_threshold_m,
             "hold_threshold_m": self.hold_threshold_m,
             "min_hold_steps": self.min_hold_steps,
+            "final_min_lift_m": self.final_min_lift_m,
         }
 
 
@@ -139,6 +144,7 @@ def task_profile_from_dict(value: Mapping[str, Any]) -> TaskProfile:
                 lift_threshold_m=float(evaluator["lift_threshold_m"]),
                 hold_threshold_m=float(evaluator["hold_threshold_m"]),
                 min_hold_steps=int(evaluator["min_hold_steps"]),
+                final_min_lift_m=float(evaluator.get("final_min_lift_m", -0.01)),
             ),
         )
     except (KeyError, TypeError, ValueError) as exc:

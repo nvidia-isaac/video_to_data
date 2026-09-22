@@ -273,6 +273,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=_nonnegative_int,
         help="seed for GR00T diffusion action sampling (default: 0)",
     )
+    evaluate.add_argument(
+        "--non-headless",
+        action="store_true",
+        default=None,
+        help="show the Isaac Sim window during closed-loop evaluation",
+    )
 
     status = subparsers.add_parser(
         "status", help="show the active config and stage manifest"
@@ -814,6 +820,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             model_seed = int(
                 _stage_value(args, config, "evaluate", "model_seed", default=0)
             )
+            non_headless = bool(
+                _stage_value(
+                    args,
+                    config,
+                    "evaluate",
+                    "non_headless",
+                    default=False,
+                )
+            )
             evaluation_horizon = int(
                 _stage_value(
                     args,
@@ -834,6 +849,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "execution_length": execution_length,
                     "motion_source": motion_source,
                     "model_seed": model_seed,
+                    "non_headless": non_headless,
                     "evaluation_horizon": evaluation_horizon,
                 },
             )
@@ -854,6 +870,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     num_envs=num_envs,
                     motion_source=motion_source,
                     model_seed=model_seed,
+                    non_headless=non_headless,
                     execution_length=execution_length,
                     evaluation_horizon=evaluation_horizon,
                 )

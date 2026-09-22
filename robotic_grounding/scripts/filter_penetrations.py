@@ -48,6 +48,7 @@ from pathlib import Path
 import numpy as np
 import pyarrow.parquet as pq
 import trimesh
+from object_sdf import ObjectSDF, load_object_mesh, sdf_cache_path
 from scipy.spatial.transform import Rotation
 
 log = logging.getLogger(__name__)
@@ -253,7 +254,7 @@ def _load_hull(
         cache[key] = (None, 0.0)
         return cache[key]
     try:
-        mesh = trimesh.load(local_path, force="mesh")
+        mesh = load_object_mesh(local_path)
         hull = mesh.convex_hull
         ratio = (
             hull.volume / mesh.volume if mesh.volume and mesh.volume > 1e-10 else 999.0
@@ -264,6 +265,34 @@ def _load_hull(
         log.warning("Failed to load mesh %s: %s", local_path, e)
         cache[key] = (None, 0.0)
         return cache[key]
+
+
+def _load_object_geom(
+    mesh_path: str, cache: dict, seq_dir: Path | None = None
+) -> tuple[object, float, bool]:
+    """Return ``(geom, hull_ratio, is_sdf)`` for one object mesh.
+
+    Prefers the precomputed per-object **SDF** (``<mesh>.sdf.npz`` beside the mesh):
+    the true, hollow-aware solid the sim actually collides against. Falls back to the
+    convex **hull** when no SDF is cached, so the check still works on un-baked data.
+    ``hull_ratio`` (hull/mesh volume) is meaningful only on the hull path, where
+    callers skip highly concave objects; SDF objects are always checked. ``geom`` is
+    ``None`` if the mesh can't be found/loaded.
+    """
+    key = os.path.basename(mesh_path)
+    if key in cache:
+        return cache[key]
+    local_path = _resolve_mesh_path(mesh_path, seq_dir)
+    sdf_path = sdf_cache_path(local_path)
+    if os.path.exists(sdf_path):
+        try:
+            cache[key] = (ObjectSDF.load(sdf_path), 0.0, True)
+            return cache[key]
+        except Exception as e:  # corrupt cache -> fall back to the hull
+            log.warning("Failed to load SDF %s: %s; using hull", sdf_path, e)
+    hull, ratio = _load_hull(mesh_path, {}, seq_dir)
+    cache[key] = (hull, ratio, False)
+    return cache[key]
 
 
 class _HandShapeCache:
@@ -299,19 +328,20 @@ class _HandShapeCache:
 
 def _max_hand_object_penetration(
     capsules: list[tuple[np.ndarray, np.ndarray, float]],
-    obj_hull: trimesh.Trimesh,
+    obj_geom: "ObjectSDF | trimesh.Trimesh",
     obj_pos: np.ndarray,
     obj_R: np.ndarray,
 ) -> float:
-    """Max penetration depth (m) of any capsule/sphere into the object hull.
+    """Max penetration depth (m) of any capsule/sphere into the object solid.
 
-    Points are transformed into the object's local frame so we can query a
-    single static hull instead of re-transforming the mesh every frame.
+    ``obj_geom`` is either a precomputed ``ObjectSDF`` (the true, hollow-aware
+    geometry, matching what the sim collides against) or a convex ``Trimesh`` hull
+    (fallback when no SDF is cached). Points are transformed into the object's local
+    frame so we query one static geometry instead of re-transforming it each frame.
 
-    trimesh signed_distance convention: positive = inside, negative = outside.
-    Penetration depth of a sphere of radius r at distance sd from surface:
-        depth = max(0, r + sd)
-    For a capsule, the representative points are both endpoints.
+    Signed-distance convention: positive = inside. Penetration depth of a sphere of
+    radius r at distance sd is ``max(0, r + sd)``; a capsule's representative points
+    are both endpoints.
     """
     # Collect query points and matching radii
     pts = []
@@ -324,10 +354,13 @@ def _max_hand_object_penetration(
     pts_arr = np.array(pts)
     radii_arr = np.array(radii)
 
-    # Transform to object-local frame (avoids re-transforming hull every frame)
+    # Transform to object-local frame (avoids re-transforming geometry every frame)
     pts_local = (obj_R.T @ (pts_arr - obj_pos).T).T
 
-    sd = trimesh.proximity.signed_distance(obj_hull, pts_local)
+    if isinstance(obj_geom, ObjectSDF):
+        sd = obj_geom.query(pts_local)
+    else:
+        sd = trimesh.proximity.signed_distance(obj_geom, pts_local)
     # depth = max(0, r + sd)  [sd positive = inside]
     depths = np.maximum(0.0, radii_arr + sd)
     return float(depths.max()) if len(depths) > 0 else 0.0
@@ -414,17 +447,19 @@ def _check_sequence(
     right_cache = _HandShapeCache(right_shapes, right_frame_names)
     left_cache = _HandShapeCache(left_shapes, left_frame_names)
 
-    # Load object hulls (one per body; most sequences have 1 body).
-    # Pairs of (hull_or_None, hull_ratio).  Skip bodies where hull_ratio
-    # exceeds hull_ratio_max: highly concave objects (AR glasses, open vases)
-    # produce massive false positives with the convex hull signed_distance check.
-    hull_entries: list[tuple[trimesh.Trimesh | None, float]] = []
+    # Load object geometry (one per body; most sequences have 1 body): the
+    # precomputed SDF (true solid) when available, else the convex-hull fallback.
+    # Pairs of (geom_or_None, hull_ratio). On the HULL fallback only, skip bodies
+    # where hull_ratio exceeds hull_ratio_max: highly concave objects (AR glasses,
+    # open vases) produce massive false positives with the hull. SDF objects carry
+    # the true hollow geometry, so they are always checked.
+    geom_entries: list[tuple[object, float]] = []
     for mp in obj_mesh_paths:
-        hull, ratio = _load_hull(mp, hull_cache, seq_dir)
-        if ratio > hull_ratio_max:
-            hull_entries.append((None, ratio))  # skip this body
+        geom, ratio, is_sdf = _load_object_geom(mp, hull_cache, seq_dir)
+        if geom is not None and not is_sdf and ratio > hull_ratio_max:
+            geom_entries.append((None, ratio))  # skip this body (hull too concave)
         else:
-            hull_entries.append((hull, ratio))
+            geom_entries.append((geom, ratio))
 
     max_ho_pen = 0.0
     max_hh_pen = 0.0
@@ -435,8 +470,8 @@ def _check_sequence(
 
         # Hand-object
         if obj_positions and len(obj_positions) > t:
-            for body_idx, (hull, _) in enumerate(hull_entries):
-                if hull is None:
+            for body_idx, (geom, _) in enumerate(geom_entries):
+                if geom is None:
                     continue
                 if body_idx >= len(obj_positions[t]):
                     continue
@@ -445,7 +480,7 @@ def _check_sequence(
                 obj_R = _quat_wxyz_to_matrix(obj_qwxyz)
 
                 ho = _max_hand_object_penetration(
-                    right_caps + left_caps, hull, obj_pos, obj_R
+                    right_caps + left_caps, geom, obj_pos, obj_R
                 )
                 max_ho_pen = max(max_ho_pen, ho)
 
@@ -772,11 +807,16 @@ def check(
     right_hsc = _HandShapeCache(right_shapes, right_frame_names)
     left_hsc = _HandShapeCache(left_shapes, left_frame_names)
 
-    hull_cache: dict = {}
-    hull_entries: list[tuple] = []
+    geom_cache: dict = {}
+    geom_entries: list[tuple] = []
     for mp in obj_mesh_paths:
-        hull, ratio = _load_hull(mp, hull_cache, seq_dir)
-        hull_entries.append((None, ratio) if ratio > hull_ratio_max else (hull, ratio))
+        geom, ratio, is_sdf = _load_object_geom(mp, geom_cache, seq_dir)
+        # SDF objects (true solid) are always checked; the hull fallback skips
+        # highly concave objects, where the hull produces false positives.
+        if geom is not None and not is_sdf and ratio > hull_ratio_max:
+            geom_entries.append((None, ratio))
+        else:
+            geom_entries.append((geom, ratio))
 
     max_ho_pen = 0.0
     max_hh_pen = 0.0
@@ -786,13 +826,13 @@ def check(
         left_caps = left_hsc.world_spheres(left_frames_seq[t])
 
         if obj_positions and len(obj_positions) > t:
-            for body_idx, (hull, _) in enumerate(hull_entries):
-                if hull is None or body_idx >= len(obj_positions[t]):
+            for body_idx, (geom, _) in enumerate(geom_entries):
+                if geom is None or body_idx >= len(obj_positions[t]):
                     continue
                 obj_pos = np.array(obj_positions[t][body_idx], dtype=float)
                 obj_R = _quat_wxyz_to_matrix(obj_wxyz[t][body_idx])
                 ho = _max_hand_object_penetration(
-                    right_caps + left_caps, hull, obj_pos, obj_R
+                    right_caps + left_caps, geom, obj_pos, obj_R
                 )
                 max_ho_pen = max(max_ho_pen, ho)
 

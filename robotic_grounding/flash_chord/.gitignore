@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Environments
+/.venv/
+/venv/
+/env/
+
+# Tool caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Generated convex-decomposition cache (regenerated on demand from object collision meshes)
+src/flash_chord/assets/.cache/
+
+# Runtime
+logs/
+outputs/
+out/
+wandb/
+*.log
+.DS_Store
+
+imgui.ini
+
+# Claude
+claude/
+.claude/
+
+findings.md
+progress.md
+task_plan.md

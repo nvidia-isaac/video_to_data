@@ -19,7 +19,8 @@ dependencies = [
 io = [
     "opencv-python",
     "imageio[pyav]",
-    "av==18.0.0",
+    "av==17.0.0; python_version < '3.11'",
+    "av==18.0.0; python_version >= '3.11'",
     "tqdm",
     "h5py",
 ]

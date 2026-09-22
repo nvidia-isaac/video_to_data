@@ -1,0 +1,44 @@
+defaults:
+  - task: default
+  - sim: rl
+  - scene: train
+  - collision: training
+  - embodiment: sharpa_hands
+  - action: residual_hand_pose
+  - observation: policy
+  - objective: tracking
+  - termination: tracking
+  - reset: reference
+  - env: rl
+  - curriculum: tracking_250m_mixed_reset
+  - logging: wandb
+  - training: reference_flash_sac
+  - _self_
+  - experiment: sharpa_flash_sac
+
+scene:
+  world_count: 1024
+
+action:
+  input_mode: normalized
+  normalized_mapping: rational
+
+env:
+  capture_terminal_state: true
+  critic_context:
+    _target_: flash_chord.envs.rl.CriticContextConfig
+    reference_phase: true
+    object_body_velocity: true
+
+logging:
+  run_name: flash_sac
+  log_interval: 100
+
+output_dir: null
+voc_scale_override: null
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: logs/rl/sharpa/${now:%Y-%m-%d_%H-%M-%S}_${logging.run_name}

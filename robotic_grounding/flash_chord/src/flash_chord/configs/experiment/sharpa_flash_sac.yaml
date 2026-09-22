@@ -1,0 +1,57 @@
+# @package _global_
+
+# Canonical floating Sharpa-hand FlashSAC reference recipe.
+defaults:
+  - override /sim: rl
+  - override /scene: train
+  - override /collision: training
+  - override /embodiment: sharpa_hands
+  - override /action: residual_hand_pose
+  - override /observation: policy
+  - override /objective: tracking
+  - override /termination: tracking
+  - override /reset: reference
+  - override /env: rl
+  - override /curriculum: tracking_250m_mixed_reset
+  - override /training: reference_flash_sac
+  - _self_
+
+task:
+  motion_speed: 0.5
+  source_frame_playback: false
+  motion_start_frame: 0
+  motion_end_frame: -1
+
+scene:
+  world_count: 4096
+
+action:
+  input_mode: normalized
+  normalized_mapping: rational
+
+training:
+  total_environment_steps: 250003456
+  updates_per_collection: 8.0
+  resume: false
+  checkpoint_path: null
+  network:
+    actor_hidden_dim: 256
+    critic_hidden_dim: 512
+    initial_normalized_std: 0.1
+    log_std_max: -1.8971199848858813
+  optimization:
+    actor_learning_rate_multiplier: 1.0
+    residual_mean_learning_rate_multiplier: 0.1
+  replay:
+    capacity: 4194304
+    minimum_size: 409600
+  exploration:
+    target_sigma: 0.1
+  checkpoint:
+    save_interval_environment_steps: 10000384
+    load_replay_path: null
+
+logging:
+  experiment: sharpa
+  run_name: sharpa_flash_sac
+  log_interval: 25

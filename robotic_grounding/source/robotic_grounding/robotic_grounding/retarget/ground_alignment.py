@@ -167,6 +167,99 @@ class ReferencePlane:
         return -self.signed_distance(points) / self.normal_z
 
 
+def compute_plane_leveling_transform(
+    plane: ReferencePlane,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return the rigid transform that maps ``plane`` onto world ``z=0``.
+
+    The returned rotation and translation satisfy
+    ``p_level = rotation @ p + translation``. The rotation is the shortest
+    rotation that maps the fitted plane normal onto robot +Z; the translation
+    then removes the plane offset. Applying this same transform to every body
+    and object pose preserves their relative geometry while making the fitted
+    ground exactly coincide with the simulator floor.
+    """
+    normal = np.asarray(plane.normal, dtype=np.float64)
+    target = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+    cross = np.cross(normal, target)
+    sin_angle = float(np.linalg.norm(cross))
+    cos_angle = float(np.clip(np.dot(normal, target), -1.0, 1.0))
+
+    if sin_angle < 1e-12:
+        rotation = np.eye(3, dtype=np.float64)
+    else:
+        axis = cross / sin_angle
+        skew = np.array(
+            [
+                [0.0, -axis[2], axis[1]],
+                [axis[2], 0.0, -axis[0]],
+                [-axis[1], axis[0], 0.0],
+            ],
+            dtype=np.float64,
+        )
+        rotation = (
+            np.eye(3, dtype=np.float64)
+            + sin_angle * skew
+            + (1.0 - cos_angle) * (skew @ skew)
+        )
+
+    # Rotation maps the plane normal to +Z without changing its offset.
+    # Under p_level = R p + t, d_level = d - z_hat.t, so t_z=d maps it to 0.
+    translation = np.array([0.0, 0.0, float(plane.offset)], dtype=np.float64)
+    return rotation, translation
+
+
+@dataclass(frozen=True)
+class ObjectGroundLift:
+    """Bounded upward correction for an object that starts below ground."""
+
+    minimum_signed_distance: float
+    penetration_depth: float
+    requested_lift: float
+    applied_lift: float
+    capped: bool
+
+
+def compute_object_ground_lift(
+    frame0_vertices_w: np.ndarray,
+    plane: ReferencePlane,
+    *,
+    penetration_tolerance: float = 5e-4,
+    clearance: float = 5e-4,
+    max_lift: float = 1e-2,
+) -> ObjectGroundLift:
+    """Return a capped Z lift that clears frame-zero mesh penetration."""
+    vertices = np.asarray(frame0_vertices_w, dtype=np.float64)
+    if vertices.ndim != 2 or vertices.shape[1] != 3 or len(vertices) == 0:
+        raise ValueError(
+            "frame0_vertices_w must have shape (V, 3) with V > 0; "
+            f"got {vertices.shape}"
+        )
+    if not np.isfinite(vertices).all():
+        raise ValueError("frame0_vertices_w contains non-finite values")
+    if penetration_tolerance < 0.0:
+        raise ValueError("penetration_tolerance must be non-negative")
+    if clearance < 0.0:
+        raise ValueError("clearance must be non-negative")
+    if max_lift < 0.0:
+        raise ValueError("max_lift must be non-negative")
+
+    minimum_signed_distance = float(plane.signed_distance(vertices).min())
+    penetration_depth = max(0.0, -minimum_signed_distance)
+    requested_lift = 0.0
+    if penetration_depth > penetration_tolerance:
+        requested_lift = penetration_depth + clearance
+    applied_lift = min(requested_lift, max_lift)
+
+    return ObjectGroundLift(
+        minimum_signed_distance=minimum_signed_distance,
+        penetration_depth=penetration_depth,
+        requested_lift=requested_lift,
+        applied_lift=applied_lift,
+        capped=requested_lift > max_lift,
+    )
+
+
 @dataclass
 class PlaneAlignmentConfig:
     """Configuration for :func:`compute_plane_alignment_offsets`.

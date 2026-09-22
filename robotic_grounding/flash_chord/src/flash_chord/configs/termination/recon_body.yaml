@@ -1,0 +1,10 @@
+_target_: flash_chord.lifecycle.termination.ReconBodyTerminationConfig
+pelvis_position_threshold: 0.70
+pelvis_orientation_threshold: 1.50
+palm_position_threshold: 0.15
+palm_orientation_threshold: 1.50
+object_position_threshold: 0.10
+object_orientation_threshold: 1.50
+reset_freeze_steps: 50
+truncate_at_reference_end: true
+sides: [left, right]

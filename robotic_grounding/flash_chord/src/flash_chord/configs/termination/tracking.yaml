@@ -1,0 +1,20 @@
+_target_: flash_chord.lifecycle.termination.TrackingTerminationConfig
+wrist_position:
+  _target_: flash_chord.lifecycle.termination.ThresholdTerminationTermConfig
+  enabled: true
+  threshold: 0.15
+wrist_orientation:
+  _target_: flash_chord.lifecycle.termination.ThresholdTerminationTermConfig
+  enabled: false
+  threshold: 0.0
+object_position:
+  _target_: flash_chord.lifecycle.termination.ThresholdTerminationTermConfig
+  enabled: true
+  threshold: 0.10
+object_orientation:
+  _target_: flash_chord.lifecycle.termination.ThresholdTerminationTermConfig
+  enabled: true
+  threshold: 0.50
+reference_end:
+  _target_: flash_chord.lifecycle.termination.ReferenceEndTerminationTermConfig
+  enabled: true

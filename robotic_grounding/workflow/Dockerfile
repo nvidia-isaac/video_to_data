@@ -17,6 +17,7 @@ WORKDIR /workspace/video_to_data/robotic_grounding
 
 RUN apt-get update && apt-get install -y \
     curl \
+    ffmpeg \
     tmux \
     htop \
     openssh-client \

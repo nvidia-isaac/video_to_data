@@ -1,0 +1,44 @@
+defaults:
+  - task: default
+  - sim: replay
+  - scene: replay
+  - collision: physical
+  - embodiment: g1_dex3
+  - action: sonic_joint_residual
+  - replay: physical
+  - markers: default
+  - viewer: default
+  - _self_
+
+device: cuda:0
+start_paused: true
+
+# Match the validated GR00T IsaacLab-Newton SONIC profile. This ratio is part
+# of MuJoCo's contact constraint impedance, not a generic accuracy setting.
+sim:
+  impratio: 1.0
+
+# Match robotic_grounding's ReconBody VirtualRigidObjectControl exactly. These
+# are direct force/torque gains, not FlashCHORD's default mass-normalized gains.
+replay:
+  voc_params:
+    k_lin: 50.0
+    d_lin: 10.0
+    k_ang: 10.0
+    d_ang: 0.1
+    max_force: 60.0
+    max_torque: 60.0
+    gravity: 9.81
+    mass_normalized_gains: false
+
+task:
+  parquet: ???
+  motion_speed: 1.0
+  # IsaacLab advances one source frame per policy step without time resampling.
+  source_frame_playback: true
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/sonic_replay/${now:%Y-%m-%d_%H-%M-%S}

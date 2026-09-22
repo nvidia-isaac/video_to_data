@@ -1,0 +1,26 @@
+{
+  "source": {
+    "repository": "https://github.com/nvidia-isaac/video_to_data",
+    "revision": "5654c50edc1f3dea8e3145bf2dbfc277dbf27b4c",
+    "path": "robotic_grounding/source/robotic_grounding/robotic_grounding/assets/policies/sonic"
+  },
+  "variant": "GEAR-SONIC dynamic-batch ONNX export",
+  "files": {
+    "encoder_batched.onnx": {
+      "sha256": "6071c943492cb6c91e99b392200a288e829f5fea9491b530b34451fcf9e8d02a",
+      "bytes": 50112213,
+      "input": ["batch", 1762],
+      "output": ["batch", 64]
+    },
+    "decoder_batched.onnx": {
+      "sha256": "de629511bc3a110a26827a54389e82d35a722ab9b7cc4232aab865b8451d2a18",
+      "bytes": 40903373,
+      "input": ["batch", 994],
+      "output": ["batch", 29]
+    },
+    "LICENSE": "ade47d266feea78470f8e60d62dea83691e6496a7f0f294d404e83e435e49019",
+    "NOTICE": "721c070156c50e159ade242a5a3a9dc96f6a3f3683f4020c72fdb140730644d6",
+    "MODEL_CARD.md": "2c95382314d2cc1eb84adfdb59a244ea1c6af3b157c28ee060d42bdb8f85feb1"
+  },
+  "license": "NVIDIA Open Model License Agreement"
+}

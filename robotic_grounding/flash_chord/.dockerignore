@@ -1,0 +1,39 @@
+# VCS + IDE
+.git/
+.gitattributes
+.gitignore
+
+# pixi (defensive; the mirrored dependency source lives in a separate repo)
+.pixi/
+
+# Python caches / build artifacts
+**/__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+build/
+dist/
+*.egg-info/
+src/flash_chord/assets/.cache/
+
+# Tool caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.cache/
+
+# Not needed inside the image
+docs/
+logs/
+outputs/
+out/
+wandb/
+*.log
+.DS_Store
+imgui.ini
+findings.md
+progress.md
+task_plan.md
+claude/
+.claude/

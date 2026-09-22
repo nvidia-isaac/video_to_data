@@ -38,6 +38,54 @@ def _find_batch_script() -> Path | None:
     return None
 
 
+# Shown when the form carries no usable input at all.
+_NO_INPUT_MSG = "Please upload a video or provide a video directory path."
+
+# Shown when the form carries both a single-file upload and a batch directory.
+# These describe different ingestions over different videos, so there is no
+# defensible winner. The dispatch used to be a bare precedence chain in which
+# the batch branch won unconditionally: the upload was dropped without a word
+# and batch artifacts landed in the output directory the user had picked for
+# one video. Refuse rather than guess.
+_AMBIGUOUS_INPUT_MSG = (
+    "**Ambiguous input:** a single-file upload *and* a batch directory path "
+    "are both set, and they describe different ingestions.\n\n"
+    "Clear one of them, then start again:\n"
+    "- to ingest the uploaded video, empty the **Batch directory path** box;\n"
+    "- to ingest the directory, remove the file from **Single file video**.\n\n"
+    "**Batch directory path** keeps its value between runs and may be "
+    "pre-filled from the webapp config, so it can be set without you having "
+    "typed it this session."
+)
+
+
+def resolve_ingestion_mode(video_file: Any, videos_dir: str | None) -> tuple[str, str]:
+    """Decide which ingestion a submitted form means.
+
+    The upload and the directory box are alternatives, not a precedence
+    chain. Both populated is ambiguous and is reported, never resolved.
+
+    Args:
+        video_file: Value of the *Single file video* upload (a path or None).
+        videos_dir: Value of the *Batch directory path* box.
+
+    Returns:
+        ``(mode, message)`` where *mode* is ``"single"``, ``"batch"`` or
+        ``"error"``, and *message* is user-facing text set only for
+        ``"error"``.
+    """
+    has_file = bool(video_file)
+    has_dir = bool(videos_dir and videos_dir.strip())
+
+    if has_file and has_dir:
+        return "error", _AMBIGUOUS_INPUT_MSG
+    if has_dir:
+        return "batch", ""
+    if has_file:
+        return "single", ""
+    return "error", _NO_INPUT_MSG
+
+
 def create_ingestion_tab(services: dict[str, Any], config: AppConfig) -> dict[str, Any]:
     """Create the video ingestion tab.
 
@@ -54,10 +102,13 @@ def create_ingestion_tab(services: dict[str, Any], config: AppConfig) -> dict[st
         gr.Markdown("## Video Ingestion")
         gr.Markdown(
             "Process videos to build an entity graph database (`graph.db` + `vector.db`).\n\n"
-            "**Two modes:**\n"
+            "**Two modes, one at a time:**\n"
             "- **Single file** -- upload a video on the left.\n"
             "- **Batch directory** -- enter a directory path containing videos; "
             "set **Parallel workers** > 1 for multi-GPU processing.\n\n"
+            "Fill in exactly one of the two. If both are set the run stops and "
+            "asks you to clear one -- the directory box keeps its value "
+            "between runs, so check it before a single-file run.\n\n"
             "Choose a configuration YAML, set the output directory, "
             "then click **Start Ingestion**."
         )
@@ -530,15 +581,23 @@ def create_ingestion_tab(services: dict[str, Any], config: AppConfig) -> dict[st
     ):
         """Run video ingestion with progress updates.
 
-        Supports two modes:
+        Supports two mutually exclusive modes:
         1. **Single file** upload via *video_file* -- runs in-process.
         2. **Batch directory** via *videos_dir* -- launches the batch
            ingestion script as a subprocess with parallel workers.
+
+        Supplying both, or neither, is an error reported to the user; see
+        :func:`resolve_ingestion_mode`.
         """
         num_shards = int(num_shards or 1)
 
+        mode, message = resolve_ingestion_mode(video_file, videos_dir)
+        if mode == "error":
+            yield (message, "", gr.update(visible=False), None)
+            return
+
         # --- Directory mode -> batch subprocess ---
-        if videos_dir and videos_dir.strip():
+        if mode == "batch":
             vdir = Path(videos_dir.strip())
             if not vdir.exists():
                 yield (
@@ -572,20 +631,11 @@ def create_ingestion_tab(services: dict[str, Any], config: AppConfig) -> dict[st
             return
 
         # --- Single file mode -> in-process ---
-        if video_file:
-            yield from _run_single_video(
-                video_path=video_file,
-                config_file=config_file,
-                output_dir=output_dir,
-                progress=progress,
-            )
-            return
-
-        yield (
-            "Please upload a video or provide a video directory path.",
-            "",
-            gr.update(visible=False),
-            None,
+        yield from _run_single_video(
+            video_path=video_file,
+            config_file=config_file,
+            output_dir=output_dir,
+            progress=progress,
         )
 
     # Wire up events
@@ -616,6 +666,8 @@ def create_ingestion_tab(services: dict[str, Any], config: AppConfig) -> dict[st
         outputs=[worker_log_output],
     )
 
+    # Exposed so the dispatch can be exercised without driving the UI.
+    components["run_ingestion"] = run_ingestion
     components["video_upload"] = video_upload
     components["videos_dir_input"] = videos_dir_input
     components["start_btn"] = start_btn

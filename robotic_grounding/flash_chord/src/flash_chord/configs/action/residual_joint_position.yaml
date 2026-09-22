@@ -1,0 +1,23 @@
+_target_: flash_chord.runtime.actions.ResidualJointPositionActionConfig
+side_order: [right, left]
+input_mode: raw
+normalized_mapping: linear
+rate_semantics: mapped_residual
+arm_scale: 0.15
+finger_scale: 0.15
+arm_clip: 1.0
+finger_clip: 1.0
+ema: 0.3
+clip_to_joint_limits: true
+final_target:
+  _target_: flash_chord.runtime.actions.FinalTargetTransformConfig
+  mode: none
+  arm_ema: 0.0
+  finger_ema: 0.0
+  arm_slew: 1.0
+  finger_slew: 1.0
+delay:
+  _target_: flash_chord.runtime.delay.TargetDelayConfig
+  min_steps: 2
+  max_steps: 2
+  seed: 0

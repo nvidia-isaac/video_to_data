@@ -1,0 +1,8 @@
+*
+!media/
+!media/README.md
+!media/manifest.json
+!media/*.gif
+!.gitignore
+!configuration.md
+!package_structure.md

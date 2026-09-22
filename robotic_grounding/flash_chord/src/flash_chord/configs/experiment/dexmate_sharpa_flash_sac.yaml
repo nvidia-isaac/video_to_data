@@ -1,0 +1,109 @@
+# @package _global_
+
+# Canonical Dexmate/Vega Sharpa FlashSAC recipe. The controller values are
+# the retained output of the hardware calibration process; the fitting pipeline
+# is not required for training, replay, or evaluation.
+defaults:
+  - override /sim: rl
+  - override /scene: train
+  - override /collision: manipulation
+  - override /embodiment: dexmate_sharpa
+  - override /action: residual_joint_position
+  - override /observation: articulated_arm
+  - override /objective: tracking
+  - override /termination: tracking
+  - override /reset: reference
+  - override /env: rl
+  - override /curriculum: dexmate_tracking_250m_mixed_reset
+  - override /training: reference_flash_sac
+  - _self_
+
+task:
+  motion_speed: 0.5
+  source_frame_playback: false
+  motion_start_frame: 0
+  motion_end_frame: -1
+
+embodiment:
+  config:
+    interpolated_frame_position_tolerance: null
+    interpolated_frame_orientation_tolerance: null
+    arm_feedback_scale: 20.0
+
+action:
+  arm_scale: 0.075
+  finger_scale: 0.15
+  arm_clip: 1.0
+  rate_semantics: processed_target
+  final_target:
+    mode: ema
+    arm_ema: 0.75
+    finger_ema: 0.75
+
+observation:
+  object_body_velocity:
+    enabled: true
+
+objective:
+  hand_keypoint_frame: fingertip
+  action_l2:
+    weight: -0.002
+  action_rate_l2:
+    weight: -0.05
+  contact_wrench_support:
+    weight: 20.0
+    excluded_sim_link_names: []
+  contact_force_l2:
+    enabled: false
+    weight: 0.0
+    mode: per_hand_log
+  force_closure:
+    enabled: false
+    weight: 0.0
+
+collision:
+  robot_support_collision: true
+
+sim:
+  fps: 20
+  substeps: 10
+  njmax: 1024
+
+scene:
+  world_count: 2048
+
+env:
+  arm_position_integral:
+    gain_s_inv2: 0.02
+    max_effort_fraction: 0.15
+
+training:
+  total_environment_steps: 250009600
+  updates_per_collection: 2.0
+  resume: false
+  checkpoint_path: null
+  network:
+    actor_hidden_dim: 256
+    critic_hidden_dim: 512
+    initial_normalized_std: 0.1
+    log_std_max: -1.8971199848858813
+  optimization:
+    actor_learning_rate_multiplier: 1.0
+    residual_mean_learning_rate_multiplier: 0.1
+  replay:
+    capacity: 10000000
+    minimum_size: 409600
+    observation_storage_dtype: float16
+  exploration:
+    target_sigma: 0.1
+  checkpoint:
+    save_interval_environment_steps: 50001920
+    save_replay: false
+    load_replay_path: null
+    load_optimizer: false
+    load_reward_normalizer: false
+
+logging:
+  experiment: dexmate_sharpa
+  run_name: dexmate_sharpa_flash_sac
+  log_interval: 50

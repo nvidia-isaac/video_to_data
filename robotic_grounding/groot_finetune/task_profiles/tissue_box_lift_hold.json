@@ -1,5 +1,6 @@
 {
   "evaluator": {
+    "final_min_lift_m": -0.01,
     "hold_threshold_m": 0.05,
     "id": "lift_hold",
     "lift_threshold_m": 0.1,

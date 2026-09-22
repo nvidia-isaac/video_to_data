@@ -11,13 +11,14 @@
 ## Contents
 
 - [Overview](#overview)
-- [Demos](#demos)
+- [E2E workflow](#e2e-workflow)
 - [Packages](#packages)
 - [Prerequisites](#prerequisites)
 - [Quickstart](#quickstart)
   - [Video Ingestion Agent](#video-ingestion-agent-video--queryable-action-database)
   - [Reconstruction](#reconstruction-video--3d-data)
   - [Robotic Grounding](#robotic-grounding-data--rl-policy)
+  - [FlashCHORD accelerated training](robotic_grounding/flash_chord/README.md)
 - [Design philosophy](#design-philosophy)
 - [Contributing](#contributing)
 
@@ -25,40 +26,28 @@
 
 ## Overview
 
-Video to Data (V2D) turns raw human demonstrations into robot-ready training data through four composable stages. Each stage runs independently and writes its artifacts to disk, so you can stop, inspect, cache, and recompose the pipeline at any boundary.
+Video to Data (V2D) turns raw human demonstrations into robot-ready training data through three composable stages and a repository-root E2E workflow. Each stage runs independently and writes its artifacts to disk, so you can stop, inspect, cache, and recompose the pipeline at any boundary.
 
 1. **Video Ingestion Agent** — a LangGraph-driven agentic workflow that segments demonstration videos into temporally-bounded action clips, extracts an entity-relation scene graph, and stores per-frame SigLIP-2 embeddings. The result is a queryable action database (`graph.db` + `vector.db`) that lets downstream stages select which clips to process via natural-language retrieval, instead of brute-forcing the full video.
 2. **Reconstruction** — containerized vision modules turn the selected RGB (or stereo) clips into per-frame depth, object masks, textured meshes, 6-DoF object poses, and SMPL human body parameters. Multi-view pipelines (`run_mv_hoi_reconstruction`, `run_mv_calibration`) orchestrate the full reconstruction from a rosbag.
 3. **Robotic Grounding** — human motion (e.g. Arctic) is retargeted onto the target robot embodiment (Sharpa), then the reconstructed scene and retargeted motion drive Isaac Lab environments trained with RSL-RL PPO to produce deployable policies.
-4. **GR00T post-training** — successful Vega/Dexmate Sharpa expert episodes are replayed, converted to an audited LeRobot dataset, used to fine-tune GR00T N1.7, and evaluated in closed-loop simulation.
 
-The repository-root launcher connects reconstruction, retargeting, expert training, joint-action
-collection, GR00T fine-tuning, and evaluation while preserving a manifest for every stage:
+## E2E workflow
 
-~~~bash
-./run_e2e.sh init \
-  --run-root /absolute/path/to/e2e_run \
-  --sequence-id example_sequence \
-  --embodiment-contract vega_sharpa_joint \
-  --task-profile /absolute/path/to/task_profile.json
-./run_e2e.sh setup \
-  --mano-dir /absolute/path/to/mano \
-  --isaac-groot-dir /absolute/path/to/Isaac-GR00T \
-  --accept-nvidia-model-eula
-./run_e2e.sh doctor
-~~~
+An end-to-end workflow serves as a reference for connecting the repository's components into a
+complete reconstruction-to-policy pipeline. The included example starts with a raw egocentric
+human demonstration captured on an iPhone and continues through reconstruction, retargeting,
+source-expert training, demonstration collection, GR00T N1.7 fine-tuning, and closed-loop
+evaluation. It has been verified with both floating Sharpa and Vega Sharpa embodiments.
 
-Pass `--accept-nvidia-model-eula` only after reviewing and accepting the
-[NVIDIA Open Model License required by FoundationPose](reconstruction/README.md#v2d_foundation_pose).
-Continue with the concise [reconstruction-to-GR00T workflow](docs/e2e_workflow.md). Inputs such
-as videos, prompts, checkpoints, episode counts, and measured pilot success are configured only
-when their owning stage runs.
+`run_e2e.sh` provides a reproducible launcher that orchestrates the stages and records their state
+for inspection and resumption. A companion agentic skill uses the launcher under the hood to
+guide setup and execution. The main path trains its own source expert; the bundled tissue-box ONNX
+policy is an optional shortcut for users who want to start directly with GR00T fine-tuning.
 
-## Demos
-
-The pipeline in action — from a raw human demonstration, to grounded policies trained in Isaac Lab, to deployment on a physical robot.
-
-<img src="docs/figures/human.gif" width="270" alt="Raw human demonstration"> <img src="docs/figures/sim.gif" width="270" alt="Grounded robot policies in Isaac Lab"> <img src="docs/figures/real.gif" width="270" alt="Deploy to real robot">
+The complete workflow can run on a single NVIDIA RTX A6000 GPU with 48 GB of VRAM and has also
+been verified on NVIDIA L40 and L40S GPUs. Follow the [E2E workflow guide](docs/e2e_workflow.md)
+for the runnable tissue-box demo, setup requirements, acceptance gates, and resume behavior.
 
 ## Packages
 
@@ -67,6 +56,8 @@ The pipeline in action — from a raw human demonstration, to grounded policies 
 | [`video_ingestion_agent/`](video_ingestion_agent/) | Video → action segments + entity scene graph + frame embeddings. LangGraph pipeline (segment → verify/refine → entity graph → embeddings) plus an EGAgent-style natural-language retrieval agent and an optional Gradio UI. | Python venv + vLLM server |
 | [`reconstruction/`](reconstruction/) | Video → depth, masks, meshes, 6D poses, human body. 18 containerized modules + multi-view pipelines. | Docker (per-module images) |
 | [`robotic_grounding/`](robotic_grounding/) | RL training on NVIDIA Isaac Lab 2.3.1 with RSL-RL (PPO); motion retargeting utilities. | Docker (`nvcr.io/nvstaging/isaac-amr`) |
+| [`robotic_grounding/flash_chord/`](robotic_grounding/flash_chord/) | Accelerated reference-tracking training with PPO and FlashSAC; [setup and complete example workflow](robotic_grounding/flash_chord/README.md#setup). | Separate Newton / Warp / JAX container |
+| [`groot_finetune/`](robotic_grounding/groot_finetune/) | Expert demonstration collection, LeRobot dataset conversion, GR00T N1.7 fine-tuning, and closed-loop evaluation. | Python 3.10 + external Isaac-GR00T checkout |
 
 ## Prerequisites
 
@@ -75,7 +66,7 @@ The pipeline in action — from a raw human demonstration, to grounded policies 
 - Python 3.10+
 - NVIDIA driver 580.126.09 / CUDA 13.0 recommended (for `robotic_grounding`)
 
-The v0.2 HOI object-reconstruction pipeline is validated on RTX A6000 (SM 86)
+The separate v0.2 multi-view HOI object-reconstruction pipeline is validated on RTX A6000 (SM 86)
 and L40S (SM 89). Blackwell GPUs with compute capability 12.0 (`sm_120`),
 including RTX PRO 6000 Blackwell, are not supported by the TensorRT and cuVSLAM
 versions in `v2d_cusfm`. The reconstruction container build and pipeline
@@ -114,7 +105,7 @@ See [video_ingestion_agent/README.md](video_ingestion_agent/README.md) for hardw
 ```bash
 cd reconstruction
 
-# Install host-side orchestration wrappers (lightweight, no ML deps)
+# Install host-side orchestration wrappers (lightweight, no model dependencies)
 ./scripts/install_pacakages.sh
 
 # Build per-module Docker images
@@ -142,6 +133,9 @@ python -m v2d.pipelines.run_mv_hoi_reconstruction \
 See [reconstruction/README.md](reconstruction/README.md) for the complete module reference, including [Grounding DINO](reconstruction/README.md#v2d_grounding_dino), [SAM2](reconstruction/README.md#v2d_sam2), [FoundationPose](reconstruction/README.md#v2d_foundation_pose), [SAM3D-Body](reconstruction/README.md#v2d_sam3d_body), and others.
 
 ### Robotic Grounding (data → RL policy)
+
+**Accelerated training:** use [FlashCHORD's setup and workflow](robotic_grounding/flash_chord/README.md#setup)
+for Newton/Warp/JAX training on the included Sharpa and G1 examples. FlashCHORD has its own container and dependencies.
 
 **Quick start:** the from-scratch setup & run guide is
 [robotic_grounding/docs/SETUP.md](robotic_grounding/docs/SETUP.md) — it covers the two
@@ -194,7 +188,7 @@ See [robotic_grounding/README.md#visualizer](robotic_grounding/README.md#visuali
 
 ## Design philosophy
 
-- **Host orchestration, containerized inference.** The host runs thin Python wrappers that `docker run` each module; all ML dependencies live inside their respective images. No CUDA or PyTorch is ever installed on the host.
+- **Host orchestration, containerized inference.** The host runs thin Python wrappers that `docker run` each module; all model dependencies live inside their respective images. No CUDA or PyTorch is ever installed on the host.
 - **Typed contracts between packages.** Modules communicate through strongly-typed dataclasses in [`v2d_common`](reconstruction/modules/v2d_common/) (`DepthImage`, `CameraIntrinsics`, `Transform3d`, `BoundingBox`, `Mask`) — never raw arrays across package boundaries.
 - **File-based dataflow.** Modules write intermediate artifacts to disk (depth PNGs, pose JSONs, mask PNGs, etc.), enabling independent execution, caching, and pipeline composition via [`v2d_pipelines`](reconstruction/modules/v2d_pipelines/).
 

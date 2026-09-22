@@ -1,0 +1,6 @@
+defaults:
+  - residual_hand_pose
+  - _self_
+
+wrist_kp: 1200.0
+wrist_tau_max: 2000.0

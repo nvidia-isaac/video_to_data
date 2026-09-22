@@ -1,0 +1,44 @@
+_target_: flash_chord.configuration.make_fixed_curriculum
+thresholds: [2000, 3500, 5000, 6500, 8000, 9500, 11000, 12500, 14000, 15500]
+stages:
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 1.0
+    objective_weights: &base_weights
+      object_keypoints: 0.0
+      hand_keypoints: 0.25
+      hand_joint_pos: 0.25
+      contact_wrench_support: 10.0
+      missed_contact: -1.0
+      unintended_contact: -10.0
+      termination: -100.0
+      action_rate_l2: -0.005
+      action_l2: -0.002
+      contact_force_l2: ${objective.contact_force_l2.weight}
+      force_closure: ${objective.force_closure.weight}
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 0.75
+    objective_weights: {<<: *base_weights, object_keypoints: 0.1}
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 0.5
+    objective_weights: {<<: *base_weights, object_keypoints: 0.25}
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 0.25
+    objective_weights: {<<: *base_weights, object_keypoints: 0.25}
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 0.1
+    objective_weights: {<<: *base_weights, object_keypoints: 0.5}
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 0.05
+    objective_weights: {<<: *base_weights, object_keypoints: 0.5}
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 0.025
+    objective_weights: {<<: *base_weights, object_keypoints: 1.0}
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 0.01
+    objective_weights: {<<: *base_weights, object_keypoints: 1.0}
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 0.0
+    objective_weights: {<<: *base_weights, object_keypoints: 1.0}
+  - _target_: flash_chord.configuration.make_curriculum_stage
+    voc_scale: 0.0
+    objective_weights: {<<: *base_weights, object_keypoints: 20.0}

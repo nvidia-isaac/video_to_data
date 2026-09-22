@@ -22,6 +22,7 @@ Usage:
 
     # All have the same interface:
     result = model.generate_from_video(video_path, prompt)
+    result = model.generate_from_frames(images, prompt)
     result = model.generate_text(conversation)
 """
 
@@ -89,9 +90,21 @@ class BaseModel(ABC):
         """
         pass
 
+    @abstractmethod
+    def generate_from_frames(
+        self,
+        frames: list,
+        prompt: str,
+        system_prompt: str | None = None,
+        max_new_tokens: int = 1024,
+        temperature: float = 0.3,
+    ) -> str:
+        """Generate text from a list of PIL images."""
+        pass
+
     @property
     def backend_type(self) -> str:
-        """Return the backend type ('local' or 'api')."""
+        """Return the backend type (``local``, ``api``, or ``vllm``)."""
         return "unknown"
 
 
@@ -110,6 +123,8 @@ class LocalModelWrapper(BaseModel):
         device: Device to run the model on (default: "cuda")
         fps: Frames per second for video processing
         cache_dir: Optional cache directory for model weights
+        mm_min_pixels: Optional multimodal processor pixel floor
+        mm_max_pixels: Optional multimodal processor pixel ceiling
     """
 
     def __init__(
@@ -118,6 +133,8 @@ class LocalModelWrapper(BaseModel):
         device: str = "cuda",
         fps: int = 4,
         cache_dir: str | None = None,
+        mm_min_pixels: int | None = None,
+        mm_max_pixels: int | None = None,
     ):
         super().__init__(model_name, fps)
         self.device = device
@@ -131,6 +148,8 @@ class LocalModelWrapper(BaseModel):
             device=device,
             fps=fps,
             cache_dir=cache_dir,
+            mm_min_pixels=mm_min_pixels,
+            mm_max_pixels=mm_max_pixels,
         )
 
     @property
@@ -161,6 +180,23 @@ class LocalModelWrapper(BaseModel):
         """Generate text from video using local model."""
         return self._model.generate_from_video(
             video_path=video_path,
+            prompt=prompt,
+            system_prompt=system_prompt,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+        )
+
+    def generate_from_frames(
+        self,
+        frames: list,
+        prompt: str,
+        system_prompt: str | None = None,
+        max_new_tokens: int = 1024,
+        temperature: float = 0.3,
+    ) -> str:
+        """Generate text from PIL images using local inference."""
+        return self._model.generate_from_frames(
+            frames=frames,
             prompt=prompt,
             system_prompt=system_prompt,
             max_new_tokens=max_new_tokens,
@@ -238,6 +274,23 @@ class APIModelWrapper(BaseModel):
         """Generate text from video using API model."""
         return self._model.generate_from_video(
             video_path=video_path,
+            prompt=prompt,
+            system_prompt=system_prompt,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+        )
+
+    def generate_from_frames(
+        self,
+        frames: list,
+        prompt: str,
+        system_prompt: str | None = None,
+        max_new_tokens: int = 1024,
+        temperature: float = 0.3,
+    ) -> str:
+        """Generate text from PIL images using the configured API."""
+        return self._model.generate_from_frames(
+            frames=frames,
             prompt=prompt,
             system_prompt=system_prompt,
             max_new_tokens=max_new_tokens,
@@ -325,6 +378,23 @@ class VLLMModelWrapper(BaseModel):
             temperature=temperature,
         )
 
+    def generate_from_frames(
+        self,
+        frames: list,
+        prompt: str,
+        system_prompt: str | None = None,
+        max_new_tokens: int = 1024,
+        temperature: float = 0.3,
+    ) -> str:
+        """Generate text from PIL images using the vLLM server."""
+        return self._model.generate_from_frames(
+            frames=frames,
+            prompt=prompt,
+            system_prompt=system_prompt,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+        )
+
 
 # =============================================================================
 # Model Manager (Singleton Factory)
@@ -360,9 +430,26 @@ def resolve_api_url(
     return None
 
 
+def _model_cache_key(
+    model_name: str,
+    backend: str,
+    *,
+    device: str = "cuda",
+    mm_min_pixels: int | None = None,
+    mm_max_pixels: int | None = None,
+    api_url: str | None = None,
+) -> str:
+    """Build the canonical cache key for a model configuration."""
+    if backend == "local":
+        min_pixels = "default" if mm_min_pixels is None else str(mm_min_pixels)
+        max_pixels = "default" if mm_max_pixels is None else str(mm_max_pixels)
+        return f"{backend}::{model_name}::{device}::{min_pixels}::{max_pixels}"
+    return f"{backend}::{model_name}::{api_url or 'default'}"
+
+
 class ModelManager:
     """
-    Singleton model manager supporting both local and API models.
+    Singleton model manager supporting local, API, and vLLM models.
 
     Caches model instances by configuration to ensure models are loaded only
     once and shared across components. This is critical for GPU memory efficiency.
@@ -397,6 +484,8 @@ class ModelManager:
         device: str = "cuda",
         fps: int = 4,
         cache_dir: str | None = None,
+        mm_min_pixels: int | None = None,
+        mm_max_pixels: int | None = None,
         api_key: str | None = None,
         api_url: str | None = None,
         use_local_media: bool = True,
@@ -411,6 +500,8 @@ class ModelManager:
             device: Device for local models (default: "cuda")
             fps: Frames per second for video processing
             cache_dir: Cache directory for local model weights
+            mm_min_pixels: Optional local multimodal processor pixel floor
+            mm_max_pixels: Optional local multimodal processor pixel ceiling
             api_key: API key for API/vLLM models
             api_url: Custom API URL for API/vLLM models
             use_local_media: For vLLM backend, use file:// URLs for
@@ -422,10 +513,14 @@ class ModelManager:
         """
         # Create cache key. The endpoint is part of the key for remote
         # backends: the same model served from two URLs must not collide.
-        if backend == "local":
-            cache_key = f"{backend}::{model_name}::{device}"
-        else:
-            cache_key = f"{backend}::{model_name}::{api_url or 'default'}"
+        cache_key = _model_cache_key(
+            model_name,
+            backend,
+            device=device,
+            mm_min_pixels=mm_min_pixels,
+            mm_max_pixels=mm_max_pixels,
+            api_url=api_url,
+        )
 
         if cache_key in self._models:
             logger.info(f"[ModelManager] Reusing cached model: {model_name} ({backend})")
@@ -453,6 +548,8 @@ class ModelManager:
                 device=device,
                 fps=fps,
                 cache_dir=cache_dir,
+                mm_min_pixels=mm_min_pixels,
+                mm_max_pixels=mm_max_pixels,
             )
         elif backend == "api":
             model = APIModelWrapper(
@@ -485,9 +582,19 @@ class ModelManager:
         model_name: str,
         backend: str = "local",
         device: str = "cuda",
+        mm_min_pixels: int | None = None,
+        mm_max_pixels: int | None = None,
+        api_url: str | None = None,
     ) -> bool:
         """Check if a model is already loaded."""
-        cache_key = f"{backend}::{model_name}::{device if backend == 'local' else 'api'}"
+        cache_key = _model_cache_key(
+            model_name,
+            backend,
+            device=device,
+            mm_min_pixels=mm_min_pixels,
+            mm_max_pixels=mm_max_pixels,
+            api_url=api_url,
+        )
         return cache_key in self._models
 
     def get_loaded_models(self) -> dict[str, BaseModel]:

@@ -1,0 +1,73 @@
+{
+  "action": [
+    0.0,
+    1.0,
+    2.0,
+    3.0,
+    4.0,
+    5.0,
+    6.0
+  ],
+  "discount": 0.9,
+  "discounted_reward": [
+    5.229999542236328,
+    1.0,
+    2.799999952316284,
+    5.229999542236328,
+    1.0,
+    2.799999952316284,
+    5.229999542236328
+  ],
+  "n_step": 3,
+  "next_observation": [
+    30.0,
+    11.0,
+    22.0,
+    33.0,
+    14.0,
+    25.0,
+    36.0
+  ],
+  "observation": [
+    0.0,
+    1.0,
+    2.0,
+    3.0,
+    4.0,
+    5.0,
+    6.0
+  ],
+  "terminated": [
+    false,
+    true,
+    true,
+    true,
+    false,
+    false,
+    false
+  ],
+  "truncated": [
+    false,
+    false,
+    false,
+    false,
+    true,
+    true,
+    true
+  ],
+  "upstream_commit": "87edc9061150ae9e962dd84e6544e27a1554b3ab",
+  "warmup": [
+    {
+      "can_sample": false,
+      "size": 0
+    },
+    {
+      "can_sample": false,
+      "size": 0
+    },
+    {
+      "can_sample": true,
+      "size": 7
+    }
+  ]
+}

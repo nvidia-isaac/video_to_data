@@ -1,0 +1,26 @@
+_target_: flash_chord.objectives.recon_body.ReconBodyObjectiveConfig
+termination_weight: -300.0
+action_rate_l2_weight: -0.0001
+action_l2_weight: -0.000001
+soft_joint_limit_weight: -0.001
+pelvis_position_weight: 1.0
+pelvis_orientation_weight: 1.0
+body_joint_position_weight: 5.0
+object_position_weight: 1.0
+progress_weight: 1.0
+palm_position_weight: 1.0
+palm_orientation_weight: 1.0
+force_closure_weight: 5.0
+pelvis_position_std: 0.3
+pelvis_orientation_std: 0.4
+body_joint_position_std: 1.0
+object_position_std: 0.2
+palm_position_std: 0.2
+palm_orientation_std: 0.4
+soft_joint_limit_factor: 0.9
+force_closure_min_support: 0.01
+num_wrench_basis: 512
+num_friction_cone_edges: 8
+friction_coefficient: 0.1
+wrench_basis_seed: 0
+sides: [left, right]

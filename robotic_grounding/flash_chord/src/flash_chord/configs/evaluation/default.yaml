@@ -1,0 +1,5 @@
+_target_: flash_chord.training.ppo.evaluation.EvaluationConfig
+checkpoint: ???
+deterministic: true
+use_checkpoint_config: true
+validate_policy_schema: true

@@ -1,0 +1,91 @@
+# @package _global_
+
+# Canonical G1+Dex3/SONIC ReconBody PPO recipe.
+defaults:
+  - override /sim: recon_body
+  - override /collision: physical
+  - override /embodiment: g1_dex3
+  - override /action: sonic_joint_residual
+  - override /observation: recon_body
+  - override /objective: recon_body
+  - override /termination: recon_body
+  - override /reset: recon_body
+  - override /curriculum: recon_body_ppo
+
+task:
+  motion_speed: 1.0
+  source_frame_playback: true
+  motion_start_frame: 0
+  motion_end_frame: -1
+
+scene:
+  world_count: 4096
+  contact_friction: 1.0
+  object_free_joint_damping: 0.01
+
+action:
+  input_mode: raw
+  normalized_mapping: linear
+
+env:
+  voc:
+    _target_: flash_chord.runtime.object_control.VOCParams
+    k_lin: 50.0
+    d_lin: 10.0
+    k_ang: 10.0
+    d_ang: 0.1
+    max_force: 60.0
+    max_torque: 60.0
+    gravity: 9.81
+    mass_normalized_gains: false
+  contact:
+    _target_: flash_chord.runtime.contact.ContactTrackerConfig
+    sides: [left, right]
+  capture_terminal_state: false
+  enforce_joint_velocity_limits: true
+  critic_context:
+    _target_: flash_chord.envs.rl.CriticContextConfig
+    reference_phase: false
+    object_body_velocity: false
+
+# Match G1SonicRslRlPpoCfg, then retain both deployment-exact and uniform
+# recovery starts through the terminal checkpoint.
+training:
+  rollout_steps: 24
+  max_iterations: 20000
+  save_interval: 500
+  observation_normalization: true
+  observation_normalization_epsilon: 0.01
+  reward_normalization: false
+  resume: false
+  checkpoint: null
+  network:
+    actor_hidden_dims: [1024, 512, 256, 128]
+    critic_hidden_dims: [1024, 512, 256, 128]
+    activation: elu
+    initial_noise_std: 0.5
+    noise_std_type: scalar
+    actor_output_gain: 0.0
+  ppo:
+    value_loss_coefficient: 1.0
+    use_clipped_value_loss: true
+    clip_parameter: 0.2
+    entropy_coefficient: 0.0005
+    learning_epochs: 5
+    mini_batches: 4
+    learning_rate: 0.0005
+    schedule: adaptive
+    minimum_learning_rate: 0.00001
+    maximum_learning_rate: 0.01
+    adaptive_schedule_factor: 1.5
+    discount: 0.99
+    gae_lambda: 0.95
+    desired_kl: 0.02
+    max_grad_norm: 0.1
+    normalize_advantage_per_mini_batch: false
+    log_ratio_clip: null
+
+logging:
+  experiment: g1_sonic_recon_body
+  run_name: g1_recon_body_ppo
+  log_interval: 10

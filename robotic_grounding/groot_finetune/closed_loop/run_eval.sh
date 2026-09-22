@@ -35,6 +35,7 @@ Optional:
   --max-success-videos N         Default: 3
   --server-log PATH              Default: /tmp/groot-server-PORT.log
   --client-extra-arg ARG         Repeat for additional client arguments
+  --non-headless                 Show the Isaac Sim window (default: headless)
   --stop-container               Stop the supplied container during cleanup
   --dry-run                      Print escaped commands without executing
 EOF
@@ -75,6 +76,7 @@ success_video_dir=""
 success_video_camera=""
 max_success_videos="3"
 server_log=""
+non_headless="0"
 stop_container="0"
 dry_run="0"
 client_extra_args=()
@@ -216,6 +218,10 @@ while [[ $# -gt 0 ]]; do
             client_extra_args+=("$2")
             shift 2
             ;;
+        --non-headless)
+            non_headless="1"
+            shift
+            ;;
         --stop-container)
             stop_container="1"
             shift
@@ -301,10 +307,15 @@ server_cmd=(
     --port "$port"
 )
 
-client_cmd=(
-    env "HUMAN_MOTION_DATA_DIR=${human_motion_data_dir}"
-    python scripts/rsl_rl/gr00t_infer.py
-    --headless
+client_cmd=(env "HUMAN_MOTION_DATA_DIR=${human_motion_data_dir}")
+if [[ "$non_headless" == "0" ]]; then
+    client_cmd+=(HEADLESS=1)
+fi
+client_cmd+=(python scripts/rsl_rl/gr00t_infer.py)
+if [[ "$non_headless" == "0" ]]; then
+    client_cmd+=(--headless)
+fi
+client_cmd+=(
     --task "$task"
     --contract "$contract"
     --task_profile "$task_profile"
@@ -350,7 +361,7 @@ printf -v escaped_client_workdir '%q' "$client_workdir"
 
 if [[ "$dry_run" == "1" ]]; then
     echo "SERVER: cd ${escaped_gr00t_dir} &&${escaped_server}"
-    echo "CLIENT: docker exec $(printf '%q' "$container") bash -lc $(printf '%q' "cd ${escaped_client_workdir} && HEADLESS=1${escaped_client}")"
+    echo "CLIENT: docker exec $(printf '%q' "$container") bash -lc $(printf '%q' "cd ${escaped_client_workdir} &&${escaped_client}")"
     echo "PLAN: waves=${waves} num_steps=${num_steps} server_log=${server_log}"
     exit 0
 fi
@@ -416,7 +427,7 @@ done
 [[ "$ready" == "1" ]] || die "GR00T server did not become ready within 180 seconds"
 
 docker exec "$container" bash -lc \
-    "cd ${escaped_client_workdir} && HEADLESS=1${escaped_client}"
+    "cd ${escaped_client_workdir} &&${escaped_client}"
 
 # Isaac Sim's python launcher can mask an uncaught client exception with exit status 0.
 # The evaluator writes this file only after it has completed and validated the requested

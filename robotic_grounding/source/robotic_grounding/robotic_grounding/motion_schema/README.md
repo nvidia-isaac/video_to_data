@@ -41,8 +41,9 @@ changes.
 
 Writer: `save_motion_parquet(md, root_path, partition_cols=["sequence_id", "robot_name"])`.
 Runs required-field checks (fail-fast when any training-eligible column for the
-file's `motion_kind` is missing) and a lightweight `wxyz`-convention guard on
-`robot_root_wxyz`.
+file's `motion_kind` is missing) and finite, unit-norm quaternion checks
+(`|norm - 1| <= 1e-3`) on `robot_root_wxyz`. Producers must supply **wxyz**;
+component values alone cannot identify quaternion ordering.
 
 ## Motion kinds
 
@@ -141,7 +142,8 @@ field.
 ## Tests
 
 - `tests/test_motion_schema.py` — U1–U6 unit tests (round-trip, minimal-file,
-  version enforcement, `hand_sides` alignment, quaternion guard, variable E)
+  version enforcement, `hand_sides` alignment, quaternion numerical validity,
+  variable E)
   and K1–K5 `motion_kind` tests (dual-hand round-trip, single/dual required-
   field enforcement, per-side alignment, missing/unknown kind rejection).
 - `tests/test_motion_schema_parquet_integration.py` — round-trip via the

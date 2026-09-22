@@ -784,7 +784,77 @@ Place the mesh at `<job_dir>/mesh_input.obj` before running.
 | `spin_mesh_video.py` | `tools/` | Render an appearance-faithful spinning video, including SAM3D vertex colors |
 | `fuse_depth_to_pointcloud.py` | `v2d_bundlesdf/tools/` | Fuse depth maps into a point cloud |
 | `view_glb.py` | `tools/` | View a `.glb` mesh file |
-| `evaluate_mesh_quality.py` | `tools/` | Compare reconstructed geometry with a reference mesh using deterministic surface sampling, rigid registration, Chamfer distance, and threshold coverage |
+| `evaluate_mesh_quality.py` | `tools/` | Compare reconstructed geometry with a reference mesh using deterministic surface sampling, exact surface-scale moments, rigid registration, Chamfer distance, and threshold coverage |
+| `locate_logo_regions.py` | `tools/` | Propose logo or trademark boxes in one texture image through `video_ingestion_agent` |
+| `redact_texture_regions.py` | `tools/` | Redact reviewed regions in an image, textured GLB, or complete GLB/USD package |
+
+### Logo localization and redaction
+
+The reusable workflow has two stages. Model output from the first stage is
+advisory: inspect every proposed box and correct the generated config before
+running the deterministic redactor.
+
+From the repository root, prepare the in-process model environment:
+
+```bash
+python -m pip install uv
+uv sync --project video_ingestion_agent --extra local
+```
+
+The default model is `Qwen/Qwen3-VL-8B-Instruct`. Transformers downloads its
+weights to the Hugging Face cache on first use; model weights are not stored in
+this repository. A CUDA-capable environment with sufficient GPU memory and
+local cache space is required.
+
+Stage 1 locates expected marks in one full-resolution texture atlas and writes
+the model record, a candidate pixel-coordinate config, and an optional review
+overlay. By default it combines one complete-image pass with an overlapping
+2x2 tiled pass so small marks are not lost when a large atlas is resized for
+inference:
+
+```bash
+uv run --project video_ingestion_agent --extra local python \
+  reconstruction/modules/v2d_hoi_object_reconstruction/tools/locate_logo_regions.py \
+  /path/to/source-package/textures/object.png \
+  --expected-mark "Example Brand" \
+  --output /tmp/logo-proposal.json \
+  --config-output /tmp/logo-redaction.json \
+  --overlay-output /tmp/logo-proposal.png
+```
+
+Repeat `--expected-mark` when several known marks may be present. Review the
+original texture and overlay, then adjust every rectangle and blur radius in
+`logo-redaction.json`. Do not redact an uncertain or unrecognizable region
+solely because the model proposed it. If any model response cannot be parsed or
+is internally inconsistent, the command records `scan_status: incomplete`,
+does not write a config or overlay, and exits with status 2. A complete scan
+with no proposed mark exits normally and does not write an empty config. Use
+`--tile-grid 3x3` for unusually large or dense atlases, or
+`--whole-image-only` for a faster single pass.
+
+Stage 2 copies a standard package and changes only `output.glb` plus its matching
+external PNG texture:
+
+```bash
+uv run --project video_ingestion_agent --extra local \
+  --with trimesh==4.6.1 --with usd-core==26.5 python \
+  reconstruction/modules/v2d_hoi_object_reconstruction/tools/redact_texture_regions.py \
+  package /path/to/source-package /path/to/redacted-package \
+  --config /tmp/logo-redaction.json \
+  --report /tmp/logo-redaction-report.json
+```
+
+The package command expects `output.glb`, `output.usd`, `visual_asset.usd`, and
+one PNG under `textures/`. Use `--texture-name` when the directory contains more
+than one PNG. It refuses to overwrite the source or an existing destination,
+checks that the source external and embedded textures agree, verifies that mesh
+geometry, UVs, transforms, materials, samplers, and GLB extensions are
+preserved, and confirms that every other package file remains byte-identical.
+The old embedded image bytes are removed rather than retained as unused GLB
+data. OpenUSD validates before and after redaction that `output.usd` composes
+`visual_asset.usd` and resolves the selected external PNG. Because the USD
+layers and texture path do not change, this operation does not regenerate the
+USD package or rerun its physics tests.
 
 ### Appearance-faithful mesh turntable
 
@@ -811,8 +881,9 @@ surface. Use `--shading lit` to force material-lit rendering or
 
 [`tools/evaluate_mesh_quality.py`](tools/evaluate_mesh_quality.py) provides the
 reproducible geometry-only comparison used for offline reconstruction analysis.
-It is not part of either reconstruction pipeline and does not assign an EVT
-pass/fail result.
+It does not alter either reconstruction pipeline or assign an EVT result. Its
+JSON output is suitable for a consuming workflow to apply its own pinned
+acceptance thresholds.
 
 For one reference/candidate pair:
 
@@ -860,10 +931,17 @@ candidate. The default near-surface thresholds are 1%, 2%, and 5% of the same
 reference diagonal.
 
 `as_delivered` reports geometry with the candidate's original scale.
-`shape_scale_normalized` uniformly corrects the candidate's RMS surface radius
-before repeating registration, which helps separate scale error from shape
-error. Both results ignore texture, color, materials, and semantic correctness.
-Sampling and registration are deterministic for a fixed mesh and seed, but
-symmetric shapes and large missing regions can still make registration
+Scale is measured with exact area-weighted surface moments, so it does not vary
+with the sampling seed or triangle density. `shape_scale_normalized` uniformly
+corrects that RMS surface-radius ratio before repeating registration, which
+helps separate scale error from shape error. `aligned_bounding_box` reports the
+axis extents and diagonal after delivered-scale rigid registration; these are
+useful diagnostics for anisotropic distortion but are orientation-sensitive.
+The report also records the SHA-256 of both input files so downstream checks can
+tie a result to exact mesh bytes.
+
+All geometry scores ignore texture, color, materials, and semantic correctness.
+Surface sampling and registration are deterministic for a fixed mesh and seed,
+but symmetric shapes and large missing regions can still make registration
 ambiguous. Always review the meshes and reconstruction overlays alongside the
 numbers.

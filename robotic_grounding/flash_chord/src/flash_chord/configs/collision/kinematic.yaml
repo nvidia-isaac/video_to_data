@@ -1,0 +1,6 @@
+_target_: flash_chord.scene.collision.CollisionPolicy
+robot_scope: none
+hand_self_collision: false
+robot_object_collision: false
+robot_support_collision: false
+ground: true

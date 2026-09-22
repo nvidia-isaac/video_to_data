@@ -1,6 +1,6 @@
 {
   "_description": "IK targets (robot frame -> source joint), foot framing, and posture-task weights for the G1 retargeter.",
-  "_provenance": "URDF + foot frames + ankle_roll_offset are local to this repo. ik_map weights and posture_task were seeded from NVIDIA/soma-retargeter and tuned for the snack-box / book sequences; values diverge from upstream by design.",
+  "_provenance": "URDF + foot frames + ankle_roll_offset are local to this repo. ik_map weights and posture_task were seeded from NVIDIA/soma-retargeter and tuned for knee articulation and wrist-preserving elbow branch selection; values diverge from upstream by design.",
   "_upstream_reference": "https://github.com/NVIDIA/soma-retargeter/blob/main/soma_retargeter/configs/unitree_g1/soma_to_g1_retargeter_config.json",
   "ankle_roll_offset": 0.037,
   "base_source_joint": "Hips",
@@ -14,9 +14,14 @@
       "position_cost": 5,
       "soma_joint": "LeftFoot"
     },
+    "left_elbow_link": {
+      "orientation_cost": 0.02,
+      "position_cost": 0,
+      "soma_joint": "LeftForeArm"
+    },
     "left_knee_link": {
       "orientation_cost": 0.1,
-      "position_cost": 0.25,
+      "position_cost": 1.0,
       "soma_joint": "LeftShin"
     },
     "left_wrist_yaw_link": {
@@ -34,9 +39,14 @@
       "position_cost": 5,
       "soma_joint": "RightFoot"
     },
+    "right_elbow_link": {
+      "orientation_cost": 0.02,
+      "position_cost": 0,
+      "soma_joint": "RightForeArm"
+    },
     "right_knee_link": {
       "orientation_cost": 0.1,
-      "position_cost": 0.25,
+      "position_cost": 1.0,
       "soma_joint": "RightShin"
     },
     "right_wrist_yaw_link": {
@@ -56,8 +66,8 @@
   "posture_task": {
     "gain": 1,
     "lm_damping": 0,
-    "q0_cost": 0.05,
-    "q_prev_cost": 0.5
+    "q0_cost": 0.0,
+    "q_prev_cost": 0.05
   },
   "robot_name": "g1",
   "schema_version": 1,

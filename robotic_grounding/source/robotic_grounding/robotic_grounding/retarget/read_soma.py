@@ -14,7 +14,8 @@ Save schema (from the SOMA exporter ``save_soma_npz``):
     identity_model_type "mhr" | "soma" | ...
     identity_coeffs   (T, K_id)   identity (shape) coeffs; constant in time
     scale_params      (T, K_sc)   identity scale params; constant in time
-    joint_orient      (J + 1, 3, 3) rest-pose joint orientation matrices
+    joint_orient      (J + 1, 3, 3) optional legacy rest-pose orientations;
+                                      the active SOMA model is authoritative
     unit              "meters"
     keep_root         bool        when False, ``poses[:, 0]`` is the root
     rotation_repr     "rotvec"
@@ -178,96 +179,66 @@ def _missing_assets(root: Path, identity_model_type: str) -> list[str]:
     return missing
 
 
-_SETUP_HINT_PRINTED: set[tuple[str, str]] = set()
-
-
-def _emit_setup_hint(
+def _missing_assets_error(
     target_root: Path,
     identity_model_type: str,
     missing: list[str],
-) -> None:
-    """Print a one-shot 'how to populate the SOMA cache' warning.
+) -> FileNotFoundError:
+    """Build an actionable error for a missing pinned SOMA asset bundle.
 
-    Centralized so every code path that detects a missing asset (the
-    explicit-data_root branch, the repo-local default branch, and any
-    future ``SOMA``-style wrapper for a different robot) prints the
-    *same* actionable instruction. Deduplicated per
-    ``(target_root, identity_model_type)`` per process so scripts that
-    construct ``SOMA`` repeatedly (e.g. tests, batch loops) do not spam
-    the log. Update here only when the bootstrap contract (script name,
-    default cache location) changes.
+    ``SOMALayer(data_root=None)`` downloads the latest upstream assets. That
+    mutable snapshot can change the rest skeleton and therefore the robot IK
+    result without any repository change. Require the repository's pinned
+    setup path instead so retargeting remains reproducible.
     """
-    key = (str(target_root), identity_model_type)
-    if key in _SETUP_HINT_PRINTED:
-        return
-    _SETUP_HINT_PRINTED.add(key)
     identity_flag = (
         f" --identity-model-type {identity_model_type}"
         if identity_model_type != "mhr"
         else ""
     )
-    print(
-        f"[read_soma] WARNING: SOMA body-model cache at {target_root} is "
+    return FileNotFoundError(
+        f"SOMA body-model cache at {target_root} is "
         f"missing assets for identity_model_type={identity_model_type!r}: "
         f"{missing}.\n"
         f"  -> Run `python scripts/setup_soma_assets.py{identity_flag}` to "
-        "download them (~822 MB from HuggingFace).\n"
-        "  Falling back to SOMA-X's built-in HuggingFace cache for this "
-        "run; subsequent runs will keep re-downloading until the cache "
-        "above is populated."
+        "download the repository-pinned bundle (~822 MB from HuggingFace). "
+        "The mutable SOMA-X default snapshot is intentionally not used "
+        "because it can change retargeting results."
     )
 
 
 def _resolve_data_root(
     data_root: str | Path | None,
     identity_model_type: str,
-) -> Path | None:
+) -> Path:
     """Resolve the SOMA assets root for ``SOMALayer``.
 
-    Strategy (match the MANO pattern of repo-local assets, but
-    never force-create an empty directory that blocks SOMA's built-in
-    HuggingFace download):
+    Match the MANO pattern of repo-local assets and require a complete bundle:
 
     * If ``data_root`` is an explicit path and contains the full bundle
       (``SOMA_neutral.npz``, ``correctives_model.pt``, plus the
       identity-model files for ``identity_model_type``), use it.
     * If ``BODY_MODELS_DIR / "soma"`` is fully populated, use it (drop-in
       local cache alongside MANO).
-    * Otherwise return ``None`` so ``SOMALayer`` auto-downloads to the
-      HuggingFace cache; this keeps the first-run bootstrap working in a
-      fresh Docker image without any manual asset staging. We additionally
-      print a one-shot setup-script reminder so users do not silently pay
-      the HuggingFace download cost on every run.
-
-    Never create an empty ``BODY_MODELS_DIR / "soma"`` directory: SOMA-X
-    treats an existing-but-incomplete directory as "assets are supposed to
-    be here" and refuses to fall back to HuggingFace, which surfaces as a
-    cryptic ``FileNotFoundError`` for ``SOMA_neutral.npz``.
+    * Otherwise fail with the pinned setup command. Never delegate to
+      ``SOMALayer(data_root=None)`` because that follows a mutable upstream
+      snapshot and can silently change the retargeted motion.
     """
     if data_root is not None:
         path = Path(data_root).expanduser()
         missing = _missing_assets(path, identity_model_type)
         if not missing:
             return path
-        _emit_setup_hint(path, identity_model_type, missing)
-        return None
+        raise _missing_assets_error(path, identity_model_type, missing)
 
     repo_local = BODY_MODELS_DIR / "soma"
     if repo_local.is_dir():
         missing = _missing_assets(repo_local, identity_model_type)
         if not missing:
             return repo_local
-        _emit_setup_hint(repo_local, identity_model_type, missing)
     else:
-        # Fresh checkout: directory does not exist yet. Same actionable
-        # guidance, treating the canonical default path as "missing
-        # everything" so the user sees one consistent message.
-        _emit_setup_hint(
-            repo_local,
-            identity_model_type,
-            _missing_assets(repo_local, identity_model_type),
-        )
-    return None
+        missing = _missing_assets(repo_local, identity_model_type)
+    raise _missing_assets_error(repo_local, identity_model_type, missing)
 
 
 def _matrix_to_wxyz(matrix: np.ndarray) -> np.ndarray:
@@ -642,7 +613,6 @@ class SOMA:
             "identity_model_type",
             "identity_coeffs",
             "scale_params",
-            "joint_orient",
             "unit",
             "keep_root",
         }
@@ -653,6 +623,10 @@ class SOMA:
             )
 
         params = {k: archive[k] for k in archive.files}
+        if "joint_orient" not in params:
+            params["joint_orient"] = (
+                self.layer.t_pose_world[..., :3, :3].detach().cpu().numpy()
+            )
         params["unit"] = (
             str(params["unit"].item())
             if params["unit"].dtype.kind == "U"

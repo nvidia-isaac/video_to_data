@@ -46,15 +46,13 @@ except ImportError:
 
 
 def _validate_wxyz(tag: str, wxyz: Any) -> None:
-    """Cheap sanity check that a quaternion series is plausibly `wxyz`.
+    """Validate numerical invariants for a quaternion series stored as `wxyz`.
 
-    Guards against producers accidentally packing `xyzw`. Two heuristics:
-
-    - `|w|` must exceed 0.3 at least once (identity or near-identity poses
-      are near-universal in any long trajectory; if the first component is
-      never the scalar, the convention is likely swapped).
-    - `|w|` must not exceed 1.01 (quaternions must be unit; a value > 1.01
-      indicates raw axis-angle or some other mis-stashed representation).
+    Component magnitudes cannot reveal quaternion ordering: for example,
+    ``wxyz=[0, 0, 0, 1]`` is both a valid 180-degree Z rotation and the same
+    byte pattern as an ``xyzw`` identity quaternion. Convention enforcement
+    therefore belongs at producer conversion sites; this schema boundary
+    checks only representation-independent invariants.
     """
     if wxyz is None:
         return
@@ -64,20 +62,18 @@ def _validate_wxyz(tag: str, wxyz: Any) -> None:
     if arr.ndim < 2 or arr.shape[-1] != 4:
         return
     flat = arr.reshape(-1, 4)
-    w = np.abs(flat[:, 0])
-    last = np.abs(flat[:, 3])
-    w_max = float(w.max())
-    last_max = float(last.max())
-    if w_max < 0.3 and last_max > 0.9:
-        # Classic xyzw layout: w stays small, last component hugs 1.
+    if not np.all(np.isfinite(flat)):
+        invalid_count = int(np.count_nonzero(~np.isfinite(flat)))
         raise ValueError(
-            f"[{tag}] quaternion series looks like xyzw, not wxyz "
-            f"(max |first|={w_max:.3f}, max |last|={last_max:.3f}). "
-            f"Producer must swap conventions before writing."
+            f"[{tag}] quaternion series contains {invalid_count} non-finite "
+            "component(s)."
         )
-    if w_max > 1.01:
+    norms = np.linalg.norm(flat.astype(np.float64), axis=1)
+    max_norm_error = float(np.max(np.abs(norms - 1.0)))
+    if max_norm_error > 1e-3:
         raise ValueError(
-            f"[{tag}] quaternion w component exceeds 1.01 (max={w_max:.3f}); not unit quaternions."
+            f"[{tag}] quaternion series is not unit-normalized "
+            f"(max |norm - 1|={max_norm_error:.6f})."
         )
 
 
@@ -260,7 +256,7 @@ def save_motion_parquet(
         md: Populated `MotionData`.
         root_path: Dataset root (e.g. `.../whole_body/soma`).
         partition_cols: Hive partition keys. Defaults to `sequence_id`, `robot_name`.
-        validate: If True, run required-fields and wxyz sanity checks before writing.
+        validate: If True, check required fields and finite, unit-norm root quaternions before writing.
         file_name: Optional stable basename for the single parquet file (e.g.
             `"data.parquet"`). When ``None`` (default), pyarrow's auto-generated
             UUID-prefixed name is kept. Since ``pq.write_to_dataset`` doesn't

@@ -1,0 +1,38 @@
+{
+  "component": "FlashCHORD",
+  "copy": {
+    "excluded_source_files": [],
+    "lfs_files": 559,
+    "sorted_lfs_manifest_sha256": "e39fccadd795a7f3b582dfe45bb3cad6bab78fa88305b75f303ad21296efd947",
+    "tracked_source_files": 847
+  },
+  "import_kind": "native shallow port",
+  "integration_base": {
+    "commit": "19ae526a2c90841739abc76543a6329f5eb91ecb",
+    "repository": "video_to_data_internal"
+  },
+  "pre_copy_patches": [
+    {
+      "commit": "d411e3be9dffd36ba91f59c67b68502c342a9669",
+      "scope": "Test-only cleanup: replace coarse optional-corpus file skips with explicit markers, remove one permanently empty case, and replace a nonexistent URDF test dependency with a synthetic model.",
+      "subject": "test: make optional sequence dependencies explicit"
+    },
+    {
+      "commit": "fc62f19e2eb598bf17fae6d6d64210b6917897de",
+      "scope": "Flash-side compatibility for current production V2D artifacts: dataset-relative asset/support lookup, optional single_robot hand-frame ingestion, ragged per-side contacts, and strict Vega DP-frame validation.",
+      "subject": "compat: load current V2D motion assets"
+    },
+    {
+      "commit": "25c8573a2ab9978b788cba6e938e12d3c265f4b6",
+      "scope": "Align with current V2D data conventions: identify active ManoSharpaData by name, resolve the current articulated object_assets layout, and quote Hydra values containing Hive partition paths.",
+      "subject": "compat: align with current V2D data conventions"
+    }
+  ],
+  "source": {
+    "prepared_commit": "25c8573a2ab9978b788cba6e938e12d3c265f4b6",
+    "prepared_tree": "6ee4b7974637b3cd1381cd50a506709daed33d06",
+    "published_release_commit": "677457016257eb3d5188538627549160bd40bc80",
+    "published_release_tree": "3fa2d923a8dc0a04c792c5ce021e96e54ae09a9d",
+    "repository": "ssh://git@gitlab-master.nvidia.com:12051/video_to_policy/flash_chord.git"
+  }
+}

@@ -535,8 +535,10 @@ def main(env_cfg, agent_cfg) -> None:
     dones = None
     eval_completed = 0
     eval_successes = 0
+    eval_lift_hold_successes = 0
     eval_lengths: list[int] = []
     eval_metric_samples: list[int] = []
+    eval_final_lifts_m: list[float] = []
     eval_max_lifts_m: list[float] = []
     eval_max_hold_steps: list[int] = []
     current_lengths = np.zeros(args_cli.num_envs, dtype=np.int64)
@@ -646,8 +648,10 @@ def main(env_cfg, agent_cfg) -> None:
                         )
                         eval_completed += 1
                         eval_successes += int(result.success)
+                        eval_lift_hold_successes += int(result.lift_hold_success)
                         eval_lengths.append(int(current_lengths[env_idx]))
                         eval_metric_samples.append(result.sample_count)
+                        eval_final_lifts_m.append(result.final_lift_m)
                         eval_max_lifts_m.append(result.max_lift_m)
                         eval_max_hold_steps.append(result.max_hold_steps)
                         termination_counts.update(
@@ -718,12 +722,14 @@ def main(env_cfg, agent_cfg) -> None:
             "successful_episodes": eval_successes,
             "unsuccessful_episodes": eval_completed - eval_successes,
             "success_rate": eval_successes / eval_completed,
+            "lift_hold_successful_episodes": eval_lift_hold_successes,
             "success_evaluator": success_config.evaluator_id,
             "metric_sample_timing": "pre_action_excluding_terminal_post_action_state",
             "success_evaluator_config": success_config.as_dict(),
             "termination_reasons": dict(termination_counts),
             "episode_lengths": eval_lengths,
             "metric_sample_counts": eval_metric_samples,
+            "final_object_lift_m": eval_final_lifts_m,
             "max_object_lift_m": eval_max_lifts_m,
             "max_hold_steps": eval_max_hold_steps,
             "reset_frame": 0,

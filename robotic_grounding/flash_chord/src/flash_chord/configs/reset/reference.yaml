@@ -1,0 +1,8 @@
+_target_: flash_chord.lifecycle.reset.ReferenceResetConfig
+reset_finger_openness: 0.7
+always_reset_to_first_frame: false
+reset_to_first_frame_probability: 0.1
+first_frame_voc_threshold: 0.1
+voc_decay_steps: 20
+voc_decay_mode: step
+seed: 42

@@ -25,7 +25,9 @@ vis = [
     "pyrender",
     "pyglet",
     "trimesh",
-    "wis3d",
+]
+wis3d = [
+    "wis3d==1.0.1",
 ]
 [tool.setuptools]
 packages = ["v2d.mv", "v2d.mv.cli", "v2d.mv.math", "v2d.mv.rig", "v2d.mv.vis"]

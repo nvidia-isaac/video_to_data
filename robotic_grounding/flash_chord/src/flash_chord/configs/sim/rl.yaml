@@ -1,0 +1,12 @@
+_target_: flash_chord.runtime.sim.SimConfig
+fps: 20.0
+substeps: 5
+solver: newton
+integrator: implicitfast
+cone: pyramidal
+njmax: 512
+nconmax: 256
+impratio: 20.0
+iterations: 100
+ls_iterations: 50
+use_mujoco_contacts: true

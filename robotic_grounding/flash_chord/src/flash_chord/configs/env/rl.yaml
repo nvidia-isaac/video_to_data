@@ -1,0 +1,26 @@
+_target_: flash_chord.envs.rl.RLEnvConfig
+sim: ${sim}
+action: ${action}
+voc:
+  _target_: flash_chord.runtime.object_control.VOCParams
+  k_lin: 400.0
+  d_lin: 40.0
+  k_ang: 400.0
+  d_ang: 40.0
+  max_force: 200.0
+  max_torque: 50.0
+  gravity: 9.81
+termination: ${termination}
+contact:
+  _target_: flash_chord.runtime.contact.ContactTrackerConfig
+objective: ${objective}
+voc_scale: 1.0
+arm_position_integral:
+  _target_: flash_chord.runtime.joint_drive.JointPositionIntegralConfig
+  gain_s_inv2: 0.0
+  max_effort_fraction: 0.15
+enforce_joint_velocity_limits: false
+observation: ${observation}
+reset: ${reset}
+auto_reset: true
+capture_terminal_state: false

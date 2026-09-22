@@ -1,0 +1,26 @@
+defaults:
+  - task: default
+  - sim: rl
+  - scene: train
+  - collision: training
+  - embodiment: sharpa_hands
+  - action: residual_hand_pose
+  - observation: policy
+  - objective: tracking
+  - termination: tracking
+  - reset: reference
+  - env: rl
+  - curriculum: reference
+  - logging: wandb
+  - training: reference_ppo
+  - _self_
+  - experiment: sharpa_ppo
+
+output_dir: null
+voc_scale_override: null
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: logs/rl/sharpa/${now:%Y-%m-%d_%H-%M-%S}_${logging.run_name}

@@ -1,0 +1,8 @@
+world_count: 1
+support: true
+decompose_objects: true
+object_scale_min: 1.0
+object_scale_max: 1.0
+object_scale_seed: 0
+contact_friction: 1.0
+object_free_joint_damping: 0.0

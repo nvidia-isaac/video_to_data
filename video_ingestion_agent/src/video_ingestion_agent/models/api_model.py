@@ -9,6 +9,8 @@ The NVIDIA Inference API supports multiple model providers through the
 model name (e.g., "openai/gpt-4o", "google/gemini-1.5-pro", "anthropic/claude-3").
 """
 
+import base64
+import io
 import logging
 import os
 import time
@@ -297,6 +299,39 @@ class APIModel:
                 "content": user_content,
             }
         )
+
+        return self._make_request(
+            messages=messages,
+            max_tokens=max_new_tokens,
+            temperature=temperature,
+        )
+
+    def generate_from_frames(
+        self,
+        frames: list,
+        prompt: str,
+        system_prompt: str | None = None,
+        max_new_tokens: int = 1024,
+        temperature: float = 0.3,
+    ) -> str:
+        """Generate text from a list of PIL images."""
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+
+        user_content = []
+        for frame in frames:
+            buffer = io.BytesIO()
+            frame.save(buffer, format="PNG")
+            frame_b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+            user_content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/png;base64,{frame_b64}"},
+                }
+            )
+        user_content.append({"type": "text", "text": prompt})
+        messages.append({"role": "user", "content": user_content})
 
         return self._make_request(
             messages=messages,

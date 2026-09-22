@@ -1,0 +1,80 @@
+_target_: flash_chord.envs.observation.PolicyObservationConfig
+sides: [right, left]
+contact_sides: [left, right]
+make_wrist_quat_unique: true
+wrist_position:
+  _target_: flash_chord.envs.observation.ObservationTermConfig
+  enabled: true
+  scale: 1.0
+wrist_orientation:
+  _target_: flash_chord.envs.observation.ObservationTermConfig
+  enabled: true
+  scale: 1.0
+wrist_velocity:
+  _target_: flash_chord.envs.observation.ObservationTermConfig
+  enabled: true
+  scale: 1.0
+arm_joint_position:
+  _target_: flash_chord.envs.observation.ObservationTermConfig
+  enabled: false
+  scale: 1.0
+arm_joint_velocity:
+  _target_: flash_chord.envs.observation.ObservationTermConfig
+  enabled: false
+  scale: 1.0
+arm_joint_reference_delta:
+  _target_: flash_chord.envs.observation.ObservationTermConfig
+  enabled: false
+  scale: 1.0
+finger_joint_position:
+  _target_: flash_chord.envs.observation.ObservationTermConfig
+  enabled: true
+  scale: 1.0
+finger_joint_velocity:
+  _target_: flash_chord.envs.observation.ObservationTermConfig
+  enabled: true
+  scale: 1.0
+object_position:
+  _target_: flash_chord.envs.observation.ObservationTermConfig
+  enabled: true
+  scale: 1.0
+object_orientation:
+  _target_: flash_chord.envs.observation.ObservationTermConfig
+  enabled: true
+  scale: 1.0
+object_body_velocity:
+  _target_: flash_chord.envs.observation.ObservationTermConfig
+  enabled: false
+  scale: 1.0
+command_wrist:
+  _target_: flash_chord.envs.observation.ObservationTermConfig
+  enabled: true
+  scale: 1.0
+command_finger:
+  _target_: flash_chord.envs.observation.ObservationTermConfig
+  enabled: true
+  scale: 1.0
+command_object_position:
+  _target_: flash_chord.envs.observation.ObservationTermConfig
+  enabled: true
+  scale: 1.0
+command_object_orientation:
+  _target_: flash_chord.envs.observation.ObservationTermConfig
+  enabled: true
+  scale: 1.0
+raw_action:
+  _target_: flash_chord.envs.observation.ObservationTermConfig
+  enabled: true
+  scale: 1.0
+processed_action:
+  _target_: flash_chord.envs.observation.ObservationTermConfig
+  enabled: true
+  scale: 1.0
+contact_position:
+  _target_: flash_chord.envs.observation.ObservationTermConfig
+  enabled: true
+  scale: 1.0
+contact_direction:
+  _target_: flash_chord.envs.observation.ObservationTermConfig
+  enabled: true
+  scale: 1.0

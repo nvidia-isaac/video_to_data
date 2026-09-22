@@ -19,7 +19,7 @@ dependencies = [
     "scipy",
     "trimesh",
     "v2d-common",
-    "v2d-mv[io,vis]",
+    "v2d-mv[io,vis,wis3d]",
 ]
 
 [tool.setuptools]

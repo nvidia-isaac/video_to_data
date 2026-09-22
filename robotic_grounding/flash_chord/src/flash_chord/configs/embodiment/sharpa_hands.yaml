@@ -1,0 +1,3 @@
+_target_: flash_chord.embodiments.sharpa_hands.SharpaHands
+config:
+  _target_: flash_chord.embodiments.sharpa_hands.SharpaHandsConfig

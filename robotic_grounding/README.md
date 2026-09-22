@@ -2,6 +2,9 @@
 
 > 📐 **New here?** See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the architecture, contents map, and where-to-find-what guide.
 
+> **Accelerated training with FlashCHORD:** [setup](flash_chord/README.md#setup) · [robot → scene → replay → train → evaluate](flash_chord/README.md#1-view-robot).
+> Uses a separate Newton/Warp/JAX container; start with its setup guide for the included Sharpa and G1 examples.
+
 ## Prerequisites
 
 - Install [Docker](https://docs.docker.com/engine/install/ubuntu/) and [post-installation](https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user) steps.
@@ -374,6 +377,9 @@ for all three example sequences and the three-stage training recipe.
 
 ## RL training
 
+For accelerated PPO/FlashSAC training, follow the [FlashCHORD workflow](flash_chord/README.md#4-train)
+and its [dedicated container setup](flash_chord/README.md#setup).
+
 | Floating hands — Sharpa | Whole body — ReconHand | Whole body — ReconBody |
 | :---: | :---: | :---: |
 | ![Sharpa box-grab trained-policy rollout](../docs/chord/assets/videos/train_sharpa_box_grab.webp) | ![ReconHand espresso-use trained-policy rollout](../docs/chord/assets/videos/train_espresso_use.webp) | ![ReconBody whole-body trained-policy rollout](../docs/chord/assets/videos/train_apple.webp) |
@@ -525,6 +531,24 @@ To run the same recipe on OSMO, pass these overrides through the training comman
 `workflow/train.yaml` and submit with `scripts/run_osmo.py --build-image`. The image build is
 required: the motion parquet, mesh, collision STL and URDF are committed under
 `assets/human_motion_data/ego_recon/processed/` and are read from the image at runtime.
+
+## FlashCHORD (Newton/JAX)
+
+**Accelerated PPO/FlashSAC training:** [setup → view robot → view scene → replay → train → evaluate → view policy](flash_chord/README.md).
+
+- Examples: floating Sharpa tissue-box and G1+Dex3 snack-box.
+- Runtime: dedicated Newton/Warp/JAX container, with compatible V2D motion inputs.
+- Details: [recipes](flash_chord/docs/configuration.md#public-recipes) · [V2D integration](flash_chord/V2D_INTEGRATION.md).
+
+For OSMO, use `flash_chord/workflow/train_rl.yaml`, `train_flash_sac.yaml`, or `evaluate_policy.yaml`:
+
+```bash
+# From robotic_grounding/flash_chord.
+osmo workflow submit workflow/train_flash_sac.yaml \
+  --set image=<flash-image> experiment=sharpa_flash_sac \
+        parquet=<path-visible-to-the-job> run_name=<run-name> \
+  --pool <pool>
+```
 
 ## Data Generation
 

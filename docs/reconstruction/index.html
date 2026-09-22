@@ -294,6 +294,10 @@
       line-height: 1.4;
       border-top: 1px solid var(--border);
     }
+    .multiview-media {
+      max-width: 100%;
+      margin-bottom: 1.5rem;
+    }
     .callout {
       padding: 1rem 1.1rem;
       border-left: 4px solid var(--accent);
@@ -407,6 +411,7 @@
       <nav class="toc" aria-label="Page sections">
         <a href="#overview">Overview</a>
         <a href="#ego-pipeline">Ego-Centric Hand-Object</a>
+        <a href="#multiview-pipeline">Multi-view Human-Object Reconstruction</a>
         <a href="#object-mesh-reconstruction">Object Mesh</a>
         <a href="#outputs">Outputs</a>
         <a href="#next">Next Steps</a>
@@ -461,6 +466,33 @@
             <li><strong>SAM2 + HaMeR Hand Tracking:</strong> Choose an alternative hand-tracking pipeline that uses SAM2 hand masks with HaMeR hand reconstruction.</li>
             <li><strong>Gaussian-Splat Optimization:</strong> Refine global trajectories using Gaussian-splat-based optimization for improved consistency across the sequence.</li>
           </ul>
+        </section>
+
+        <section class="doc-section" id="multiview-pipeline">
+          <h2>Multi-view Human-Object Reconstruction</h2>
+          <p>
+            The multi-view pipeline reconstructs human motion and object
+            trajectories from synchronized, calibrated camera views. It combines
+            stereo depth, human and object segmentation, object pose tracking,
+            and human body reconstruction to produce temporally aligned 3D
+            representations and visualization overlays.
+          </p>
+          <figure class="object-mesh-media multiview-media">
+            <img src="./multiview-hoi-frame-200.jpg" alt="Four camera views of a person manipulating a tall bar stool, with reconstructed human body and object overlays." loading="lazy">
+            <figcaption>Multi-view human and object reconstruction overlays for a tall bar stool manipulation sequence.</figcaption>
+          </figure>
+          <p>
+            See the
+            <a href="https://github.com/nvidia-isaac/video_to_data/blob/main/reconstruction/docs/mv_hoi_local_pipeline.md" target="_blank" rel="noopener">local multi-view calibration and reconstruction guide</a>
+            for setup, camera calibration, and instructions for running the pipeline.
+          </p>
+          <p>
+            This pipeline is used to produce the FORM-HOI dataset.
+            <a href="https://huggingface.co/datasets/nvidia/form-hoi" target="_blank" rel="noopener">FORM-HOI v0.1.0 is now available on Hugging Face</a>,
+            providing multi-view recordings paired with reconstructed human and
+            object trajectories. A full technical report describing the dataset
+            and reconstruction pipeline is coming later.
+          </p>
         </section>
 
         <section class="doc-section" id="object-mesh-reconstruction">

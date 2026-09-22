@@ -169,12 +169,12 @@ def _add_calibrated_cameras(cfg: "VegaSharpaGr00tRecordEnvCfg") -> None:
     }
     right_pos, right_rot = camera_calib.wrist_cam_offset_in_l7("right")
     left_pos, left_rot = camera_calib.wrist_cam_offset_in_l7("left")
-    cfg.scene.camera_right_wrist = CameraCfg(
+    cfg.scene.camera_right_wrist = TiledCameraCfg(
         prim_path="{ENV_REGEX_NS}/Robot/R_arm_l7/wrist_cam",
         offset=CameraCfg.OffsetCfg(pos=right_pos, rot=right_rot, convention="ros"),
         **wrist_common,
     )
-    cfg.scene.camera_left_wrist = CameraCfg(
+    cfg.scene.camera_left_wrist = TiledCameraCfg(
         prim_path="{ENV_REGEX_NS}/Robot/L_arm_l7/wrist_cam",
         offset=CameraCfg.OffsetCfg(pos=left_pos, rot=left_rot, convention="ros"),
         **wrist_common,

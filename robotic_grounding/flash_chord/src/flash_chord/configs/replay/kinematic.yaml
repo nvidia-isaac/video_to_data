@@ -1,0 +1,13 @@
+_target_: flash_chord.runtime.replay.ReplayConfig
+sim: ${sim}
+action: ${action}
+voc_scale: 1.0
+voc_params:
+  _target_: flash_chord.runtime.object_control.VOCParams
+  k_lin: 10000.0
+  d_lin: 200.0
+  k_ang: 10000.0
+  d_ang: 200.0
+  max_force: 200.0
+  max_torque: 50.0
+  gravity: 9.81

@@ -1,0 +1,19 @@
+defaults:
+  - task: default
+  - sim: replay
+  - scene: replay
+  - collision: physical
+  - embodiment: sharpa_hands
+  - action: residual_hand_pose
+  - replay: physical
+  - markers: default
+  - viewer: default
+  - _self_
+
+device: cuda:0
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/replay/${now:%Y-%m-%d_%H-%M-%S}

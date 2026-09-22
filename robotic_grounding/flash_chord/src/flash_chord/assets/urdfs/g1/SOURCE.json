@@ -1,0 +1,22 @@
+{
+  "source": {
+    "repository": "https://github.com/nvidia-isaac/video_to_data",
+    "revision": "5654c50edc1f3dea8e3145bf2dbfc277dbf27b4c",
+    "path": "robotic_grounding/source/robotic_grounding/robotic_grounding/assets/urdfs/g1/main_with_hand.urdf"
+  },
+  "urdf": {
+    "sha256": "8c7f768dc8da6c969d8a4b4efb3dcbe3d9d2b05fca5104df12205a69879d19e9"
+  },
+  "runtime_asset_closure": {
+    "file_count": 61,
+    "byte_count": 31540505,
+    "manifest_sha256": "763d46dc1e4db2734bb5c77fef450beb3ccfaa07320e713d2a6191786b73d0f5",
+    "manifest_format": "sorted lines of '<file sha256>  <assets-relative POSIX path>\\n'"
+  },
+  "licenses": {
+    "urdfs/g1/LICENSE": "2b794acf1e250f5545ae5a47d81e5685ea5488ce077d1087ed8be5f81e9ba5c0",
+    "urdfs/g1/NOTICE": "5fd1407d54673d2cfe78b55c5e8427f4f3a8e73f4a44bdae17dcfffcb27b90e2",
+    "meshes/g1/LICENSE": "2b794acf1e250f5545ae5a47d81e5685ea5488ce077d1087ed8be5f81e9ba5c0",
+    "meshes/g1/NOTICE": "ef9e3c09a449a9f3a8620339a0a1092032d85bd7d6f534ed99ba8b34ddcc5c3b"
+  }
+}

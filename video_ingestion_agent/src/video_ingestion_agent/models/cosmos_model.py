@@ -25,6 +25,8 @@ class CosmosReasonModel:
         device: Device to run the model on
         fps: Frames per second for video processing
         cache_dir: Optional cache directory for model weights
+        mm_min_pixels: Optional multimodal processor pixel floor
+        mm_max_pixels: Optional multimodal processor pixel ceiling
     """
 
     PIXELS_PER_TOKEN = 32**2
@@ -35,10 +37,19 @@ class CosmosReasonModel:
         device: str = "cuda",
         fps: int = 4,
         cache_dir: str | None = None,
+        mm_min_pixels: int | None = None,
+        mm_max_pixels: int | None = None,
     ):
         self.model_name = model_name
         self.device = device
         self.fps = fps
+
+        default_min_pixels = 256 * self.PIXELS_PER_TOKEN
+        default_max_pixels = 8192 * self.PIXELS_PER_TOKEN
+        min_pixels = default_min_pixels if mm_min_pixels is None else mm_min_pixels
+        max_pixels = default_max_pixels if mm_max_pixels is None else mm_max_pixels
+        if min_pixels <= 0 or max_pixels < min_pixels:
+            raise ValueError("vision pixel bounds must satisfy 0 < min <= max")
 
         # Load model and processor
         logger.info(f"Loading Cosmos Reason 2 model: {model_name}")
@@ -57,16 +68,15 @@ class CosmosReasonModel:
             model_name, cache_dir=cache_dir
         )
 
-        # Configure vision tokens
-        min_vision_tokens = 256
-        max_vision_tokens = 8192
+        # Configure vision tokens. Callers that inspect fine texture details can
+        # raise the pixel ceiling without constructing a second model loader.
         self.processor.image_processor.size = {
-            "shortest_edge": min_vision_tokens * self.PIXELS_PER_TOKEN,
-            "longest_edge": max_vision_tokens * self.PIXELS_PER_TOKEN,
+            "shortest_edge": min_pixels,
+            "longest_edge": max_pixels,
         }
         self.processor.video_processor.size = {
-            "shortest_edge": min_vision_tokens * self.PIXELS_PER_TOKEN,
-            "longest_edge": max_vision_tokens * self.PIXELS_PER_TOKEN,
+            "shortest_edge": min_pixels,
+            "longest_edge": max_pixels,
         }
 
         self.model.eval()

@@ -7,7 +7,8 @@ The evaluator intentionally ignores texture and color. It samples points on
 the mesh surfaces, registers each candidate to a reference with rotation and
 translation only, and reports an unsquared symmetric Chamfer-L2 distance. The
 distance is normalized by the reference axis-aligned bounding-box diagonal so
-objects of different physical sizes can be summarized together.
+objects of different physical sizes can be summarized together. Uniform scale
+uses exact area-weighted surface moments rather than sampled points.
 
 This is analysis tooling, not a reconstruction-stage or EVT pass/fail gate.
 """
@@ -137,6 +138,57 @@ def rms_surface_radius(points: np.ndarray) -> float:
     if not math.isfinite(radius) or radius <= _EPSILON:
         raise ValueError("surface points have zero or invalid RMS radius")
     return radius
+
+
+def area_weighted_surface_moments(
+    mesh: trimesh.Trimesh,
+) -> tuple[np.ndarray, float]:
+    """Return the exact surface centroid and RMS radius of a triangle mesh.
+
+    The integral is evaluated analytically for each triangle and weighted by
+    triangle area. It is therefore deterministic and insensitive to sampling
+    seed or triangle density for an unchanged piecewise-linear surface.
+    """
+
+    triangles = np.asarray(mesh.triangles, dtype=np.float64)
+    if triangles.ndim != 3 or triangles.shape[1:] != (3, 3):
+        raise ValueError("mesh triangles must have shape (N, 3, 3)")
+    if not np.isfinite(triangles).all():
+        raise ValueError("mesh triangles contain non-finite values")
+
+    areas = 0.5 * np.linalg.norm(
+        np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0]),
+        axis=1,
+    )
+    valid = np.isfinite(areas) & (areas > _EPSILON)
+    if not np.any(valid):
+        raise ValueError("mesh has no positive-area triangles")
+    triangles = triangles[valid]
+    areas = areas[valid]
+    total_area = float(np.sum(areas))
+    if not math.isfinite(total_area) or total_area <= _EPSILON:
+        raise ValueError("mesh has zero or invalid surface area")
+
+    triangle_centroids = np.mean(triangles, axis=1)
+    centroid = np.sum(triangle_centroids * areas[:, None], axis=0) / total_area
+
+    centered = triangles - centroid[None, None, :]
+    squared_norms = np.einsum("tij,tij->ti", centered, centered)
+    pairwise_dots = (
+        np.einsum("ti,ti->t", centered[:, 0], centered[:, 1])
+        + np.einsum("ti,ti->t", centered[:, 0], centered[:, 2])
+        + np.einsum("ti,ti->t", centered[:, 1], centered[:, 2])
+    )
+    triangle_mean_squared_radius = (
+        np.sum(squared_norms, axis=1) + pairwise_dots
+    ) / 6.0
+    mean_squared_radius = float(
+        np.sum(areas * triangle_mean_squared_radius) / total_area
+    )
+    radius = math.sqrt(max(mean_squared_radius, 0.0))
+    if not math.isfinite(radius) or radius <= _EPSILON:
+        raise ValueError("mesh surface has zero or invalid RMS radius")
+    return centroid, radius
 
 
 def _as_points(points: np.ndarray, name: str) -> np.ndarray:
@@ -369,9 +421,56 @@ def _mesh_metadata(mesh: trimesh.Trimesh, path: Path | None) -> dict[str, Any]:
         "surface_area": float(mesh.area),
     }
     if path is not None:
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
         metadata["path"] = str(path)
         metadata["file_size_mb"] = path.stat().st_size / 1_000_000.0
+        metadata["sha256"] = digest.hexdigest()
     return metadata
+
+
+def aligned_bounding_box_metrics(
+    reference_mesh: trimesh.Trimesh,
+    candidate_mesh: trimesh.Trimesh,
+    rotation: np.ndarray,
+) -> dict[str, Any]:
+    """Compare candidate bounds in the rigidly aligned reference frame."""
+
+    reference_extents = np.asarray(reference_mesh.extents, dtype=np.float64)
+    candidate_vertices = np.asarray(candidate_mesh.vertices, dtype=np.float64)
+    aligned_vertices = candidate_vertices @ np.asarray(rotation, dtype=np.float64).T
+    candidate_extents = np.ptp(aligned_vertices, axis=0)
+    if (
+        reference_extents.shape != (3,)
+        or candidate_extents.shape != (3,)
+        or not np.isfinite(reference_extents).all()
+        or not np.isfinite(candidate_extents).all()
+        or np.any(reference_extents <= _EPSILON)
+        or np.any(candidate_extents <= _EPSILON)
+    ):
+        raise ValueError("aligned mesh bounds are zero or invalid")
+
+    extent_ratios = candidate_extents / reference_extents
+    extent_errors = (
+        np.maximum(extent_ratios, np.reciprocal(extent_ratios)) - 1.0
+    ) * 100.0
+    reference_diagonal = float(np.linalg.norm(reference_extents))
+    candidate_diagonal = float(np.linalg.norm(candidate_extents))
+    diagonal_ratio = candidate_diagonal / reference_diagonal
+    diagonal_error = (max(diagonal_ratio, 1.0 / diagonal_ratio) - 1.0) * 100.0
+    return {
+        "reference_extents": reference_extents.tolist(),
+        "candidate_extents": candidate_extents.tolist(),
+        "candidate_to_reference_extent_ratios": extent_ratios.tolist(),
+        "symmetric_extent_errors_pct": extent_errors.tolist(),
+        "maximum_symmetric_extent_error_pct": float(np.max(extent_errors)),
+        "reference_diagonal": reference_diagonal,
+        "candidate_diagonal": candidate_diagonal,
+        "candidate_to_reference_diagonal_ratio": diagonal_ratio,
+        "symmetric_diagonal_error_pct": diagonal_error,
+    }
 
 
 def evaluate_mesh_pair(
@@ -408,8 +507,12 @@ def evaluate_mesh_pair(
         stable_seed(object_id, method, "alignment", base_seed=config.seed),
     )
 
-    reference_radius = rms_surface_radius(reference_metric)
-    candidate_radius = rms_surface_radius(candidate_metric)
+    reference_surface_center, reference_radius = area_weighted_surface_moments(
+        reference_mesh
+    )
+    candidate_surface_center, candidate_radius = area_weighted_surface_moments(
+        candidate_mesh
+    )
     scale_ratio = candidate_radius / reference_radius
     symmetric_scale_error = (max(scale_ratio, 1.0 / scale_ratio) - 1.0) * 100.0
     reference_diagonal = float(np.linalg.norm(reference_mesh.extents))
@@ -432,14 +535,16 @@ def evaluate_mesh_pair(
         reference_diagonal=reference_diagonal,
         threshold_percents=config.threshold_percents,
     )
+    aligned_bounds = aligned_bounding_box_metrics(
+        reference_mesh, candidate_mesh, rotation
+    )
 
-    candidate_center = candidate_metric.mean(axis=0)
     normalized_metric = (
-        candidate_metric - candidate_center
-    ) / scale_ratio + candidate_center
+        candidate_metric - candidate_surface_center
+    ) / scale_ratio + candidate_surface_center
     normalized_alignment = (
-        candidate_alignment - candidate_center
-    ) / scale_ratio + candidate_center
+        candidate_alignment - candidate_surface_center
+    ) / scale_ratio + candidate_surface_center
     normalized_rotation, normalized_translation, normalized_score = (
         align_rigid_multistart(
             reference_alignment,
@@ -466,8 +571,13 @@ def evaluate_mesh_pair(
         "reference": _mesh_metadata(reference_mesh, reference_path),
         "candidate": _mesh_metadata(candidate_mesh, candidate_path),
         "reference_diagonal": reference_diagonal,
+        "reference_surface_centroid": reference_surface_center.tolist(),
+        "candidate_surface_centroid": candidate_surface_center.tolist(),
+        "reference_rms_surface_radius": reference_radius,
+        "candidate_rms_surface_radius": candidate_radius,
         "scale_ratio_to_reference": scale_ratio,
         "symmetric_scale_error_pct": symmetric_scale_error,
+        "aligned_bounding_box": aligned_bounds,
         "as_delivered": delivered_metrics,
         "shape_scale_normalized": shape_metrics,
         "alignment": {
@@ -525,7 +635,13 @@ def metric_definition(config: EvaluationConfig) -> dict[str, Any]:
         "precision": "Candidate surface points within the threshold of reference.",
         "recall": "Reference surface points within the threshold of candidate.",
         "scale_ratio": (
-            "Candidate RMS surface radius divided by reference RMS surface radius."
+            "Candidate exact area-weighted RMS surface radius divided by the "
+            "reference exact area-weighted RMS surface radius."
+        ),
+        "aligned_bounding_box": (
+            "Candidate axis-aligned bounds after applying the delivered rigid "
+            "registration, compared in the reference coordinate frame. These "
+            "metrics include both scale and shape-envelope differences."
         ),
         "shape_scale_normalized": (
             "Candidate is uniformly rescaled by the inverse RMS-radius ratio, then "

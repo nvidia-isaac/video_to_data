@@ -1,0 +1,8 @@
+mode: online
+entity: nvidia-isaac
+project: v2d-flash-chord
+experiment: sharpa
+run_name: ppo
+log_interval: 1
+upload_checkpoints: true
+upload_training_state: false

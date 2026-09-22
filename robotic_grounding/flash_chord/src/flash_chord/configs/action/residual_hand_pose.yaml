@@ -1,0 +1,17 @@
+_target_: flash_chord.runtime.actions.ActionConfig
+input_mode: raw
+normalized_mapping: linear
+wrist_pos_scale: 0.05
+wrist_ori_scale: 0.15
+finger_joint_pos_scale: 0.15
+wrist_pos_clip: 0.2
+wrist_ori_clip: 1.0
+finger_joint_pos_clip: 1.0
+ema: 0.3
+wrist_kp: 25.0
+wrist_tau_max: 45.0
+delay:
+  _target_: flash_chord.runtime.delay.TargetDelayConfig
+  min_steps: 0
+  max_steps: 0
+  seed: 0

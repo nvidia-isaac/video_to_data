@@ -6,7 +6,11 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from robotic_grounding.retarget.ground_alignment import ReferencePlane
+from robotic_grounding.retarget.ground_alignment import (
+    ReferencePlane,
+    compute_object_ground_lift,
+    compute_plane_leveling_transform,
+)
 
 
 def test_horizontal_factory_matches_legacy_signed_distance() -> None:
@@ -106,3 +110,65 @@ def test_signed_distance_rejects_wrong_trailing_dim() -> None:
     plane = ReferencePlane.horizontal()
     with pytest.raises(ValueError):
         plane.signed_distance(np.zeros((3, 2)))
+
+
+def test_plane_leveling_transform_maps_fitted_plane_to_world_z0() -> None:
+    """The leveling rigid transform maps tilted on-plane points onto z=0."""
+    plane = ReferencePlane(normal=(0.2, -0.1, 0.97), offset=0.8)
+    rotation, translation = compute_plane_leveling_transform(plane)
+
+    normal = np.asarray(plane.normal)
+    np.testing.assert_allclose(rotation @ normal, [0.0, 0.0, 1.0], atol=1e-12)
+    np.testing.assert_allclose(rotation.T @ rotation, np.eye(3), atol=1e-12)
+    np.testing.assert_allclose(np.linalg.det(rotation), 1.0, atol=1e-12)
+
+    xy = np.array([[0.0, 0.0], [1.5, -0.7], [-2.0, 0.4]])
+    z = -(normal[0] * xy[:, 0] + normal[1] * xy[:, 1] + plane.offset) / normal[2]
+    points = np.column_stack([xy, z])
+    leveled = (rotation @ points.T).T + translation
+    np.testing.assert_allclose(leveled[:, 2], 0.0, atol=1e-12)
+
+
+def test_plane_leveling_transform_horizontal_plane_is_translation_only() -> None:
+    """A horizontal fitted plane at z=-d only needs a +d Z translation."""
+    plane = ReferencePlane(normal=(0.0, 0.0, 1.0), offset=0.75)
+    rotation, translation = compute_plane_leveling_transform(plane)
+    np.testing.assert_allclose(rotation, np.eye(3), atol=1e-12)
+    np.testing.assert_allclose(translation, [0.0, 0.0, 0.75], atol=1e-12)
+
+
+def test_object_ground_lift_clears_frame_zero_penetration() -> None:
+    vertices = np.array([[0.0, 0.0, -0.00423], [0.1, 0.0, 0.2]])
+    correction = compute_object_ground_lift(vertices, ReferencePlane.horizontal())
+
+    assert correction.minimum_signed_distance == pytest.approx(-0.00423)
+    assert correction.penetration_depth == pytest.approx(0.00423)
+    assert correction.requested_lift == pytest.approx(0.00473)
+    assert correction.applied_lift == pytest.approx(0.00473)
+    assert not correction.capped
+
+
+def test_object_ground_lift_does_not_pull_object_down() -> None:
+    vertices = np.array([[0.0, 0.0, 0.2], [0.1, 0.0, 0.3]])
+    correction = compute_object_ground_lift(vertices, ReferencePlane.horizontal())
+
+    assert correction.applied_lift == 0.0
+    assert not correction.capped
+
+
+def test_object_ground_lift_ignores_sub_tolerance_penetration() -> None:
+    vertices = np.array([[0.0, 0.0, -0.0004], [0.1, 0.0, 0.2]])
+    correction = compute_object_ground_lift(vertices, ReferencePlane.horizontal())
+
+    assert correction.penetration_depth == pytest.approx(0.0004)
+    assert correction.requested_lift == 0.0
+    assert correction.applied_lift == 0.0
+
+
+def test_object_ground_lift_is_capped_at_one_centimeter() -> None:
+    vertices = np.array([[0.0, 0.0, -0.03], [0.1, 0.0, 0.2]])
+    correction = compute_object_ground_lift(vertices, ReferencePlane.horizontal())
+
+    assert correction.requested_lift == pytest.approx(0.0305)
+    assert correction.applied_lift == pytest.approx(0.01)
+    assert correction.capped

@@ -1,0 +1,82 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+version: 2
+workflow:
+  name: "{{ workflow_name }}"
+  resources:
+    default:
+      cpu: 15
+      gpu: 1
+      memory: 120Gi
+      storage: 100Gi
+
+  tasks:
+  - name: evaluate
+    image: "{{ image }}"
+    command: [/bin/bash]
+    args: [/tmp/evaluate.sh]
+    credentials:
+      "{{ wandb_credential }}":
+        WANDB_API_KEY: wandb_api_key
+    files:
+    - path: /tmp/evaluate.sh
+      contents: |-
+        set -euo pipefail
+
+        export XLA_PYTHON_CLIENT_PREALLOCATE=false
+        export MUJOCO_GL=egl
+
+        # Report into the training run rather than a new one; the id is the same digest the
+        # training workflow pins.
+        export WANDB_RUN_ID={{ run_id }}
+        export WANDB_RESUME=allow
+
+        cd /workspace
+        EXP_DIR={{output}}
+        mkdir -p /tmp/checkpoint "${EXP_DIR}"
+
+        ARTIFACT={{ checkpoint_artifact }}
+        if [[ -z "${ARTIFACT}" ]]; then
+          ARTIFACT={{ entity }}/{{ project }}/run-{{ run_id }}-checkpoint
+        fi
+        for attempt in 1 2 3 4 5; do
+          wandb artifact get \
+            "${ARTIFACT}:{{ checkpoint_alias }}" \
+            --root /tmp/checkpoint && break
+          sleep 10
+        done
+        CHECKPOINT=$(find /tmp/checkpoint -maxdepth 1 -type f \
+          \( -name 'policy_*.safetensors' -o -name 'model_*.safetensors' \) \
+          -print | sort -V | tail -1)
+        test -n "${CHECKPOINT}"
+        echo "evaluating ${CHECKPOINT}"
+
+        python -u scripts/evaluate_policy.py \
+          "evaluation.checkpoint='${CHECKPOINT}'" \
+          evaluation.world_count={{ evaluation_worlds }} \
+          evaluation.reset_mode={{ evaluation_reset_mode }} \
+          "evaluation.metrics_output=${EXP_DIR}/evaluation-{{ evaluation_reset_mode }}.json" \
+          logging.mode={{ logging_mode }} \
+          logging.entity={{ entity }} \
+          logging.project={{ project }} \
+          logging.run_name={{ run_name }} \
+          2>&1 | tee "${EXP_DIR}/evaluation.log"
+
+    outputs:
+    - url: "{{ output_url }}/{{ workflow_name }}/"
+
+default-values:
+  workflow_name: flash-chord-evaluate
+  image: nvcr.io/nvstaging/isaac-amr/flash-chord:latest
+  wandb_credential: wandb-cred
+  entity: nvidia-isaac
+  project: v2d-flash-chord
+  run_name: ???
+  run_id: ???
+  checkpoint_artifact: ""
+  checkpoint_alias: latest
+  evaluation_worlds: 4096
+  evaluation_reset_mode: explicit
+  logging_mode: online
+  output_url: swift://pdx.s8k.io/AUTH_team-isaac/datasets/training_outputs/flash-chord

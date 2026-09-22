@@ -1,0 +1,93 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+version: 2
+workflow:
+  name: "{{ workflow_name }}"
+  resources:
+    default:
+      cpu: 15
+      gpu: 1
+      memory: 120Gi
+      storage: 100Gi
+
+  tasks:
+  - name: train
+    image: "{{ image }}"
+    command: [/bin/bash]
+    args: [/tmp/train.sh]
+    credentials:
+      "{{ wandb_credential }}":
+        WANDB_API_KEY: wandb_api_key
+    files:
+    - path: /tmp/train.sh
+      contents: |-
+        set -euo pipefail
+        export XLA_PYTHON_CLIENT_PREALLOCATE=false
+        export MUJOCO_GL=egl
+        export WANDB_RUN_ID=$(printf '%s' "{{ run_name }}" | sha1sum | cut -c1-20)
+        export WANDB_RESUME=allow
+
+        cd /workspace
+        EXP_DIR={{output}}
+        mkdir -p "${EXP_DIR}"
+
+        ARGS=(
+          experiment={{ experiment }}
+          "task.parquet='{{ parquet }}'"
+          scene.support={{ include_support }}
+          logging.run_name={{ run_name }}
+          logging.project={{ wandb_project }}
+          logging.mode={{ logging_mode }}
+          logging.upload_checkpoints={{ upload_checkpoints }}
+          "output_dir=${EXP_DIR}"
+        )
+        if [[ -n "{{ seed }}" ]]; then
+          ARGS+=(reset.seed={{ seed }})
+        fi
+        if [[ -n "{{ resume_checkpoint }}" ]]; then
+          ARGS+=(training.resume=true "training.checkpoint_path='{{ resume_checkpoint }}'")
+        fi
+
+        python -u scripts/train_flash_sac.py "${ARGS[@]}" 2>&1 | tee "${EXP_DIR}/train.log"
+
+        if [[ "{{ evaluate_at_end }}" == [Tt]rue ]]; then
+          CHECKPOINT=$(find "${EXP_DIR}" -maxdepth 1 -name 'policy_*.safetensors' -print | sort -V | tail -1)
+          test -n "${CHECKPOINT}"
+          for attempt in 1 2; do
+            if python -u scripts/evaluate_policy.py \
+                "evaluation.checkpoint='${CHECKPOINT}'" \
+                evaluation.world_count={{ evaluation_worlds }} \
+                "evaluation.metrics_output=${EXP_DIR}/evaluation.json" \
+                logging.mode={{ logging_mode }} \
+                logging.project={{ wandb_project }} \
+                logging.run_name={{ run_name }} \
+                2>&1 | tee -a "${EXP_DIR}/evaluation.log"; then
+              break
+            fi
+            if [[ "${attempt}" == 2 ]]; then
+              exit 1
+            fi
+            sleep 120
+          done
+        fi
+
+    outputs:
+    - url: "{{ output_url }}/{{ run_name }}/"
+
+default-values:
+  workflow_name: flash-chord-flash-sac
+  image: nvcr.io/nvstaging/isaac-amr/flash-chord:latest
+  wandb_credential: wandb-cred
+  wandb_project: v2d-flash-chord
+  run_name: sharpa-flash-sac
+  experiment: sharpa_flash_sac
+  parquet: ???
+  include_support: true
+  output_url: swift://pdx.s8k.io/AUTH_team-isaac/datasets/training_outputs/flash-chord
+  logging_mode: online
+  upload_checkpoints: true
+  seed: 42
+  resume_checkpoint: ""
+  evaluate_at_end: true
+  evaluation_worlds: 4096

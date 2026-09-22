@@ -1,0 +1,30 @@
+# @package _global_
+
+# Canonical floating Sharpa-hand PPO reference recipe.
+defaults:
+  - override /sim: rl
+  - override /scene: train
+  - override /collision: training
+  - override /embodiment: sharpa_hands
+  - override /action: residual_hand_pose
+  - override /observation: policy
+  - override /objective: tracking
+  - override /termination: tracking
+  - override /reset: reference
+  - override /env: rl
+  - override /curriculum: reference
+  - override /training: reference_ppo
+  - _self_
+
+task:
+  motion_speed: 0.5
+  source_frame_playback: false
+  motion_start_frame: 0
+  motion_end_frame: -1
+
+scene:
+  world_count: 4096
+
+logging:
+  experiment: sharpa
+  run_name: sharpa_ppo

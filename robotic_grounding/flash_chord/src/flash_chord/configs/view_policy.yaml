@@ -1,0 +1,31 @@
+defaults:
+  - task: default
+  - sim: rl
+  - scene: eval
+  - collision: training
+  - embodiment: sharpa_hands
+  - action: residual_hand_pose
+  - observation: policy
+  - objective: tracking
+  - termination: tracking
+  - reset: reference
+  - env: rl
+  - curriculum: reference
+  - logging: wandb
+  - training: reference_ppo
+  - evaluation: view
+  - markers: default
+  - viewer: default
+  - _self_
+
+logging:
+  mode: disabled
+
+env:
+  voc_scale: 0.0
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/view_policy/${now:%Y-%m-%d_%H-%M-%S}

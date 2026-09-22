@@ -1,0 +1,11 @@
+_target_: flash_chord.lifecycle.reset.ReconBodyResetConfig
+reset_freeze_steps: 50
+voc_decay_steps: 10
+reset_voc_scale: 1.0
+shoulder_spread: 0.2
+start_frame: 0
+end_frame: -1
+always_reset_to_first_frame: false
+reset_to_first_frame_probability: 0.0
+immediate_first_frame_probability: 0.0
+seed: 42

@@ -1,31 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Script to retarget SOMA-X (NVlabs SOMA) motion to G1 whole body using Pink IK.
-
-Reads the SOMA exporter schema: ``soma_params.npz`` + object pose file +
-object glTF/OBJ + optional ``ground_plane.json``.
-
-The output parquet shares the same ``motion_v1`` schema used by training and
-replay; only the dataset folder differs:
-
-    HUMAN_MOTION_DATA_DIR / "whole_body" / "soma" /
-        sequence_id=<folder_name>/robot_name=g1/data.parquet
-
-Usage:
-    python scripts/retarget/soma_to_g1.py <data_folder> --save
-    python scripts/retarget/soma_to_g1.py <data_folder> --visualize
-
-Where ``data_folder`` contains:
-    - soma_params.npz (SOMA-X exported pose + identity parameters)
-    - poses.npy (object trajectory as 4x4 transforms)
-    - reconstructed_mesh/output_aligned.glb (reconstructed object mesh; converted to .obj for sim)
-    - ground_plane.json (optional reconstruction-side ground plane fit)
-"""
+"""Retarget SOMA-X body and object trajectories to G1 with Pink IK."""
 
 from __future__ import annotations
 
 import argparse
-import os
 import pickle
 import shutil
 import time
@@ -38,14 +17,9 @@ import viser
 from robotic_grounding.motion_schema import MotionData, save_motion_parquet
 from robotic_grounding.retarget import G1_URDF_DIR, HUMAN_MOTION_DATA_DIR
 from robotic_grounding.retarget.ground_alignment import (
-    FirstPassResult,
-    InteractionMaskConfig,
-    ObjectCorrectionConfig,
-    PlaneAlignmentConfig,
     ReferencePlane,
-    compute_interaction_mask,
-    compute_plane_alignment_offsets,
-    correct_object_trajectory,
+    compute_object_ground_lift,
+    compute_plane_leveling_transform,
     load_ground_plane_robot_frame,
 )
 from robotic_grounding.retarget.params import SOMA_JOINTS_ORDER
@@ -60,15 +34,10 @@ from tqdm import tqdm
 
 G1_URDF = G1_URDF_DIR / "main_with_hand.urdf"
 PACKAGE_DIRS = [str(G1_URDF_DIR)]
-# First-pass IK snapshot consumed by ``scripts/retarget/rerun_post_process.py``.
-# Cache key is suffixed with a schema version. Bump when the cached
-# FirstPassResult layout changes (field rename, new required field, etc.)
-# so stale pickles from a previous schema are not read back into a
-# differently-shaped dataclass.
-FIRST_PASS_CACHE_DIR = Path(
-    os.environ.get("SOMA_FIRST_PASS_CACHE_DIR", "/tmp/soma_g1_processed_cache_v2")
-)
 REPO_ROOT = Path(__file__).resolve().parents[2]
+OBJECT_GROUND_PENETRATION_TOLERANCE_M = 5e-4
+OBJECT_GROUND_CLEARANCE_M = 5e-4
+OBJECT_GROUND_MAX_LIFT_M = 1e-2
 
 
 def _usd_safe(name: str) -> str:
@@ -80,18 +49,7 @@ def _usd_safe(name: str) -> str:
 
 
 def _convert_glb_to_obj(glb_path: Path, dst_dir: Path) -> Path:
-    """Convert a SOMA object ``.glb`` into a flat ``textured_mesh.obj`` next to it.
-
-    The robotic_grounding pipeline prefers ``.obj`` next to the parquet so
-    Isaac Sim's URDF importer can resolve materials/textures without
-    glTF-specific handling. ``trimesh`` happily concatenates a glTF scene
-    into a single mesh; this is sufficient for retargeting because we use
-    the geometry only for contact distance and visualization.
-
-    Reuses an existing ``textured_mesh.obj`` instead of re-exporting, so
-    repeated runs over the same sequence skip the glTF load. Delete the
-    ``.obj`` to force a rebuild after the source ``.glb`` changes.
-    """
+    """Return a cached flat OBJ, creating it from the source GLB if needed."""
     obj_path = dst_dir / "textured_mesh.obj"
     if obj_path.is_file():
         return obj_path
@@ -187,6 +145,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--save", action="store_true", help="Save retargeted data")
     parser.add_argument(
         "--scale", type=float, default=1.0, help="Scale factor from SOMA to robot"
+    )
+    parser.add_argument(
+        "--fps",
+        type=float,
+        default=30.0,
+        help="Source and output motion frame rate.",
     )
     parser.add_argument(
         "--contact-threshold",
@@ -307,28 +271,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def load_data(folder_path: str) -> tuple[str, str, np.ndarray]:
-    """Locate SOMA params, raw object poses, and a usable object mesh path.
-
-    Two transforms apply to the object trajectory between disk and the IK
-    loop. This function applies the first; ``main`` applies the second:
-
-    1. **CV -> SOMA world** (here, via ``_convert_object_poses_cv_to_soma``).
-       ``poses.npy`` is in OpenCV camera convention (X=right, Y=down,
-       Z=forward) while ``SOMALayer.transl`` is in SOMA's "Y up,
-       Z toward camera" frame. Without this flip the body and object
-       live in two different worlds.
-    2. **First-frame anchoring** (deferred to ``main``). After SOMA loads
-       the motion we know the frame-0 root translation/rotation; the same
-       ``(p - transl_first) @ R_first_inv.T`` transform that ``SOMA.load_motion``
-       applies to the body must be applied to the object trajectory or
-       the object slides off in the retargeted output.
-
-    Returns:
-        Tuple of (soma_params_path, mesh_path, object_poses_world).
-        ``mesh_path`` is the converted ``.obj``; ``object_poses_world`` is
-        the ``poses.npy`` array of shape ``(T, 4, 4)`` after the
-        CV -> SOMA flip but **before** first-frame anchoring.
-    """
+    """Load SOMA paths and object poses converted from OpenCV to SOMA axes."""
     folder = Path(folder_path).resolve()
     soma_params_path = folder / "soma_params.npz"
     poses_path = folder / "poses.npy"
@@ -361,32 +304,36 @@ def load_data(folder_path: str) -> tuple[str, str, np.ndarray]:
     return str(soma_params_path), str(mesh_path), object_poses_world
 
 
-# The object trajectory stored in ``poses.npy`` is in OpenCV camera
-# convention (X=right, Y=down, Z=forward), while the SOMA body wrapper
-# expresses ``transl`` in the body model's "Y up, Z toward camera (negative
-# Z forward)" frame. Confirmed empirically on the snack_box_pick sequence:
-# negating Y and Z on the object brings body-object distance from
-# ~6.6 m down to ~2.0 m at sequence start (which matches the recorded
-# scene where the human is ~2 m away from the box) and ~0.35 m at the
-# pick-up frame.
+# OpenCV world (X right, Y down, Z forward) to SOMA world (X right, Y up).
 _R_CV_TO_SOMA = np.diag([1.0, -1.0, -1.0, 1.0])
 
 
 def _convert_object_poses_cv_to_soma(object_poses_cv: np.ndarray) -> np.ndarray:
-    """Convert a (T, 4, 4) object pose trajectory from OpenCV to SOMA world frame.
-
-    Applied via left-multiplication ``T_soma = R_cv2soma @ T_cv``. This
-    flips the world Y and Z axes so the object lives in the same frame
-    that ``SOMALayer`` uses for ``transl``. Without this, the body and
-    object end up in two different worlds and the relative hand-object
-    pose is meaningless.
-    """
+    """Convert object poses from OpenCV world axes to SOMA world axes."""
     return np.einsum("ij,tjk->tik", _R_CV_TO_SOMA, object_poses_cv)
+
+
+def _left_multiply_world_wxyz(
+    quaternions_wxyz: np.ndarray,
+    world_rotation: np.ndarray,
+) -> np.ndarray:
+    """Apply one world-frame rotation to an arbitrary batch of quaternions."""
+    quaternions = np.asarray(quaternions_wxyz)
+    original_shape = quaternions.shape
+    if not original_shape or original_shape[-1] != 4:
+        raise ValueError(
+            "quaternions_wxyz must have trailing dimension 4; " f"got {original_shape}"
+        )
+    matrices = R.from_quat(quaternions.reshape(-1, 4), scalar_first=True).as_matrix()
+    rotated = np.einsum("ij,njk->nik", world_rotation, matrices)
+    return R.from_matrix(rotated).as_quat(scalar_first=True).reshape(original_shape)
 
 
 def main() -> None:
     """Main function."""
     args = parse_args()
+    if args.fps <= 0.0:
+        raise ValueError(f"--fps must be positive, got {args.fps}.")
     save_dir = args.motion_root.expanduser().resolve() / "whole_body" / args.soma_subdir
 
     data_folder = Path(args.data_folder)
@@ -409,22 +356,9 @@ def main() -> None:
         identity_model_type=args.identity_model_type,
         device=device,
     )
-    # First-frame anchoring: the SOMA exporter writes ``transl`` in raw
-    # world coordinates, so Hips can sit
-    # several meters off the origin with arbitrary heading. The in-loop
-    # ground-anchoring step below assumes the body is already centered at
-    # the origin with canonical heading; without this normalization the
-    # frame-0 ``ground_z_offset`` is computed against an off-origin pose
-    # and the retargeted robot ends up floating / sinking relative to the
-    # ground plane. The same transform is applied to the object trajectory
-    # below to keep relative hand-object pose intact.
+    # Anchor body and object to the source body's first-frame root pose.
     motion = soma.load_motion(params_path=soma_params_path, normalize=True)
 
-    # Apply the SAME first-frame transform to the object trajectory so the
-    # body and object stay co-located after anchoring.
-    # ``object_poses_world`` is already in the SOMA world frame (the CV->SOMA
-    # axis flip happened in ``load_data``), so we just left-multiply each
-    # 4x4 pose by ``T_anchor = [[R_first_inv, -R_first_inv @ transl_first], [0, 1]]``.
     transl_first = motion["first_frame_transl"]
     R_first_inv = motion["first_frame_R_inv"]
     norm_transform = np.eye(4)
@@ -432,10 +366,7 @@ def main() -> None:
     norm_transform[:3, 3] = -R_first_inv @ transl_first
     object_poses = np.einsum("ij,tjk->tik", norm_transform, object_poses_world)
 
-    # Optional reconstruction-side ground plane. The same chain of transforms
-    # that brings ``poses.npy`` into the robot frame must be applied to the
-    # plane equation. Returns ``None`` when ``ground_plane.json`` is absent so
-    # the post-process below falls back to the legacy horizontal plane.
+    # Transform the fitted plane through the same frame chain as the motion.
     ground_plane_path = Path(args.data_folder) / "ground_plane.json"
     reconstructed_plane = load_ground_plane_robot_frame(
         ground_plane_path,
@@ -443,21 +374,112 @@ def main() -> None:
         first_frame_anchor=norm_transform,
         source_to_robot=np.asarray(config.r_world, dtype=np.float64),
     )
-    if reconstructed_plane is not None:
-        print(
-            "[soma_to_g1] grounding plane: reconstructed "
-            f"(normal={reconstructed_plane.normal}, "
-            f"offset={reconstructed_plane.offset:+.4f})"
-        )
-    else:
-        print(
-            "[soma_to_g1] grounding plane: fallback ReferencePlane.horizontal(z=0.0); "
-            f"no ground_plane.json found at {ground_plane_path}"
-        )
-
     joint_pos = motion["joints"]
     joint_rot_wxyz = motion["joints_wxyz"]
     vertices = motion["vertices"]
+
+    source_to_robot = np.asarray(config.r_world, dtype=np.float64)
+    if reconstructed_plane is not None:
+        alignment_plane = reconstructed_plane
+        ground_plane_source = "reconstructed"
+        print(
+            "[soma_to_g1] grounding plane: reconstructed "
+            f"(normal={alignment_plane.normal}, "
+            f"offset={alignment_plane.offset:+.4f})"
+        )
+    else:
+        # Fall back to a horizontal plane at the frame-0 body-mesh minimum.
+        frame0_vertices_robot = kin.transform_source_position(vertices[0])
+        fallback_z = float(frame0_vertices_robot[:, 2].min())
+        alignment_plane = ReferencePlane.horizontal(z=fallback_z)
+        ground_plane_source = "frame0_body_mesh_fallback"
+        print(
+            "[soma_to_g1] grounding plane: frame-0 body-mesh fallback "
+            f"(z={fallback_z:+.4f}); no ground_plane.json found at "
+            f"{ground_plane_path}"
+        )
+
+    # Level body, object, and visualization geometry together before IK.
+    (
+        ground_level_rotation_robot,
+        ground_level_translation_robot,
+    ) = compute_plane_leveling_transform(alignment_plane)
+    ground_level_rotation_source = (
+        source_to_robot.T @ ground_level_rotation_robot @ source_to_robot
+    )
+    ground_level_translation_source = source_to_robot.T @ ground_level_translation_robot
+
+    joint_pos = (
+        np.einsum("ij,tkj->tki", ground_level_rotation_source, joint_pos)
+        + ground_level_translation_source
+    )
+    joint_rot_wxyz = _left_multiply_world_wxyz(
+        joint_rot_wxyz,
+        ground_level_rotation_source,
+    )
+    if args.visualize:
+        vertices = (
+            np.einsum(
+                "ij,tvj->tvi",
+                ground_level_rotation_source,
+                vertices,
+            )
+            + ground_level_translation_source
+        )
+
+    ground_level_transform_source = np.eye(4, dtype=np.float64)
+    ground_level_transform_source[:3, :3] = ground_level_rotation_source
+    ground_level_transform_source[:3, 3] = ground_level_translation_source
+    object_poses = np.einsum(
+        "ij,tjk->tik",
+        ground_level_transform_source,
+        object_poses,
+    )
+
+    _obj_verts = []
+    with open(object_mesh_path) as _f:
+        for _line in _f:
+            if _line.startswith("v "):
+                _parts = _line.split()
+                _obj_verts.append(
+                    [float(_parts[1]), float(_parts[2]), float(_parts[3])]
+                )
+    object_mesh_vertices = np.array(_obj_verts, dtype=np.float64)
+    object_mesh_vertices_f32 = object_mesh_vertices.astype(np.float32)
+
+    frame0_object_position_w = kin.transform_source_position(object_poses[0, :3, 3])
+    frame0_object_rotation_w = kin.transform_world_rotation(object_poses[0, :3, :3])
+    frame0_object_vertices_w = (
+        object_mesh_vertices @ frame0_object_rotation_w.T + frame0_object_position_w
+    )
+    object_ground_lift = compute_object_ground_lift(
+        frame0_object_vertices_w,
+        ReferencePlane.horizontal(),
+        penetration_tolerance=OBJECT_GROUND_PENETRATION_TOLERANCE_M,
+        clearance=OBJECT_GROUND_CLEARANCE_M,
+        max_lift=OBJECT_GROUND_MAX_LIFT_M,
+    )
+    lift_robot = np.array([0.0, 0.0, object_ground_lift.applied_lift], dtype=np.float64)
+    object_poses[:, :3, 3] += source_to_robot.T @ lift_robot
+    print(
+        "[soma_to_g1] object frame-0 ground correction: "
+        f"minimum={object_ground_lift.minimum_signed_distance:+.4f} m, "
+        f"requested={object_ground_lift.requested_lift:+.4f} m, "
+        f"applied={object_ground_lift.applied_lift:+.4f} m, "
+        f"cap={OBJECT_GROUND_MAX_LIFT_M:.4f} m"
+        f"{' (capped)' if object_ground_lift.capped else ''}"
+    )
+
+    tilt_degrees = float(
+        np.degrees(np.arccos(np.clip(float(alignment_plane.normal[2]), -1.0, 1.0)))
+    )
+    print(
+        "[soma_to_g1] single-pass plane leveling: "
+        f"tilt={tilt_degrees:.3f} deg -> +Z, "
+        f"translation_z={ground_level_translation_robot[2]:+.4f} m, "
+        "final_plane=z=0"
+    )
+
     num_frames = motion["num_frames"]
     soma_joint_names = motion["joint_names"]
     if soma_joint_names != SOMA_JOINTS_ORDER:
@@ -470,11 +492,7 @@ def main() -> None:
             f"poses.npy length ({len(object_poses)}) != motion frames ({num_frames})"
         )
 
-    # Resolve and validate --start-frame / --end-frame against the original
-    # source length, then slice every per-frame array down to the requested
-    # window. The first-frame anchoring above already ran against the
-    # ORIGINAL frame 0, so positions in the saved trajectory stay
-    # comparable across different windows.
+    # Keep partial runs in the coordinate frame anchored to original frame 0.
     start_frame = int(args.start_frame)
     end_frame = int(num_frames) if args.end_frame is None else int(args.end_frame)
     if start_frame < 0 or start_frame >= num_frames:
@@ -499,11 +517,7 @@ def main() -> None:
         object_poses = object_poses[start_frame:end_frame]
     n_iter_frames = int(end_frame - start_frame)
 
-    # Input folders are usually the Hive partition dirs themselves
-    # (``sequence_id=<id>/``) and the id is re-emitted as the output partition
-    # key, so keeping the prefix would nest the parquet under a doubled
-    # ``sequence_id=sequence_id%3D<id>`` — pyarrow percent-encodes the inner
-    # ``=``, which then no longer matches the path the writer looks in.
+    # Avoid duplicating the Hive partition prefix in the output path.
     sequence_id = data_folder.name.removeprefix("sequence_id=")
 
     head_idx = SOMA_JOINTS_ORDER.index("Head")
@@ -511,16 +525,6 @@ def main() -> None:
 
     object_name = f"{sequence_id}_object"
 
-    _obj_verts = []
-    with open(object_mesh_path) as _f:
-        for _line in _f:
-            if _line.startswith("v "):
-                _parts = _line.split()
-                _obj_verts.append(
-                    [float(_parts[1]), float(_parts[2]), float(_parts[3])]
-                )
-    object_mesh_vertices = np.array(_obj_verts, dtype=np.float64)
-    object_mesh_vertices_f32 = object_mesh_vertices.astype(np.float32)
     contact_threshold = float(args.contact_threshold)
 
     builder: dict[str, list] | None = None
@@ -530,6 +534,7 @@ def main() -> None:
     soma_identity_coeffs: list[float] = []
     soma_scale_params: list[float] = []
     frame_names_list: list[str] = list(kin.robot_frame_names.values())
+    frame_name_to_idx = {name: i for i, name in enumerate(frame_names_list)}
     ee_link_name_candidates: list[str] = [
         "left_hand_palm_link",
         "right_hand_palm_link",
@@ -561,27 +566,21 @@ def main() -> None:
 
     if args.save:
         params = np.load(soma_params_path, allow_pickle=True)
-        # Identity/scale are constant in time; pick frame 0 for source_payload.
+        # Identity and scale are constant over the sequence.
         soma_identity_coeffs = params["identity_coeffs"][0].astype(np.float32).tolist()
         soma_scale_params = params["scale_params"][0].astype(np.float32).tolist()
 
         object_mesh_path = str(Path(object_mesh_path).resolve())
         object_mesh_radius = _compute_mesh_radius(object_mesh_path)
 
-        # Copy mesh + materials next to the parquet partition so saved
-        # asset paths are portable. Place under a
-        # sibling ``object/`` folder relative to the parquet's ``robot_name=``
-        # leaf so save_motion_parquet's rmtree of the leaf does not delete
-        # them.
+        # Keep assets outside the robot leaf replaced by the parquet writer.
         mesh_dst_dir = save_dir / f"sequence_id={sequence_id}" / "object"
         mesh_dst_dir.mkdir(parents=True, exist_ok=True)
         for src in Path(object_mesh_path).parent.iterdir():
             if not src.is_file():
                 continue
             dst = mesh_dst_dir / src.name
-            # When the input folder already is the partition dir, source and
-            # destination coincide and the file is in place; ``copy2`` raises
-            # SameFileError rather than treating that as a no-op.
+            # Input and output partitions may share the same object directory.
             if src.resolve() == dst.resolve():
                 continue
             shutil.copy2(src, dst)
@@ -617,8 +616,7 @@ def main() -> None:
             "ik_error_per_frame": [],
             "ik_num_iterations": [],
             "frame_task_errors": [],
-            # Source raw -- head + root values from the SOMA exporter,
-            # consumed by the post-process plane-alignment helper.
+            # Plane-leveled source values retained as opaque provenance.
             "soma_joints": [],
             "soma_joints_wxyz": [],
             "source_head_translation": [],
@@ -640,28 +638,21 @@ def main() -> None:
         )
 
     q = kin.robot.q0.copy()
-    ground_z_offset = 0.0
-    object_z_lift = 0.0
 
-    foot_frame_idxs = [
-        list(kin.robot_frame_names.values()).index(fn) for fn in foot_frame_names
-    ]
+    foot_frame_idxs = [frame_name_to_idx[frame_name] for frame_name in foot_frame_names]
 
-    ankle_xyz_per_frame: list[list[list[float]]] = []
+    saved_sole_z_per_frame: list[list[float]] = []
+    foot_target_grounding_offsets: list[float] = []
+    robot_penetration_lifts: list[float] = []
 
-    # IK diagnostics scaffolding -- populated only when --diagnose-ik is
-    # set. Kept out-of-band so the hot loop is unchanged for normal runs.
+    # Diagnostic state is populated only with --diagnose-ik.
     diagnose_ik = bool(args.diagnose_ik)
     ik_task_names: list[str] = list(kin.frame_tasks.keys())
     q_lower = np.asarray(kin.robot.model.lowerPositionLimit, dtype=np.float64)
     q_upper = np.asarray(kin.robot.model.upperPositionLimit, dtype=np.float64)
-    # Free-flyer joints have +/-inf bounds, so the saturation check needs
-    # to skip rows where the URDF didn't author a finite limit. Index 0..6
-    # is the free-flyer position+quat anyway.
+    # Ignore unbounded free-flyer coordinates in saturation checks.
     finite_limit_mask = np.isfinite(q_lower) & np.isfinite(q_upper)
-    # `q_ik`/`q_lower`/`q_upper` all have length `nq`; joint names live at
-    # the joint level (one per Pinocchio joint), so the `q_idx -> joint
-    # name` map is built once here.
+    # Expand joint names to q-coordinate indices once.
     q_idx_to_joint_name: dict[int, str] = {}
     for joint_idx in range(1, kin.robot.model.njoints):
         name = str(kin.robot.model.names[joint_idx])
@@ -672,17 +663,10 @@ def main() -> None:
             q_idx_to_joint_name[q_start + k] = label
     diag_iter_threshold = int(kin.max_iter * float(args.diagnose_ik_iter_fraction))
     diag_error_threshold = float(args.diagnose_ik_error_threshold)
-    # Per-frame diagnostic records, one tuple per "interesting" frame.
-    # Format: (frame_idx, total_pos_error, dominant_task, dominant_err,
-    # n_iter, n_saturated, sample_saturated_joint_name).
+    # (frame, total error, dominant task/error, iterations, saturation count/sample)
     diag_offenders: list[tuple[int, float, str, float, int, int, str]] = []
 
-    # ``frame_idx`` here is local to the iterated window (0..n_iter_frames),
-    # NOT the absolute index into the original SOMA sequence. The
-    # ground-anchor initializer below fires on the FIRST iterated frame
-    # because that is the only time the loop has IK-solved foot placements
-    # to compute the offset from; if we used an absolute "== 0" check we
-    # would skip initialization entirely whenever ``--start-frame > 0``.
+    # frame_idx is local to the selected window.
     for frame_idx in tqdm(range(n_iter_frames), desc="Retargeting"):
         positions = joint_pos[frame_idx]
         rotations = joint_rot_wxyz[frame_idx]
@@ -692,17 +676,44 @@ def main() -> None:
             source_joints_wxyz=rotations,
             source_to_robot_scale=args.scale,
             qpos=q,
+            foot_target_ground_z=0.0,
         )
         q_ik = result["q"].copy()
+
+        # Remove residual IK penetration by lifting only the robot free-flyer.
+        frame_pose = np.asarray(result["frame_pose"], dtype=np.float64).copy()
+        solved_sole_z = np.asarray(
+            [frame_pose[i, 2] - ankle_roll_offset for i in foot_frame_idxs],
+            dtype=np.float64,
+        )
+        robot_penetration_lift = max(0.0, -float(solved_sole_z.min()))
+        if robot_penetration_lift > 0.0:
+            q_ik[2] += robot_penetration_lift
+            frame_pose[:, 2] += robot_penetration_lift
         q = q_ik.copy()
 
+        saved_sole_z = np.asarray(
+            [frame_pose[i, 2] - ankle_roll_offset for i in foot_frame_idxs],
+            dtype=np.float64,
+        )
+        saved_sole_z_per_frame.append(saved_sole_z.tolist())
+        foot_target_grounding_offsets.append(
+            float(result["foot_target_grounding_offset_z"])
+        )
+        robot_penetration_lifts.append(robot_penetration_lift)
+
+        # Record task errors after the root projection applied to saved q.
+        frame_task_errors = []
+        for frame_name, task in kin.frame_tasks.items():
+            task_frame_idx = frame_name_to_idx[frame_name]
+            target_position = task.transform_target_to_world.translation
+            frame_task_errors.append(
+                float(np.linalg.norm(frame_pose[task_frame_idx, :3] - target_position))
+            )
+        result["frame_task_errors"] = frame_task_errors
+
         if diagnose_ik:
-            # Identify the dominant frame-task residual and any joints
-            # whose IK solution sits within 1 mrad / 1e-3 of a position
-            # limit (counting as "saturated"). The saturation check uses
-            # `q_ik` -- the pre-clamp solution -- so we see what the
-            # solver actually wanted, not the post-clamp value used as
-            # the next warm-start.
+            # Diagnose the saved IK result and joints within 1e-3 of a limit.
             task_errs = np.asarray(result["frame_task_errors"], dtype=np.float64)
             total_err = float(task_errs.sum())
             dom_idx = int(np.argmax(task_errs)) if task_errs.size > 0 else -1
@@ -723,8 +734,7 @@ def main() -> None:
                     f"({side})"
                 )
             iter_saturated = n_iter >= diag_iter_threshold
-            # ``frame_idx`` is local to the iterated window; show the
-            # absolute source index too so it lines up with viser/replay.
+            # Use the absolute source index in viewer-facing diagnostics.
             abs_idx = start_frame + frame_idx
             if total_err >= diag_error_threshold or iter_saturated or n_sat > 0:
                 tqdm.write(
@@ -748,44 +758,12 @@ def main() -> None:
                     )
                 )
 
-        lowest_sole_z = (
-            min(result["frame_pose"][i, 2] for i in foot_frame_idxs) - ankle_roll_offset
-        )
-
-        if frame_idx == 0:
-            ground_z_offset = -lowest_sole_z
-        else:
-            adjusted_lowest = lowest_sole_z + ground_z_offset
-            if adjusted_lowest < 0.0:
-                q[2] -= adjusted_lowest
-
-        ankle_xyz_per_frame.append(
-            [
-                [
-                    float(result["frame_pose"][foot_frame_idxs[0], 0]),
-                    float(result["frame_pose"][foot_frame_idxs[0], 1]),
-                    float(result["frame_pose"][foot_frame_idxs[0], 2])
-                    + ground_z_offset,
-                ],
-                [
-                    float(result["frame_pose"][foot_frame_idxs[1], 0]),
-                    float(result["frame_pose"][foot_frame_idxs[1], 1]),
-                    float(result["frame_pose"][foot_frame_idxs[1], 2])
-                    + ground_z_offset,
-                ],
-            ]
-        )
-
         obj_pose = object_poses[frame_idx]
         obj_position = kin.transform_source_position(obj_pose[:3, 3])
         obj_rotation_mat = kin.transform_world_rotation(obj_pose[:3, :3])
         obj_rotation = R.from_matrix(obj_rotation_mat)
 
-        obj_position[2] += ground_z_offset
-        object_z_lift = 0.0
-
         head_position = kin.transform_source_position(positions[head_idx])
-        head_position[2] += ground_z_offset
         head_rotation_mat = R.from_quat(
             rotations[head_idx], scalar_first=True
         ).as_matrix()
@@ -793,23 +771,17 @@ def main() -> None:
         head_rotation_wxyz = R.from_matrix(head_rotation_mat).as_quat(scalar_first=True)
 
         root_position = kin.transform_source_position(positions[root_idx])
-        root_position[2] += ground_z_offset
         root_rotation_mat = R.from_quat(
             rotations[root_idx], scalar_first=True
         ).as_matrix()
         root_rotation_mat = kin.transform_source_rotation(root_rotation_mat)
         root_rotation_wxyz = R.from_matrix(root_rotation_mat).as_quat(scalar_first=True)
 
-        frame_pose = result["frame_pose"]
         ee_pose_t: list[list[float]] = []
         for i in ee_frame_indices:
-            pose = list(frame_pose[i])
-            pose[2] = float(pose[2]) + ground_z_offset
-            ee_pose_t.append(pose)
+            ee_pose_t.append(frame_pose[i].tolist())
 
-        object_translation_w_np = (obj_position + [0, 0, object_z_lift]).astype(
-            np.float32
-        )
+        object_translation_w_np = obj_position.astype(np.float32)
         object_rotation_w_np = obj_rotation_mat.astype(np.float32)
         verts_w = (
             object_mesh_vertices_f32 @ object_rotation_w_np.T + object_translation_w_np
@@ -822,18 +794,14 @@ def main() -> None:
             points[0] = ee_pose_t[side_idx][:3]
             for k, j in enumerate(fingertip_joint_ids, start=1):
                 p = kin.transform_source_position(positions[j])
-                points[k, 0] = p[0]
-                points[k, 1] = p[1]
-                points[k, 2] = p[2] + ground_z_offset
+                points[k] = p
             diff = verts_w[:, None, :] - points[None, :, :]
             sq_dists = np.einsum("vki,vki->vk", diff, diff)
             min_sq = float(sq_dists.min())
             per_side_active.append(1.0 if min_sq < threshold_sq else 0.0)
 
         if builder is not None:
-            root_pos_robot = q_ik[:3].copy()
-            root_pos_robot[2] += ground_z_offset
-            root_pos_robot = root_pos_robot.tolist()
+            root_pos_robot = q_ik[:3].tolist()
             root_quat_xyzw = q_ik[3:7]
             root_wxyz = [
                 float(root_quat_xyzw[3]),
@@ -844,7 +812,7 @@ def main() -> None:
             joint_positions = q_ik[base_q_size:].tolist()
 
             obj_wxyz = obj_rotation.as_quat(scalar_first=True).tolist()
-            obj_body_pos = [(obj_position + [0, 0, object_z_lift]).tolist()]
+            obj_body_pos = [obj_position.tolist()]
             obj_body_wxyz = [obj_wxyz]
 
             builder["robot_root_position"].append(root_pos_robot)
@@ -874,14 +842,11 @@ def main() -> None:
 
         if playback is not None:
             vertices_vis = kin.transform_source_position(vertices[frame_idx]).copy()
-            vertices_vis[:, 2] += ground_z_offset
             q_vis = q_ik.copy()
-            q_vis[2] += ground_z_offset
 
             ik_target_poses: dict[str, tuple[np.ndarray, np.ndarray]] = {}
             for frame_name, task in kin.frame_tasks.items():
                 target_pos_vis = task.transform_target_to_world.translation.copy()
-                target_pos_vis[2] += ground_z_offset
                 target_wxyz = R.from_matrix(
                     task.transform_target_to_world.rotation
                 ).as_quat(scalar_first=True)
@@ -910,143 +875,81 @@ def main() -> None:
             time.sleep(5)
 
     if builder is not None:
-        first_pass = FirstPassResult(
-            fps=float(kin.frequency),
-            robot_root_position=np.asarray(
-                builder["robot_root_position"], dtype=np.float64
-            ),
-            robot_root_wxyz=np.asarray(builder["robot_root_wxyz"], dtype=np.float64),
-            robot_joint_positions=np.asarray(
-                builder["robot_joint_positions"], dtype=np.float64
-            ),
-            ee_pose_w=np.asarray(builder["ee_pose_w"], dtype=np.float64),
-            object_root_position=np.asarray(
-                builder["object_root_position"], dtype=np.float64
-            ),
-            object_root_axis_angle=np.asarray(
-                builder["object_root_axis_angle"], dtype=np.float64
-            ),
-            object_body_position=np.asarray(
-                builder["object_body_position"], dtype=np.float64
-            ),
-            object_body_wxyz=np.asarray(builder["object_body_wxyz"], dtype=np.float64),
-            hand_contact_active_per_frame=np.asarray(
-                builder["hand_contact_active_per_frame"], dtype=np.float64
-            ),
-            source_head_translation=np.asarray(
-                builder["source_head_translation"], dtype=np.float64
-            ),
-            source_root_translation=np.asarray(
-                builder["source_root_translation"], dtype=np.float64
-            ),
-            ankle_frame_xyz=np.asarray(ankle_xyz_per_frame, dtype=np.float64),
-        )
-
-        first_pass_cache_extras = {
-            "object_articulation": list(builder["object_articulation"]),
-            "soma_joints": [list(f) for f in builder["soma_joints"]],
-            "soma_joints_wxyz": [list(f) for f in builder["soma_joints_wxyz"]],
-            "source_head_wxyz": [list(f) for f in builder["source_head_wxyz"]],
-            "source_root_wxyz": [list(f) for f in builder["source_root_wxyz"]],
-            "ik_error_per_frame": list(builder["ik_error_per_frame"]),
-            "ik_num_iterations": list(builder["ik_num_iterations"]),
-            "frame_task_errors": [list(f) for f in builder["frame_task_errors"]],
-        }
-
-        plane = (
-            reconstructed_plane
-            if reconstructed_plane is not None
-            else ReferencePlane.horizontal(z=0.0)
-        )
-        sole_xyz = first_pass.ankle_frame_xyz.copy()
-        sole_xyz[..., 2] -= ankle_roll_offset
-        # Per-frame ground anchoring during the IK loop already drove the
-        # body's lowest sole to z = 0 of the robot world (see
-        # ``ground_z_offset`` initialization on frame 0). The reconstructed
-        # ``ground_plane.json`` carries the absolute scene height instead, so
-        # using its raw offset would drag the body and the carried object
-        # down to that absolute level even though the body is already on the
-        # floor. We therefore preserve the reconstructed plane's normal (it
-        # captures any scene tilt) but shift the offset so the plane sits
-        # exactly under the frame-0 lowest sole. Without this, the post-
-        # process injects the reconstruction's ground-Z bias (e.g.
-        # ``-1.04 m`` for the trash-can sequence) into ``robot_delta_z`` and
-        # the saved object ends up below the simulator's ground plane.
-        if reconstructed_plane is not None:
-            n = np.asarray(plane.normal, dtype=np.float64)
-            frame0_anchor = sole_xyz[0].min(axis=0)
-            adjusted_offset = -float(np.dot(n, frame0_anchor))
-            plane = ReferencePlane(
-                normal=tuple(plane.normal),
-                offset=adjusted_offset,
-            )
-        robot_delta_z = compute_plane_alignment_offsets(
-            sole_xyz, plane, PlaneAlignmentConfig()
-        )
-        interaction_mask = compute_interaction_mask(first_pass, InteractionMaskConfig())
-        corr_obj_root_pos, corr_obj_root_aa, corr_obj_body_pos, corr_obj_body_wxyz = (
-            correct_object_trajectory(
-                first_pass,
-                interaction_mask,
-                robot_delta_z,
-                ObjectCorrectionConfig(),
-            )
-        )
-
-        corr_root_pos = first_pass.robot_root_position.copy()
-        corr_root_pos[:, 2] += robot_delta_z
-        builder["robot_root_position"] = corr_root_pos.tolist()
-
-        corr_ee_pose = first_pass.ee_pose_w.copy()
-        corr_ee_pose[..., 2] += robot_delta_z[:, None]
-        builder["ee_pose_w"] = corr_ee_pose.tolist()
-
-        corr_nv_head = first_pass.source_head_translation.copy()
-        corr_nv_head[:, 2] += robot_delta_z
-        builder["source_head_translation"] = corr_nv_head.tolist()
-
-        corr_nv_root = first_pass.source_root_translation.copy()
-        corr_nv_root[:, 2] += robot_delta_z
-        builder["source_root_translation"] = corr_nv_root.tolist()
-
-        builder["object_root_position"] = corr_obj_root_pos.tolist()
-        builder["object_root_axis_angle"] = corr_obj_root_aa.tolist()
-        builder["object_body_position"] = corr_obj_body_pos.tolist()
-        builder["object_body_wxyz"] = corr_obj_body_wxyz.tolist()
-
-        n_interact = int(np.count_nonzero(interaction_mask))
-        pre_ankle_z = first_pass.ankle_frame_xyz[:, :, 2]
-        post_ankle_z = pre_ankle_z + robot_delta_z[:, None]
-        pre_sole_lowest = float(pre_ankle_z.min() - ankle_roll_offset)
-        pre_sole_highest = float(pre_ankle_z.max() - ankle_roll_offset)
-        post_sole_lowest = float(post_ankle_z.min() - ankle_roll_offset)
-        post_sole_highest = float(post_ankle_z.max() - ankle_roll_offset)
+        saved_sole_z = np.asarray(saved_sole_z_per_frame, dtype=np.float64)
+        target_offsets = np.asarray(foot_target_grounding_offsets, dtype=np.float64)
+        penetration_lifts = np.asarray(robot_penetration_lifts, dtype=np.float64)
         print(
-            "[INFO] Plane alignment: robot_delta_z range "
-            f"[{float(robot_delta_z.min()):+.4f}, "
-            f"{float(robot_delta_z.max()):+.4f}] m; "
-            f"{n_interact}/{len(interaction_mask)} interaction frames."
+            "[INFO] Single-pass foot-target Z offset range: "
+            f"[{float(target_offsets.min()):+.4f}, "
+            f"{float(target_offsets.max()):+.4f}] m"
         )
         print(
-            f"[INFO] Robot sole Z pre-offset : "
-            f"[{pre_sole_lowest:+.4f}, {pre_sole_highest:+.4f}] m"
+            "[INFO] Same-frame robot-only anti-penetration lift: "
+            f"[{float(penetration_lifts.min()):+.4f}, "
+            f"{float(penetration_lifts.max()):+.4f}] m; "
+            f"{int(np.count_nonzero(penetration_lifts > 0.0))}/"
+            f"{len(penetration_lifts)} frames"
         )
         print(
-            f"[INFO] Robot sole Z post-offset: "
-            f"[{post_sole_lowest:+.4f}, {post_sole_highest:+.4f}] m "
-            f"(should be near 0)"
+            "[INFO] Saved robot sole Z range: "
+            f"[{float(saved_sole_z.min()):+.4f}, "
+            f"{float(saved_sole_z.max()):+.4f}] m"
+        )
+        print(
+            "[INFO] Object trajectory: constant ground lift applied to "
+            "plane-leveled raw poses; no contact-mask rewrite"
         )
 
         source_payload = pickle.dumps(
             {
                 "soma_identity_coeffs": soma_identity_coeffs,
                 "soma_scale_params": soma_scale_params,
+                "source_fps": float(args.fps),
                 "soma_joints": builder.pop("soma_joints"),
                 "soma_joints_wxyz": builder.pop("soma_joints_wxyz"),
                 "source_head_translation": builder.pop("source_head_translation"),
                 "source_head_wxyz": builder.pop("source_head_wxyz"),
                 "source_root_translation": builder.pop("source_root_translation"),
                 "source_root_wxyz": builder.pop("source_root_wxyz"),
+                "ground_alignment": {
+                    "method": "single_pass_fitted_plane",
+                    "ground_plane_source": ground_plane_source,
+                    "ground_plane_normal": list(alignment_plane.normal),
+                    "ground_plane_offset": float(alignment_plane.offset),
+                    "ground_level_rotation_robot": (
+                        ground_level_rotation_robot.tolist()
+                    ),
+                    "ground_level_translation_robot": (
+                        ground_level_translation_robot.tolist()
+                    ),
+                    "final_ground_plane_normal": [0.0, 0.0, 1.0],
+                    "final_ground_plane_offset": 0.0,
+                    "ground_plane_json_path": str(ground_plane_path),
+                    "foot_target_ground_z": 0.0,
+                    "object_trajectory_rewritten": (
+                        object_ground_lift.applied_lift > 0.0
+                    ),
+                    "object_trajectory_rewrite_kind": (
+                        "constant_ground_lift"
+                        if object_ground_lift.applied_lift > 0.0
+                        else "none"
+                    ),
+                    "object_ground_correction": {
+                        "method": "frame0_mesh_penetration",
+                        "minimum_signed_distance": (
+                            object_ground_lift.minimum_signed_distance
+                        ),
+                        "penetration_depth": object_ground_lift.penetration_depth,
+                        "penetration_tolerance": (
+                            OBJECT_GROUND_PENETRATION_TOLERANCE_M
+                        ),
+                        "clearance": OBJECT_GROUND_CLEARANCE_M,
+                        "requested_lift": object_ground_lift.requested_lift,
+                        "applied_lift": object_ground_lift.applied_lift,
+                        "max_lift": OBJECT_GROUND_MAX_LIFT_M,
+                        "capped": object_ground_lift.capped,
+                    },
+                },
             }
         )
 
@@ -1072,7 +975,7 @@ def main() -> None:
             motion_kind="single_robot",
             source_dataset="soma",
             raw_motion_file=soma_params_path,
-            fps=float(kin.frequency),
+            fps=float(args.fps),
             coord_frame="robot_base_z_up",
             robot_joint_names=robot_joint_position_names,
             robot_root_position=builder["robot_root_position"],
@@ -1103,53 +1006,6 @@ def main() -> None:
         save_motion_parquet(md, root_path=str(save_dir), file_name="data.parquet")
         print(f"Saved to {save_dir}")
 
-        first_pass_cache_path = (
-            FIRST_PASS_CACHE_DIR
-            / f"sequence_id={sequence_id}"
-            / f"robot_name={config.robot_name}"
-            / "first_pass_cache.pkl"
-        )
-        first_pass_cache_path.parent.mkdir(parents=True, exist_ok=True)
-        first_pass_cache = {
-            "first_pass": first_pass,
-            "builder_extras": first_pass_cache_extras,
-            "metadata": {
-                "sequence_id": sequence_id,
-                "motion_params_path": soma_params_path,
-                "fps": float(kin.frequency),
-                "robot_joint_names": list(robot_joint_position_names),
-                "ee_link_names": list(ee_link_names),
-                "object_name": object_name,
-                "safe_object_name": _usd_safe(object_name),
-                "object_body_names": list(object_body_names),
-                "safe_object_body_names": list(safe_object_body_names),
-                "object_mesh_paths": [stored_mesh_path],
-                "object_urdf_paths": [stored_urdf_path],
-                "object_mesh_radius": [object_mesh_radius],
-                "soma_identity_coeffs": list(soma_identity_coeffs),
-                "soma_scale_params": list(soma_scale_params),
-                "contact_threshold": float(contact_threshold),
-                "g1_ankle_roll_offset": float(ankle_roll_offset),
-                "ground_plane_source": (
-                    "reconstructed" if reconstructed_plane is not None else "fallback"
-                ),
-                "ground_plane_normal": (
-                    list(reconstructed_plane.normal)
-                    if reconstructed_plane is not None
-                    else [0.0, 0.0, 1.0]
-                ),
-                "ground_plane_offset": (
-                    float(reconstructed_plane.offset)
-                    if reconstructed_plane is not None
-                    else 0.0
-                ),
-                "ground_plane_json_path": str(ground_plane_path),
-            },
-        }
-        with open(first_pass_cache_path, "wb") as _f:
-            pickle.dump(first_pass_cache, _f)
-        print(f"[INFO] Cached first-pass snapshot -> {first_pass_cache_path}")
-
     if diagnose_ik:
         if not diag_offenders:
             print(
@@ -1158,9 +1014,7 @@ def main() -> None:
                 f"{diag_iter_threshold}/{kin.max_iter}, no saturated joints)."
             )
         else:
-            # Top-K worst by total task residual, then by iteration count
-            # as a tie-breaker. K=10 is enough to spot a band of bad
-            # frames around contact while staying readable.
+            # Rank by total task residual, then iteration count.
             top_k = min(10, len(diag_offenders))
             worst = sorted(
                 diag_offenders,
@@ -1189,8 +1043,7 @@ def main() -> None:
                     f"dom={dom_task}={dom_err:.4f} "
                     f"iters={n_iter}/{kin.max_iter}{sat_str}"
                 )
-            # Per-task error contribution averaged across flagged frames
-            # -- useful to decide which weight to bump.
+            # Summarize the dominant task across flagged frames.
             per_task_sum: dict[str, float] = dict.fromkeys(ik_task_names, 0.0)
             per_task_count: dict[str, int] = dict.fromkeys(ik_task_names, 0)
             for (
@@ -1223,12 +1076,7 @@ def main() -> None:
         print(f"Retargeting complete. Processed {num_frames} frames.")
     if args.visualize:
         print("Visualization server running. Press Ctrl+C to exit.")
-        # Catch the interrupt and return cleanly (exit 0) rather than letting
-        # it propagate as a KeyboardInterrupt traceback. The whole foreground
-        # process group receives the Ctrl+C, including the wrapper
-        # process_soma_sequence.sh; bash only continues to the next stage if
-        # this child exits normally, so a clean exit here is what lets the
-        # pipeline advance instead of aborting.
+        # Exit cleanly so the wrapper can advance to its next stage.
         try:
             while True:
                 time.sleep(1)

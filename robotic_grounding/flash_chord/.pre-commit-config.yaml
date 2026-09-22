@@ -1,0 +1,66 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+default_stages: [pre-commit]
+default_install_hook_types: [pre-commit, pre-push]
+files: ^robotic_grounding/flash_chord/
+
+# Exclude binary/data asset files from text hooks.
+exclude: |
+  (?x)^(
+    .*\.(stl|STL|mtl|MTL|gltf|GLTF|glb|GLB|bin|BIN|png|PNG|obj|OBJ)
+  )$
+
+repos:
+# Normalize NVIDIA Python files to the concise 2-line Apache-2.0 SPDX header and
+# insert one where missing. Non-NVIDIA (third-party) headers are left untouched.
+- repo: local
+  hooks:
+    - id: license-header
+      name: enforce SPDX Apache-2.0 license header
+      entry: python robotic_grounding/flash_chord/scripts/license_header_hook.py
+      language: python
+      files: ^robotic_grounding/flash_chord/(src|scripts)/.*\.py$
+
+- repo: https://github.com/astral-sh/ruff-pre-commit
+  rev: v0.14.11
+  hooks:
+    - id: ruff
+      args: ['--fix', '--config', 'robotic_grounding/flash_chord/pyproject.toml']
+
+- repo: https://github.com/psf/black
+  rev: 25.12.0
+  hooks:
+    - id: black
+      args: ['--config', 'robotic_grounding/flash_chord/pyproject.toml']
+      verbose: true
+
+- repo: https://github.com/pre-commit/mirrors-mypy
+  rev: v1.19.1
+  hooks:
+    - id: mypy
+      additional_dependencies:
+        - types-pyyaml
+        - types-requests
+        - types-setuptools
+        - types-toml
+      args: [
+        "--ignore-missing-imports",
+        "--explicit-package-bases",
+        "--follow-imports=skip",
+        "--disable-error-code=has-type",
+        "--config-file=robotic_grounding/flash_chord/pyproject.toml",
+      ]
+
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v6.0.0
+  hooks:
+  -   id: check-yaml
+  -   id: check-json
+  -   id: check-xml
+  -   id: check-ast
+  -   id: end-of-file-fixer
+  -   id: pretty-format-json
+      args: ['--autofix']
+  -   id: detect-private-key
+  -   id: trailing-whitespace

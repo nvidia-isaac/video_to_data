@@ -1,0 +1,50 @@
+_target_: flash_chord.objectives.config.ObjectiveConfig
+hand_keypoint_frame: dp
+object_keypoints:
+  _target_: flash_chord.objectives.config.ShapedObjectiveTermConfig
+  enabled: true
+  weight: 1.0
+  var: 0.1
+  shape: LAPLACIAN
+hand_keypoints:
+  _target_: flash_chord.objectives.config.ShapedObjectiveTermConfig
+  enabled: true
+  weight: 0.25
+  var: 0.1
+  shape: LAPLACIAN
+hand_joint_pos:
+  _target_: flash_chord.objectives.config.ShapedObjectiveTermConfig
+  enabled: true
+  weight: 0.25
+  var: 1.0
+  shape: LAPLACIAN
+contact_wrench_support:
+  _target_: flash_chord.objectives.config.ContactSupportObjectiveTermConfig
+  enabled: true
+  weight: 10.0
+  tolerance: 0.1
+  var: 0.1
+missed_contact:
+  _target_: flash_chord.objectives.config.ObjectiveTermConfig
+  enabled: true
+  weight: -1.0
+unintended_contact:
+  _target_: flash_chord.objectives.config.ObjectiveTermConfig
+  enabled: true
+  weight: -10.0
+termination:
+  _target_: flash_chord.objectives.config.ObjectiveTermConfig
+  enabled: true
+  weight: -100.0
+action_rate_l2:
+  _target_: flash_chord.objectives.config.ObjectiveTermConfig
+  enabled: true
+  weight: -0.005
+action_l2:
+  _target_: flash_chord.objectives.config.ObjectiveTermConfig
+  enabled: true
+  weight: -0.002
+num_wrench_basis: 512
+num_friction_cone_edges: 8
+friction_coefficient: 0.1
+wrench_basis_seed: 0

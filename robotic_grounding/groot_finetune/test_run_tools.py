@@ -48,9 +48,7 @@ class CompatibilityTests(unittest.TestCase):
         self.assertEqual(remainder, ["--model-path", "/tmp/model", "--port", "5555"])
 
     def test_closed_loop_dry_run_is_seeded_and_scene_explicit(self) -> None:
-        result = _run(
-            "bash",
-            RUN_EVAL,
+        common = (
             "--gr00t-dir",
             "/tmp/gr00t",
             "--model",
@@ -85,6 +83,11 @@ class CompatibilityTests(unittest.TestCase):
             "519",
             "--model-seed",
             "17",
+        )
+        result = _run(
+            "bash",
+            RUN_EVAL,
+            *common,
             "--dry-run",
         )
         self.assertIn("seeded_gr00t_server.py", result.stdout)
@@ -94,6 +97,18 @@ class CompatibilityTests(unittest.TestCase):
         self.assertIn("--require_support_surface", result.stdout)
         self.assertIn("--checkpoint_manifest_sha256", result.stdout)
         self.assertIn("--eval_episode_horizon\\ 519", result.stdout)
+        self.assertIn("HEADLESS=1", result.stdout)
+        self.assertIn("--headless", result.stdout)
+
+        visible_result = _run(
+            "bash",
+            RUN_EVAL,
+            *common,
+            "--non-headless",
+            "--dry-run",
+        )
+        self.assertNotIn("HEADLESS=1", visible_result.stdout)
+        self.assertNotIn("--headless", visible_result.stdout)
 
     def test_planner_accepts_collection_only_measurements(self) -> None:
         result = _run(
