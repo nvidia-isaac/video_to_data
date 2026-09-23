@@ -24,8 +24,8 @@ primitive they use.
 
 ### 1. Access
 
-- `isaac-amr` NGC group — open a ticket in `#swngc-help`.
-- OSMO DLs `access-osmo` and `access-osmo-isaac-dev` via [DLRequest](https://access.example.com/) (ping `#osmo-support` to get approved).
+- `isaac-amr` NGC group — request access from your registry administrator.
+- OSMO DLs `access-osmo` and `access-osmo-isaac-dev` via [DLRequest](https://access.example.com/).
 
 ### 2. Configure NGC
 

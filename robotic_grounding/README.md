@@ -11,7 +11,7 @@
 
 - Install [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
 
-- Make sure you have access to `nvcr.io/your-org/your-team`. You can request it by asking in the `#swngc-help` Slack channel.
+- Make sure you have access to `nvcr.io/your-org/your-team`. You can request it from your registry administrator.
 
 - Install Git LFS and `pre-commit` dependencies.
     ```bash

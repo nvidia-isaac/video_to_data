@@ -235,5 +235,5 @@ ego videos are **not** frame-synced to the sim rollouts — they're linked at th
 | `BlockingIOError: unable to lock file` | Zombie kit process holding the lock. `pkill` (section 9). |
 | Hands drift away but objects stable; 0% | Hand-divergence policy failure (per-sequence). VOC can't help hands; not a data bug. |
 | `download_file` 400 from CSS | Use `get_object` + `signature_version=s3v4` + `addressing_style=path`. |
-| `403 access denied` from `osmo` | Missing DL roles `access-osmo` + `access-osmo-isaac-dev` (DLRequest / #osmo-support). |
+| `403 access denied` from `osmo` | Missing DL roles `access-osmo` + `access-osmo-isaac-dev` (DLRequest). |
 | nvcr `Access Denied` on `your-org/your-team` | Regenerate the NGC API key with the isaac-amr org active, then `docker login nvcr.io -u '$oauthtoken' -p <key>`. |
