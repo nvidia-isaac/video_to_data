@@ -1,0 +1,23 @@
+[
+  {
+    "sequence_id": "tissue_box_refined",
+    "hand_penetration_score": 0.0,
+    "hand_penetration_pass": true,
+    "hand_penetration_reason": "ok (max=0.00cm)",
+    "pass_all": true
+  },
+  {
+    "sequence_id": "tissue_box_simple",
+    "hand_penetration_score": 0.0,
+    "hand_penetration_pass": true,
+    "hand_penetration_reason": "no frames",
+    "pass_all": true
+  },
+  {
+    "sequence_id": "tissue_box_timing",
+    "hand_penetration_score": 0.0,
+    "hand_penetration_pass": true,
+    "hand_penetration_reason": "ok (max=0.00cm)",
+    "pass_all": true
+  }
+]
