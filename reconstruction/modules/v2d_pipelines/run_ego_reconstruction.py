@@ -24,6 +24,17 @@ import shutil
 from collections.abc import Callable
 from pathlib import Path
 
+try:
+    from v2d.common.stage_timing import record_stage, stage_timeline
+except ImportError:  # Direct execution before editable install.
+    from contextlib import nullcontext
+
+    def record_stage(label: str, skipped: bool = False) -> None:
+        return None
+
+    def stage_timeline(*args, **kwargs):
+        return nullcontext(None)
+
 GSPLAT_DEFAULTS = {
     "epochs": 10,
     "batch_size": 4,
@@ -147,6 +158,9 @@ def _has_files(directory: Path) -> bool:
 
 
 def _step(label: str, done: bool) -> bool:
+    # Recording here closes out the previous stage, so every marker doubles as a
+    # timeline boundary without each call site having to time itself.
+    record_stage(label, skipped=done)
     if done:
         print(f"  [skip] {label}")
         return True
@@ -826,17 +840,56 @@ def _run_hamer(args: argparse.Namespace) -> Path:
     )
 
 
+def _timing_metadata(args: argparse.Namespace) -> dict[str, object]:
+    """Capture the run configuration that determines how long the stages take."""
+    return {
+        "video": os.path.basename(args.video),
+        "object_prompt": args.object_prompt,
+        "object_mesh_supplied": args.object_mesh is not None,
+        "hand_tracking": args.hand_tracking,
+        "undistort": args.undistort,
+        "run_droid_slam": args.run_droid_slam,
+        "run_gravity_alignment": args.run_gravity_alignment,
+        "run_gsplat_refinement": args.run_gsplat_refinement,
+        "gsplat_refine_epochs": args.gsplat_refine_epochs,
+        "export_threejs_result": args.export_threejs_result,
+        "dev": args.dev,
+    }
+
+
+def _count_frames(output_dir: Path) -> int | None:
+    """Frame count for the run, so stage times can be normalised per frame."""
+    frames_dir = output_dir / "frames"
+    if not frames_dir.is_dir():
+        return None
+    return sum(1 for entry in frames_dir.iterdir() if entry.is_file())
+
+
 def run_from_args(args: argparse.Namespace) -> None:
     """Run the selected reconstruction pipeline from parsed arguments."""
     _validate_args(args)
-    if args.hand_tracking == "dynhamr":
-        final_result_dir = _run_dynhamr(args)
-    elif args.hand_tracking in {"hamer", "hawor"}:
-        final_result_dir = _run_hamer(args)
-    else:  # pragma: no cover - argparse prevents this.
-        raise ValueError(f"Unsupported hand tracking mode: {args.hand_tracking}")
-    _export_threejs_result(args, final_result_dir)
-    print(f"  final_result_bundle: {final_result_dir}/")
+    output_dir = Path(args.output_dir).resolve()
+    with stage_timeline(
+        f"ego reconstruction ({args.hand_tracking})",
+        report_path=output_dir / "timing" / "stage_timing.json",
+        metadata=_timing_metadata(args),
+    ) as timeline:
+        try:
+            if args.hand_tracking == "dynhamr":
+                final_result_dir = _run_dynhamr(args)
+            elif args.hand_tracking in {"hamer", "hawor"}:
+                final_result_dir = _run_hamer(args)
+            else:  # pragma: no cover - argparse prevents this.
+                raise ValueError(
+                    f"Unsupported hand tracking mode: {args.hand_tracking}"
+                )
+            _export_threejs_result(args, final_result_dir)
+            print(f"  final_result_bundle: {final_result_dir}/")
+        finally:
+            # Frames only exist once extraction has run, so record the count on
+            # the way out -- a failed run still reports what it managed to do.
+            if timeline is not None:
+                timeline.metadata["frames"] = _count_frames(output_dir)
 
 
 def main() -> None:

@@ -2,7 +2,40 @@
 # SPDX-License-Identifier: Apache-2.0
 import os
 import subprocess
+import time
 from pathlib import Path
+
+
+def _gpu_device_request() -> str:
+    """Return the ``--gpus`` value that honours this process's GPU allocation.
+
+    ``--gpus all`` ignores the host's CUDA_VISIBLE_DEVICES, so on a shared
+    machine a container would reach every GPU no matter how the caller was
+    constrained. Forwarding the allocation explicitly keeps a run inside the
+    devices it was given. Devices are renumbered from 0 inside the container,
+    so ``cuda:0`` there is the first device of the allocation.
+    """
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES", "").strip()
+    if not visible or visible == "all":
+        return "all"
+    # The literal quotes are required: docker splits the --gpus value on commas,
+    # so a bare device=6,7 parses as device=6 plus a count of 7 and is rejected.
+    return f'"device={visible}"'
+
+
+def _record_container_timing(
+    image: str, module: str, seconds: float, started_at: float, status: str
+) -> None:
+    """Report this container's wall time to the stage timeline, if one is active.
+
+    Imported lazily so that v2d_docker keeps working on its own when v2d_common
+    is not installed alongside it.
+    """
+    try:
+        from v2d.common.stage_timing import record_container
+    except ImportError:
+        return
+    record_container(image, module, seconds, started_at, status)
 
 
 def _base_dir(path: str) -> str:
@@ -65,7 +98,7 @@ def run_in_container(
 
     cmd = ["docker", "run", "--rm"]
     if gpus:
-        cmd += ["--runtime=nvidia", "--gpus", "all"]
+        cmd += ["--runtime=nvidia", "--gpus", _gpu_device_request()]
     cmd += [
         "--user", f"{os.getuid()}:{os.getgid()}",
         "-e", "HOME=/tmp",
@@ -100,4 +133,15 @@ def run_in_container(
             else:
                 cmd += [f"--{arg_name}", str(value)]
 
-    subprocess.run(cmd, check=True)
+    started_at = time.time()
+    started = time.perf_counter()
+    status = "complete"
+    try:
+        subprocess.run(cmd, check=True)
+    except BaseException:
+        status = "failed"
+        raise
+    finally:
+        _record_container_timing(
+            image, module, time.perf_counter() - started, started_at, status
+        )

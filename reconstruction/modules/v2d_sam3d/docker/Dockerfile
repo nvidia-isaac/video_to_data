@@ -7,6 +7,9 @@ WORKDIR /app
 #   v2d.sam3d.lib.render_textured_video. PyOpenGL dlopens libEGL.so.1, which
 #   is then dispatched via libglvnd to NVIDIA's libEGL_nvidia.so.0 at runtime
 #   (the latter comes from the host driver via nvidia-container-toolkit).
+# libusb-1.0-0: open3d's pybind extension links against libusb (its RealSense
+#   support) and fails to import without it. sam3d_objects imports open3d
+#   unconditionally from inference_utils, so every mesh generation run needs it.
 RUN apt-get update && apt-get install -y \
     python3-pip \
     python3-dev \
@@ -15,6 +18,7 @@ RUN apt-get update && apt-get install -y \
     libegl1 \
     libgles2 \
     libglib2.0-0 \
+    libusb-1.0-0 \
     zip \
     && rm -rf /var/lib/apt/lists/*
 

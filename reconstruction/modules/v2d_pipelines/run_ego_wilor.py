@@ -143,6 +143,7 @@ from v2d.common.result_bundle import (
     result_bundle_has_gravity_alignment,
     write_result_bundle,
 )
+from v2d.common.stage_timing import record_stage, stage_timeline
 from v2d.common.utils import extract_images
 from v2d.depth.lib.stabilize_intrinsics import stabilize_intrinsics
 from v2d.droid_slam.docker.run_video_to_slam import run_video_to_slam
@@ -272,6 +273,9 @@ def _has_files(directory: str) -> bool:
 
 
 def _step(label: str, done: bool) -> bool:
+    # Recording here closes out the previous stage, so every marker doubles as a
+    # timeline boundary without each call site having to time itself.
+    record_stage(label, skipped=done)
     if done:
         print(f"  [skip] {label}")
         return True
@@ -2509,6 +2513,21 @@ def parse_args() -> argparse.Namespace:
 
 
 def run_from_args(args: argparse.Namespace) -> None:
+    # Time the run when this file is the entrypoint. Called through
+    # run_ego_reconstruction.py instead, that script owns the timeline.
+    with stage_timeline(
+        "ego wilor pipeline",
+        report_path=os.path.join(args.output_dir, "timing", "stage_timing.json"),
+        metadata={
+            "video": os.path.basename(args.video_path),
+            "object_prompt": args.object_prompt,
+            "hand_pose_source": args.hand_pose_source,
+        },
+    ):
+        _run_ego_wilor_from_args(args)
+
+
+def _run_ego_wilor_from_args(args: argparse.Namespace) -> None:
     run_ego_wilor(
         video_path              = args.video_path,
         output_dir              = args.output_dir,
