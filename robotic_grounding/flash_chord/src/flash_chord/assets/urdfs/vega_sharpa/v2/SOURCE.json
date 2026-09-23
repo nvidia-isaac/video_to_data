@@ -76,7 +76,7 @@
   },
   "generated": {
     "generator": "scripts/assets/generate_vega_sharpa.py",
-    "generator_sha256": "b69fc35001ff0618adbb3ba22cb8be730f548a6677973a49d108273df1efa9b3",
+    "generator_sha256": "cf5d97741584141c04faaad38850921e9535dde4aa0e698471c707635a4bd658",
     "path": "src/flash_chord/assets/urdfs/vega_sharpa/v2/vega_sharpa_58dof.urdf",
     "sha256": "88c2c061ad7ce13428e17c50e69ffdff08cbd5e8041654df33bbe7a7fb5e5bf2"
   },
@@ -188,8 +188,8 @@
   },
   "schema_version": 1,
   "upstream": {
+    "path": "src/flash_chord/assets/urdfs/vega_sharpa/v2/upstream/vega_sharpa.urdf",
     "revision": "7cd29eecbd1c41bb299100421f7a2068b9fc1bce",
-    "urdf_sha256": "ea129658dae66e8425ce411afe93ca467d6f75fb6b123be0f8f2b385354edb8b",
-    "url": "https://gitlab-master.nvidia.com/GR00T/gr00t/gr00t/-/blob/7cd29eecbd1c41bb299100421f7a2068b9fc1bce/groot/core/robotics/control/assets/urdf/humanoid/vega_1/vega_sharpa.urdf"
+    "urdf_sha256": "ea129658dae66e8425ce411afe93ca467d6f75fb6b123be0f8f2b385354edb8b"
   }
 }

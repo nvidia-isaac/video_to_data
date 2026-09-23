@@ -77,14 +77,13 @@ workflow:
 
 default-values:
   workflow_name: flash-chord-ppo
-  image: nvcr.io/nvstaging/isaac-amr/flash-chord:latest
+  # Supply image and output_url with --set for your deployment.
   wandb_credential: wandb-cred
   wandb_project: v2d-flash-chord
   run_name: sharpa-ppo
   experiment: sharpa_ppo
   parquet: ???
   include_support: true
-  output_url: swift://pdx.s8k.io/AUTH_team-isaac/datasets/training_outputs/flash-chord
   logging_mode: online
   upload_checkpoints: true
   seed: 42

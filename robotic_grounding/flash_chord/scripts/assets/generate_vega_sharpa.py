@@ -21,11 +21,6 @@ _MESH_ROOT = _ASSET_ROOT / "meshes" / "vega_sharpa" / "v2"
 _MANIFEST = _VERSION_ROOT / "SOURCE.json"
 _OUTPUT_MESH_PREFIX = "../../../meshes/vega_sharpa/v2"
 
-_UPSTREAM_URL = (
-    "https://gitlab-master.nvidia.com/GR00T/gr00t/gr00t/-/blob/"
-    "7cd29eecbd1c41bb299100421f7a2068b9fc1bce/"
-    "groot/core/robotics/control/assets/urdf/humanoid/vega_1/vega_sharpa.urdf"
-)
 _UPSTREAM_REVISION = "7cd29eecbd1c41bb299100421f7a2068b9fc1bce"
 
 _FINGER_SUFFIXES = (
@@ -253,7 +248,7 @@ def build_manifest(generated: bytes) -> dict[str, object]:
         "schema_version": 1,
         "asset_id": "vega_sharpa_v2",
         "upstream": {
-            "url": _UPSTREAM_URL,
+            "path": _SOURCE_URDF.relative_to(_REPO_ROOT).as_posix(),
             "revision": _UPSTREAM_REVISION,
             "urdf_sha256": _sha256(_SOURCE_URDF),
         },

@@ -138,6 +138,7 @@ def test_snapshot_hashes_meshes_and_generation_are_reproducible():
     manifest = json.loads(_MANIFEST_PATH.read_text())
     assert manifest["upstream"]["revision"] == "7cd29eecbd1c41bb299100421f7a2068b9fc1bce"
     assert manifest["upstream"]["urdf_sha256"] == _sha256(_SOURCE_PATH)
+    assert (_REPO_ROOT / manifest["upstream"]["path"]).resolve() == _SOURCE_PATH.resolve()
     assert manifest["generated"]["sha256"] == _sha256(_GENERATED_PATH)
     assert manifest["generated"]["generator_sha256"] == _sha256(_GENERATOR)
 

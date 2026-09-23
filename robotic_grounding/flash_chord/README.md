@@ -223,6 +223,29 @@ python scripts/train_flash_sac.py experiment=g1_recon_body_flash_sac --cfg job -
 
 More: [recipes and overrides](docs/configuration.md) · [checkpoints](src/flash_chord/training/README.md) · [package structure](docs/package_structure.md) · [V2D integration](V2D_INTEGRATION.md).
 
+## OSMO workflows
+
+The optional [workflow templates](workflow/) run PPO, FlashSAC, and checkpoint
+evaluation on an OSMO deployment. Build the Docker image above and push it to a
+registry your workers can access. Supply `image` and `output_url` through
+[OSMO template overrides](https://nvidia.github.io/OSMO/main/user_guide/tutorials/template_and_tokens.html);
+these settings have no defaults in the templates.
+
+For example, from this directory on the submission host:
+
+```bash
+osmo workflow submit workflow/train_flash_sac.yaml --set \
+  image=registry.example.com/your-team/flash-chord:latest \
+  output_url=s3://your-bucket/flash-chord \
+  parquet=/path/available/in/the/container/data.parquet
+```
+
+Replace the example image, bucket, and reference path with your deployment's
+values. Configure storage credentials and the `wandb_credential` named in the
+template. Evaluation also needs your W&B `entity`, `project`, and `run_id` (or an
+explicit `checkpoint_artifact`). The local Docker workflow above needs no OSMO
+service or remote storage.
+
 ## Development
 
 ```bash

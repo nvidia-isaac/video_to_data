@@ -68,7 +68,7 @@ workflow:
 
 default-values:
   workflow_name: flash-chord-evaluate
-  image: nvcr.io/nvstaging/isaac-amr/flash-chord:latest
+  # Supply image and output_url with --set for your deployment.
   wandb_credential: wandb-cred
   entity: nvidia-isaac
   project: v2d-flash-chord
@@ -79,4 +79,3 @@ default-values:
   evaluation_worlds: 4096
   evaluation_reset_mode: explicit
   logging_mode: online
-  output_url: swift://pdx.s8k.io/AUTH_team-isaac/datasets/training_outputs/flash-chord

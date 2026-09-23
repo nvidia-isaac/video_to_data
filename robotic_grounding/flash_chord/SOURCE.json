@@ -8,8 +8,7 @@
   },
   "import_kind": "native shallow port",
   "integration_base": {
-    "commit": "19ae526a2c90841739abc76543a6329f5eb91ecb",
-    "repository": "video_to_data_internal"
+    "commit": "19ae526a2c90841739abc76543a6329f5eb91ecb"
   },
   "pre_copy_patches": [
     {
@@ -32,7 +31,7 @@
     "prepared_commit": "25c8573a2ab9978b788cba6e938e12d3c265f4b6",
     "prepared_tree": "6ee4b7974637b3cd1381cd50a506709daed33d06",
     "published_release_commit": "677457016257eb3d5188538627549160bd40bc80",
-    "published_release_tree": "3fa2d923a8dc0a04c792c5ce021e96e54ae09a9d",
-    "repository": "ssh://git@gitlab-master.nvidia.com:12051/video_to_policy/flash_chord.git"
-  }
+    "published_release_tree": "3fa2d923a8dc0a04c792c5ce021e96e54ae09a9d"
+  },
+  "vendored_path": "robotic_grounding/flash_chord"
 }
