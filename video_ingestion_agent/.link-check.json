@@ -13,7 +13,7 @@
       "pattern": "^https://127.0.0.1"
     },
     {
-      "pattern": "^https://gitlab-master.nvidia.com"
+      "pattern": "^https://gitlab.example.com"
     }
   ],
   "timeout": "10s",

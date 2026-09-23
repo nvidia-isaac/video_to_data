@@ -21,7 +21,7 @@ workflow:
   tasks:
 
   - name: rosbag_to_edex
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_rosbag:{{image_tag}}
+    image: nvcr.io/your-org/your-team/mv_hoi_rosbag:{{image_tag}}
     resource: cpu_large
     command: [/bin/bash]
     args: [/tmp/entry.sh]
@@ -69,7 +69,7 @@ workflow:
         remove_pngs_after_pack: true
 
   - name: mv_preprocess
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_preprocess:{{image_tag}}
+    image: nvcr.io/your-org/your-team/mv_hoi_mv_preprocess:{{image_tag}}
     resource: cpu_large
     command: [/bin/bash]
     args: [/tmp/entry.sh]
@@ -121,7 +121,7 @@ workflow:
         output_image_path_template: "${output_dir}/images/{cam_name}.h5"
 
   - name: face_detector
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_face_detector:{{image_tag}}
+    image: nvcr.io/your-org/your-team/mv_hoi_face_detector:{{image_tag}}
     resource: cpu_large
     command: [/bin/bash]
     args: [/tmp/entry.sh]

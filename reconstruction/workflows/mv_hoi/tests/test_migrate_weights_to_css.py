@@ -167,5 +167,5 @@ def test_publish_refuses_conflicting_committed_manifest(tmp_path):
 
 def test_parse_swift_url():
     assert migration.parse_swift_url(
-        "swift://pdx.s8k.io/AUTH_team-isaac/recordings/path/to/release"
-    ) == ("https://pdx.s8k.io", "recordings", "path/to/release")
+        "swift://storage.example.com/AUTH_example/recordings/path/to/release"
+    ) == ("https://storage.example.com", "recordings", "path/to/release")

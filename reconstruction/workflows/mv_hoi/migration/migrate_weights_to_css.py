@@ -30,7 +30,7 @@ except ImportError:
 
 DEFAULT_RELEASE = "20260722"
 DEFAULT_RELEASE_URL = (
-    "swift://pdx.s8k.io/AUTH_team-isaac/recordings/"
+    "swift://storage.example.com/AUTH_example/recordings/"
     "v2d/multiview_weights/releases/20260722"
 )
 MANIFEST_SCHEMA = "v2d.mv_hoi_weights_release.v1"

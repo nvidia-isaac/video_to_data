@@ -332,7 +332,7 @@ No local GPU is required.
 
 1. ``APIModel`` sends a ``POST`` request to an OpenAI-compatible
    ``chat/completions`` endpoint. By default this is NVIDIA's internal
-   Inference API gateway (``https://inference-api.nvidia.com/v1/chat/completions``);
+   Inference API gateway (``https://api.example.com/v1/chat/completions``);
    set ``models.api_url`` to target a different gateway.
 2. For video input, the client extracts frames at ``vlm_fps``, encodes each as a base64 JPEG,
    and includes them as ``image_url`` content items alongside a text prompt that provides

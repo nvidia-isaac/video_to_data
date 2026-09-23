@@ -1,6 +1,6 @@
 # OSMO Workflows
 
-Workflow definitions for running training, retargeting, and development environments on OSMO. See the [OSMO user guide](https://isaac-infrastructure.gitlab-master-pages.nvidia.com/osmo/release-6.0.x/user_guide/index.html) for platform details.
+Workflow definitions for running training, retargeting, and development environments on OSMO. See the [OSMO user guide](https://nvidia.github.io/OSMO/main/user_guide/index.html) for platform details.
 
 ## Repository-local E2E container operation
 
@@ -25,7 +25,7 @@ primitive they use.
 ### 1. Access
 
 - `isaac-amr` NGC group — open a ticket in `#swngc-help`.
-- OSMO DLs `access-osmo` and `access-osmo-isaac-dev` via [DLRequest](https://dlrequest/) (ping `#osmo-support` to get approved).
+- OSMO DLs `access-osmo` and `access-osmo-isaac-dev` via [DLRequest](https://access.example.com/) (ping `#osmo-support` to get approved).
 
 ### 2. Configure NGC
 
@@ -40,7 +40,7 @@ primitive they use.
 
 ### 3. Configure OSMO
 
-Install the [OSMO CLI](https://isaac-infrastructure.gitlab-master-pages.nvidia.com/osmo/release-6.0.x/user_guide/getting_started/install/index.html) and set up [credentials](https://isaac-infrastructure.gitlab-master-pages.nvidia.com/osmo/release-6.0.x/user_guide/getting_started/credentials.html), including the [CSS setup](https://isaac-infrastructure.gitlab-master-pages.nvidia.com/osmo/release-6.0.x/user_guide/appendix/css/index.html#data-credentials-css) for storage access.
+Install the [OSMO CLI](https://nvidia.github.io/OSMO/main/user_guide/getting_started/install/index.html) and set up [credentials](https://nvidia.github.io/OSMO/main/user_guide/getting_started/credentials.html), including the [CSS setup](https://nvidia.github.io/OSMO/main/user_guide/getting_started/credentials.html#data) for storage access.
 
 Omni-auth credentials are generally not needed; if a workflow complains about them, remove the credentials block from the yaml or follow the [token guide](https://docs.omniverse.nvidia.com/nucleus/latest/config-and-info/api_tokens.html#token-generation).
 
@@ -81,13 +81,13 @@ See [data_pipeline.md](data_pipeline.md) for what each stage does. Stages (`load
 ```bash
 # Full pipeline (works for any registered dataset: taco, arctic, oakink2, hot3d, h2o, grab, dexycb)
 python scripts/run_osmo.py --experiment-name retarget-<dataset> \
-  --image nvcr.io/nvstaging/isaac-amr/robotic-grounding:<your-tag> \
+  --image nvcr.io/your-org/your-team/robotic-grounding:<your-tag> \
   --workflow-yaml workflow/retarget.yaml \
   --set dataset=<dataset>
 
 # Run only one stage
 python scripts/run_osmo.py --experiment-name retarget-<dataset>-<stage> \
-  --image nvcr.io/nvstaging/isaac-amr/robotic-grounding:<your-tag> \
+  --image nvcr.io/your-org/your-team/robotic-grounding:<your-tag> \
   --workflow-yaml workflow/retarget.yaml \
   --set dataset=<dataset> --set stages=<stage>
 ```
@@ -98,7 +98,7 @@ Use `sequence_pattern` (regex), `sequence_id` (exact), or `max_sequences` to pic
 
 ```bash
 python scripts/run_osmo.py --experiment-name retarget-taco-screw \
-  --image nvcr.io/nvstaging/isaac-amr/robotic-grounding:<your-tag> \
+  --image nvcr.io/your-org/your-team/robotic-grounding:<your-tag> \
   --workflow-yaml workflow/retarget.yaml \
   --set dataset=taco \
   --set 'sequence_pattern=.*(screw|skim_off|smear|stir).*'

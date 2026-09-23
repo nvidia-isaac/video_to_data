@@ -31,8 +31,8 @@ workflow:
 
   tasks:
   - name: load
-    # TODO(public-release): internal image registry (nvcr.io/nvstaging) — replace before open-sourcing.
-    image: nvcr.io/nvstaging/isaac-amr/v2d_task_library_loader:{{image_tag}}
+    # TODO(public-release): internal image registry (nvcr.io/your-org) — replace before open-sourcing.
+    image: nvcr.io/your-org/your-team/v2d_task_library_loader:{{image_tag}}
     command:
     - /bin/bash
     args:
@@ -71,16 +71,16 @@ default-values:
   image_tag: latest
   dataset: arctic
   # TODO(public-release): the swift:// *_url defaults below point to internal NVIDIA
-  # storage (pdx.s8k.io / AUTH_team-isaac). Replace the swift host + bucket (or
+  # storage (storage.example.com / AUTH_example). Replace the swift host + bucket (or
   # override all via --set) before open-sourcing.
-  raw_url: swift://pdx.s8k.io/AUTH_team-isaac/datasets/v2d/human_motion_data/arctic/dataset/
-  object_assets_url: swift://pdx.s8k.io/AUTH_team-isaac/datasets/v2d/human_motion_data/arctic/object_assets/
+  raw_url: swift://storage.example.com/AUTH_example/datasets/v2d/human_motion_data/arctic/dataset/
+  object_assets_url: swift://storage.example.com/AUTH_example/datasets/v2d/human_motion_data/arctic/object_assets/
   # MANO hand dir (clean swift copy of v2d_ego_data's data/weights/hand;
   # contains models/MANO_{LEFT,RIGHT}.pkl — manotorch's mano_assets_root layout).
-  mano_url: swift://pdx.s8k.io/AUTH_team-isaac/datasets/v2d/reconstruction/data/weights/hand/
+  mano_url: swift://storage.example.com/AUTH_example/datasets/v2d/reconstruction/data/weights/hand/
   # Default writes the canonical _loaded prefix (regenerates it). Override to a
   # scratch prefix for tests so you don't clobber an existing _loaded.
-  loaded_output_url: swift://pdx.s8k.io/AUTH_team-isaac/datasets/v2d/human_motion_data/arctic/arctic_loaded/
+  loaded_output_url: swift://storage.example.com/AUTH_example/datasets/v2d/human_motion_data/arctic/arctic_loaded/
   # Optional sequence filters (mirror the loader CLI).
   sequence_pattern: ""
   sequence_id: ""

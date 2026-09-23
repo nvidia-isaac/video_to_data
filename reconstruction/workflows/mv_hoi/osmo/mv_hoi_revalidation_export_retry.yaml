@@ -17,7 +17,7 @@ workflow:
 
   tasks:
   - name: validate_retry_source
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    image: nvcr.io/your-org/your-team/mv_hoi_mv_postprocess:{{image_tag}}
     resource: cpu_small
     command: [/bin/bash]
     args: [/tmp/entry.sh]
@@ -42,7 +42,7 @@ workflow:
           --output-path {{output}}/verification.json
 
   - name: export_revalidated
-    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}
+    image: nvcr.io/your-org/your-team/mv_hoi_mv_postprocess:{{image_tag}}
     resource: cpu_export
     command: [/bin/bash]
     args: [/tmp/entry.sh]

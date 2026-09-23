@@ -22,7 +22,7 @@ def test_list_repository_versions_parses_and_sorts_strict_semvers(monkeypatch):
     payload = [
         {"tag": "latest"},
         {"tag": "1.10.0"},
-        {"image": "nvstaging/isaac-amr/example:1.9.0"},
+        {"image": "your-org/your-team/example:1.9.0"},
         {"tag": "1.10"},
         {"tag": "v2.0.0"},
     ]
@@ -47,7 +47,7 @@ def test_list_repository_versions_parses_and_sorts_strict_semvers(monkeypatch):
                 "list",
                 "--format_type",
                 "json",
-                "nvstaging/isaac-amr/example:*",
+                "your-org/your-team/example:*",
             ],
             {"capture_output": True, "text": True},
         )

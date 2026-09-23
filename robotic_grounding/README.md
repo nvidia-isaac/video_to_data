@@ -11,7 +11,7 @@
 
 - Install [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
 
-- Make sure you have access to `nvcr.io/nvstaging/isaac-amr`. You can request it by asking in the `#swngc-help` Slack channel.
+- Make sure you have access to `nvcr.io/your-org/your-team`. You can request it by asking in the `#swngc-help` Slack channel.
 
 - Install Git LFS and `pre-commit` dependencies.
     ```bash
@@ -704,7 +704,7 @@ fine-tuning, and evaluation commands.
 
 ## Visualizer
 
-Browse retargeted sequences as 3D animations at **http://10.111.83.14:8080/**
+Browse retargeted sequences as 3D animations at **http://localhost:8080/**
 
 To run the server yourself or generate new recordings:
 

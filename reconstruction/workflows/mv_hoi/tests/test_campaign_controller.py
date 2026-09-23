@@ -597,7 +597,7 @@ def test_revalidation_workflow_defines_commit_gate():
     assert "cpu_export:\n      cpu: 16" in workflow
     assert (
         "- name: export_revalidated\n"
-        "    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:"
+        "    image: nvcr.io/your-org/your-team/mv_hoi_mv_postprocess:"
         "{{image_tag}}\n"
         "    resource: cpu_export"
     ) in workflow
@@ -615,7 +615,7 @@ def test_revalidation_workflow_defines_commit_gate():
     assert "--interaction-post-contact-padding-seconds \"$TRIM_POST_PADDING\"" in retry_workflow
     assert (
         "- name: export_revalidated\n"
-        "    image: nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:"
+        "    image: nvcr.io/your-org/your-team/mv_hoi_mv_postprocess:"
         "{{image_tag}}\n"
         "    resource: cpu_export"
     ) in retry_workflow

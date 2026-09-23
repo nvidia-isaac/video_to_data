@@ -142,7 +142,7 @@ to end inside the monorepo. Cleanup to follow.
 
 References still in:
 - "OSMO cluster" prose at the top of the page.
-- `nvcr.io/nvstaging/isaac-amr/video_ingestion_agent:latest` in three
+- `nvcr.io/your-org/your-team/video_ingestion_agent:latest` in three
   Docker examples.
 - `/mnt/nfs/outputs` example NFS path.
 - Full OSMO workflow walkthrough (lines 50–end).
@@ -179,7 +179,7 @@ with the `[local]` extra.
 ### 6. OSMO workflows are internal-only — **DEFERRED**
 
 Maintainer choice: defer with #3 / #4. `osmo_workflows/*.yaml` and
-`scripts/run_osmo.py` defaults at `nvcr.io/nvstaging/isaac-amr/...`.
+`scripts/run_osmo.py` defaults at `nvcr.io/your-org/your-team/...`.
 
 ---
 

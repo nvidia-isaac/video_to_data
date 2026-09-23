@@ -76,8 +76,8 @@ jobs:
           git config --global user.email "michalin@nvidia.com"
           # GITHUB_TOKEN -> internal origin read (rewrite its SSH URL to HTTPS).
           git config --global \
-            url."https://x-access-token:${{ github.token }}@github.com/nvidia-isaac/video_to_data_internal".insteadOf \
-            "git@github.com:nvidia-isaac/video_to_data_internal"
+            url."https://x-access-token:${{ github.token }}@github.com/your-org/your-source-repository".insteadOf \
+            "git@github.com:your-org/your-source-repository"
 
       - name: Run Copybara
         env:

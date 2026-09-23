@@ -112,7 +112,7 @@ docker images | grep -E 'robotic-grounding|task_library_loader'
 
 Pass: both images are listed.
 
-**If this fails:** `nvcr.io/nvstaging/isaac-amr` pull denied → Slack `#swngc-help` for access. Disk
+**If this fails:** `nvcr.io/your-org/your-team` pull denied → Slack `#swngc-help` for access. Disk
 space → `docker system df`. Then `robotic_grounding_doctor`.
 
 Confirm: "Both images built. Next we get MANO + your dataset in place — want the download guide?"

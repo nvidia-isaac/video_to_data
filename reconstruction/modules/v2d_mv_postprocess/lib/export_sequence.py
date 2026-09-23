@@ -11,7 +11,7 @@ local copy is used; otherwise it's treated as a remote S3 path.
 
 Usage (remote):
     python -m v2d.mv.postprocess.lib.export_sequence \
-        --swift_output_base swift://pdx.s8k.io/AUTH_.../data_output/<seq> \
+        --swift_output_base swift://storage.example.com/AUTH_.../data_output/<seq> \
         --output_dir /local/path/to/sequence
 
 Usage (local):
@@ -54,7 +54,7 @@ from v2d.common.video import pack_directory_to_h5
 DEFAULT_DOWNLOAD_WORKERS = os.cpu_count() or 8
 DEFAULT_CAMERA_WORKERS = min(4, os.cpu_count() or 4)
 
-ENDPOINT_URL = os.environ.get("CSS_ENDPOINT_URL", "https://pdx.s8k.io")
+ENDPOINT_URL = os.environ.get("CSS_ENDPOINT_URL", "https://storage.example.com")
 ACCESS_KEY = os.environ.get("CSS_ACCESS_KEY", "")
 SECRET_KEY = os.environ.get("CSS_SECRET_KEY", "")
 REGION = os.environ.get("CSS_REGION", "us-east-1")
@@ -1337,7 +1337,7 @@ def _build_parser() -> argparse.ArgumentParser:
     source.add_argument(
         "--swift_output_base", type=str,
         help="Swift URL for remote download "
-             "(e.g. swift://pdx.s8k.io/AUTH_.../data_output/<seq>)",
+             "(e.g. swift://storage.example.com/AUTH_.../data_output/<seq>)",
     )
     source.add_argument(
         "--source_dir", type=str,

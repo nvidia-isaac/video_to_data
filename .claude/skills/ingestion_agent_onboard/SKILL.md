@@ -295,7 +295,7 @@ models:
   # api_key: nvapi-...
 ```
 
-Known-good NIM Inference API model identifiers (as of 2026-05): `openai/openai/gpt-5.2` (used in this walkthrough), `openai/gpt-4o`, `google/gemini-1.5-pro`. If unsure what the user's endpoint serves, ask them to do a quick `curl` test against `https://inference-api.nvidia.com/v1/chat/completions` with a candidate model name before committing.
+Known-good NIM Inference API model identifiers (as of 2026-05): `openai/openai/gpt-5.2` (used in this walkthrough), `openai/gpt-4o`, `google/gemini-1.5-pro`. If unsure what the user's endpoint serves, ask them to do a quick `curl` test against `https://api.example.com/v1/chat/completions` with a candidate model name before committing.
 
 Make the edit (or guide them to), then verify:
 

@@ -48,7 +48,7 @@ class APIModel:
     """
 
     # NVIDIA Inference API endpoint
-    DEFAULT_API_URL = "https://inference-api.nvidia.com/v1/chat/completions"
+    DEFAULT_API_URL = "https://api.example.com/v1/chat/completions"
 
     def __init__(
         self,

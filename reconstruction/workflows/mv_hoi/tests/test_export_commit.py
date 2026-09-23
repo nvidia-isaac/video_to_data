@@ -49,8 +49,8 @@ class _Client:
 def test_publish_requires_distinct_candidate_and_destination():
     with pytest.raises(ValueError, match="must differ"):
         export_commit.publish_remote_export_commit(
-            "swift://pdx.s8k.io/AUTH_team-isaac/container/root/sequence",
-            "swift://pdx.s8k.io/AUTH_team-isaac/container/root/sequence/",
+            "swift://storage.example.com/AUTH_example/container/root/sequence",
+            "swift://storage.example.com/AUTH_example/container/root/sequence/",
         )
 
 
@@ -67,7 +67,7 @@ def test_remote_commit_uses_swift_container_and_validates_exact_payload(monkeypa
     )
 
     assert export_commit.verify_remote_export_commit(
-        "swift://pdx.s8k.io/AUTH_team-isaac/container/root/sequence/"
+        "swift://storage.example.com/AUTH_example/container/root/sequence/"
     ) == commit
 
 
@@ -88,7 +88,7 @@ def test_publish_replaces_destination_and_copies_commit_last(monkeypatch):
     operations = []
 
     class Client:
-        meta = types.SimpleNamespace(endpoint_url="https://pdx.s8k.io")
+        meta = types.SimpleNamespace(endpoint_url="https://storage.example.com")
 
         def get_object(self, *, Bucket, Key):
             assert Bucket == "container"
@@ -139,15 +139,15 @@ def test_publish_replaces_destination_and_copies_commit_last(monkeypatch):
     )
 
     assert export_commit.publish_remote_export_commit(
-        "swift://pdx.s8k.io/AUTH_team-isaac/container/request_1",
-        "swift://pdx.s8k.io/AUTH_team-isaac/container/destination",
+        "swift://storage.example.com/AUTH_example/container/request_1",
+        "swift://storage.example.com/AUTH_example/container/destination",
     ) == commit
     assert "destination/stale.bin" not in storage
     assert storage["destination/payload.bin"] == b"new"
     assert any(key.startswith("request_1/") for key in storage)
     assert export_commit.cleanup_promoted_export_candidate(
-        "swift://pdx.s8k.io/AUTH_team-isaac/container/request_1",
-        "swift://pdx.s8k.io/AUTH_team-isaac/container/destination",
+        "swift://storage.example.com/AUTH_example/container/request_1",
+        "swift://storage.example.com/AUTH_example/container/destination",
         expected_commit=commit,
     )["deleted_object_count"] == 2
     assert not any(key.startswith("request_1/") for key in storage)

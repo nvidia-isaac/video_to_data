@@ -16,7 +16,7 @@ except ImportError:  # Direct script execution.
     from db import parse_semver, validate_semver_gt
 
 
-NGC_NAMESPACE = "nvstaging/isaac-amr"
+NGC_NAMESPACE = "your-org/your-team"
 DOCKER_REGISTRY = "nvcr.io"
 CANONICAL_REPOSITORY = "mv_hoi_mv_preprocess"
 

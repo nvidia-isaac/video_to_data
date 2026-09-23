@@ -155,7 +155,7 @@ RUN cd / && \
 # To upgrade to V2 (internal dev branch) when released, replace with:
 #   ARG GITLAB_TOKEN
 #   RUN git clone --branch dev/bundlefusion-replacement-and-texture-refinement --depth 1 \
-#       https://oauth2:${GITLAB_TOKEN}@gitlab-master.nvidia.com/metropolis-perf/3d-reconstruction/3d-object-reconstruction-github.git \
+#       https://oauth2:${GITLAB_TOKEN}@gitlab.example.com/your-group/3d-object-reconstruction.git \
 #       /workspace/3d-object-reconstruction
 ARG OBJECT_RECONSTRUCTION_COMMIT=e7aa98dc2dcc92de9cebb6f2a991fa6d2aa6f284
 RUN git init /workspace/3d-object-reconstruction && \

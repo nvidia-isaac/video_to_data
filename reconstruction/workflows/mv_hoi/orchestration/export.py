@@ -135,7 +135,7 @@ MAX_FAILURE_ANNOTATIONS = 5
 MAX_FAILURE_COVERAGE = 0.30
 DEFAULT_BATCH_SIZE = 30
 GENERATED_DIR = generated_dir()
-EXPORT_IMAGE = "nvcr.io/nvstaging/isaac-amr/mv_hoi_mv_postprocess:{{image_tag}}"
+EXPORT_IMAGE = "nvcr.io/your-org/your-team/mv_hoi_mv_postprocess:{{image_tag}}"
 DEFAULT_KRATOS_STATUS_TABLE = "llmdf_admin.item_status_transition_metrics"
 DEFAULT_KRATOS_PROJECT_ID = 285164
 

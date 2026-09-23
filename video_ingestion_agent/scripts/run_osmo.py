@@ -210,7 +210,7 @@ def main():
     else:
         # Generate image name with latest tag
         image_name = (
-            f"nvcr.io/nvstaging/isaac-amr/v2p_{args.workflow_type}_{args.experiment_name}:latest"
+            f"nvcr.io/your-org/your-team/v2p_{args.workflow_type}_{args.experiment_name}:latest"
         )
 
         print(f"\nBuilding Docker image: {image_name}")

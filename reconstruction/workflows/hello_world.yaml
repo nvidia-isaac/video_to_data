@@ -4,7 +4,7 @@
 #
 # Usage:
 #   osmo workflow submit reconstruction/workflows/hello_world.yaml \
-#     --set input_url=swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/.../hoi_metadata.yaml \
+#     --set input_url=swift://storage.example.com/AUTH_example/recordings/v2d/.../hoi_metadata.yaml \
 #     --pool <pool>
 
 workflow:

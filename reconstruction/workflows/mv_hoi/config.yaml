@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 datasets:
   sc_office_4exo_1:
-    swift_base: swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/multiview/sc_office_4exo_1
-    mesh_base: swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/mesh
-    weights_base_url: swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/multiview_weights/releases/20260722
+    swift_base: swift://storage.example.com/AUTH_example/recordings/v2d/multiview/sc_office_4exo_1
+    mesh_base: swift://storage.example.com/AUTH_example/recordings/v2d/mesh
+    weights_base_url: swift://storage.example.com/AUTH_example/recordings/v2d/multiview_weights/releases/20260722
     pipelines:
       mv_calibration:
         input_path: calibration
@@ -54,7 +54,7 @@ datasets:
               silhouette_render_bbox_padding_fraction: 0.1
               min_accuracy_failure_run_frames: 5
               max_silhouette_failure_coverage: 0.5
-            hitl_s3_base: s3://hitl-intake-testing/production-folder/isaac-v2d-multiview/data-factory-production/video-to-data-v2d-multiview-data-collection
+            hitl_s3_base: s3://example-hitl-bucket/production-folder/isaac-v2d-multiview/data-factory-production/video-to-data-v2d-multiview-data-collection
             hitl_batch_name_template: "batch_{date}"
       mv_hoi_export:
         input_path: data_output

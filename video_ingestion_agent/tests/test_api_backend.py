@@ -42,7 +42,7 @@ class TestAPIModelEndpoint:
     def test_default_endpoint_used_when_url_omitted(self):
         model = APIModel(api_key="test-key")
         assert model.api_url == APIModel.DEFAULT_API_URL
-        assert "inference-api.nvidia.com" in model.api_url
+        assert "api.example.com" in model.api_url
 
     def test_endpoint_override(self):
         override = "https://gateway.example.com/v1/chat/completions"

@@ -99,7 +99,7 @@ fi
 
 IMAGE_NAME="robotic-grounding${ARCH_SUFFIX}:${VERSION}"
 CONTAINER_NAME="robotic-grounding${ARCH_SUFFIX}-${VERSION}-gpu${GPU_DEVICE}"
-NGC_LOCATION="nvcr.io/nvstaging/isaac-amr"
+NGC_LOCATION="nvcr.io/your-org/your-team"
 
 wait_for_container_removal() {
     local wait_index

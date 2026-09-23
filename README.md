@@ -55,7 +55,7 @@ for the runnable tissue-box demo, setup requirements, acceptance gates, and resu
 |---|---|---|
 | [`video_ingestion_agent/`](video_ingestion_agent/) | Video → action segments + entity scene graph + frame embeddings. LangGraph pipeline (segment → verify/refine → entity graph → embeddings) plus an EGAgent-style natural-language retrieval agent and an optional Gradio UI. | Python venv + vLLM server |
 | [`reconstruction/`](reconstruction/) | Video → depth, masks, meshes, 6D poses, human body. 18 containerized modules + multi-view pipelines. | Docker (per-module images) |
-| [`robotic_grounding/`](robotic_grounding/) | RL training on NVIDIA Isaac Lab 2.3.1 with RSL-RL (PPO); motion retargeting utilities. | Docker (`nvcr.io/nvstaging/isaac-amr`) |
+| [`robotic_grounding/`](robotic_grounding/) | RL training on NVIDIA Isaac Lab 2.3.1 with RSL-RL (PPO); motion retargeting utilities. | Docker (`nvcr.io/your-org/your-team`) |
 | [`robotic_grounding/flash_chord/`](robotic_grounding/flash_chord/) | Accelerated reference-tracking training with PPO and FlashSAC; [setup and complete example workflow](robotic_grounding/flash_chord/README.md#setup). | Separate Newton / Warp / JAX container |
 | [`groot_finetune/`](robotic_grounding/groot_finetune/) | Expert demonstration collection, LeRobot dataset conversion, GR00T N1.7 fine-tuning, and closed-loop evaluation. | Python 3.10 + external Isaac-GR00T checkout |
 

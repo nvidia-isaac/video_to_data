@@ -1,7 +1,7 @@
 # Host-side dependencies for reconstruction/workflows/mv_hoi scripts.
 # Install in the local environment that runs submit.py/query.py/export.py.
 
---extra-index-url https://artifactory.pdx.nvidia.com/artifactory/api/pypi/sw-kratos-pypi-local/simple
+--extra-index-url https://packages.example.com/simple
 
 boto3==1.34.162
 google-api-python-client==2.196.0

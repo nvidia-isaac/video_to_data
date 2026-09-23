@@ -28,7 +28,7 @@ docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi   # GP
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | `permission denied` on `docker ...` | User not in the `docker` group | Docker post-install steps (README prereqs); re-login |
-| `nvcr.io/nvstaging/isaac-amr` pull denied / unauthorized | No access to the NGC staging registry | Request access in the `#swngc-help` Slack channel; `docker login nvcr.io` |
+| `nvcr.io/your-org/your-team` pull denied / unauthorized | No access to the NGC staging registry | Request access in the `#swngc-help` Slack channel; `docker login nvcr.io` |
 | `no space left on device` during build | Docker disk full | `docker system df` then `docker system prune` (careful); free host disk |
 | Container name not found on `run.sh exec` | Container isn't running | `./workflow/run.sh start latest 0` first; name is `robotic-grounding-<version>-gpu<gpu>` |
 | "I have no name!" bash prompt inside container | Cosmetic UID-mapping quirk | Harmless; `run.sh start` writes a per-container passwd entry |

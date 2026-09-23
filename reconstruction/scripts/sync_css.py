@@ -15,26 +15,26 @@ Prerequisites:
 Usage:
   # Download a folder
   python reconstruction/scripts/sync_css.py download \
-      swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/multiview/sc_office_4exo_1/data/seq_001 \
+      swift://storage.example.com/AUTH_example/recordings/v2d/multiview/sc_office_4exo_1/data/seq_001 \
       /tmp/seq_001
 
   # Upload a folder
   python reconstruction/scripts/sync_css.py upload \
       /tmp/seq_001 \
-      swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/multiview/sc_office_4exo_1/data_output/seq_001
+      swift://storage.example.com/AUTH_example/recordings/v2d/multiview/sc_office_4exo_1/data_output/seq_001
 
   # Download a single file
   python reconstruction/scripts/sync_css.py download \
-      swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/mesh/tall_bar_stool/einstar/mesh.obj \
+      swift://storage.example.com/AUTH_example/recordings/v2d/mesh/tall_bar_stool/einstar/mesh.obj \
       /tmp/mesh.obj
 
   # List remote directory contents
   python reconstruction/scripts/sync_css.py ls \
-      swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/multiview/sc_office_4exo_1/data/seq_001
+      swift://storage.example.com/AUTH_example/recordings/v2d/multiview/sc_office_4exo_1/data/seq_001
 
   # Dry-run to see what would be transferred
   python reconstruction/scripts/sync_css.py download \
-      swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/multiview/sc_office_4exo_1/data/seq_001 \
+      swift://storage.example.com/AUTH_example/recordings/v2d/multiview/sc_office_4exo_1/data/seq_001 \
       /tmp/seq_001 --dry-run
 """
 
@@ -48,7 +48,7 @@ from pathlib import Path
 import boto3
 from botocore.config import Config
 
-ENDPOINT_URL = os.environ.get("CSS_ENDPOINT_URL", "https://pdx.s8k.io")
+ENDPOINT_URL = os.environ.get("CSS_ENDPOINT_URL", "https://storage.example.com")
 ACCESS_KEY = os.environ.get("CSS_ACCESS_KEY", "")
 SECRET_KEY = os.environ.get("CSS_SECRET_KEY", "")
 REGION = os.environ.get("CSS_REGION", "us-east-1")  # Ignored by CSS, location is inferred from the endpoint URL
@@ -76,7 +76,7 @@ def _get_s3_client():
 
 
 def _env_host() -> str:
-    """Derive the host from CSS_ENDPOINT_URL (e.g. 'pdx.s8k.io')."""
+    """Derive the host from CSS_ENDPOINT_URL (e.g. 'storage.example.com')."""
     return ENDPOINT_URL.replace("https://", "").replace("http://", "").rstrip("/")
 
 
@@ -94,7 +94,7 @@ def _parse_swift_url(url: str) -> tuple[str, str]:
     """Return (bucket, prefix) from a swift:// URL or a bare bucket/path.
 
     Swift URLs have the form:
-        swift://pdx.s8k.io/AUTH_team-isaac/recordings/v2d/mesh/...
+        swift://storage.example.com/AUTH_example/recordings/v2d/mesh/...
                 ^host       ^account       ^bucket    ^prefix...
 
     The account is handled by credentials and is skipped.  The S3 bucket

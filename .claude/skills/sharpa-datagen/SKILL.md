@@ -36,7 +36,7 @@ For all checkpoints of a dataset, use the batch driver (section 7).
   `python` in the container = `isaaclab.sh -p`. **Avoid heredocs** through it — write a
   script file to the mounted repo and run that instead.
 - **CSS credentials** for pulling motion data: `~/.config/osmo/css_credential.yaml`
-  (a DATA credential: `access_key_id`, `access_key`, `endpoint: https://pdx.s8k.io`,
+  (a DATA credential: `access_key_id`, `access_key`, `endpoint: https://storage.example.com`,
   `region: us-west-2`). Local scripts read env vars `CSS_ACCESS_KEY` (=access_key_id),
   `CSS_SECRET_KEY` (=access_key), `CSS_ENDPOINT_URL`, `CSS_REGION` — pass them via
   `docker exec -e ...`.
@@ -236,4 +236,4 @@ ego videos are **not** frame-synced to the sim rollouts — they're linked at th
 | Hands drift away but objects stable; 0% | Hand-divergence policy failure (per-sequence). VOC can't help hands; not a data bug. |
 | `download_file` 400 from CSS | Use `get_object` + `signature_version=s3v4` + `addressing_style=path`. |
 | `403 access denied` from `osmo` | Missing DL roles `access-osmo` + `access-osmo-isaac-dev` (DLRequest / #osmo-support). |
-| nvcr `Access Denied` on `nvstaging/isaac-amr` | Regenerate the NGC API key with the isaac-amr org active, then `docker login nvcr.io -u '$oauthtoken' -p <key>`. |
+| nvcr `Access Denied` on `your-org/your-team` | Regenerate the NGC API key with the isaac-amr org active, then `docker login nvcr.io -u '$oauthtoken' -p <key>`. |

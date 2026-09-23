@@ -4,7 +4,7 @@
 
 Export from CSS (remote):
     python -m v2d.mv.postprocess.docker.run_export_sequence \\
-        --swift_output_base swift://pdx.s8k.io/AUTH_.../data_output/<seq> \\
+        --swift_output_base swift://storage.example.com/AUTH_.../data_output/<seq> \\
         --output_dir /local/path/to/sequence \\
         --dev
 
@@ -44,7 +44,7 @@ def run_export_sequence(
         env = {
             "CSS_ACCESS_KEY": os.environ.get("CSS_ACCESS_KEY", ""),
             "CSS_SECRET_KEY": os.environ.get("CSS_SECRET_KEY", ""),
-            "CSS_ENDPOINT_URL": os.environ.get("CSS_ENDPOINT_URL", "https://pdx.s8k.io"),
+            "CSS_ENDPOINT_URL": os.environ.get("CSS_ENDPOINT_URL", "https://storage.example.com"),
         }
     elif source_dir is not None:
         inputs["source_dir"] = source_dir
