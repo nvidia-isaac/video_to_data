@@ -55,8 +55,19 @@ python -m groot_finetune.convert_to_gr00t \
   audit tools.
 - Closed-loop task success: the evaluator in the task profile. The provided `lift_hold`
   evaluator requires the configured maximum rise and consecutive samples above the hold
-  threshold, and requires the final object height to remain within the configured floor relative
-  to its initial height.
+  threshold, followed by stable height-based placement without an abrupt drop. The tissue-box
+  profile requires a 10 cm lift and 20 consecutive samples at least 5 cm above the initial height.
+  Its final 20 samples must all be at most 3 cm above the initial height, with at most 5 mm change
+  between samples and 1 cm total height range. Once the object reaches 5 cm, downward changes
+  must not exceed 1 cm per sample. The existing final-height floor of -1 cm is also retained.
+  At 20 Hz, 20 samples represent approximately one second. Placement does not check XY position,
+  contact, or hand release. `lift_hold_successful_episodes` remains a partial-progress metric;
+  overall success and success-only recordings require all checks.
+
+The evaluator ID and policy instruction are unchanged. Older profiles default to the new
+placement thresholds; their canonical hashes change, so recreate run configurations/snapshots
+for new evaluations rather than editing historical manifests. Prior success rates are not directly
+comparable to the stricter score. Source collection and training behavior are unchanged.
 
 The closed-loop evaluator samples pre-action observations. It does not install reset hooks or
 use post-action observations that have already been replaced by an automatic reset.

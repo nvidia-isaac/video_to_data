@@ -49,13 +49,18 @@ class TargetObject:
 
 @dataclass(frozen=True)
 class LiftHoldEvaluator:
-    """Configuration for the released lift-and-hold evaluator."""
+    """Configuration for lift, hold, and stable-placement success."""
 
     lift_threshold_m: float
     hold_threshold_m: float
     min_hold_steps: int
     final_min_lift_m: float = -0.01
     evaluator_id: str = LIFT_HOLD_EVALUATOR
+    placement_threshold_m: float = 0.03
+    placement_window_steps: int = 20
+    max_descent_step_m: float = 0.01
+    max_terminal_step_m: float = 0.005
+    max_terminal_range_m: float = 0.01
 
     def __post_init__(self) -> None:
         """Validate lift-and-hold thresholds."""
@@ -71,6 +76,18 @@ class LiftHoldEvaluator:
             raise ValueError("min_hold_steps must be positive")
         if not math.isfinite(self.final_min_lift_m):
             raise ValueError("final_min_lift_m must be finite")
+        for name in (
+            "placement_threshold_m",
+            "max_descent_step_m",
+            "max_terminal_step_m",
+            "max_terminal_range_m",
+        ):
+            if not math.isfinite(getattr(self, name)) or getattr(self, name) < 0.0:
+                raise ValueError(f"{name} must be finite and non-negative")
+        if self.placement_window_steps < 2:
+            raise ValueError("placement_window_steps must be at least 2")
+        if self.final_min_lift_m > self.placement_threshold_m:
+            raise ValueError("final_min_lift_m must not exceed placement_threshold_m")
 
     def as_dict(self) -> dict[str, Any]:
         """Return the canonical JSON-compatible evaluator representation."""
@@ -80,6 +97,11 @@ class LiftHoldEvaluator:
             "hold_threshold_m": self.hold_threshold_m,
             "min_hold_steps": self.min_hold_steps,
             "final_min_lift_m": self.final_min_lift_m,
+            "placement_threshold_m": self.placement_threshold_m,
+            "placement_window_steps": self.placement_window_steps,
+            "max_descent_step_m": self.max_descent_step_m,
+            "max_terminal_step_m": self.max_terminal_step_m,
+            "max_terminal_range_m": self.max_terminal_range_m,
         }
 
 
@@ -145,6 +167,13 @@ def task_profile_from_dict(value: Mapping[str, Any]) -> TaskProfile:
                 hold_threshold_m=float(evaluator["hold_threshold_m"]),
                 min_hold_steps=int(evaluator["min_hold_steps"]),
                 final_min_lift_m=float(evaluator.get("final_min_lift_m", -0.01)),
+                placement_threshold_m=float(
+                    evaluator.get("placement_threshold_m", 0.03)
+                ),
+                placement_window_steps=int(evaluator.get("placement_window_steps", 20)),
+                max_descent_step_m=float(evaluator.get("max_descent_step_m", 0.01)),
+                max_terminal_step_m=float(evaluator.get("max_terminal_step_m", 0.005)),
+                max_terminal_range_m=float(evaluator.get("max_terminal_range_m", 0.01)),
             ),
         )
     except (KeyError, TypeError, ValueError) as exc:

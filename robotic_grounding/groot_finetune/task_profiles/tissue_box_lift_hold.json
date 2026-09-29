@@ -4,7 +4,12 @@
     "hold_threshold_m": 0.05,
     "id": "lift_hold",
     "lift_threshold_m": 0.1,
-    "min_hold_steps": 20
+    "min_hold_steps": 20,
+    "placement_threshold_m": 0.03,
+    "placement_window_steps": 20,
+    "max_descent_step_m": 0.01,
+    "max_terminal_step_m": 0.005,
+    "max_terminal_range_m": 0.01
   },
   "instruction": "lift the box and hold it",
   "object_prompt": "a tissue box",

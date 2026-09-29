@@ -41,7 +41,7 @@ def evaluate_lift_hold(
 
 
 class LiftHoldTracker:
-    """Track lift-and-hold metrics independently for parallel environments."""
+    """Track lift, hold, and height-based placement for parallel environments."""
 
     def __init__(self, initial_z: np.ndarray, *, config: LiftHoldEvaluator) -> None:
         """Initialize independent accumulators from each environment's baseline."""
@@ -59,6 +59,10 @@ class LiftHoldTracker:
         self._max_hold_steps = np.zeros(initial.shape, dtype=np.int64)
         self._latest_lift_m = np.zeros_like(initial)
         self._sample_count = np.zeros(initial.shape, dtype=np.int64)
+        self._max_descent_m = np.zeros_like(initial)
+        self._terminal_lifts = np.full(
+            (initial.size, config.placement_window_steps), np.nan
+        )
 
     @property
     def num_envs(self) -> int:
@@ -76,6 +80,16 @@ class LiftHoldTracker:
             raise ValueError("object_z contains non-finite values")
         lift_m = current - self._initial_z
         self._max_lift_m = np.maximum(self._max_lift_m, lift_m)
+        self._max_descent_m = np.maximum(
+            self._max_descent_m,
+            np.where(
+                self._max_lift_m >= self.config.hold_threshold_m,
+                self._latest_lift_m - lift_m,
+                0.0,
+            ),
+        )
+        self._terminal_lifts[:, :-1] = self._terminal_lifts[:, 1:]
+        self._terminal_lifts[:, -1] = lift_m
         self._consecutive_hold_steps = np.where(
             lift_m >= self.config.hold_threshold_m,
             self._consecutive_hold_steps + 1,
@@ -102,8 +116,20 @@ class LiftHoldTracker:
             max_lift >= self.config.lift_threshold_m
             and max_hold >= self.config.min_hold_steps
         )
+        terminal = self._terminal_lifts[env_index]
+        stable_placement = (
+            self._sample_count[env_index] >= self.config.placement_window_steps
+            and np.max(terminal) <= self.config.placement_threshold_m
+            and np.max(np.abs(np.diff(terminal))) <= self.config.max_terminal_step_m
+            and np.ptp(terminal) <= self.config.max_terminal_range_m
+        )
         result = LiftHoldResult(
-            success=(lift_hold_success and final_lift >= self.config.final_min_lift_m),
+            success=bool(
+                lift_hold_success
+                and final_lift >= self.config.final_min_lift_m
+                and stable_placement
+                and self._max_descent_m[env_index] <= self.config.max_descent_step_m
+            ),
             lift_hold_success=lift_hold_success,
             max_lift_m=max_lift,
             max_hold_steps=max_hold,
@@ -116,4 +142,6 @@ class LiftHoldTracker:
         self._max_hold_steps[env_index] = 0
         self._latest_lift_m[env_index] = 0.0
         self._sample_count[env_index] = 0
+        self._max_descent_m[env_index] = 0.0
+        self._terminal_lifts[env_index] = np.nan
         return result
