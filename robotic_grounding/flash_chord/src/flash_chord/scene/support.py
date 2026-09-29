@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Add a sequence's support surfaces (kinematic collision shapes) from its support USDA.
 
-The support USDA holds inline ``Cylinder`` / ``Cube`` prims (a translate + dimensions). They
-are added as static (kinematic) collision shapes the objects rest on. Newton cylinders extend
-along Z, matching the USDA's ``axis = "Z"``.
+The support USDA holds inline ``Cylinder`` / ``Cube`` prims with authored transforms and
+dimensions. They are added as static (kinematic) collision shapes the objects rest on. Newton
+cylinders extend along Z, matching the USDA's ``axis = "Z"``.
 """
 
 from __future__ import annotations
@@ -70,9 +70,7 @@ def add_support_surfaces(builder: newton.ModelBuilder, support_usda_path) -> Sup
             continue
         translate = prim.GetAttribute("xformOp:translate").Get()
         position = (
-            (0.0, 0.0, 0.0)
-            if translate is None
-            else (float(translate[0]), float(translate[1]), float(translate[2]))
+            (0.0, 0.0, 0.0) if translate is None else (float(translate[0]), float(translate[1]), float(translate[2]))
         )
         if not all(math.isfinite(value) for value in position):
             raise ValueError(f"support shape {prim.GetPath()} has a non-finite translation")
@@ -83,7 +81,12 @@ def add_support_surfaces(builder: newton.ModelBuilder, support_usda_path) -> Sup
             )
         else:
             size = prim.GetAttribute("size").Get()
-            dimensions = (float(size if size is not None else 2.0),)
+            scale = prim.GetAttribute("xformOp:scale").Get()
+            scale = (1.0, 1.0, 1.0) if scale is None else tuple(float(value) for value in scale)
+            if len(scale) != 3 or not all(math.isfinite(value) and value != 0.0 for value in scale):
+                raise ValueError(f"support shape {prim.GetPath()} must have a finite nonzero scale")
+            edge = float(size if size is not None else 2.0)
+            dimensions = tuple(edge * abs(value) for value in scale)
         if not all(math.isfinite(value) and value > 0.0 for value in dimensions):
             raise ValueError(f"support shape {prim.GetPath()} must have positive finite dimensions")
         shapes.append((type_name, prim.GetName(), position, dimensions))
@@ -111,9 +114,9 @@ def add_support_surfaces(builder: newton.ModelBuilder, support_usda_path) -> Sup
                 half_height=0.5 * height,
                 label=name,
             )
-        else:  # Cube: USD `size` is the full edge length
-            half = 0.5 * dimensions[0]
-            builder.add_shape_box(body, xform=xform, hx=half, hy=half, hz=half, label=name)
+        else:  # Cube: USD `size * xformOp:scale` gives the full dimensions
+            hx, hy, hz = (0.5 * value for value in dimensions)
+            builder.add_shape_box(body, xform=xform, hx=hx, hy=hy, hz=hz, label=name)
     if (
         body != body_start
         or builder.body_count != body_start + 1

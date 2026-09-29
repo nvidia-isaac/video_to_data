@@ -62,6 +62,30 @@ def test_empty_support_is_rejected_before_mutating_builder(tmp_path):
     assert len(builder.shape_body) == 0
 
 
+def test_cube_support_applies_authored_nonuniform_scale(tmp_path):
+    import newton
+    from flash_chord.scene.support import add_support_surfaces
+
+    support = tmp_path / "scaled_cube.usda"
+    support.write_text(
+        """#usda 1.0
+
+def Cube "tabletop"
+{
+    double size = 1
+    double3 xformOp:scale = (0.84, 0.282, 0.01)
+    uniform token[] xformOpOrder = ["xformOp:scale"]
+}
+"""
+    )
+    builder = newton.ModelBuilder()
+
+    binding = add_support_surfaces(builder, support)
+
+    assert binding is not None
+    assert tuple(float(value) for value in builder.shape_scale[0]) == pytest.approx((0.42, 0.141, 0.005))
+
+
 @pytest.mark.sequence_data
 def test_build_scene_includes_support():
     import warp as wp
