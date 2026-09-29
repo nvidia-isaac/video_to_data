@@ -64,11 +64,6 @@ python -m groot_finetune.convert_to_gr00t \
   contact, or hand release. `lift_hold_successful_episodes` remains a partial-progress metric;
   overall success and success-only recordings require all checks.
 
-The evaluator ID and policy instruction are unchanged. Older profiles default to the new
-placement thresholds; their canonical hashes change, so recreate run configurations/snapshots
-for new evaluations rather than editing historical manifests. Prior success rates are not directly
-comparable to the stricter score. Source collection and training behavior are unchanged.
-
 The closed-loop evaluator samples pre-action observations. It does not install reset hooks or
 use post-action observations that have already been replaced by an automatic reset.
 
