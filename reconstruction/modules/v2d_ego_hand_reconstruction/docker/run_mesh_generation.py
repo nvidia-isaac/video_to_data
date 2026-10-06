@@ -3,7 +3,7 @@
 """Export per-track MANO hand meshes and joint trajectories from Dyn-HaMR results.
 
 Delegates to the vendored ``run_mesh_generation.sh`` so mesh export logic stays
-in sync with upstream IsaacTeleop.
+in sync with upstream IsaacCapture.
 
 Prerequisites:
     - Dyn-HaMR Docker image must be built (``python -m v2d_ego_hand_reconstruction.docker.build``).

@@ -3,12 +3,12 @@
 """Run ego hand reconstruction pipeline (ViPE camera estimation + Dyn-HaMR).
 
 Delegates to the vendored ``run_reconstruction.sh`` so pipeline logic stays in
-sync with upstream IsaacTeleop.
+sync with upstream IsaacCapture.
 
 Prerequisites:
     - Both Docker images must be built (``python -m v2d_ego_hand_reconstruction.docker.build``).
     - ``weights_dir`` must contain ``models/MANO_RIGHT.pkl`` and ``BMC/*.npy``
-      (manotorch layout; see https://nvidia.github.io/IsaacTeleop/main/references/egocentric_hand_reconstruction.html for download instructions).
+      (manotorch layout; see https://github.com/NVIDIA/IsaacCapture/tree/ego4robo/0.1/src/postprocessing/egocentric_hand_reconstruction for download instructions).
 """
 
 import os

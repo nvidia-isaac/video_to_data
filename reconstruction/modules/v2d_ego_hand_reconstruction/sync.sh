@@ -4,8 +4,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO="https://github.com/NVIDIA/IsaacTeleop.git"
-BRANCH="main"
+REPO="https://github.com/NVIDIA/IsaacCapture.git"
+BRANCH="ego4robo/0.1"
 DIR="src/postprocessing/egocentric_hand_reconstruction"
 
 VENDOR_DIR="$SCRIPT_DIR/vendor"
