@@ -3,7 +3,7 @@
 """Build Docker images for ego hand reconstruction (ViPE + Dyn-HaMR).
 
 Delegates to the vendored shell scripts so build flags stay in sync with
-upstream IsaacTeleop.
+upstream IsaacCapture.
 """
 
 import subprocess
@@ -13,7 +13,7 @@ from v2d_ego_hand_reconstruction.docker._config import MODULE_DIR, VENDOR_DIR
 
 
 def _sync_vendor() -> None:
-    """Fetch vendored sources from IsaacTeleop if not already present."""
+    """Fetch vendored sources from IsaacCapture if not already present."""
     subprocess.run([str(Path(MODULE_DIR) / "sync.sh")], check=True)
 
 
