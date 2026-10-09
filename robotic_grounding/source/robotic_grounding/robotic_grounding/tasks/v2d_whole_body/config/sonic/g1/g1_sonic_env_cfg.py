@@ -543,6 +543,11 @@ class G1SonicReconBodyRewardsCfg(G1SonicRewardsCfg):
         weight=1.0,
         params={"command_name": "motion", "std": 0.2},
     )
+    motion_object_orientation_error_exp = RewTerm(
+        func=tracking_rewards.motion_object_orientation_error_exp,
+        weight=1.0,
+        params={"command_name": "motion", "std": 0.4},
+    )
     motion_progress = RewTerm(
         func=tracking_rewards.motion_progress,
         weight=1.0,
