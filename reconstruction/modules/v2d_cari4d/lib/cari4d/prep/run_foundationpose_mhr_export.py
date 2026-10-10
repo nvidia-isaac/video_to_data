@@ -260,7 +260,9 @@ def _full_candidate_data(estimator: FoundationPose, candidates: np.ndarray, sour
 def _selected_metric_values(metrics, index: int | None) -> dict[str, float | int]:
     if metrics is None or index is None:
         return {"observed_visible_pixels": 0 if metrics is None else int(metrics.observed_visible_pixels), "rendered_visible_pixels": 0, "rendered_visibility": float("nan"), "iou": float("nan"), "precision": float("nan"), "recall": float("nan"), "centroid_distance": float("nan")}
-    return {"observed_visible_pixels": int(metrics.observed_visible_pixels), "rendered_visible_pixels": int(metrics.rendered_visible_pixels[index]), "rendered_visibility": float(metrics.rendered_visibility[index]), "iou": float(metrics.iou[index]), "precision": float(metrics.precision[index]), "recall": float(metrics.recall[index]), "centroid_distance": float(metrics.centroid_distance[index])}
+    centroid_distance = float(metrics.centroid_distance[index])
+    # An empty rendered or observed silhouette has no centroid (inf in the metrics); record it as unknown, like above.
+    return {"observed_visible_pixels": int(metrics.observed_visible_pixels), "rendered_visible_pixels": int(metrics.rendered_visible_pixels[index]), "rendered_visibility": float(metrics.rendered_visibility[index]), "iou": float(metrics.iou[index]), "precision": float(metrics.precision[index]), "recall": float(metrics.recall[index]), "centroid_distance": centroid_distance if np.isfinite(centroid_distance) else float("nan")}
 
 
 def _set_estimator_pose_last(estimator: FoundationPose, pose_centered: np.ndarray) -> None:

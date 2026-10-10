@@ -117,3 +117,28 @@ def test_wild_device_transfer_preserves_non_tensor_batch_metadata():
     batch = namespace["_to_device"]({"input_xyz": tensor, "_mhr_spatial_normalization_applied": True}, torch.device("cpu"))
     assert torch.equal(batch["input_xyz"], tensor)
     assert batch["_mhr_spatial_normalization_applied"] is True
+
+
+def test_foundationpose_selection_records_hidden_candidate_centroid_as_unknown():
+    from prep.foundationpose_pose_selection import measure_visible_silhouettes
+    from prep.mhr_foundationpose_diagnostics import FOUNDATIONPOSE_SELECTION_DTYPES, FOUNDATIONPOSE_SELECTION_FIELDS, validate_foundationpose_selection_arrays
+
+    path = MODULE / "lib/cari4d/prep/run_foundationpose_mhr_export.py"
+    namespace = {"np": np}
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[_function(path, "_selected_metric_values")], type_ignores=[])), str(path), "exec"), namespace)
+    human = np.zeros((120, 160), dtype=bool)
+    human[20:100, 40:120] = True
+    observed = np.zeros_like(human)
+    observed[50:60, 125:135] = True
+    hidden = np.zeros_like(human)
+    hidden[55:65, 75:85] = True
+    visible = np.zeros_like(human)
+    visible[50:60, 126:136] = True
+    metrics = measure_visible_silhouettes([hidden, visible], human, observed)
+    assert np.isinf(metrics.centroid_distance[0]) and np.isfinite(metrics.centroid_distance[1])
+    recorded = namespace["_selected_metric_values"](metrics, 0)
+    assert recorded["rendered_visible_pixels"] == 0 and np.isnan(recorded["centroid_distance"])
+    assert namespace["_selected_metric_values"](metrics, 1)["centroid_distance"] == metrics.centroid_distance[1]
+    arrays = {key: np.zeros(2, dtype=FOUNDATIONPOSE_SELECTION_DTYPES[key]) for key in FOUNDATIONPOSE_SELECTION_FIELDS}
+    arrays["fp_centroid_distance"][:] = [recorded["centroid_distance"], 0.0]
+    validate_foundationpose_selection_arrays(arrays, (2,), "hidden candidate")
