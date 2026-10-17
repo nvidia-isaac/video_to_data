@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101510">
+  <meta name="description" content="PhysWord: Physical Words, a vocabulary for structuring latent reasoning in robot manipulation. Research from NVIDIA, Peking University, and UC Berkeley.">
+  <meta property="og:title" content="PhysWord — Physical Words for Robot Manipulation">
+  <meta property="og:description" content="Atomic action semantics meet visual and tactile dynamics. A reasoning-before-acting foundation model for robot manipulation.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="assets/images/social-preview.jpg">
+  <title>PhysWord — Physical Words for Robot Manipulation</title>
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+  <link rel="preload" href="assets/fonts/hanken-regular.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="preload" href="assets/fonts/hanken-bold.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <svg class="svg-defs" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="icon-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+    <symbol id="icon-external" viewBox="0 0 24 24"><path d="M7 17 17 7M7 7h10v10"/></symbol>
+    <symbol id="icon-paper" viewBox="0 0 24 24"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8l-5-5Zm0 0v5h5M9 13h6M9 17h6"/></symbol>
+    <symbol id="icon-play" viewBox="0 0 24 24"><path d="m9 5 11 7-11 7Z"/></symbol>
+    <symbol id="icon-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+    <symbol id="icon-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="icon-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V3H3v13h5"/></symbol>
+    <symbol id="icon-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="icon-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+    <symbol id="icon-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+    <symbol id="icon-expand" viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5"/></symbol>
+    <symbol id="icon-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="icon-touch" viewBox="0 0 24 24"><path d="M8 13V6a2 2 0 0 1 4 0v6-3a2 2 0 0 1 4 0v3-1a2 2 0 0 1 4 0v5c0 4-2 6-6 6h-1c-3 0-4-2-6-4l-3-4a2 2 0 0 1 3-2l1 1Z"/></symbol>
+  </svg>
+
+  <a class="skip-link" href="#overview">Skip to the research</a>
+
+  <nav class="site-nav" aria-label="Main navigation">
+    <div class="nav-brand">
+      <img class="nvidia-logo" src="assets/images/nvidia-logo-black.png" alt="NVIDIA" width="284" height="54">
+      <a class="wordmark" href="#home" aria-label="PhysWord home">
+        <span class="brand-symbol" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        PhysWord<span class="brand-period">.</span>
+      </a>
+    </div>
+    <div class="nav-links" id="nav-links">
+      <a href="#overview">Overview</a>
+      <a href="#demos">Demos</a>
+      <a href="#method">Method</a>
+      <a href="#results">Results</a>
+      <a href="#citation">BibTeX</a>
+    </div>
+    <div class="nav-actions">
+      <a class="button button-green nav-paper" href="assets/paper/physicalword.pdf" target="_blank" rel="noopener">
+        <svg class="icon"><use href="#icon-paper"/></svg> Paper <svg class="icon icon-small"><use href="#icon-external"/></svg>
+      </a>
+      <button type="button" class="button nav-soon">Code coming soon</button>
+      <button class="icon-button menu-toggle" aria-label="Open navigation" aria-expanded="false" aria-controls="nav-links"><svg class="icon"><use href="#icon-menu"/></svg></button>
+    </div>
+  </nav>
+
+  <header class="hero" id="home">
+    <div class="hero-media" aria-hidden="true">
+      <video id="hero-video" class="hero-video" autoplay muted loop playsinline preload="auto" poster="assets/images/posters/demo-21.jpg">
+        <source src="assets/videos/demo-21.mp4" type="video/mp4">
+      </video>
+      <div class="hero-shade"></div>
+      <div class="hero-grain"></div>
+    </div>
+    <div class="hero-content">
+      <p class="hero-affiliations"><span>NVIDIA</span><i></i><span>PEKING UNIVERSITY</span><i></i><span>UC BERKELEY</span></p>
+      <div class="hero-eyebrow"><span class="live-dot"></span> REASONING BEFORE ACTING</div>
+      <h1>Physical Word<span class="title-dot">.</span></h1>
+      <p class="hero-subtitle">A Vocabulary for Structuring Latent Reasoning<br class="desktop-break"> in Robot Manipulation</p>
+      <div class="hero-buttons">
+        <a class="button button-green" href="assets/paper/physicalword.pdf" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-paper"/></svg> Read the paper <svg class="icon"><use href="#icon-external"/></svg></a>
+        <a class="button button-glass" href="#demos"><svg class="icon"><use href="#icon-play"/></svg> Explore the demos</a>
+      </div>
+      <p class="hero-paradigm">In this structured, scalable physical reasoning paradigm, predicted future <em class="hi-visual">visual</em> and <em class="hi-tactile">tactile</em> dynamics steer the action.</p>
+    </div>
+    <div class="hero-bottom">
+      <div class="hero-bottom-label"><a href="#overview">SCROLL TO EXPLORE <svg class="icon icon-small"><use href="#icon-down"/></svg></a><button class="icon-button hero-motion" aria-label="Pause background video"><svg class="icon"><use href="#icon-pause"/></svg></button></div>
+      <div class="hero-scenes" role="group" aria-label="Choose a background experiment">
+        <button class="hero-scene is-active" data-video="21" aria-pressed="true"><span>01</span><span>Dexterous manipulation</span><svg class="icon"><use href="#icon-external"/></svg></button>
+        <button class="hero-scene" data-video="20" aria-pressed="false"><span>02</span><span>Long horizon</span><svg class="icon"><use href="#icon-external"/></svg></button>
+        <button class="hero-scene" data-video="19" aria-pressed="false"><span>03</span><span>Fine contact control</span><svg class="icon"><use href="#icon-external"/></svg></button>
+        <button class="hero-scene" data-video="22" aria-pressed="false"><span>04</span><span>Contact-sensitive tool use</span><svg class="icon"><use href="#icon-external"/></svg></button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="paper-section section" id="overview">
+      <div class="container">
+        <div class="paper-heading" data-reveal>
+          <p class="eyebrow">THE PAPER <span class="eyebrow-divider">/</span> 2026</p>
+          <h2>Physical Words: A Vocabulary for Structuring<br class="wide-break"> Latent Reasoning in Robot Manipulation</h2>
+          <div class="authors">
+            <span>Jiaming Liu<sup>*,1,2</sup></span><span>Xinghao Zhu<sup>*,1</sup></span><span>Yiming Zhang<sup>*,2</sup></span><span>Shanghang Zhang<sup>*,2</sup></span><span>Yinxi Wang<sup>2</sup></span><span>Yichu Yang<sup>1</sup></span><span>Zhuoyang Liu<sup>2</sup></span><span>Dantong Niu<sup>3</sup></span><span>Soha Pouya<sup>1</sup></span><span>Juekun Li<sup>1</sup></span><span>Yan Chang<sup>1</sup></span>
+          </div>
+          <div class="affiliations"><span><sup>1</sup> NVIDIA</span><span><sup>2</sup> Peking University</span><span><sup>3</sup> UC Berkeley</span></div>
+          <p class="contribution">* Equal contribution</p>
+        </div>
+        <div class="overview-story" data-reveal>
+          <p class="eyebrow">THE IDEA</p>
+          <figure class="framework-figure teaser-figure">
+            <div class="figure-toolbar"><span>FIGURE 1</span><a class="text-button" href="assets/images/teaser.png" target="_blank" rel="noopener">View full figure <svg class="icon icon-small"><use href="#icon-expand"/></svg></a></div>
+            <a href="assets/images/teaser.png" target="_blank" rel="noopener" aria-label="Open the full PhysWord teaser"><img src="assets/images/teaser.png" alt="Teaser of PhysWord. Panel (a) shows atomic action words with visual and tactile variants anchored to future sensory latents. Panel (b) shows success rates on UniVTAC and LIBERO-Long. Panel (c) shows real-world shuttlecock insertion, paper picking, express packing, and powered screw driving." width="3054" height="1371"></a>
+            <figcaption><span>Figure 1.</span> Overview of PhysWord. (a) PhysWord anchors continuous physical dynamics to atomic action words, with separate visual and tactile variants learned through direct latent supervision. Autoregressively generating Physical Words within a temporally structured space provides multimodal predictive context for action generation. (b) PhysWord achieves SOTA performance on both the visuotactile and vision-based simulation benchmarks. (c) Real-world experiments span bimanual gripper and dexterous-hand systems, both equipped with tactile sensing.</figcaption>
+          </figure>
+          <p class="overview-description">PhysWord is a reasoning-before-acting foundation model built on <strong>Physical Words</strong>. These words use <strong>atomic action verbs</strong> as semantic anchors for continuous physical dynamics, and align each contextual hidden state with future <strong class="hi-visual">visual</strong> and <strong class="hi-tactile">tactile</strong> dynamics. It extends the scalability of language reasoning to the <strong>continuous latent space</strong>.</p>
+          <details class="abstract-details">
+            <summary>Read the abstract <svg class="icon icon-small"><use href="#icon-down"/></svg></summary>
+            <div class="abstract-copy"><p>Multimodal reasoning provides robotic foundation models with predictive context needed for reliable action generation. However, language-based reasoning captures task semantics but struggles to express fine-grained physical dynamics, while latent reasoning models future state evolution but offers limited structure for organizing these dynamics into reusable reasoning primitives. To bridge this gap, we introduce PhysWord, a reasoning-before-acting foundation model built on Physical Words, which use atomic action verbs as shared semantic anchors for continuous representations of physical dynamics. Specifically, PhysWord predicts upcoming atomic action words and directly aligns their contextual hidden states with latent targets derived from the corresponding future observations. Building on these primitives, we construct a temporally structured PhysWord space with visual and optional tactile variants of each action word. Autoregressively predicting Physical Words across future timesteps captures transitions between execution stages, providing structured multimodal context for action generation. PhysWord achieves state-of-the-art success rates of 90.3% on visuotactile UniVTAC and 99.6% on vision-based LIBERO-Long, and outperforms competing methods on real-world tasks using bimanual grippers and dexterous hands. Further evaluations demonstrate that our structured latent reasoning framework generalizes to unseen scenarios and enables long-horizon manipulation.</p></div>
+          </details>
+        </div>
+        <div class="metric-strip" data-reveal>
+          <div><span class="metric-value">90.3<span>%</span></span><span class="metric-label">UniVTAC success rate</span><span class="metric-detail">Vision + touch</span></div>
+          <div><span class="metric-value">99.6<span>%</span></span><span class="metric-label">LIBERO-Long success rate</span><span class="metric-detail">Vision only</span></div>
+          <div><span class="metric-value">16</span><span class="metric-label">Atomic action words</span><span class="metric-detail">A shared semantic vocabulary</span></div>
+          <div><span class="metric-value">~7,000<span>h</span></span><span class="metric-label">Pretraining demonstrations</span><span class="metric-detail">Human hands + real robots</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section demos-section" id="demos">
+      <div class="container">
+        <div class="section-heading heading-split" data-reveal>
+          <div><p class="eyebrow"><span class="section-number">01</span> IN THE REAL WORLD</p><h2>From words<br>to physical action.</h2></div>
+          <p>Dexterous hands and bimanual grippers.<br>One vocabulary for motion, contact, and the transitions between them.</p>
+        </div>
+        <div class="gallery-toolbar">
+          <div class="tabs dark-tabs" role="group" aria-label="Filter real-world demonstrations">
+            <button class="is-active" data-demo-filter="featured" aria-pressed="true">Featured <span>04</span></button>
+            <button data-demo-filter="dexterous" aria-pressed="false">Dexterous hands <span>07</span></button>
+            <button data-demo-filter="bimanual" aria-pressed="false">Bimanual grippers <span>05</span></button>
+            <button data-demo-filter="all" aria-pressed="false">All rollouts <span>12</span></button>
+          </div>
+          <button class="text-button gallery-motion"><svg class="icon icon-small"><use href="#icon-pause"/></svg><span>Pause videos</span></button>
+        </div>
+        <div class="demo-grid" id="demo-grid" aria-label="Real-world experiment videos"></div>
+        <p class="gallery-note">Experiment recordings. Displayed success rates are aggregate task results from the paper, evaluated over three runs of 30 trials per task.</p>
+      </div>
+    </section>
+
+    <section class="section method-section" id="method">
+      <div class="container">
+        <div class="section-heading centered" data-reveal><p class="eyebrow"><span class="section-number">02</span> THE PHYSWORD FRAMEWORK</p><h2>One word.<br class="mobile-break"> Two ways to anticipate.</h2><p>Shared action semantics. Complementary visual and tactile predictions.<br class="desktop-break"> A structured vocabulary for the physical world.</p></div>
+
+        <div class="vocabulary-lab" data-reveal>
+          <div class="vocabulary-head"><div><span class="micro-label">EXPLORE THE VOCABULARY</span><h3>What is a Physical Word?</h3></div><span class="lab-note">§3.3</span></div>
+          <figure class="word-figure">
+            <div class="phys-anim" role="img" aria-label="One contextual hidden state predicts an atomic action word and, at the same time, future visual and tactile dynamics.">
+              <div class="phys-token"><span>Contextual state</span><strong>z</strong></div>
+              <svg class="phys-wires" viewBox="0 0 140 220" aria-hidden="true">
+                <path class="wire wire-word" pathLength="100" d="M8 110 C55 110 70 36 132 36"/>
+                <path class="wire wire-vis" pathLength="100" d="M8 110 C55 110 70 110 132 110"/>
+                <path class="wire wire-tac" pathLength="100" d="M8 110 C55 110 70 184 132 184"/>
+              </svg>
+              <div class="phys-outs">
+                <div class="phys-out word-out"><span>Atomic action word</span><b class="selected-word">pick</b></div>
+                <div class="phys-out vis-out"><span>Visual dynamics</span><i aria-hidden="true"></i></div>
+                <div class="phys-out tac-out"><span>Tactile dynamics</span><i aria-hidden="true"></i></div>
+              </div>
+            </div>
+            <figcaption>One contextual hidden state does both jobs at once: it predicts the action word, and it predicts the future visual and tactile dynamics that word will bring about.</figcaption>
+          </figure>
+          <div class="word-selector" role="group" aria-label="Select an atomic action word"></div>
+          <div class="word-explanation" aria-live="polite"><span class="word-definition-name">pick</span><span class="word-definition-text">Establish a grasp and lift an object.</span></div>
+          <div class="word-pair">
+            <div class="word-variant visual-variant"><div class="variant-top"><svg class="icon"><use href="#icon-eye"/></svg><span>VISUAL VARIANT</span></div><div class="variant-token"><span class="selected-word">pick</span><span>_v</span></div><p>Anticipates future visual dynamics</p><div class="latent-glyph visual-glyph" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+            <div class="pair-connector" aria-hidden="true"><span>SHARED<br>SEMANTICS</span><i></i></div>
+            <div class="word-variant tactile-variant"><div class="variant-top"><svg class="icon"><use href="#icon-touch"/></svg><span>TACTILE VARIANT</span></div><div class="variant-token"><span class="selected-word">pick</span><span>_t</span></div><p>Anticipates future contact dynamics</p><div class="latent-glyph tactile-glyph" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+          </div>
+          <p class="lab-caption">Each word’s contextual hidden state is jointly supervised by its action label and a future sensory latent target. Vision-only tasks use the visual variant.</p>
+        </div>
+
+        <div class="method-steps" data-reveal>
+          <article><span class="step-index">01 / PERCEIVE</span><h3>Observe the present.</h3><p>Encode visual history, current camera views, the language instruction, and optional tactile observations.</p></article>
+          <article><span class="step-index">02 / REASON</span><h3>Structure the future.</h3><p>Autoregressively predict Physical Words at future timesteps, anticipating changes in motion and contact.</p></article>
+          <article><span class="step-index">03 / ACT</span><h3>Turn context into control.</h3><p>Condition flow-matching action generation on the predicted words and the shared multimodal context.</p></article>
+        </div>
+
+        <figure class="framework-figure" data-reveal>
+          <div class="figure-toolbar"><span>FIGURE 2</span><a class="text-button" href="assets/images/framework.png" target="_blank" rel="noopener">View full figure <svg class="icon icon-small"><use href="#icon-expand"/></svg></a></div>
+          <a href="assets/images/framework.png" target="_blank" rel="noopener" aria-label="Open the full PhysWord architecture figure"><img src="assets/images/framework.png" alt="PhysWord framework. A temporal perception branch and a reasoning-and-action branch share attention. Visual and tactile Physical Words are supervised by action labels and future sensory latents before action denoising. A blockwise-causal attention mask separates end-effectors across future timesteps." loading="lazy" width="2535" height="1344"></a>
+          <figcaption><span>Figure 2.</span> PhysWord framework. (a) PhysWord connects temporal perception and reasoning-and-action branches through shared attention in a MoT architecture, generating Physical Words autoregressively before denoising actions. (b) The hidden states of visual and tactile Physical Word variants receive joint action-label cross-entropy supervision and cosine alignment with future sensory latent targets. (c) Physical Words use a blockwise-causal attention mask, with full attention within each end-effector’s timestep block, causal attention across its blocks, and no cross-effector attention.</figcaption>
+        </figure>
+        <figure class="framework-figure method-video" data-reveal>
+          <div class="figure-toolbar"><span>METHOD WALKTHROUGH</span></div>
+          <video controls playsinline preload="none" poster="assets/images/method-walkthrough.jpg" src="assets/Physical%20Word.mp4" width="1920" height="1080" aria-label="Method walkthrough of Physical Words"></video>
+          <figcaption><span>Method.</span> How one contextual hidden state predicts an atomic action word together with the future visual and tactile dynamics that guide action generation.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="section results-section" id="results">
+      <div class="container">
+        <div class="section-heading heading-split" data-reveal><div><p class="eyebrow"><span class="section-number">03</span> QUANTITATIVE EVALUATION</p><h2>Structured reasoning.<br>Measurable gains.</h2></div><p>Evaluated across contact-rich simulation,<br>real-world manipulation, and unseen configurations.</p></div>
+        <div class="results-toolbar"><div class="tabs light-tabs" role="group" aria-label="Select evaluation setting"><button class="is-active" data-benchmark="simulation" aria-pressed="true">Simulation</button><button data-benchmark="real" aria-pressed="false">Real world</button><button data-benchmark="unseen" aria-pressed="false">Generalization</button></div><span class="results-unit">Success rate (%) ↑</span></div>
+        <div id="benchmark-charts" class="benchmark-charts" aria-live="polite"></div>
+        <p id="benchmark-note" class="results-note"></p>
+        <details class="results-details"><summary>View numerical results <svg class="icon icon-small"><use href="#icon-down"/></svg></summary><div id="benchmark-table" class="table-scroll" tabindex="0" aria-label="Numerical results table"></div></details>
+
+        <div class="simulation-gallery">
+          <div class="simulation-heading"><div><p class="eyebrow">FROM THE SIMULATOR</p><h3>18 tasks. A unified reasoning interface.</h3></div><div class="carousel-arrows"><button class="icon-button" id="sim-prev" aria-label="Previous simulation videos"><svg class="icon flip"><use href="#icon-arrow"/></svg></button><button class="icon-button" id="sim-next" aria-label="Next simulation videos"><svg class="icon"><use href="#icon-arrow"/></svg></button></div></div>
+          <div class="sim-tabs" role="group" aria-label="Select simulation benchmark"><button class="is-active" data-sim="univtac" aria-pressed="true">UniVTAC <span>8 tasks · vision + touch</span></button><button data-sim="libero" aria-pressed="false">LIBERO-Long <span>10 tasks · vision only</span></button></div>
+          <div class="sim-track" id="sim-track" aria-label="Simulation recordings"></div>
+          <p class="simulation-note">Simulation clips are grouped by benchmark. Select a clip to watch the full recording.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section capabilities-section" id="capabilities">
+      <div class="container">
+        <div class="section-heading centered" data-reveal><p class="eyebrow"><span class="section-number">04</span> BEYOND THE TRAINING SEQUENCE</p><h2>Reusable words.<br>Adaptable behavior.</h2><p>Physical Words preserve shared action semantics as scenes,<br class="desktop-break"> task stages, and available sensory inputs change.</p></div>
+        <div class="results-toolbar capability-toolbar"><span class="results-unit">Success rate (%) ↑</span></div>
+        <div class="benchmark-charts capability-charts" data-reveal>
+          <article class="chart-card chart-spotlight">
+            <div class="chart-top"><div><h3>Zero-shot unseen configurations</h3><p>New backgrounds, objects, and positions</p></div><span class="chart-tag">ZERO-SHOT</span></div>
+            <div class="bar-chart" role="img" aria-label="Unseen configuration success rates: pi 0.5 28.9 percent, FTP-1 35.0 percent, PhysWord 63.3 percent">
+              <div class="bar-row" aria-hidden="true"><span class="bar-name">π0.5</span><div class="bar-track"><div class="bar-fill" style="width:28.9%"></div></div><span class="bar-value">28.9%</span></div>
+              <div class="bar-row" aria-hidden="true"><span class="bar-name">FTP-1</span><div class="bar-track"><div class="bar-fill" style="width:35%"></div></div><span class="bar-value">35.0%</span></div>
+              <div class="bar-row is-ours" aria-hidden="true"><span class="bar-name">PhysWord</span><div class="bar-track"><div class="bar-fill" style="width:63.3%"></div></div><span class="bar-value">63.3%</span></div>
+              <div class="bar-axis" aria-hidden="true"><span>0</span><span>50</span><span>100%</span></div>
+            </div>
+            <p class="chart-bottom"><strong>+34.4 and +28.3 percentage points</strong> over π0.5 and FTP-1. Mean across Pick A4 Paper and Powered Screw Driving. Table 2(b).</p>
+            <details class="task-desc"><summary>Task description</summary><p>We evaluate generalization on Pick A4 Paper and Powered Screw Driving under three types of distribution shift: unseen backgrounds, object instances, and object positions. Each factor is varied separately while the remaining conditions are controlled. Unseen backgrounds introduce distractors absent from the training demonstrations, while retaining the task objects and their placement distribution. For unseen objects, the A4 sheet is replaced with napkins, masks, notebooks, tennis balls, and sheets of different colors and sizes; the objective remains to pick up the object and place it entirely inside the basket. Powered Screw Driving uses toy-car bases with unseen structural configurations, such as variants without wheels or the front section, while retaining the screw-fastening objective. Unseen positions place the manipulated objects at workspace positions not represented in the training demonstrations, while retaining the training backgrounds and object instances.</p></details>
+          </article>
+          <article class="chart-card chart-spotlight">
+            <div class="chart-top"><div><h3>Extended Pick A4 paper <span class="chart-aside">(long horizon)</span></h3><p>One training cycle · three cycles at test time</p></div><span class="chart-tag">LONG HORIZON</span></div>
+            <div class="bar-chart" role="img" aria-label="Extended Pick A4 paper success rates: pi 0.5 0.0 percent, FTP-1 0.0 percent, PhysWord 70.0 percent">
+              <div class="bar-row" aria-hidden="true"><span class="bar-name">π0.5</span><div class="bar-track"><div class="bar-fill" style="width:0%"></div></div><span class="bar-value">0.0%</span></div>
+              <div class="bar-row" aria-hidden="true"><span class="bar-name">FTP-1</span><div class="bar-track"><div class="bar-fill" style="width:0%"></div></div><span class="bar-value">0.0%</span></div>
+              <div class="bar-row is-ours" aria-hidden="true"><span class="bar-name">PhysWord</span><div class="bar-track"><div class="bar-fill" style="width:70%"></div></div><span class="bar-value">70.0%</span></div>
+              <div class="bar-axis" aria-hidden="true"><span>0</span><span>50</span><span>100%</span></div>
+            </div>
+            <p class="chart-bottom"><strong>70.0% success</strong> when a new sheet is introduced after each placement. Both baselines fail to finish the extended sequence. Table 9.</p>
+            <details class="task-desc"><summary>Task description</summary><p>Training demonstrations contain a single pick-and-place cycle. An A4 sheet is initially placed entirely on the tabletop, with no edge overhanging. The dexterous hand first establishes contact with its five fingers and uses friction to gradually slide the sheet toward the table edge. Once part of the sheet extends beyond the edge, the hand grasps and lifts it, then transfers it into a basket. A trial succeeds only if the entire sheet is placed inside the basket. During evaluation, a new sheet is introduced after each completed placement, requiring three consecutive cycles within one episode. Success requires completing the entire extended sequence within a single episode.</p></details>
+          </article>
+          <article class="chart-card chart-spotlight">
+            <div class="chart-top"><div><h3>Extended express packing <span class="chart-aside">(long horizon)</span></h3><p>Two objects · closure stage repeated</p></div><span class="chart-tag">LONG HORIZON</span></div>
+            <div class="bar-chart" role="img" aria-label="Extended express packing success rates: pi 0.5 26.7 percent, FTP-1 30.0 percent, PhysWord 66.7 percent">
+              <div class="bar-row" aria-hidden="true"><span class="bar-name">π0.5</span><div class="bar-track"><div class="bar-fill" style="width:26.7%"></div></div><span class="bar-value">26.7%</span></div>
+              <div class="bar-row" aria-hidden="true"><span class="bar-name">FTP-1</span><div class="bar-track"><div class="bar-fill" style="width:30%"></div></div><span class="bar-value">30.0%</span></div>
+              <div class="bar-row is-ours" aria-hidden="true"><span class="bar-name">PhysWord</span><div class="bar-track"><div class="bar-fill" style="width:66.7%"></div></div><span class="bar-value">66.7%</span></div>
+              <div class="bar-axis" aria-hidden="true"><span>0</span><span>50</span><span>100%</span></div>
+            </div>
+            <p class="chart-bottom"><strong>+40.0 and +36.7 percentage points</strong> over π0.5 and FTP-1 on a packing sequence absent from training. Table 9.</p>
+            <details class="task-desc"><summary>Task description</summary><p>Training demonstrations involve packing one object. The robot places an object from the tabletop into an express box and closes all four flaps. It then picks up tape with the right gripper and coordinates both grippers to apply the tape along the lid seam and tear it off. Success requires completion of the entire sequence and a fully sealed box. At test time, the robot must pack two objects and repeat the closure stage after the box flaps are manually reopened, before sealing the box. Success requires completing the entire extended sequence within a single episode.</p></details>
+          </article>
+          <article class="chart-card chart-spotlight">
+            <div class="chart-top"><div><h3>Predictive tactile feedback <span class="chart-aside">(test without tactile sensor)</span></h3><p>UniVTAC · predicted touch replaces online sensing</p></div><span class="chart-tag">CONTACT</span></div>
+            <div class="bar-chart" role="img" aria-label="UniVTAC success rates: pi 0.5 49.6 percent, FTP-1 62.9 percent, PhysWord with predicted touch 89.0 percent, PhysWord 90.3 percent">
+              <div class="bar-row" aria-hidden="true"><span class="bar-name">π0.5</span><div class="bar-track"><div class="bar-fill" style="width:49.6%"></div></div><span class="bar-value">49.6%</span></div>
+              <div class="bar-row" aria-hidden="true"><span class="bar-name">FTP-1</span><div class="bar-track"><div class="bar-fill" style="width:62.9%"></div></div><span class="bar-value">62.9%</span></div>
+              <div class="bar-row" aria-hidden="true"><span class="bar-name">PW feedback</span><div class="bar-track"><div class="bar-fill" style="width:89%"></div></div><span class="bar-value">89.0%</span></div>
+              <div class="bar-row is-ours" aria-hidden="true"><span class="bar-name">PhysWord</span><div class="bar-track"><div class="bar-fill" style="width:90.3%"></div></div><span class="bar-value">90.3%</span></div>
+              <div class="bar-axis" aria-hidden="true"><span>0</span><span>50</span><span>100%</span></div>
+            </div>
+            <p class="chart-bottom">Predicted tactile latents retain <strong>89.0%</strong>, 1.3 points below measured touch and above both baselines. Table 5.</p>
+            <details class="task-desc"><summary>Task description</summary><p>We evaluate whether a policy trained with tactile observations can operate without online tactile sensing. Using the same trained PhysWord checkpoint, we replace measured tactile inputs with previously predicted tactile latents. For initial timesteps not yet covered by predictions, tactile context is initialized using observations from the opening frames of training demonstrations for the corresponding task.</p></details>
+          </article>
+        </div>
+        <div class="capability-footnote">Unseen means are from Table 2(b). Extended sequences are from Table 9. PW feedback is the same tactile-trained checkpoint with measured tactile inputs replaced by predicted latents (Table 5). On real dexterous tasks, that feedback setting reaches 90.0% on Pick A4 Paper and 56.7% on Shuttlecock Insertion, versus 93.3% and 60.0% with measured touch (Table 10).</div>
+      </div>
+    </section>
+
+    <section class="section citation-section" id="citation">
+      <div class="container citation-layout">
+        <div class="citation-heading"><p class="eyebrow">BUILDING ON THIS WORK</p><h2>Give physical reasoning<br>a vocabulary.</h2><p>If you find this work useful,<br>please consider citing our paper.</p><a class="button button-green" href="assets/paper/physicalword.pdf" target="_blank" rel="noopener">Read the full paper <svg class="icon"><use href="#icon-external"/></svg></a></div>
+        <div class="citation-box"><div class="citation-toolbar"><span>BIBTEX</span><button class="text-button" id="copy-citation"><svg class="icon icon-small"><use href="#icon-copy"/></svg><span>Copy citation</span></button></div><pre><code id="bibtex">@misc{liu2026physicalwords,
+  title  = {Physical Words: A Vocabulary for
+            Structuring Latent Reasoning
+            in Robot Manipulation},
+  author = {Liu, Jiaming and Zhu, Xinghao and
+            Zhang, Yiming and Zhang, Shanghang and
+            Wang, Yinxi and Yang, Yichu and
+            Liu, Zhuoyang and Niu, Dantong and
+            Pouya, Soha and Li, Juekun and
+            Chang, Yan},
+  year   = {2026},
+  note   = {Research manuscript}
+}</code></pre><span id="copy-status" class="sr-only" role="status"></span></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer"><div class="container footer-inner"><a class="wordmark" href="#home"><span class="brand-symbol" aria-hidden="true"><i></i><i></i><i></i><i></i></span>PhysWord<span class="brand-period">.</span></a><span>NVIDIA · Peking University · UC Berkeley · 2026</span><a href="https://nvidia-isaac.github.io/video_to_data/chord/" target="_blank" rel="noopener">Design inspired by CHORD <svg class="icon icon-small"><use href="#icon-external"/></svg></a></div></footer>
+
+  <dialog class="video-dialog" id="video-dialog" aria-labelledby="dialog-title"><div class="dialog-heading"><div><span id="dialog-category" class="micro-label"></span><h2 id="dialog-title"></h2></div><button class="icon-button dialog-close" aria-label="Close video"><svg class="icon"><use href="#icon-close"/></svg></button></div><video id="dialog-video" controls playsinline loop preload="metadata"></video><p id="dialog-caption"></p></dialog>
+  <noscript><div class="noscript-note">Enable JavaScript to explore the video galleries and interactive results. The full paper is available from the Paper button.</div></noscript>
+</body>
+</html>
