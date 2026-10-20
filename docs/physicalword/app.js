@@ -236,7 +236,7 @@
     ['T-Rex',99,95,100,95,99,79,8,75,81.3],
     ['PhysWord',100,100,100,100,100,93,34,95,90.3],
   ];
-  const liberoRows = [['π0.5',92.4],['OpenVLA-OFT',94.5],['GR00T-N1.7',94.4],['LaST0',95.6],['Cosmos Policy',97.6],['Motus',97.6],['Fast-WAM',95.2],['Cosmos 3',97.4],['PhysWord',99.6]];
+  const liberoRows = [['OpenVLA',53.7],['π0.5',92.4],['OpenVLA-OFT',94.5],['GR00T-N1.7',94.4],['LaST0',95.6],['Motus',97.6],['Fast-WAM',95.2],['InternVLA-A1',98.4],['UniWAM',98.4],['PhysWord',99.6]];
   const realRows = [['π0.5',53.3,43.3,46.7,40.0,45.8],['FTP-1',66.7,56.7,50.0,46.7,55.0],['PhysWord',93.3,60.0,73.3,60.0,71.7]];
   const unseenRows = [['π0.5',46.7,40.0,13.3,26.7,20.0,26.7,28.9,'−38%'],['FTP-1',60.0,46.7,26.7,23.3,23.3,30.0,35.0,'−38%'],['PhysWord',90.0,83.3,80.0,43.3,36.7,46.7,63.3,'−17%']];
   function table(caption, headings, rows) {
@@ -246,7 +246,7 @@
     simulation:{
       charts:[
         {title:'UniVTAC',subtitle:'8 tasks · vision + touch',tag:'VISUOTACTILE',rows:[['π0.5',49.6],['FTP-1',62.9],['T-Rex',81.3],['N0-VTLA',83.1],['PhysWord',90.3]],footer:'<strong>+7.2 percentage points</strong> over N0-VTLA.'},
-        {title:'LIBERO-Long',subtitle:'10 tasks · vision only',tag:'LONG-HORIZON',rows:[['π0.5',92.4],['LaST0',95.6],['Cosmos 3',97.4],['Cosmos Policy',97.6],['PhysWord',99.6]],footer:'<strong>+2.0 percentage points</strong> over Cosmos Policy and Motus (97.6%).'},
+        {title:'LIBERO-Long',subtitle:'10 tasks · vision only',tag:'LONG-HORIZON',rows:[['π0.5',92.4],['LaST0',95.6],['InternVLA-A1',98.4],['UniWAM',98.4],['PhysWord',99.6]],footer:'<strong>+1.2 percentage points</strong> over InternVLA-A1 and UniWAM (98.4%).'},
       ],
       note:'Selected baseline comparisons from Table 1. PhysWord is evaluated over three runs of 100 rollouts per task, using 50 training demonstrations per task. Bars start at zero; the complete numerical comparisons are available below.',
       table:() => table('UniVTAC · success rate (%) · Table 1',['Method','Lift bottle','Insert tube','Insert hole','Grasp / classify','Pull out key','Put bottle','Insert HDMI','Lift can','Mean'],univtacRows) + table('LIBERO-Long · success rate (%) · Table 1',['Method','Success rate'],liberoRows),
