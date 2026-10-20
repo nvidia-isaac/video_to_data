@@ -123,9 +123,11 @@ class VideoProcessor:
         """
         metadata = self.get_metadata()
 
-        # Calculate frame interval
+        # Calculate frame interval (in source frames). Keep it fractional so
+        # non-integer fps ratios don't drift, and at least one frame so the
+        # loop always advances when fps exceeds the source fps.
         source_fps = metadata.fps
-        frame_interval = int(source_fps / fps) if fps > 0 else 1
+        frame_interval = max(source_fps / fps, 1.0) if fps > 0 else 1.0
 
         # Set start position
         if start_time is not None:
@@ -145,7 +147,7 @@ class VideoProcessor:
 
         logger.info(
             f"Extracting frames: {fps} FPS, "
-            f"interval={frame_interval}, "
+            f"interval={frame_interval:.2f}, "
             f"range=[{start_time or 0:.1f}s, {end_time or metadata.duration:.1f}s]"
         )
 
@@ -181,8 +183,8 @@ class VideoProcessor:
 
             yield frame
 
-            frame_idx += frame_interval
             extracted_count += 1
+            frame_idx = start_frame + round(extracted_count * frame_interval)
 
         logger.info(f"Extracted {extracted_count} frames")
 
