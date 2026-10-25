@@ -1,0 +1,250 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# V2D Challenge Participant Compliance & Atomic Submission CI/CD Workflow
+# =======================================================================
+# Copy this file to `.github/workflows/v2d_submission_ci.yml` in your team's
+# submission repository (shared with @Nvidia-V2D-Challenge per Rule 2.9.a).
+#
+# What this workflow prevents:
+#   1. Blocks RSI / autonomous coding agents from probing live Kaggle uploads
+#      during `push` or `pull_request` runs or embedding upload calls in scripts.
+#   2. Enforces the stated 5-submissions-per-week rule (7-day rolling window)
+#      even though Kaggle's UI limit is configured at 5/day.
+#   3. Blocks uploading to tracks outside `.v2d_policy.json` (`allowed_tracks`)
+#      or splitting different files across a track's metric leaderboards.
+#   4. Screens candidate submissions for fabricated commit/checkpoint hashes,
+#      `1e-7 m` microscopic mesh noise evasion, cross-tier ground-truth leakage,
+#      and degenerate Track 1 static-pose metric gaming.
+
+name: V2D Challenge Submission Compliance CI/CD
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      track:
+        description: "Target V2D track (track_1, track_2_tier1, track_2_tier2, track_2_tier3, track_3)"
+        required: true
+        type: choice
+        options:
+          - track_1
+          - track_2_tier1
+          - track_2_tier2
+          - track_2_tier3
+          - track_3
+      submission_file:
+        description: "Path to packed submission file (Parquet for Track 1/3, CSV for Track 2)"
+        required: true
+        type: string
+      message:
+        description: "Kaggle submission description (include git commit SHA)"
+        required: false
+        default: "V2D verified CI/CD submission"
+        type: string
+      mode:
+        description: "Execution mode: 'dry-run' (validate + check 5/week quota only) or 'release-upload' (atomic upload)"
+        required: true
+        default: "dry-run"
+        type: choice
+        options:
+          - dry-run
+          - release-upload
+      confirm_weekly_quota_spend:
+        description: "Type CONFIRM_5_PER_WEEK_RULE to authorize spending 1 of 5 weekly submissions in release-upload mode"
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: v2d-submission-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  GIT_LFS_SKIP_SMUDGE: "1"
+
+jobs:
+  compliance_and_script_guard:
+    name: Offline Anti-Reward-Hacking & Compliance Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install compliance dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install numpy pandas pyarrow scipy trimesh
+
+      - name: Scan repository scripts for prohibited automated Kaggle upload calls
+        run: |
+          if [ -f tools/agent_submission_guard.py ]; then
+            python3 tools/agent_submission_guard.py --scan-scripts .
+          elif [ -f tools/v2d_compliance/agent_submission_guard.py ]; then
+            python3 tools/v2d_compliance/agent_submission_guard.py --scan-scripts .
+          fi
+
+      - name: Audit staged submission artifact(s)
+        run: |
+          set -euo pipefail
+          GATE_SCRIPT="tools/compliance_gate.py"
+          if [ ! -f "$GATE_SCRIPT" ]; then
+            GATE_SCRIPT="tools/v2d_compliance/compliance_gate.py"
+          fi
+          mkdir -p artifacts/compliance_receipts
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            SUB_FILE="${{ inputs.submission_file }}"
+            TRACK="${{ inputs.track }}"
+            test -f "$SUB_FILE" || { echo "Missing submission_file: $SUB_FILE" >&2; exit 1; }
+            python3 "$GATE_SCRIPT" audit "$SUB_FILE" \
+              --track "$TRACK" \
+              --repo-root . \
+              --require-clean-git \
+              --require-head-match \
+              --check-quota \
+              --receipt-out "artifacts/compliance_receipts/$(basename "$SUB_FILE").compliance.json"
+          else
+            shopt -s nullglob
+            checked=0
+            for f in submissions/*.parquet submissions/*.csv; do
+              case "$(basename "$f")" in
+                *.cd-o.parquet) continue ;;
+                *track1*|*track_1*) trk="track_1" ;;
+                *tier1*) trk="track_2_tier1" ;;
+                *tier2*) trk="track_2_tier2" ;;
+                *tier3*) trk="track_2_tier3" ;;
+                *track3*|*track_3*) trk="track_3" ;;
+                *) continue ;;
+              esac
+              echo "Auditing $f for $trk..."
+              python3 "$GATE_SCRIPT" audit "$f" \
+                --track "$trk" \
+                --repo-root . \
+                --require-clean-git \
+                --check-quota \
+                --receipt-out "artifacts/compliance_receipts/$(basename "$f").compliance.json"
+              checked=$((checked + 1))
+            done
+            echo "Audited $checked staged submission file(s)."
+          fi
+
+      - name: Upload compliance audit receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2d-compliance-receipts-${{ github.run_id }}
+          path: artifacts/compliance_receipts/
+          if-no-files-found: ignore
+          retention-days: 30
+
+  preflight_and_weekly_quota_gate:
+    name: Kaggle Preflight & Rolling 5/Week Quota Check (Dry-Run)
+    if: github.event_name == 'workflow_dispatch'
+    needs: [compliance_and_script_guard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+      KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install submission kit dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            python3 -m pip install -r requirements.txt
+          else
+            python3 -m pip install "numpy>=1.24" "pandas>=2.0" "pyarrow>=14.0" "kaggle>=2.0.0" "trimesh>=4.0" "fast-simplification>=0.1.7"
+          fi
+
+      - name: Run live Kaggle entry, identity & 5/week rolling quota dry-run
+        run: |
+          python3 submit/v2d_submit.py "${{ inputs.submission_file }}" \
+            --track "${{ inputs.track }}" \
+            -m "${{ inputs.message }}" \
+            --dry-run
+
+  atomic_track_release_upload:
+    name: Atomic Track Upload (Manual Approval + 5/Week Lock)
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.mode == 'release-upload'
+    needs: [compliance_and_script_guard, preflight_and_weekly_quota_gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment:
+      name: v2d-kaggle-release
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+      KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+      V2D_CI_APPROVED_UPLOAD: "1"
+    steps:
+      - name: Verify explicit human weekly-quota confirmation string
+        run: |
+          if [ "${{ inputs.confirm_weekly_quota_spend }}" != "CONFIRM_5_PER_WEEK_RULE" ]; then
+            echo "ERROR: To execute a live upload, confirm_weekly_quota_spend must be set to CONFIRM_5_PER_WEEK_RULE." >&2
+            exit 2
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install submission kit dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -r requirements.txt
+
+      - name: Execute atomic bundle upload across track leaderboards
+        run: |
+          mkdir -p artifacts/upload_receipts
+          RECEIPT_PATH="artifacts/upload_receipts/${{ inputs.track }}_${{ github.run_id }}.kaggle-receipt.json"
+          python3 submit/v2d_submit.py "${{ inputs.submission_file }}" \
+            --track "${{ inputs.track }}" \
+            -m "${{ inputs.message }}" \
+            --confirm-human-upload \
+            --wait \
+            --receipt "$RECEIPT_PATH"
+
+      - name: Retain Kaggle submission receipt & ledger
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2d-kaggle-upload-receipt-${{ github.run_id }}
+          path: |
+            artifacts/upload_receipts/
+            .v2d_submission_ledger.json
+          if-no-files-found: error
+          retention-days: 90
