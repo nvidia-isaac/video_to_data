@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "allowed_tracks": [
+    "track_1",
+    "track_2_tier1",
+    "track_2_tier2",
+    "track_2_tier3",
+    "track_3"
+  ],
+  "max_weekly_submissions_per_track": 5,
+  "require_atomic_track_bundle": true,
+  "block_agent_live_uploads": true,
+  "require_clean_git_worktree": true,
+  "unlimited_window_start_utc": "2026-11-01T22:00:00+00:00",
+  "freeze_utc": "2026-11-04T22:00:00+00:00"
+}

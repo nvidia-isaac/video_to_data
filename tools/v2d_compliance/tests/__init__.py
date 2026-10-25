@@ -1,0 +1,3 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+"""Unit tests for V2D Challenge compliance and anti-reward-hacking gates."""

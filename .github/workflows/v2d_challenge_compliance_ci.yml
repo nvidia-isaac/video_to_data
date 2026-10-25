@@ -1,0 +1,60 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# CI workflow for the V2D Challenge submission compliance gate, weekly quota
+# guard, anti-reward-hacking auditor, and participant submission kit bundle.
+
+name: V2D Challenge Compliance CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/v2d_compliance/**'
+      - 'docs/v2d_challenge/**'
+      - '.github/workflows/v2d_challenge_compliance_ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/v2d_compliance/**'
+      - 'docs/v2d_challenge/**'
+      - '.github/workflows/v2d_challenge_compliance_ci.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  compliance_gate_tests:
+    name: v2d_compliance_gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy pandas pyarrow
+
+      - name: Run V2D compliance & submission kit unit tests
+        run: |
+          python -m unittest -v tools.v2d_compliance.tests.test_compliance_gate
+
+      - name: Scan compliance scripts for unauthorized upload primitives
+        run: |
+          python tools/v2d_compliance/agent_submission_guard.py \
+            --scan-scripts tools/v2d_compliance/compliance_gate.py
