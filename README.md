@@ -106,7 +106,8 @@ See [video_ingestion_agent/README.md](video_ingestion_agent/README.md) for hardw
 cd reconstruction
 
 # Install host-side orchestration wrappers (lightweight, no model dependencies)
-./scripts/install_pacakages.sh
+python -m ensurepip --default-pip
+./scripts/install_packages.sh
 
 # Build per-module Docker images
 ./scripts/build_containers.sh
