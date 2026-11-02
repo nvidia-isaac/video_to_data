@@ -32,7 +32,7 @@ Models
 
    models:
      # Vision-language model for segmentation and verification
-     vlm_model: "Qwen/Qwen3-VL-8B-Instruct"
+     vlm_model: "nvidia/Cosmos3-Nano"
      vlm_backend: "vllm"       # "vllm", "local", or "api"
      vlm_fps: 4                # Frames per second sampled for VLM input
 
@@ -63,9 +63,11 @@ Models
 
 .. note::
 
-   The default VLM is ``Qwen/Qwen3-VL-8B-Instruct``. The pipeline also supports
-   ``nvidia/Cosmos-Reason2-8B`` and other Qwen3-VL-compatible models. Adjust this to
-   whichever VLM best suits your domain.
+   The default VLM is ``nvidia/Cosmos3-Nano``, served through vLLM
+   (``scripts/serve.py`` loads its Reasoner tower via the ``vllm-cosmos3`` plugin).
+   The pipeline also supports ``Qwen/Qwen3-VL-8B-Instruct``, ``nvidia/Cosmos-Reason2-8B``
+   and other Qwen3-VL-compatible models, which additionally run on the ``local``
+   backend. Adjust this to whichever VLM best suits your domain.
 
 .. tip::
 
@@ -247,7 +249,7 @@ Models
 .. code-block:: yaml
 
    models:
-     llm_model: "Qwen/Qwen3-VL-8B-Instruct"  # LLM for agent reasoning
+     llm_model: "nvidia/Cosmos3-Nano"        # LLM for agent reasoning
      llm_backend: "vllm"                       # "local", "vllm", or "api"
      embedding_model: "google/siglip2-base-patch16-256"
      api_key: null                              # Or set NIM_API_KEY env var
@@ -293,8 +295,6 @@ Database, Output, and Logging
 
    logging:
      level: "INFO"
-     save_traces: true          # Save agent reasoning traces
-     traces_dir: "outputs/traces"
 
 Adapting for Your Application
 ------------------------------

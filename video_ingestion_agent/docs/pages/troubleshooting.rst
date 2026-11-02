@@ -261,7 +261,7 @@ Change the model name in your config — no code changes needed:
 .. code-block:: yaml
 
    models:
-     vlm_model: "Qwen/Qwen3-VL-8B-Instruct"   # Any HuggingFace VLM
+     vlm_model: "nvidia/Cosmos3-Nano"         # Or any Qwen3-VL-compatible HuggingFace VLM
      vlm_backend: "vllm"                         # Or "local" or "api"
 
 Then restart the vLLM server (if using vllm backend):

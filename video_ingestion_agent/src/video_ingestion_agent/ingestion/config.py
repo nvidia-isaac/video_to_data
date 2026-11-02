@@ -74,17 +74,23 @@ class VerificationConfig(BaseModel):
 class ModelConfig(BaseModel):
     """Model configuration."""
 
+    # Cosmos3-Nano is served through vLLM (its Reasoner tower is loaded via the
+    # vllm-cosmos3 plugin, see scripts/serve.py); the local transformers backend
+    # loads Qwen3-VL-class checkpoints only. Keep model and backend defaults paired.
     vlm_model: str = Field(
-        default="Qwen/Qwen3-VL-8B-Instruct", description="VLM model for segmentation/verification"
+        default="nvidia/Cosmos3-Nano", description="VLM model for segmentation/verification"
     )
-    vlm_backend: str = Field(default="local", description="VLM backend: 'local', 'api', or 'vllm'")
+    vlm_backend: str = Field(default="vllm", description="VLM backend: 'local', 'api', or 'vllm'")
     vlm_fps: int = Field(default=4, description="Frame sampling rate for VLM")
 
     llm_model: str | None = Field(
         default=None,
         description="LLM model for entity extraction (defaults to vlm_model if None)",
     )
-    llm_backend: str = Field(default="local", description="LLM backend: 'local' or 'api'")
+    llm_backend: str = Field(
+        default="vllm",
+        description="LLM backend: 'local', 'api', or 'vllm' (same server as the VLM)",
+    )
 
     embedding_model: str = Field(
         default="google/siglip2-base-patch16-256",

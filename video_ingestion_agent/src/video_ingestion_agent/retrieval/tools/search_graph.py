@@ -13,6 +13,46 @@ from video_ingestion_agent.retrieval.tools.base import BaseTool, ToolResult
 logger = logging.getLogger(__name__)
 
 
+def normalize_action(action: str) -> str:
+    """Fold an action phrase to lower-case words: ``"Pick_Up"`` -> ``"pick up"``.
+
+    The task decomposer tends to emit snake_case verbs while ingestion stores
+    free-form VLM text, so underscores/hyphens are treated as word breaks.
+    """
+    return " ".join(action.replace("_", " ").replace("-", " ").lower().split())
+
+
+def _verb_stem(token: str) -> str:
+    """Strip a common English inflection: picking/picked/picks -> pick, stirring -> stir.
+
+    Deliberately crude -- no dictionary, no dependency. It only has to produce a
+    substring that every inflection of the verb still contains, so it errs
+    toward stripping (``filling`` -> ``fil`` still matches ``fill``).
+    """
+    for suffix in ("ing", "ed", "es", "s"):
+        if suffix in ("es", "s") and token.endswith("ss"):
+            continue  # press / pass / toss are not plurals
+        if token.endswith(suffix) and len(token) - len(suffix) >= 3:
+            token = token[: -len(suffix)]
+            break
+    # stirr -> stir, chopp -> chop; leave "press"/"pass" alone
+    if len(token) >= 4 and token[-1] == token[-2] and token[-1] not in "aeious":
+        token = token[:-1]
+    return token
+
+
+def action_like_pattern(action: str) -> str:
+    """Build a SQL LIKE pattern that matches any inflection of an action phrase.
+
+    ``"pick_up"`` -> ``"%pick%up%"`` matches ``"picking up and placing down"``
+    and ``"Person picks up wooden spoon"``; ``"stirring"`` -> ``"%stir%"``.
+    A plain ``"%pick_up%"`` never matched the gerund phrases ingestion stores,
+    so segment search returned 0 at every relaxation level.
+    """
+    stems = [_verb_stem(t) for t in normalize_action(action).split()]
+    return "%" + "%".join(t for t in stems if t) + "%"
+
+
 @dataclass
 class EntityResult:
     """Entity search result."""
@@ -88,10 +128,10 @@ class SearchGraphTool(BaseTool):
     - Action segments by action, object, time range
 
     Relaxation levels (for segments):
-    - 0: Exact match on action AND object
-    - 1: Exact action, partial object match (LIKE '%object%')
-    - 2: Partial action AND partial object match
-    - 3: Any match on action OR object (most relaxed)
+    - 0: Whole-phrase action match (case/underscore-insensitive) AND exact object
+    - 1: Whole-phrase action, partial object match (LIKE '%object%')
+    - 2: Verb-stem action match ('pick_up' finds 'picking up') AND partial object
+    - 3: Any match on action OR object OR description (most relaxed)
 
     Multi-video support:
     - Results include video_id and video_path fields
@@ -155,7 +195,10 @@ class SearchGraphTool(BaseTool):
             },
             "action": {
                 "type": "string",
-                "description": "Filter segments by action (e.g., 'pick_up', 'grasp', 'place')",
+                "description": (
+                    "Filter segments by action. Any form works -- 'picking up', 'pick up' "
+                    "or 'pick_up' -- it is matched on verb stems from relaxation level 2."
+                ),
                 "required": False,
             },
             "object_name": {
@@ -337,8 +380,8 @@ class SearchGraphTool(BaseTool):
         Relaxation levels:
         - 0: Exact match on action AND object
         - 1: Exact action, partial object match
-        - 2: Partial action AND partial object match
-        - 3: Any match on action OR object
+        - 2: Verb-stem action match AND partial object match
+        - 3: Any match on action OR object OR description
         """
         conn = self._get_conn()
         relaxation_level = kwargs.get("relaxation_level", 0)
@@ -374,48 +417,56 @@ class SearchGraphTool(BaseTool):
             sql_base += " AND a.video_id = ?"
             params.append(kwargs["video_id"])
 
-        # Apply relaxation strategy
+        # Apply relaxation strategy. The action is matched form-tolerantly:
+        # the decomposer may say "pick_up" while ingestion stored "picking up
+        # and placing down" (free-form VLM text). See action_like_pattern().
+        action_exact = normalize_action(action) if action else ""
+        action_like = action_like_pattern(action) if action else ""
+
         if relaxation_level == 0:
-            # Level 0: Strict - exact match on both action and object
+            # Level 0: Strict - whole stored phrase for action, exact object
             if action:
-                sql_base += " AND a.action_type = ?"
-                params.append(action)
+                sql_base += " AND LOWER(a.action_type) = ?"
+                params.append(action_exact)
             if object_name:
                 sql_base += " AND a.primary_object_id = ?"
                 params.append(object_name)
 
         elif relaxation_level == 1:
-            # Level 1: Exact action, partial object match
+            # Level 1: Whole-phrase action, partial object match
             if action:
-                sql_base += " AND a.action_type = ?"
-                params.append(action)
+                sql_base += " AND LOWER(a.action_type) = ?"
+                params.append(action_exact)
             if object_name:
                 sql_base += " AND a.primary_object_id LIKE ?"
                 params.append(f"%{object_name}%")
 
         elif relaxation_level == 2:
-            # Level 2: Partial match on both action and object
+            # Level 2: Verb-stem action match, partial object match
             if action:
                 sql_base += " AND a.action_type LIKE ?"
-                params.append(f"%{action}%")
+                params.append(action_like)
             if object_name:
                 sql_base += " AND a.primary_object_id LIKE ?"
                 params.append(f"%{object_name}%")
 
         else:  # relaxation_level >= 3
-            # Level 3: Any match - action OR object (most relaxed)
+            # Level 3: Any match - action OR object OR description (most relaxed)
             conditions = []
             if action:
                 conditions.append("a.action_type LIKE ?")
-                params.append(f"%{action}%")
+                params.append(action_like)
             if object_name:
                 conditions.append("a.primary_object_id LIKE ?")
                 params.append(f"%{object_name}%")
-            # Also search in visual_evidence (description)
-            if action or object_name:
-                search_term = action or object_name
+            # Also search in visual_evidence (description), stem-matched for
+            # the action so "pick_up" finds "Person picks up wooden spoon".
+            if action:
                 conditions.append("a.visual_evidence LIKE ?")
-                params.append(f"%{search_term}%")
+                params.append(action_like)
+            elif object_name:
+                conditions.append("a.visual_evidence LIKE ?")
+                params.append(f"%{object_name}%")
 
             if conditions:
                 sql_base += f" AND ({' OR '.join(conditions)})"

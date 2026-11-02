@@ -97,11 +97,14 @@ class OutputConfig(BaseModel):
 
 
 class RetrievalLoggingConfig(BaseModel):
-    """Logging configuration for the retrieval agent."""
+    """Logging configuration for the retrieval agent.
+
+    ``save_traces`` / ``traces_dir`` were removed: they were
+    declared here but never read, so no trace files were ever written. Old
+    YAMLs that still set them load fine -- unknown keys are ignored.
+    """
 
     level: str = Field(default="INFO", description="Log level")
-    save_traces: bool = Field(default=True, description="Save agent reasoning traces")
-    traces_dir: str = Field(default="outputs/traces", description="Directory for saved traces")
 
 
 class RetrievalConfig(BaseModel):

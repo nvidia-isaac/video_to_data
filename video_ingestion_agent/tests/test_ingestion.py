@@ -145,8 +145,10 @@ class TestConfig:
         from video_ingestion_agent.ingestion.config import PipelineConfig
 
         config = PipelineConfig()
-        assert config.models.vlm_model == "Qwen/Qwen3-VL-8B-Instruct"
-        assert config.models.vlm_backend == "local"
+        assert config.models.vlm_model == "nvidia/Cosmos3-Nano"
+        # Cosmos3-Nano is vLLM-only in this stack; the defaults must stay paired.
+        assert config.models.vlm_backend == "vllm"
+        assert config.models.llm_backend == "vllm"
         assert config.models.api_url is None
         assert config.segmentation.chunk_size == 15.0
         assert config.segmentation.chunk_overlap == 1.5
@@ -164,7 +166,7 @@ class TestConfig:
         config_path = Path(__file__).parent.parent / "configs" / "ingestion.yaml"
         if config_path.exists():
             config = load_config(config_path)
-            assert config.models.vlm_model == "Qwen/Qwen3-VL-8B-Instruct"
+            assert config.models.vlm_model == "nvidia/Cosmos3-Nano"
             assert config.models.api_url is None
             assert config.segmentation.chunk_size == 15.0
             assert config.verification.max_iterations == 3
@@ -196,7 +198,7 @@ class TestConfig:
         assert "models" in d
         assert "segmentation" in d
         assert "verification" in d
-        assert d["models"]["vlm_model"] == "Qwen/Qwen3-VL-8B-Instruct"
+        assert d["models"]["vlm_model"] == "nvidia/Cosmos3-Nano"
 
 
 # ========================================================================

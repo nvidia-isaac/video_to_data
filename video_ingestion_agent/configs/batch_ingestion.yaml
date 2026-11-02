@@ -8,7 +8,7 @@
 # Model Configuration
 # ============================================================
 models:
-  vlm_model: "Qwen/Qwen3-VL-8B-Instruct" # or "nvidia/Cosmos3-Nano"
+  vlm_model: "nvidia/Cosmos3-Nano"
   vlm_backend: "vllm"  # "local", "api", or "vllm"
   vlm_fps: 4             # Frame sampling rate for VLM
 

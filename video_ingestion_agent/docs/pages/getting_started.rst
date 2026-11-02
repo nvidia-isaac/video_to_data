@@ -211,7 +211,7 @@ daemon and persists across pipeline runs.
 
 The server downloads model weights on first run via HuggingFace. Set the
 ``HF_TOKEN`` environment variable if the model requires authentication
-(both the default ``Qwen/Qwen3-VL-8B-Instruct`` and SigLIP-2 are gated):
+(SigLIP-2 is gated; check the ``nvidia/Cosmos3-Nano`` model card for its access terms):
 
 .. code-block:: bash
 
@@ -293,12 +293,11 @@ After ingestion, use natural language to find and extract clips:
 
 .. note::
 
-   Phrase the action the way the ingested vocabulary does — as a gerund
-   (*stirring*, *pouring*), ideally a single verb. The task decomposer currently
-   normalises multi-word actions such as *pick up* to ``pick_up``, which never
-   matches the free-form action phrases ingestion stores, so a query such as
-   ``"Find all pick up mug actions"`` returns no results at any relaxation level.
-   Tracked as NVBug 6203220.
+   Actions are matched on verb stems from relaxation level 2 upward, so *pick up*,
+   *picking up* and ``pick_up`` all find segments ingestion stored as
+   ``picking up and placing down``. Levels 0–1 require the whole stored phrase.
+   Synonyms are not matched (*grab* will not find *picking up*), so phrase the
+   action the way the ingested descriptions do when you can.
 
 ``-d`` points at the **database directory** containing both ``graph.db``
 and ``vector.db`` — the same directory written by ``run_ingestion.py``
