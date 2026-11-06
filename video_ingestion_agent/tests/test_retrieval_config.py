@@ -50,8 +50,21 @@ class TestRetrievalConfigDefaults:
 
         config = RetrievalConfig()
         assert config.logging.level == "INFO"
-        assert config.logging.save_traces is True
-        assert config.logging.traces_dir == "outputs/traces"
+
+    def test_logging_config_has_no_dead_trace_fields(self):
+        """save_traces / traces_dir were declared but never read.
+
+        They are gone from the schema so the config no longer advertises a
+        capability the code does not have. Configs written while they existed
+        must still load: unknown keys are ignored, not rejected.
+        """
+        from video_ingestion_agent.retrieval.config import RetrievalLoggingConfig
+
+        assert "save_traces" not in RetrievalLoggingConfig.model_fields
+        assert "traces_dir" not in RetrievalLoggingConfig.model_fields
+
+        legacy = RetrievalLoggingConfig(level="DEBUG", save_traces=True, traces_dir="x")
+        assert legacy.model_dump() == {"level": "DEBUG"}
 
 
 class TestRetrievalConfigLoading:
@@ -65,7 +78,7 @@ class TestRetrievalConfigLoading:
             pytest.skip("retrieval.yaml not found")
 
         config = load_retrieval_config(config_path)
-        assert config.models.llm_model == "Qwen/Qwen3-VL-8B-Instruct"
+        assert config.models.llm_model == "nvidia/Cosmos3-Nano"
         assert config.models.llm_backend == "vllm"
         assert config.database.directory == "outputs/"
         assert config.output.clips_dir == "outputs/clips"

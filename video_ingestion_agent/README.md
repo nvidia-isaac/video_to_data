@@ -62,8 +62,8 @@ typed state, easy to extend or swap.
 
 - **OS:** Linux (tested on Ubuntu 22.04+).
 - **Python:** 3.10 or 3.11.
-- **GPU:** NVIDIA with CUDA 12.x for the default vLLM backend; an 8B-class
-  VLM (e.g. `Qwen/Qwen3-VL-8B-Instruct`) needs roughly 24 GB of VRAM.
+- **GPU:** NVIDIA with CUDA 12.x for the default vLLM backend, which serves
+  `nvidia/Cosmos3-Nano`.
 - **System:** `ffmpeg` on `PATH`.
 - **Auth:** a HuggingFace token (`HF_TOKEN`) for the VLM and SigLIP weight
   downloads.

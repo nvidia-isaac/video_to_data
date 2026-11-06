@@ -217,7 +217,7 @@ YAML file falls back to its Pydantic default.
 .. code-block:: yaml
 
    models:
-     llm_model: "Qwen/Qwen3-VL-8B-Instruct"  # LLM for agent reasoning
+     llm_model: "nvidia/Cosmos3-Nano"        # LLM for agent reasoning
      llm_backend: "vllm"                       # "local", "vllm", or "api"
      embedding_model: "google/siglip2-base-patch16-256"
      api_key: null                              # Or set NIM_API_KEY env var
@@ -241,8 +241,6 @@ YAML file falls back to its Pydantic default.
 
    logging:
      level: "INFO"
-     save_traces: true
-     traces_dir: "outputs/traces"
 
 .. tip::
 
@@ -269,12 +267,11 @@ Usage
 
 .. note::
 
-   Phrase the action the way the ingested vocabulary does — as a gerund
-   (*stirring*, *pouring*), ideally a single verb. The task decomposer currently
-   normalises multi-word actions such as *pick up* to ``pick_up``, which never
-   matches the free-form action phrases ingestion stores, so a query such as
-   ``"Find all pick up mug actions"`` returns no results at any relaxation level.
-   Tracked as NVBug 6203220.
+   Actions are matched on verb stems from relaxation level 2 upward, so *pick up*,
+   *picking up* and ``pick_up`` all find segments ingestion stored as
+   ``picking up and placing down``. Levels 0–1 require the whole stored phrase.
+   Synonyms are not matched (*grab* will not find *picking up*), so phrase the
+   action the way the ingested descriptions do when you can.
 
 How the Agent Reasons
 ---------------------
@@ -286,9 +283,11 @@ results, and decisions. This allows it to:
 - Build on partial results
 - Make informed decisions about when to relax constraints vs. move on
 
-``save_traces`` and ``traces_dir`` are accepted by the config schema but are not yet
-wired to a writer; no trace files are produced regardless of the setting. Tracked as
-NVBug 6571288.
+The working memory is held in the result, not written to disk. To inspect it after a
+run, pass ``--verbose`` to ``scripts/run_retrieval.py``: it prints each memory entry
+(truncated to 500 characters) under a ``WORKING MEMORY`` heading before the answer.
+There is no file-based trace output; the former ``save_traces`` / ``traces_dir``
+settings were never wired to a writer and have been removed.
 
 See Also
 --------

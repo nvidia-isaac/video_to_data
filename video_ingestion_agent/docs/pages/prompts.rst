@@ -421,7 +421,7 @@ manipulation expert and emphasises using the *minimum* number of sub-tasks.
           {
             "task_id": 1,
             "description": "Find clips of ...",
-            "target_action": "action_verb",
+            "target_action": "action in -ing form, e.g. picking up",
             "target_object": "object_name"
           }
         ]
@@ -568,7 +568,7 @@ sub-task** (max 15 total) for robot imitation learning.
             "end_time": 15.2,
             "video_id": 3,
             "video_path": "/path/to/video.mp4",
-            "action": "pick_up",
+            "action": "picking up",
             "object": "red_mug",
             "description": "Person picks up red mug from table",
             "priority": 1

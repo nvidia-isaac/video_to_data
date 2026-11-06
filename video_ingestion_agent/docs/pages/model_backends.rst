@@ -18,7 +18,7 @@ Model Roles
    * - **VLM**
      - ``models.vlm_model``
      - Vision-language model for video segmentation and clip verification. Processes
-       sampled video frames + text prompts. Default: ``Qwen/Qwen3-VL-8B-Instruct``.
+       sampled video frames + text prompts. Default: ``nvidia/Cosmos3-Nano`` (vLLM backend).
    * - **LLM**
      - ``models.llm_model``
      - Text-only model for entity extraction from clip descriptions. Falls back to
@@ -103,7 +103,7 @@ workloads.
 .. code-block:: yaml
 
    models:
-     vlm_model: "Qwen/Qwen3-VL-8B-Instruct"
+     vlm_model: "Qwen/Qwen3-VL-8B-Instruct"   # local loads Qwen3-VL-class checkpoints
      vlm_backend: "local"
      device: "cuda"
 
@@ -160,7 +160,7 @@ tensor parallelism across multiple GPUs.
 .. code-block:: yaml
 
    models:
-     vlm_model: "Qwen/Qwen3-VL-8B-Instruct"
+     vlm_model: "nvidia/Cosmos3-Nano"
      vlm_backend: "vllm"
      vllm_url: "http://localhost:8000/v1"
      vllm_local_media: true     # server reads video from disk (fastest)
@@ -186,7 +186,8 @@ Use the built-in server manager:
    # Stop
    python scripts/serve.py --stop
 
-Or start manually:
+Or start manually (shown for Qwen3-VL -- the ``mm-processor-kwargs`` are Qwen-specific;
+for Cosmos3-Nano use ``scripts/serve.py``, which adds the Reasoner-tower override):
 
 .. code-block:: bash
 

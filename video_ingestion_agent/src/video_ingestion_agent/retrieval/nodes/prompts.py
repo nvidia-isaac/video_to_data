@@ -15,7 +15,7 @@ TASK_DECOMPOSITION_SYSTEM = """You are a robot manipulation expert. Given a high
 
 For each sub-task, you must specify:
 - description: What to search for
-- target_action: The manipulation action (e.g., pick_up, place, open, grasp, pour)
+- target_action: The manipulation action, worded the way the video database describes actions: lower-case words separated by spaces, in the -ing form (e.g., picking up, placing, opening, grasping, pouring). Never use snake_case such as pick_up.
 - target_object: The object being manipulated
 
 Focus on identifying:
@@ -43,7 +43,7 @@ Output JSON:
         {{
             "task_id": 1,
             "description": "Find clips of ...",
-            "target_action": "action_verb",
+            "target_action": "action in -ing form, e.g. picking up",
             "target_object": "object_name"
         }}
     ]

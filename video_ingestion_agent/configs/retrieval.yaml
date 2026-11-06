@@ -3,7 +3,7 @@
 # Agent Configuration for Video Retrieval
 
 models:
-  llm_model: "Qwen/Qwen3-VL-8B-Instruct"  # or "nvidia/Cosmos3-Nano"
+  llm_model: "nvidia/Cosmos3-Nano"
   llm_backend: "vllm"  # "local" or "api"
 
   # Embedding model for semantic frame search
@@ -41,7 +41,3 @@ output:
 
 logging:
   level: "INFO"
-  # Accepted by the schema but not yet wired to a writer: no trace files are
-  # produced regardless of this setting (NVBug 6571288).
-  save_traces: true
-  traces_dir: "outputs/traces"
