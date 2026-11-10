@@ -160,6 +160,30 @@ python scripts/train_flash_sac.py experiment=g1_recon_body_flash_sac \
 - Without `output_dir`, checkpoints use Hydra's run directory, printed at startup.
 - FlashSAC: `policy_<steps>.safetensors` for evaluation; `state_<steps>.safetensors` for resume. PPO: `model_<iteration>.safetensors`.
 
+### Reuse JAX compilation across runs
+
+For repeated FlashSAC runs or resumes with compatible settings, enable JAX's
+persistent compilation cache before starting Python:
+
+```bash
+export JAX_COMPILATION_CACHE_DIR="$HOME/.cache/flash-chord-jax"
+python scripts/train_flash_sac.py experiment=g1_recon_body_flash_sac \
+  "task.parquet='${G1_PARQUET}'" reset.seed=42 logging.mode=disabled \
+  output_dir=outputs/g1_full
+```
+
+The first run populates the cache; a later run may reuse matching executables.
+Changing shapes, JAX/CUDA versions, GPU architecture, or compiler options can
+cause recompilation. Use a cache directory writable only by trusted users.
+This reduces startup compilation, not necessarily steady-state training time.
+
+In one 32-world, 512-step G1 compatibility smoke test on a shared A800, with
+JAX 0.5.3, CUDA 12, and `JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS=0` (not the
+pinned training environment), the executable compile phase decreased from
+31.02 s cold to 5.64 s warm; total process time
+decreased from 61.91 s to 26.83 s. These are single short runs and do not
+establish the speedup or correctness of the pinned CUDA 13 environment.
+
 ## 5. Evaluate
 
 ```bash
