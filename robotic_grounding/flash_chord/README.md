@@ -184,6 +184,39 @@ pinned training environment), the executable compile phase decreased from
 decreased from 61.91 s to 26.83 s. These are single short runs and do not
 establish the speedup or correctness of the pinned CUDA 13 environment.
 
+### Measure steady-state FlashSAC throughput
+
+`benchmark_flash_sac.py` runs the normal training entry point and synchronizes
+JAX and Warp at measurement boundaries. It prints `FLASHSAC_BENCHMARK` JSON
+with per-window environment steps, optimizer updates, elapsed time, and median
+throughput. Warmup, compilation and final checkpoint writing are excluded from
+the windows; logging and intermediate checkpoints can affect a window. Keep
+the same logging, batch size and update rate when comparing runs.
+
+For example, the following small G1 experiment compares 32 and 128 worlds with
+the recipe's nominal update-to-environment-step ratio (`4 / 2048`) and batch
+size. The reduced replay capacity and warmup make this a throughput smoke test,
+not a training recipe:
+
+```bash
+for worlds in 32 128; do
+  if [ "$worlds" = 32 ]; then updates=0.0625; else updates=0.25; fi
+  python scripts/benchmark_flash_sac.py experiment=g1_recon_body_flash_sac \
+    "task.parquet='${G1_PARQUET}'" "scene.world_count=$worlds" \
+    "training.updates_per_collection=$updates" training.total_environment_steps=16384 \
+    training.replay.capacity=4096 training.replay.minimum_size=2048 \
+    training.replay.batch_size=2048 logging.mode=disabled \
+    "output_dir=outputs/benchmark_g1_${worlds}"
+done
+```
+
+One shared-A800 compatibility test with JAX 0.5.3 and CUDA 12 measured median
+2,727 and 8,370 environment steps/s, respectively. The 32- and 128-world runs
+performed 27 and 26 optimizer updates over their full 16,384-step runs because
+replay warmup and update grouping differed. This is one short run per setting,
+not a comparison of task success or learning equivalence. The default recipe
+already uses 2,048 worlds, and its speedup has not been established.
+
 ## 5. Evaluate
 
 ```bash
