@@ -1,0 +1,2 @@
+# Exercise 1 exceeds GitHub's regular-file size limit.
+exercise_1.zip filter=lfs diff=lfs merge=lfs -text

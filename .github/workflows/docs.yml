@@ -9,9 +9,8 @@
 # Builds Sphinx (multiversion) docs for every package in the matrix and
 # deploys the combined site to GitHub Pages on main pushes.
 #
-# Per-PR `make html` validation is handled by each package's
-# <package>_ci.yml so this workflow only runs on main / workflow_dispatch
-# and avoids duplicating that lint-quality check.
+# Pull requests validate the static site and multiversion docs. Only
+# main pushes and workflow_dispatch deploy the combined site.
 #
 # To add a new package: append it to `matrix.package`, add its source
 # globs to the `paths:` filter, and add a list item to docs/index.html.
@@ -79,6 +78,14 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Validate static docs staging
+        run: |
+          git lfs pull --include="docs/v2d_corl_tutorial/exercises/*.zip" --exclude=""
+          mkdir -p _site
+          cp -r docs/. _site/
+          python3 docs/v2d_corl_tutorial/exercises/generate_index.py \
+            _site/v2d_corl_tutorial/exercises
+
       - name: Install docs dependencies
         working-directory: ${{ matrix.package }}
         run: |
@@ -115,8 +122,11 @@ jobs:
 
       - name: Stage static docs site
         run: |
+          git lfs pull --include="docs/v2d_corl_tutorial/exercises/*.zip" --exclude=""
           mkdir -p _site
           cp -r docs/. _site/
+          python3 docs/v2d_corl_tutorial/exercises/generate_index.py \
+            _site/v2d_corl_tutorial/exercises
 
       - name: Download all package docs artifacts
         uses: actions/download-artifact@v4
