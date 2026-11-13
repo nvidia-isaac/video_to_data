@@ -11,7 +11,11 @@ from robotic_grounding.tests.utils import APP_IS_READY
 if APP_IS_READY:
     from isaaclab.envs import ManagerBasedRLEnv
     from robotic_grounding.assets import WHOLE_BODY_EXAMPLE_MOTION
-    from robotic_grounding.tasks.v2d_whole_body import G1SonicEnvCfg
+    from robotic_grounding.tasks.v2d_whole_body import (
+        G1SonicEnvCfg,
+        G1SonicReconBodyEnvCfg,
+    )
+    from robotic_grounding.tasks.v2d_whole_body.mdp.rewards import tracking_rewards
 
 
 @unittest.skipIf(not APP_IS_READY, "App is not ready")
@@ -114,6 +118,53 @@ class TestSonicG1Env(unittest.TestCase):
         self.assertEqual(
             truncated.shape[0], self.env.num_envs, "Truncated should match num_envs"
         )
+
+
+@unittest.skipIf(not APP_IS_READY, "App is not ready")
+class TestSonicG1ReconBodyRewards(unittest.TestCase):
+    """Test the ReconBody object-pose reward composition."""
+
+    env: Any
+    cfg: Any
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        """Create a ReconBody environment for reward-manager checks."""
+        cls.cfg = G1SonicReconBodyEnvCfg(scene_config_path=WHOLE_BODY_EXAMPLE_MOTION)
+        cls.cfg.scene.num_envs = 1
+        cls.env = ManagerBasedRLEnv(cfg=cls.cfg)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        """Clean up the environment after all tests."""
+        cls.env.close()
+
+    def test_object_pose_reward_composition(self) -> None:
+        """Test separate position and orientation tracking terms are configured."""
+        position_term = self.cfg.rewards.motion_object_position_error_exp
+        orientation_term = self.cfg.rewards.motion_object_orientation_error_exp
+        self.assertIsNot(position_term, orientation_term)
+
+        self.assertIs(
+            position_term.func, tracking_rewards.motion_object_position_error_exp
+        )
+        self.assertEqual(position_term.weight, 1.0)
+        self.assertEqual(position_term.params, {"command_name": "motion", "std": 0.2})
+
+        self.assertIs(
+            orientation_term.func,
+            tracking_rewards.motion_object_orientation_error_exp,
+        )
+        self.assertEqual(orientation_term.weight, 1.0)
+        self.assertEqual(
+            orientation_term.params, {"command_name": "motion", "std": 0.4}
+        )
+
+    def test_object_pose_rewards_are_active(self) -> None:
+        """Test both object-pose terms reach the runtime reward manager."""
+        active_terms = self.env.reward_manager.active_terms
+        self.assertIn("motion_object_position_error_exp", active_terms)
+        self.assertIn("motion_object_orientation_error_exp", active_terms)
 
 
 if __name__ == "__main__":
